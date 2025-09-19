@@ -633,7 +633,6 @@
 								if (anySet) {
 									updateDurationStatuses(key, nDurationStatuses)
 									selectedLoopSwitchTimeout && clearTimeout(selectedLoopSwitchTimeout)
-									console.log('debounce')
 									function setSelectedLoopSwitch() {
 										if (lastStarted) {
 											let position = mod.flow_jobs?.indexOf(lastStarted)
@@ -661,6 +660,8 @@
 							.catch((e) => {
 								console.error(`Could not load inner module duration status for job ${mod.job}`, e)
 							})
+					} else {
+						setIteration(0, mod.flow_jobs?.[0] ?? '', false, mod.id ?? '', true)
 					}
 				}
 

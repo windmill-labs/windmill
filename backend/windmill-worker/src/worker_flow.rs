@@ -516,6 +516,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 parallel,
                 flow_jobs: Some(jobs),
                 flow_jobs_success,
+                flow_jobs_duration,
                 ..
             } if *parallel => {
                 let (nindex, len) = match (iterator, branchall) {
@@ -533,8 +534,10 @@ pub async fn update_flow_status_after_job_completion_internal(
                         );
                         let nindex = if let Some(position) = position {
                              sqlx::query_scalar!(
-                                 "UPDATE v2_job_status SET
-                                     flow_status = JSONB_SET(
+                                 "UPDATE v2_job_status SET flow_status = 
+                                 CASE 
+                                 WHEN flow_status->'modules'->$1::TEXT->'flow_jobs_duration' IS NOT NULL THEN
+                                    JSONB_SET(
                                          JSONB_SET(JSONB_SET(JSONB_SET(
                                             flow_status, 
                                             ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4), 
@@ -542,6 +545,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                                             ARRAY['modules', $1::TEXT, 'flow_jobs_duration', 'duration_ms', $3::TEXT], $6),
                                             ARRAY['modules', $1::TEXT, 'iterator', 'index'], ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb
                                      )
+                                 ELSE
+                                    JSONB_SET(JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4),
+                                         ARRAY['modules', $1::TEXT, 'iterator', 'index'],
+                                         ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb
+                                     )                                 END
                                  WHERE id = $2
                                  RETURNING (flow_status->'modules'->$1::int->'iterator'->>'index')::int",
                                  old_status.step,
@@ -601,15 +609,25 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                         let nindex = if let Some(position) = position {
                              sqlx::query_scalar!(
-                                 "UPDATE v2_job_status SET
-                                     flow_status = JSONB_SET(JSONB_SET(JSONB_SET(JSONB_SET(
-                                     flow_status, 
-                                     ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4),
-                                     ARRAY['modules', $1::TEXT, 'branchall', 'branch'],
-                                     ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb
-                                 ),
-                                 ARRAY['modules', $1::TEXT, 'flow_jobs_duration', 'started_at', $3::TEXT], $5),
-                                 ARRAY['modules', $1::TEXT, 'flow_jobs_duration', 'duration_ms', $3::TEXT], $6)
+                                 "UPDATE v2_job_status SET flow_status = 
+                                 CASE 
+                                 WHEN flow_status->'modules'->$1::TEXT->'flow_jobs_duration' IS NOT NULL THEN
+                                    JSONB_SET(
+                                         JSONB_SET(JSONB_SET(JSONB_SET(
+                                            flow_status, 
+                                            ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4), 
+                                            ARRAY['modules', $1::TEXT, 'flow_jobs_duration', 'started_at', $3::TEXT], $5), 
+                                            ARRAY['modules', $1::TEXT, 'flow_jobs_duration', 'duration_ms', $3::TEXT], $6),
+                                            ARRAY['modules', $1::TEXT, 'branchall', 'branch'],
+                                            ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb
+                                     )
+                                 ELSE
+                                    JSONB_SET(JSONB_SET(
+                                    flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4),
+                                         ARRAY['modules', $1::TEXT, 'branchall', 'branch'],
+                                         ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb
+                                     )
+                                 END
                                  WHERE id = $2
                                  RETURNING (flow_status->'modules'->$1::int->'branchall'->>'branch')::int",
                                  old_status.step,
@@ -652,21 +670,22 @@ pub async fn update_flow_status_after_job_completion_internal(
                     .execute(&mut *tx)
                     .await?;
                 if nindex == len {
-                    let success_and_durations = sqlx::query!(
+                    let success_and_durations =  match sqlx::query!(
                         "SELECT flow_status->'modules'->$2::int->'flow_jobs_success' as \"flow_jobs_success: Json<Vec<Option<bool>>>\", flow_status->'modules'->$2::int->'flow_jobs_duration' as \"flow_jobs_duration: Json<FlowJobsDuration>\"
                         FROM v2_job_status WHERE id = $1",
                         flow,
                         old_status.step
                     )
                     .fetch_one(&mut *tx)
-                    .await
-                    .map_err(|e| {
-                        Error::internal_err(format!(
-                            "error while fetching success and durations: {e:#}"
-                        ))
-                    })?;
-                    let mut flow_jobs_success =
-                        success_and_durations.flow_jobs_success.map(|x| x.0);
+                    .await {
+                        Err(e) => {
+                            tracing::error!("error while fetching success and durations: {e:#}");
+                            (flow_jobs_success.clone(), flow_jobs_duration.clone())
+                        }
+                        Ok(x) => (x.flow_jobs_success.map(|x| x.0), x.flow_jobs_duration.map(|x| x.0)),
+                    };
+
+                    let mut flow_jobs_success = success_and_durations.0;
                     if let Some(flow_job_success) = flow_jobs_success.as_mut() {
                         let position = jobs.iter().position(|x| x == job_id_for_status);
                         if let Some(position) = position {
@@ -675,8 +694,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             }
                         }
                     }
-                    let mut flow_jobs_duration =
-                        success_and_durations.flow_jobs_duration.map(|x| x.0);
+                    let mut flow_jobs_duration = success_and_durations.1;
                     if let Some(flow_jobs_duration) = flow_jobs_duration.as_mut() {
                         let position = jobs.iter().position(|x| x == job_id_for_status);
                         flow_jobs_duration.set(position, &flow_job_duration);
@@ -1579,16 +1597,20 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
     if flow_jobs_success.is_some() {
         let position = find_flow_job_index(flow_jobs, job_id_for_status);
         if let Some(position) = position {
-            if let Err(e) = sqlx::query!(
-                "UPDATE v2_job_status SET
-                     flow_status = JSONB_SET(JSONB_SET(JSONB_SET(
+            sqlx::query!(
+                "UPDATE v2_job_status SET flow_status = 
+            CASE WHEN flow_status->'modules'->$1::TEXT->'flow_jobs_duration' IS NOT NULL THEN
+                     JSONB_SET(JSONB_SET(JSONB_SET(
                          flow_status,
                          ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT],
                          $4
                      ),
                      ARRAY['modules', $1::TEXT, 'flow_jobs_duration', 'duration_ms', $3::TEXT], $5),
                      ARRAY['modules', $1::TEXT, 'flow_jobs_duration', 'started_at', $3::TEXT], $6)
-                 WHERE id = $2",
+                 ELSE
+                    JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4)
+            END
+            WHERE id = $2",
                 old_status_step as i32,
                 flow,
                 position as i32,
