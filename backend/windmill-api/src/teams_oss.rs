@@ -5,11 +5,7 @@ pub use crate::teams_ee::*;
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
 use axum::Router;
 #[cfg(not(feature = "private"))]
-use axum::extract::Query;
-#[cfg(not(feature = "private"))]
 use http::status::StatusCode;
-#[cfg(not(feature = "private"))]
-use serde::Deserialize;
 #[cfg(not(feature = "private"))]
 use windmill_common::error::Error;
 

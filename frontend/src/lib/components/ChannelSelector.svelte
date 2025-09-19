@@ -32,7 +32,6 @@
 	}: Props = $props()
 
 	let isFetching = $state(false)
-	let hasSearched = $state(false)
 	let searchResults = $state<ChannelItem[]>([])
 
 	// Only enable search mode if no channels are provided AND teamId is provided
@@ -63,7 +62,6 @@
 				debouncedSearch.debounced(searchFilterText)
 			} else if (searchFilterText.length === 0) {
 				searchResults = []
-				hasSearched = false
 			}
 		}
 	})
@@ -72,7 +70,6 @@
 		if (!query || !teamId) return
 
 		isFetching = true
-		hasSearched = true
 		try {
 			const response = await WorkspaceService.listAvailableTeamsChannels({
 				workspace: $workspaceStore!,

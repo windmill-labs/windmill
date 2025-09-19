@@ -20,11 +20,11 @@
 		WorkspaceService,
 		type Flow
 	} from '$lib/gen'
-	import type { ErrorHandler, ListAvailableTeamsChannelsResponse } from '$lib/gen/types.gen'
+	import type { ErrorHandler } from '$lib/gen/types.gen'
 	import { inferArgs } from '$lib/infer'
 	import { hubBaseUrlStore } from '$lib/stores'
 
-	import { CheckCircle2, Loader2, RotateCw, XCircle, RefreshCcw } from 'lucide-svelte'
+	import { CheckCircle2, Loader2, RotateCw, XCircle } from 'lucide-svelte'
 	import { hubPaths } from '$lib/hub'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -63,8 +63,6 @@
 
 	let customHandlerSchema: Schema | undefined = $state()
 	let slackHandlerSchema: Schema | undefined = $state()
-	let isFetching: boolean = $state(false)
-	let teams_channels: ListAvailableTeamsChannelsResponse = $state([])
 	let teams_team_name: string | undefined = $state(undefined)
 	let teams_team_id: string | undefined = $state(undefined)
 
@@ -86,7 +84,6 @@
 	}
 
 	async function loadTeamsResources() {
-		isFetching = true
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		if (!emptyString(settings.teams_team_name) && !emptyString(settings.teams_team_id)) {
 			workspaceConnectedToTeams = true
@@ -96,9 +93,7 @@
 		if (workspaceConnectedToTeams) {
 			teams_team_name = settings.teams_team_name
 			teams_team_id = settings.teams_team_id
-			teams_channels = []
 		}
-		isFetching = false
 	}
 
 	async function sendMessage(channel: string, platform: 'teams' | 'slack'): Promise<void> {

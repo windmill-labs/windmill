@@ -31,7 +31,6 @@
 	}: Props = $props()
 
 	let isFetching = $state(false)
-	let hasSearched = $state(false)
 	let searchResults = $state<TeamItem[]>([])
 
 	// Only enable search mode if no teams are provided
@@ -62,7 +61,6 @@
 				debouncedSearch.debounced(searchFilterText)
 			} else if (searchFilterText.length === 0) {
 				searchResults = []
-				hasSearched = false
 			}
 		}
 	})
@@ -71,7 +69,6 @@
 		if (!query) return
 
 		isFetching = true
-		hasSearched = true
 		try {
 			const response = (await WorkspaceService.listAvailableTeamsIds({
 				workspace: $workspaceStore!,
