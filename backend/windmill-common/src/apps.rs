@@ -74,10 +74,12 @@ pub fn traverse_app_inline_scripts<
                             "Missing `content` in inlineScript".to_string(),
                         ))?,
                 );
-                cb(
-                    AppInlineScript { language, content: code.to_owned(), lock },
-                    container_id.clone(),
-                )?;
+                if language.is_some() {
+                    cb(
+                        AppInlineScript { language, content: code.to_owned(), lock },
+                        container_id.clone(),
+                    )?;
+                }
             } else {
                 for (_, value) in object {
                     traverse_app_inline_scripts(

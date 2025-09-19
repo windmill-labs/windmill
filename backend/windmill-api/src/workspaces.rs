@@ -3446,21 +3446,15 @@ async fn get_dependency_map(
 
 #[axum::debug_handler]
 async fn rebuild_dependency_map(
-    // authed: ApiAuthed,
-    // // TODO: Can users just change w_id??
-    // Path(w_id): Path<String>,
-    // // Extension(user_db): Extension<UserDB>,
-    // Extension(db): Extension<DB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     authed: ApiAuthed,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-
-    // let a = ScopedDependencyMap::fetch(&w_id, "", "", &db).await?;
-    let res = ScopedDependencyMap::rebuild_map(&w_id, &db).await?;
-    // Ok(res)
-    Ok("WOrks?".into())
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest("Disabled on Cloud".into()));
+    }
+    ScopedDependencyMap::rebuild_map(&w_id, &db).await
 }
 
 #[derive(Deserialize)]

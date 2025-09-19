@@ -5,11 +5,12 @@ use windmill_common::{
     cache,
     error::{Error, Result},
     flows::{FlowModuleValue, FlowValue},
+    scripts::ScriptLang,
 };
 
-use std::{collections::HashSet, str::FromStr, sync::atomic::AtomicBool};
+use std::collections::HashSet;
 
-use crate::worker_lockfiles::extract_relative_imports;
+use crate::worker_lockfiles::{extract_relative_imports, LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT};
 
 // TODO: To be removed in future versions
 lazy_static::lazy_static! {
@@ -285,6 +286,7 @@ SELECT importer_node_id, imported_path
     pub async fn rebuild_map(w_id: &str, db: &sqlx::Pool<sqlx::Postgres>) -> Result<String> {
         async fn inner<'c>(w_id: &str, db: &sqlx::Pool<sqlx::Postgres>) -> Result<String> {
             // Scripts
+            tracing::info!(workspace_id = w_id, "Rebuilding dependency map for scripts");
             for r in sqlx::query!(
                 "SELECT path, hash FROM script WHERE workspace_id = $1 AND archived = false",
                 w_id
@@ -295,14 +297,35 @@ SELECT importer_node_id, imported_path
                 let (sd, smd) = cache::script::fetch(&db.clone().into(), r.hash.into()).await?;
                 // TODO: Cover case with requirements.txt
                 let mut dmap = ScopedDependencyMap::fetch(w_id, &r.path, "script", db).await?;
-                let tx = dmap
-                    .patch(
-                        extract_relative_imports(&sd.code, &r.path, &smd.language),
-                        "".into(),
-                        db.begin().await?,
-                    )
-                    .await?;
-                dmap.dissolve(tx).await.commit().await?;
+
+                let mut tx = db.begin().await?;
+
+                if (smd.language.is_some_and(|v| v == ScriptLang::Bun)
+                    && sd
+                        .lock
+                        .as_ref()
+                        .is_some_and(|v| v.contains("generatedFromPackageJson")))
+                    || (smd.language.is_some_and(|v| v == ScriptLang::Python3)
+                        && sd.lock.as_ref().is_some_and(|v| {
+                            v.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)
+                        }))
+                {
+                    // if the lock file is generated from a package.json/requirements.txt, we need to clear the dependency map
+                    // because we do not want to have dependencies be recomputed automatically. Empty relative imports passed
+                    // to update_script_dependency_map will clear the dependency map.
+                } else {
+                    tx = dmap
+                        .patch(
+                            extract_relative_imports(&sd.code, &r.path, &smd.language),
+                            "".into(),
+                            tx,
+                        )
+                        .await?;
+                }
+                if !*WMDEBUG_NO_DMAP_DISSOLVE {
+                    dmap.dissolve(tx).await.commit().await?;
+                }
+                tracing::info!(workspace_id = w_id, "Rebuilt for script {}", &r.path);
             }
 
             // TODO: Should this add /flow?
@@ -315,6 +338,7 @@ SELECT importer_node_id, imported_path
             //
             // Fetch only top level versions and paths
             // It is not fetching value
+            tracing::info!(workspace_id = w_id, "Rebuilding dependency map for flows");
             for r in sqlx::query!("SELECT path, versions[array_upper(versions, 1)] as version FROM flow WHERE workspace_id = $1", w_id).fetch_all(db).await? {
                 if let Some(version) = r.version {
                     // To reduce stress on db try to fetch from cache
@@ -334,7 +358,7 @@ SELECT importer_node_id, imported_path
                                 to_process.push((
                                     extract_relative_imports(
                                         content,
-                                        &r.path,
+                                        &(r.path.clone() + "/flow"),
                                         &Some(language.clone()),
                                     ),
                                     id.clone(),
@@ -354,43 +378,56 @@ SELECT importer_node_id, imported_path
                         tx = dmap.patch(ri, id, tx).await?;
                     }
 
-                    dmap.dissolve(tx).await.commit().await?;
+                    if !*WMDEBUG_NO_DMAP_DISSOLVE {
+                        dmap.dissolve(tx).await.commit().await?;
+                    }
+
+                    tracing::info!(workspace_id = w_id, "Rebuilt for flow {}", &r.path);
                 } else {
+                    tracing::error!(workspace_id = w_id, "version is never supposed to be none. skipping flow.");
                     return Err(Error::internal_err("version was none"));
                 }
             }
 
             // Apps
+            tracing::info!(workspace_id = w_id, "Rebuilding dependency map for apps");
             for r in sqlx::query!("SELECT path, versions[array_upper(versions, 1)] as version FROM app WHERE workspace_id = $1", w_id).fetch_all(db).await? {
                 if let Some(version) = r.version {
                     // TODO: Use cache when implemented.
-                    for value in
-                        sqlx::query_scalar!("SELECT value FROM app_version WHERE id = $1", version)
-                            .fetch_all(db)
-                            .await?
-                    {
-                        let mut dmap =
-                            ScopedDependencyMap::fetch(w_id, &r.path, "script", db).await?;
-                        let mut tx = db.begin().await?;
-                        let mut to_process = vec![];
-                        traverse_app_inline_scripts(&value, None, &mut |ais, id| {
-                            to_process.push((
-                                extract_relative_imports(
-                                    &ais.content,
-                                    // TODO: Should this add /app?
-                                    &r.path,
-                                    &ais.language,
-                                ),
-                                id,
-                            ));
+                    let value = sqlx::query_scalar!(
+                        "SELECT value FROM app_version WHERE id = $1 LIMIT 1",
+                        version
+                    )
+                    .fetch_one(db)
+                    .await?;
 
-                            Ok(())
-                        })?;
-                        for (ri, id) in to_process {
-                            tx = dmap.patch(ri, id.unwrap_or_default(), tx).await?;
-                        }
+                    let mut dmap = ScopedDependencyMap::fetch(w_id, &r.path, "app", db).await?;
+                    let mut tx = db.begin().await?;
+                    let mut to_process = vec![];
+                    traverse_app_inline_scripts(&value, None, &mut |ais, id| {
+                        to_process.push((
+                            extract_relative_imports(
+                                &ais.content,
+                                &(r.path.clone() + "/app"),
+                                &ais.language,
+                            ),
+                            id,
+                        ));
+
+                        Ok(())
+                    })?;
+                    for (ri, id) in to_process {
+                        tx = dmap.patch(ri, id.unwrap_or_default(), tx).await?;
                     }
+                    if !*WMDEBUG_NO_DMAP_DISSOLVE {
+                        dmap.dissolve(tx).await.commit().await?;
+                    }
+                    tracing::info!(workspace_id = w_id, "Rebuilt for app {}", &r.path);
                 } else {
+                    tracing::error!(
+                        workspace_id = w_id,
+                        "version is never supposed to be none. skipping app."
+                    );
                     return Err(Error::internal_err("version was none"));
                 }
             }
@@ -403,8 +440,18 @@ SELECT importer_node_id, imported_path
         }
 
         if *LOCKED.read().await {
+            tracing::warn!(
+                workspace_id = w_id,
+                "Tried to rebuild dependency map. However rebuild is already in progress."
+            );
             Ok("There is already one task pending, try again later.".into())
         } else {
+            tracing::info!(workspace_id = w_id, "Rebuilding dependency map");
+
+            if *WMDEBUG_NO_DMAP_DISSOLVE {
+                tracing::warn!("WMDEBUG_NO_DMAP_DISSOLVE usually should not be used. Behavior might be unstable. Please contact Windmill Team for support.")
+            }
+
             *LOCKED.write().await = true;
             let r = inner(w_id, db).await;
             *LOCKED.write().await = false;
