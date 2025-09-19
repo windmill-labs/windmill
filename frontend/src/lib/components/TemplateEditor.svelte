@@ -26,6 +26,7 @@
 	import EditorTheme from './EditorTheme.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { setMonacoJsonOptions } from './monacoLanguagesOptions'
+	import { inputBorderClass } from './text_input/TextInput.svelte'
 
 	export const conf = {
 		wordPattern:
@@ -505,10 +506,12 @@
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
+			isFocus = true
 		})
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
+			isFocus = false
 			updateCode()
 		})
 
@@ -604,6 +607,7 @@
 		editor?.focus()
 	}
 
+	let isFocus = false
 	let mounted = false
 	let loadTimeout: number | undefined = undefined
 	onMount(async () => {
@@ -661,16 +665,14 @@
 		{code}
 		lineNumbersWidth={14}
 		lineNumbersOffset={-20}
-		class="border template nonmain-editor rounded min-h-4 bg-surface-secondary !py-[8px] mx-0.5 overflow-clip"
+		class="template nonmain-editor rounded min-h-4 bg-surface-secondary !py-[8px] mx-0.5 overflow-clip"
 	/>
 {/if}
 <div
 	bind:this={divEl}
 	style="height: 18px; padding-left: 8px;"
-	class="{$$props.class ??
-		''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip {!editor
-		? 'hidden'
-		: ''}"
+	class="{inputBorderClass({ forceFocus: isFocus })} {$$props.class ??
+		''} template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip {!editor ? 'hidden' : ''}"
 	bind:clientWidth={width}
 ></div>
 
