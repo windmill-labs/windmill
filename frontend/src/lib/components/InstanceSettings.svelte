@@ -97,8 +97,6 @@
 		if (nvalues['critical_error_channels'] == undefined) {
 			nvalues['critical_error_channels'] = []
 		}
-		// Note: Teams data is no longer loaded to avoid Microsoft Graph API rate limits
-		// Team and channel selection now uses search-based approach
 
 		$values = nvalues
 		loading = false
