@@ -29,10 +29,16 @@ jobs:
           --health-retries 5
 
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: ${{ vars.INTERNAL_APP_ID }}
+          private-key: ${{ secrets.INTERNAL_APP_KEY }}
+
       - name: Comment on PR - Starting
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app.outputs.token }}
           script: |
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -44,6 +50,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
+          token: ${{ steps.app.outputs.token }}
           ref: ${{ github.event.issue.pull_request.head.ref }}
           fetch-depth: 0
 
@@ -70,21 +77,25 @@ jobs:
       - name: Run update-sqlx script
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/windmill
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
+          set -e  # Exit on any command failure
           PR_NUMBER=${{ github.event.issue.number }}
           BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
           echo "Checking out PR branch: $BRANCH_NAME"
           git checkout $BRANCH_NAME
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.email "windmill-internal-app[bot]@users.noreply.github.com"
+          git config --local user.name "windmill-internal-app[bot]"
           git config pull.rebase true
           git pull origin $BRANCH_NAME
-          mkdir frontend/build
+          mkdir -p frontend/build
           cd backend
           cargo install sqlx-cli --version 0.8.5
           sqlx migrate run
-          ./update_sqlx.sh --dir ./windmill-ee-private
+          if ! ./update_sqlx.sh --dir ./windmill-ee-private; then
+            gh pr comment $PR_NUMBER --body "❌ SQLx update failed. Please check the workflow logs for details."
+            exit 1
+          fi
           # Pass the branch name to the next step
           echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
 
@@ -97,7 +108,7 @@ jobs:
       - name: Comment on PR - Completed
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app.outputs.token }}
           script: |
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -114,10 +125,16 @@ jobs:
       pull-requests: write
       issues: write
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: ${{ vars.INTERNAL_APP_ID }}
+          private-key: ${{ secrets.INTERNAL_APP_KEY }}
+
       - name: Comment on PR - Starting
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app.outputs.token }}
           script: |
             github.rest.issues.createComment({
               issue_number: context.issue.number,
@@ -129,6 +146,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
+          token: ${{ steps.app.outputs.token }}
           ref: ${{ github.event.issue.pull_request.head.ref }}
           fetch-depth: 0
 
@@ -149,19 +167,19 @@ jobs:
 
       - name: Update ee-repo-ref.txt
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
+          PR_NUMBER=${{ github.event.issue.number }}
+          BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
           echo "Checking out PR branch: $BRANCH_NAME"
           git checkout $BRANCH_NAME
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.email "windmill-internal-app[bot]@users.noreply.github.com"
+          git config --local user.name "windmill-internal-app[bot]"
           git config pull.rebase true
           git pull origin $BRANCH_NAME
           echo "${{ steps.get-commit-hash.outputs.commit_hash }}" > backend/ee-repo-ref.txt
           echo "Updated backend/ee-repo-ref.txt with commit hash: ${{ steps.get-commit-hash.outputs.commit_hash }}"
           # commit and push the changes
-          PR_NUMBER=${{ github.event.issue.number }}
-          BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
           git add backend/ee-repo-ref.txt
           git commit -m "Update ee-repo-ref.txt" || echo "No changes to commit"
           git push origin $BRANCH_NAME
@@ -169,7 +187,7 @@ jobs:
       - name: Comment on PR - Completed
         uses: actions/github-script@v6
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app.outputs.token }}
           script: |
             github.rest.issues.createComment({
               issue_number: context.issue.number,

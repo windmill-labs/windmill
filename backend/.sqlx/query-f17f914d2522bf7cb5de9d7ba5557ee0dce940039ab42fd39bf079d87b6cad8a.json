@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT SUBSTR(rs.stream, $1) AS new_result_stream, CHAR_LENGTH(rs.stream) + 1 AS stream_offset FROM job_result_stream rs WHERE rs.job_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "new_result_stream",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "stream_offset",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "f17f914d2522bf7cb5de9d7ba5557ee0dce940039ab42fd39bf079d87b6cad8a"
+}

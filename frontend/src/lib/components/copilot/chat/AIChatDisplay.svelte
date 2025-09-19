@@ -84,7 +84,9 @@
 		}
 	})
 
-	const isLastMessageTool = $derived(messages.length > 0 && messages[messages.length - 1].role === 'tool')
+	const isLastMessageTool = $derived(
+		messages.length > 0 && messages[messages.length - 1].role === 'tool'
+	)
 </script>
 
 <div class="flex flex-col h-full">

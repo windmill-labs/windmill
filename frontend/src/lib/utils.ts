@@ -309,6 +309,7 @@ interface ClickOutsideOptions {
 	exclude?: (() => Promise<HTMLElement[]>) | HTMLElement[] | undefined
 	stopPropagation?: boolean
 	customEventName?: string
+	eventToListenName?: 'click' | 'pointerdown'
 	// on:click_outside cannot be used with svelte 5
 	onClickOutside?: (event: MouseEvent) => void
 }
@@ -355,14 +356,15 @@ export function clickOutside(
 	}
 
 	const capture = typeof options === 'boolean' ? options : (options?.capture ?? true)
-	document.addEventListener('click', handleClick, capture ?? true)
+	const eventToListenName = (typeof options === 'object' && options.eventToListenName) || 'click'
+	document.addEventListener(eventToListenName, handleClick, capture ?? true)
 
 	return {
 		update(newOptions: ClickOutsideOptions | boolean) {
 			options = newOptions
 		},
 		destroy() {
-			document.removeEventListener('click', handleClick, capture ?? true)
+			document.removeEventListener(eventToListenName, handleClick, capture ?? true)
 		}
 	}
 }
@@ -1580,5 +1582,34 @@ export function assert(msg: string, condition: boolean, value?: any) {
 		m += '\nPlease alert the Windmill team about this'
 		sendUserToast(m, true)
 		console.error(m)
+	}
+}
+
+export function createCache<Keys extends Record<string, any>, T, InitialKeys extends Keys = Keys>(
+	compute: (keys: Keys) => T,
+	params?: { maxSize?: number; initial?: InitialKeys }
+): (keys: Keys) => T {
+	let cache = new Map<string, T>()
+	const maxSize = params?.maxSize ?? 15
+
+	if (params?.initial) {
+		let key = JSON.stringify(params.initial, Object.keys(params.initial).sort())
+		let value = compute(params.initial)
+		cache.set(key, value)
+	}
+
+	return (keys: Keys) => {
+		let key = JSON.stringify(keys, Object.keys(keys).sort())
+		if (!cache.get(key)) {
+			let value = compute(keys)
+			cache.set(key, value)
+
+			if (cache.size > maxSize) {
+				// remove the oldest entry (first inserted)
+				const oldestKey = cache.keys().next().value!
+				cache.delete(oldestKey)
+			}
+		}
+		return cache.get(key)!
 	}
 }
