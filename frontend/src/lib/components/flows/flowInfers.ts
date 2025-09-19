@@ -77,6 +77,11 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 					type: 'string',
 					description: 'The system prompt to give as input to the AI agent.'
 				},
+				streaming: {
+					type: 'boolean',
+					description: 'Whether to stream the output of the AI agent.',
+					default: false
+				},
 				user_images: {
 					type: 'array',
 					description:

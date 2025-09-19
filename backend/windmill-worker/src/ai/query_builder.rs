@@ -30,11 +30,21 @@ pub enum ParsedResponse {
     Image { base64_data: String },
 }
 
+/// Streaming response from AI provider
+pub struct StreamingResponse {
+    pub response: reqwest::Response,
+}
+
 /// Trait for building provider-specific AI requests
 #[async_trait]
 pub trait QueryBuilder: Send + Sync {
     /// Check if this provider supports tools with the given output type
     fn supports_tools_with_output_type(&self, output_type: &OutputType) -> bool;
+
+    /// Check if this provider supports streaming
+    fn supports_streaming(&self) -> bool {
+        false // Default implementation returns false
+    }
 
     /// Build the request body for the provider
     async fn build_request(
@@ -44,8 +54,25 @@ pub trait QueryBuilder: Send + Sync {
         workspace_id: &str,
     ) -> Result<String, Error>;
 
+    /// Build the request body for streaming
+    async fn build_streaming_request(
+        &self,
+        args: &BuildRequestArgs<'_>,
+        client: &AuthedClient,
+        workspace_id: &str,
+    ) -> Result<String, Error> {
+        // Default implementation falls back to regular request
+        self.build_request(args, client, workspace_id).await
+    }
+
     /// Parse the response from the provider
     async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error>;
+
+    /// Parse streaming response from the provider
+    fn parse_streaming_response(&self, response: reqwest::Response) -> Result<StreamingResponse, Error> {
+        // Default implementation just wraps the response
+        Ok(StreamingResponse { response })
+    }
 
     /// Get the API endpoint for this provider
     fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String;

@@ -116,6 +116,7 @@ pub struct AIAgentArgs {
     pub output_schema: Option<OpenAPISchema>,
     pub output_type: Option<OutputType>,
     pub user_images: Option<Vec<S3Object>>,
+    pub streaming: Option<bool>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -153,6 +154,45 @@ impl ProviderWithResource {
 pub struct AIAgentResult<'a> {
     pub output: Box<RawValue>,
     pub messages: Vec<Message<'a>>,
+}
+
+/// Events for streaming AI responses
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum StreamingEvent {
+    /// Individual token from the AI response
+    TokenDelta {
+        content: String,
+    },
+    /// Tool call has started
+    ToolCallStart {
+        call_id: String,
+        function_name: String,
+    },
+    /// Tool call arguments are complete
+    ToolCallComplete {
+        call_id: String,
+        function_name: String,
+        arguments: String,
+    },
+    /// Tool execution progress update
+    ToolProgress {
+        call_id: String,
+        message: String,
+    },
+    /// Tool execution result
+    ToolResult {
+        call_id: String,
+        function_name: String,
+        result: Box<RawValue>,
+        success: bool,
+    },
+    /// AI message is complete
+    MessageComplete,
+    /// Error occurred during streaming
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
