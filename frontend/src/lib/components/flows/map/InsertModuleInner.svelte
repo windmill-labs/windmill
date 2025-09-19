@@ -5,6 +5,7 @@
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
+	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 
 	const dispatch = createEventDispatcher()
 	interface Props {
@@ -35,6 +36,8 @@
 	let width = $state(0)
 	let height = $state(0)
 
+	let refreshCount = $state(0)
+
 	let displayPath = $derived(width > 650 || height > 400)
 </script>
 
@@ -64,6 +67,7 @@
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		{/if}
+		<RefreshButton {loading} on:click={() => (refreshCount += 1)} />
 	</div>
 
 	<div class="flex flex-row grow min-h-0">
@@ -165,6 +169,7 @@
 			{preFilter}
 			{small}
 			{displayPath}
+			{refreshCount}
 		/>
 	</div>
 </div>
