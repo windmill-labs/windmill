@@ -154,7 +154,7 @@
 	}
 </script>
 
-<div class="w-full flex flex-col gap-3">
+<div class="w-full flex flex-col gap-1 bg-surface-secondary rounded-md">
 	<!-- Provider Selection -->
 	<div class="flex flex-col gap-2">
 		<ToggleButtonGroup selected={value?.kind} onSelected={onProviderChange} {disabled} wrap>
@@ -167,7 +167,7 @@
 	</div>
 
 	<!-- Resource Selection -->
-	<div class="flex flex-col border border-gray-200 rounded-md p-2 gap-2">
+	<div class="flex flex-col rounded-md p-2 gap-2">
 		<div class="flex flex-col gap-1">
 			<p class="text-sm font-medium text-primary">resource</p>
 			<ResourcePicker
@@ -183,7 +183,7 @@
 				disabled={disabled || !value?.kind}
 				placeholder="Select resource"
 				selectFirst={true}
-				cl
+				selectInputClass="!bg-surface"
 			/>
 		</div>
 
@@ -204,7 +204,7 @@
 				clearable={false}
 				noItemsMsg={'No models available'}
 				bind:filterText
-				inputClass="min-h-10"
+				inputClass="min-h-10 !bg-surface"
 			/>
 		</div>
 	</div>

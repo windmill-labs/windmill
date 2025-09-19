@@ -7,14 +7,16 @@
 	$: opened = false
 </script>
 
-<div class="text-xs flex flex-row-reverse mt-1">
+<div class="text-xs flex flex-row-reverse">
 	<Button
 		on:click={() => {
 			opened = !opened
 		}}
 		color="light"
+		variant="divider"
 		size="xs2"
 		endIcon={{ icon: ChevronDown, classes: `rotate-0 duration-300 ${opened ? '!rotate-180' : ''}` }}
+		btnClasses="text-hint font-normal pt-1"
 	>
 		Help
 	</Button>
@@ -22,8 +24,7 @@
 
 {#if opened}
 	<div
-		transition:slide|local
-		class="bg-surface-secondary border-l-4 text-secondary p-4 m-4"
+		class="bg-surface-secondary border-l-4 text-sm text-secondary p-4 mt-2"
 		role="alert"
 		id="dynamic-input-help-box"
 	>
