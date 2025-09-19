@@ -122,7 +122,10 @@ pub struct FlowJobsDuration {
 impl FlowJobsDuration {
     pub fn set(&mut self, position: Option<usize>, value: &Option<FlowJobDuration>) {
         if let Some(position) = position {
-            if (position >= self.started_at.len() || position >= self.duration_ms.len() || value.is_none()) {
+            if position >= self.started_at.len()
+                || position >= self.duration_ms.len()
+                || value.is_none()
+            {
                 return;
             }
             let value = value.clone().unwrap();
