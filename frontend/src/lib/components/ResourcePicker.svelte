@@ -176,7 +176,7 @@
 	}}
 />
 <!-- {JSON.stringify({ value, collection })} -->
-<div class="flex flex-col w-full items-start min-h-9">
+<div class="flex flex-col w-full items-start min-h-10">
 	<div class="flex flex-row w-full items-center">
 		{#if collection?.length > 0}
 			<Select
@@ -198,6 +198,7 @@
 				items={collection}
 				clearable
 				class="text-clip grow min-w-0"
+				inputClass="min-h-10"
 				placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
 			/>
 		{:else if !loading}

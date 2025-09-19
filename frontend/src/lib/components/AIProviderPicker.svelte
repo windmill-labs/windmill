@@ -183,6 +183,7 @@
 				disabled={disabled || !value?.kind}
 				placeholder="Select resource"
 				selectFirst={true}
+				cl
 			/>
 		</div>
 
@@ -203,6 +204,7 @@
 				clearable={false}
 				noItemsMsg={'No models available'}
 				bind:filterText
+				inputClass="min-h-10"
 			/>
 		</div>
 	</div>

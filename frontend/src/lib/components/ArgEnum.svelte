@@ -64,7 +64,7 @@
 			}
 			onFocus={() => dispatch('focus')}
 			onBlur={() => dispatch('blur')}
-			class={selectClass}
+			inputClass={selectClass}
 		/>
 	</div>
 </div>
