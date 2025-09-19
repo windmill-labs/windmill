@@ -1,7 +1,8 @@
 <script module lang="ts">
 	let listHubIntegrationsCached = createCache(
-		(params: { kind: HubScriptKind & string }) => IntegrationService.listHubIntegrations(params),
-		{ initial: { kind: 'script' } }
+		({ kind }: { kind: HubScriptKind & string; refreshCount?: number }) =>
+			IntegrationService.listHubIntegrations({ kind }),
+		{ initial: { kind: 'script', refreshCount: 0 } }
 	)
 	let listHubScriptsCached = createCache(
 		async ({
@@ -12,11 +13,12 @@
 			filter: string
 			kind: HubScriptKind & string
 			appFilter: string | undefined
+			refreshCount?: number
 		}) =>
 			filter.length > 0
 				? await ScriptService.queryHubScripts({ text: filter, limit: 40, kind })
 				: ((await ScriptService.getTopHubScripts({ limit: 40, kind, app: appFilter })).asks ?? []),
-		{ initial: { filter: '', kind: 'script', appFilter: undefined } }
+		{ initial: { filter: '', kind: 'script', appFilter: undefined, refreshCount: 0 } }
 	)
 </script>
 
@@ -51,6 +53,7 @@
 		}[]
 		displayPath?: boolean
 		apps?: string[]
+		refreshCount?: number
 	}
 
 	let {
@@ -61,14 +64,17 @@
 		appFilter = undefined,
 		items = $bindable([]),
 		displayPath = false,
-		apps = $bindable([])
+		apps = $bindable([]),
+		refreshCount = 0
 	}: Props = $props()
 	let allApps: string[] = []
 
 	async function getAllApps(filterKind: typeof kind) {
 		try {
 			hubNotAvailable = false
-			allApps = (await listHubIntegrationsCached({ kind: filterKind })).map((x) => x.name)
+			allApps = (await listHubIntegrationsCached({ kind: filterKind, refreshCount })).map(
+				(x) => x.name
+			)
 			apps = allApps
 		} catch (err) {
 			console.error('Hub is not available')
@@ -79,11 +85,11 @@
 	}
 
 	let hubScriptsFilteredPromise = usePromise(
-		() => listHubScriptsCached({ appFilter, filter, kind }),
+		() => listHubScriptsCached({ appFilter, filter, kind, refreshCount }),
 		{ loadInit: false }
 	)
 	$effect(() => {
-		;[filter, kind, appFilter]
+		;[filter, kind, appFilter, refreshCount]
 		hubScriptsFilteredPromise.refresh()
 	})
 	$effect(() => {
@@ -131,7 +137,7 @@
 		}
 	}
 	$effect(() => {
-		kind
+		;[kind, refreshCount]
 		untrack(() => {
 			getAllApps(kind)
 		})

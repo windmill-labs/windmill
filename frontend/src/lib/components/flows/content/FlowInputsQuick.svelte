@@ -38,6 +38,7 @@
 		kind: 'trigger' | 'script' | 'preprocessor' | 'failure' | 'approval'
 		selectedKind?: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 		displayPath?: boolean
+		refreshCount?: number
 	}
 
 	let {
@@ -51,7 +52,8 @@
 		small = false,
 		kind,
 		selectedKind = kind,
-		displayPath = false
+		displayPath = false,
+		refreshCount = 0
 	}: Props = $props()
 
 	type HubCompletion = {
@@ -452,9 +454,9 @@
 				on:pickScript
 				on:pickFlow
 				{displayPath}
+				{refreshCount}
 			/>
 		{/if}
-
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}
 				{#if !selected && preFilter !== 'hub'}
@@ -475,6 +477,7 @@
 					on:pickScript
 					bind:loading
 					{displayPath}
+					{refreshCount}
 				/>
 			{/if}
 		{/if}
