@@ -27,9 +27,9 @@ export abstract class AbstractCellRenderer implements ICellRendererComp {
 	eGui: any
 	protected component:
 		| {
-				refresh: (params: ICellRendererParams) => void
-				destroy: () => void
-		  }
+			refresh: (params: ICellRendererParams) => void
+			destroy: () => void
+		}
 		| undefined
 	constructor(parentElement = 'span') {
 		// create empty span (or other element) to place svelte component in
@@ -275,7 +275,7 @@ export function validateColumnDefs(columnDefs: WindmillColumnDef[]): {
 		}
 
 		// Check if 'field' property exists and is a non-empty string
-		if (noField && !(colDef.children && Array.isArray(colDef.children))) {
+		if (noField && !(colDef.children && Array.isArray(colDef.children)) && !colDef.cellRenderer) {
 			isValid = false
 			errors.push(
 				`Column at index ${index} is missing a valid 'field' property nor having any children.`
