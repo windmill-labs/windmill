@@ -118,12 +118,22 @@
 			setupSnowflakeUrls()
 		}
 
-		// Remove empty or invalid teams_channel entries
+		// Remove empty or invalid entries for critical error channels
 		$values.critical_error_channels = $values.critical_error_channels.filter((entry) => {
-			if (entry && typeof entry == 'object' && 'teams_channel' in entry) {
+			if (!entry || typeof entry !== 'object') return false
+			if ('teams_channel' in entry) {
 				return isValidTeamsChannel(entry.teams_channel)
 			}
-			return true
+			if ('slack_channel' in entry) {
+				return (
+					typeof entry.slack_channel === 'string' && entry.slack_channel.trim() !== ''
+				)
+			}
+			if ('email' in entry) {
+				return typeof entry.email === 'string' && entry.email.trim() !== ''
+			}
+			// Unknown shape
+			return false
 		})
 
 		let shouldReloadPage = false

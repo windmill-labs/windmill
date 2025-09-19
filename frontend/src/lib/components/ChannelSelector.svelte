@@ -79,7 +79,6 @@
 
 			searchResults = response || []
 			isFetching = false
-			console.log('Channels found:', searchResults.length, 'for query:', query)
 			return searchResults
 		} catch (error) {
 			isFetching = false
@@ -122,7 +121,7 @@
 					}))}
 					{placeholder}
 					clearable
-					disabled={disabled || displayChannels.length === 0}
+					disabled={disabled || displayChannels().length === 0}
 					bind:value={
 						() => selectedChannel?.channel_id,
 						(value) => {

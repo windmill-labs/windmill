@@ -645,7 +645,8 @@
 								if ($values[setting.key] == undefined || !Array.isArray($values[setting.key])) {
 									$values[setting.key] = []
 								}
-								$values[setting.key] = $values[setting.key].concat('')
+									// Start with a typed default to avoid invalid primitives in the array
+									$values[setting.key] = $values[setting.key].concat({ email: '' })
 							}}
 							id="arg-input-add-item"
 							startIcon={{ icon: Plus }}

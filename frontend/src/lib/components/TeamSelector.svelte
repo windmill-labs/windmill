@@ -77,7 +77,6 @@
 
 			searchResults = response || []
 			isFetching = false
-			console.log('Teams found:', searchResults.length, 'for query:', query)
 			return searchResults
 		} catch (error) {
 			isFetching = false
