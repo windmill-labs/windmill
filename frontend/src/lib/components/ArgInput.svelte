@@ -1225,6 +1225,7 @@
 						dispatch('blur')
 					}}
 					enumLabels={extra['enumLabels']}
+					selectClass="!h-10"
 				/>
 			</div>
 		{:else if inputCat == 'date'}

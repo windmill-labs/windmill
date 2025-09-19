@@ -12,6 +12,7 @@
 		valid: boolean
 		create: boolean
 		enumLabels?: Record<string, string> | undefined
+		selectClass?: string
 	}
 
 	let {
@@ -22,7 +23,8 @@
 		defaultValue,
 		valid,
 		create,
-		enumLabels = undefined
+		enumLabels = undefined,
+		selectClass = ''
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -46,7 +48,7 @@
 <div class="w-full flex-col">
 	<div class="w-full">
 		<Select
-			inputClass={valid ? '' : '!border-red-500/60'}
+			error={!valid}
 			clearable
 			{disabled}
 			autofocus={autofocus ?? undefined}
@@ -62,6 +64,7 @@
 			}
 			onFocus={() => dispatch('focus')}
 			onBlur={() => dispatch('blur')}
+			class={selectClass}
 		/>
 	</div>
 </div>

@@ -7,6 +7,7 @@
 	import { getLabel, processItems, type ProcessedItem } from './utils.svelte'
 	import SelectDropdown from './SelectDropdown.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { inputBorderClass } from '../text_input/TextInput.svelte'
 
 	type Value = Item['value']
 
@@ -23,6 +24,7 @@
 		inputClass = '',
 		disablePortal = false,
 		loading = false,
+		error = false,
 		autofocus,
 		RightIcon,
 		createText,
@@ -49,6 +51,7 @@
 		inputClass?: string
 		disablePortal?: boolean
 		loading?: boolean
+		error?: boolean
 		autofocus?: boolean
 		RightIcon?: any
 		createText?: string
@@ -112,7 +115,7 @@
 		</div>
 	{:else if clearable && !disabled && value}
 		<div class="absolute z-10 right-2 h-full flex items-center">
-			<CloseButton class="text-secondary" noBg small on:close={clearValue} />
+			<CloseButton class="text-secondary bg-surface-secondary" noBg small on:close={clearValue} />
 		</div>
 	{:else if RightIcon}
 		<div class="absolute z-10 right-2 h-full flex items-center">
@@ -130,7 +133,8 @@
 			: (valueEntry?.label ?? getLabel({ value }) ?? placeholder)}
 		style={containerStyle}
 		class={twMerge(
-			'!bg-surface text-ellipsis',
+			'!bg-surface-secondary text-ellipsis focus:!ring-0',
+			inputBorderClass({ error, forceFocus: open }),
 			open ? '' : 'cursor-pointer',
 			!loading && value ? '!placeholder-primary' : '',
 			(clearable || RightIcon) && !disabled && value ? '!pr-8' : '',
