@@ -500,6 +500,9 @@
 	}
 
 	let jobMissingStartedAt: Record<string, number | 'P'> = {}
+	let lastSelectedLoopSwitch: number | undefined
+	let selectedLoopSwitchTimeout: number | undefined = undefined
+
 	function updateInnerModules() {
 		if (localModuleStates) {
 			innerModules?.forEach((mod, i) => {
@@ -629,12 +632,29 @@
 								})
 								if (anySet) {
 									updateDurationStatuses(key, nDurationStatuses)
-									if (lastStarted) {
-										let position = mod.flow_jobs?.indexOf(lastStarted)
-										console.log('lastStarted', lastStarted, position)
-										if (position != undefined) {
-											setIteration(position, lastStarted, false, mod.id ?? '', true)
+									selectedLoopSwitchTimeout && clearTimeout(selectedLoopSwitchTimeout)
+									console.log('debounce')
+									function setSelectedLoopSwitch() {
+										if (lastStarted) {
+											let position = mod.flow_jobs?.indexOf(lastStarted)
+											if (position != undefined) {
+												lastSelectedLoopSwitch = new Date().getTime()
+												console.log('setSelectedLoopSwitch', position, lastStarted)
+												setIteration(position, lastStarted, false, mod.id ?? '', true)
+											}
 										}
+									}
+
+									if (
+										lastSelectedLoopSwitch &&
+										new Date().getTime() - lastSelectedLoopSwitch < 3000
+									) {
+										selectedLoopSwitchTimeout = setTimeout(() => {
+											setSelectedLoopSwitch()
+										}, 2000)
+									} else {
+										console.log('setSelectedLoopSwitch')
+										setSelectedLoopSwitch()
 									}
 								}
 							})

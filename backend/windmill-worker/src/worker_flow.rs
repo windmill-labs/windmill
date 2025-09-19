@@ -1579,7 +1579,7 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
     if flow_jobs_success.is_some() {
         let position = find_flow_job_index(flow_jobs, job_id_for_status);
         if let Some(position) = position {
-            sqlx::query!(
+            if let Err(e) = sqlx::query!(
                 "UPDATE v2_job_status SET
                      flow_status = JSONB_SET(JSONB_SET(JSONB_SET(
                          flow_status,
