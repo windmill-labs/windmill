@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.543.0
+  version: 1.544.2
   title: Windmill API
 
   contact:
@@ -8024,10 +8024,10 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/jobs/queue/get_scheduled_for_by_ids:
+  /w/{workspace}/jobs_u/queue/get_started_at_by_ids:
     post:
-      summary: get scheduled for by ids
-      operationId: getScheduledForByIds
+      summary: get started at by ids
+      operationId: getStartedAtByIds
       tags:
         - job
       parameters:
@@ -8043,7 +8043,7 @@ paths:
                 type: string
       responses:
         "200":
-          description: scheduled for by ids
+          description: started at by ids
           content:
             application/json:
               schema:

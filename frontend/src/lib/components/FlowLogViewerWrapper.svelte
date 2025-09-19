@@ -11,10 +11,10 @@
 
 	interface Props {
 		job: Partial<Job>
-		localModuleStates: Record<string, GraphModuleState>
 		localDurationStatuses?: Record<string, DurationStatus>
 		workspaceId: string | undefined
 		render: boolean
+		localModuleStates: Record<string, GraphModuleState>
 		onSelectedIteration?: (
 			detail:
 				| { id: string; index: number; manuallySet: true; moduleId: string }

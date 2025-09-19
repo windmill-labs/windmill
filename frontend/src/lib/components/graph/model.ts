@@ -53,7 +53,10 @@ export type GraphModuleState = {
 	selectedForloopIndex?: number
 	selectedForLoopSetManually?: boolean
 	flow_jobs_success?: (boolean | undefined)[]
-	flow_jobs_duration?: { started_at?: string | undefined; duration_ms?: number | undefined }[]
+	flow_jobs_duration?: {
+		started_at?: (string | undefined)[]
+		duration_ms?: (number | undefined)[]
+	}
 	flow_jobs?: string[]
 	iteration_total?: number
 	retries?: number

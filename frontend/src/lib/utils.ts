@@ -309,6 +309,7 @@ interface ClickOutsideOptions {
 	exclude?: (() => Promise<HTMLElement[]>) | HTMLElement[] | undefined
 	stopPropagation?: boolean
 	customEventName?: string
+	eventToListenName?: 'click' | 'pointerdown'
 	// on:click_outside cannot be used with svelte 5
 	onClickOutside?: (event: MouseEvent) => void
 }
@@ -355,14 +356,15 @@ export function clickOutside(
 	}
 
 	const capture = typeof options === 'boolean' ? options : (options?.capture ?? true)
-	document.addEventListener('click', handleClick, capture ?? true)
+	const eventToListenName = (typeof options === 'object' && options.eventToListenName) || 'click'
+	document.addEventListener(eventToListenName, handleClick, capture ?? true)
 
 	return {
 		update(newOptions: ClickOutsideOptions | boolean) {
 			options = newOptions
 		},
 		destroy() {
-			document.removeEventListener('click', handleClick, capture ?? true)
+			document.removeEventListener(eventToListenName, handleClick, capture ?? true)
 		}
 	}
 }

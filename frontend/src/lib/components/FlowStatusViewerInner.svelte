@@ -67,7 +67,12 @@
 					moduleId: string
 					flowJobs: string[]
 					flowJobsSuccess: (boolean | undefined)[]
-					flowJobsDuration: { started_at?: string | undefined; duration_ms?: number | undefined }[]
+					flowJobsDuration:
+						| {
+								started_at?: (string | undefined)[]
+								duration_ms?: (number | undefined)[]
+						  }
+						| undefined
 					length: number
 					branchall?: boolean
 			  }
@@ -396,21 +401,30 @@
 		}
 	}
 
-	function setDurationStatusByJob(key: string, id: string, value: DurationStatus['byJob'][string]) {
+	function setDurationStatusByJob(
+		key: string,
+		id: string,
+		value: DurationStatus['byJob'][string],
+		overwrite: boolean = false
+	) {
 		if (!deepEqual(localDurationStatuses[key]?.byJob?.[id], value)) {
-			if (localDurationStatuses[key] == undefined) {
+			if (localDurationStatuses[key]?.byJob == undefined) {
 				localDurationStatuses[key] = { byJob: {} }
 			}
-			if (localDurationStatuses[key]?.byJob == undefined) {
-				localDurationStatuses[key].byJob = {}
+			localDurationStatuses[key].byJob = {
+				[id]: value,
+				...(overwrite ? {} : (localDurationStatuses[key].byJob ?? {}))
 			}
-			localDurationStatuses[key].byJob[id] = value
+
 			globalDurationStatuses.forEach((s) => {
-				s[key].byJob[id] = value
+				s[key].byJob = { [id]: value, ...(overwrite ? {} : (s[key].byJob ?? {})) }
 			})
 			if (prefix) {
 				subflowParentsDurationStatuses.forEach((s) => {
-					s[buildSubflowKey(key, prefix)].byJob[id] = value
+					s[buildSubflowKey(key, prefix)].byJob = {
+						[id]: value,
+						...(overwrite ? {} : (s[buildSubflowKey(key, prefix)].byJob ?? {}))
+					}
 				})
 			}
 		}
@@ -461,6 +475,31 @@
 		}
 	}
 
+	function updateDurationStatuses(
+		key: string,
+		durationStatuses: Record<string, DurationStatus['byJob'][string]>
+	) {
+		if (localDurationStatuses[key] == undefined) {
+			localDurationStatuses[key] = { byJob: {} }
+		}
+		localDurationStatuses[key].byJob = durationStatuses
+		globalDurationStatuses.forEach((s) => {
+			if (s[key] == undefined) {
+				s[key] = { byJob: {} }
+			}
+			s[key].byJob = durationStatuses
+		})
+		if (prefix) {
+			subflowParentsDurationStatuses.forEach((s) => {
+				if (s[key] == undefined) {
+					s[key] = { byJob: {} }
+				}
+				s[key].byJob = durationStatuses
+			})
+		}
+	}
+
+	let jobMissingStartedAt: Record<string, number | 'P'> = {}
 	function updateInnerModules() {
 		if (localModuleStates) {
 			innerModules?.forEach((mod, i) => {
@@ -527,38 +566,81 @@
 				if (mod.flow_jobs_duration && mod.flow_jobs) {
 					let key = buildSubflowKey(mod.id ?? '', prefix)
 					let durationStatuses = Object.fromEntries(
-						mod.flow_jobs_duration.map((duration, idx) => {
-							let started_at = duration?.started_at
-								? new Date(duration.started_at).getTime()
-								: undefined
+						mod.flow_jobs.map((flowJobId, idx) => {
+							let started_at_str = mod.flow_jobs_duration?.started_at?.[idx]
+							let started_at = started_at_str ? new Date(started_at_str).getTime() : undefined
+							let duration_ms = mod.flow_jobs_duration?.duration_ms?.[idx]
+							if (started_at == undefined) {
+								let missingStartedAt = jobMissingStartedAt[flowJobId]
+								if (missingStartedAt != 'P') {
+									started_at = missingStartedAt
+								}
+							} else {
+								delete jobMissingStartedAt[flowJobId]
+							}
 							return [
-								mod.flow_jobs?.[idx],
+								flowJobId,
 								{
 									created_at: started_at,
 									started_at: started_at,
-									duration_ms: duration?.duration_ms
+									duration_ms: duration_ms
 								}
 							]
 						})
 					)
-					if (localDurationStatuses[key] == undefined) {
-						localDurationStatuses[key] = { byJob: {} }
-					}
-					localDurationStatuses[key].byJob = durationStatuses
-					globalDurationStatuses.forEach((s) => {
-						if (s[key] == undefined) {
-							s[key] = { byJob: {} }
-						}
-						s[key].byJob = durationStatuses
-					})
-					if (prefix) {
-						subflowParentsDurationStatuses.forEach((s) => {
-							let subkey = buildSubflowKey(key, prefix)
-							if (s[subkey] == undefined) {
-								s[subkey] = { byJob: {} }
-							}
-							s[subkey].byJob = durationStatuses
+					let missingStartedAtIds = Object.keys(durationStatuses)
+						.filter(
+							(id) => durationStatuses[id].created_at == undefined && jobMissingStartedAt[id] != 'P'
+						)
+						.slice(0, 100)
+
+					updateDurationStatuses(key, durationStatuses)
+
+					if (missingStartedAtIds.length > 0) {
+						missingStartedAtIds.forEach((id) => {
+							jobMissingStartedAt[id] = 'P'
 						})
+						JobService.getStartedAtByIds({
+							workspace: workspaceId ?? $workspaceStore ?? '',
+							requestBody: missingStartedAtIds
+						})
+							.then((jobs) => {
+								let lastStarted: string | undefined = undefined
+								let anySet = false
+								let nDurationStatuses = localDurationStatuses[key]?.byJob
+								missingStartedAtIds.forEach((id, idx) => {
+									const startedAt = jobs[idx]
+									const time = startedAt ? new Date(startedAt).getTime() : undefined
+									if (time) {
+										jobMissingStartedAt[id] = time
+									} else {
+										delete jobMissingStartedAt[id]
+									}
+									if (nDurationStatuses && time) {
+										if (!nDurationStatuses[id]?.duration_ms) {
+											anySet = true
+											lastStarted = id
+											nDurationStatuses[id] = {
+												created_at: time,
+												started_at: time
+											}
+										}
+									}
+								})
+								if (anySet) {
+									updateDurationStatuses(key, nDurationStatuses)
+									if (lastStarted) {
+										let position = mod.flow_jobs?.indexOf(lastStarted)
+										console.log('lastStarted', lastStarted, position)
+										if (position != undefined) {
+											setIteration(position, lastStarted, false, mod.id ?? '', true)
+										}
+									}
+								}
+							})
+							.catch((e) => {
+								console.error(`Could not load inner module duration status for job ${mod.job}`, e)
+							})
 					}
 				}
 
@@ -675,7 +757,6 @@
 			flowTimeline?.reset()
 			timeout && clearTimeout(timeout)
 			innerModules = undefined
-			console.log('updateJobId', jobId)
 			if (flowJobIds) {
 				let modId = flowJobIds?.moduleId ?? ''
 
@@ -745,10 +826,15 @@
 					},
 					force
 				)
-				setDurationStatusByJob(id, job.id, {
-					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
-					started_at
-				})
+				setDurationStatusByJob(
+					id,
+					job.id,
+					{
+						created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
+						started_at
+					},
+					true
+				)
 			} else {
 				const parent_module = mod['parent_module']
 
@@ -779,11 +865,16 @@
 					force
 				)
 
-				setDurationStatusByJob(id, job.id, {
-					created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
-					started_at,
-					duration_ms: job['duration_ms']
-				})
+				setDurationStatusByJob(
+					id,
+					job.id,
+					{
+						created_at: job.created_at ? new Date(job.created_at).getTime() : undefined,
+						started_at,
+						duration_ms: job['duration_ms']
+					},
+					true
+				)
 			}
 		}
 	}
@@ -916,17 +1007,29 @@
 				}
 			}
 			setModuleState(modId, v, force, true)
-			if (jobLoaded.type == 'QueuedJob') {
-				setDurationStatusByJob(modId, job_id, {
-					created_at,
-					started_at
-				})
-			} else if (jobLoaded.type == 'CompletedJob') {
-				setDurationStatusByJob(modId, job_id, {
-					created_at,
-					started_at,
-					duration_ms: jobLoaded.duration_ms
-				})
+			if (innerModule?.type == 'branchall') {
+				if (jobLoaded.type == 'QueuedJob') {
+					setDurationStatusByJob(
+						modId,
+						job_id,
+						{
+							created_at,
+							started_at
+						},
+						false
+					)
+				} else if (jobLoaded.type == 'CompletedJob') {
+					setDurationStatusByJob(
+						modId,
+						job_id,
+						{
+							created_at,
+							started_at,
+							duration_ms: jobLoaded.duration_ms
+						},
+						false
+					)
+				}
 			}
 
 			if (jobLoaded.job_kind == 'script' || isScriptPreview(jobLoaded.job_kind)) {
@@ -968,15 +1071,25 @@
 		}
 	}
 
+	export type FlowModuleForTimeline = {
+		id: string
+		type: FlowModuleValue['type']
+	}
+
 	function allModulesForTimeline(
 		modules: FlowModule[],
 		expandedSubflows: Record<string, FlowModule[]>
-	): string[] {
-		const ids = dfs(modules, (x) => x.id, { skipToolNodes: true })
+	): FlowModuleForTimeline[] {
+		const ids = dfs(modules, (x) => ({ id: x.id, type: x.value.type }) as FlowModuleForTimeline, {
+			skipToolNodes: true
+		})
 
-		function rec(ids: string[], prefix: string | undefined): string[] {
+		function rec(
+			ids: FlowModuleForTimeline[],
+			prefix: string | undefined
+		): FlowModuleForTimeline[] {
 			return ids.concat(
-				ids.flatMap((id) => {
+				ids.flatMap(({ id, type }) => {
 					let fms = expandedSubflows[id]
 					let oid = id.split(':').pop()
 					if (!oid) {
@@ -987,7 +1100,10 @@
 						? rec(
 								dfs(
 									fms,
-									(x) => (x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix)),
+									(x) => ({
+										id: x.id.startsWith('subflow:') ? x.id : buildSubflowKey(x.id, nprefix),
+										type: x.value.type
+									}),
 									{ skipToolNodes: true }
 								),
 								nprefix
@@ -1428,7 +1544,7 @@
 													moduleId: mod.id ?? '',
 													flowJobs: mod.flow_jobs,
 													flowJobsSuccess: mod.flow_jobs_success ?? [],
-													flowJobsDuration: mod.flow_jobs_duration ?? [],
+													flowJobsDuration: mod.flow_jobs_duration,
 													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length,
 													branchall: job?.raw_flow?.modules?.[i]?.value?.type == 'branchall'
 												}
@@ -1534,7 +1650,7 @@
 		</div>
 		{#if selected == 'logs' && render}
 			<div
-				class="{selected != 'logs' ? 'hidden' : ''}  mx-auto"
+				class="mx-auto"
 				bind:clientHeight={tabsHeight.logsHeight}
 				style="min-height: {minTabHeight}px"
 			>
@@ -1650,6 +1766,8 @@
 						</Tabs>
 						{#if rightColumnSelect == 'timeline'}
 							<FlowTimeline
+								{localModuleStates}
+								{onSelectedIteration}
 								selfWaitTime={job?.self_wait_time_ms}
 								aggregateWaitTime={job?.aggregate_wait_time_ms}
 								flowDone={job?.['success'] != undefined}
