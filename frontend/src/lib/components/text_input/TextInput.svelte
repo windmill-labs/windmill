@@ -35,7 +35,7 @@
 <input
 	{...inputProps}
 	class={twMerge(
-		'no-default-style text-sm !bg-surface-secondary shadow-none py-2 px-4 w-full',
+		'no-default-style text-sm !bg-surface-secondary disabled:!bg-surface-disabled disabled:cursor-not-allowed shadow-none py-2 px-4 w-full',
 		'focus:ring-0',
 		'[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
 		'rounded-md',
