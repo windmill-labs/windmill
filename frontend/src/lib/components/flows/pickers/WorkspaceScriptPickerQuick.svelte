@@ -1,4 +1,5 @@
 <script module lang="ts">
+	let initialWorkspace = get(workspaceStore)
 	let loadItemsCached = createCache(
 		({
 			workspace,
@@ -8,12 +9,23 @@
 			workspace?: string
 			kind?: string
 			isTemplate?: boolean
+			refreshCount?: number
 		}) =>
 			workspace
 				? kind == 'flow'
 					? FlowService.listFlows({ workspace })
 					: ScriptService.listScripts({ workspace, kinds: kind, isTemplate })
-				: undefined
+				: undefined,
+		initialWorkspace
+			? {
+					initial: {
+						workspace: initialWorkspace,
+						kind: 'script',
+						isTemplate: undefined,
+						refreshCount: 0
+					}
+				}
+			: {}
 	)
 </script>
 
@@ -28,6 +40,7 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { get } from 'svelte/store'
 
 	type Item = {
 		path: string
@@ -37,7 +50,8 @@
 	}
 
 	let items = usePromise(
-		async () => await loadItemsCached({ workspace: $workspaceStore!, kind, isTemplate }),
+		async () =>
+			await loadItemsCached({ workspace: $workspaceStore!, kind, isTemplate, refreshCount }),
 		{ loadInit: false }
 	)
 
@@ -54,6 +68,7 @@
 		ownerFilter?:
 			| { kind: 'inline' | 'owner' | 'integrations'; name: string | undefined }
 			| undefined
+		refreshCount?: number
 	}
 
 	let {
@@ -64,7 +79,8 @@
 		filteredWithOwner = $bindable(undefined),
 		filter = '',
 		owners = $bindable([]),
-		ownerFilter = $bindable(undefined)
+		ownerFilter = $bindable(undefined),
+		refreshCount = 0
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -88,6 +104,7 @@
 		}
 	}
 	$effect(() => {
+		refreshCount
 		$workspaceStore && kind && untrack(() => items.refresh())
 	})
 	$effect(() => {
