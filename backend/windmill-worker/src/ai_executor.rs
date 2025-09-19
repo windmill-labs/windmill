@@ -27,13 +27,16 @@ use windmill_queue::{
 use crate::{
     ai::{
         image_handler::upload_image_to_s3,
-        query_builder::{create_query_builder, BuildRequestArgs, ParsedResponse},
+        query_builder::{create_query_builder, BuildRequestArgs, ParsedResponse, QueryBuilder},
+        sse::SSEParser,
         types::*,
     },
-    common::{build_args_map, error_to_value, OccupancyMetrics},
+    common::{build_args_map, error_to_value, OccupancyMetrics, StreamNotifier},
     create_job_dir,
     handle_child::run_future_with_polling_update_job_poller,
-    handle_queued_job, parse_sig_of_lang,
+    handle_queued_job,
+    job_logger::append_result_stream,
+    parse_sig_of_lang,
     result_processor::handle_non_flow_job_error,
     worker_flow::{raw_script_to_payload, script_to_payload},
     JobCompletedSender, SendResult, SendResultPayload,
@@ -93,6 +96,128 @@ pub async fn get_flow_job_runnable_and_raw_flow(
     .fetch_one(db)
     .await?;
     Ok(job)
+}
+
+/// Handle streaming response from AI provider
+async fn handle_streaming_response(
+    response: reqwest::Response,
+    query_builder: &dyn QueryBuilder,
+    conn: &Connection,
+    workspace_id: &str,
+    job_id: &uuid::Uuid,
+) -> error::Result<ParsedResponse> {
+    let streaming_response = query_builder.parse_streaming_response(response)?;
+    let sse_parser = SSEParser::new(streaming_response.response);
+    
+    let mut accumulated_content = String::new();
+    let mut tool_calls = Vec::new();
+    
+    // Process streaming events with error handling
+    let parse_result = sse_parser.parse_events(|event| {
+        match event {
+            StreamingEvent::TokenDelta { ref content } => {
+                accumulated_content.push_str(content);
+                
+                // Stream the token (with error handling)
+                match serde_json::to_string(&event) {
+                    Ok(event_json) => {
+                        let conn_clone = conn.clone();
+                        let workspace_id_clone = workspace_id.to_string();
+                        let job_id_clone = *job_id;
+                        tokio::spawn(async move {
+                            if let Err(err) = append_result_stream(&conn_clone, &workspace_id_clone, &job_id_clone, &event_json).await {
+                                tracing::error!("Unable to send token stream for job {job_id_clone}. Error was: {:?}", err);
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to serialize streaming event, continuing: {}", e);
+                    }
+                }
+                
+                Ok(())
+            }
+            StreamingEvent::ToolCallStart { call_id: _, function_name: _ } => {
+                // Stream the tool call start event
+                let event_json = serde_json::to_string(&event)
+                    .map_err(|e| Error::internal_err(format!("Failed to serialize streaming event: {}", e)))?;
+                
+                let conn_clone = conn.clone();
+                let workspace_id_clone = workspace_id.to_string();
+                let job_id_clone = *job_id;
+                tokio::spawn(async move {
+                    if let Err(err) = append_result_stream(&conn_clone, &workspace_id_clone, &job_id_clone, &event_json).await {
+                        tracing::error!("Unable to send tool call start stream for job {job_id_clone}. Error was: {:?}", err);
+                    }
+                });
+                
+                Ok(())
+            }
+            StreamingEvent::ToolCallComplete { ref call_id, ref function_name, ref arguments } => {
+                // Convert to OpenAI tool call format
+                use crate::ai::providers::openai::{OpenAIToolCall, OpenAIFunction};
+                
+                let tool_call = OpenAIToolCall {
+                    id: call_id.clone(),
+                    function: OpenAIFunction {
+                        name: function_name.clone(),
+                        arguments: arguments.clone(),
+                    },
+                    r#type: "function".to_string(),
+                };
+                tool_calls.push(tool_call);
+                
+                // Stream the tool call complete event
+                let event_json = serde_json::to_string(&event)
+                    .map_err(|e| Error::internal_err(format!("Failed to serialize streaming event: {}", e)))?;
+                
+                let conn_clone = conn.clone();
+                let workspace_id_clone = workspace_id.to_string();
+                let job_id_clone = *job_id;
+                tokio::spawn(async move {
+                    if let Err(err) = append_result_stream(&conn_clone, &workspace_id_clone, &job_id_clone, &event_json).await {
+                        tracing::error!("Unable to send tool call complete stream for job {job_id_clone}. Error was: {:?}", err);
+                    }
+                });
+                
+                Ok(())
+            }
+            StreamingEvent::MessageComplete => {
+                // Stream the message complete event
+                let event_json = serde_json::to_string(&event)
+                    .map_err(|e| Error::internal_err(format!("Failed to serialize streaming event: {}", e)))?;
+                
+                let conn_clone = conn.clone();
+                let workspace_id_clone = workspace_id.to_string();
+                let job_id_clone = *job_id;
+                tokio::spawn(async move {
+                    if let Err(err) = append_result_stream(&conn_clone, &workspace_id_clone, &job_id_clone, &event_json).await {
+                        tracing::error!("Unable to send message complete stream for job {job_id_clone}. Error was: {:?}", err);
+                    }
+                });
+                
+                Ok(())
+            }
+            StreamingEvent::Error { message } => {
+                tracing::error!("Streaming error: {}", message);
+                Err(Error::internal_err(format!("Streaming error: {}", message)))
+            }
+            _ => Ok(()), // Handle other event types as needed
+        }
+    }).await;
+    
+    // Handle parse errors gracefully
+    if let Err(parse_err) = parse_result {
+        tracing::warn!("SSE parsing failed: {:?}", parse_err);
+        // Return error to trigger fallback to non-streaming
+        return Err(parse_err);
+    }
+    
+    // Return the accumulated response in the same format as non-streaming
+    Ok(ParsedResponse::Text {
+        content: if accumulated_content.is_empty() { None } else { Some(accumulated_content) },
+        tool_calls,
+    })
 }
 
 pub async fn handle_ai_agent_job(
@@ -263,6 +388,12 @@ pub async fn handle_ai_agent_job(
     .await?;
 
     let mut inner_occupancy_metrics = occupancy_metrics.clone();
+
+    let stream_notifier = StreamNotifier::new(conn, job);
+
+    if let Some(stream_notifier) = stream_notifier {
+        stream_notifier.update_flow_status_with_stream_job();
+    }
 
     let agent_fut = run_agent(
         db,
@@ -501,6 +632,11 @@ pub async fn run_agent(
         // For non-Anthropic providers, response_format is handled by the query builder
     }
 
+    // Check if streaming is enabled and supported
+    let should_stream = args.streaming.unwrap_or(false) 
+        && query_builder.supports_streaming() 
+        && output_type == &OutputType::Text;
+
     // Main agent loop
     for i in 0..MAX_AGENT_ITERATIONS {
         if used_structured_output_tool {
@@ -521,9 +657,15 @@ pub async fn run_agent(
             images: args.user_images.as_deref(),
         };
 
-        let request_body = query_builder
-            .build_request(&build_args, client, &job.workspace_id)
-            .await?;
+        let request_body = if should_stream {
+            query_builder
+                .build_streaming_request(&build_args, client, &job.workspace_id)
+                .await?
+        } else {
+            query_builder
+                .build_request(&build_args, client, &job.workspace_id)
+                .await?
+        };
 
         let endpoint =
             query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
@@ -535,8 +677,8 @@ pub async fn run_agent(
             .header("Content-Type", "application/json");
 
         // Apply authentication headers
-        for (header_name, header_value) in auth_headers {
-            request = request.header(header_name, header_value);
+        for (header_name, header_value) in &auth_headers {
+            request = request.header(*header_name, header_value.clone());
         }
 
         if args.provider.kind.is_azure_openai(&base_url) {
@@ -551,7 +693,45 @@ pub async fn run_agent(
 
         match resp.error_for_status_ref() {
             Ok(_) => {
-                let parsed = query_builder.parse_response(resp).await?;
+                let parsed = if should_stream {
+                    // Handle streaming response with fallback
+                    match handle_streaming_response(resp, query_builder.as_ref(), conn, &job.workspace_id, &job.id).await {
+                        Ok(response) => response,
+                        Err(streaming_err) => {
+                            tracing::warn!("Streaming failed, falling back to non-streaming: {:?}", streaming_err);
+                            
+                            // Fall back to non-streaming request
+                            let fallback_request_body = query_builder
+                                .build_request(&build_args, client, &job.workspace_id)
+                                .await?;
+                            
+                            let mut fallback_request = HTTP_CLIENT
+                                .post(&endpoint)
+                                .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
+                                .header("Content-Type", "application/json");
+                            
+                            // Apply authentication headers
+                            for (header_name, header_value) in &auth_headers {
+                                fallback_request = fallback_request.header(*header_name, header_value.clone());
+                            }
+                            
+                            if args.provider.kind.is_azure_openai(&base_url) {
+                                fallback_request = fallback_request.query(&[("api-version", AZURE_API_VERSION)])
+                            }
+                            
+                            let fallback_resp = fallback_request
+                                .body(fallback_request_body)
+                                .send()
+                                .await
+                                .map_err(|e| Error::internal_err(format!("Failed to call fallback API: {}", e)))?;
+                            
+                            query_builder.parse_response(fallback_resp).await?
+                        }
+                    }
+                } else {
+                    // Handle non-streaming response
+                    query_builder.parse_response(resp).await?
+                };
 
                 match parsed {
                     ParsedResponse::Text { content: response_content, tool_calls } => {
@@ -589,6 +769,35 @@ pub async fn run_agent(
 
                         // Handle tool calls (keeping existing tool execution logic)
                         for tool_call in tool_calls.iter() {
+                            // Stream tool call progress
+                            if should_stream {
+                                let tool_progress_event = StreamingEvent::ToolProgress {
+                                    call_id: tool_call.id.clone(),
+                                    message: format!("Executing tool: {}", tool_call.function.name),
+                                };
+                                let event_json = serde_json::to_string(&tool_progress_event).unwrap_or_default();
+                                
+                                let w_id = job.workspace_id.clone();
+                                let job_id = job.id.clone();
+                                let conn_ = conn.clone();
+                                tokio::spawn(async move {
+                                    if let Err(err) = append_result_stream(&conn_, &w_id, &job_id, &event_json).await {
+                                        tracing::error!("Unable to send tool progress stream for job {job_id}. Error was: {:?}", err);
+                                    }
+                                });
+                            } else {
+                                // Fallback to simple message for non-streaming mode
+                                let nstream = format!("Tool call: {}", tool_call.function.name);
+                                let w_id = job.workspace_id.clone();
+                                let job_id = job.id.clone();
+                                let conn_ = conn.clone();
+                                tokio::spawn(async move {
+                                    if let Err(err) = append_result_stream(&conn_, &w_id, &job_id, &nstream).await {
+                                        tracing::error!("Unable to send result stream for job {job_id}. Error was: {:?}", err);
+                                    }
+                                });
+                            }
+
                             // Check if this is the structured output tool
                             if structured_output_tool_name
                                 .as_ref()
@@ -820,6 +1029,27 @@ pub async fn run_agent(
                                             }),
                                             ..Default::default()
                                         });
+                                        
+                                        // Stream tool result (error case)
+                                        if should_stream {
+                                            let tool_result_event = StreamingEvent::ToolResult {
+                                                call_id: tool_call.id.clone(),
+                                                function_name: tool_call.function.name.clone(),
+                                                result: to_raw_value(&serde_json::json!({"error": err_string})),
+                                                success: false,
+                                            };
+                                            let event_json = serde_json::to_string(&tool_result_event).unwrap_or_default();
+                                            
+                                            let w_id = job.workspace_id.clone();
+                                            let job_id = job.id.clone();
+                                            let conn_ = conn.clone();
+                                            tokio::spawn(async move {
+                                                if let Err(err) = append_result_stream(&conn_, &w_id, &job_id, &event_json).await {
+                                                    tracing::error!("Unable to send tool result stream for job {job_id}. Error was: {:?}", err);
+                                                }
+                                            });
+                                        }
+                                        
                                         update_flow_status_module_with_actions_success(
                                             db, parent_job, false,
                                         )
@@ -871,6 +1101,27 @@ pub async fn run_agent(
                                             }),
                                             ..Default::default()
                                         });
+                                        
+                                        // Stream tool result (success case)
+                                        if should_stream {
+                                            let tool_result_event = StreamingEvent::ToolResult {
+                                                call_id: tool_call.id.clone(),
+                                                function_name: tool_call.function.name.clone(),
+                                                result: Arc::try_unwrap(result.clone()).unwrap_or_else(|arc| (*arc).clone()),
+                                                success: true,
+                                            };
+                                            let event_json = serde_json::to_string(&tool_result_event).unwrap_or_default();
+                                            
+                                            let w_id = job.workspace_id.clone();
+                                            let job_id = job.id.clone();
+                                            let conn_ = conn.clone();
+                                            tokio::spawn(async move {
+                                                if let Err(err) = append_result_stream(&conn_, &w_id, &job_id, &event_json).await {
+                                                    tracing::error!("Unable to send tool result stream for job {job_id}. Error was: {:?}", err);
+                                                }
+                                            });
+                                        }
+                                        
                                         update_flow_status_module_with_actions_success(
                                             db, parent_job, success,
                                         )
