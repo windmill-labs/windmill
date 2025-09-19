@@ -159,7 +159,8 @@
 
 	// At component level, compute once when items change
 	const allOverlaps = $derived(computeAllOverlaps(filteredItems))
-
+	const maximumOverlaps = $derived(Math.max(...Object.values(allOverlaps)))
+	const opacity = $derived(Math.max(0.02, 1 / maximumOverlaps))
 	// Then in your template, use:
 	// allOverlaps.get(item.id) ?? 0
 </script>
@@ -217,8 +218,8 @@
 				{#each filteredItems as item, i}
 					{#if item.started_at}
 						{@const position = calculateItemPosition(item)}
-						{@const overlapCount = allOverlaps[item.id] ?? 0}
-						{@const opacity = Math.max(0.3, 1 - overlapCount * 0.2)}
+						<!-- {overlapCount}
+						{opacity} -->
 						<Tooltip
 							style="left: {position.left}%; width: {position.width}%"
 							class="h-full absolute top-0"
