@@ -2195,6 +2195,12 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: search
+          in: query
+          description: Search teams by name
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: status
@@ -2212,15 +2218,27 @@ paths:
 
   /w/{workspace}/workspaces/available_teams_channels:
     get:
-      summary: list available teams channels
+      summary: list available channels for a specific team
       operationId: listAvailableTeamsChannels
       tags:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: team_id
+          in: query
+          description: Microsoft Teams team ID
+          required: true
+          schema:
+            type: string
+        - name: search
+          in: query
+          description: Search channels by name
+          required: false
+          schema:
+            type: string
       responses:
         "200":
-          description: status
+          description: List of channels for the specified team
           content:
             application/json:
               schema:
@@ -2232,10 +2250,7 @@ paths:
                       type: string
                     channel_id:
                       type: string
-                    service_url:
-                      type: string
-                    tenant_id:
-                      type: string
+
 
   /w/{workspace}/workspaces/connect_teams:
     post:
@@ -3897,21 +3912,6 @@ paths:
                     items:
                       type: string
 
-  /teams/sync:
-    post:
-      operationId: syncTeams
-      summary: synchronize Microsoft Teams information (teams/channels)
-      tags:
-        - teams
-      responses:
-        "200":
-          description: Teams information successfully synchronized
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/TeamInfo"
 
   /teams/activities:
     post:
@@ -8023,6 +8023,34 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/jobs_u/queue/get_started_at_by_ids:
+    post:
+      summary: get started at by ids
+      operationId: getStartedAtByIds
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: ids
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+      responses:
+        "200":
+          description: started at by ids
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: date-time
 
   /w/{workspace}/jobs_u/getupdate/{id}:
     get:
@@ -18249,7 +18277,7 @@ components:
         allow:
           type: string # comma separated permissions : "read,write,delete,list"
       required: ["pattern", "allow"]
-    
+
     GitRepositorySettings:
       type: object
       properties:
