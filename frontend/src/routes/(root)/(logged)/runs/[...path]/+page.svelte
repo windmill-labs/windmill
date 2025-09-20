@@ -165,7 +165,7 @@
 	let queue_count: Tweened<number> | undefined = $state(undefined)
 	let suspended_count: Tweened<number> | undefined = $state(undefined)
 
-	let jobKinds: string | undefined = undefined
+	let jobKinds: string | undefined = $state(undefined)
 	let loading: boolean = $state(false)
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
@@ -820,7 +820,7 @@
 	computeMinAndMax={manualDatePicker?.computeMinMax}
 	bind:minTs
 	bind:maxTs
-	{jobKinds}
+	bind:jobKinds
 	bind:queue_count
 	bind:suspended_count
 	{autoRefresh}
