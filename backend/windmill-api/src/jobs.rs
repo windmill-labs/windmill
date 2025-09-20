@@ -2055,6 +2055,7 @@ async fn cancel_jobs(
     db: &DB,
     username: &str,
     w_id: &str,
+    force_cancel: bool,
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut uuids = vec![];
     let mut tx = db.begin().await?;
@@ -2114,7 +2115,7 @@ async fn cancel_jobs(
                 w_id,
                 tx,
                 db,
-                false,
+                force_cancel,
                 false,
             )
             .await?;
@@ -2145,11 +2146,17 @@ async fn cancel_jobs(
     Ok(Json(uuids))
 }
 
+#[derive(Deserialize)]
+pub struct CancelSelectionQuery {
+    force_cancel: Option<bool>,
+}
+
 async fn cancel_selection(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(query): Query<CancelSelectionQuery>,
     Json(jobs): Json<Vec<Uuid>>,
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut tx = user_db.begin(&authed).await?;
@@ -2163,7 +2170,14 @@ async fn cancel_selection(
     .await?;
     tx.commit().await?;
 
-    cancel_jobs(jobs_to_cancel, &db, authed.username.as_str(), w_id.as_str()).await
+    cancel_jobs(
+        jobs_to_cancel,
+        &db,
+        authed.username.as_str(),
+        w_id.as_str(),
+        query.force_cancel.unwrap_or(false),
+    )
+    .await
 }
 
 async fn list_filtered_job_uuids(
