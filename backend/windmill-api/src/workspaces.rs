@@ -261,11 +261,11 @@ pub struct WorkspaceSettings {
     pub auto_add_instance_groups_roles: Option<serde_json::Value>,
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug)]
-#[sqlx(type_name = "WORKSPACE_KEY_KIND", rename_all = "lowercase")]
-pub enum WorkspaceKeyKind {
-    Cloud,
-}
+// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
+// #[sqlx(type_name = "WORKSPACE_KEY_KIND", rename_all = "lowercase")]
+// pub enum WorkspaceKeyKind {
+//     Cloud,
+// }
 
 #[derive(Deserialize)]
 struct EditCommandScript {
@@ -2553,7 +2553,7 @@ async fn clone_variables(
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
-     sqlx::query!(
+    sqlx::query!(
         "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at)
          SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at
          FROM variable
