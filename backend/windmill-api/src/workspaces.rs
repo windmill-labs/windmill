@@ -1488,9 +1488,9 @@ async fn delete_git_sync_repository(
     ))
 }
 
+#[cfg(feature = "enterprise")]
 #[derive(Debug, Deserialize)]
 struct EditDeployUIConfig {
-    #[cfg(feature = "enterprise")]
     deploy_ui_settings: Option<WorkspaceDeploymentUISettings>,
 }
 
