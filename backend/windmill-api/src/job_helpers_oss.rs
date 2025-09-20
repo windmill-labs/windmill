@@ -32,15 +32,6 @@ use serde::Deserialize;
 
 #[derive(Deserialize)]
 #[cfg(not(feature = "private"))]
-pub struct LoadImagePreviewQuery {
-    #[allow(dead_code)]
-    pub file_key: String,
-    #[allow(dead_code)]
-    pub storage: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[cfg(not(feature = "private"))]
 pub struct DownloadFileQuery {
     #[allow(dead_code)]
     pub file_key: String,

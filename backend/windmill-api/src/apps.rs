@@ -180,15 +180,6 @@ pub struct AppWithLastVersionAndStarred {
     pub starred: Option<bool>,
 }
 
-#[cfg(feature = "enterprise")]
-#[derive(Debug, Serialize, FromRow)]
-pub struct AppWithLastVersionAndWorkspace {
-    #[sqlx(flatten)]
-    #[serde(flatten)]
-    pub app: AppWithLastVersion,
-    pub workspace_id: String,
-}
-
 #[derive(Serialize, Deserialize, FromRow)]
 pub struct AppWithLastVersionAndDraft {
     #[sqlx(flatten)]
