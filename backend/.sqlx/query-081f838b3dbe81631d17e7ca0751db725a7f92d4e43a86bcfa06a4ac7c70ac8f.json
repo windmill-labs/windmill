@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_status SET flow_status = \n            CASE WHEN flow_status->'modules'->$1::int->'flow_jobs_duration' IS NOT NULL THEN\n                     JSONB_SET(JSONB_SET(JSONB_SET(\n                         flow_status,\n                         ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT],\n                         $4\n                     ),\n                     ARRAY['modules', $1::TEXT, 'flow_jobs_duration', 'duration_ms', $3::TEXT], $5),\n                     ARRAY['modules', $1::TEXT, 'flow_jobs_duration', 'started_at', $3::TEXT], $6)\n                 ELSE\n                    JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4)\n            END\n            WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "081f838b3dbe81631d17e7ca0751db725a7f92d4e43a86bcfa06a4ac7c70ac8f"
+}
