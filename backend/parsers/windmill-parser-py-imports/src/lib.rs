@@ -363,11 +363,11 @@ async fn parse_python_imports_inner(
     // This way we make sure there is no multiple annotations for same script
     // and we get detailed span on conflicting versions
 
-    #[derive(serde::Serialize, serde::Deserialize)]
-    struct InlineMetadata {
-        requires_python: String,
-        dependencies: Vec<String>,
-    }
+    // #[derive(serde::Serialize, serde::Deserialize)]
+    // struct InlineMetadata {
+    //     requires_python: String,
+    //     dependencies: Vec<String>,
+    // }
 
     let find_requirements = code.lines().find_position(|x| {
         x.starts_with("#requirements:")
