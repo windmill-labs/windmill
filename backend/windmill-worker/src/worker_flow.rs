@@ -28,7 +28,6 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use sqlx::types::Json;
 use sqlx::{FromRow, Postgres, Transaction};
-use tokio::spawn;
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::auth::get_job_perms;
