@@ -18318,17 +18318,6 @@ components:
         - script_path
         - git_repo_resource_path
 
-    UploadFilePart:
-      type: object
-      properties:
-        part_number:
-          type: integer
-        tag:
-          type: string
-      required:
-        - part_number
-        - tag
-
     MetricMetadata:
       type: object
       properties:
