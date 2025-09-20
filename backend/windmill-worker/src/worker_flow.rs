@@ -536,7 +536,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              sqlx::query_scalar!(
                                  "UPDATE v2_job_status SET flow_status = 
                                  CASE 
-                                 WHEN flow_status->'modules'->$1::TEXT->'flow_jobs_duration' IS NOT NULL THEN
+                                 WHEN flow_status->'modules'->$1::int->'flow_jobs_duration' IS NOT NULL THEN
                                     JSONB_SET(
                                          JSONB_SET(JSONB_SET(JSONB_SET(
                                             flow_status, 
@@ -549,7 +549,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                                     JSONB_SET(JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT], $4),
                                          ARRAY['modules', $1::TEXT, 'iterator', 'index'],
                                          ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb
-                                     )                                 END
+                                     )                                 
+                                END
                                  WHERE id = $2
                                  RETURNING (flow_status->'modules'->$1::int->'iterator'->>'index')::int",
                                  old_status.step,
@@ -611,7 +612,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              sqlx::query_scalar!(
                                  "UPDATE v2_job_status SET flow_status = 
                                  CASE 
-                                 WHEN flow_status->'modules'->$1::TEXT->'flow_jobs_duration' IS NOT NULL THEN
+                                 WHEN flow_status->'modules'->$1::int->'flow_jobs_duration' IS NOT NULL THEN
                                     JSONB_SET(
                                          JSONB_SET(JSONB_SET(JSONB_SET(
                                             flow_status, 
@@ -1599,7 +1600,7 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
         if let Some(position) = position {
             sqlx::query!(
                 "UPDATE v2_job_status SET flow_status = 
-            CASE WHEN flow_status->'modules'->$1::TEXT->'flow_jobs_duration' IS NOT NULL THEN
+            CASE WHEN flow_status->'modules'->$1::int->'flow_jobs_duration' IS NOT NULL THEN
                      JSONB_SET(JSONB_SET(JSONB_SET(
                          flow_status,
                          ARRAY['modules', $1::TEXT, 'flow_jobs_success', $3::TEXT],
