@@ -1,5 +1,5 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
-ARG RUST_IMAGE=rust:1.88-slim-bookworm
+ARG RUST_IMAGE=rust:1.90-slim-bookworm
 
 # Build libwindmill_duckdb_ffi_internal.so separately
 FROM ${RUST_IMAGE} AS windmill_duckdb_ffi_internal_builder
