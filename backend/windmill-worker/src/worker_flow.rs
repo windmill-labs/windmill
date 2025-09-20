@@ -526,12 +526,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                         } else {
                             None
                         };
-                        tracing::error!(
-                            "flow_job_duration: {:?}, position: {:?} flow: {:?}",
-                            flow_job_duration,
-                            position,
-                            flow
-                        );
                         let nindex = if let Some(position) = position {
                              sqlx::query_scalar!(
                                  "UPDATE v2_job_status SET flow_status = 
