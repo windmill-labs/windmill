@@ -178,6 +178,7 @@ input_name2: expression2
 		<Button
 			size="xs"
 			color="light"
+			wrapperClasses="flex-1 border rounded-md"
 			btnClasses={twMerge(
 				'text-violet-800 dark:text-violet-400',
 				!loading && Object.keys($generatedExprs || {}).length > 0

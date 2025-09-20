@@ -11,6 +11,7 @@
 	import Select from './select/Select.svelte'
 	import DbManagerDrawer from './DBManagerDrawer.svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		initialValue?: string | undefined
@@ -24,6 +25,7 @@
 		expressOAuthSetup?: boolean
 		defaultValues?: Record<string, any> | undefined
 		placeholder?: string | undefined
+		selectInputClass?: string
 		onClear?: () => void
 		excludedValues?: string[]
 	}
@@ -40,6 +42,7 @@
 		expressOAuthSetup = false,
 		defaultValues = undefined,
 		placeholder = undefined,
+		selectInputClass = '',
 		onClear = undefined,
 		excludedValues = undefined
 	}: Props = $props()
@@ -176,7 +179,7 @@
 	}}
 />
 <!-- {JSON.stringify({ value, collection })} -->
-<div class="flex flex-col w-full items-start min-h-9">
+<div class="flex flex-col w-full items-start min-h-10">
 	<div class="flex flex-row w-full items-center">
 		{#if collection?.length > 0}
 			<Select
@@ -198,6 +201,7 @@
 				items={collection}
 				clearable
 				class="text-clip grow min-w-0"
+				inputClass={twMerge('min-h-10', selectInputClass)}
 				placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
 			/>
 		{:else if !loading}

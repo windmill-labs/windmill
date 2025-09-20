@@ -27,6 +27,7 @@
 	export let pickableProperties: PickableProperties | undefined = undefined
 	export let argName: string
 	export let showPopup: boolean
+	export let btnClass = ''
 
 	let empty = false
 	$: empty =
@@ -211,10 +212,11 @@ Only return the expression without any wrapper.`
 			size="xs"
 			color="light"
 			btnClasses={twMerge(
-				'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover',
+				'text-violet-500 dark:text-violet-400 border border-violet-100 dark:border-gray-700 dark:hover:bg-surface-hover',
 				!loading && generatedContent.length > 0
 					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
-					: ''
+					: '',
+				btnClass
 			)}
 			on:click={() => {
 				if (!loading && generatedContent.length > 0) {

@@ -4,6 +4,7 @@
 	import { untrack, type Snippet } from 'svelte'
 	import type { ProcessedItem } from './utils.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { slide } from 'svelte/transition'
 
 	let {
 		processedItems: _processedItems,
@@ -101,6 +102,7 @@
 <ConditionalPortal condition={!disablePortal} name="select-dropdown-portal">
 	{#if open && !disabled}
 		<div
+			transition:slide={{ duration: 150 }}
 			class={twMerge(
 				disablePortal ? 'absolute' : 'fixed',
 				'flex flex-col z-[5001] max-h-64 overflow-y-auto bg-surface-secondary text-tertiary text-sm select-none border rounded-lg shadow-lg',
