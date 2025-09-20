@@ -8,6 +8,7 @@
 		disabled?: boolean
 		required?: boolean
 		small?: boolean
+		onKeyDown?: (event: KeyboardEvent) => void
 	}
 
 	let {
@@ -15,7 +16,8 @@
 		placeholder = '******',
 		disabled = false,
 		required = false,
-		small = false
+		small = false,
+		onKeyDown
 	}: Props = $props()
 
 	let red = $derived(required && (password == '' || password == undefined))
@@ -40,7 +42,7 @@
 				: ''} text-sm h-9"
 			type="password"
 			bind:value={password}
-			onkeydown={bubble('keydown')}
+			onkeydown={onKeyDown}
 			autocomplete="new-password"
 			{placeholder}
 			{disabled}

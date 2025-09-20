@@ -176,7 +176,7 @@
 		<div class="pt-4 grow">
 			{#if jobId}
 				<FlowStatusViewer
-					bind:flowStateStore={flowStateStore.val}
+					bind:flowState={flowStateStore.val}
 					{jobId}
 					onJobsLoaded={({ job: newJob }) => {
 						job = newJob
