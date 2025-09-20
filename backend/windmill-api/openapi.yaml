@@ -7727,6 +7727,10 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: force_cancel
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: uuids of the jobs to cancel
         required: true
