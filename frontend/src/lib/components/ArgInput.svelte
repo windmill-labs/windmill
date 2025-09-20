@@ -540,7 +540,7 @@
 <!-- svelte-ignore a11y_autofocus -->
 <div
 	class={twMerge(
-		'flex flex-col w-full rounded-md relative',
+		'flex flex-col w-full rounded-md relative group',
 		minW ? 'min-w-[250px]' : '',
 		diffStatus?.diff ? 'px-2' : '',
 		diffStatus?.diff == 'added'
@@ -1333,19 +1333,21 @@
 								bind:value
 							></textarea>
 						{/key}
-						{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
-							<!-- svelte-ignore a11y_click_events_have_key_events -->
-							<button
-								class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
-								onclick={() => {
-									pickForField = label
-									itemPicker?.openDrawer?.()
-								}}
-								title="Insert a Variable"
-							>
-								<DollarSign class="!text-tertiary" size={14} />
-							</button>
-						{/if}
+					{/if}
+					{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<button
+							class="absolute {password || extra?.['password'] == true
+								? 'right-16 top-1.5 '
+								: 'right-1 top-1'} opacity-0 group-hover:opacity-100 duration-200 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+							onclick={() => {
+								pickForField = label
+								itemPicker?.openDrawer?.()
+							}}
+							title="Insert a Variable"
+						>
+							<DollarSign class="!text-tertiary" size={14} />
+						</button>
 					{/if}
 				</div>
 				{@render variableInput()}

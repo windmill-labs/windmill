@@ -2,24 +2,32 @@
 	import { VariableService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { generateRandomString } from '$lib/utils'
+	import { Button } from './common'
 	import Password from './Password.svelte'
+	import { untrack } from 'svelte'
 
-	export let value: string | undefined = undefined
-	export let disabled: boolean
+	interface Props {
+		value?: string | undefined
+		disabled: boolean
+	}
 
-	let path = ''
-	let password = value && typeof value === 'string' && !value.startsWith('$var:') ? value : ''
+	let { value = $bindable(undefined), disabled }: Props = $props()
+
+	let path = $state('')
+	let password = $state(
+		value && typeof value === 'string' && !value.startsWith('$var:') ? value : ''
+	)
 
 	let isGenerating = false
+
+	let userPrefix = $derived(
+		'u/' + ($userStore?.username ?? $userStore?.email)?.split('@')[0] + '/secret_arg/'
+	)
 	async function generateValue() {
 		if (isGenerating) return
 		isGenerating = true
 		try {
-			let npath =
-				'u/' +
-				($userStore?.username ?? $userStore?.email)?.split('@')[0] +
-				'/secret_arg/' +
-				generateRandomString(12)
+			let npath = userPrefix + generateRandomString(12)
 			let nvalue = '$var:' + npath
 			await VariableService.createVariable({
 				workspace: $workspaceStore!,
@@ -32,6 +40,7 @@
 				}
 			})
 			path = npath
+			console.log('generated', nvalue)
 			value = nvalue
 			debouncedUpdate()
 		} finally {
@@ -59,13 +68,33 @@
 		timeout = setTimeout(updateValue, 500)
 	}
 
-	$: password && debouncedUpdate()
+	$effect(() => {
+		password && untrack(() => debouncedUpdate())
+	})
 
-	$: $workspaceStore &&
-		($userStore?.username || $userStore?.email) &&
-		path == '' &&
-		password != '' &&
-		generateValue()
+	$effect(() => {
+		$workspaceStore &&
+			($userStore?.username || $userStore?.email) &&
+			path == '' &&
+			password != '' &&
+			untrack(() => generateValue())
+	})
 </script>
 
-<Password {disabled} bind:password />
+{#if value?.startsWith('$var:') && !value.startsWith('$var:' + userPrefix)}
+	<div class="flex items-center gap-2 text-sm text-tertiary">
+		Linked to static variable
+		<Button
+			color="light"
+			size="xs"
+			variant="border"
+			onclick={() => {
+				value = ''
+			}}
+		>
+			Reset variable link
+		</Button>
+	</div>
+{:else}
+	<Password {disabled} bind:password />
+{/if}
