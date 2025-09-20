@@ -28,7 +28,7 @@ export type DurationStatus = {
 }
 
 export type FlowStatusViewerContext = {
-	flowStateStore?: FlowState
+	flowState?: FlowState
 	retryStatus: StateStore<Record<string, number | undefined>>
 	suspendStatus: StateStore<Record<string, { nb: number; job: Job }>>
 	hideDownloadInGraph?: boolean

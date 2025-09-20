@@ -48,7 +48,7 @@
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
 
 	let {
-		flowStateStore,
+		flowState: flowStateStore,
 		retryStatus,
 		suspendStatus,
 		hideDownloadInGraph,

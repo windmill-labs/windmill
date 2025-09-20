@@ -583,7 +583,7 @@
 					bind:suspendStatus
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
-					bind:flowStateStore={flowStateStore.val}
+					bind:flowState={flowStateStore.val}
 					{jobId}
 					onDone={() => {
 						isRunning = false
