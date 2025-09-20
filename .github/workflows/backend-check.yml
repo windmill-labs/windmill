@@ -20,7 +20,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.88.0
+          toolchain: 1.90.0
       - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
@@ -41,13 +41,13 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.88.0
+          toolchain: 1.90.0
       - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
         run: |
           mkdir -p fake_frontend_build
-          FRONTEND_BUILD_DIR=$(pwd)/fake_frontend_build SQLX_OFFLINE=true cargo check --features $(./all_features_oss.sh)
+          FRONTEND_BUILD_DIR=$(pwd)/fake_frontend_build SQLX_OFFLINE=true cargo check --features all_sqlx_features,private
 
   check_ee:
     runs-on: ubicloud-standard-8
@@ -75,7 +75,7 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.88.0
+          toolchain: 1.90.0
       - name: cargo check
         working-directory: ./backend
         timeout-minutes: 16
@@ -112,10 +112,10 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.88.0
+          toolchain: 1.90.0
       - name: cargo check
         timeout-minutes: 16
         working-directory: ./backend
         run: |
           mkdir -p fake_frontend_build
-          FRONTEND_BUILD_DIR=$(pwd)/fake_frontend_build SQLX_OFFLINE=true cargo check --all-features
+          FRONTEND_BUILD_DIR=$(pwd)/fake_frontend_build SQLX_OFFLINE=true cargo check --features all_sqlx_features,private
