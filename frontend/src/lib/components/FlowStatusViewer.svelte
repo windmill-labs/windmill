@@ -11,7 +11,7 @@
 		jobId: string
 		initialJob?: Job | undefined
 		workspaceId?: string | undefined
-		flowStateStore?: FlowState
+		flowState?: FlowState
 		selectedJobStep?: string | undefined
 		hideFlowResult?: boolean
 		hideTimeline?: boolean
@@ -39,7 +39,7 @@
 		jobId,
 		initialJob = undefined,
 		workspaceId = undefined,
-		flowStateStore = $bindable({}),
+		flowState = $bindable({}),
 		selectedJobStep = $bindable(undefined),
 		hideFlowResult = false,
 		hideTimeline = false,
@@ -67,7 +67,7 @@
 	let globalRefreshes: Record<string, ((clear, root) => Promise<void>)[]> = $state({})
 
 	setContext<FlowStatusViewerContext>('FlowStatusViewer', {
-		flowStateStore,
+		flowState: flowState,
 		suspendStatus,
 		retryStatus,
 		hideDownloadInGraph,
@@ -88,7 +88,7 @@
 			retryStatus.val = {}
 			suspendStatus.val = {}
 			globalRefreshes = {}
-			flowStateStore.val = {}
+			flowState.val = {}
 			localDurationStatuses = {}
 			localModuleStates = {}
 		}
