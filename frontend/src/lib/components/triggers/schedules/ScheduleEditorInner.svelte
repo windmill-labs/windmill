@@ -858,6 +858,7 @@
 								{:then Module}
 									<Module.default
 										showReset
+										onlyMaskPassword
 										disabled={!can_write}
 										schema={$state.snapshot(schema)}
 										bind:isValid
