@@ -8,9 +8,80 @@ pub mod types {
     #[allow(unused_imports)]
     use std::convert::TryFrom;
     #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct AiAgent {
+        pub input_transforms: std::collections::HashMap<String, InputTransform>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub parallel: Option<bool>,
+        pub tools: Vec<FlowModule>,
+        #[serde(rename = "type")]
+        pub type_: AiAgentType,
+    }
+    impl From<&AiAgent> for AiAgent {
+        fn from(value: &AiAgent) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(
+        Clone,
+        Copy,
+        Debug,
+        Deserialize,
+        Eq,
+        Hash,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        Serialize
+    )]
+    pub enum AiAgentType {
+        #[serde(rename = "aiagent")]
+        Aiagent,
+    }
+    impl From<&AiAgentType> for AiAgentType {
+        fn from(value: &AiAgentType) -> Self {
+            value.clone()
+        }
+    }
+    impl ToString for AiAgentType {
+        fn to_string(&self) -> String {
+            match *self {
+                Self::Aiagent => "aiagent".to_string(),
+            }
+        }
+    }
+    impl std::str::FromStr for AiAgentType {
+        type Err = &'static str;
+        fn from_str(value: &str) -> Result<Self, &'static str> {
+            match value {
+                "aiagent" => Ok(Self::Aiagent),
+                _ => Err("invalid value"),
+            }
+        }
+    }
+    impl std::convert::TryFrom<&str> for AiAgentType {
+        type Error = &'static str;
+        fn try_from(value: &str) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<&String> for AiAgentType {
+        type Error = &'static str;
+        fn try_from(value: &String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    impl std::convert::TryFrom<String> for AiAgentType {
+        type Error = &'static str;
+        fn try_from(value: String) -> Result<Self, &'static str> {
+            value.parse()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct AiConfig {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub code_completion_model: Option<AiProviderModel>,
+        #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+        pub custom_prompts: std::collections::HashMap<String, String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub default_model: Option<AiProviderModel>,
         #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
@@ -1295,8 +1366,8 @@ pub mod types {
         Websocket,
         #[serde(rename = "kafka")]
         Kafka,
-        #[serde(rename = "email")]
-        Email,
+        #[serde(rename = "default_email")]
+        DefaultEmail,
         #[serde(rename = "nats")]
         Nats,
         #[serde(rename = "postgres")]
@@ -1307,6 +1378,8 @@ pub mod types {
         Mqtt,
         #[serde(rename = "gcp")]
         Gcp,
+        #[serde(rename = "email")]
+        Email,
     }
     impl From<&CaptureTriggerKind> for CaptureTriggerKind {
         fn from(value: &CaptureTriggerKind) -> Self {
@@ -1320,12 +1393,13 @@ pub mod types {
                 Self::Http => "http".to_string(),
                 Self::Websocket => "websocket".to_string(),
                 Self::Kafka => "kafka".to_string(),
-                Self::Email => "email".to_string(),
+                Self::DefaultEmail => "default_email".to_string(),
                 Self::Nats => "nats".to_string(),
                 Self::Postgres => "postgres".to_string(),
                 Self::Sqs => "sqs".to_string(),
                 Self::Mqtt => "mqtt".to_string(),
                 Self::Gcp => "gcp".to_string(),
+                Self::Email => "email".to_string(),
             }
         }
     }
@@ -1337,12 +1411,13 @@ pub mod types {
                 "http" => Ok(Self::Http),
                 "websocket" => Ok(Self::Websocket),
                 "kafka" => Ok(Self::Kafka),
-                "email" => Ok(Self::Email),
+                "default_email" => Ok(Self::DefaultEmail),
                 "nats" => Ok(Self::Nats),
                 "postgres" => Ok(Self::Postgres),
                 "sqs" => Ok(Self::Sqs),
                 "mqtt" => Ok(Self::Mqtt),
                 "gcp" => Ok(Self::Gcp),
+                "email" => Ok(Self::Email),
                 _ => Err("invalid value"),
             }
         }
@@ -1493,6 +1568,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         Flownode,
         #[serde(rename = "appscript")]
         Appscript,
+        #[serde(rename = "aiagent")]
+        Aiagent,
     }
     impl From<&CompletedJobJobKind> for CompletedJobJobKind {
         fn from(value: &CompletedJobJobKind) -> Self {
@@ -1516,6 +1593,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 Self::Flowscript => "flowscript".to_string(),
                 Self::Flownode => "flownode".to_string(),
                 Self::Appscript => "appscript".to_string(),
+                Self::Aiagent => "aiagent".to_string(),
             }
         }
     }
@@ -1537,6 +1615,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 "flowscript" => Ok(Self::Flowscript),
                 "flownode" => Ok(Self::Flownode),
                 "appscript" => Ok(Self::Appscript),
+                "aiagent" => Ok(Self::Aiagent),
                 _ => Err("invalid value"),
             }
         }
@@ -1705,6 +1784,21 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct CreateWorkspaceFork {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub color: Option<String>,
+        pub id: String,
+        pub name: String,
+        pub parent_workspace_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub username: Option<String>,
+    }
+    impl From<&CreateWorkspaceFork> for CreateWorkspaceFork {
+        fn from(value: &CreateWorkspaceFork) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct CriticalAlert {
         ///Acknowledgment status of the alert, can be true, false, or null if not set
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1796,6 +1890,24 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         type Error = &'static str;
         fn try_from(value: String) -> Result<Self, &'static str> {
             value.parse()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct DependencyMap {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub imported_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub importer_kind: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub importer_node_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub importer_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub workspace_id: Option<String>,
+    }
+    impl From<&DependencyMap> for DependencyMap {
+        fn from(value: &DependencyMap) -> Self {
+            value.clone()
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1905,6 +2017,27 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     impl From<&DucklakeSettingsDucklakesValueStorage>
     for DucklakeSettingsDucklakesValueStorage {
         fn from(value: &DucklakeSettingsDucklakesValueStorage) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct EditEmailTrigger {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
+        pub is_flow: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub local_part: Option<String>,
+        pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
+        pub script_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub workspaced_local_part: Option<bool>,
+    }
+    impl From<&EditEmailTrigger> for EditEmailTrigger {
+        fn from(value: &EditEmailTrigger) -> Self {
             value.clone()
         }
     }
@@ -2234,6 +2367,23 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct EmailTrigger {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
+        pub local_part: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub workspaced_local_part: Option<bool>,
+    }
+    impl From<&EmailTrigger> for EmailTrigger {
+        fn from(value: &EmailTrigger) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct EndpointTool {
         ///JSON schema for request body
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2481,7 +2631,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub suspend: Option<FlowModuleSuspend>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub timeout: Option<f64>,
+        pub timeout: Option<InputTransform>,
         pub value: FlowModuleValue,
     }
     impl From<&FlowModule> for FlowModule {
@@ -2555,6 +2705,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         BranchOne(BranchOne),
         BranchAll(BranchAll),
         Identity(Identity),
+        AiAgent(AiAgent),
     }
     impl From<&FlowModuleValue> for FlowModuleValue {
         fn from(value: &FlowModuleValue) -> Self {
@@ -2599,6 +2750,11 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     impl From<Identity> for FlowModuleValue {
         fn from(value: Identity) -> Self {
             Self::Identity(value)
+        }
+    }
+    impl From<AiAgent> for FlowModuleValue {
+        fn from(value: AiAgent) -> Self {
+            Self::AiAgent(value)
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -2648,6 +2804,10 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct FlowStatusModule {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub agent_actions: Vec<std::collections::HashMap<String, serde_json::Value>>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub agent_actions_success: Vec<bool>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub approvers: Vec<FlowStatusModuleApproversItem>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4810,6 +4970,26 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         }
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct NewEmailTrigger {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_args: Option<ScriptArgs>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub error_handler_path: Option<String>,
+        pub is_flow: bool,
+        pub local_part: String,
+        pub path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry: Option<Retry>,
+        pub script_path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub workspaced_local_part: Option<bool>,
+    }
+    impl From<&NewEmailTrigger> for NewEmailTrigger {
+        fn from(value: &NewEmailTrigger) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct NewHttpTrigger {
         pub authentication_method: AuthenticationMethod,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5907,6 +6087,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct Preview {
         pub args: ScriptArgs,
+        ///The code to run
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub content: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5917,8 +6098,10 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub language: Option<ScriptLang>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub lock: Option<String>,
+        ///The path to the script
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub path: Option<String>,
+        ///The hash of the script
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub script_hash: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -6127,6 +6310,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         Flownode,
         #[serde(rename = "appscript")]
         Appscript,
+        #[serde(rename = "aiagent")]
+        Aiagent,
     }
     impl From<&QueuedJobJobKind> for QueuedJobJobKind {
         fn from(value: &QueuedJobJobKind) -> Self {
@@ -6150,6 +6335,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 Self::Flowscript => "flowscript".to_string(),
                 Self::Flownode => "flownode".to_string(),
                 Self::Appscript => "appscript".to_string(),
+                Self::Aiagent => "aiagent".to_string(),
             }
         }
     }
@@ -6171,6 +6357,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
                 "flowscript" => Ok(Self::Flowscript),
                 "flownode" => Ok(Self::Flownode),
                 "appscript" => Ok(Self::Appscript),
+                "aiagent" => Ok(Self::Aiagent),
                 _ => Err("invalid value"),
             }
         }
@@ -6676,6 +6863,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub constant: Option<RetryConstant>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub exponential: Option<RetryExponential>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub retry_if: Option<RetryRetryIf>,
     }
     impl From<&Retry> for Retry {
         fn from(value: &Retry) -> Self {
@@ -6707,6 +6896,15 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     }
     impl From<&RetryExponential> for RetryExponential {
         fn from(value: &RetryExponential) -> Self {
+            value.clone()
+        }
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    pub struct RetryRetryIf {
+        pub expr: String,
+    }
+    impl From<&RetryRetryIf> for RetryRetryIf {
+        fn from(value: &RetryRetryIf) -> Self {
             value.clone()
         }
     }
@@ -7862,6 +8060,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct TriggersCount {
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub default_email_count: Option<f64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         pub email_count: Option<f64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub gcp_count: Option<f64>,
@@ -8069,10 +8269,14 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
     #[derive(Clone, Debug, Deserialize, Serialize)]
     pub struct UserWorkspaceListWorkspacesItem {
         pub color: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub created_by: Option<String>,
         pub id: String,
         pub name: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub operator_settings: Option<OperatorSettings>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub parent_workspace_id: Option<String>,
         pub username: String,
     }
     impl From<&UserWorkspaceListWorkspacesItem> for UserWorkspaceListWorkspacesItem {
@@ -8479,6 +8683,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub id: String,
         pub name: String,
         pub owner: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub parent_workspace_id: Option<String>,
     }
     impl From<&Workspace> for Workspace {
         fn from(value: &Workspace) -> Self {
@@ -8550,6 +8756,8 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
         pub email: String,
         pub is_admin: bool,
         pub operator: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub parent_workspace_id: Option<String>,
         pub workspace_id: String,
     }
     impl From<&WorkspaceInvite> for WorkspaceInvite {
@@ -8561,7 +8769,7 @@ the execution of this script will be permissioned_as and by extension its DT_TOK
 #[derive(Clone, Debug)]
 /**Client for Windmill API
 
-Version: 1.526.1*/
+Version: 1.543.0*/
 pub struct Client {
     pub(crate) baseurl: String,
     pub(crate) client: reqwest::Client,
@@ -8607,7 +8815,7 @@ impl Client {
     /// This string is pulled directly from the source OpenAPI
     /// document and may be in any format the API selects.
     pub fn api_version(&self) -> &'static str {
-        "1.526.1"
+        "1.543.0"
     }
 }
 impl Client {
