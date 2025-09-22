@@ -31,13 +31,17 @@
 		noItemsMsg,
 		open = $bindable(false),
 		id,
+		itemLabelWrapperClasses,
+		itemButtonWrapperClasses,
 		groupBy,
 		sortBy,
 		onFocus,
 		onBlur,
 		onClear,
 		onCreateItem,
-		startSnippet
+		startSnippet,
+		endSnippet,
+		bottomSnippet
 	}: {
 		items?: Item[]
 		value: Value | undefined
@@ -58,13 +62,17 @@
 		noItemsMsg?: string
 		open?: boolean
 		id?: string
+		itemLabelWrapperClasses?: string
+		itemButtonWrapperClasses?: string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
 		onBlur?: () => void
 		onClear?: () => void
 		onCreateItem?: (value: string) => void
-		startSnippet?: Snippet<[{ item: ProcessedItem<Value> }]>
+		startSnippet?: Snippet<[{ item: ProcessedItem<Value>; close: () => void }]>
+		endSnippet?: Snippet<[{ item: ProcessedItem<Value>; close: () => void }]>
+		bottomSnippet?: Snippet<[{ item: ProcessedItem<Value> }]>
 	} = $props()
 
 	let disabled = $derived(_disabled || (loading && !value))
@@ -156,6 +164,10 @@
 		getInputRect={inputEl && (() => inputEl!.getBoundingClientRect())}
 		{listAutoWidth}
 		{noItemsMsg}
+		{itemLabelWrapperClasses}
+		{itemButtonWrapperClasses}
 		{startSnippet}
+		{endSnippet}
+		{bottomSnippet}
 	/>
 </div>

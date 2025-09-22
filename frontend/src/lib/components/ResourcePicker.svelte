@@ -181,48 +181,46 @@
 <!-- {JSON.stringify({ value, collection })} -->
 <div class="flex flex-col w-full items-start min-h-10">
 	<div class="flex flex-row w-full items-center">
-		{#if collection?.length > 0}
-			<Select
-				{disabled}
-				{disablePortal}
-				bind:value={
-					() => value,
-					(v) => {
-						value = v
-						valueType = collection.find((x) => x?.value == v)?.type
-					}
+		<Select
+			{disabled}
+			{disablePortal}
+			bind:value={
+				() => value,
+				(v) => {
+					value = v
+					valueType = collection.find((x) => x?.value == v)?.type
 				}
-				onClear={() => {
-					initialValue = undefined
-					value = undefined
-					valueType = undefined
-					onClear?.()
-				}}
-				items={collection}
-				clearable
-				class="text-clip grow min-w-0"
-				inputClass={twMerge('min-h-10', selectInputClass)}
-				placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
-			/>
-		{:else if !loading}
-			<div class="text-2xs text-tertiary mr-2">0 found</div>
-		{/if}
-		{#if !loading}
-			<div class="mx-0.5"></div>
-			{#if value && value != ''}
+			}
+			onClear={() => {
+				initialValue = undefined
+				value = undefined
+				valueType = undefined
+				onClear?.()
+			}}
+			items={collection}
+			clearable
+			class="text-clip grow min-w-0"
+			inputClass={twMerge('min-h-10', selectInputClass)}
+			placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
+			itemLabelWrapperClasses="flex-1"
+			itemButtonWrapperClasses="flex"
+		>
+			{#snippet endSnippet({ item, close })}
 				<Button
 					{disabled}
 					color="light"
 					variant="contained"
-					size="sm"
-					btnClasses="w-8 px-0.5 py-1.5"
-					on:click={() => resourceEditor?.initEdit?.(value ?? '')}
+					size="xs3"
+					btnClasses="w-8 px-0.5 py-1.5 bg-transparent hover:bg-surface-secondary"
+					wrapperClasses="-mr-2 pl-1"
+					on:click={() => (resourceEditor?.initEdit?.(item.value ?? ''), close())}
 					startIcon={{ icon: Pen }}
 					iconOnly
 				/>
-			{/if}
-
-			{#if resourceType?.includes(',')}
+			{/snippet}
+		</Select>
+		{#if !loading}
+			<!-- {#if resourceType?.includes(',')}
 				{#each resourceType.split(',') as rt}
 					<Button
 						{disabled}
@@ -248,10 +246,10 @@
 					{/if}</Button
 				>
 				<div class="mx-0.5"></div>
-			{/if}
+			{/if} -->
 		{/if}
 
-		<Button
+		<!-- <Button
 			variant="contained"
 			color="light"
 			btnClasses="w-8 px-0.5 py-1.5"
@@ -261,7 +259,7 @@
 			}}
 			startIcon={{ icon: RotateCw }}
 			iconOnly
-		/>
+		/> -->
 	</div>
 	{#if showSchemaExplorer && value && assetCanBeExplored({ kind: 'resource', path: value }, { resource_type: resourceType })}
 		<ExploreAssetButton

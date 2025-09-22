@@ -17,10 +17,14 @@
 		noItemsMsg = 'No items found',
 		class: className = '',
 		ulClass = '',
+		itemLabelWrapperClasses = '',
+		itemButtonWrapperClasses = '',
 		header,
 		getInputRect,
 		onSelectValue,
-		startSnippet
+		startSnippet,
+		endSnippet,
+		bottomSnippet
 	}: {
 		processedItems?: ProcessedItem<T>[]
 		value: T | undefined
@@ -32,10 +36,14 @@
 		noItemsMsg?: string
 		class?: string
 		ulClass?: string
+		itemLabelWrapperClasses?: string
+		itemButtonWrapperClasses?: string
 		header?: Snippet
 		getInputRect?: () => DOMRect
 		onSelectValue: (item: ProcessedItem<T>) => void
-		startSnippet?: Snippet<[{ item: ProcessedItem<T> }]>
+		startSnippet?: Snippet<[{ item: ProcessedItem<T>; close: () => void }]>
+		endSnippet?: Snippet<[{ item: ProcessedItem<T>; close: () => void }]>
+		bottomSnippet?: Snippet<[{ item: ProcessedItem<T> }]>
 	} = $props()
 
 	let processedItems = $derived(
@@ -134,15 +142,19 @@
 							class={twMerge(
 								'py-2 px-4 w-full font-normal text-left text-primary',
 								itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
-								item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover'
+								item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover',
+								itemButtonWrapperClasses
 							)}
 							onclick={(e) => {
 								e.stopImmediatePropagation()
 								onSelectValue(item)
 							}}
 						>
-							{@render startSnippet?.({ item })}
-							{item.label || '\xa0'}
+							{@render startSnippet?.({ item, close: () => (open = false) })}
+							<span class={itemLabelWrapperClasses}>
+								{item.label || '\xa0'}
+							</span>
+							{@render endSnippet?.({ item, close: () => (open = false) })}
 							{#if item.subtitle}
 								<div class="text-xs text-tertiary">{item.subtitle}</div>
 							{/if}
