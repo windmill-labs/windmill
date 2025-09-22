@@ -15,7 +15,7 @@
 	export let multiple = false
 	export let convertTo: ReadFileAs | undefined = undefined
 	export let hideIcon = false
-	export let iconSize = 36
+	export let iconSize = 24
 	export let returnFileNames = false
 	export let submittedText: string | undefined = undefined
 	export let defaultFile: string | string[] | undefined = undefined
@@ -187,10 +187,11 @@
 
 <button
 	class={twMerge(
-		`relative center-center flex-col text-center font-medium text-tertiary
-		border border-dashed border-gray-400 hover:border-blue-500
+		`relative center-center flex flex-col gap-x-2 gap-y-1 justify-center items-center flex-wrap text-center font-normal text-hint text-xs rounded-md
+		bg-surface-secondary
+		border border-dashed border-transparent hover:border-blue-500
 		focus-within:border-blue-300 hover:bg-blue-50 dark:hover:bg-frost-900
-		duration-200 rounded-component p-1`,
+		duration-200 px-1 py-8`,
 		c
 	)}
 	on:dragover={handleDragOver}
@@ -209,7 +210,7 @@
 	{disabled}
 >
 	{#if !hideIcon && !files}
-		<FileUp size={iconSize} class="mb-2" />
+		<FileUp size={iconSize} />
 	{/if}
 	{#if files}
 		<div class="w-full max-h-full overflow-auto px-6">

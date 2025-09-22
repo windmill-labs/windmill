@@ -738,15 +738,17 @@
 							nullable={schema.properties[argName].nullable}
 							bind:title={schema.properties[argName].title}
 							bind:placeholder={schema.properties[argName].placeholder}
-						/>
-
-						{#if shouldShowS3ArrayHelper}
-							<S3ArrayHelperButton
-								{connecting}
-								onClick={() =>
-									switchToJsAndConnect((path) => appendPathToArrayExpr(arg.expr, path))}
-							/>
-						{/if}
+						>
+							{#snippet innerBottomSnippet()}
+								{#if shouldShowS3ArrayHelper}
+									<S3ArrayHelperButton
+										{connecting}
+										onClick={() =>
+											switchToJsAndConnect((path) => appendPathToArrayExpr(arg.expr, path))}
+									/>
+								{/if}
+							{/snippet}
+						</ArgInput>
 					{:else if arg.expr != undefined}
 						<div
 							class={`bg-surface-secondary rounded-md min-h-[2.5rem] flex flex-col pl-4 ${inputBorderClass({ forceFocus: focused })}`}
@@ -778,12 +780,10 @@
 							/>
 							<!-- <input type="text" bind:value={arg.expr} /> -->
 						</div>
-						{#if !hideHelpButton}
-							<DynamicInputHelpBox />
-						{/if}
 
 						{#if shouldShowS3ArrayHelper}
 							<S3ArrayHelperButton
+								class="mt-2"
 								{connecting}
 								onClick={() =>
 									focusProp?.(argName, 'connect', (path) => {
@@ -791,6 +791,10 @@
 										return true
 									})}
 							/>
+						{/if}
+
+						{#if !hideHelpButton}
+							<DynamicInputHelpBox />
 						{/if}
 
 						<div class="mb-2"></div>

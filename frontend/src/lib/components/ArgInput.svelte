@@ -121,6 +121,7 @@
 			| undefined
 		workspace?: string | undefined
 		actions?: import('svelte').Snippet
+		innerBottomSnippet?: import('svelte').Snippet
 	}
 
 	let {
@@ -177,7 +178,8 @@
 		appPath = undefined,
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
-		actions
+		actions,
+		innerBottomSnippet
 	}: Props = $props()
 
 	$effect(() => {
@@ -684,6 +686,7 @@
 				bind:editor
 				{appPath}
 				{computeS3ForceViewerPolicies}
+				bottom={innerBottomSnippet}
 			/>
 		{:else if inputCat == 'object' && format == 'json-schema'}
 			{#await import('$lib/components/EditableSchemaForm.svelte')}
