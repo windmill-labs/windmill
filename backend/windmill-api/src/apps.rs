@@ -147,14 +147,14 @@ fn is_false(b: &bool) -> bool {
     !b
 }
 
-#[derive(FromRow, Serialize, Deserialize)]
-pub struct AppVersion {
-    pub id: i64,
-    pub app_id: Uuid,
-    pub value: sqlx::types::Json<Box<RawValue>>,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-}
+// #[derive(FromRow, Serialize, Deserialize)]
+// pub struct AppVersion {
+//     pub id: i64,
+//     pub app_id: Uuid,
+//     pub value: sqlx::types::Json<Box<RawValue>>,
+//     pub created_by: String,
+//     pub created_at: chrono::DateTime<chrono::Utc>,
+// }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct AppWithLastVersion {
@@ -178,15 +178,6 @@ pub struct AppWithLastVersionAndStarred {
     pub app: AppWithLastVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starred: Option<bool>,
-}
-
-#[cfg(feature = "enterprise")]
-#[derive(Debug, Serialize, FromRow)]
-pub struct AppWithLastVersionAndWorkspace {
-    #[sqlx(flatten)]
-    #[serde(flatten)]
-    pub app: AppWithLastVersion,
-    pub workspace_id: String,
 }
 
 #[derive(Serialize, Deserialize, FromRow)]

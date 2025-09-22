@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.544.2"
+version = "1.545.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -34,7 +34,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.544.2"
+version = "1.545.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -102,6 +102,10 @@ ruby = ["windmill-worker/ruby"]
 all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java", "ruby"]
 # For windows we have another set of languages enabled
 all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
+all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "loki", "embedding", "parquet", "prometheus", "flow_testing",
+ "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "nats", "otel", "dind", "websocket", "http_trigger",
+  "postgres_trigger", "mcp", "mqtt_trigger", "sqs_trigger", "gcp_trigger", "smtp", "stripe",
+   "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server"]
 
 [patch.crates-io]
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" }

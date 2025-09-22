@@ -117,6 +117,85 @@ jobs:
               body: 'Successfully ran sqlx update'
             })
 
+  demo:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/demo')
+    runs-on: ubicloud-standard-2
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code for Demo Generation
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          timeout_minutes: "10"
+          allowed_tools: "Bash"
+          direct_prompt: |
+            You need to:
+
+            1. Extract the Cloudflare preview URL from the cloudflare-workers-and-pages bot comment in this PR
+            2. Analyze the PR changes to understand what feature was added/modified
+            3. Create detailed demo instructions showing how to showcase the new feature
+            4. Create a demo.json file with a valid JSON object containing:
+              - instructions: the demo instructions
+              - url: the preview URL
+            5. VALIDATE the JSON file using `jq` before finishing
+            DO NOT COMMIT THIS FILE TO THE PR.
+
+            Example demo.json:
+            {
+              "instructions": "Instructions here",
+              "url": "https://example.pages.dev"
+            }
+
+            CRITICAL: After creating demo.json, you MUST:
+            1. Run `jq empty demo.json` to validate the JSON is properly formatted
+            2. If validation fails, fix the JSON and validate again
+            3. Only proceed once the JSON passes validation
+            4. Use proper JSON escaping for newlines, quotes, and special characters
+
+            Make sure to:
+            - Create a valid JSON object that passes `jq empty demo.json`
+            - Extract the correct preview URL (should be a .pages.dev domain)
+            - Create specific, actionable demo steps based on the actual changes in the PR
+            - Properly escape all strings in the JSON (use jq to create the file if needed)
+            - NOT COMMIT THE DEMO.JSON FILE TO THE PR
+
+      - name: Send instructions to Windmill
+        env:
+          DEMO_WEBHOOK_TOKEN: ${{ secrets.DEMO_WEBHOOK_TOKEN }}
+        run: |
+          if [[ -f "demo.json" ]]; then
+            echo "Found demo.json, sending to Windmill..."
+            cat demo.json
+
+            # Validate JSON one more time (Claude should have already done this)
+            if ! jq empty demo.json; then
+              echo "Error: demo.json is not valid JSON"
+              exit 1
+            fi
+
+            RESULT=$(curl -s \
+              -H 'Content-Type: application/json' \
+              -H "Authorization: Bearer $DEMO_WEBHOOK_TOKEN" \
+              -X POST \
+              -d @demo.json \
+              'https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/ai/browserbase_demo')
+
+            echo "Windmill response:"
+            echo -E "$RESULT"
+          else
+            echo "Error: demo.json file not found"
+            exit 1
+          fi
+
   update-ee-ref:
     if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/eeref')
     runs-on: ubicloud-standard-2
