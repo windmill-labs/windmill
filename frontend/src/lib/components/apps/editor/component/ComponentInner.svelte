@@ -853,6 +853,7 @@
 				id={component.id}
 				tabs={component.tabs}
 				disabledTabs={component.disabledTabs}
+				hiddenTabs={component.hiddenTabs}
 				onTabChange={component.onTabChange}
 				customCss={component.customCss}
 				{componentContainerHeight}
