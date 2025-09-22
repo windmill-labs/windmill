@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { FlowService, type FlowModule, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
+	import type { Note } from '../flows/types'
 	import { getContext, onDestroy, setContext, tick, untrack } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
@@ -105,6 +106,8 @@
 		showJobStatus?: boolean
 		suspendStatus?: Record<string, { job: Job; nb: number }>
 		noteMode?: boolean
+		notes?: Note[]
+		onNotesChange?: (notes: Note[]) => void
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -186,6 +189,8 @@
 		suspendStatus = {},
 		flowHasChanged = false,
 		noteMode = false,
+		notes = [],
+		onNotesChange = undefined,
 		exitNoteMode = undefined
 	}: Props = $props()
 
@@ -374,15 +379,6 @@
 	let height = $state(0)
 
 	// Note feature state
-	type NoteData = {
-		id: string
-		text: string
-		position: { x: number; y: number }
-		size: { width: number; height: number }
-		color: string
-	}
-
-	let notes = $state<NoteData[]>([])
 	let nextNoteId = $state(1)
 
 	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
@@ -399,15 +395,15 @@
 
 	function onNoteAdded(newNoteFromTool: any) {
 		// Add the note to our separate notes array if a note was created
-		if (newNoteFromTool) {
-			const newNote: NoteData = {
+		if (newNoteFromTool && onNotesChange) {
+			const newNote: Note = {
 				id: `note-${nextNoteId}`,
 				text: '',
 				position: newNoteFromTool.position,
 				size: newNoteFromTool.size || { width: 200, height: 100 },
 				color: 'oklch(96.7% 0.067 122.328)'
 			}
-			notes = [...notes, newNote]
+			onNotesChange([...notes, newNote])
 			nextNoteId += 1
 		}
 		exitNoteMode?.()
@@ -415,20 +411,29 @@
 	}
 
 	function updateNoteText(noteId: string, text: string) {
-		notes = notes.map((note) => (note.id === noteId ? { ...note, text } : note))
+		if (onNotesChange) {
+			onNotesChange(notes.map((note) => (note.id === noteId ? { ...note, text } : note)))
+		}
+		updateStores()
 	}
 
 	function deleteNote(noteId: string) {
-		notes = notes.filter((note) => note.id !== noteId)
+		if (onNotesChange) {
+			onNotesChange(notes.filter((note) => note.id !== noteId))
+		}
 		updateStores()
 	}
 
 	function updateNotePosition(noteId: string, position: { x: number; y: number }) {
-		notes = notes.map((note) => (note.id === noteId ? { ...note, position } : note))
+		if (onNotesChange) {
+			onNotesChange(notes.map((note) => (note.id === noteId ? { ...note, position } : note)))
+		}
 	}
 
 	function updateNoteSize(noteId: string, size: { width: number; height: number }) {
-		notes = notes.map((note) => (note.id === noteId ? { ...note, size } : note))
+		if (onNotesChange) {
+			onNotesChange(notes.map((note) => (note.id === noteId ? { ...note, size } : note)))
+		}
 	}
 
 	function convertNotesToNodes(): Node[] {

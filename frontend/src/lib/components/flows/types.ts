@@ -15,6 +15,14 @@ import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 import type { ModulesTestStates } from '../modulesTest.svelte'
 import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
 
+export type Note = {
+	id: string
+	text: string
+	position: { x: number; y: number }
+	size: { width: number; height: number }
+	color: string
+}
+
 export type FlowInput = Record<
 	string,
 	{
@@ -34,6 +42,9 @@ export type ExtendedOpenFlow = OpenFlow & {
 	dedicated_worker?: boolean
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
+	ui?: {
+		notes?: Note[]
+	}
 }
 
 export type FlowInputEditorState = {

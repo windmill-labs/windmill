@@ -1,8 +1,9 @@
-import type { Flow, OpenFlow } from '$lib/gen'
+import type { Flow } from '$lib/gen'
 import { writable } from 'svelte/store'
 import { initFlowState, type FlowState } from './flowState'
 import { sendUserToast } from '$lib/toast'
 import type { StateStore } from '$lib/utils'
+import type { ExtendedOpenFlow } from './types'
 
 export type FlowMode = 'push' | 'pull'
 
@@ -10,16 +11,24 @@ export const importFlowStore = writable<Flow | undefined>(undefined)
 
 export async function initFlow(
 	flow: Flow,
-	flowStore: StateStore<Flow>,
+	flowStore: StateStore<ExtendedOpenFlow>,
 	flowStateStore: StateStore<FlowState>
 ) {
 	await initFlowState(flow, flowStateStore)
-	flowStore.val = flow
+	// Initialize ExtendedOpenFlow with ui.notes field if not present
+	const extendedFlow: ExtendedOpenFlow = {
+		...flow,
+		ui: {
+			notes: (flow as any).ui?.notes || [],
+			...(flow as any).ui
+		}
+	}
+	flowStore.val = extendedFlow
 }
 
 export async function copyFirstStepSchema(
 	flowState: FlowState,
-	flowStore: StateStore<OpenFlow>
+	flowStore: StateStore<ExtendedOpenFlow>
 ): Promise<void> {
 	const firstModuleId = flowStore.val.value.modules[0]?.id
 
@@ -40,7 +49,7 @@ export async function copyFirstStepSchema(
 	return sendUserToast('No first step found', true)
 }
 
-export async function getFirstStepSchema(flowState: FlowState, flow: OpenFlow) {
+export async function getFirstStepSchema(flowState: FlowState, flow: ExtendedOpenFlow) {
 	const firstModuleId = flow.value.modules[0]?.id
 
 	if (!firstModuleId || !flowState[firstModuleId]) {
