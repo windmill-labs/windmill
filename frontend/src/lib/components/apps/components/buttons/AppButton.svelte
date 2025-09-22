@@ -279,6 +279,7 @@
 				on:click={handleClick}
 				size={resolvedConfig.size}
 				color={resolvedConfig.color}
+				title={resolvedConfig.tooltip && String(resolvedConfig.tooltip).length > 0 ? String(resolvedConfig.tooltip) : undefined}
 				{loading}
 			>
 				{#if resolvedConfig.beforeIcon}
