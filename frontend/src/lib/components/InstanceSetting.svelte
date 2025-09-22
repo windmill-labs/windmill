@@ -61,7 +61,6 @@
 		attempted_at: string
 	} | null = $state(null)
 
-
 	function showSetting(setting: string, values: Record<string, any>) {
 		if (setting == 'dev_instance') {
 			if (values['license_key'] == undefined) {
@@ -160,18 +159,19 @@
 		fetch_available_python_versions()
 	}
 
-
 	function handleTeamChange(
 		teamItem: { team_id: string; team_name: string } | undefined,
 		i: number
 	) {
 		$values['critical_error_channels'][i] = {
-			teams_channel: teamItem ? {
-				team_id: teamItem.team_id,
-				team_name: teamItem.team_name,
-				channel_id: undefined, // Will be set when channel is selected
-				channel_name: undefined
-			} : undefined
+			teams_channel: teamItem
+				? {
+						team_id: teamItem.team_id,
+						team_name: teamItem.team_name,
+						channel_id: undefined, // Will be set when channel is selected
+						channel_name: undefined
+					}
+				: undefined
 		}
 	}
 
@@ -191,7 +191,6 @@
 			}
 		}
 	}
-
 </script>
 
 <!-- {JSON.stringify($values, null, 2)} -->
@@ -367,7 +366,7 @@
 						<Password
 							small
 							placeholder={setting.placeholder}
-							on:keydown={() => {
+							onKeyDown={() => {
 								licenseKeyChanged = true
 							}}
 							bind:password={$values[setting.key]}
@@ -600,7 +599,8 @@
 																	: undefined,
 															(channel) => handleChannelChange(channel, i)
 														}
-														onError={(e) => sendUserToast('Failed to load channels: ' + e.message, true)}
+														onError={(e) =>
+															sendUserToast('Failed to load channels: ' + e.message, true)}
 													/>
 												{/if}
 											</div>
@@ -645,8 +645,8 @@
 								if ($values[setting.key] == undefined || !Array.isArray($values[setting.key])) {
 									$values[setting.key] = []
 								}
-									// Start with a typed default to avoid invalid primitives in the array
-									$values[setting.key] = $values[setting.key].concat({ email: '' })
+								// Start with a typed default to avoid invalid primitives in the array
+								$values[setting.key] = $values[setting.key].concat({ email: '' })
 							}}
 							id="arg-input-add-item"
 							startIcon={{ icon: Plus }}

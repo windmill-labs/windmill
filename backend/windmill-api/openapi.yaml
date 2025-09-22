@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.544.2
+  version: 1.545.0
   title: Windmill API
 
   contact:
@@ -7727,6 +7727,10 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: force_cancel
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: uuids of the jobs to cancel
         required: true
@@ -18317,17 +18321,6 @@ components:
       required:
         - script_path
         - git_repo_resource_path
-
-    UploadFilePart:
-      type: object
-      properties:
-        part_number:
-          type: integer
-        tag:
-          type: string
-      required:
-        - part_number
-        - tag
 
     MetricMetadata:
       type: object
