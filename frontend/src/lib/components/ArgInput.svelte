@@ -122,6 +122,7 @@
 		workspace?: string | undefined
 		actions?: import('svelte').Snippet
 		innerBottomSnippet?: import('svelte').Snippet
+		fieldHeaderActions?: import('svelte').Snippet
 	}
 
 	let {
@@ -179,7 +180,8 @@
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
 		actions,
-		innerBottomSnippet
+		innerBottomSnippet,
+		fieldHeaderActions
 	}: Props = $props()
 
 	$effect(() => {
@@ -585,19 +587,22 @@
 		</div>
 	{/if}
 	{#if displayHeader}
-		<FieldHeader
-			prettify={prettifyHeader}
-			label={title && !emptyString(title) ? title : label}
-			{disabled}
-			{required}
-			{type}
-			{contentEncoding}
-			{format}
-			{simpleTooltip}
-			{lightHeader}
-			{displayType}
-			labelClass={css?.label?.class}
-		/>
+		<div class="flex">
+			<FieldHeader
+				prettify={prettifyHeader}
+				label={title && !emptyString(title) ? title : label}
+				{disabled}
+				{required}
+				{type}
+				{contentEncoding}
+				{format}
+				{simpleTooltip}
+				{lightHeader}
+				{displayType}
+				labelClass={css?.label?.class}
+			/>
+			{@render fieldHeaderActions?.()}
+		</div>
 	{/if}
 
 	<div class="flex space-x-1">

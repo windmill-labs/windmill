@@ -150,20 +150,23 @@
 								nullable={schema.properties[argName].nullable}
 								title={schema.properties[argName].title}
 								placeholder={schema.properties[argName].placeholder}
-							/>
-						{/if}
-						{#if stepsInputArgs?.isArgManuallySet(mod.id, argName)}
-							<div class="pt-6 mt-0.5">
-								<Button
-									on:click={() => {
-										plugIt(argName)
-									}}
-									size="sm"
-									variant="border"
-									color="light"
-									title="Re-evaluate input step"><RefreshCw size={14} /></Button
-								>
-							</div>
+							>
+								{#snippet fieldHeaderActions()}
+									{#if stepsInputArgs?.isArgManuallySet(mod.id, argName)}
+										<div class="ml-auto">
+											<Button
+												on:click={() => {
+													plugIt(argName)
+												}}
+												size="xs2"
+												variant="contained"
+												color="light"
+												title="Re-evaluate input step"><RefreshCw size={12} /></Button
+											>
+										</div>
+									{/if}
+								{/snippet}
+							</ArgInput>
 						{/if}
 					</div>
 				{/if}
