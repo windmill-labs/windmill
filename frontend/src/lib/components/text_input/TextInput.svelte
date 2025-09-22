@@ -16,6 +16,9 @@
 				: ''
 		)
 	}
+
+	export const inputBaseClass =
+		'rounded-md focus:ring-0 no-default-style text-sm !bg-surface-secondary disabled:!bg-surface-disabled disabled:cursor-not-allowed shadow-none py-2 px-4'
 </script>
 
 <script lang="ts">
@@ -35,10 +38,9 @@
 <input
 	{...inputProps}
 	class={twMerge(
-		'no-default-style text-sm !bg-surface-secondary disabled:!bg-surface-disabled disabled:cursor-not-allowed shadow-none py-2 px-4 w-full',
-		'focus:ring-0',
+		inputBaseClass,
+		'w-full',
 		'[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-		'rounded-md',
 		inputBorderClass({ error: !!error }),
 		className
 	)}

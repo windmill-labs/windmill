@@ -46,7 +46,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
-	import TextInput from './text_input/TextInput.svelte'
+	import TextInput, { inputBaseClass, inputBorderClass } from './text_input/TextInput.svelte'
 
 	interface Props {
 		label?: string
@@ -1337,12 +1337,7 @@
 								use:autosize
 								onkeydown={onKeyDown}
 								{disabled}
-								class={twMerge(
-									'w-full',
-									valid
-										? ''
-										: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
-								)}
+								class={twMerge('w-full', inputBaseClass, inputBorderClass({ error: !!error }))}
 								placeholder={placeholder ?? defaultValue ?? ''}
 								bind:value
 							></textarea>
