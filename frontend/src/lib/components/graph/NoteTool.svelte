@@ -29,7 +29,6 @@
 	}
 
 	function onPointerMove(event: PointerEvent) {
-		console.log('NoteTool: pointer move', event)
 		if (event.buttons !== 1) return
 
 		// Use page coordinates as reference
