@@ -8,6 +8,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
+	import ToggleButtonMore from './common/toggleButton-v2/ToggleButtonMore.svelte'
 
 	interface ProviderValue {
 		kind?: AIProvider
@@ -157,11 +158,23 @@
 <div class="w-full flex flex-col gap-1 bg-surface-secondary rounded-md">
 	<!-- Provider Selection -->
 	<div class="flex flex-col gap-2">
-		<ToggleButtonGroup selected={value?.kind} onSelected={onProviderChange} {disabled} wrap>
+		<ToggleButtonGroup
+			selected={value?.kind}
+			onSelected={onProviderChange}
+			{disabled}
+			wrap
+			tabListClass="w-full"
+		>
 			{#snippet children({ item })}
-				{#each providerOptions as option}
+				{#each providerOptions.slice(0, 3) as option}
 					<ToggleButton value={option.value} label={option.label} {item} />
 				{/each}
+				<ToggleButtonMore
+					class="ml-auto"
+					togglableItems={providerOptions.slice(3)}
+					{item}
+					bind:selected={() => value?.kind, (v) => v && onProviderChange(v)}
+				/>
 			{/snippet}
 		</ToggleButtonGroup>
 	</div>

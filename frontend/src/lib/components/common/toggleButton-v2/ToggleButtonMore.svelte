@@ -18,6 +18,7 @@
 		item?: any | undefined
 		selected?: string | undefined
 		togglableItems: TogglableItem[]
+		class?: string
 	}
 
 	let {
@@ -27,7 +28,8 @@
 		id = undefined,
 		item = undefined,
 		selected = $bindable(undefined),
-		togglableItems
+		togglableItems,
+		class: className = ''
 	}: Props = $props()
 
 	let items = togglableItems.map((i) => ({
@@ -44,7 +46,7 @@
 <Popover
 	disablePopup={true}
 	notClickable
-	class={twMerge('flex', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}
+	class={twMerge('flex', disabled ? 'cursor-not-allowed' : 'cursor-pointer', className)}
 	disappearTimeout={0}
 >
 	<div {id} class="flex">
