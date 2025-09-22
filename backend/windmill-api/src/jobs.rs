@@ -175,6 +175,7 @@ pub fn workspaced_service() -> Router {
         .route(
             "/run_and_stream/f/*script_path",
             get(stream_flow_by_path)
+                .post(stream_flow_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
@@ -182,6 +183,7 @@ pub fn workspaced_service() -> Router {
         .route(
             "/run_and_stream/p/*script_path",
             get(stream_script_by_path)
+                .post(stream_script_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
@@ -189,6 +191,7 @@ pub fn workspaced_service() -> Router {
         .route(
             "/run_and_stream/h/:hash",
             get(stream_script_by_hash)
+                .post(stream_script_by_hash)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
@@ -5220,6 +5223,7 @@ pub async fn stream_flow_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
+    method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
     stream_job(
@@ -5230,6 +5234,7 @@ pub async fn stream_flow_by_path(
         RunnableId::from_flow_path(flow_path.to_path()),
         args,
         run_query,
+        method == http::Method::GET,
     )
     .await
 }
@@ -5240,6 +5245,7 @@ pub async fn stream_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
+    method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
     stream_job(
@@ -5250,6 +5256,7 @@ pub async fn stream_script_by_path(
         RunnableId::from_script_path(script_path.to_path()),
         args,
         run_query,
+        method == http::Method::GET,
     )
     .await
 }
@@ -5260,6 +5267,7 @@ pub async fn stream_script_by_hash(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
+    method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
     stream_job(
@@ -5270,6 +5278,7 @@ pub async fn stream_script_by_hash(
         RunnableId::from_script_hash(script_hash),
         args,
         run_query,
+        method == http::Method::GET,
     )
     .await
 }
@@ -5282,23 +5291,38 @@ pub async fn stream_job(
     runnable_id: RunnableId,
     args: RawWebhookArgs,
     run_query: RunJobQuery,
+    is_get: bool,
 ) -> error::Result<Response> {
-    let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
-        x.map_err(|e| Error::internal_err(format!("Impossible to decode query payload: {e:#?}")))
-    });
+    let args = if is_get {
+        let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
+            x.map_err(|e| {
+                Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
+            })
+        });
 
-    let payload_args = if let Some(payload) = payload_r {
-        payload?
+        let payload_args = if let Some(payload) = payload_r {
+            payload?
+        } else {
+            HashMap::new()
+        };
+
+        let mut args = args.process_args(&authed, &db, &w_id, None).await?;
+        args.body = args::Body::HashMap(payload_args);
+
+        let args = args
+            .to_args_from_runnable(&db, &w_id, runnable_id.clone(), run_query.skip_preprocessor)
+            .await?;
+        args
     } else {
-        HashMap::new()
+        args.to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            runnable_id.clone(),
+            run_query.skip_preprocessor,
+        )
+        .await?
     };
-
-    let mut args = args.process_args(&authed, &db, &w_id, None).await?;
-    args.body = args::Body::HashMap(payload_args);
-
-    let args = args
-        .to_args_from_runnable(&db, &w_id, runnable_id.clone(), run_query.skip_preprocessor)
-        .await?;
 
     let poll_delay_ms = run_query.poll_delay_ms;
     let uuid = match runnable_id {

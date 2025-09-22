@@ -184,6 +184,7 @@ impl QueryBuilder for OpenRouterQueryBuilder {
                     .join(" "),
             }),
             tool_calls: first_choice.message.tool_calls.unwrap_or_default(),
+            events: None,
         })
     }
 

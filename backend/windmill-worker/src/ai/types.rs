@@ -154,6 +154,8 @@ impl ProviderWithResource {
 pub struct AIAgentResult<'a> {
     pub output: Box<RawValue>,
     pub messages: Vec<Message<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub events: Option<Vec<StreamingEvent>>,
 }
 
 /// Events for streaming AI responses
@@ -161,38 +163,15 @@ pub struct AIAgentResult<'a> {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StreamingEvent {
     /// Individual token from the AI response
-    TokenDelta {
-        content: String,
-    },
+    TokenDelta { content: String },
     /// Tool call has started
-    ToolCallStart {
-        call_id: String,
-        function_name: String,
-    },
+    ToolCall { call_id: String, function_name: String },
     /// Tool call arguments are complete
-    ToolCallComplete {
-        call_id: String,
-        function_name: String,
-        arguments: String,
-    },
-    /// Tool execution progress update
-    ToolProgress {
-        call_id: String,
-        message: String,
-    },
+    ToolCallArguments { call_id: String, function_name: String, arguments: String },
+    /// Tool execution has started
+    ToolExecution { call_id: String },
     /// Tool execution result
-    ToolResult {
-        call_id: String,
-        function_name: String,
-        result: Box<RawValue>,
-        success: bool,
-    },
-    /// AI message is complete
-    MessageComplete,
-    /// Error occurred during streaming
-    Error {
-        message: String,
-    },
+    ToolResult { call_id: String, function_name: String, result: Box<RawValue>, success: bool },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

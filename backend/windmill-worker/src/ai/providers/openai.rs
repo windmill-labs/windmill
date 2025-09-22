@@ -259,8 +259,9 @@ impl OpenAIQueryBuilder {
             stream: true,
         };
 
-        serde_json::to_string(&request)
-            .map_err(|e| Error::internal_err(format!("Failed to serialize streaming request: {}", e)))
+        serde_json::to_string(&request).map_err(|e| {
+            Error::internal_err(format!("Failed to serialize streaming request: {}", e))
+        })
     }
 
     async fn build_image_request(
@@ -340,7 +341,10 @@ impl QueryBuilder for OpenAIQueryBuilder {
         workspace_id: &str,
     ) -> Result<String, Error> {
         match args.output_type {
-            OutputType::Text => self.build_text_streaming_request(args, client, workspace_id).await,
+            OutputType::Text => {
+                self.build_text_streaming_request(args, client, workspace_id)
+                    .await
+            }
             OutputType::Image => {
                 // Image generation doesn't support streaming, fall back to regular request
                 self.build_image_request(args, client, workspace_id).await
@@ -411,11 +415,15 @@ impl QueryBuilder for OpenAIQueryBuilder {
                     }
                 }),
                 tool_calls: first_choice.message.tool_calls.unwrap_or_default(),
+                events: None,
             })
         }
     }
 
-    fn parse_streaming_response(&self, response: reqwest::Response) -> Result<StreamingResponse, Error> {
+    fn parse_streaming_response(
+        &self,
+        response: reqwest::Response,
+    ) -> Result<StreamingResponse, Error> {
         // Use the default implementation which just wraps the response
         Ok(StreamingResponse { response })
     }

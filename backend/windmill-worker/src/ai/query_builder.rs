@@ -26,8 +26,14 @@ pub struct BuildRequestArgs<'a> {
 
 /// Response from AI provider
 pub enum ParsedResponse {
-    Text { content: Option<String>, tool_calls: Vec<OpenAIToolCall> },
-    Image { base64_data: String },
+    Text {
+        content: Option<String>,
+        tool_calls: Vec<OpenAIToolCall>,
+        events: Option<Vec<StreamingEvent>>,
+    },
+    Image {
+        base64_data: String,
+    },
 }
 
 /// Streaming response from AI provider
@@ -69,7 +75,10 @@ pub trait QueryBuilder: Send + Sync {
     async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error>;
 
     /// Parse streaming response from the provider
-    fn parse_streaming_response(&self, response: reqwest::Response) -> Result<StreamingResponse, Error> {
+    fn parse_streaming_response(
+        &self,
+        response: reqwest::Response,
+    ) -> Result<StreamingResponse, Error> {
         // Default implementation just wraps the response
         Ok(StreamingResponse { response })
     }
