@@ -391,8 +391,10 @@
 			<GridTab
 				bind:tabs={item.data.tabs}
 				bind:disabledTabs={item.data.disabledTabs}
+				bind:hiddenTabs={item.data.hiddenTabs}
 				bind:component={item.data}
 				canDisableTabs
+				canHideTabs
 			/>
 		{:else if item.data.type === 'aggridcomponentee'}
 			<GridAgGridLicenseKey bind:license={item.data.license} />

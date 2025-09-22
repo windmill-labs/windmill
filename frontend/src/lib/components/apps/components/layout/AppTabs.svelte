@@ -28,6 +28,7 @@
 		customCss?: ComponentCustomCSS<'tabscomponent'> | undefined
 		render: boolean
 		disabledTabs: RichConfiguration[]
+		hiddenTabs: RichConfiguration[]
 		onTabChange?: string[] | undefined
 	}
 
@@ -39,6 +40,7 @@
 		customCss = undefined,
 		render,
 		disabledTabs,
+		hiddenTabs,
 		onTabChange = undefined
 	}: Props = $props()
 
@@ -101,18 +103,28 @@
 			}
 		},
 		left: () => {
-			const index = tabs.indexOf(selected)
-			if (index > 0) {
-				selected = tabs[index - 1]
-				return true
+			const currentIndex = tabs.indexOf(selected)
+			if (currentIndex > 0) {
+				// Find the next visible tab to the left
+				for (let i = currentIndex - 1; i >= 0; i--) {
+					if (!resolvedHiddenTabs[i]) {
+						selected = tabs[i]
+						return true
+					}
+				}
 			}
 			return false
 		},
 		right: () => {
-			const index = tabs.indexOf(selected)
-			if (index < tabs.length - 1) {
-				selected = tabs[index + 1]
-				return true
+			const currentIndex = tabs.indexOf(selected)
+			if (currentIndex < tabs.length - 1) {
+				// Find the next visible tab to the right
+				for (let i = currentIndex + 1; i < tabs.length; i++) {
+					if (!resolvedHiddenTabs[i]) {
+						selected = tabs[i]
+						return true
+					}
+				}
 			}
 			return false
 		},
@@ -144,6 +156,23 @@
 	})
 
 	let resolvedDisabledTabs: boolean[] = $state([])
+	let resolvedHiddenTabs: boolean[] = $state([])
+
+	// Filter visible tabs based on hiddenTabs configuration
+	let visibleTabsIndices = $derived(
+		(tabs ?? []).map((_, index) => index).filter((index) => !resolvedHiddenTabs[index])
+	)
+
+	// Auto-select first visible tab if current selection is hidden or invalid
+	$effect(() => {
+		if (visibleTabsIndices.length > 0) {
+			const currentIndex = tabs?.indexOf(selected) ?? -1
+			if (currentIndex === -1 || resolvedHiddenTabs[currentIndex]) {
+				// Current selection is hidden or invalid, select first visible tab
+				selected = tabs[visibleTabsIndices[0]]
+			}
+		}
+	})
 </script>
 
 <InputValue key="kind" {id} input={configuration.tabsKind} bind:value={resolvedConfig.tabsKind} />
@@ -169,6 +198,15 @@
 	/>
 {/each}
 
+{#each hiddenTabs ?? [] as hideTab, index}
+	<InputValue
+		key="tabHidden {index}"
+		{id}
+		input={hideTab}
+		bind:value={resolvedHiddenTabs[index]}
+	/>
+{/each}
+
 {#if everRender}
 	<div class={resolvedConfig.tabsKind == 'sidebar' ? 'flex gap-4 w-full h-full' : 'w-full'}>
 		{#if !resolvedConfig.tabsKind || resolvedConfig.tabsKind == 'tabs' || (resolvedConfig.tabsKind == 'invisibleOnView' && $mode == 'dnd')}
@@ -179,16 +217,18 @@
 					style={css?.tabRow?.style}
 				>
 					{#each tabs ?? [] as res, index}
-						<Tab
-							value={res}
-							class={twMerge(css?.allTabs?.class, 'wm-tabs-alltabs')}
-							style={css?.allTabs?.style}
-							selectedClass={twMerge(css?.selectedTab?.class, 'wm-tabs-selectedTab')}
-							selectedStyle={css?.selectedTab?.style}
-							disabled={resolvedDisabledTabs[index]}
-						>
-							<span class="font-semibold">{res}</span>
-						</Tab>
+						{#if !resolvedHiddenTabs[index]}
+							<Tab
+								value={res}
+								class={twMerge(css?.allTabs?.class, 'wm-tabs-alltabs')}
+								style={css?.allTabs?.style}
+								selectedClass={twMerge(css?.selectedTab?.class, 'wm-tabs-selectedTab')}
+								selectedStyle={css?.selectedTab?.style}
+								disabled={resolvedDisabledTabs[index]}
+							>
+								<span class="font-semibold">{res}</span>
+							</Tab>
+						{/if}
 					{/each}
 				</Tabs>
 			</div>
@@ -202,78 +242,82 @@
 				style={css?.tabRow?.style}
 			>
 				{#each tabs ?? [] as res, index}
-					<button
-						onpointerdown={stopPropagation(bubble('pointerdown'))}
-						onclick={() => !resolvedDisabledTabs[index] && (selected = res)}
-						disabled={resolvedDisabledTabs[index]}
-						class={twMerge(
-							'rounded-sm !truncate text-sm  hover:text-primary px-1 py-2',
-							css?.allTabs?.class,
-							'wm-tabs-alltabs',
-							selected == res
-								? twMerge(
-										'border-r  border-primary border-l bg-surface text-primary',
-										css?.selectedTab?.class,
-										'wm-tabs-selectedTab'
-									)
-								: '',
-							resolvedDisabledTabs[index]
-								? 'opacity-50 cursor-not-allowed hover:text-secondary'
-								: ''
-						)}
-						style={selected == res
-							? [css?.allTabs?.style, css?.selectedTab?.style].filter(Boolean).join(';')
-							: css?.allTabs?.style}
-					>
-						{res}
-					</button>
+					{#if !resolvedHiddenTabs[index]}
+						<button
+							onpointerdown={stopPropagation(bubble('pointerdown'))}
+							onclick={() => !resolvedDisabledTabs[index] && (selected = res)}
+							disabled={resolvedDisabledTabs[index]}
+							class={twMerge(
+								'rounded-sm !truncate text-sm  hover:text-primary px-1 py-2',
+								css?.allTabs?.class,
+								'wm-tabs-alltabs',
+								selected == res
+									? twMerge(
+											'border-r  border-primary border-l bg-surface text-primary',
+											css?.selectedTab?.class,
+											'wm-tabs-selectedTab'
+										)
+									: '',
+								resolvedDisabledTabs[index]
+									? 'opacity-50 cursor-not-allowed hover:text-secondary'
+									: ''
+							)}
+							style={selected == res
+								? [css?.allTabs?.style, css?.selectedTab?.style].filter(Boolean).join(';')
+								: css?.allTabs?.style}
+						>
+							{res}
+						</button>
+					{/if}
 				{/each}
 			</div>
 		{/if}
 		{#if resolvedConfig.tabsKind == 'accordion'}
 			<div class="flex flex-col w-full">
 				{#each tabs ?? [] as res, index}
-					<div class="border-b">
-						<button
-							onpointerdown={stopPropagation(bubble('pointerdown'))}
-							onclick={() => !resolvedDisabledTabs[index] && (selected = res)}
-							disabled={resolvedDisabledTabs[index]}
-							class={twMerge(
-								'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
-								css?.allTabs?.class,
-								'wm-tabs-alltabs',
-								selected == res
-									? twMerge(
-											'bg-surface text-primary ',
-											css?.selectedTab?.class,
-											'wm-tabs-selectedTab'
-										)
-									: 'text-secondary',
-								resolvedDisabledTabs[index]
-									? 'opacity-50 cursor-not-allowed hover:text-secondary'
-									: ''
-							)}
-						>
-							<span class="mr-2 w-8 font-mono">{selected == res ? '-' : '+'}</span>
-							{res}
-						</button>
-						<div class={selected == res ? 'border-t' : ''}>
-							<SubGridEditor
-								{id}
-								visible={render && index === selectedIndex}
-								subGridId={`${id}-${index}`}
-								class={twMerge(css?.container?.class, 'wm-tabs-container')}
-								style={css?.container?.style}
-								containerHeight={componentContainerHeight - (titleBarHeight * tabs.length + 40)}
-								onFocus={() => {
-									if (!$connectingInput.opened) {
-										$selectedComponent = [id]
-										handleTabSelection()
-									}
-								}}
-							/>
+					{#if !resolvedHiddenTabs[index]}
+						<div class="border-b">
+							<button
+								onpointerdown={stopPropagation(bubble('pointerdown'))}
+								onclick={() => !resolvedDisabledTabs[index] && (selected = res)}
+								disabled={resolvedDisabledTabs[index]}
+								class={twMerge(
+									'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
+									css?.allTabs?.class,
+									'wm-tabs-alltabs',
+									selected == res
+										? twMerge(
+												'bg-surface text-primary ',
+												css?.selectedTab?.class,
+												'wm-tabs-selectedTab'
+											)
+										: 'text-secondary',
+									resolvedDisabledTabs[index]
+										? 'opacity-50 cursor-not-allowed hover:text-secondary'
+										: ''
+								)}
+							>
+								<span class="mr-2 w-8 font-mono">{selected == res ? '-' : '+'}</span>
+								{res}
+							</button>
+							<div class={selected == res ? 'border-t' : ''}>
+								<SubGridEditor
+									{id}
+									visible={render && index === selectedIndex}
+									subGridId={`${id}-${index}`}
+									class={twMerge(css?.container?.class, 'wm-tabs-container')}
+									style={css?.container?.style}
+									containerHeight={componentContainerHeight - (titleBarHeight * tabs.length + 40)}
+									onFocus={() => {
+										if (!$connectingInput.opened) {
+											$selectedComponent = [id]
+											handleTabSelection()
+										}
+									}}
+								/>
+							</div>
 						</div>
-					</div>
+					{/if}
 				{/each}
 			</div>
 		{:else}
