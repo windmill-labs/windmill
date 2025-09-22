@@ -4,15 +4,16 @@
 //! specification. This is a thin orchestration layer that delegates to the appropriate
 //! modules for tool management, database operations, and schema transformation.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::{borrow::Cow, time::Duration};
 
 use axum::body::to_bytes;
 use rmcp::{
     handler::server::ServerHandler,
     model::*,
     service::{RequestContext, RoleServer},
+    transport::StreamableHttpServerConfig,
     ErrorData,
 };
 use serde_json::Value;
@@ -488,7 +489,10 @@ pub async fn extract_and_store_workspace_id(
 /// Setup the MCP server with HTTP transport
 pub async fn setup_mcp_server() -> anyhow::Result<(Router, Arc<LocalSessionManager>)> {
     let session_manager = Arc::new(LocalSessionManager::default());
-    let service_config = Default::default();
+    let service_config = StreamableHttpServerConfig {
+        sse_keep_alive: Some(Duration::from_secs(15)),
+        stateful_mode: false,
+    };
     let service = StreamableHttpService::new(
         || Ok(Runner::new()),
         session_manager.clone(),
