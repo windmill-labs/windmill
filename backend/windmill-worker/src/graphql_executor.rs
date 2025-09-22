@@ -10,9 +10,9 @@ use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use serde::Deserialize;
 
+use crate::common::build_args_map;
 use crate::common::{build_http_client, resolve_job_timeout, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
-use crate::common::build_args_map;
 use windmill_common::client::AuthedClient;
 
 #[derive(Deserialize)]
@@ -106,6 +106,20 @@ pub async fn do_graphql(
         .send()
         .await
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+    // Check HTTP status before processing response
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "Failed to read error response".to_string());
+        return Err(Error::ExecutionErr(format!(
+            "GraphQL request failed with HTTP {}: {}",
+            status.as_u16(),
+            error_body
+        )));
+    }
 
     let result_stream = response.bytes_stream();
 

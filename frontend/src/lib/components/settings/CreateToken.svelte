@@ -1,15 +1,17 @@
 <script lang="ts">
 	import { userWorkspaces, workspaceStore, type UserWorkspace } from '$lib/stores'
-	import { Button } from '../common'
+	import { Badge, Button } from '../common'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import TriggerableByAI from '../TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
-	import { UserService, type NewToken } from '$lib/gen'
-	import { copyToClipboard } from '$lib/utils'
-	import { Clipboard } from 'lucide-svelte'
-	import ClipboardPanel from '../details/ClipboardPanel.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { FlowService, IntegrationService, ScriptService, UserService, type NewToken } from '$lib/gen'
+	import MultiSelect from '../select/MultiSelect.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
+	import TokenDisplay from './TokenDisplay.svelte'
+	import ScopeSelector from './ScopeSelector.svelte'
+	import Alert from '../common/alert/Alert.svelte'
+	import FolderPicker from '../FolderPicker.svelte'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -17,7 +19,7 @@
 		newTokenLabel?: string
 		defaultNewTokenWorkspace?: string
 		scopes?: string[]
-		actions?: () => void
+		onTokenCreated: (token: string) => void
 		displayCreateToken?: boolean
 	}
 
@@ -25,7 +27,7 @@
 		showMcpMode = false,
 		defaultNewTokenWorkspace,
 		scopes,
-		actions,
+		onTokenCreated,
 		newTokenLabel = $bindable(undefined)
 	}: Props = $props()
 
@@ -38,12 +40,16 @@
 	let newMcpScope = $state('favorites')
 	let loadingApps = $state(false)
 	let errorFetchApps = $state(false)
-	// let allApps = $state<string[]>([])
+	let allApps = $state<string[]>([])
+	let loadingRunnables = $state(false)
+	let includedRunnables = $state<string[]>([])
+	let selectedFolder = $state<string>('')
+	
+	let runnablesCache = new Map<string, string[]>()
 
-	function handleCopyClick() {
-		copyToClipboard(newToken ?? '')
-	}
-	const dispatch = createEventDispatcher()
+	let customScopes = $state<string[]>([])
+	let showCustomScopes = $state(false)
+
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
 		currentWorkspace: string | undefined
@@ -67,10 +73,17 @@
 
 			let tokenScopes = scopes
 			if (mcpMode) {
-				tokenScopes = [`mcp:${newMcpScope}`]
+				if (newMcpScope === 'folder') {
+					const folderPath = `f/${selectedFolder}/*`
+					tokenScopes = [`mcp:all:${folderPath}`]
+				} else {
+					tokenScopes = [`mcp:${newMcpScope}`]
+				}
 				if (newMcpApps.length > 0) {
 					tokenScopes.push(`mcp:hub:${newMcpApps.join(',')}`)
 				}
+			} else if (showCustomScopes && customScopes.length > 0) {
+				tokenScopes = customScopes
 			}
 
 			const createdToken = await UserService.createToken({
@@ -88,10 +101,7 @@
 				newToken = `${createdToken}`
 			}
 
-			dispatch('tokenCreated', newToken ?? newMcpToken)
-			if (actions) {
-				actions()
-			}
+			onTokenCreated(newToken ?? newMcpToken ?? '')
 			mcpCreationMode = false
 		} catch (err) {
 			console.error('Failed to create token:', err)
@@ -100,69 +110,134 @@
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
+	const warning = $derived(newMcpScope === 'favorites' ? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.` : 'Create your first scripts or flows to make them available via MCP.')
+	const noScriptsOrFlowsAvailableWarning = $derived(includedRunnables.length === 0 ? warning : '')
+
+	$effect(() => {
+		if (mcpCreationMode) {
+			getAllApps()
+		} else {
+			newMcpApps = []
+		}
+	})
+
+	async function getAllApps() {
+		if (allApps.length > 0) {
+			return
+		}
+		try {
+			loadingApps = true
+			allApps = (
+				await IntegrationService.listHubIntegrations({
+					kind: 'script'
+				})
+			).map((x) => x.name)
+		} catch (err) {
+			console.error('Hub is not available')
+			allApps = []
+			errorFetchApps = true
+		} finally {
+			loadingApps = false
+		}
+	}
+
+	async function getScripts(favoriteOnly: boolean = false, workspace: string, folder: string | undefined) {
+		if (!workspace) {
+			return []
+		}
+		const pathStart = folder ? `f/${folder}` : undefined
+		const scripts = await ScriptService.listScripts({
+			starredOnly: favoriteOnly,
+			workspace,
+			pathStart
+		})
+		return scripts.map((x) => x.path)
+	}
+
+	async function getFlows(favoriteOnly: boolean = false, workspace: string, folder: string | undefined) {
+		if (!workspace) {
+			return []
+		}
+		const pathStart = folder ? `f/${folder}` : undefined
+		const flows = await FlowService.listFlows({
+			starredOnly: favoriteOnly,
+			workspace,
+			pathStart
+		})
+		return flows.map((x) => x.path)
+	}
+
+	async function getScriptsAndFlows(favoriteOnly: boolean = false, workspace: string, folder: string | undefined) {
+		const cacheKey = `${workspace}-${favoriteOnly}${folder ? `-${folder}` : ''}`
+		if (runnablesCache.has(cacheKey)) {
+			includedRunnables = runnablesCache.get(cacheKey) || []
+			return
+		}
+
+		try {
+			loadingRunnables = true
+			const [scripts, flows] = await Promise.all([getScripts(favoriteOnly, workspace, folder), getFlows(favoriteOnly, workspace, folder)])
+			const combined = [...scripts, ...flows]
+			runnablesCache.set(cacheKey, combined)
+			includedRunnables = combined
+		} finally {
+			loadingRunnables = false
+		}
+	}
+
+	$effect(() => {
+		if (mcpCreationMode) {
+			const workspace = newTokenWorkspace || $workspaceStore
+			if (workspace) {
+				const folderParam = selectedFolder.length > 0 ? selectedFolder : undefined
+				getScriptsAndFlows(newMcpScope === 'favorites', workspace, folderParam)
+			}
+		} else {
+			includedRunnables = []
+		}
+	})
+
+	$effect(() => {
+		if (mcpCreationMode && newMcpScope !== 'folder') {
+			selectedFolder = ''
+		}
+	})
 </script>
 
 <div>
-	{#if newToken}
-		<div
-			class="border rounded-md mb-6 px-2 py-2 bg-green-50 dark:bg-green-200 dark:text-green-800 flex flex-row flex-wrap"
-		>
-			<div>
-				Added token: <button onclick={handleCopyClick} class="inline-flex gap-2 items-center">
-					{newToken}
-					<Clipboard size={12} />
-				</button>
-			</div>
-			<div class="pt-1 text-xs ml-2">
-				Make sure to copy your personal access token now. You won't be able to see it again!
-			</div>
-		</div>
-	{/if}
-
-	{#if newMcpToken}
-		<div
-			class="border rounded-md mb-6 px-2 py-2 bg-green-50 dark:bg-green-200 dark:text-green-800 flex flex-row flex-wrap"
-		>
-			<p class="text-sm mb-2">New MCP URL:</p>
-			<ClipboardPanel content={`${mcpBaseUrl}${newMcpToken}`} />
-			<p class="pt-1 text-xs">
-				Make sure to copy this URL now. You won't be able to see it again!
-			</p>
-		</div>
-	{/if}
-
 	<div class="py-3 px-3 border rounded-md mb-6 bg-surface-secondary min-w-min">
 		<h3 class="pb-3 font-semibold">Add a new token</h3>
 
 		{#if showMcpMode}
-			<div class="mb-4 flex flex-row flex-shrink-0">
-				<TriggerableByAI
-					id="account-settings-create-mcp-token"
-					description="Create a new MCP token to authenticate to the Windmill API"
-				>
-					<Toggle
-						on:change={(e) => {
-							mcpCreationMode = e.detail
-							if (e.detail) {
-								newTokenLabel = 'MCP token'
-								newTokenExpiration = undefined
-								newTokenWorkspace = $workspaceStore
-							} else {
-								newTokenLabel = undefined
-								newTokenExpiration = undefined
-								newTokenWorkspace = defaultNewTokenWorkspace
-							}
-						}}
-						checked={mcpCreationMode}
-						options={{
-							right: 'Generate MCP URL',
-							rightTooltip:
-								'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
-							rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
-						}}
-						size="xs"
-					/>
-				</TriggerableByAI>
+			<div
+				class="mb-4 flex flex-row flex-shrink-0"
+				use:triggerableByAI={{
+					id: 'account-settings-create-mcp-token',
+					description: 'Create a new MCP token to authenticate to the Windmill API'
+				}}
+			>
+				<Toggle
+					on:change={(e) => {
+						mcpCreationMode = e.detail
+						if (e.detail) {
+							newTokenLabel = 'MCP token'
+							newTokenExpiration = undefined
+							newTokenWorkspace = $workspaceStore
+						} else {
+							newTokenLabel = undefined
+							newTokenExpiration = undefined
+							newTokenWorkspace = defaultNewTokenWorkspace
+						}
+					}}
+					checked={mcpCreationMode}
+					options={{
+						right: 'Generate MCP URL',
+						rightTooltip:
+							'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
+						rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
+					}}
+					size="xs"
+				/>
 			</div>
 		{/if}
 
@@ -175,7 +250,27 @@
 			</div>
 		{/if}
 
-		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+		{#if !mcpCreationMode && (!scopes || scopes.length === 0)}
+			<div class="flex flex-col gap-2">
+				<Toggle
+					checked={showCustomScopes}
+					on:change={(e) => {
+						showCustomScopes = e.detail
+					}}
+					options={{
+						right: 'Limit token permissions',
+						rightTooltip:
+							'By default, tokens have full API access. Enable this to restrict the token to specific scopes.'
+					}}
+					size="xs"
+				/>
+				{#if showCustomScopes}
+					<ScopeSelector bind:selectedScopes={customScopes} />
+				{/if}
+			</div>
+		{/if}
+
+		<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
 			{#if mcpCreationMode}
 				<div>
 					<span class="block mb-1">Scope</span>
@@ -193,9 +288,22 @@
 								label="All scripts/flows"
 								tooltip="Make all your scripts and flows available as tools"
 							/>
+							<ToggleButton
+								{item}
+								value="folder"
+								label="Folder"
+								tooltip="Make all scripts and flows in the selected folder available as tools"
+							/>
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>
+
+				{#if newMcpScope === 'folder'}
+					<div>
+						<span class="block mb-1">Select Folder</span>
+						<FolderPicker bind:folderName={selectedFolder} />
+					</div>
+				{/if}
 
 				<div>
 					<span class="block mb-1">Hub scripts (optional)</span>
@@ -204,7 +312,12 @@
 					{:else if errorFetchApps}
 						<div>Error fetching apps</div>
 					{:else}
-						<!-- MultiSelectWrapper was confirmed not to be necessary : deleted -->
+						<MultiSelect
+							items={safeSelectItems(allApps)}
+							placeholder="Select apps"
+							bind:value={newMcpApps}
+							class="!bg-surface"
+						/>
 					{/if}
 				</div>
 
@@ -240,6 +353,46 @@
 					</select>
 				</div>
 			{/if}
+			{#if mcpCreationMode && (newMcpScope !== 'folder' || selectedFolder.length > 0)}
+			{#if loadingRunnables}
+				<div class="flex flex-col gap-2 col-span-2 pr-4">
+					<span class="block text-xs text-tertiary">Scripts & Flows that will be available via MCP</span>
+					<div class="flex flex-wrap gap-1">
+						<Badge rounded small color="dark-gray" baseClass="animate-skeleton">Loading...</Badge>
+					</div>
+				</div>
+			{:else}
+				<div class="flex flex-col gap-2 col-span-2 pr-4">
+					{#if noScriptsOrFlowsAvailableWarning}
+					<Alert type="info" title="No scripts or flows available" size="xs">
+						{noScriptsOrFlowsAvailableWarning}
+					</Alert>
+					{:else}
+						<span class="block text-xs text-tertiary">Scripts & Flows that will be available via MCP</span>
+						<div class="flex flex-wrap gap-1">
+
+						{#if includedRunnables.length <= 5}
+							{#each includedRunnables as scriptOrFlow}
+								<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+							{/each}
+						{:else}
+							{#each includedRunnables.slice(0, 3) as scriptOrFlow}
+								<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+							{/each}
+							<Badge 
+								rounded 
+								small 
+								color="dark-gray" 
+							>
+								+{includedRunnables.length - 3} more
+							</Badge>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/if}
+			{/if}
+
 		</div>
 
 		<div class="mt-4 flex justify-end gap-2 flex-row">
@@ -252,10 +405,18 @@
 			</Button>
 			<Button
 				on:click={() => createToken(mcpCreationMode)}
-				disabled={mcpCreationMode && newTokenWorkspace == undefined}
+				disabled={mcpCreationMode && (newTokenWorkspace == undefined || (newMcpScope === 'folder' && !selectedFolder))}
 			>
 				New token
 			</Button>
 		</div>
 	</div>
+
+	{#if newToken}
+		<TokenDisplay token={newToken} />
+	{/if}
+
+	{#if newMcpToken}
+		<TokenDisplay token={newMcpToken} mcpUrl={`${mcpBaseUrl}${newMcpToken}`} />
+	{/if}
 </div>

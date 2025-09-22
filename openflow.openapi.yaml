@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.500.2
+  version: 1.545.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -88,6 +88,16 @@ components:
               type: integer
               minimum: 0
               maximum: 100
+        retry_if:
+          $ref: "#/components/schemas/RetryIf"
+
+    RetryIf:
+      type: object
+      properties:
+        expr:
+          type: string
+      required:
+        - expr
 
     StopAfterIf:
       type: object
@@ -100,7 +110,7 @@ components:
           type: string
       required:
         - expr
-  
+
     FlowModule:
       type: object
       properties:
@@ -124,7 +134,7 @@ components:
         cache_ttl:
           type: number
         timeout:
-          type: number
+          $ref: "#/components/schemas/InputTransform"
         delete_after_use:
           type: boolean
         summary:
@@ -184,9 +194,9 @@ components:
         type:
           type: string
           enum:
-            - javascript
+            - static
       required:
-        - expr
+        - value
         - type
 
     JavascriptTransform:
@@ -212,6 +222,7 @@ components:
         - $ref: "#/components/schemas/BranchOne"
         - $ref: "#/components/schemas/BranchAll"
         - $ref: "#/components/schemas/Identity"
+        - $ref: "#/components/schemas/AiAgent"
       discriminator:
         propertyName: type
         mapping:
@@ -223,6 +234,7 @@ components:
           branchone: "#/components/schemas/BranchOne"
           branchall: "#/components/schemas/BranchAll"
           identity: "#/components/schemas/Identity"
+          aiagent: "#/components/schemas/AiAgent"
 
     RawScript:
       type: object
@@ -270,6 +282,28 @@ components:
           type: string
         is_trigger:
           type: boolean
+        assets:
+          type: array
+          items:
+            type: object
+            required:
+              - path
+              - kind
+            properties:
+              path:
+                type: string
+              kind:
+                type: string
+                enum:
+                  - s3object
+                  - resource
+                  - ducklake
+              access_type:
+                type: string
+                enum: [r, w, rw]
+              alt_access_type:
+                type: string
+                enum: [r, w, rw]
       required:
         - type
         - content
@@ -355,7 +389,7 @@ components:
         type:
           type: string
           enum:
-            - forloopflow
+            - whileloopflow
         parallel:
           type: boolean
         parallelism:
@@ -416,7 +450,6 @@ components:
                   $ref: "#/components/schemas/FlowModule"
             required:
               - modules
-              - expr
         type:
           type: string
           enum:
@@ -426,6 +459,28 @@ components:
       required:
         - branches
         - type
+
+    AiAgent:
+      type: object
+      properties:
+        input_transforms:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/InputTransform"
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowModule"
+        type:
+          type: string
+          enum:
+            - aiagent
+        parallel:
+          type: boolean
+      required:
+        - tools
+        - type
+        - input_transforms
 
     Identity:
       type: object
@@ -461,7 +516,6 @@ components:
               properties:
                 parent_module:
                   type: string
-
         retry:
           type: object
           properties:
@@ -515,6 +569,17 @@ components:
           type: array
           items:
             type: boolean
+        flow_jobs_duration:
+          type: object
+          properties:
+            started_at:
+              type: array
+              items:
+                type: string
+            duration_ms:
+              type: array
+              items:
+                type: integer
         branch_chosen:
           type: object
           properties:
@@ -554,4 +619,38 @@ components:
             format: uuid
         skipped:
           type: boolean
+        agent_actions:
+          type: array
+          items:
+            type: object
+            oneOf:
+              - type: object
+                properties:
+                  job_id:
+                    type: string
+                    format: uuid
+                  function_name:
+                    type: string
+                  type:
+                    type: string
+                    enum: [tool_call]
+                  module_id:
+                    type: string
+                required:
+                  - job_id
+                  - function_name
+                  - type
+                  - module_id
+              - type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [message]
+                required:
+                  - content
+                  - type
+        agent_actions_success:
+          type: array
+          items:
+            type: boolean
       required: [type]

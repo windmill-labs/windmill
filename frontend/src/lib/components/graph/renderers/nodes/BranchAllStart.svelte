@@ -15,7 +15,7 @@
 	let { data }: Props = $props()
 
 	let borderStatus = $derived(
-		computeBorderStatus(data.branchIndex, 'branchall', data.flowModuleStates?.[data.id])
+		computeBorderStatus(data.branchIndex, 'branchall', data.flowModuleState)
 	)
 </script>
 
@@ -40,9 +40,8 @@
 		{#if data.insertable}
 			<button
 				title="Delete branch"
-				class="z-50 absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] center-center text-primary
-	outline-[1px] outline outline-gray-700 bg-surface duration-0 hover:bg-red-400 hover:text-white
-	hover:border-red-700"
+				class="z-50 absolute -translate-y-[100%] top-1 -right-1 rounded-md p-1 center-center text-primary
+	bg-surface duration-0 hover:bg-red-400 hover:text-white shadow-md"
 				onclick={stopPropagation(
 					preventDefault(() => {
 						data.eventHandlers.deleteBranch(

@@ -5,11 +5,18 @@
 	import Toggle from '../Toggle.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
-	export let column: {
-		headerName: string
-		hideColumn: boolean
-		type: 'text' | 'badge' | 'link'
+	interface Props {
+		column: {
+			headerName: string
+			hideColumn: boolean
+			type: 'text' | 'badge' | 'link'
+		}
+		trigger?: import('svelte').Snippet
 	}
+
+	let { column = $bindable(), trigger }: Props = $props()
+
+	const trigger_render = $derived(trigger)
 </script>
 
 <Popover
@@ -21,10 +28,10 @@
 	closeButton
 	closeOnOtherPopoverOpen
 >
-	<svelte:fragment slot="trigger">
-		<slot name="trigger" />
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{#snippet trigger()}
+		{@render trigger_render?.()}
+	{/snippet}
+	{#snippet content()}
 		<div class="flex flex-col w-96 p-4 gap-4">
 			<span class="text-sm mb-2 leading-6 font-semibold">
 				Table Column
@@ -73,5 +80,5 @@
 				</Alert>
 			{/if}
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

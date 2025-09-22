@@ -48,7 +48,7 @@ use windmill_common::worker::{write_file, TMP_DIR};
 use windmill_common::flow_status::JobResult;
 use windmill_queue::CanceledBy;
 
-use crate::common::OccupancyMetrics;
+use crate::common::{OccupancyMetrics, StreamNotifier};
 use windmill_common::client::AuthedClient;
 
 #[cfg(feature = "deno_core")]
@@ -520,7 +520,7 @@ function get_from_env(name) {{
             .map(|a| { format!("let {a} = get_from_env(\"{a}\");\n",) })
             .join(""),
         if expr.contains("error") && transform_context.contains(&"previous_result".to_string()) {
-            "let error = previous_result.error"
+            "let error = previous_result.error;"
         } else {
             ""
         },
@@ -701,7 +701,7 @@ pub struct MainArgs {
 
 #[cfg(feature = "deno_core")]
 pub struct LogString {
-    pub s: String,
+    pub s: mpsc::UnboundedSender<String>,
 }
 
 #[cfg(feature = "deno_core")]
@@ -769,6 +769,7 @@ pub async fn eval_fetch_timeout(
     _w_id: &str,
     _load_client: bool,
     _occupation_metrics: &mut OccupancyMetrics,
+    _stream_notifier: Option<StreamNotifier>,
 ) -> anyhow::Result<Box<RawValue>> {
     use serde_json::value::to_raw_value;
     Ok(to_raw_value("require deno_core").unwrap())
@@ -790,11 +791,30 @@ pub async fn eval_fetch_timeout(
     w_id: &str,
     load_client: bool,
     occupation_metrics: &mut OccupancyMetrics,
+    stream_notifier: Option<StreamNotifier>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    use windmill_queue::append_logs;
-
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
+    let (append_logs_sender, mut append_logs_receiver) = mpsc::unbounded_channel::<String>();
+    let (result_stream_sender, mut result_stream_receiver) = mpsc::unbounded_channel::<String>();
 
+    let conn_ = conn.clone();
+    let w_id_ = w_id.to_string();
+    tokio::spawn(async move {
+        while let Some(log) = append_logs_receiver.recv().await {
+            windmill_queue::append_logs(&job_id, &w_id_, log, &conn_).await
+        }
+    });
+
+    let conn_ = conn.clone();
+    let w_id_ = w_id.to_string();
+    tokio::spawn(async move {
+        while let Some(stream) = result_stream_receiver.recv().await {
+            use crate::job_logger::append_result_stream;
+            if let Err(e) = append_result_stream(&conn_, &w_id_, &job_id, &stream).await {
+                tracing::error!("failed to append result stream: {e}");
+            }
+        }
+    });
     let parsed_args = windmill_parser_ts::parse_deno_signature(
         &ts_expr,
         true,
@@ -829,8 +849,6 @@ pub async fn eval_fetch_timeout(
         ));
     }
 
-    let conn_ = conn.clone();
-    let w_id_ = w_id.to_string();
     let result_f = tokio::task::spawn_blocking(move || {
         let ops = vec![op_get_static_args(), op_log()];
         let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
@@ -894,6 +912,8 @@ pub async fn eval_fetch_timeout(
             return y*2;
         });
 
+        let (log_sender, mut log_receiver) = mpsc::unbounded_channel::<String>();
+
         {
             let op_state = js_runtime.op_state();
             let mut op_state = op_state.borrow_mut();
@@ -901,7 +921,7 @@ pub async fn eval_fetch_timeout(
             //reqwest client seems to not be sharable between runtimes unfortunately
             // op_state.put(HTTP_CLIENT.clone());
             op_state.put(MainArgs { args: spread });
-            op_state.put(LogString { s: String::new() });
+            op_state.put(LogString { s: log_sender });
         }
 
         sender
@@ -913,23 +933,59 @@ pub async fn eval_fetch_timeout(
             .build()?;
 
         let future = async {
+            use crate::common::merge_result_stream;
+
+            if !extra_logs.is_empty() {
+                if let Err(e) = append_logs_sender.send(extra_logs) {
+                    tracing::error!("failed to send extra logs: {e}");
+                }
+            }
+            let handle = tokio::spawn(async move {
+                let mut result_stream = String::new();
+                let mut is_stream = false;
+                while let Some(log) = log_receiver.recv().await {
+                    use windmill_common::result_stream::extract_stream_from_logs;
+
+                    if let Some(stream) = extract_stream_from_logs(&log.trim_end_matches("\n")) {
+                        if let Some(sn) = stream_notifier.as_ref() {
+                            if !is_stream {
+                                is_stream = true;
+                                sn.update_flow_status_with_stream_job();
+                            }
+                        }
+
+                        result_stream.push_str(&stream);
+                        if let Err(e) = result_stream_sender.send(stream) {
+                            tracing::error!("failed to send result stream: {e}");
+                        }
+                    } else {
+                        if let Err(e) = append_logs_sender.send(log) {
+                            tracing::error!("failed to send log: {e}");
+                        }
+                    }
+                }
+                if !result_stream.is_empty() {
+                    Some(result_stream)
+                } else {
+                    None
+                }
+            });
+
             let r = tokio::select! {
                 r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), script_entrypoint_override, load_client, &job_id) => Ok(r),
                 _ = memory_limit_rx.recv() => Err(Error::ExecutionErr("Memory limit reached, killing isolate".to_string()))
             };
-
-            append_logs(
-                &job_id,
-                w_id_.as_str(),
-                format!(
-                    "{extra_logs}{}",
-                    js_runtime.op_state().borrow().borrow::<LogString>().s
-                ),
-                &conn_,
-            )
-            .await;
-
-            r
+            drop(js_runtime);
+            if let Ok(r) = r {
+                match handle.await {
+                    Ok(Some(logs)) => Ok(merge_result_stream(r, Some(logs)).await),
+                    Ok(None) => Ok(r),
+                    Err(e) => Err(Error::ExecutionErr(e.to_string())),
+                }
+            } else {
+                r
+            }
+            // r
         };
         let r = runtime.block_on(future)?;
         // tracing::info!("total: {:?}", instant.elapsed());
@@ -1039,8 +1095,46 @@ async fn eval_fetch(
             "<anon>",
             format!(
                 r#"
+function isAsyncIterable(obj) {{
+    // return true;    // TODO: remove this
+    return obj != null && typeof obj[Symbol.asyncIterator] === 'function';
+}}
+
+function processStreamIterative(res) {{
+    const iterator = res[Symbol.asyncIterator]();
+    
+    function processLoop() {{
+        return new Promise(function(resolve) {{
+            function step() {{
+                iterator.next().then(function(result) {{
+                    if (!result.done) {{
+                        const chunk = result.value;
+                        console.log("WM_STREAM: " + chunk.replace('\n', '\\n'));
+                        // Continue the loop
+                        step();
+                    }} else {{
+                        resolve("null");
+                    }}
+                }}).catch(function(error) {{
+                    resolve("null");
+                }});
+            }}
+            step();
+        }});
+    }}
+    
+    return processLoop();
+}}
+
 let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
-import("file:///eval.ts").then((module) => module.{main_override}(...args)).then(JSON.stringify)
+import("file:///eval.ts").then((module) => module.{main_override}(...args))
+    .then(res => {{
+        if (isAsyncIterable(res)) {{
+            return processStreamIterative(res)
+        }} else {{
+            return JSON.stringify(res ?? null);
+        }}
+    }})
 "#
             ),
         )
@@ -1120,11 +1214,14 @@ fn op_get_static_args(op_state: Rc<RefCell<OpState>>) -> Vec<Option<String>> {
 #[op2(fast)]
 fn op_log(op_state: Rc<RefCell<OpState>>, #[string] log: &str) {
     // tracing::error!("log: |{}|", log);
-    op_state
+    if let Err(e) = op_state
         .borrow_mut()
         .borrow_mut::<LogString>()
         .s
-        .push_str(log);
+        .send(log.to_string())
+    {
+        tracing::error!("failed to send log: {e}");
+    }
 }
 
 #[cfg(feature = "deno_core")]

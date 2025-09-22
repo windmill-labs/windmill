@@ -10,15 +10,22 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Loader2 } from 'lucide-svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import SimpleEditor from '../../SimpleEditor.svelte'
 
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore } = $state(getContext<FlowEditorContext>('FlowEditorContext'))
 
-	export let drawer: Drawer | undefined
+	interface Props {
+		drawer: Drawer | undefined
+	}
 
-	let code = ''
+	let { drawer = $bindable() }: Props = $props()
+
+	let code = $state('')
+	let editor = $state(undefined) as SimpleEditor | undefined
 
 	function reload() {
 		code = YAML.stringify(filteredContentForExport(flowStore.val))
+		editor?.setCode(code)
 	}
 
 	function apply() {
@@ -46,10 +53,13 @@
 			flowStore.val.schema = parsed.schema
 			flowStore.val.tag = parsed.tag
 			refreshStateStore(flowStore)
+			sendUserToast('Changes applied')
 		} catch (e) {
 			sendUserToast('Error parsing yaml: ' + e), true
 		}
 	}
+
+	let editorHeight = $state(0)
 </script>
 
 <Drawer on:open={reload} bind:this={drawer} size="800px">
@@ -63,7 +73,15 @@
 			{#await import('../../SimpleEditor.svelte')}
 				<Loader2 class="animate-spin" />
 			{:then Module}
-				<Module.default autoHeight bind:code lang="yaml" />
+				<div class="h-full w-full overflow-hidden" bind:clientHeight={editorHeight}>
+					<Module.default
+						bind:this={editor}
+						autoHeight
+						minHeight={editorHeight}
+						bind:code
+						lang="yaml"
+					/>
+				</div>
 			{/await}
 		{/if}
 	</DrawerContent>

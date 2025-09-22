@@ -380,7 +380,6 @@ impl PyV {
 
         if output.status.success() {
             let res = String::from_utf8(output.stdout)?;
-            tracing::error!("{}", &res);
             let list = serde_json::from_str::<Vec<serde_json::Map<String, Value>>>(&res)?
                 .into_iter()
                 .filter_map(|e| {
@@ -639,7 +638,7 @@ impl PyV {
                 );
         }
 
-        let child_process = start_child_process(child_cmd, "uv").await?;
+        let child_process = start_child_process(child_cmd, "uv", false).await?;
 
         append_logs(&job_id, &w_id, logs, conn).await;
         handle_child(
@@ -656,8 +655,10 @@ impl PyV {
             false,
             occupancy_metrics,
             None,
+            None,
         )
-        .await
+        .await?;
+        Ok(())
     }
     async fn find_python(&self) -> error::Result<Option<String>> {
         #[cfg(windows)]

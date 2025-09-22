@@ -5,11 +5,10 @@
 	const componentDraggedParentIdStore = writable<string | undefined>(undefined)
 	const overlappedStore = writable<string | undefined>(undefined)
 	const fakeShadowStore = writable<GridShadow | undefined>(undefined)
-	const isCtrlOrMetaPressedStore = writable<boolean>(false)
 </script>
 
 <script lang="ts">
-	import { columnConfiguration, WIDE_GRID_COLUMNS } from '../gridUtils'
+	import { columnConfiguration, moveMode, WIDE_GRID_COLUMNS } from '../gridUtils'
 
 	import gridHelp from './utils/helper'
 	import type { AppViewerContext, GridItem } from '../types'
@@ -17,7 +16,7 @@
 
 	import { getContainerHeight } from './utils/container'
 	import { moveItem, getItemById, specifyUndefinedColumns } from './utils/item'
-	import { onMount, createEventDispatcher, getContext } from 'svelte'
+	import { onMount, getContext } from 'svelte'
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
@@ -34,8 +33,6 @@
 		subGridIndexKey,
 		type GridShadow
 	} from '../editor/appUtils'
-
-	const dispatch = createEventDispatcher()
 
 	type T = $$Generic
 
@@ -56,6 +53,20 @@
 		parentWidth?: number | undefined
 		disableMove?: boolean
 		children?: import('svelte').Snippet<[any]>
+		onDropped?: (e: { id: string; overlapped: string | undefined; x: number; y: number }) => void
+		onRedraw?: (grid: FilledItem<T>[]) => void
+		onResize?: (e: {
+			cols: number
+			xPerPx: number
+			yPerPx: number
+			width: number | undefined
+		}) => void
+		onMounted?: (e: {
+			cols: number
+			xPerPx: number
+			yPerPx: number
+			width: number | undefined
+		}) => void
 	}
 
 	let {
@@ -72,7 +83,11 @@
 		root = false,
 		parentWidth = undefined,
 		disableMove = false,
-		children
+		children,
+		onDropped,
+		onRedraw,
+		onResize,
+		onMounted
 	}: Props = $props()
 	const cols = columnConfiguration
 
@@ -84,10 +99,10 @@
 	let xPerPx = $state(0)
 	let yPerPx = rowHeight
 
-	const onResize = throttle(() => {
+	const onResizeThrottled = throttle(() => {
 		if (!getComputedCols) return
 		sortedItems = specifyUndefinedColumns(sortedItems, getComputedCols, cols)
-		dispatch('resize', {
+		onResize?.({
 			cols: getComputedCols,
 			xPerPx,
 			yPerPx,
@@ -117,13 +132,14 @@
 				if (!containerWidth && getComputedCols) {
 					sortedItems = specifyUndefinedColumns(sortedItems, getComputedCols, cols)
 
-					dispatch('mount', {
+					onMounted?.({
 						cols: getComputedCols,
 						xPerPx,
-						yPerPx // same as rowHeight
+						yPerPx,
+						width
 					})
 				} else {
-					onResize()
+					onResizeThrottled()
 				}
 
 				containerWidth = width
@@ -141,9 +157,9 @@
 	let resizing: boolean = $state(false)
 
 	function handleKeyUp(event) {
-		if ((event.key === 'Control' || event.key === 'Meta') && $isCtrlOrMetaPressedStore) {
+		if ((event.key === 'Control' || event.key === 'Meta') && root && $moveMode === 'insert') {
 			setTimeout(() => {
-				$isCtrlOrMetaPressedStore = false
+				$moveMode = 'move'
 
 				$fakeShadowStore = undefined
 			}, 50)
@@ -163,8 +179,7 @@
 				})
 			: []
 	}
-	const updateMatrix = ({ detail }) => {
-		let isPointerUp = detail.isPointerUp
+	const updateMatrix = ({ isPointerUp, id, activate }) => {
 		let citems: FilledItem<T>[]
 		if (isPointerUp) {
 			if (initItems == undefined) {
@@ -180,8 +195,8 @@
 			citems = smartCopy(initItems)
 		}
 		let nselectedIds = selectedIds ?? []
-		if (detail.id && !selectedIds?.includes(detail.id)) {
-			nselectedIds = [detail.id, ...(selectedIds ?? [])]
+		if (id && !selectedIds?.includes(id)) {
+			nselectedIds = [id, ...(selectedIds ?? [])]
 		}
 		for (let id of nselectedIds) {
 			let activeItem = getItemById(id, citems)
@@ -195,7 +210,7 @@
 					}
 				}
 
-				if ($isCtrlOrMetaPressedStore) {
+				if ($moveMode === 'insert') {
 					if ($componentDraggedParentIdStore === $overlappedStore) {
 						const fixedContainer = citems.map((item) => {
 							if (isContainer(item.data['type'])) {
@@ -236,13 +251,13 @@
 		}
 
 		for (let id of nselectedIds ?? []) {
-			if (detail.activate) {
+			if (activate) {
 				moveResizes?.[id]?.inActivate()
 			}
 		}
 
 		if (isPointerUp && getComputedCols) {
-			dispatch('redraw', sortGridItemsPosition(smartCopy(sortedItems), getComputedCols))
+			onRedraw?.(sortGridItemsPosition(smartCopy(sortedItems), getComputedCols))
 		}
 	}
 
@@ -260,11 +275,11 @@
 		  }
 		| undefined = $state(undefined)
 
-	const handleRepaint = ({ detail }) => {
-		if (!detail.isPointerUp) {
-			throttleMatrix({ detail })
+	const handleRepaint = ({ isPointerUp, id, activate }) => {
+		if (!isPointerUp) {
+			throttleMatrix({ isPointerUp, id, activate })
 		} else {
-			updateMatrix({ detail })
+			updateMatrix({ isPointerUp, id, activate })
 		}
 
 		/**
@@ -278,13 +293,12 @@
 	}
 
 	function handleKeyDown(event) {
-		if ((event.key === 'Control' || event.key === 'Meta') && !$isCtrlOrMetaPressedStore) {
+		if ((event.key === 'Control' || event.key === 'Meta') && $moveMode === 'move' && root) {
 			if (resizing) {
 				return
 			}
 
-			$isCtrlOrMetaPressedStore = true
-
+			$moveMode = 'insert'
 			if (lastDetail) {
 				throttleMatrix({ detail: lastDetail })
 				lastDetail = undefined
@@ -313,7 +327,7 @@
 		lastDetail = detail
 		throttleMatrix({ detail: { isPointerUp: false, activate: false } })
 
-		if (!$isCtrlOrMetaPressedStore) {
+		if ($moveMode === 'move') {
 			$overlappedStore = undefined
 			return
 		}
@@ -394,8 +408,8 @@
 
 <svelte:window
 	onfocus={() => {
-		if ($isCtrlOrMetaPressedStore) {
-			$isCtrlOrMetaPressedStore = false
+		if ($moveMode === 'insert') {
+			$moveMode = 'move'
 		}
 	}}
 	onkeydown={handleKeyDown}
@@ -410,7 +424,7 @@
 	data-xperpx={xPerPx}
 >
 	<!-- ROOT SHADOW-->
-	{#if $isCtrlOrMetaPressedStore && root && $overlappedStore !== $componentDraggedParentIdStore}
+	{#if $moveMode === 'insert' && root && $overlappedStore !== $componentDraggedParentIdStore}
 		<div
 			class={twMerge(
 				'absolute inset-0  flex-col rounded-md bg-blue-100 dark:bg-gray-800 bg-opacity-50',
@@ -451,7 +465,7 @@
 	{#if xPerPx > 0 && getComputedCols}
 		{#each sortedItems as item (item.id)}
 			{#if item[getComputedCols] != undefined}
-				{#if $isCtrlOrMetaPressedStore && item.id === $overlappedStore && $componentDraggedIdStore && $componentDraggedParentIdStore !== item.id && $fakeShadowStore}
+				{#if $moveMode === 'insert' && item.id === $overlappedStore && $componentDraggedIdStore && $componentDraggedParentIdStore !== item.id && $fakeShadowStore}
 					{@const columnGap = gapX}
 					<!-- gap between the columns in px -->
 					{@const containerBorder = 0.5 * 16}
@@ -490,30 +504,29 @@
 				{/if}
 				<MoveResize
 					{mounted}
-					on:initmove={() => handleInitMove(item.id)}
+					onInitMove={() => handleInitMove(item.id)}
 					onMove={handleMove}
 					bind:shadow={shadows[item.id]}
 					bind:this={moveResizes[item.id]}
-					on:repaint={handleRepaint}
-					on:resizeStart={() => (resizing = true)}
-					on:resizeEnd={() => (resizing = false)}
+					onRepaint={handleRepaint}
+					onResizeStart={() => (resizing = true)}
+					onResizeEnd={() => (resizing = false)}
 					onTop={Boolean(allIdsInPath?.includes(item.id))}
 					id={item.id}
 					{xPerPx}
 					{yPerPx}
 					fakeShadow={$fakeShadowStore}
-					on:dropped={(e) => {
+					onDropped={({ id, overlapped, x, y }) => {
 						$componentDraggedIdStore = undefined
 						$componentDraggedParentIdStore = undefined
 						$overlappedStore = undefined
 						$fakeShadowStore = undefined
 						lastDetail = undefined
 
-						if (!$isCtrlOrMetaPressedStore) {
+						if ($moveMode === 'move') {
 							return
 						}
-
-						dispatch('dropped', e.detail)
+						onDropped?.({ id, overlapped, x, y })
 					}}
 					width={xPerPx == 0
 						? 0
@@ -530,7 +543,6 @@
 					container={scroller}
 					nativeContainer={container}
 					overlapped={$overlappedStore}
-					moveMode={$isCtrlOrMetaPressedStore ? 'insert' : 'move'}
 					type={item.data['type']}
 					{disableMove}
 				>
@@ -539,7 +551,6 @@
 							dataItem: item,
 							hidden: false,
 							overlapped: $overlappedStore,
-							moveMode: $isCtrlOrMetaPressedStore ? 'insert' : 'move',
 							componentDraggedId: $componentDraggedIdStore
 						})}
 					{/if}

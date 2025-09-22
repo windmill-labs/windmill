@@ -1,20 +1,16 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
 	import { Button } from './common'
-	import DBManagerDrawerButton from './DBManagerDrawerButton.svelte'
 	import { Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { isDbType } from './apps/components/display/dbtable/utils'
 	import Select from './select/Select.svelte'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-
-	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
+	import DbManagerDrawer from './DBManagerDrawer.svelte'
+	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 
 	interface Props {
 		initialValue?: string | undefined
@@ -28,6 +24,8 @@
 		expressOAuthSetup?: boolean
 		defaultValues?: Record<string, any> | undefined
 		placeholder?: string | undefined
+		onClear?: () => void
+		excludedValues?: string[]
 	}
 
 	let {
@@ -41,7 +39,9 @@
 		selectFirst = false,
 		expressOAuthSetup = false,
 		defaultValues = undefined,
-		placeholder = undefined
+		placeholder = undefined,
+		onClear = undefined,
+		excludedValues = undefined
 	}: Props = $props()
 
 	if (initialValue && value == undefined) {
@@ -71,7 +71,9 @@
 		if (value === undefined) {
 			if (initialValue) {
 				console.log('initialValue', initialValue)
-				value = initialValue
+				if (initialValue != value) {
+					value = initialValue
+				}
 			} else {
 				console.log('no value')
 			}
@@ -104,6 +106,7 @@
 			const nc = resources
 				.flat()
 				.filter((x) => x.resource_type != 'state' && x.resource_type != 'cache')
+				.filter((x) => !excludedValues || !excludedValues.includes(x.path))
 				.map((x) => ({
 					value: x.path,
 					label: x.path,
@@ -115,7 +118,7 @@
 				nc.push({ value: value ?? initialValue!, label: value ?? initialValue!, type: '' })
 			}
 			collection = nc
-			if (collection.length == 1 && selectFirst && value == undefined) {
+			if (collection.length == 1 && selectFirst && (value == undefined || value == '')) {
 				console.log('selectFirst', collection[0].value)
 				value = collection[0].value
 				valueType = collection[0].type
@@ -127,16 +130,29 @@
 		loading = false
 	}
 
+	let previousResourceType = resourceType
+
 	$effect(() => {
-		$workspaceStore && loadResources(resourceType)
+		$workspaceStore && resourceType
+		untrack(() => {
+			if (previousResourceType != resourceType) {
+				previousResourceType = resourceType
+				value = undefined
+			}
+		})
+		untrack(() => loadResources(resourceType))
 	})
 
 	$effect(() => {
-		dispatchIfMounted('change', value)
+		excludedValues
+		if ($workspaceStore && resourceType && !disabled) {
+			untrack(() => loadResources(resourceType))
+		}
 	})
 
 	let appConnect: AppConnect | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
+	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 </script>
 
 <AppConnect
@@ -177,7 +193,7 @@
 					initialValue = undefined
 					value = undefined
 					valueType = undefined
-					dispatch('clear')
+					onClear?.()
 				}}
 				items={collection}
 				clearable
@@ -243,7 +259,13 @@
 			iconOnly
 		/>
 	</div>
-	{#if showSchemaExplorer && isDbType(resourceType) && value}
-		<DBManagerDrawerButton {resourceType} resourcePath={value} />
+	{#if showSchemaExplorer && value && assetCanBeExplored({ kind: 'resource', path: value }, { resource_type: resourceType })}
+		<ExploreAssetButton
+			_resourceMetadata={{ resource_type: resourceType }}
+			asset={{ kind: 'resource', path: value }}
+			{dbManagerDrawer}
+		/>
 	{/if}
 </div>
+
+<DbManagerDrawer bind:this={dbManagerDrawer} />

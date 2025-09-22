@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { preventDefault, stopPropagation } from 'svelte/legacy'
+
 	import { Button } from '$lib/components/common'
 	import { GripVertical, Loader2, Plus, X } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
@@ -9,13 +11,27 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'
 	import RefreshDatabaseStudioTable from './RefreshDatabaseStudioTable.svelte'
+	import { findGridItem } from '$lib/components/apps/editor/appUtils'
+	import type { AppViewerContext } from '$lib/components/apps/types'
 
-	export let componentInput: StaticInput<any[]> & { loading?: boolean }
-	export let subFieldType: InputType | undefined = undefined
-	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
-	export let id: string | undefined
+	interface Props {
+		componentInput: StaticInput<any[]> & { loading?: boolean }
+		subFieldType?: InputType | undefined
+		selectOptions?: StaticOptions['selectOptions'] | undefined
+		id: string | undefined
+	}
 
-	let items: ReturnType<typeof getItems> = []
+	let {
+		componentInput = $bindable(),
+		subFieldType = undefined,
+		selectOptions = undefined,
+		id
+	}: Props = $props()
+
+	const appContext = getContext<AppViewerContext>('AppViewerContext')
+	const { app, selectedComponent } = appContext || {}
+
+	let items: ReturnType<typeof getItems> = $state([])
 	items = getItems(componentInput)
 
 	const dispatch = createEventDispatcher()
@@ -169,14 +185,39 @@
 				})
 			}
 		}
+		componentInput.value = $state.snapshot(componentInput.value)
 		componentInput = componentInput
 		items = getItems(componentInput)
 	}
 
-	function deleteElementByType(index: number) {
+	async function updateConfiguration() {
+		if (selectedComponent && id) {
+			$selectedComponent = undefined
+			await tick()
+			$selectedComponent = [id]
+		}
+	}
+
+	async function deleteElementByType(index: number) {
 		if (componentInput.value) {
+			const item = componentInput.value[index]
+			// If deleting actions column, clear all table actions
+			if (subFieldType === 'ag-grid' && item && item._isActionsColumn === true) {
+				const gridItem = id ? findGridItem($app, id) : null
+				if (gridItem && (
+					gridItem.data.type === 'aggridcomponent' ||
+					gridItem.data.type === 'aggridcomponentee' ||
+					gridItem.data.type === 'aggridinfinitecomponent' ||
+					gridItem.data.type === 'aggridinfinitecomponentee'
+				) && Array.isArray(gridItem.data.actions)) {
+					gridItem.data.actions.length = 0
+				}
+				await updateConfiguration()
+				return
+			}
+
 			componentInput.value.splice(index, 1)
-			items.splice(index, 1) // Add this
+			items.splice(index, 1)
 			items = items
 			componentInput.value = componentInput.value
 			dispatch('deleteArrayItem', { index })
@@ -212,17 +253,21 @@
 		}
 	}
 
-	$: subFieldType === 'db-explorer' && clearTableOnComponentReset(componentInput?.value)
-
-	$: items != undefined && handleItemsChange()
-
 	function handleItemsChange() {
 		componentInput.value = items.map((item) => item.value).filter((item) => item != undefined)
 	}
 
-	let raw: boolean = false
+	let raw: boolean = $state(false)
 
-	let refreshCount = 0
+	let refreshCount = $state(0)
+	$effect(() => {
+		subFieldType === 'db-explorer' && clearTableOnComponentReset(componentInput?.value)
+	})
+	$effect(() => {
+		items != undefined && handleItemsChange()
+	})
+
+	const rnd = generateRandomString()
 </script>
 
 <div class="flex gap-2 flex-col mt-2 w-full">
@@ -272,14 +317,15 @@
 				use:dragHandleZone={{
 					items,
 					flipDurationMs,
-					dropTargetStyle: {}
+					dropTargetStyle: {},
+					type: rnd
 				}}
-				on:consider={handleConsider}
-				on:finalize={handleFinalize}
+				onconsider={handleConsider}
+				onfinalize={handleFinalize}
 			>
 				{#each items as item, index (item.id)}
 					<div class="border-0 outline-none w-full">
-						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+						<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 
 						<div class="flex flex-row gap-2 items-center relative my-1 w-full">
 							<div class="grow min-w-0">
@@ -293,7 +339,7 @@
 							</div>
 
 							<div class="flex justify-between flex-col items-center">
-								<!-- svelte-ignore a11y-no-static-element-interactions -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
 								<div class="w-4 h-4 cursor-move handle" use:dragHandle>
 									<GripVertical size={16} />
 								</div>
@@ -301,7 +347,7 @@
 									<button
 										class="z-10 rounded-full p-1 duration-200 hover:bg-surface-hover"
 										aria-label="Remove item"
-										on:click|preventDefault|stopPropagation={() => deleteElementByType(index)}
+										onclick={stopPropagation(preventDefault(() => deleteElementByType(index)))}
 									>
 										<X size={14} />
 									</button>
@@ -339,7 +385,6 @@
 					} else if (subFieldType === 'ag-grid') {
 						componentInput.value.push({ field: detail, headerName: detail, flex: 1 })
 					}
-					componentInput = componentInput
 
 					if (componentInput.value) {
 						let value = componentInput.value[componentInput.value.length - 1]
@@ -350,6 +395,8 @@
 							})
 						}
 					}
+					componentInput.value = $state.snapshot(componentInput.value)
+					componentInput = componentInput
 				}}
 			/>
 		{/if}

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use itertools::Itertools;
 
 use serde_json::json;
-use windmill_parser::{json_to_typ, Arg, MainArgSignature, Typ};
+use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectType, Typ};
 
 use rustpython_parser::{
     ast::{
@@ -19,6 +19,9 @@ use rustpython_parser::{
     },
     Parse,
 };
+
+pub mod asset_parser;
+pub use asset_parser::parse_assets;
 
 const FUNCTION_CALL: &str = "<function call>";
 
@@ -125,7 +128,7 @@ pub fn parse_python_signature(
                         && default.is_some()
                         && default != Some(json!(FUNCTION_CALL))
                     {
-                        typ = json_to_typ(default.as_ref().unwrap());
+                        typ = json_to_typ(default.as_ref().unwrap(), false);
                     }
 
                     // if the type is still a list of unknowns after checking the default, we set it to a list of strings to not break past behavior
@@ -223,7 +226,7 @@ fn parse_typ(id: &str) -> Typ {
         "float" => Typ::Float,
         "int" => Typ::Int,
         "bool" => Typ::Bool,
-        "dict" => Typ::Object(vec![]),
+        "dict" => Typ::Object(ObjectType::new(None, Some(vec![]))),
         "list" => Typ::List(Box::new(Typ::Unknown)),
         "bytes" => Typ::Bytes,
         "datetime" => Typ::Datetime,
@@ -231,6 +234,9 @@ fn parse_typ(id: &str) -> Typ {
         "Sql" | "sql" => Typ::Sql,
         x @ _ if x.starts_with("DynSelect_") => {
             Typ::DynSelect(x.strip_prefix("DynSelect_").unwrap().to_string())
+        }
+        x @ _ if x.starts_with("DynMultiselect_") => {
+            Typ::DynMultiselect(x.strip_prefix("DynMultiselect_").unwrap().to_string())
         }
         _ => Typ::Resource(map_resource_name(id)),
     }

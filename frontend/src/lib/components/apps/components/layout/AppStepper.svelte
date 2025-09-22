@@ -60,7 +60,7 @@
 	let tabHeight: number = $state(0)
 	let footerHeight: number = $state(0)
 	let runnableComponent: RunnableComponent | undefined = $state()
-	let selectedIndex = $state(tabs?.indexOf(selected) ?? -1)
+	let selectedIndex = $state(tabs?.indexOf(untrack(() => selected)) ?? -1)
 	let maxReachedIndex = $state(-1)
 	let statusByStep = $state([] as Array<'success' | 'error' | 'pending'>)
 	let debugMode: boolean = false
@@ -169,8 +169,13 @@
 {/each}
 
 <InitializeComponent {id} />
+
+{#snippet nonRenderedPlaceholder()}
+	{#each tabs ?? [] as _res, i}
+		<SubGridEditor {id} visible={false} subGridId={`${id}-${i}`} />
+	{/each}
+{/snippet}
 <RunnableWrapper
-	hasChildrens
 	{recomputeIds}
 	{render}
 	bind:runnableComponent
@@ -183,6 +188,7 @@
 	{outputs}
 	bind:result
 	errorHandledByComponent={true}
+	{nonRenderedPlaceholder}
 >
 	{#if everRender}
 		<div class="w-full overflow-auto">
@@ -214,7 +220,7 @@
 							class={twMerge(css?.container?.class, 'wm-stepper')}
 							style={css?.container?.style}
 							containerHeight={componentContainerHeight - tabHeight - footerHeight}
-							on:focus={() => {
+							onFocus={() => {
 								if (!$connectingInput.opened) {
 									$selectedComponent = [id]
 									handleTabSelection()
@@ -285,8 +291,6 @@
 			{/if}
 		</div>
 	{:else if $app.subgrids}
-		{#each tabs ?? [] as _res, i}
-			<SubGridEditor {id} visible={false} subGridId={`${id}-${i}`} />
-		{/each}
+		{@render nonRenderedPlaceholder?.()}
 	{/if}
 </RunnableWrapper>

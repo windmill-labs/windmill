@@ -6,8 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::collections::HashMap;
-
 use crate::ai::{AIConfig, AI_REQUEST_CACHE};
 use crate::db::ApiAuthed;
 use crate::users_oss::send_email_if_possible;
@@ -29,25 +27,30 @@ use chrono::Utc;
 
 use regex::Regex;
 
+use hex;
+use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use uuid::Uuid;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::variables::{build_crypt, decrypt, encrypt};
-use windmill_common::worker::to_raw_value;
+use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
+#[cfg(feature = "enterprise")]
+use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
-#[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceGitSyncSettings;
+use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
     utils::{paginate, rd_string, require_admin, Pagination},
 };
-use windmill_git_sync::handle_deployment_metadata;
+use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
@@ -98,7 +101,12 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
+        .route("/edit_instance_groups", post(edit_instance_groups))
         .route("/edit_deploy_to", post(edit_deploy_to))
+        .route(
+            "/get_secondary_storage_names",
+            get(get_secondary_storage_names),
+        )
         .route("/tarball", get(crate::workspaces_export::tarball_workspace))
         .route("/is_premium", get(is_premium))
         .route("/edit_copilot_config", post(edit_copilot_config))
@@ -108,7 +116,14 @@ pub fn workspaced_service() -> Router {
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
         )
+        .route("/edit_ducklake_config", post(edit_ducklake_config))
+        .route("/list_ducklakes", get(list_ducklakes))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
+        .route("/edit_git_sync_repository", post(edit_git_sync_repository))
+        .route(
+            "/delete_git_sync_repository",
+            delete(delete_git_sync_repository),
+        )
         .route("/edit_deploy_ui_config", post(edit_deploy_ui_config))
         .route("/edit_default_app", post(edit_default_app))
         .route("/default_app", get(get_default_app))
@@ -157,6 +172,7 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/create", post(create_workspace))
+        .route("/create_fork", post(create_workspace_fork))
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
@@ -179,6 +195,7 @@ struct Workspace {
     deleted: bool,
     premium: bool,
     color: Option<String>,
+    parent_workspace_id: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -221,6 +238,8 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ducklake: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub git_sync: Option<serde_json::Value>, // effectively: WorkspaceGitSyncSettings
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_ui: Option<serde_json::Value>, // effectively: WorkspaceDeploymentUISettings
@@ -236,22 +255,17 @@ pub struct WorkspaceSettings {
     pub operator_settings: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_app_installations: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_add_instance_groups: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_add_instance_groups_roles: Option<serde_json::Value>,
 }
 
-#[derive(FromRow, Serialize, Debug)]
-pub struct Usage {
-    pub workspace_id: String,
-    pub slack_team_id: Option<String>,
-    pub slack_name: Option<String>,
-    pub slack_command_script: Option<String>,
-    pub slack_email: String,
-}
-
-#[derive(sqlx::Type, Serialize, Deserialize, Debug)]
-#[sqlx(type_name = "WORKSPACE_KEY_KIND", rename_all = "lowercase")]
-pub enum WorkspaceKeyKind {
-    Cloud,
-}
+// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
+// #[sqlx(type_name = "WORKSPACE_KEY_KIND", rename_all = "lowercase")]
+// pub enum WorkspaceKeyKind {
+//     Cloud,
+// }
 
 #[derive(Deserialize)]
 struct EditCommandScript {
@@ -297,9 +311,19 @@ struct LargeFileStorageWithSecondary {
     secondary_storage: HashMap<String, LargeFileStorage>,
 }
 
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DucklakeSettings {
+    pub ducklakes: HashMap<String, Ducklake>,
+}
+
 #[derive(Deserialize, Debug)]
 struct EditLargeFileStorageConfig {
     large_file_storage: Option<LargeFileStorageWithSecondary>,
+}
+
+#[derive(Deserialize, Debug)]
+struct EditDucklakeConfig {
+    settings: DucklakeSettings,
 }
 
 #[derive(Deserialize)]
@@ -308,6 +332,15 @@ struct CreateWorkspace {
     name: String,
     username: Option<String>,
     color: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CreateWorkspaceFork {
+    id: String,
+    name: String,
+    username: Option<String>,
+    color: Option<String>,
+    parent_workspace_id: String,
 }
 
 #[derive(Deserialize)]
@@ -329,6 +362,7 @@ struct UserWorkspace {
     pub username: String,
     pub color: Option<String>,
     pub operator_settings: Option<Option<serde_json::Value>>,
+    pub parent_workspace_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -364,6 +398,10 @@ pub struct EditErrorHandler {
     pub error_handler_muted_on_cancel: Option<bool>,
 }
 
+lazy_static::lazy_static! {
+    pub static ref EMAIL_REGEXP: Regex = Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+}
+
 async fn list_pending_invites(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -373,7 +411,14 @@ async fn list_pending_invites(
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as!(
         WorkspaceInvite,
-        "SELECT * from workspace_invite WHERE workspace_id = $1",
+        "SELECT
+            workspace_invite.workspace_id,
+            workspace_invite.email,
+            workspace_invite.is_admin,
+            workspace_invite.operator,
+            workspace.parent_workspace_id
+        FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id
+        WHERE workspace_id = $1",
         w_id
     )
     .fetch_all(&mut *tx)
@@ -389,7 +434,9 @@ async fn is_premium(
 ) -> JsonResult<bool> {
     require_admin(authed.is_admin, &authed.username)?;
     #[cfg(feature = "cloud")]
-    let premium = windmill_common::workspaces::is_premium_workspace(&_db, &_w_id).await;
+    let premium = windmill_common::workspaces::get_team_plan_status(&_db, &_w_id)
+        .await
+        .premium;
     #[cfg(not(feature = "cloud"))]
     let premium = false;
     Ok(Json(premium))
@@ -419,7 +466,7 @@ async fn list_workspaces(
     let mut tx = user_db.begin(&authed).await?;
     let workspaces = sqlx::query_as!(
         Workspace,
-        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color
+        "SELECT workspace.id, workspace.name, workspace.owner, workspace.deleted, workspace.premium, workspace_settings.color, workspace.parent_workspace_id
          FROM workspace
          LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          JOIN usr ON usr.workspace_id = workspace.id
@@ -440,15 +487,53 @@ async fn get_settings(
     let mut tx = user_db.begin(&authed).await?;
     let settings = sqlx::query_as!(
         WorkspaceSettings,
-        "SELECT workspace_id, slack_team_id, teams_team_id, teams_team_name, slack_name, slack_command_script, teams_command_script, slack_email, auto_invite_domain, auto_invite_operator, auto_add, customer_id, plan, webhook, deploy_to, ai_config, error_handler, error_handler_extra_args, error_handler_muted_on_cancel, large_file_storage, git_sync, deploy_ui, default_app, default_scripts, mute_critical_alerts, color, operator_settings, git_app_installations FROM workspace_settings WHERE workspace_id = $1",
+        r#"
+        SELECT
+            workspace_id,
+            slack_team_id,
+            teams_team_id,
+            teams_team_name,
+            slack_name,
+            slack_command_script,
+            teams_command_script,
+            slack_email,
+            auto_invite_domain,
+            auto_invite_operator,
+            auto_add,
+            customer_id,
+            plan,
+            webhook,
+            deploy_to,
+            ai_config,
+            error_handler,
+            error_handler_extra_args,
+            error_handler_muted_on_cancel,
+            large_file_storage,
+            ducklake,
+            git_sync,
+            deploy_ui,
+            default_app,
+            default_scripts,
+            mute_critical_alerts,
+            color,
+            operator_settings,
+            git_app_installations,
+            auto_add_instance_groups,
+            auto_add_instance_groups_roles
+        FROM
+            workspace_settings
+        WHERE
+            workspace_id = $1
+        "#,
         &w_id
     )
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("getting settings: {e:#}")))?;
-    tx.commit().await?;
-    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
 
+    tx.commit().await?;
+
+    let settings = not_found_if_none(settings, "workspace settings", &w_id)?;
     Ok(Json(settings))
 }
 
@@ -580,6 +665,21 @@ async fn run_slack_message_test_job(
     }))
 }
 
+async fn get_secondary_storage_names(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    let result: Vec<String> = sqlx::query_scalar!(
+        "SELECT jsonb_object_keys(large_file_storage->'secondary_storage') AS \"secondary_storage_name!: _\"
+        FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+    Ok(Json(result))
+}
+
 #[cfg(feature = "enterprise")]
 async fn edit_deploy_to(
     authed: ApiAuthed,
@@ -617,6 +717,17 @@ async fn edit_deploy_to(
     .await?;
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings { setting_type: "deploy_to".to_string() },
+        None,
+        false,
+    )
+    .await?;
+
     Ok(format!("Edit deploy to for {}", &w_id))
 }
 
@@ -628,6 +739,8 @@ async fn edit_deploy_to() -> Result<String> {
 }
 
 pub const BANNED_DOMAINS: &str = include_str!("../banned_domains.txt");
+pub const WM_FORK_PREFIX: &str = "wm-fork-";
+pub const MAX_CUSTOM_PROMPT_LENGTH: usize = 5000;
 
 async fn is_allowed_auto_domain(ApiAuthed { email, .. }: ApiAuthed) -> JsonResult<bool> {
     let domain = email.split('@').last().unwrap();
@@ -641,6 +754,28 @@ async fn edit_auto_invite(
     Json(ea): Json<EditAutoInvite>,
 ) -> Result<String> {
     crate::workspaces_oss::edit_auto_invite(authed, db, w_id, ea).await
+}
+
+#[cfg(feature = "private")]
+async fn edit_instance_groups(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(config): Json<crate::workspaces_ee::EditInstanceGroups>,
+) -> Result<String> {
+    crate::workspaces_ee::edit_instance_groups(authed, db, w_id, config).await
+}
+
+#[cfg(not(feature = "private"))]
+async fn edit_instance_groups(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
+    Json(_config): Json<serde_json::Value>,
+) -> Result<String> {
+    Err(Error::BadRequest(
+        "Instance groups are only available on Windmill Enterprise Edition".to_string(),
+    ))
 }
 
 async fn edit_webhook(
@@ -682,6 +817,17 @@ async fn edit_webhook(
     .await?;
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings { setting_type: "webhook".to_string() },
+        None,
+        false,
+    )
+    .await?;
+
     Ok(format!("Edit webhook for workspace {}", &w_id))
 }
 
@@ -693,6 +839,20 @@ async fn edit_copilot_config(
     Json(ai_config): Json<AIConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
+
+    // Validate custom prompts length
+    if let Some(ref custom_prompts) = ai_config.custom_prompts {
+        for (mode, prompt) in custom_prompts.iter() {
+            if prompt.len() > MAX_CUSTOM_PROMPT_LENGTH {
+                return Err(Error::BadRequest(format!(
+                    "Custom prompt for mode '{}' exceeds maximum length of {} characters (current: {})",
+                    mode,
+                    MAX_CUSTOM_PROMPT_LENGTH,
+                    prompt.len()
+                )));
+            }
+        }
+    }
 
     let mut tx = db.begin().await?;
 
@@ -722,6 +882,18 @@ async fn edit_copilot_config(
     .await?;
     tx.commit().await?;
 
+    // Trigger git sync for AI config changes
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings { setting_type: "ai_config".to_string() },
+        Some("AI configuration updated".to_string()),
+        false,
+    )
+    .await?;
+
     Ok(format!("Edit copilot config for workspace {}", &w_id))
 }
 
@@ -750,6 +922,8 @@ async fn get_copilot_info(
             providers: None,
             default_model: None,
             code_completion_model: None,
+            custom_prompts: None,
+            max_tokens_per_model: None,
         }))
     }
 }
@@ -799,16 +973,202 @@ async fn edit_large_file_storage_config(
     }
     tx.commit().await?;
 
+    // Trigger git sync for large file storage changes
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings {
+            setting_type: "large_file_storage".to_string(),
+        },
+        Some("Large file storage configuration updated".to_string()),
+        false,
+    )
+    .await?;
+
     Ok(format!(
         "Edit large file storage config for workspace {}",
         &w_id
     ))
 }
 
+async fn list_ducklakes(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    let ducklakes = sqlx::query_scalar!(
+        r#"
+            SELECT jsonb_object_keys(ws.ducklake->'ducklakes') AS ducklake_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .filter_map(|s| s)
+    .collect();
+
+    Ok(Json(ducklakes))
+}
+
+async fn edit_ducklake_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<EditDucklakeConfig>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    let args_for_audit = format!("{:?}", new_config.settings);
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_ducklake_config",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("ducklake", args_for_audit.as_str())].into()),
+    )
+    .await?;
+
+    // Check that all ducklake catalog resources exist to prevent
+    // exploiting the shared property to see any resource
+    for dl in new_config.settings.ducklakes.values() {
+        if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
+            continue;
+        }
+        let catalog_res = sqlx::query_scalar!(
+            "SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2",
+            &w_id,
+            &dl.catalog.resource_path
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .flatten();
+
+        if catalog_res.is_none() {
+            return Err(Error::BadRequest(format!(
+                "Ducklake catalog resource {} not found in workspace {}",
+                dl.catalog.resource_path, &w_id
+            )));
+        }
+    }
+
+    let config: serde_json::Value = serde_json::to_value(new_config.settings)
+        .map_err(|err| Error::internal_err(err.to_string()))?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET ducklake = $1 WHERE workspace_id = $2",
+        config,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!("Edit ducklake config for workspace {}", &w_id))
+}
+
 #[derive(Deserialize)]
 pub struct EditGitSyncConfig {
     #[cfg(feature = "enterprise")]
     pub git_sync_settings: Option<WorkspaceGitSyncSettings>,
+}
+
+#[cfg(feature = "enterprise")]
+#[derive(Deserialize, Debug)]
+pub struct EditGitSyncRepository {
+    pub git_repo_resource_path: String,
+    pub repository: GitRepositorySettings,
+}
+
+#[cfg(feature = "enterprise")]
+#[derive(Deserialize, Debug)]
+pub struct DeleteGitSyncRepositoryRequest {
+    pub git_repo_resource_path: String,
+}
+
+#[cfg(feature = "enterprise")]
+fn validate_git_repo_resource_path(path: &str) -> Result<()> {
+    // Resource paths should follow the pattern: $res:f/<folder>/<name> or $res:u/<username>/<name>
+    if path.is_empty() {
+        return Err(Error::BadRequest(
+            "Resource path cannot be empty".to_string(),
+        ));
+    }
+
+    // Must start with $res: prefix
+    if !path.starts_with("$res:") {
+        return Err(Error::BadRequest(
+            "Resource path must start with '$res:'".to_string(),
+        ));
+    }
+
+    // Extract the actual path after $res:
+    let actual_path = &path[5..]; // Remove "$res:" prefix
+
+    // Basic validation: must start with f/ or u/ and contain at least one slash
+    if !actual_path.starts_with("f/") && !actual_path.starts_with("u/") {
+        return Err(Error::BadRequest(
+            "Resource path must start with '$res:f/' or '$res:u/'".to_string(),
+        ));
+    }
+
+    // Must have at least 3 parts (type, folder/user, name)
+    let parts: Vec<&str> = actual_path.split('/').collect();
+    if parts.len() < 3 || parts.iter().any(|part| part.is_empty()) {
+        return Err(Error::BadRequest(
+            "Invalid resource path format".to_string(),
+        ));
+    }
+
+    // Resource name validation (last part)
+    let resource_name = parts.last().unwrap();
+    if !resource_name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(Error::BadRequest(
+            "Resource name can only contain alphanumeric characters, underscores, and hyphens"
+                .to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "enterprise")]
+fn cleanup_legacy_git_sync_settings_in_memory(
+    git_sync_settings: &mut windmill_common::workspaces::WorkspaceGitSyncSettings,
+    workspace_id: &str,
+) {
+    // Check if all repositories are in new format (have settings field)
+    let all_repos_migrated = git_sync_settings
+        .repositories
+        .iter()
+        .all(|repo| repo.settings.is_some());
+
+    // If all repos are migrated and we still have legacy workspace-level settings
+    if all_repos_migrated
+        && (git_sync_settings.include_path.is_some() || git_sync_settings.include_type.is_some())
+    {
+        tracing::info!(
+            workspace_id = workspace_id,
+            "All git sync repositories migrated to new format, cleaning up legacy workspace-level settings"
+        );
+
+        // Remove workspace-level legacy fields
+        git_sync_settings.include_path = None;
+        git_sync_settings.include_type = None;
+    }
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -847,7 +1207,10 @@ async fn edit_git_sync_config(
     )
     .await?;
 
-    if let Some(git_sync_settings) = new_config.git_sync_settings {
+    if let Some(mut git_sync_settings) = new_config.git_sync_settings {
+        // Clean up legacy workspace-level settings if all repos are migrated
+        cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
+
         let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
             .map_err(|err| Error::internal_err(err.to_string()))?;
 
@@ -866,14 +1229,268 @@ async fn edit_git_sync_config(
         .execute(&mut *tx)
         .await?;
     }
+
     tx.commit().await?;
+
+    // Trigger git sync for git sync settings changes
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings { setting_type: "git_sync".to_string() },
+        Some("Git sync configuration updated".to_string()),
+        false,
+    )
+    .await?;
 
     Ok(format!("Edit git sync config for workspace {}", &w_id))
 }
 
+#[cfg(not(feature = "enterprise"))]
+async fn edit_git_sync_repository(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
+    Json(_new_config): Json<serde_json::Value>,
+) -> Result<String> {
+    return Err(Error::BadRequest(
+        "Git sync is only available on Windmill Enterprise Edition".to_string(),
+    ));
+}
+
+#[cfg(feature = "enterprise")]
+async fn edit_git_sync_repository(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(new_config): Json<EditGitSyncRepository>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    // Validate the resource path format
+    validate_git_repo_resource_path(&new_config.git_repo_resource_path)?;
+
+    let mut tx = db.begin().await?;
+
+    // First, get the current git sync settings
+    let current_settings = sqlx::query!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let mut git_sync_settings = if let Some(row) = current_settings {
+        if let Some(git_sync) = row.git_sync {
+            serde_json::from_value::<WorkspaceGitSyncSettings>(git_sync)
+                .map_err(|err| Error::internal_err(err.to_string()))?
+        } else {
+            WorkspaceGitSyncSettings::default()
+        }
+    } else {
+        WorkspaceGitSyncSettings::default()
+    };
+
+    // Audit log before we move the repository
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_git_sync_repository",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some(
+            [
+                (
+                    "repository_path",
+                    new_config.git_repo_resource_path.as_str(),
+                ),
+                ("repository_data", &format!("{:?}", new_config.repository)),
+            ]
+            .into(),
+        ),
+    )
+    .await?;
+
+    // Check if repository exists before modifying
+    let repo_exists = git_sync_settings
+        .repositories
+        .iter()
+        .any(|repo| repo.git_repo_resource_path == new_config.git_repo_resource_path);
+
+    // Find and update the specific repository, or add it if it doesn't exist
+    let repo_found = git_sync_settings
+        .repositories
+        .iter_mut()
+        .find(|repo| repo.git_repo_resource_path == new_config.git_repo_resource_path);
+
+    if let Some(existing_repo) = repo_found {
+        // Update existing repository
+        *existing_repo = new_config.repository;
+    } else {
+        // Repository doesn't exist, add it as a new repository
+        git_sync_settings.repositories.push(new_config.repository);
+    }
+
+    // Clean up legacy workspace-level settings if all repos are migrated
+    cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
+
+    // Save the updated configuration
+    let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
+        .map_err(|err| Error::internal_err(err.to_string()))?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+        serialized_config,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    // Trigger git sync for individual repository update/add
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings { setting_type: "git_sync".to_string() },
+        Some(format!(
+            "Git sync repository '{}' {}",
+            new_config.git_repo_resource_path,
+            if repo_exists { "updated" } else { "added" }
+        )),
+        false,
+    )
+    .await?;
+
+    Ok(format!(
+        "{} git sync repository '{}' for workspace {}",
+        if repo_exists { "Updated" } else { "Added" },
+        new_config.git_repo_resource_path,
+        &w_id
+    ))
+}
+
+#[cfg(not(feature = "enterprise"))]
+async fn delete_git_sync_repository(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Path(_w_id): Path<String>,
+    Json(_request): Json<serde_json::Value>,
+) -> Result<String> {
+    return Err(Error::BadRequest(
+        "Git sync is only available on Windmill Enterprise Edition".to_string(),
+    ));
+}
+
+#[cfg(feature = "enterprise")]
+async fn delete_git_sync_repository(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(request): Json<DeleteGitSyncRepositoryRequest>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    // For deletion, only validate that path is not empty to allow cleanup of malformed entries
+    if request.git_repo_resource_path.is_empty() {
+        return Err(Error::BadRequest(
+            "Resource path cannot be empty".to_string(),
+        ));
+    }
+
+    let mut tx = db.begin().await?;
+
+    // First, get the current git sync settings
+    let current_settings = sqlx::query!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let mut git_sync_settings = if let Some(row) = current_settings {
+        if let Some(git_sync) = row.git_sync {
+            serde_json::from_value::<WorkspaceGitSyncSettings>(git_sync)
+                .map_err(|err| Error::internal_err(err.to_string()))?
+        } else {
+            WorkspaceGitSyncSettings::default()
+        }
+    } else {
+        WorkspaceGitSyncSettings::default()
+    };
+
+    // Check if repository exists and remove it
+    let original_count = git_sync_settings.repositories.len();
+    git_sync_settings
+        .repositories
+        .retain(|repo| repo.git_repo_resource_path != request.git_repo_resource_path);
+
+    if git_sync_settings.repositories.len() == original_count {
+        return Err(Error::BadRequest(format!(
+            "Repository with path '{}' not found in git sync configuration",
+            request.git_repo_resource_path
+        )));
+    }
+
+    // Audit log
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.delete_git_sync_repository",
+        ActionKind::Delete,
+        &w_id,
+        Some(&authed.email),
+        Some([("repository_path", request.git_repo_resource_path.as_str())].into()),
+    )
+    .await?;
+
+    // Clean up legacy workspace-level settings if all repos are migrated
+    cleanup_legacy_git_sync_settings_in_memory(&mut git_sync_settings, &w_id);
+
+    // Save the updated configuration
+    let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
+        .map_err(|err| Error::internal_err(err.to_string()))?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+        serialized_config,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    // Trigger git sync for repository deletion
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings { setting_type: "git_sync".to_string() },
+        Some(format!(
+            "Git sync repository '{}' deleted",
+            request.git_repo_resource_path
+        )),
+        false,
+    )
+    .await?;
+
+    Ok(format!(
+        "Deleted git sync repository '{}' from workspace {}",
+        request.git_repo_resource_path, &w_id
+    ))
+}
+
+#[cfg(feature = "enterprise")]
 #[derive(Debug, Deserialize)]
 struct EditDeployUIConfig {
-    #[cfg(feature = "enterprise")]
     deploy_ui_settings: Option<WorkspaceDeploymentUISettings>,
 }
 
@@ -995,6 +1612,18 @@ async fn edit_default_scripts(
     }
     tx.commit().await?;
 
+    // Trigger git sync for default scripts changes
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings { setting_type: "default_scripts".to_string() },
+        Some("Default scripts configuration updated".to_string()),
+        false,
+    )
+    .await?;
+
     Ok(format!("Edit default scripts for workspace {}", &w_id))
 }
 
@@ -1065,6 +1694,18 @@ async fn edit_default_app(
     }
     tx.commit().await?;
 
+    // Trigger git sync for default app changes
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings { setting_type: "default_app".to_string() },
+        Some("Default app configuration updated".to_string()),
+        false,
+    )
+    .await?;
+
     Ok(format!("Edit default app for workspace {}", &w_id))
 }
 
@@ -1112,8 +1753,46 @@ async fn edit_error_handler(
     .await?;
 
     if let Some(error_handler) = &ee.error_handler {
+        match ee.error_handler_extra_args.as_ref() {
+            Some(extra_args) if extra_args.is_object() => {
+                let Ok(email_recipients) = serde_json::from_value::<Option<Vec<String>>>(
+                    extra_args["email_recipients"].to_owned(),
+                ) else {
+                    return Err(Error::BadRequest(
+                        "Field `email_recipients` expected to be JSON array".to_string(),
+                    ));
+                };
+
+                if let Some(email_recipients) = email_recipients {
+                    for email in email_recipients {
+                        if !EMAIL_REGEXP.is_match(&email) {
+                            return Err(Error::BadRequest(format!(
+                                "Invalid email format: {}",
+                                email
+                            )));
+                        }
+                    }
+                }
+            }
+            None => {}
+            _ => {
+                return Err(Error::BadRequest(
+                    "Field `error_handler_extra_args` expected to be JSON object".to_string(),
+                ))
+            }
+        }
+
         sqlx::query!(
-            "UPDATE workspace_settings SET error_handler = $1, error_handler_extra_args = $2, error_handler_muted_on_cancel = $3 WHERE workspace_id = $4",
+            r#"
+            UPDATE
+                workspace_settings
+            SET
+                error_handler = $1,
+                error_handler_extra_args = $2,
+                error_handler_muted_on_cancel = $3
+            WHERE
+                workspace_id = $4
+            "#,
             error_handler,
             ee.error_handler_extra_args,
             ee.error_handler_muted_on_cancel.unwrap_or(false),
@@ -1123,12 +1802,22 @@ async fn edit_error_handler(
         .await?;
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET error_handler = NULL, error_handler_extra_args = NULL WHERE workspace_id = $1",
-            &w_id,
+            r#"
+            UPDATE
+                workspace_settings
+            SET
+                error_handler = NULL,
+                error_handler_extra_args = NULL,
+                error_handler_muted_on_cancel = NULL
+            WHERE
+                workspace_id = $1
+        "#,
+            &w_id
         )
         .execute(&mut *tx)
         .await?;
     }
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1140,6 +1829,18 @@ async fn edit_error_handler(
     )
     .await?;
     tx.commit().await?;
+
+    // Trigger git sync for error handler changes
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings { setting_type: "error_handler".to_string() },
+        Some("Error handler configuration updated".to_string()),
+        false,
+    )
+    .await?;
 
     Ok(format!("Edit error_handler for workspace {}", &w_id))
 }
@@ -1182,6 +1883,7 @@ async fn set_environment_variable(
             )
             .await?;
             tx.commit().await?;
+
             Ok(format!("Set environment variable {}", name))
         }
         None => {
@@ -1204,6 +1906,7 @@ async fn set_environment_variable(
             )
             .await?;
             tx.commit().await?;
+
             Ok(format!("Deleted environment variable {}", name))
         }
     }
@@ -1262,6 +1965,8 @@ async fn set_encryption_key(
     .execute(&db)
     .await?;
 
+    WORKSPACE_CRYPT_CACHE.remove(w_id.as_str());
+
     if !request.skip_reencrypt.unwrap_or(false) {
         let new_encryption_key = build_crypt(&db, w_id.as_str()).await?;
 
@@ -1284,7 +1989,13 @@ async fn set_encryption_key(
             if !variable.is_secret {
                 continue;
             }
-            let decrypted_value = decrypt(&previous_encryption_key, variable.value)?;
+            let decrypted_value =
+                decrypt(&previous_encryption_key, variable.value).map_err(|e| {
+                    Error::internal_err(format!(
+                        "Error decrypting variable {}: {}",
+                        variable.path, e
+                    ))
+                })?;
             let new_encrypted_value = encrypt(&new_encryption_key, decrypted_value.as_str());
             sqlx::query!(
                 "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
@@ -1296,6 +2007,18 @@ async fn set_encryption_key(
             .await?;
         }
     }
+
+    // Trigger git sync for encryption key changes
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Key { key_type: "encryption_key".to_string() },
+        Some("Encryption key updated".to_string()),
+        false,
+    )
+    .await?;
 
     return Ok(());
 }
@@ -1310,6 +2033,7 @@ struct UsedTriggers {
     pub mqtt_used: bool,
     pub sqs_used: bool,
     pub gcp_used: bool,
+    pub email_used: bool,
 }
 
 async fn get_used_triggers(
@@ -1329,7 +2053,8 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM postgres_trigger WHERE workspace_id = $1) AS "postgres_used!",
             EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!",
             EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!",
-            EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!"
+            EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!",
+            EXISTS(SELECT 1 FROM email_trigger WHERE workspace_id = $1) AS "email_used!"
         "#,
         w_id
     )
@@ -1359,7 +2084,8 @@ async fn list_workspaces_as_super_admin(
             workspace.owner AS \"owner!\",
             workspace.deleted AS \"deleted!\",
             workspace.premium AS \"premium!\",
-            workspace_settings.color AS \"color\"
+            workspace_settings.color AS \"color\",
+            workspace.parent_workspace_id AS \"parent_workspace_id\"
         FROM workspace
         LEFT JOIN workspace_settings ON workspace.id = workspace_settings.workspace_id
          LIMIT $1 OFFSET $2",
@@ -1379,7 +2105,7 @@ async fn user_workspaces(
     let mut tx = db.begin().await?;
     let workspaces = sqlx::query_as!(
         UserWorkspace,
-        "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color,
+        "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
                 CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings
          FROM workspace
          JOIN usr ON usr.workspace_id = workspace.id
@@ -1453,6 +2179,21 @@ async fn create_workspace(
 
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
+
+    if *CLOUD_HOSTED {
+        let nb_workspaces = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM workspace WHERE owner = $1",
+            authed.email
+        )
+        .fetch_one(&db)
+        .await?;
+        if nb_workspaces.unwrap_or(0) >= 10 {
+            return Err(Error::BadRequest(
+                "You have reached the maximum number of workspaces (10) on cloud. Contact support@windmill.dev to increase the limit"
+                    .to_string(),
+            ));
+        }
+    }
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
@@ -1595,6 +2336,638 @@ async fn create_workspace(
     .await?;
     tx.commit().await?;
     Ok(format!("Created workspace {}", &nw.id))
+}
+
+async fn clone_workspace_data(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    // Clone workspace settings (merge with existing basic settings)
+    update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone workspace environment variables
+    clone_workspace_env(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone folders
+    clone_folders(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone groups
+    clone_groups(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone resource types
+    clone_resource_types(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone resources
+    clone_resources(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone variables with re-encryption
+    clone_variables(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone scripts with new hashes
+    clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone flows with new versions
+    clone_flows(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone flow nodes
+    clone_flow_nodes(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone apps with new IDs and app scripts
+    let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone raw apps
+    clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
+
+    // Clone workspace runnable dependencies and dependency map
+    clone_workspace_dependencies(tx, source_workspace_id, target_workspace_id).await?;
+
+    Ok(())
+}
+
+async fn update_workspace_settings(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO workspace_key (workspace_id, kind, key)
+        SELECT $2, kind, key FROM workspace_key WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"
+        UPDATE workspace_settings
+        SET
+            deploy_to = $1,
+            ai_config = source_ws.ai_config,
+            large_file_storage = source_ws.large_file_storage,
+            git_app_installations = source_ws.git_app_installations
+        FROM workspace_settings source_ws
+        WHERE source_ws.workspace_id = $1
+        AND workspace_settings.workspace_id = $2
+        "#,
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    let current_git_sync_settings = sqlx::query!(
+        "SELECT git_sync FROM workspace_settings WHERE workspace_id = $1",
+        source_workspace_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let mut git_sync_settings = if let Some(row) = current_git_sync_settings {
+        if let Some(git_sync) = row.git_sync {
+            serde_json::from_value::<WorkspaceGitSyncSettings>(git_sync)
+                .map_err(|err| Error::internal_err(err.to_string()))?
+        } else {
+            WorkspaceGitSyncSettings::default()
+        }
+    } else {
+        WorkspaceGitSyncSettings::default()
+    };
+
+    // We only keep the first git sync repo, since it is considered the main one
+    // Context: see WIN-1559
+    git_sync_settings.repositories.truncate(1);
+
+    let serialized_config = serde_json::to_value::<WorkspaceGitSyncSettings>(git_sync_settings)
+        .map_err(|err| Error::internal_err(err.to_string()))?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+        serialized_config,
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_workspace_env(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO workspace_env (workspace_id, name, value)
+         SELECT $2, name, value
+         FROM workspace_env
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_folders(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, edited_at, created_by)
+         SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, created_by
+         FROM folder
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_groups(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms)
+         SELECT $2, name, summary, extra_perms
+         FROM group_
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_resource_types(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at, created_by, format_extension)
+         SELECT $2, name, schema, description, edited_at, created_by, format_extension
+         FROM resource_type
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_resources(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, edited_at, created_by)
+         SELECT $2, path, value, description, resource_type, extra_perms, edited_at, created_by
+         FROM resource
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_variables(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at)
+         SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at
+         FROM variable
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_scripts(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    // Clone all scripts directly with a single query
+    sqlx::query!(
+        r#"INSERT INTO script (
+            workspace_id, hash, path, parent_hashes, summary, description, content,
+            created_by, created_at, archived, schema, deleted, is_template,
+            extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,
+            envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
+            dedicated_worker, ws_error_handler_muted, priority, timeout,
+            delete_after_use, restart_unless_cancelled, concurrency_key,
+            visible_to_runner_only, no_main_func, codebase, has_preprocessor,
+            on_behalf_of_email, assets
+        )
+        SELECT
+            $1, hash, path, parent_hashes, summary, description, content,
+            created_by, created_at, archived, schema, deleted, is_template,
+            extra_perms, lock, lock_error_logs, language, kind, tag, draft_only,
+            envs, concurrent_limit, concurrency_time_window_s, cache_ttl,
+            dedicated_worker, ws_error_handler_muted, priority, timeout,
+            delete_after_use, restart_unless_cancelled, concurrency_key,
+            visible_to_runner_only, no_main_func, codebase, has_preprocessor,
+            on_behalf_of_email, assets
+        FROM script
+        WHERE workspace_id = $2"#,
+        target_workspace_id,
+        source_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_flows(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    // First, clone flows without versions
+    sqlx::query!(
+        "INSERT INTO flow (
+            workspace_id, path, summary, description, value, edited_by, edited_at,
+            archived, schema, extra_perms, dependency_job, draft_only, tag,
+            ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
+            concurrency_key, versions, on_behalf_of_email, lock_error_logs
+        )
+        SELECT $2, path, summary, description, value, edited_by, edited_at,
+               archived, schema, extra_perms, NULL, draft_only, tag,
+               ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,
+               concurrency_key, ARRAY[]::bigint[], on_behalf_of_email, lock_error_logs
+        FROM flow
+        WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Then clone flow versions
+    let flow_versions = sqlx::query!(
+        "SELECT id, workspace_id, path, value, schema, created_by, created_at 
+         FROM flow_version 
+         WHERE workspace_id = $1 
+         ORDER BY path, created_at",
+        source_workspace_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for version in flow_versions {
+        let new_version_id = sqlx::query_scalar!(
+            "INSERT INTO flow_version (workspace_id, path, value, schema, created_by, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING id",
+            target_workspace_id,
+            version.path,
+            version.value,
+            version.schema,
+            version.created_by,
+            version.created_at,
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        // Update flow to include this version
+        sqlx::query!(
+            "UPDATE flow
+             SET versions = array_append(versions, $1)
+             WHERE workspace_id = $2 AND path = $3",
+            new_version_id,
+            target_workspace_id,
+            version.path,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn clone_flow_nodes(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO flow_node (workspace_id, hash, path, lock, code, flow, hash_v2)
+         SELECT $2,
+                (SELECT COALESCE(MAX(hash), 0) FROM flow_node) + row_number() OVER () AS new_hash,
+                source_fn.path, source_fn.lock, source_fn.code, source_fn.flow, source_fn.hash_v2
+         FROM flow_node source_fn
+         WHERE source_fn.workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_apps(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<HashMap<i64, i64>> {
+    // Get all apps from source workspace
+    let apps = sqlx::query!(
+        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path 
+         FROM app 
+         WHERE workspace_id = $1",
+        source_workspace_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let mut app_id_mapping: HashMap<i64, i64> = HashMap::new();
+
+    // Clone apps with new IDs
+    for app in apps {
+        let new_app_id = sqlx::query_scalar!(
+            "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             RETURNING id",
+            target_workspace_id,
+            app.path,
+            app.summary,
+            app.policy,
+            &Vec::<i64>::new(), // Start with empty versions array
+            app.extra_perms,
+            app.draft_only,
+            app.custom_path,
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+
+        app_id_mapping.insert(app.id, new_app_id);
+    }
+
+    // Clone app versions
+    let app_versions = sqlx::query!(
+        "SELECT app_id, value, created_by, created_at, raw_app
+         FROM app_version 
+         WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)
+         ORDER BY app_id, created_at",
+        source_workspace_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for version in app_versions {
+        if let Some(&new_app_id) = app_id_mapping.get(&version.app_id) {
+            sqlx::query!(
+                "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
+                 VALUES ($1, $2, $3, $4, $5)",
+                new_app_id,
+                version.value,
+                version.created_by,
+                version.created_at,
+                version.raw_app,
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    // Update app versions arrays
+    sqlx::query!(
+        "UPDATE app SET versions = (
+            SELECT array_agg(av.id ORDER BY av.created_at)
+            FROM app_version av 
+            WHERE av.app_id = app.id
+        ) WHERE workspace_id = $1",
+        target_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Clone app scripts with recomputed hashes
+    let app_scripts = sqlx::query!(
+        "SELECT app, hash, lock, code, code_sha256 
+         FROM app_script 
+         WHERE app = ANY(SELECT id FROM app WHERE workspace_id = $1)",
+        source_workspace_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    for app_script in app_scripts {
+        if let Some(&new_app_id) = app_id_mapping.get(&app_script.app) {
+            // Recompute hash using app_id, code_sha256, and lock
+            let mut hasher = Sha256::new();
+            hasher.update(new_app_id.to_be_bytes());
+            hasher.update(hex::decode(&app_script.code_sha256)?);
+            if let Some(lock) = &app_script.lock {
+                hasher.update(lock.as_bytes());
+            }
+            let new_hash = hex::encode(hasher.finalize());
+
+            sqlx::query!(
+                "INSERT INTO app_script (app, hash, lock, code, code_sha256)
+                 VALUES ($1, $2, $3, $4, $5)",
+                new_app_id,
+                new_hash,
+                app_script.lock,
+                app_script.code,
+                app_script.code_sha256,
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    Ok(app_id_mapping)
+}
+
+async fn clone_raw_apps(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO raw_app (path, version, workspace_id, summary, edited_at, data, extra_perms)
+         SELECT path, version, $2, summary, edited_at, data, extra_perms
+         FROM raw_app 
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_workspace_dependencies(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    // Clone workspace_runnable_dependencies
+    sqlx::query!(
+        "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, script_hash, runnable_is_flow, workspace_id, app_path)
+         SELECT flow_path, runnable_path, script_hash, runnable_is_flow, $1, app_path
+         FROM workspace_runnable_dependencies
+         WHERE workspace_id = $2",
+        target_workspace_id,
+        source_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Clone dependency_map to preserve import relationships
+    sqlx::query!(
+        "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id)
+         SELECT $1, importer_path, importer_kind, imported_path, importer_node_id
+         FROM dependency_map
+         WHERE workspace_id = $2",
+        target_workspace_id,
+        source_workspace_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn create_workspace_fork(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(nw): Json<CreateWorkspaceFork>,
+) -> Result<String> {
+    // if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
+    //     require_super_admin(&db, &authed.email).await?;
+    // }
+
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest(format!(
+            "Forking workspaces is not available on Cloud"
+        )));
+    }
+
+    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+
+    // Generate unique forked workspace ID with wm-fork prefix
+    if !nw.id.starts_with(WM_FORK_PREFIX) {
+        return Err(Error::BadRequest(format!(
+            "The id `{}` is invalid for a forked workspace. It should be prefixed by {}",
+            nw.id, WM_FORK_PREFIX
+        )));
+    }
+
+    let forked_id = nw.id;
+
+    // Determine username early so we can use it in workspace creation
+    let automate_username_creation = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        AUTOMATE_USERNAME_CREATION_SETTING,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .map(|v| v.as_bool())
+    .flatten()
+    .unwrap_or(false);
+
+    let username = if automate_username_creation {
+        if nw.username.is_some() && nw.username.unwrap().len() > 0 {
+            return Err(Error::BadRequest(
+                "username is not allowed when username creation is automated".to_string(),
+            ));
+        }
+        get_instance_username_or_create_pending(&mut tx, &authed.email).await?
+    } else {
+        nw.username
+            .ok_or(Error::BadRequest("username is required".to_string()))?
+    };
+
+    sqlx::query!(
+        "INSERT INTO workspace
+            (id, name, owner, parent_workspace_id)
+            VALUES ($1, $2, $3, $4)",
+        forked_id,
+        nw.name,
+        authed.email,
+        nw.parent_workspace_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO workspace_settings
+            (workspace_id, color)
+            VALUES ($1, $2)",
+        forked_id,
+        nw.color,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO usr
+            (workspace_id, email, username, is_admin)
+            VALUES ($1, $2, $3, $4)",
+        forked_id,
+        authed.email,
+        username,
+        authed.is_admin,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Clone all data from the parent workspace using Rust implementation
+    clone_workspace_data(&mut tx, &nw.parent_workspace_id, &forked_id).await?;
+
+    sqlx::query!(
+        "INSERT INTO workspace_invite (workspace_id, email, is_admin, operator)
+           SELECT $1, email, is_admin, operator
+           FROM usr
+         WHERE workspace_id = $2",
+        &forked_id,
+        &nw.parent_workspace_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.create_fork",
+        ActionKind::Create,
+        &forked_id,
+        Some(nw.name.as_str()),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("Created forked workspace {}", &forked_id))
 }
 
 async fn edit_workspace(
@@ -2019,6 +3392,18 @@ async fn change_workspace_name(
 
     tx.commit().await?;
 
+    // Trigger git sync for workspace name changes
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings { setting_type: "workspace_name".to_string() },
+        Some(format!("Workspace name updated to {}", &rw.new_name)),
+        false,
+    )
+    .await?;
+
     Ok(format!("updated workspace name to {}", &rw.new_name))
 }
 
@@ -2041,6 +3426,17 @@ async fn change_workspace_color(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings { setting_type: "workspace_color".to_string() },
+        None,
+        false,
+    )
+    .await?;
 
     Ok(format!(
         "updated workspace color to {}",
@@ -2120,10 +3516,10 @@ pub struct MuteCriticalAlertRequest {
 async fn mute_critical_alerts(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Json(m_r): Json<MuteCriticalAlertRequest>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     let mute_alerts = m_r.mute_critical_alerts.unwrap_or(false);
 
@@ -2144,6 +3540,17 @@ async fn mute_critical_alerts(
     .execute(&db)
     .await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings { setting_type: "critical_alerts".to_string() },
+        None,
+        false,
+    )
+    .await?;
+
     Ok(format!(
         "Updated mute criticital alert ui settings for workspace: {}",
         &w_id
@@ -2157,14 +3564,25 @@ pub async fn mute_critical_alerts() -> Error {
 
 #[derive(Deserialize, Serialize)]
 struct ChangeOperatorSettings {
+    #[serde(default)]
     runs: bool,
+    #[serde(default)]
     schedules: bool,
+    #[serde(default)]
     resources: bool,
+    #[serde(default)]
     variables: bool,
+    #[serde(default)]
+    assets: bool,
+    #[serde(default)]
     triggers: bool,
+    #[serde(default)]
     audit_logs: bool,
+    #[serde(default)]
     groups: bool,
+    #[serde(default)]
     folders: bool,
+    #[serde(default)]
     workers: bool,
 }
 
@@ -2189,6 +3607,20 @@ async fn update_operator_settings(
     .await?;
 
     tx.commit().await?;
+
+    // Trigger git sync for operator settings changes
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings {
+            setting_type: "operator_settings".to_string(),
+        },
+        Some("Operator settings updated".to_string()),
+        false,
+    )
+    .await?;
 
     Ok("Operator settings updated successfully".to_string())
 }

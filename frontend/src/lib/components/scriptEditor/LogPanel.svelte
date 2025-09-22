@@ -36,7 +36,7 @@
 	interface Props {
 		lang: Preview['language'] | undefined
 		previewIsLoading?: boolean
-		previewJob: Job | undefined
+		previewJob: (Job & { result_stream?: string; result?: any; success?: boolean }) | undefined
 		pastPreviews?: CompletedJob[]
 		editor?: Editor | undefined
 		diffEditor?: DiffEditor | undefined
@@ -102,6 +102,7 @@
 				result={drawerContent.content}
 				customUi={customUi?.displayResult}
 				language={lang}
+				result_stream={previewJob?.result_stream}
 			/>
 		{:else if drawerContent?.mode === 'plain'}
 			<pre
@@ -113,7 +114,6 @@
 		{/if}
 	</DrawerContent>
 </Drawer>
-
 <div class="h-full flex flex-col">
 	<Tabs bind:selected={selectedTab} class="pt-1" wrapperClass="flex-none">
 		<Tab value="logs" size="xs">Logs & Result</Tab>
@@ -129,10 +129,10 @@
 				{#if selectedTab === 'logs'}
 					<SplitPanesWrapper>
 						<Splitpanes horizontal>
-							{#if previewJob?.is_flow_step == false && previewJob?.flow_status && !(typeof previewJob.flow_status == 'object' && '_metadata' in previewJob.flow_status)}
+							{#if previewJob?.workflow_as_code_status}
 								<Pane class="relative">
 									<WorkflowTimeline
-										flow_status={asWorkflowStatus(previewJob.flow_status)}
+										flow_status={asWorkflowStatus(previewJob.workflow_as_code_status)}
 										flowDone={previewJob.type == 'CompletedJob'}
 									/>
 								</Pane>
@@ -146,13 +146,14 @@
 									isLoading={previewJob?.['running'] == false && previewIsLoading}
 									tag={previewJob?.tag}
 									download={customUi?.disableDownload !== true}
+									tagLabel={customUi?.tagLabel}
 								/>
 							</Pane>
 							<Pane>
 								{@render children?.()}
-								{#if previewJob != undefined && 'result' in previewJob}
+								{#if previewJob != undefined && (previewJob.result_stream || previewJob.result)}
 									<div class="relative w-full h-full p-2">
-										<div class="relative">
+										<div class="relative h-full">
 											<DisplayResult
 												bind:forceJson
 												workspaceId={previewJob?.workspace_id}
@@ -160,6 +161,8 @@
 												result={previewJob.result}
 												customUi={customUi?.displayResult}
 												language={lang}
+												result_stream={previewJob?.result_stream}
+												fixTableSizingToParent
 											>
 												{#snippet copilot_fix()}
 													{#if lang && editor && diffEditor && args && previewJob && !previewJob.success && getStringError(previewJob.result)}

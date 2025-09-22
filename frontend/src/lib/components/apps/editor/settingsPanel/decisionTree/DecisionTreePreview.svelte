@@ -224,10 +224,7 @@
 						position: { x: -1, y: -1 },
 						data: {
 							node: {
-								label:
-									positionRelativeToParent === 0
-										? 'Default branch'
-										: `Branch ${positionRelativeToParent}`,
+								label: `Branch ${(positionRelativeToParent  ?? 0) + 1}`,
 								id: branchHeaderId,
 								allowed: undefined,
 								next: [],

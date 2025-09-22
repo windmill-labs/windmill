@@ -21,7 +21,8 @@
 		NatsTriggerService,
 		MqttTriggerService,
 		SqsTriggerService,
-		GcpTriggerService
+		GcpTriggerService,
+		EmailTriggerService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
@@ -52,6 +53,7 @@
 		| 'mqtt_trigger'
 		| 'sqs_trigger'
 		| 'gcp_trigger'
+		| 'email_trigger'
 	let meta: Meta | undefined = $state(undefined)
 	interface Props {
 		fullNamePlaceholder?: string | undefined
@@ -208,7 +210,7 @@
 		validateName(meta) && validatePath(path, kind)
 	}
 
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	let validateTimeout: number | undefined = undefined
 
 	async function validatePath(path: string, kind: PathKind): Promise<void> {
 		if (validateTimeout) {
@@ -290,6 +292,11 @@
 				workspace: $workspaceStore!,
 				path: path
 			})
+		} else if (kind === 'email_trigger') {
+			return await EmailTriggerService.existsEmailTrigger({
+				workspace: $workspaceStore!,
+				path: path
+			})
 		} else {
 			return false
 		}
@@ -337,11 +344,11 @@
 		'openSearchWithPrefilledText'
 	)
 
-	$effect(() => {
+	$effect.pre(() => {
 		;[meta?.name, meta?.owner, meta?.ownerKind]
 		meta && untrack(() => onMetaChange())
 	})
-	$effect(() => {
+	$effect.pre(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
 				loadFolders()

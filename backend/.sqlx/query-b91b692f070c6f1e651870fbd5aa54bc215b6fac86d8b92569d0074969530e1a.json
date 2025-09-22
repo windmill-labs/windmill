@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value AS \"value!: _\" FROM resource WHERE workspace_id = $1 AND path = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value!: _",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "b91b692f070c6f1e651870fbd5aa54bc215b6fac86d8b92569d0074969530e1a"
+}

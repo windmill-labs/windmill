@@ -9,7 +9,11 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getUpdateInput } from './queries/update'
 
-	export let id: string
+	interface Props {
+		id: string
+	}
+
+	let { id }: Props = $props()
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -19,9 +23,9 @@
 		jobId: undefined
 	})
 
-	let runnableComponent: RunnableComponent
-	let loading = false
-	let input: AppInput | undefined = undefined
+	let runnableComponent: RunnableComponent | undefined = $state(undefined)
+	let loading = $state(false)
+	let input: AppInput | undefined = $state(undefined)
 
 	export async function triggerUpdate(
 		resource: string,
@@ -54,13 +58,13 @@
 				undefined,
 				{ value_to_update: valueToUpdate, ...ndata },
 				{
-					done: (x) => {
+					onDone: (x) => {
 						sendUserToast('Value updated', false)
 					},
-					cancel: () => {
+					onCancel: () => {
 						sendUserToast('Error updating value', true)
 					},
-					error: () => {
+					onError: () => {
 						sendUserToast('Error updating value', true)
 					}
 				}

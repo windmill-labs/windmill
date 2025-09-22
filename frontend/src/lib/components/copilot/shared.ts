@@ -1,4 +1,4 @@
-import { createLongHash } from '$lib/editorUtils'
+import { createLongHash } from '$lib/editorLangUtils'
 import { type editor as meditor } from 'monaco-editor'
 
 export type VisualChange =
@@ -45,7 +45,7 @@ export type VisualChange =
 			}
 	  }
 
-function applyMonacoStyles(targetEl: HTMLElement, greenHighlight?: boolean) {
+function applyMonacoStyles(targetEl: HTMLElement, greenHighlight?: boolean, revertMode?: boolean) {
 	const computedStyles = window.getComputedStyle(
 		document.querySelector('.monaco-editor .view-lines')!
 	)
@@ -57,7 +57,9 @@ function applyMonacoStyles(targetEl: HTMLElement, greenHighlight?: boolean) {
 		whiteSpace: 'pre'
 	})
 	if (greenHighlight) {
-		targetEl.style.backgroundColor = 'var(--vscode-diffEditor-insertedTextBackground)'
+		targetEl.style.backgroundColor = revertMode
+			? 'var(--vscode-diffEditor-removedTextBackground)'
+			: 'var(--vscode-diffEditor-insertedTextBackground)'
 	}
 }
 
@@ -71,7 +73,10 @@ export function setGlobalCSS(id: string, cssCode: string) {
 	styleTag.textContent = cssCode
 }
 
-function addInlineGhostText(change: Extract<VisualChange, { type: 'added_inline' }>) {
+function addInlineGhostText(
+	change: Extract<VisualChange, { type: 'added_inline' }>,
+	revertMode?: boolean
+) {
 	const cssId = createLongHash()
 	const decoration = {
 		range: {
@@ -82,7 +87,11 @@ function addInlineGhostText(change: Extract<VisualChange, { type: 'added_inline'
 		},
 		options: {
 			beforeContentClassName: `editor-ghost-text editor-ghost-text-content-${cssId} ${
-				change.options?.greenHighlight ? 'editor-ghost-text-green' : ''
+				change.options?.greenHighlight
+					? revertMode
+						? 'editor-ghost-text-removed'
+						: 'editor-ghost-text-green'
+					: ''
 			}`
 		}
 	}
@@ -164,7 +173,8 @@ async function addMultilineGhostText(
 			rejectFn: () => void
 		}
 		extraChanges?: VisualChange[]
-	}
+	},
+	revertMode?: boolean
 ) {
 	const el = document.createElement('div')
 	el.textContent = text
@@ -173,7 +183,7 @@ async function addMultilineGhostText(
 		const reviewButtons = getReviewButtons(editor, options.review.acceptFn, options.review.rejectFn)
 		el.append(reviewButtons)
 	}
-	applyMonacoStyles(el, options?.greenHighlight)
+	applyMonacoStyles(el, options?.greenHighlight, revertMode)
 	const addZonePromise = new Promise<string>((resolve, reject) => {
 		editor?.changeViewZones((acc) => {
 			const id = acc.addZone({
@@ -194,14 +204,15 @@ export let VISUAL_CHANGES_CSS = `.editor-ghost-text-green { background-color: va
 export async function displayVisualChanges(
 	cssId: string,
 	editor: meditor.IStandaloneCodeEditor,
-	visualChanges: VisualChange[]
+	visualChanges: VisualChange[],
+	revertMode?: boolean
 ) {
 	let decorations: meditor.IModelDeltaDecoration[] = []
 	let css = ''
 	let ids: string[] = []
 	for (const change of visualChanges) {
 		if (change.type === 'added_inline') {
-			const { css: newCss, decoration } = addInlineGhostText(change)
+			const { css: newCss, decoration } = addInlineGhostText(change, revertMode)
 			decorations.push(decoration)
 			css += newCss
 		} else if (change.type === 'deleted') {
@@ -213,7 +224,7 @@ export async function displayVisualChanges(
 					endColumn: change.range.endColumn
 				},
 				options: {
-					className: 'editor-ghost-text-removed',
+					className: revertMode ? 'editor-ghost-text-green' : 'editor-ghost-text-removed',
 					isWholeLine: change.options?.isWholeLine
 				}
 			}
@@ -248,7 +259,8 @@ export async function displayVisualChanges(
 				change.value,
 				change.position.afterLineNumber,
 				change.value.split('\n').length, // we know it won't end by \n
-				change.options
+				change.options,
+				revertMode
 			)
 			ids.push(id)
 		}

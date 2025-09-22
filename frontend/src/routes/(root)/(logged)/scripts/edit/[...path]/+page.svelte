@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { ScriptService, type NewScript, type NewScriptWithDraft, DraftService } from '$lib/gen'
 
-	import { page } from '$app/stores'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { decodeState, cleanValueProperties, orderedJsonStringify } from '$lib/utils'
@@ -14,14 +13,15 @@
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import { get } from 'svelte/store'
 	import { untrack } from 'svelte'
+	import { page } from '$app/state'
 
 	let initialState = window.location.hash != '' ? window.location.hash.slice(1) : undefined
 	let initialArgs = get(initialArgsStore) ?? {}
 	if (get(initialArgsStore)) $initialArgsStore = undefined
 
-	let topHash = $page.url.searchParams.get('topHash') ?? undefined
+	let topHash = page.url.searchParams.get('topHash') ?? undefined
 
-	let hash = $page.url.searchParams.get('hash') ?? undefined
+	let hash = page.url.searchParams.get('hash') ?? undefined
 
 	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
@@ -40,7 +40,7 @@
 
 	async function loadScript(): Promise<void> {
 		fullyLoaded = false
-		if (scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.path == $page.params.path) {
+		if (scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.path == page.params.path) {
 			script = scriptLoadedFromUrl
 			reloadAction = async () => {
 				scriptLoadedFromUrl = undefined
@@ -92,7 +92,7 @@
 			} else {
 				const scriptWithDraft = await ScriptService.getScriptByPathWithDraft({
 					workspace: $workspaceStore!,
-					path: $page.params.path
+					path: page.params.path ?? ''
 				})
 				savedScript = structuredClone($state.snapshot(scriptWithDraft))
 				if (scriptWithDraft.draft != undefined) {
@@ -145,7 +145,7 @@
 		// hash
 		// ? await ScriptService.getScriptByHash({
 		// 		workspace: $workspaceStore!,
-		// 		hash: $page.params.hash
+		// 		hash: page.params.hash
 		//   })
 		// : await ScriptService.getScriptByPathWithDraft({
 		// 		workspace: $workspaceStore!,
@@ -206,27 +206,24 @@
 	<ScriptBuilder
 		bind:this={scriptBuilder}
 		{initialPath}
-		{script}
+		bind:script
 		{fullyLoaded}
 		bind:savedScript
 		{initialArgs}
 		{diffDrawer}
 		{savedPrimarySchedule}
-		searchParams={$page.url.searchParams}
-		on:deploy={(e) => {
-			let newHash = e.detail
-			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+		searchParams={page.url.searchParams}
+		onDeploy={(e) => {
+			goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 		}}
-		on:saveInitial={(e) => {
-			let path = e.detail
-			goto(`/scripts/edit/${path}`)
+		onSaveInitial={(e) => {
+			goto(`/scripts/edit/${e.path}`)
 		}}
-		on:seeDetails={(e) => {
-			let path = e.detail
-			goto(`/scripts/get/${path}?workspace=${$workspaceStore}`)
+		onSeeDetails={(e) => {
+			goto(`/scripts/get/${e.path}?workspace=${$workspaceStore}`)
 		}}
 		replaceStateFn={(path) => {
-			replaceState(path, $page.state)
+			replaceState(path, page.state)
 		}}
 	>
 		<UnsavedConfirmationModal

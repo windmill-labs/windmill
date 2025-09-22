@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext, tick, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, tick, untrack } from 'svelte'
 	import { get } from 'svelte/store'
 	import type {
 		AppInput,
@@ -71,7 +71,7 @@
 
 	const { worldStore, state: stateStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	let firstDebounce = true
 	const debounce_ms = 50
@@ -80,7 +80,15 @@
 		return await evalExpr(input as EvalAppInput, args)
 	}
 
+	let destroyed = false
+	onDestroy(() => {
+		destroyed = true
+		clearTimeout(timeout)
+		timeout = undefined
+	})
+
 	function debounce(cb: () => Promise<void>) {
+		if (destroyed) return
 		if (firstDebounce) {
 			firstDebounce = false
 			cb()
@@ -93,6 +101,7 @@
 	}
 
 	function debounce2(cb: () => Promise<void>) {
+		if (destroyed) return
 		if (firstDebounce) {
 			firstDebounce = false
 			cb()
@@ -117,7 +126,6 @@
 	const debounceEval = async (s?: string) => {
 		let args = s == 'exprChanged' ? { file: { name: 'example.png' } } : undefined
 		let nvalue = await evalExpr(input as EvalAppInput, args)
-
 		if (field) {
 			editorContext?.evalPreview.update((x) => {
 				x[`${id}.${field}`] = nvalue
@@ -128,7 +136,6 @@
 		if (!onDemandOnly) {
 			let nhash = typeof nvalue != 'object' ? nvalue : sum(nvalue)
 			if (lastExprHash != nhash) {
-				// console.log('eval changed', field, nvalue)
 				value = nvalue
 				lastExprHash = nhash
 			}
@@ -136,7 +143,7 @@
 	}
 
 	async function handleConnection() {
-		// console.log('handleCon')
+		if (destroyed) return
 		if (input?.type === 'connected') {
 			if (input.connection) {
 				const { path, componentId } = input.connection
@@ -159,6 +166,8 @@
 			await debounceTemplate()
 		} else if (input?.type == 'eval') {
 			value = await evalExpr(input as EvalAppInput)
+			let nhash = typeof value != 'object' ? value : sum(value)
+			lastExprHash = nhash
 		} else if (input?.type == 'evalv2') {
 			// console.log('evalv2', onDemandOnly, field)
 			if (onDemandOnly && exportValueFunction) {
@@ -213,6 +222,7 @@
 
 	function onTemplateChange(previousValueKey: string) {
 		return (newValue) => {
+			// console.log('onTemplateChange', previousValueKey, newValue, id)
 			previousConnectedValues[previousValueKey] = newValue
 			debounceTemplate()
 		}
@@ -245,7 +255,11 @@
 			return r
 		} catch (e) {
 			error = e.message
-			console.warn("Eval error in app input '" + id + "' with key '" + key + "'", e)
+			try {
+				console.warn("Eval error in app input '" + id + "' with key '" + key + "'", e)
+			} catch (e) {
+				console.warn('error warning', e)
+			}
 			return value
 		}
 	}
@@ -337,8 +351,11 @@
 			) &&
 			untrack(() => debounceTemplate())
 	})
-	let stateId = $derived($worldStore?.stateId)
-	$effect.pre(() => {
+
+	// $effect(() => {
+	// 	console.log('handleConnection4', input)
+	// })
+	$effect(() => {
 		input?.type == 'static' && input.value
 		input && $worldStore && untrack(() => debounce(handleConnection))
 	})
@@ -346,17 +363,25 @@
 		input &&
 			input.type == 'template' &&
 			isCodeInjection(input.eval) &&
-			$stateId &&
 			$stateStore &&
 			untrack(() => debounce(debounceTemplate))
 	})
 	$effect.pre(() => {
-		input &&
-			input.type == 'eval' &&
-			$stateId &&
-			$stateStore &&
-			untrack(() => debounce2(debounceEval))
+		input && input.type == 'eval' && $stateStore && untrack(() => debounce2(debounceEval))
 	})
+
+	if (input?.type == 'eval') {
+		$worldStore?.stateId.subscribe((x) => {
+			debounce2(debounceEval)
+		})
+	}
+
+	if (input?.type == 'template') {
+		$worldStore?.stateId.subscribe((x) => {
+			debounce2(debounceTemplate)
+		})
+	}
+
 	$effect.pre(() => {
 		input?.type == 'evalv2' && input.expr && untrack(() => debounceEval('exprChanged'))
 	})
@@ -366,3 +391,4 @@
 </script>
 
 <!-- {JSON.stringify(input)} -->
+<!-- 3{value} -->

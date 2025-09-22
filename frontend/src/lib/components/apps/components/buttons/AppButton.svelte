@@ -40,6 +40,7 @@
 		noInitialize?: boolean
 		replaceCallback?: boolean
 		controls?: { left: () => boolean; right: () => boolean | string } | undefined
+		onDone?: () => void
 	}
 
 	let {
@@ -59,7 +60,8 @@
 		isMenuItem = false,
 		noInitialize = false,
 		replaceCallback = false,
-		controls = undefined
+		controls = undefined,
+		onDone = undefined
 	}: Props = $props()
 
 	const { worldStore, app, componentControl, selectedComponent } =
@@ -240,6 +242,12 @@
 			listInputs.set(id, inputOutput)
 		}
 	}}
+	on:done={() => {
+		onDone?.()
+	}}
+	on:doneError={() => {
+		onDone?.()
+	}}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
 	{replaceCallback}
 >
@@ -275,7 +283,7 @@
 			>
 				{#if resolvedConfig.beforeIcon}
 					{#key resolvedConfig.beforeIcon}
-						<div class="min-w-4" bind:this={beforeIconComponent}></div>
+						<div class={resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0 ? "min-w-4" : ""} bind:this={beforeIconComponent}></div>
 					{/key}
 				{/if}
 				{#if resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0}
@@ -283,7 +291,7 @@
 				{/if}
 				{#if resolvedConfig.afterIcon}
 					{#key resolvedConfig.afterIcon}
-						<div class="min-w-4" bind:this={afterIconComponent}></div>
+						<div class={resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0 ? "min-w-4" : ""} bind:this={afterIconComponent}></div>
 					{/key}
 				{/if}
 			</Button>

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import JobLoader from '$lib/components/JobLoader.svelte'
 	import { Button } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import LogPanel from '$lib/components/scriptEditor/LogPanel.svelte'
@@ -17,7 +17,7 @@
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { setCopilotInfo, userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { emptySchema, readFieldsRecursively, sendUserToast, type StateStore } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
@@ -29,7 +29,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { writable } from 'svelte/store'
 	import type { FlowState } from './flows/flowState'
-	import { initHistory } from '$lib/history'
+	import { initHistory } from '$lib/history.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
@@ -48,7 +48,9 @@
 	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
 	import type { PickableProperties } from './flows/previousResults'
 	import { Triggers } from './triggers/triggers.svelte'
-	import { TestSteps } from './flows/testSteps.svelte'
+	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
+	import { ModulesTestStates } from './modulesTest.svelte'
+	import type { GraphModuleState } from './graph'
 
 	let flowCopilotContext: FlowCopilotContext = {
 		shouldUpdatePropertyType: writable<{
@@ -95,7 +97,7 @@
 		darkModeToggle?.toggle()
 	}
 
-	let testJobLoader: TestJobLoader | undefined = $state()
+	let jobLoader: JobLoader | undefined = $state()
 	let socket: WebSocket | undefined = undefined
 
 	// Test args input
@@ -107,6 +109,12 @@
 	let testJob: Job | undefined = $state()
 	let pastPreviews: CompletedJob[] = $state([])
 	let validCode = $state(true)
+
+	// Flow preview
+	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
+	const flowPreviewContent = $derived(flowPreviewButtons?.getFlowPreviewContent())
+	const job: Job | undefined = $derived(flowPreviewContent?.getJob())
+	let showJobStatus = $state(false)
 
 	type LastEditScript = {
 		content: string
@@ -131,7 +139,7 @@
 	let useLock = $state(false)
 
 	let lockChanges = false
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	let loadingCodebaseButton = $state(false)
 	let lastCommandId = ''
@@ -151,13 +159,19 @@
 			}
 		} else if (event.data.type == 'testPreviewBundle') {
 			if (event.data.id == lastCommandId && currentScript) {
-				testJobLoader?.runPreview(
+				jobLoader?.runPreview(
 					currentScript.path,
 					event.data.file,
 					currentScript.language,
 					args,
 					currentScript.tag,
-					useLock ? currentScript.lock : undefined
+					useLock ? currentScript.lock : undefined,
+					undefined,
+					{
+						done(x) {
+							loadPastTests()
+						}
+					}
 				)
 			} else {
 				sendUserToast(`Bundle received ${lastCommandId} was obsolete, ignoring`, true)
@@ -212,56 +226,63 @@
 	})
 
 	async function testBundle(file: string, isTar: boolean) {
-		testJobLoader?.abstractRun(async () => {
-			try {
-				const form = new FormData()
-				form.append(
-					'preview',
-					JSON.stringify({
-						content: currentScript?.content,
-						kind: isTar ? 'tarbundle' : 'bundle',
-						path: currentScript?.path,
-						args,
-						language: currentScript?.language,
-						tag: currentScript?.tag
-					})
-				)
-				// sendUserToast(JSON.stringify(file))
-				if (isTar) {
-					var array: number[] = []
-					file = atob(file)
-					for (var i = 0; i < file.length; i++) {
-						array.push(file.charCodeAt(i))
-					}
-					let blob = new Blob([new Uint8Array(array)], { type: 'application/octet-stream' })
-
-					form.append('file', blob)
-				} else {
-					form.append('file', file)
-				}
-
-				const url = '/api/w/' + workspace + '/jobs/run/preview_bundle'
-
-				const req = await fetch(url, {
-					method: 'POST',
-					body: form,
-					headers: {
-						Authorization: 'Bearer ' + token
-					}
-				})
-				if (req.status != 201) {
-					throw Error(
-						`Script snapshot creation was not successful: ${req.status} - ${
-							req.statusText
-						} - ${await req.text()}`
+		jobLoader?.abstractRun(
+			async () => {
+				try {
+					const form = new FormData()
+					form.append(
+						'preview',
+						JSON.stringify({
+							content: currentScript?.content,
+							kind: isTar ? 'tarbundle' : 'bundle',
+							path: currentScript?.path,
+							args,
+							language: currentScript?.language,
+							tag: currentScript?.tag
+						})
 					)
+					// sendUserToast(JSON.stringify(file))
+					if (isTar) {
+						var array: number[] = []
+						file = atob(file)
+						for (var i = 0; i < file.length; i++) {
+							array.push(file.charCodeAt(i))
+						}
+						let blob = new Blob([new Uint8Array(array)], { type: 'application/octet-stream' })
+
+						form.append('file', blob)
+					} else {
+						form.append('file', file)
+					}
+
+					const url = '/api/w/' + workspace + '/jobs/run/preview_bundle'
+
+					const req = await fetch(url, {
+						method: 'POST',
+						body: form,
+						headers: {
+							Authorization: 'Bearer ' + token
+						}
+					})
+					if (req.status != 201) {
+						throw Error(
+							`Script snapshot creation was not successful: ${req.status} - ${
+								req.statusText
+							} - ${await req.text()}`
+						)
+					}
+					return await req.text()
+				} catch (e) {
+					sendUserToast(`Failed to send bundle ${e}`, true)
+					throw Error(e)
 				}
-				return await req.text()
-			} catch (e) {
-				sendUserToast(`Failed to send bundle ${e}`, true)
-				throw Error(e)
+			},
+			{
+				done(x) {
+					loadPastTests()
+				}
 			}
-		})
+		)
 		loadingCodebaseButton = false
 	}
 	onDestroy(() => {
@@ -329,7 +350,7 @@
 					)
 				} else {
 					//@ts-ignore
-					testJobLoader.runPreview(
+					jobLoader.runPreview(
 						currentScript.path,
 						currentScript.content,
 						currentScript.language,
@@ -430,17 +451,21 @@
 		}
 	}
 
-	const flowStateStore = writable({} as FlowState)
+	const flowStateStore = $state({ val: {} }) as StateStore<FlowState>
 
 	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
 	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
-
-	const testSteps = new TestSteps()
+	const stepsInputArgs = new StepsInputArgs()
 	const selectedIdStore = writable('settings-metadata')
-
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
+	const modulesTestStates = new ModulesTestStates((moduleId) => {
+		// Update the derived store with test job states
+		showJobStatus = false
+	})
+	const outputPickerOpenFns: Record<string, () => void> = $state({})
+
 	setContext<TriggerContext>('TriggerContext', {
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
@@ -456,7 +481,7 @@
 		pathStore: writable(''),
 		flowStateStore,
 		flowStore,
-		testSteps,
+		stepsInputArgs,
 		saveDraft: () => {},
 		initialPathStore: writable(''),
 		fakeInitialPath: '',
@@ -469,7 +494,9 @@
 			editPanelSize: undefined,
 			payloadData: undefined
 		}),
-		currentEditor: writable(undefined)
+		currentEditor: writable(undefined),
+		modulesTestStates,
+		outputPickerOpenFns
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
@@ -482,12 +509,11 @@
 			return
 		}
 		if (!deepEqual(flow, lastSent)) {
-			lastSent = JSON.parse(JSON.stringify(flow))
-			window?.parent.postMessage({ type: 'flow', flow, uriPath: lastUriPath }, '*')
+			lastSent = $state.snapshot(flow)
+			window?.parent.postMessage({ type: 'flow', flow: lastSent, uriPath: lastUriPath }, '*')
 		}
 	}
 
-	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
 	let reload = $state(0)
 
 	async function inferModuleArgs(selectedIdStore: string) {
@@ -495,7 +521,7 @@
 			return
 		}
 		//@ts-ignore
-		dfs(flowStore.value.modules, async (mod) => {
+		dfs(flowStore.val.value.modules, async (mod) => {
 			if (mod.id == selectedIdStore) {
 				if (
 					mod.value.type == 'rawscript' ||
@@ -508,11 +534,11 @@
 					}
 
 					mod.value.input_transforms = input_transforms
-					if (!deepEqual(schema, $flowStateStore[mod.id]?.schema)) {
-						if (!$flowStateStore[mod.id]) {
-							$flowStateStore[mod.id] = { schema }
+					if (!deepEqual(schema, flowStateStore.val[mod.id]?.schema)) {
+						if (!flowStateStore.val[mod.id]) {
+							flowStateStore.val[mod.id] = { schema }
 						} else {
-							$flowStateStore[mod.id].schema = schema
+							flowStateStore.val[mod.id].schema = schema
 						}
 						reload++
 					}
@@ -524,22 +550,21 @@
 	let workspace = $derived($page.url.searchParams.get('workspace') ?? undefined)
 	let themeDarkRaw = $derived($page.url.searchParams.get('activeColorTheme'))
 	let themeDark = $derived(themeDarkRaw == '2' || themeDarkRaw == '4')
-	$effect(() => {
+	$effect.pre(() => {
 		if (token) {
 			OpenAPI.WITH_CREDENTIALS = true
 			OpenAPI.TOKEN = token
-			untrack(() => loadUser())
 		}
 	})
-	$effect(() => {
+	$effect.pre(() => {
 		if (workspace) {
 			$workspaceStore = workspace
-			untrack(() => setupCopilotInfo())
 		}
 	})
-	$effect(() => {
+	$effect.pre(() => {
 		if (workspace && token) {
 			untrack(() => loadUser())
+			untrack(() => setupCopilotInfo())
 		}
 	})
 	$effect(() => {
@@ -550,21 +575,62 @@
 			untrack(() => initializeMode())
 	})
 	$effect(() => {
+		readFieldsRecursively(flowStore.val)
 		flowStore.val && untrack(() => updateFlow(flowStore.val))
 	})
 	$effect(() => {
 		$selectedIdStore && untrack(() => inferModuleArgs($selectedIdStore))
 	})
+
+	let localModuleStates: Record<string, GraphModuleState> = $state({})
+
+	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
+
+	// Create a derived store that only shows the module states when showModuleStatus is true
+	// this store can also be updated
+
+	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
+	function onJobDone() {
+		if (!job) {
+			return
+		}
+		// job was running and is now stopped
+		if (!flowPreviewButtons?.getPreviewOpen()) {
+			if (
+				job.type === 'CompletedJob' &&
+				job.success &&
+				flowPreviewButtons?.getPreviewMode() === 'whole'
+			) {
+				if (flowModuleSchemaMap?.isNodeVisible('result') && $selectedIdStore !== 'Result') {
+					outputPickerOpenFns['Result']?.()
+				}
+			} else {
+				// Find last module with a job in flow_status
+				const lastModuleWithJob = job.flow_status?.modules
+					?.slice()
+					.reverse()
+					.find((module) => 'job' in module)
+				if (
+					lastModuleWithJob &&
+					lastModuleWithJob.id &&
+					flowModuleSchemaMap?.isNodeVisible(lastModuleWithJob.id)
+				) {
+					outputPickerOpenFns[lastModuleWithJob.id]?.()
+				}
+			}
+		}
+	}
+
+	function resetModulesStates() {
+		showJobStatus = false
+	}
+
+	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
 
-<TestJobLoader
-	on:done={loadPastTests}
-	bind:this={testJobLoader}
-	bind:isLoading={testIsLoading}
-	bind:job={testJob}
-/>
+<JobLoader noCode={true} bind:this={jobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
 <main class="h-screen w-full">
 	{#if mode == 'script'}
@@ -625,7 +691,7 @@
 			{/if}
 			<div class="flex justify-center pt-1">
 				{#if testIsLoading}
-					<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+					<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 						<WindmillIcon
 							white={true}
 							class="mr-2 text-white"
@@ -692,18 +758,42 @@
 					{/if}
 				</div>
 
-				<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
-					<FlowPreviewButtons bind:this={flowPreviewButtons} />
+				<div class="flex justify-center pt-1 z-50 absolute -translate-x-[100%] right-2 top-2 gap-2">
+					<FlowPreviewButtons
+						bind:this={flowPreviewButtons}
+						{onJobDone}
+						onRunPreview={() => {
+							localModuleStates = {}
+							showJobStatus = true
+						}}
+					/>
 				</div>
 				<Splitpanes horizontal class="h-full max-h-screen grow">
 					<Pane size={67}>
 						{#if flowStore.val?.value?.modules}
 							<div id="flow-editor"></div>
 							<FlowModuleSchemaMap
+								bind:this={flowModuleSchemaMap}
 								disableAi
 								disableTutorials
 								smallErrorHandler={true}
 								disableStaticInputs
+								{localModuleStates}
+								onTestUpTo={flowPreviewButtons?.testUpTo}
+								testModuleStates={modulesTestStates}
+								isOwner={flowPreviewContent?.getIsOwner?.()}
+								onTestFlow={flowPreviewButtons?.runPreview}
+								isRunning={flowPreviewContent?.getIsRunning?.()}
+								onCancelTestFlow={flowPreviewContent?.cancelTest}
+								onOpenPreview={flowPreviewButtons?.openPreview}
+								onHideJobStatus={resetModulesStates}
+								flowJob={job}
+								{showJobStatus}
+								onDelete={(id) => {
+									delete localModuleStates[id]
+									delete modulesTestStates.states[id]
+								}}
+								{flowHasChanged}
 							/>
 						{:else}
 							<div class="text-red-400 mt-20">Missing flow modules</div>
@@ -716,13 +806,19 @@
 								noEditor
 								on:applyArgs={(ev) => {
 									if (ev.detail.kind === 'preprocessor') {
-										testSteps.setStepArgs('preprocessor', ev.detail.args ?? {})
+										stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
 										$selectedIdStore = 'preprocessor'
 									} else {
 										previewArgsStore.val = ev.detail.args ?? {}
 										flowPreviewButtons?.openPreview()
 									}
 								}}
+								onTestFlow={flowPreviewButtons?.runPreview}
+								{job}
+								isOwner={flowPreviewContent?.getIsOwner()}
+								{suspendStatus}
+								onOpenDetails={flowPreviewButtons?.openPreview}
+								previewOpen={flowPreviewButtons?.getPreviewOpen()}
 							/>
 						{/key}
 					</Pane>

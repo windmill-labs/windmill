@@ -11,18 +11,16 @@
 		OpenAPI
 	} from '$lib/gen'
 
-	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import RunChart from '$lib/components/RunChart.svelte'
 
-	import JobPreview from '$lib/components/runs/JobPreview.svelte'
+	import JobRunsPreview from '$lib/components/runs/JobRunsPreview.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import CalendarPicker from '$lib/components/common/calendarPicker/CalendarPicker.svelte'
 
 	import RunsTable from '$lib/components/runs/RunsTable.svelte'
-	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import RunsFilter from '$lib/components/runs/RunsFilter.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -31,21 +29,25 @@
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
-	import JobLoader from '$lib/components/runs/JobLoader.svelte'
-	import { AlertTriangle, Calendar, ChevronDown, Clock } from 'lucide-svelte'
+	import JobsLoader from '$lib/components/runs/JobsLoader.svelte'
+	import { Calendar, Clock, TriangleAlert } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { goto } from '$app/navigation'
 	import { base } from '$app/paths'
 	import type { RunsSelectionMode } from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
-	import RunsBatchActionsDropdown from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
 	import { isJobSelectable } from '$lib/utils'
 	import BatchReRunOptionsPane, {
 		type BatchReRunOptions
 	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
 	import { untrack } from 'svelte'
+	import { page } from '$app/state'
+	import RunOption from '$lib/components/runs/RunOption.svelte'
+	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
+	import DropdownSelect from '$lib/components/DropdownSelect.svelte'
+	import RunsBatchActionsDropdown from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
+	import { createBubbler } from 'svelte/legacy'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -56,114 +58,114 @@
 
 	// All Filters
 	// Filter by
-	let path: string | null = $state($page.params.path)
-	let worker: string | null = $state($page.url.searchParams.get('worker'))
-	let user: string | null = $state($page.url.searchParams.get('user'))
-	let folder: string | null = $state($page.url.searchParams.get('folder'))
-	let label: string | null = $state($page.url.searchParams.get('label'))
-	let allowWildcards: boolean = $state($page.url.searchParams.get('allow_wildcards') == 'true')
-	let concurrencyKey: string | null = $state($page.url.searchParams.get('concurrency_key'))
-	let tag: string | null = $state($page.url.searchParams.get('tag'))
+	let path: string | null = $state(page.params.path ?? null)
+	let worker: string | null = $state(page.url.searchParams.get('worker'))
+	let user: string | null = $state(page.url.searchParams.get('user'))
+	let folder: string | null = $state(page.url.searchParams.get('folder'))
+	let label: string | null = $state(page.url.searchParams.get('label'))
+	let allowWildcards: boolean = $state(page.url.searchParams.get('allow_wildcards') == 'true')
+	let concurrencyKey: string | null = $state(page.url.searchParams.get('concurrency_key'))
+	let tag: string | null = $state(page.url.searchParams.get('tag'))
 	// Rest of filters handled by RunsFilter
 	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined = $state(
-		($page.url.searchParams.get('success') ?? undefined) as
+		(page.url.searchParams.get('success') ?? undefined) as
 			| 'running'
 			| 'success'
 			| 'failure'
 			| undefined
 	)
 	let isSkipped: boolean | undefined = $state(
-		$page.url.searchParams.get('is_skipped') != undefined
-			? $page.url.searchParams.get('is_skipped') == 'true'
+		page.url.searchParams.get('is_skipped') != undefined
+			? page.url.searchParams.get('is_skipped') == 'true'
 			: false
 	)
 
 	let showSchedules: boolean = $state(
-		$page.url.searchParams.get('show_schedules') != undefined
-			? $page.url.searchParams.get('show_schedules') == 'true'
+		page.url.searchParams.get('show_schedules') != undefined
+			? page.url.searchParams.get('show_schedules') == 'true'
 			: localStorage.getItem('show_schedules_in_run') == 'false'
 				? false
 				: true
 	)
 	let showFutureJobs: boolean = $state(
-		$page.url.searchParams.get('show_future_jobs') != undefined
-			? $page.url.searchParams.get('show_future_jobs') == 'true'
+		page.url.searchParams.get('show_future_jobs') != undefined
+			? page.url.searchParams.get('show_future_jobs') == 'true'
 			: localStorage.getItem('show_future_jobs') == 'false'
 				? false
 				: true
 	)
 
 	let argFilter: any = $state(
-		$page.url.searchParams.get('arg')
-			? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
+		page.url.searchParams.get('arg')
+			? JSON.parse(decodeURIComponent(page.url.searchParams.get('arg') ?? '{}'))
 			: undefined
 	)
 	let resultFilter: any = $state(
-		$page.url.searchParams.get('result')
-			? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
+		page.url.searchParams.get('result')
+			? JSON.parse(decodeURIComponent(page.url.searchParams.get('result') ?? '{}'))
 			: undefined
 	)
 
 	// Handled on the main page
-	let minTs = $state($page.url.searchParams.get('min_ts') ?? undefined)
-	let maxTs = $state($page.url.searchParams.get('max_ts') ?? undefined)
-	let schedulePath = $state($page.url.searchParams.get('schedule_path') ?? undefined)
-	let jobKindsCat = $state($page.url.searchParams.get('job_kinds') ?? 'runs')
-	let allWorkspaces = $state($page.url.searchParams.get('all_workspaces') == 'true')
+	let minTs = $state(page.url.searchParams.get('min_ts') ?? undefined)
+	let maxTs = $state(page.url.searchParams.get('max_ts') ?? undefined)
+	let schedulePath = $state(page.url.searchParams.get('schedule_path') ?? undefined)
+	let jobKindsCat = $state(page.url.searchParams.get('job_kinds') ?? 'runs')
+	let allWorkspaces = $state(page.url.searchParams.get('all_workspaces') == 'true')
 	let lastFetchWentToEnd = $state(false)
 
 	function loadFromQuery() {
-		path = $page.params.path
-		user = $page.url.searchParams.get('user')
-		folder = $page.url.searchParams.get('folder')
-		label = $page.url.searchParams.get('label')
-		concurrencyKey = $page.url.searchParams.get('concurrency_key')
-		tag = $page.url.searchParams.get('tag')
-		worker = $page.url.searchParams.get('worker')
-		allowWildcards = $page.url.searchParams.get('allow_wildcards') == 'true'
+		path = page.params.path ?? null
+		user = page.url.searchParams.get('user')
+		folder = page.url.searchParams.get('folder')
+		label = page.url.searchParams.get('label')
+		concurrencyKey = page.url.searchParams.get('concurrency_key')
+		tag = page.url.searchParams.get('tag')
+		worker = page.url.searchParams.get('worker')
+		allowWildcards = page.url.searchParams.get('allow_wildcards') == 'true'
 		// Rest of filters handled by RunsFilter
-		success = ($page.url.searchParams.get('success') ?? undefined) as
+		success = (page.url.searchParams.get('success') ?? undefined) as
 			| 'running'
 			| 'success'
 			| 'failure'
 			| undefined
 		isSkipped =
-			$page.url.searchParams.get('is_skipped') != undefined
-				? $page.url.searchParams.get('is_skipped') == 'true'
+			page.url.searchParams.get('is_skipped') != undefined
+				? page.url.searchParams.get('is_skipped') == 'true'
 				: false
 
 		showSchedules =
-			$page.url.searchParams.get('show_schedules') != undefined
-				? $page.url.searchParams.get('show_schedules') == 'true'
+			page.url.searchParams.get('show_schedules') != undefined
+				? page.url.searchParams.get('show_schedules') == 'true'
 				: localStorage.getItem('show_schedules_in_run') == 'false'
 					? false
 					: true
 		showFutureJobs =
-			$page.url.searchParams.get('show_future_jobs') != undefined
-				? $page.url.searchParams.get('show_future_jobs') == 'true'
+			page.url.searchParams.get('show_future_jobs') != undefined
+				? page.url.searchParams.get('show_future_jobs') == 'true'
 				: localStorage.getItem('show_future_jobs') == 'false'
 					? false
 					: true
 
-		argFilter = $page.url.searchParams.get('arg')
-			? JSON.parse(decodeURIComponent($page.url.searchParams.get('arg') ?? '{}'))
+		argFilter = page.url.searchParams.get('arg')
+			? JSON.parse(decodeURIComponent(page.url.searchParams.get('arg') ?? '{}'))
 			: undefined
-		resultFilter = $page.url.searchParams.get('result')
-			? JSON.parse(decodeURIComponent($page.url.searchParams.get('result') ?? '{}'))
+		resultFilter = page.url.searchParams.get('result')
+			? JSON.parse(decodeURIComponent(page.url.searchParams.get('result') ?? '{}'))
 			: undefined
 
 		// Handled on the main page
-		minTs = $page.url.searchParams.get('min_ts') ?? undefined
-		maxTs = $page.url.searchParams.get('max_ts') ?? undefined
-		schedulePath = $page.url.searchParams.get('schedule_path') ?? undefined
-		jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
-		allWorkspaces = $page.url.searchParams.get('all_workspaces') == 'true'
+		minTs = page.url.searchParams.get('min_ts') ?? undefined
+		maxTs = page.url.searchParams.get('max_ts') ?? undefined
+		schedulePath = page.url.searchParams.get('schedule_path') ?? undefined
+		jobKindsCat = page.url.searchParams.get('job_kinds') ?? 'runs'
+		allWorkspaces = page.url.searchParams.get('all_workspaces') == 'true'
 	}
 
 	let queue_count: Tweened<number> | undefined = $state(undefined)
 	let suspended_count: Tweened<number> | undefined = $state(undefined)
 
-	let jobKinds: string | undefined = undefined
+	let jobKinds: string | undefined = $state(undefined)
 	let loading: boolean = $state(false)
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
@@ -172,7 +174,7 @@
 	let extendedJobs: ExtendedJobs | undefined = $state(undefined)
 	let argError = $state('')
 	let resultError = $state('')
-	let filterTimeout: NodeJS.Timeout | undefined = undefined
+	let filterTimeout: number | undefined = undefined
 	let selectedManualDate = $state(0)
 	let autoRefresh: boolean = $state(getAutoRefresh())
 	let runDrawer: Drawer | undefined = $state(undefined)
@@ -184,7 +186,7 @@
 				confirmBtnText: string
 				loading?: boolean
 				preContent?: string
-				onConfirm?: () => void
+				onConfirm?: (forceCancel: boolean) => void
 				type?: ConfirmationModal['$$prop_def']['type']
 		  } = $state(undefined)
 
@@ -198,11 +200,11 @@
 	}
 
 	let innerWidth = $state(window.innerWidth)
-	let jobLoader: JobLoader | undefined = $state(undefined)
+	let jobsLoader: JobsLoader | undefined = $state(undefined)
 	let externalJobs: Job[] | undefined = $state(undefined)
 
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
-		typeOfChart($page.url.searchParams.get('graph'))
+		typeOfChart(page.url.searchParams.get('graph'))
 	)
 	let graphIsRunsChart: boolean = $state(untrack(() => graph) === 'RunChart')
 
@@ -330,8 +332,8 @@
 
 		let newUrl = `${base}/runs${newPath}?${searchParams.toString()}`
 		if (
-			$page.url.searchParams.toString() != searchParams.toString() ||
-			$page.url.pathname != newUrl.split('?')[0]
+			page.url.searchParams.toString() != searchParams.toString() ||
+			page.url.pathname != newUrl.split('?')[0]
 		) {
 			// replaceState(newUrl.toString(), $page.state)
 			goto(newUrl.toString(), { replaceState: replaceState, keepFocus: true })
@@ -342,7 +344,7 @@
 		if (resultError == '' && argError == '') {
 			filterTimeout && clearTimeout(filterTimeout)
 			filterTimeout = setTimeout(() => {
-				jobLoader?.loadJobs(minTs, maxTs, true)
+				jobsLoader?.loadJobs(minTs, maxTs, true)
 			}, 2000)
 		}
 	}
@@ -359,7 +361,7 @@
 		batchReRunOptions = { flow: {}, script: {} }
 		selectionMode = false
 		selectedWorkspace = undefined
-		jobLoader?.loadJobs(minTs, maxTs, true)
+		jobsLoader?.loadJobs(minTs, maxTs, true)
 	}
 
 	async function loadUsernames(): Promise<void> {
@@ -468,7 +470,7 @@
 		allowWildcards = false
 	}
 
-	let calendarChangeTimeout: NodeJS.Timeout | undefined = $state(undefined)
+	let calendarChangeTimeout: number | undefined = $state(undefined)
 
 	function typeOfChart(s: string | null): 'RunChart' | 'ConcurrencyChart' {
 		switch (s) {
@@ -542,18 +544,20 @@
 		}
 	}
 
-	async function cancelJobs(uuidsToCancel: string[]) {
+	async function cancelJobs(uuidsToCancel: string[], forceCancel: boolean = false) {
 		const uuids = await JobService.cancelSelection({
 			workspace: $workspaceStore ?? '',
-			requestBody: uuidsToCancel
+			requestBody: uuidsToCancel,
+			forceCancel: forceCancel
 		})
 		selectedIds = []
-		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		jobsLoader?.loadJobs(minTs, maxTs, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
 		selectionMode = false
 	}
 
 	async function onCancelFilteredJobs() {
+		forceCancelInPopup = false
 		askingForConfirmation = {
 			title: 'Confirm cancelling all jobs corresponding to the selected filters',
 			confirmBtnText: 'Loading...',
@@ -568,18 +572,19 @@
 			title: `Confirm cancelling all jobs corresponding to the selected filters (${jobIdsToCancel.length} jobs)`,
 			confirmBtnText: `Cancel ${jobIdsToCancel.length} jobs that matched the filters`,
 			preContent: selectedFiltersString,
-			onConfirm: () => {
-				cancelJobs(jobIdsToCancel)
+			onConfirm: (forceCancel) => {
+				cancelJobs(jobIdsToCancel, forceCancel)
 			}
 		}
 	}
 
 	async function onCancelSelectedJobs() {
+		forceCancelInPopup = true
 		askingForConfirmation = {
 			confirmBtnText: `Cancel ${selectedIds.length} jobs`,
 			title: 'Confirm cancelling the selected jobs',
-			onConfirm: () => {
-				cancelJobs(selectedIds)
+			onConfirm: (forceCancel) => {
+				cancelJobs(selectedIds, forceCancel)
 			}
 		}
 	}
@@ -653,7 +658,7 @@
 
 		selectedIds = []
 		batchReRunOptions = { flow: {}, script: {} }
-		jobLoader?.loadJobs(minTs, maxTs, true, true)
+		jobsLoader?.loadJobs(minTs, maxTs, true, true)
 		selectionMode = false
 	}
 
@@ -689,8 +694,8 @@
 	}
 
 	async function loadExtra() {
-		if (jobLoader) {
-			lastFetchWentToEnd = await jobLoader.loadExtraJobs()
+		if (jobsLoader) {
+			lastFetchWentToEnd = await jobsLoader.loadExtraJobs()
 			console.log(lastFetchWentToEnd)
 		}
 	}
@@ -716,7 +721,6 @@
 		jobKindsCat = 'all'
 	}
 
-	let schedulesWidth = $state(0)
 	$effect(() => {
 		loadingSelectedIds && selectedIds.length && setTimeout(() => (loadingSelectedIds = false), 250)
 	})
@@ -770,9 +774,38 @@
 			extended.jobs.length + extended.obscured_jobs.length >= 1000
 		)
 	})
+
+	const bubble = createBubbler()
+
+	function selectAll() {
+		if (!selectionMode) return
+		if (allSelected) {
+			allSelected = false
+			selectedIds = []
+		} else {
+			allSelected = true
+			selectedIds = jobs?.filter(isJobSelectable(selectionMode)).map((j) => j.id) ?? []
+		}
+	}
+
+	let allSelected = $derived.by(() => {
+		return selectionMode && selectedIds.length === selectableJobCount
+	})
+
+	const selectableJobCount = $derived.by(() => {
+		if (!selectionMode) return 0
+		return jobs?.filter(isJobSelectable(selectionMode)).length ?? 0
+	})
+
+	let tableTopBarWidth = $state(0)
+
+	const smallScreenWidth = 1920
+	const verySmallScreenWidth = 1300
+
+	let forceCancelInPopup = $state(false)
 </script>
 
-<JobLoader
+<JobsLoader
 	{allowWildcards}
 	{allWorkspaces}
 	bind:jobs
@@ -792,7 +825,7 @@
 	computeMinAndMax={manualDatePicker?.computeMinMax}
 	bind:minTs
 	bind:maxTs
-	{jobKinds}
+	bind:jobKinds
 	bind:queue_count
 	bind:suspended_count
 	{autoRefresh}
@@ -804,7 +837,7 @@
 	{resultError}
 	{tag}
 	bind:loading
-	bind:this={jobLoader}
+	bind:this={jobsLoader}
 	lookback={graphIsRunsChart ? 0 : lookback}
 />
 
@@ -814,7 +847,7 @@
 	open={!!askingForConfirmation}
 	on:confirmed={async () => {
 		const func = askingForConfirmation?.onConfirm
-		await func?.()
+		await func?.(forceCancelInPopup)
 		askingForConfirmation = undefined
 	}}
 	type={askingForConfirmation?.type}
@@ -825,6 +858,27 @@
 >
 	{#if askingForConfirmation?.preContent}
 		<pre>{askingForConfirmation.preContent}</pre>
+		<Toggle
+			size="xs"
+			class="mt-4"
+			color="red"
+			bind:checked={forceCancelInPopup}
+			options={{
+				right: 'Force cancel',
+				rightTooltip:
+					'Only use this for jobs that refuse to gracefully cancel. This is dangerous, only do this if you have no alternatives!'
+			}}
+		></Toggle>
+		{#if forceCancelInPopup}
+			<div class="mt-4 text-red-500 p-2 text-sm">
+				<p>
+					Force cancel is enabled. This is dangerous, only do this if you have no alternatives.
+					Instead of being gracefully cancelled, all jobs will be immediately sent to the completed
+					job table regardless of them being processed or not or part of running flows. You may end
+					up in an inconsistent state.
+				</p>
+			</div>
+		{/if}
 	{/if}
 </ConfirmationModal>
 
@@ -834,14 +888,13 @@
 			{#if selectedIds[0] === '-'}
 				<div class="p-4">There is no information available for this job</div>
 			{:else}
-				<JobPreview blankLink id={selectedIds[0]} workspace={selectedWorkspace} />
+				<JobRunsPreview blankLink id={selectedIds[0]} workspace={selectedWorkspace} />
 			{/if}
 		{/if}
 	</DrawerContent>
 </Drawer>
 
 <svelte:window
-	bind:innerWidth
 	onpopstate={() => {
 		reset()
 		loadFromQuery()
@@ -853,118 +906,213 @@
 		<p class="font-bold">Unauthorized</p>
 		<p>Page not available for operators</p>
 	</div>
-{:else if innerWidth > 900}
-	<div class="w-full h-screen">
-		<div class="px-2">
-			<div class="flex items-center space-x-2 flex-row justify-between">
-				<div class="flex-col">
-					<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
-						<h1
-							class={twMerge(
-								'!text-2xl font-semibold leading-6 tracking-tight',
-								$userStore?.operator ? 'pl-10' : ''
-							)}
-						>
-							Runs
-						</h1>
+{:else}
+	<div class="w-full h-screen flex flex-col" bind:clientWidth={innerWidth}>
+		<!-- Header and filters -->
+		<div class="flex flex-row items-start w-full border-b px-4 gap-8">
+			<div class="flex flex-row items-center h-full gap-6">
+				<div class="flex flex-row items-center gap-1">
+					<h1
+						class={twMerge(
+							'!text-2xl font-semibold leading-6 tracking-tight',
+							$userStore?.operator ? 'pl-10' : ''
+						)}
+					>
+						Runs
+					</h1>
 
-						<Tooltip
-							documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
-						>
-							All past and schedule executions of scripts and flows, including previews. You only
-							see your own runs or runs of groups you belong to unless you are an admin.
-						</Tooltip>
-					</div>
+					<Tooltip
+						documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
+					>
+						All past and schedule executions of scripts and flows, including previews. You only see
+						your own runs or runs of groups you belong to unless you are an admin.
+					</Tooltip>
 				</div>
-				<RunsFilter
-					bind:allowWildcards
-					bind:isSkipped
-					bind:user
-					bind:folder
-					bind:label
-					bind:concurrencyKey
-					bind:tag
-					bind:worker
-					bind:path
-					bind:success
-					bind:argFilter
-					bind:resultFilter
-					bind:argError
-					bind:resultError
-					bind:jobKindsCat
-					bind:allWorkspaces
-					bind:schedulePath
-					on:change={reloadJobsWithoutFilterError}
-					on:successChange={(e) => {
-						if (e.detail == 'running' && maxTs != undefined) {
-							maxTs = undefined
-						}
+
+				<!-- Queue -->
+				<RunsQueue
+					{success}
+					{queue_count}
+					{suspended_count}
+					onJobsWaiting={() => {
+						jobsFilter('waiting')
 					}}
-					{usernames}
-					{folders}
-					{paths}
+					onJobsSuspended={() => {
+						jobsFilter('suspended')
+					}}
+					small={innerWidth < smallScreenWidth}
 				/>
+			</div>
+
+			<div class="py-2 flex items-start gap-x-4 gap-y-2 flex-row grow min-w-0 justify-end">
+				<!-- Dates -->
+				<div class="flex flex-row gap-2">
+					<RunOption label="From" for="min-datetimes">
+						{#if minTs || maxTs}
+							<input
+								type="text"
+								value={minTs ? new Date(minTs).toLocaleString() : 'zoom x axis to set min'}
+								disabled
+								name="min-datetimes"
+							/>
+						{/if}
+						<CalendarPicker
+							clearable={true}
+							date={minTs}
+							label="From"
+							class={minTs || maxTs ? '' : 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
+							on:change={async ({ detail }) => {
+								minTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobsLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+							on:clear={async () => {
+								minTs = undefined
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobsLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+						/>
+					</RunOption>
+
+					<RunOption label="To" for="max-datetimes">
+						{#if maxTs || minTs}
+							<input
+								type="text"
+								value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
+								name="max-datetimes"
+								disabled
+							/>
+						{/if}
+						<CalendarPicker
+							clearable={true}
+							date={maxTs}
+							label="To"
+							class={minTs || maxTs ? '' : 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
+							on:change={async ({ detail }) => {
+								maxTs = new Date(detail).toISOString()
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobsLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+							on:clear={async () => {
+								maxTs = undefined
+								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
+								calendarChangeTimeout = setTimeout(() => {
+									jobsLoader?.loadJobs(minTs, maxTs, true)
+								}, 1000)
+							}}
+						/>
+					</RunOption>
+
+					{#if minTs || maxTs}
+						<RunOption label="Reset" for="reset" noLabel>
+							<Button color="light" variant="border" size="xs" onClick={reset}>Reset</Button>
+						</RunOption>
+					{/if}
+				</div>
+
+				<!-- Filters 1 -->
+				<div class="flex flex-row gap-4">
+					<RunsFilter
+						bind:allowWildcards
+						bind:isSkipped
+						bind:user
+						bind:folder
+						bind:label
+						bind:concurrencyKey
+						bind:tag
+						bind:worker
+						bind:path
+						bind:success
+						bind:argFilter
+						bind:resultFilter
+						bind:argError
+						bind:resultError
+						bind:jobKindsCat
+						bind:allWorkspaces
+						bind:schedulePath
+						on:change={reloadJobsWithoutFilterError}
+						on:successChange={(e) => {
+							if (e.detail == 'running' && maxTs != undefined) {
+								maxTs = undefined
+							}
+						}}
+						{usernames}
+						{folders}
+						{paths}
+						mobile={innerWidth < verySmallScreenWidth}
+						small={innerWidth < smallScreenWidth}
+						calendarSmall={!minTs && !maxTs}
+					/>
+				</div>
 			</div>
 		</div>
 
-		<div class="p-2 w-full">
+		<!-- Graph -->
+		<div class="p-2 px-4 pt-8 w-full border-b">
 			<div class="relative z-10">
-				<div class="absolute right-0 -mt-6">
-					<div class="flex flex-row justify-between items-center">
-						<ToggleButtonGroup
-							selected={graph}
-							on:selected={({ detail }) => {
-								graph = detail
-								graphIsRunsChart = graph === 'RunChart'
-							}}
-						>
-							{#snippet children({ item })}
-								<ToggleButton value="RunChart" label="Duration" {item} />
-								<ToggleButton
-									{item}
-									value="ConcurrencyChart"
-									label="Concurrency"
-									icon={warnJobLimit ? AlertTriangle : undefined}
-									tooltip={warnJobLimit ? warnJobLimitMsg : undefined}
-								/>
-							{/snippet}
-						</ToggleButtonGroup>
-					</div>
+				<div class="absolute left-0 -top-7 flex flex-row gap-2 items-center min-w-24">
+					<ToggleButtonGroup
+						selected={graph}
+						on:selected={({ detail }) => {
+							graph = detail
+							graphIsRunsChart = graph === 'RunChart'
+						}}
+					>
+						{#snippet children({ item })}
+							<ToggleButton value="RunChart" label="Duration" {item} />
+							<ToggleButton
+								{item}
+								value="ConcurrencyChart"
+								label="Concurrency"
+								icon={warnJobLimit ? TriangleAlert : undefined}
+								tooltip={warnJobLimit ? warnJobLimitMsg : undefined}
+							/>
+						{/snippet}
+					</ToggleButtonGroup>
+
 					{#if !graphIsRunsChart}
-						<DropdownV2
+						<DropdownSelect
 							items={[
 								{
 									displayName: 'None',
-									action: () => setLookback(0)
+									action: () => setLookback(0),
+									id: '0'
 								},
 								{
 									displayName: '1 day',
-									action: () => setLookback(1)
+									action: () => setLookback(1),
+									id: '1'
 								},
 								{
 									displayName: '3 days',
-									action: () => setLookback(3)
+									action: () => setLookback(3),
+									id: '3'
 								},
 								{
 									displayName: '7 days',
-									action: () => setLookback(7)
+									action: () => setLookback(7),
+									id: '7'
 								}
 							]}
+							selected={lookback.toString()}
+							selectedDisplayName={`${lookback} days lookback`}
 						>
-							{#snippet buttonReplacement()}
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<ChevronDown class="w-5 h-5" />
-									<span class="text-xs min-w-[5rem]">{lookback} days lookback</span>
-									<Tooltip>
+							{#snippet extraLabel()}
+								<TooltipV2>
+									{#snippet text()}
 										How far behind the min datetime to start considering jobs for the concurrency
 										graph. Change this value to include jobs started before the set time window for
 										the computation of the graph
-									</Tooltip>
-								</div>
+									{/snippet}
+								</TooltipV2>
 							{/snippet}
-						</DropdownV2>
+						</DropdownSelect>
 					{/if}
 				</div>
 			</div>
@@ -976,16 +1124,16 @@
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
-					on:loadExtra={loadExtra}
+					onLoadExtra={loadExtra}
 					jobs={completedJobs}
-					on:zoom={async (e) => {
-						minTs = e.detail.min.toISOString()
-						maxTs = e.detail.max.toISOString()
+					onZoom={async (zoom) => {
+						minTs = zoom.min.toISOString()
+						maxTs = zoom.max.toISOString()
 						manualDatePicker?.resetChoice()
-						jobLoader?.loadJobs(minTs, maxTs, true)
+						jobsLoader?.loadJobs(minTs, maxTs, true)
 					}}
-					on:pointClicked={(e) => {
-						runsTable?.scrollToRun(e.detail)
+					onPointClicked={(ids) => {
+						runsTable?.scrollToRun(ids)
 					}}
 				/>
 			{:else if graph === 'ConcurrencyChart'}
@@ -994,192 +1142,164 @@
 					maxTimeSet={maxTs}
 					maxIsNow={maxTs == undefined}
 					{extendedJobs}
-					on:zoom={async (e) => {
-						minTs = e.detail.min.toISOString()
-						maxTs = e.detail.max.toISOString()
-						jobLoader?.loadJobs(minTs, maxTs, true)
+					onZoom={async (zoom) => {
+						minTs = zoom.min.toISOString()
+						maxTs = zoom.max.toISOString()
+						jobsLoader?.loadJobs(minTs, maxTs, true)
 					}}
 				/>
 			{/if}
 		</div>
-		<div class="flex flex-col gap-1 md:flex-row w-full p-4">
-			<div class="flex gap-2 grow flex-row">
-				<RunsQueue
-					{success}
-					{queue_count}
-					{suspended_count}
-					on:jobs_waiting={() => {
-						jobsFilter('waiting')
-					}}
-					on:jobs_suspended={() => {
-						jobsFilter('suspended')
-					}}
-				/>
-				<RunsBatchActionsDropdown
-					isLoading={loadingSelectedIds}
-					{selectionMode}
-					selectionCount={selectedIds.length}
-					{onSetSelectionMode}
-					{onCancelFilteredJobs}
-					{onCancelSelectedJobs}
-					{onReRunFilteredJobs}
-					{onReRunSelectedJobs}
-				/>
-			</div>
-			<div class="relative flex gap-2 items-center pr-8 w-40" bind:clientWidth={schedulesWidth}>
-				<Toggle
-					size="xs"
-					bind:checked={showSchedules}
-					on:change={() => {
-						localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
-					}}
-				/>
-				<span class="text-xs absolute -top-4">
-					<span class={schedulesWidth > 110 ? 'inline' : 'hidden'}>CRON</span> Schedules
-				</span>
-				<Calendar size="16" />
-			</div>
-			<div class="relative flex gap-2 items-center pr-8 w-40">
-				<span class="text-xs absolute -top-4">Planned later</span>
-				<Toggle
-					size="xs"
-					bind:checked={showFutureJobs}
-					on:change={() => {
-						localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
-					}}
-				/>
-				<Clock size={16} />
-			</div>
-			<div class="flex flex-row gap-1 w-full max-w-lg">
-				<div class="relative w-full">
-					<div class="flex gap-1 relative w-full">
-						<span class="text-xs absolute -top-4">Min datetime</span>
 
-						<input
-							type="text"
-							value={minTs
-								? new Date(minTs).toLocaleString()
-								: 'zoom x axis to set min (drag with ctrl)'}
-							disabled
-						/>
-
-						<CalendarPicker
-							clearable={true}
-							date={minTs}
-							label="Min datetimes"
-							on:change={async ({ detail }) => {
-								minTs = new Date(detail).toISOString()
-								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
-								}, 1000)
-							}}
-							on:clear={async () => {
-								minTs = undefined
-								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
-								}, 1000)
-							}}
-						/>
-					</div>
-				</div>
-				<div class="relative w-full">
-					<div class="flex gap-1 relative w-full">
-						<span class="text-xs absolute -top-4">Max</span>
-						<input
-							type="text"
-							value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
-							disabled
-						/>
-						<CalendarPicker
-							clearable={true}
-							date={maxTs}
-							label="Max datetimes"
-							on:change={async ({ detail }) => {
-								maxTs = new Date(detail).toISOString()
-								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
-								}, 1000)
-							}}
-							on:clear={async () => {
-								maxTs = undefined
-								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
-								}, 1000)
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-			<div class="flex flex-row gap-2 items-center">
-				<Button size="xs" color="light" variant="border" on:click={reset}>Reset</Button>
-				<ManuelDatePicker
-					on:loadJobs={() => {
-						lastFetchWentToEnd = false
-						jobLoader?.loadJobs(minTs, maxTs, true, true)
-					}}
-					bind:minTs
-					bind:maxTs
-					bind:selectedManualDate
-					{loading}
-					bind:this={manualDatePicker}
-				/>
-				<Toggle
-					size="xs"
-					bind:checked={autoRefresh}
-					on:change={() => {
-						localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
-					}}
-					options={{ right: 'Auto-refresh' }}
-					textClass="whitespace-nowrap"
-				/>
-			</div>
-		</div>
-
-		<SplitPanesWrapper>
+		<div class="grow min-h-0">
 			<Splitpanes>
 				<Pane size={60} minSize={40}>
-					{#if jobs}
-						<RunsTable
-							{jobs}
-							externalJobs={externalJobs ?? []}
-							omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
-							showExternalJobs={!graphIsRunsChart}
-							activeLabel={label}
-							{selectionMode}
-							bind:selectedIds
-							bind:selectedWorkspace
-							bind:lastFetchWentToEnd
-							on:loadExtra={loadExtra}
-							on:filterByPath={filterByPath}
-							on:filterByUser={filterByUser}
-							on:filterByFolder={filterByFolder}
-							on:filterByLabel={filterByLabel}
-							on:filterByConcurrencyKey={filterByConcurrencyKey}
-							on:filterByTag={filterByTag}
-							on:filterBySchedule={filterBySchedule}
-							on:filterByWorker={filterByWorker}
-							bind:this={runsTable}
-						/>
-					{:else}
-						<div class="gap-1 flex flex-col">
-							{#each new Array(8) as _}
-								<Skeleton layout={[[3]]} />
-							{/each}
+					<div class="flex flex-col h-full">
+						<!-- Runs table top bar -->
+						<div
+							class="flex flex-row gap-4 items-center px-2 py-1 grow-0 justify-between"
+							bind:clientWidth={tableTopBarWidth}
+						>
+							<div class="flex flex-row gap-4 items-center">
+								{#if selectionMode && selectableJobCount}
+									<div class="flex flex-row items-center font-semibold text-sm">
+										<div class="px-2">
+											<input
+												onfocus={bubble('focus')}
+												type="checkbox"
+												checked={allSelected}
+												id="select-all"
+												class={twMerge(
+													'cursor-pointer',
+													allSelected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
+													'flex flex-row items-center p-2 pr-4 top-0 font-semibold text-sm'
+												)}
+												onclick={selectAll}
+											/>
+										</div>
+										<label class="cursor-pointer whitespace-nowrap" for="select-all"
+											>Select all</label
+										>
+									</div>
+								{/if}
+
+								<RunsBatchActionsDropdown
+									isLoading={loadingSelectedIds}
+									{selectionMode}
+									selectionCount={selectedIds.length}
+									{onSetSelectionMode}
+									{onCancelFilteredJobs}
+									{onCancelSelectedJobs}
+									{onReRunFilteredJobs}
+									{onReRunSelectedJobs}
+									small={tableTopBarWidth < 800}
+								/>
+							</div>
+
+							<div class="flex flex-row gap-4 items-center">
+								<div class="flex flex-row gap-1 items-center">
+									<Toggle
+										id="cron-schedules"
+										size="xs"
+										bind:checked={showSchedules}
+										on:change={() => {
+											localStorage.setItem(
+												'show_schedules_in_run',
+												showSchedules ? 'true' : 'false'
+											)
+										}}
+										options={tableTopBarWidth < 800 || selectionMode
+											? {}
+											: { right: 'CRON Schedules' }}
+									/>
+									<span title="CRON Schedules">
+										<Calendar size="16" />
+									</span>
+								</div>
+
+								<div class="flex flex-row gap-1 items-center">
+									<Toggle
+										size="xs"
+										bind:checked={showFutureJobs}
+										on:change={() => {
+											localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
+										}}
+										id="planned-later"
+										options={tableTopBarWidth < 800 || selectionMode
+											? {}
+											: { right: 'Planned later' }}
+									/>
+									<span title="Planned later">
+										<Clock size={16} />
+									</span>
+								</div>
+								<div class="flex flex-row gap-2 items-center">
+									<ManuelDatePicker
+										on:loadJobs={() => {
+											lastFetchWentToEnd = false
+											jobsLoader?.loadJobs(minTs, maxTs, true)
+										}}
+										bind:minTs
+										bind:maxTs
+										bind:selectedManualDate
+										{loading}
+										bind:this={manualDatePicker}
+									/>
+									<Toggle
+										size="xs"
+										bind:checked={autoRefresh}
+										on:change={() => {
+											localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+										}}
+										options={{ right: 'Auto-refresh' }}
+										textClass="whitespace-nowrap"
+									/>
+								</div>
+							</div>
 						</div>
-					{/if}
+
+						<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
+						<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
+							{#if jobs}
+								<RunsTable
+									{jobs}
+									externalJobs={externalJobs ?? []}
+									omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
+									showExternalJobs={!graphIsRunsChart}
+									activeLabel={label}
+									{selectionMode}
+									bind:selectedIds
+									bind:selectedWorkspace
+									bind:lastFetchWentToEnd
+									on:loadExtra={loadExtra}
+									on:filterByPath={filterByPath}
+									on:filterByUser={filterByUser}
+									on:filterByFolder={filterByFolder}
+									on:filterByLabel={filterByLabel}
+									on:filterByConcurrencyKey={filterByConcurrencyKey}
+									on:filterByTag={filterByTag}
+									on:filterBySchedule={filterBySchedule}
+									on:filterByWorker={filterByWorker}
+									bind:this={runsTable}
+								></RunsTable>
+							{:else}
+								<div class="gap-1 flex flex-col">
+									{#each new Array(8) as _}
+										<Skeleton layout={[[3]]} />
+									{/each}
+								</div>
+							{/if}
+						</div>
+					</div>
 				</Pane>
-				<Pane size={40} minSize={15} class="border-t flex flex-col">
+				<Pane size={40} minSize={15} class="flex flex-col">
 					{#if selectionMode === 're-run'}
 						<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
 					{:else if selectedIds.length === 1}
 						{#if selectedIds[0] === '-'}
 							<div class="p-4">There is no information available for this job</div>
 						{:else}
-							<JobPreview
+							<JobRunsPreview
 								on:filterByConcurrencyKey={filterByConcurrencyKey}
 								on:filterByWorker={filterByWorker}
 								id={selectedIds[0]}
@@ -1195,310 +1315,6 @@
 					{/if}
 				</Pane>
 			</Splitpanes>
-		</SplitPanesWrapper>
-	</div>
-{:else}
-	<div class="flex flex-col h-screen">
-		<div class="px-2">
-			<div class="flex items-center space-x-2 flex-row justify-between">
-				<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1">
-					<h1 class="!text-2xl font-semibold leading-6 tracking-tight"> Runs </h1>
-
-					<Tooltip
-						light
-						documentationLink="https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs"
-						scale={0.9}
-						wrapperClass="flex items-center"
-					>
-						All past and schedule executions of scripts and flows, including previews. You only see
-						your own runs or runs of groups you belong to unless you are an admin.
-					</Tooltip>
-				</div>
-				<RunsFilter
-					bind:allowWildcards
-					bind:isSkipped
-					{paths}
-					{usernames}
-					{folders}
-					bind:jobKindsCat
-					bind:folder
-					bind:path
-					bind:user
-					bind:label
-					bind:worker
-					bind:concurrencyKey
-					bind:tag
-					bind:success
-					bind:argFilter
-					bind:resultFilter
-					bind:argError
-					bind:resultError
-					bind:allWorkspaces
-					bind:schedulePath
-					mobile={true}
-					on:change={reloadJobsWithoutFilterError}
-					on:sucessChange={(e) => {
-						if (e.detail == 'running' && maxTs != undefined) {
-							maxTs = undefined
-						}
-					}}
-				/>
-			</div>
-		</div>
-		<div class="p-2 w-full">
-			<div class="relative z-10">
-				<div class="absolute right-2">
-					<ToggleButtonGroup
-						selected={graph}
-						on:selected={({ detail }) => {
-							graph = detail
-							graphIsRunsChart = graph == 'RunChart'
-						}}
-					>
-						{#snippet children({ item })}
-							<ToggleButton value="RunChart" label="Duration" {item} />
-							<ToggleButton value="ConcurrencyChart" label="Concurrency" {item} />
-						{/snippet}
-					</ToggleButtonGroup>
-					{#if !graphIsRunsChart}
-						<DropdownV2
-							items={[
-								{
-									displayName: 'None',
-									action: () => setLookback(0)
-								},
-								{
-									displayName: '1 day',
-									action: () => setLookback(1)
-								},
-								{
-									displayName: '3 days',
-									action: () => setLookback(3)
-								},
-								{
-									displayName: '7 days',
-									action: () => setLookback(7)
-								}
-							]}
-						>
-							{#snippet buttonReplacement()}
-								<div
-									class="mt-1 p-2 h-8 flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md"
-								>
-									<ChevronDown class="w-5 h-5" />
-									<span class="text-xs min-w-[5rem]">{lookback} days lookback</span>
-									<Tooltip>
-										How far behind the min datetime to start considering jobs for the concurrency
-										graph. Change this value to include jobs started before the set time window for
-										the computation of the graph
-									</Tooltip>
-								</div>
-							{/snippet}
-						</DropdownV2>
-					{/if}
-				</div>
-			</div>
-			{#if graph === 'RunChart'}
-				<RunChart
-					{lastFetchWentToEnd}
-					bind:selectedIds
-					canSelect={!selectionMode}
-					minTimeSet={minTs}
-					maxTimeSet={maxTs}
-					maxIsNow={maxTs == undefined}
-					on:loadExtra={loadExtra}
-					jobs={completedJobs}
-					on:zoom={async (e) => {
-						minTs = e.detail.min.toISOString()
-						maxTs = e.detail.max.toISOString()
-						manualDatePicker?.resetChoice()
-						jobLoader?.loadJobs(minTs, maxTs, true)
-					}}
-					on:pointClicked={(e) => {
-						runsTable?.scrollToRun(e.detail)
-					}}
-				/>
-			{:else if graph === 'ConcurrencyChart'}
-				<ConcurrentJobsChart
-					minTimeSet={minTs}
-					maxTimeSet={maxTs}
-					maxIsNow={maxTs == undefined}
-					{extendedJobs}
-					on:zoom={async (e) => {
-						minTs = e.detail.min.toISOString()
-						maxTs = e.detail.max.toISOString()
-						jobLoader?.loadJobs(minTs, maxTs, true)
-					}}
-				/>
-			{/if}
-		</div>
-		<div class="flex flex-col gap-4 md:flex-row w-full p-4 overflow-x-auto">
-			<div class="flex items-center flex-row gap-2 grow">
-				{#if queue_count}
-					<RunsQueue
-						{success}
-						{queue_count}
-						{suspended_count}
-						on:jobs_waiting={() => {
-							jobsFilter('waiting')
-						}}
-						on:jobs_suspended={() => {
-							jobsFilter('suspended')
-						}}
-					/>
-				{/if}
-				<div class="flex flex-row">
-					<RunsBatchActionsDropdown
-						{selectionMode}
-						selectionCount={selectedIds.length}
-						{onSetSelectionMode}
-						{onCancelFilteredJobs}
-						{onCancelSelectedJobs}
-						{onReRunFilteredJobs}
-						{onReRunSelectedJobs}
-					/>
-				</div>
-			</div>
-			<div class="flex gap-2 py-1">
-				<div class="relative flex gap-2 items-center pr-8 w-20">
-					<Toggle
-						size="xs"
-						bind:checked={showSchedules}
-						on:change={() => {
-							localStorage.setItem('show_schedules_in_run', showSchedules ? 'true' : 'false')
-						}}
-					/>
-					<span class="text-xs absolute -top-4">Schedules</span>
-
-					<Calendar size={16} />
-				</div>
-				<div class="relative flex gap-2 items-center pr-8 w-20">
-					<span class="text-xs absolute -top-4">Planned later</span>
-					<Toggle
-						size="xs"
-						bind:checked={showFutureJobs}
-						on:change={() => {
-							localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
-						}}
-					/>
-					<Clock size={16} />
-				</div>
-			</div>
-			<div class="flex flex-row gap-1 w-full max-w-lg items-center">
-				<div class="relative w-full">
-					<div class="flex gap-1 relative w-full">
-						<span class="text-xs absolute -top-4">Min</span>
-
-						<input
-							type="text"
-							class="min-w-10"
-							value={minTs
-								? new Date(minTs).toLocaleString()
-								: 'zoom x axis to set min (drag with ctrl)'}
-							disabled
-						/>
-
-						<CalendarPicker
-							clearable={true}
-							date={minTs}
-							label="Min datetimes"
-							on:change={async ({ detail }) => {
-								minTs = new Date(detail).toISOString()
-								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
-								}, 1000)
-							}}
-							on:clear={async () => {
-								minTs = undefined
-								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
-								}, 1000)
-							}}
-						/>
-					</div>
-				</div>
-				<div class="relative w-full">
-					<div class="flex gap-1 relative w-full">
-						<span class="text-xs absolute -top-4">Max</span>
-						<input
-							class="min-w-10"
-							type="text"
-							value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
-							disabled
-						/>
-						<CalendarPicker
-							clearable={true}
-							date={maxTs}
-							label="Max datetimes"
-							on:change={async ({ detail }) => {
-								maxTs = new Date(detail).toISOString()
-								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
-								}, 1000)
-							}}
-							on:clear={async () => {
-								maxTs = undefined
-								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-								calendarChangeTimeout = setTimeout(() => {
-									jobLoader?.loadJobs(minTs, maxTs, true)
-								}, 1000)
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-			<div class="flex flex-row gap-2 items-center">
-				<Button size="xs" color="light" variant="border" on:click={reset}>Reset</Button>
-				<ManuelDatePicker
-					on:loadJobs={() => {
-						lastFetchWentToEnd = false
-						jobLoader?.loadJobs(minTs, maxTs, true, true)
-					}}
-					bind:this={manualDatePicker}
-					bind:minTs
-					bind:maxTs
-					bind:selectedManualDate
-					{loading}
-				/>
-
-				<Toggle
-					size="xs"
-					bind:checked={autoRefresh}
-					on:change={() => {
-						localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
-					}}
-					options={{ right: 'Auto-refresh' }}
-					textClass="whitespace-nowrap"
-				/>
-			</div>
-		</div>
-		<div class="grow">
-			<RunsTable
-				activeLabel={label}
-				{jobs}
-				externalJobs={externalJobs ?? []}
-				omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
-				showExternalJobs={!graphIsRunsChart}
-				{selectionMode}
-				bind:selectedIds
-				bind:selectedWorkspace
-				bind:lastFetchWentToEnd
-				on:loadExtra={loadExtra}
-				on:select={() => {
-					if (!selectionMode) runDrawer?.openDrawer()
-				}}
-				on:filterByPath={filterByPath}
-				on:filterByUser={filterByUser}
-				on:filterByFolder={filterByFolder}
-				on:filterByLabel={filterByLabel}
-				on:filterByConcurrencyKey={filterByConcurrencyKey}
-				on:filterByWorker={filterByWorker}
-				on:filterByTag={filterByTag}
-				bind:this={runsTable}
-			/>
 		</div>
 	</div>
 {/if}

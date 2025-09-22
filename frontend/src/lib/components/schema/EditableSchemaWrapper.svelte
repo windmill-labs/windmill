@@ -1,8 +1,6 @@
 <script lang="ts">
-	import type { Schema } from '$lib/common'
 	import { twMerge } from 'tailwind-merge'
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
-	import { createEventDispatcher } from 'svelte'
 	import Toggle from '../Toggle.svelte'
 	import { emptySchema, validateFileExtension } from '$lib/utils'
 	import { Alert } from '../common'
@@ -10,28 +8,20 @@
 	import { Plus } from 'lucide-svelte'
 	import Select from '../select/Select.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
-
-	interface Props {
-		schema: Schema | undefined | any
-		uiOnly?: boolean
-		noPreview?: boolean
-		fullHeight?: boolean
-		formatExtension?: string | undefined
-	}
+	import type { EditableSchemaWrapperProps } from './editable_schema_wrapper'
 
 	let {
 		schema = $bindable(),
 		uiOnly = false,
 		noPreview = false,
 		fullHeight = true,
-		formatExtension = $bindable(undefined)
-	}: Props = $props()
+		formatExtension = $bindable(undefined),
+		customUi
+	}: EditableSchemaWrapperProps = $props()
 
 	let resourceIsTextFile: boolean = $state(false)
 	let addPropertyComponent: AddPropertyV2 | undefined = $state(undefined)
 	let editableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
-
-	const dispatch = createEventDispatcher()
 
 	$effect(() => {
 		if (!resourceIsTextFile && formatExtension !== undefined) {
@@ -60,7 +50,6 @@
 				}
 			}
 		}
-		dispatch('change', schema)
 	}
 
 	let suggestedFileExtensions = $state([
@@ -87,11 +76,11 @@
 	>
 		{#if noPreview}
 			<AddPropertyV2
+				noPopover={customUi?.noAddPopover}
 				bind:schema
 				bind:this={addPropertyComponent}
-				on:change={() => dispatch('change', schema)}
-				on:addNew={(e) => {
-					editableSchemaForm?.openField(e.detail)
+				onAddNew={(argName) => {
+					editableSchemaForm?.openField(argName)
 				}}
 			>
 				{#snippet trigger()}
@@ -107,11 +96,7 @@
 			onlyMaskPassword
 			bind:this={editableSchemaForm}
 			bind:schema
-			on:change={() => dispatch('change', schema)}
 			isFlowInput
-			on:edit={(e) => {
-				addPropertyComponent?.openDrawer(e.detail)
-			}}
 			on:delete={(e) => {
 				addPropertyComponent?.handleDeleteArgument([e.detail])
 			}}
@@ -122,9 +107,9 @@
 			{#snippet addProperty()}
 				{#if !noPreview}
 					<AddPropertyV2
+						noPopover={customUi?.noAddPopover}
 						bind:schema
 						bind:this={addPropertyComponent}
-						on:change={() => dispatch('change', schema)}
 					>
 						{#snippet trigger()}
 							<div

@@ -1,5 +1,7 @@
 const plugin = require('tailwindcss/plugin')
-const { tailwindClasses } = require('./src/lib/components/apps/editor/componentsPanel/tailwindUtils')
+const {
+	tailwindClasses
+} = require('./src/lib/components/apps/editor/componentsPanel/tailwindUtils')
 const { zIndexes } = require('./src/lib/zIndexes')
 
 const lightTheme = {
@@ -477,7 +479,8 @@ const config = {
 			},
 			animation: {
 				'spin-counter-clockwise': 'spin-counter-clockwise 1s linear infinite',
-				'zoom-in': 'zoom-in 0.25s ease-in-out'
+				'zoom-in': 'zoom-in 0.25s ease-in-out',
+				'fade-out': 'fade-out 1s ease-in-out'
 			},
 			keyframes: {
 				'spin-counter-clockwise': {
@@ -486,6 +489,10 @@ const config = {
 				'zoom-in': {
 					'0%': { transform: 'scale(0.95)' },
 					'100%': { transform: 'scale(1)' }
+				},
+				'fade-out': {
+					'0%': { opacity: '1' },
+					'100%': { opacity: '0' }
 				}
 			}
 		}

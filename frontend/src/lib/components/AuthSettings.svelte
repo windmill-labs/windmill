@@ -12,16 +12,19 @@
 	import AutheliaSetting from '$lib/components/AutheliaSetting.svelte'
 	import KanidmSetting from '$lib/components/KanidmSetting.svelte'
 	import ZitadelSetting from '$lib/components/ZitadelSetting.svelte'
+	import NextcloudSetting from '$lib/components/NextcloudSetting.svelte'
 	import CustomOauth from './CustomOauth.svelte'
 	import { capitalize } from '$lib/utils'
 	import Toggle from './Toggle.svelte'
 	import { ExternalLink, Plus } from 'lucide-svelte'
 	import AzureOauthSettings from './AzureOauthSettings.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	interface Props {
 		snowflakeAccountIdentifier?: string
 		oauths?: Record<string, any>
 		requirePreexistingUserForOauth?: boolean
+		baseUrl?: string
 		scim?: import('svelte').Snippet
 	}
 
@@ -29,6 +32,7 @@
 		snowflakeAccountIdentifier = $bindable(),
 		oauths = $bindable(),
 		requirePreexistingUserForOauth = $bindable(),
+		baseUrl,
 		scim
 	}: Props = $props()
 
@@ -116,8 +120,9 @@
 				<AutheliaSetting bind:value={oauths['authelia']} />
 				<KanidmSetting bind:value={oauths['kanidm']} />
 				<ZitadelSetting bind:value={oauths['zitadel']} />
+				<NextcloudSetting bind:value={oauths['nextcloud']} {baseUrl} />
 				{#each Object.keys(oauths) as k}
-					{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel'].includes(k) && 'login_config' in oauths[k]}
+					{#if !['authelia', 'authentik', 'google', 'microsoft', 'github', 'gitlab', 'jumpcloud', 'okta', 'auth0', 'keycloak', 'slack', 'kanidm', 'zitadel', 'nextcloud'].includes(k) && 'login_config' in oauths[k]}
 						{#if oauths[k]}
 							<div class="flex flex-col gap-2 pb-4">
 								<div class="flex flex-row items-center gap-2">
@@ -233,6 +238,49 @@
 									<span class="text-primary font-semibold text-sm">Client Secret</span>
 									<input type="text" placeholder="Client Secret" bind:value={oauths[k]['secret']} />
 								</label>
+								{#if k === 'visma' || !windmillBuiltins.includes(k)}
+									<div style="margin-bottom: 8px;">
+										<div style="display: flex; align-items: center; gap: 8px;">
+											<input
+												type="checkbox"
+												style="width: 16px; height: 16px; margin: 0;"
+												checked={oauths?.[k]?.['grant_types']?.includes('client_credentials') ??
+													false}
+												onchange={(e) => {
+													const target = e.target as HTMLInputElement
+													if (oauths && oauths[k]) {
+														if (!oauths[k]['grant_types']) {
+															oauths[k]['grant_types'] = ['authorization_code']
+														}
+														if (target.checked) {
+															if (!oauths[k]['grant_types'].includes('client_credentials')) {
+																oauths[k]['grant_types'] = [
+																	...oauths[k]['grant_types'],
+																	'client_credentials'
+																]
+															}
+														} else {
+															oauths[k]['grant_types'] = oauths[k]['grant_types'].filter(
+																(gt) => gt !== 'client_credentials'
+															)
+														}
+													}
+												}}
+											/>
+											<span style="font-size: 14px; font-weight: 600;"
+												>Support Client Credentials Flow</span
+											>
+											<Tooltip>
+												Enables server-to-server authentication without user interaction. Use for
+												automated scripts and background jobs.
+												<br /><br />
+												When enabled, users can provide their own client credentials at the resource
+												level. The Client ID and Secret configured above are only used for the traditional
+												OAuth flow (popup window).
+											</Tooltip>
+										</div>
+									</div>
+								{/if}
 								{#if k === 'azure_oauth'}
 									<AzureOauthSettings bind:connect_config={oauths[k]['connect_config']} />
 								{:else if !windmillBuiltins.includes(k) && k != 'slack'}
@@ -285,7 +333,7 @@
 					on:click={() => {
 						if (oauths) {
 							let name = oauth_name == 'custom' ? resourceName : oauth_name
-							oauths[name ?? ''] = { id: '', secret: '' }
+							oauths[name ?? ''] = { id: '', secret: '', grant_types: ['authorization_code'] }
 						}
 						resourceName = ''
 					}}

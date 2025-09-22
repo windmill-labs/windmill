@@ -4,13 +4,39 @@
 	import Tooltip from './Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let label: string | undefined = undefined
-	export let tooltip: string | undefined = undefined
-	export let eeOnly = false
+	interface Props {
+		label?: string | undefined
+		tooltip?: string | undefined
+		eeOnly?: boolean
+		collapsable?: boolean
+		collapsed?: boolean
+		openInitially?: boolean
+		headless?: boolean
+		class?: string | undefined
+		header?: import('svelte').Snippet
+		action?: import('svelte').Snippet
+		badge?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+	}
 
-	export let collapsable: boolean = false
-	export let collapsed: boolean = true
-	export let headless: boolean = false
+	let {
+		label = undefined,
+		tooltip = undefined,
+		eeOnly = false,
+		collapsable = false,
+		collapsed = $bindable(true),
+		openInitially = false,
+		headless = false,
+		class: clazz = undefined,
+		header,
+		action,
+		badge,
+		children
+	}: Props = $props()
+
+	if (openInitially && collapsable && collapsed) {
+		collapsed = false
+	}
 </script>
 
 <div class="w-full">
@@ -18,7 +44,7 @@
 		<div class="flex flex-row justify-between items-center mb-1">
 			<h3 class={twMerge('font-semibold flex flex-row items-center gap-2', 'text-sm')}>
 				{#if collapsable}
-					<button class="flex items-center gap-1" on:click={() => (collapsed = !collapsed)}>
+					<button class="flex items-center gap-1" onclick={() => (collapsed = !collapsed)}>
 						{#if collapsed}
 							<ChevronRight size={16} />
 						{:else}
@@ -30,7 +56,7 @@
 					{label}
 				{/if}
 
-				<slot name="header" />
+				{@render header?.()}
 				{#if tooltip}
 					<Tooltip>{tooltip}</Tooltip>
 				{/if}
@@ -43,13 +69,13 @@
 					{/if}
 				{/if}
 			</h3>
-			<slot name="action" />
+			{@render action?.()}
 			{#if collapsable && collapsed}
-				<slot name="badge" />
+				{@render badge?.()}
 			{/if}
 		</div>
 	{/if}
-	<div class={collapsable && collapsed ? `hidden ${$$props.class}` : `${$$props.class}`}>
-		<slot />
+	<div class={collapsable && collapsed ? `hidden ${clazz ?? ''}` : `${clazz ?? ''}`}>
+		{@render children?.()}
 	</div>
 </div>

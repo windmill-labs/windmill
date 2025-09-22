@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type {
 		AppViewerContext,
@@ -17,17 +17,27 @@
 	import { twMerge } from 'tailwind-merge'
 	import LightweightResourcePicker from '$lib/components/LightweightResourcePicker.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'userresourcecomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'userresourcecomponent'> | undefined
+		render: boolean
+	}
 
-	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	let {
+		id,
+		configuration,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render
+	}: Props = $props()
 
-	let resolvedConfig = initConfig(
-		components['userresourcecomponent'].initialData.configuration,
-		configuration
+	const { app, worldStore, componentControl, isEditor, mode } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	let resolvedConfig = $state(
+		initConfig(components['userresourcecomponent'].initialData.configuration, configuration)
 	)
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -37,18 +47,45 @@
 		result: undefined as string | undefined
 	})
 
-	let css = initCss($app.css?.['userresourcecomponent'], customCss)
+	let css = $state(initCss($app.css?.['userresourcecomponent'], customCss))
 
-	$: classInput = twMerge(
-		'windmillapp w-full px-2',
-		css?.input?.class ?? '',
-		'wm-input',
-		'wm-user-resource-select'
+	let classInput = $derived(
+		twMerge(
+			'windmillapp w-full px-2',
+			css?.input?.class ?? '',
+			'wm-input',
+			'wm-user-resource-select'
+		)
 	)
 
-	let value: string | undefined = outputs.result.peak()?.replace('$res:', '')
+	function getDefaultValue(): string | undefined {
+		if (resolvedConfig.defaultValue && typeof resolvedConfig.defaultValue === 'string') {
+			const nval = resolvedConfig.defaultValue as string
+			return nval.replace('$res:', '')
+		}
+		return undefined
+	}
 
-	value && assignValue(outputs.result.peak())
+	let value: string | undefined = $state(
+		outputs.result.peak()?.replace('$res:', '') ?? getDefaultValue()
+	)
+
+	$effect(() => {
+		value
+		untrack(() => assignValue(value))
+	})
+
+	let lastDefaultValue = $state(getDefaultValue())
+	$effect(() => {
+		// when in dnd mode, we react to the default value being changed for better UX
+		if (isEditor && $mode === 'dnd') {
+			const currentDefaultValue = getDefaultValue() // reactive
+			if (lastDefaultValue !== currentDefaultValue) {
+				value = currentDefaultValue
+				lastDefaultValue = currentDefaultValue
+			}
+		}
+	})
 
 	onDestroy(() => {
 		listInputs?.remove(id)
@@ -63,7 +100,7 @@
 		}
 	}
 
-	function assignValue(value: string) {
+	function assignValue(value: string | undefined) {
 		let nval
 		if (!value || value === '') {
 			nval = undefined
@@ -76,7 +113,7 @@
 		}
 	}
 
-	let resourcePicker: LightweightResourcePicker | undefined = undefined
+	let resourcePicker: LightweightResourcePicker | undefined = $state(undefined)
 </script>
 
 {#each Object.keys(components['userresourcecomponent'].initialData.configuration) as key (key)}
@@ -108,10 +145,7 @@
 			<LightweightResourcePicker
 				expressOAuthSetup={resolvedConfig.expressOauthSetup}
 				bind:this={resourcePicker}
-				{value}
-				on:change={(e) => {
-					assignValue(e.detail)
-				}}
+				bind:value
 				disabled={resolvedConfig.disabled}
 				resourceType={resolvedConfig.resourceType}
 			/>

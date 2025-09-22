@@ -14,6 +14,7 @@ clone_newnet: false
 clone_newuser: {CLONE_NEWUSER}
 clone_newcgroup: false
 
+skip_setsid: true
 keep_caps: false
 keep_env: true
 

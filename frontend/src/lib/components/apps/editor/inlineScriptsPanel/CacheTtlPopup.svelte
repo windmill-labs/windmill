@@ -5,7 +5,11 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { autoPlacement } from '@floating-ui/core'
 
-	export let cache_ttl: number | undefined
+	interface Props {
+		cache_ttl: number | undefined
+	}
+
+	let { cache_ttl = $bindable() }: Props = $props()
 </script>
 
 <Popover
@@ -19,7 +23,7 @@
 	closeButton
 	contentClasses="block text-primary p-4"
 >
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<Button
 			nonCaptureEvent={true}
 			btnClasses={Boolean(cache_ttl)
@@ -32,8 +36,8 @@
 			startIcon={{ icon: Database }}
 			title="Cache settings"
 		/>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{/snippet}
+	{#snippet content()}
 		<Toggle
 			checked={Boolean(cache_ttl)}
 			on:change={() => {
@@ -56,5 +60,5 @@
 				<SecondsInput disabled />
 			{/if}
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

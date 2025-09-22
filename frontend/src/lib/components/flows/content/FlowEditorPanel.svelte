@@ -6,13 +6,15 @@
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
-	import type { FlowModule, Flow } from '$lib/gen'
+	import type { FlowModule, Flow, Job } from '$lib/gen'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { insertNewPreprocessorModule } from '../flowStateUtils.svelte'
 	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
 	import { handleSelectTriggerFromKind, type Trigger } from '$lib/components/triggers/utils'
 	import { computeMissingInputWarnings } from '../missingInputWarnings'
+	import FlowResult from './FlowResult.svelte'
+	import type { StateStore } from '$lib/utils'
 
 	interface Props {
 		noEditor?: boolean
@@ -27,6 +29,12 @@
 		onDeployTrigger?: (trigger: Trigger) => void
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		onTestFlow?: () => void
+		job?: Job
+		isOwner?: boolean
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
+		onOpenDetails?: () => void
+		previewOpen?: boolean
 	}
 
 	let {
@@ -37,7 +45,13 @@
 		savedFlow = undefined,
 		onDeployTrigger = () => {},
 		forceTestTab,
-		highlightArg
+		highlightArg,
+		onTestFlow,
+		job,
+		isOwner,
+		suspendStatus,
+		onOpenDetails,
+		previewOpen = false
 	}: Props = $props()
 
 	const {
@@ -66,12 +80,12 @@
 	}
 
 	$effect(() => {
-		computeMissingInputWarnings(flowStore, $flowStateStore, flowInputsStore)
+		computeMissingInputWarnings(flowStore, flowStateStore.val, flowInputsStore)
 	})
 </script>
 
 {#if $selectedId?.startsWith('settings')}
-	<FlowSettings {noEditor} />
+	<FlowSettings {enableAi} {noEditor} />
 {:else if $selectedId === 'Input'}
 	<FlowInput
 		{noEditor}
@@ -82,9 +96,11 @@
 			showCaptureHint.set(true)
 		}}
 		on:applyArgs
+		{onTestFlow}
+		{previewOpen}
 	/>
 {:else if $selectedId === 'Result'}
-	<p class="p-4 text-secondary">The result of the flow will be the result of the last node.</p>
+	<FlowResult {noEditor} {job} {isOwner} {suspendStatus} {onOpenDetails} />
 {:else if $selectedId === 'constants'}
 	<FlowConstants {noEditor} />
 {:else if $selectedId === 'failure'}

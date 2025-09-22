@@ -12,12 +12,23 @@
 	import { twMerge } from 'tailwind-merge'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'chartjscomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'chartjscomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -28,20 +39,19 @@
 
 	ChartJS.register(...registerables)
 
-	let result: undefined = undefined
+	let result: undefined = $state(undefined)
 
-	const resolvedConfig = initConfig(
-		components['chartjscomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['chartjscomponent'].initialData.configuration, configuration)
 	)
-	$: options = {
+	let options = $derived({
 		responsive: true,
 		animation: false,
 		maintainAspectRatio: false,
 		...(resolvedConfig.options ?? {})
-	} as ChartOptions
+	} as ChartOptions)
 
-	let css = initCss($app.css?.chartjscomponent, customCss)
+	let css = $state(initCss($app.css?.chartjscomponent, customCss))
 </script>
 
 {#each Object.keys(components['chartjscomponent'].initialData.configuration) as key (key)}

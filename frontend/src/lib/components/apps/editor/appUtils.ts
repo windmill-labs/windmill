@@ -6,7 +6,8 @@ import type {
 	EditorBreakpoint,
 	FocusedGrid,
 	GeneralAppInput,
-	GridItem
+	GridItem,
+	RichConfiguration
 } from '../types'
 import {
 	ccomponents,
@@ -18,7 +19,7 @@ import {
 	type TypedComponent
 } from './component'
 import { gridColumns } from '../gridUtils'
-import { allItems } from '../utils'
+import { allItems, processSubcomponents } from '../utils'
 import type { Output, World } from '../rx'
 import type { FilledItem, Size } from '../svelte-grid/types'
 import type {
@@ -38,14 +39,14 @@ import gridHelp from '../svelte-grid/utils/helper'
 
 type GridItemLocation =
 	| {
-			type: 'grid'
-			gridItemIndex: number
-	  }
+		type: 'grid'
+		gridItemIndex: number
+	}
 	| {
-			type: 'subgrid'
-			subgridItemIndex: number
-			subgridKey: string
-	  }
+		type: 'subgrid'
+		subgridItemIndex: number
+		subgridKey: string
+	}
 interface GridItemWithLocation {
 	location: GridItemLocation
 	item: GridItem
@@ -186,7 +187,7 @@ export function selectId(
 	selectedComponent: Writable<string[] | undefined>,
 	app: App
 ) {
-	;(document?.activeElement as HTMLElement)?.blur()
+	; (document?.activeElement as HTMLElement)?.blur()
 	if (e.shiftKey) {
 		selectedComponent.update((old) => {
 			if (old && old?.[0]) {
@@ -482,8 +483,65 @@ export function appComponentFromType<T extends keyof typeof components>(
 			horizontalAlignment: override?.horizontalAlignment ?? init.horizontalAlignment,
 			verticalAlignment: override?.verticalAlignment ?? init.verticalAlignment,
 			id,
+			datasets:
+				type === 'plotlycomponentv2'
+					? createPlotlyComponentDataset()
+					: type === 'chartjscomponentv2'
+						? createChartjsComponentDataset()
+						: undefined,
+			xData:
+				type === 'plotlycomponentv2' || type === 'chartjscomponentv2'
+					? {
+						type: 'evalv2',
+						fieldType: 'array',
+						expr: '[1, 2, 3, 4]',
+						connections: []
+					}
+					: undefined,
 			...(extra ?? {})
 		}
+	}
+}
+
+export function createChartjsComponentDataset(): RichConfiguration {
+	return {
+		type: 'static',
+		fieldType: 'array',
+		subFieldType: 'chartjs',
+		value: [
+			{
+				value: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'number',
+					value: [25, 25, 50]
+				},
+				name: 'Dataset 1'
+			}
+		]
+	}
+}
+
+export function createPlotlyComponentDataset(): RichConfiguration {
+	return {
+		type: 'static',
+		fieldType: 'array',
+		subFieldType: 'plotly',
+		value: [
+			{
+				value: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'number',
+					value: [1, 2, 3, 4]
+				},
+				name: 'Dataset 1',
+				aggregation_method: 'sum',
+				type: 'bar',
+				tooltip: '',
+				color: '#C8A2C8'
+			}
+		]
 	}
 }
 export function insertNewGridItem(
@@ -572,45 +630,11 @@ export function copyComponent(
 	const newItem = insertNewGridItem(
 		app,
 		(id) => {
-			if (item.data.type === 'tablecomponent') {
-				return {
-					...item.data,
-					id,
-					actionButtons:
-						item.data.actionButtons.map((x) => ({
-							...x,
-							id: x.id.replace(`${item.id}_`, `${id}_`)
-						})) ?? []
-				}
-			} else if (
-				item.data.type === 'aggridcomponent' ||
-				item.data.type === 'aggridcomponentee' ||
-				item.data.type === 'dbexplorercomponent' ||
-				item.data.type === 'aggridinfinitecomponent' ||
-				item.data.type === 'aggridinfinitecomponentee'
-			) {
-				return {
-					...item.data,
-					id,
-					actionButtons:
-						(item.data.actions ?? []).map((x) => ({
-							...x,
-							id: x.id.replace(`${item.id}_`, `${id}_`)
-						})) ?? []
-				}
-			} else if (item.data.type === 'menucomponent') {
-				return {
-					...item.data,
-					id,
-					menuItems:
-						item.data.menuItems.map((x) => ({
-							...x,
-							id: x.id.replace(`${item.id}_`, `${id}_`)
-						})) ?? []
-				}
-			} else {
-				return { ...item.data, id }
-			}
+			let newComponent = { ...item.data, id }
+			processSubcomponents(newComponent, (c) => {
+				c.id = c.id.replace(item.id + '_', id + '_')
+			})
+			return newComponent
 		},
 		parentGrid,
 		Object.fromEntries(gridColumns.map((column) => [column, item[column]]))
@@ -637,23 +661,9 @@ export function getAllSubgridsAndComponentIds(
 ): [string[], string[]] {
 	const subgrids: string[] = []
 	let components: string[] = [component.id]
-	if (component.type === 'tablecomponent') {
-		components.push(...component.actionButtons?.map((x) => x.id))
-	}
-
-	if (
-		component.type === 'aggridcomponent' ||
-		component.type === 'aggridcomponentee' ||
-		component.type === 'dbexplorercomponent' ||
-		component.type === 'aggridinfinitecomponent' ||
-		component.type === 'aggridinfinitecomponentee'
-	) {
-		components.push(...(component.actions?.map((x) => x.id) ?? []))
-	}
-
-	if (component.type === 'menucomponent') {
-		components.push(...component.menuItems?.map((x) => x.id))
-	}
+	processSubcomponents(component, (c) => {
+		components.push(c.id)
+	})
 
 	if (app.subgrids && component.numberOfSubgrids) {
 		for (let i = 0; i < component.numberOfSubgrids; i++) {
@@ -676,21 +686,11 @@ export function getAllGridItems(app: App): GridItem[] {
 	return app.grid
 		.concat(Object.values(app.subgrids ?? {}).flat())
 		.map((x) => {
-			if (x?.data?.type === 'tablecomponent') {
-				return [x, ...x?.data?.actionButtons?.map((x) => ({ data: x, id: x.id }))]
-			} else if (
-				(x?.data?.type === 'aggridcomponent' ||
-					x?.data?.type === 'aggridcomponentee' ||
-					x?.data?.type === 'dbexplorercomponent' ||
-					x?.data?.type === 'aggridinfinitecomponent' ||
-					x?.data?.type === 'aggridinfinitecomponentee') &&
-				Array.isArray(x?.data?.actions)
-			) {
-				return [x, ...x?.data?.actions?.map((x) => ({ data: x, id: x.id }))]
-			} else if (x?.data?.type === 'menucomponent') {
-				return [x, ...x?.data?.menuItems?.map((x) => ({ data: x, id: x.id }))]
-			}
-			return [x]
+			let r: GridItem[] = []
+			processSubcomponents(x.data, (c) => {
+				r.push({ data: c, id: c.id })
+			})
+			return [x, ...r]
 		})
 		.flat()
 }
@@ -845,33 +845,33 @@ export type InitConfig<
 		| EvalAppInput
 		| EvalV2AppInput
 		| {
-				type: 'oneOf'
-				selected: string
-				configuration: Record<
-					string,
-					Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput>
-				>
-		  }
+			type: 'oneOf'
+			selected: string
+			configuration: Record<
+				string,
+				Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput>
+			>
+		}
 	>
 > = {
-	[Property in keyof T]: T[Property] extends StaticAppInput
+		[Property in keyof T]: T[Property] extends StaticAppInput
 		? T[Property]['value'] | undefined
 		: T[Property] extends { type: 'oneOf' }
-			? {
-					type: 'oneOf'
-					selected: keyof T[Property]['configuration']
-					configuration: {
-						[Choice in keyof T[Property]['configuration']]: {
-							[IT in keyof T[Property]['configuration'][Choice]]: T[Property]['configuration'][Choice][IT] extends StaticAppInput
-								? T[Property]['configuration'][Choice][IT] extends StaticAppInputOnDemand
-									? () => Promise<T[Property]['configuration'][Choice][IT]['value'] | undefined>
-									: T[Property]['configuration'][Choice][IT]['value'] | undefined
-								: undefined
-						}
-					}
+		? {
+			type: 'oneOf'
+			selected: keyof T[Property]['configuration']
+			configuration: {
+				[Choice in keyof T[Property]['configuration']]: {
+					[IT in keyof T[Property]['configuration'][Choice]]: T[Property]['configuration'][Choice][IT] extends StaticAppInput
+					? T[Property]['configuration'][Choice][IT] extends StaticAppInputOnDemand
+					? () => Promise<T[Property]['configuration'][Choice][IT]['value'] | undefined>
+					: T[Property]['configuration'][Choice][IT]['value'] | undefined
+					: undefined
 				}
-			: undefined
-}
+			}
+		}
+		: undefined
+	}
 
 export function initConfig<
 	T extends Record<
@@ -880,13 +880,13 @@ export function initConfig<
 		| EvalAppInput
 		| EvalV2AppInput
 		| {
-				type: 'oneOf'
-				selected: string
-				configuration: Record<
-					string,
-					Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput>
-				>
-		  }
+			type: 'oneOf'
+			selected: string
+			configuration: Record<
+				string,
+				Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput>
+			>
+		}
 	>
 >(
 	r: T,
@@ -894,13 +894,13 @@ export function initConfig<
 		string,
 		| StaticAppInput
 		| {
-				type: 'oneOf'
-				selected: string
-				configuration: Record<
-					string,
-					Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput | boolean>
-				>
-		  }
+			type: 'oneOf'
+			selected: string
+			configuration: Record<
+				string,
+				Record<string, StaticAppInput | EvalAppInput | EvalV2AppInput | boolean>
+			>
+		}
 		| any
 	>
 ): InitConfig<T> {
@@ -910,31 +910,31 @@ export function initConfig<
 				Object.entries(r).map(([key, value]) =>
 					value.type == 'static'
 						? [
-								key,
-								configuration?.[key]?.type == 'static' ? configuration?.[key]?.['value'] : undefined
-							]
+							key,
+							configuration?.[key]?.type == 'static' ? configuration?.[key]?.['value'] : undefined
+						]
 						: value.type == 'oneOf'
 							? [
-									key,
-									{
-										selected: value.selected,
-										type: 'oneOf',
-										configuration: Object.fromEntries(
-											Object.entries(value.configuration).map(([choice, config]) => {
-												const conf = initConfig(
-													config,
-													configuration?.[key]?.configuration?.[choice]
-												)
-												Object.entries(config).forEach(([innerKey, innerValue]) => {
-													if (innerValue.type === 'static' && !(innerKey in conf)) {
-														conf[innerKey] = innerValue.value
-													}
-												})
-												return [choice, conf]
+								key,
+								{
+									selected: value.selected,
+									type: 'oneOf',
+									configuration: Object.fromEntries(
+										Object.entries(value.configuration).map(([choice, config]) => {
+											const conf = initConfig(
+												config,
+												configuration?.[key]?.configuration?.[choice]
+											)
+											Object.entries(config).forEach(([innerKey, innerValue]) => {
+												if (innerValue.type === 'static' && !(innerKey in conf)) {
+													conf[innerKey] = innerValue.value
+												}
 											})
-										)
-									}
-								]
+											return [choice, conf]
+										})
+									)
+								}
+							]
 							: [key, undefined]
 				)
 			) as any
@@ -1261,6 +1261,7 @@ export function isContainer(type: string): boolean {
 		type === 'horizontalsplitpanescomponent' ||
 		type === 'steppercomponent' ||
 		type === 'listcomponent' ||
+		type === 'carousellistcomponent' ||
 		type === 'decisiontreecomponent'
 	)
 }
@@ -1268,15 +1269,19 @@ export function isContainer(type: string): boolean {
 export function subGridIndexKey(type: string | undefined, id: string, world: World): number {
 	switch (type) {
 		case 'containercomponent':
-		case 'verticalsplitpanescomponent':
-		case 'horizontalsplitpanescomponent':
 		case 'listcomponent':
 			return 0
+		case 'verticalsplitpanescomponent':
+		case 'horizontalsplitpanescomponent':
+			return (world?.outputsById?.[id]?.selectedPaneIndex?.peak() as number) ?? 0
 		case 'tabscomponent': {
 			return (world?.outputsById?.[id]?.selectedTabIndex?.peak() as number) ?? 0
 		}
 		case 'steppercomponent': {
 			return (world?.outputsById?.[id]?.currentStepIndex?.peak() as number) ?? 0
+		}
+		case 'carousellistcomponent': {
+			return (world?.outputsById?.[id]?.currentIndex?.peak() as number) ?? 0
 		}
 		case 'decisiontreecomponent': {
 			return (world?.outputsById?.[id]?.currentNodeIndex?.peak() as number) ?? 0

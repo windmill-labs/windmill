@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext, onMount } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
@@ -10,8 +10,7 @@
 		type GridShadow
 	} from '../editor/appUtils'
 	import { throttle } from './utils/other'
-
-	const dispatch = createEventDispatcher()
+	import { moveMode } from '../gridUtils'
 
 	interface Props {
 		sensor: any
@@ -31,7 +30,6 @@
 		onTop: any
 		shadow?: { x: number; y: number; w: number; h: number } | undefined
 		overlapped?: string | undefined
-		moveMode?: 'move' | 'insert'
 		type?: string | undefined
 		fakeShadow?: GridShadow | undefined
 		disableMove?: boolean
@@ -41,8 +39,13 @@
 			clientY: number
 			intersectingElement?: string | undefined
 			shadow?: GridShadow | undefined
-			overlapped?: string | undefined
+			overlapped?: string
 		}) => void
+		onDropped?: (e: { id: string; overlapped: string | undefined; x: number; y: number }) => void
+		onInitMove?: () => void
+		onResizeStart?: () => void
+		onResizeEnd?: () => void
+		onRepaint?: (e: { id: string; isPointerUp: boolean; activate: boolean }) => void
 		children?: import('svelte').Snippet
 	}
 
@@ -64,12 +67,16 @@
 		onTop,
 		shadow = $bindable(undefined),
 		overlapped = undefined,
-		moveMode = 'move',
 		type = undefined,
 		fakeShadow = undefined,
 		disableMove = true,
 		mounted = false,
 		onMove,
+		onDropped,
+		onInitMove,
+		onResizeStart,
+		onResizeEnd,
+		onRepaint,
 		children
 	}: Props = $props()
 
@@ -78,7 +85,7 @@
 
 	const scale = ctx ? ctx.scale : writable(100)
 
-	const divId = `component-${id}`
+	const divId = `wm-component-${id}`
 	let shadowElement: HTMLElement | undefined = $state()
 
 	let active = $state(false)
@@ -113,7 +120,7 @@
 					window.addEventListener('pointermove', pointermove)
 					window.addEventListener('pointerup', pointerup)
 
-					dispatch('initmove')
+					onInitMove?.()
 
 					const cordDiff = {
 						x: (moveX / $scale) * 100 - initX,
@@ -166,11 +173,7 @@
 	}
 
 	let repaint = (activate: boolean, isPointerUp: boolean) => {
-		dispatch('repaint', {
-			id,
-			isPointerUp,
-			activate
-		})
+		onRepaint?.({ id, isPointerUp, activate })
 	}
 
 	// Autoscroll
@@ -222,7 +225,7 @@
 
 			initX = (clientX / $scale) * 100
 			initY = (clientY / $scale) * 100
-			dispatch('initmove')
+			onInitMove?.()
 		}
 		window.addEventListener('pointermove', pointermove)
 		window.addEventListener('pointerup', pointerup)
@@ -244,7 +247,7 @@
 
 	let sign = { x: 0, y: 0 }
 	let vel = { x: 0, y: 0 }
-	let intervalId: NodeJS.Timeout | undefined = undefined
+	let intervalId: number | undefined = undefined
 
 	const stopAutoscroll = () => {
 		intervalId && clearInterval(intervalId)
@@ -288,7 +291,7 @@
 		const { clientX, clientY } = event
 		const cordDiff = { x: (clientX / $scale) * 100 - initX, y: (clientY / $scale) * 100 - initY }
 
-		if (moveMode === 'move') {
+		if ($moveMode === 'move') {
 			onMove({
 				cordDiff,
 				clientY,
@@ -300,7 +303,6 @@
 		}
 
 		throttledComputeShadow(clientX, clientY)
-
 		onMove({
 			cordDiff,
 			clientY,
@@ -360,7 +362,7 @@
 				el.getAttribute('data-iscontainer') === 'true'
 		)
 
-		const newOverlapped = intersectingElement ? intersectingElement?.id.split('-')[1] : undefined
+		const newOverlapped = intersectingElement ? intersectingElement?.id.split('-')[2] : undefined
 
 		const container = newOverlapped
 			? intersectingElement?.querySelector('.svlt-grid-container')
@@ -412,6 +414,10 @@
 			dragClosure = undefined
 		}
 
+		if (!fakeShadow) {
+			return
+		}
+
 		if (!moving) {
 			return
 		}
@@ -422,7 +428,7 @@
 			return
 		}
 
-		dispatch('dropped', {
+		onDropped?.({
 			id,
 			overlapped,
 			x: fakeShadow?.x,
@@ -457,7 +463,7 @@
 
 		window.addEventListener('pointermove', resizePointerMove)
 		window.addEventListener('pointerup', resizePointerUp)
-		dispatch('resizeStart')
+		onResizeStart?.()
 	}
 
 	const resizePointerMove = ({ pageX, pageY }) => {
@@ -493,7 +499,7 @@
 
 		window.removeEventListener('pointermove', resizePointerMove)
 		window.removeEventListener('pointerup', resizePointerUp)
-		dispatch('resizeEnd')
+		onResizeEnd?.()
 	}
 
 	function shouldDisplayShadow(moveMode: 'insert' | 'move', overlapped: string | undefined) {
@@ -545,7 +551,7 @@
 				} transform: translate(${left}px, ${top}px); `} "
 >
 	{@render children?.()}
-	{#if moveMode === 'move' && !disableMove}
+	{#if $moveMode === 'move' && !disableMove}
 		<div class="svlt-grid-resizer-bottom" onpointerdown={(e) => resizePointerDown(e, 'vertical')}
 		></div>
 		<div class="svlt-grid-resizer-side" onpointerdown={(e) => resizePointerDown(e, 'horizontal')}
@@ -558,7 +564,7 @@
 	<div
 		class={twMerge(
 			'svlt-grid-shadow shadow-active',
-			shouldDisplayShadow(moveMode, overlapped) ? '' : 'hidden'
+			shouldDisplayShadow($moveMode, overlapped) ? '' : 'hidden'
 		)}
 		style="width: {shadow.w * xPerPx - gapX * 2}px; height: {shadow.h * yPerPx -
 			gapY * 2}px; transform: translate({shadow.x * xPerPx + gapX}px, {shadow.y * yPerPx +

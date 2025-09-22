@@ -4,6 +4,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import Tooltip from './Tooltip.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
 	export let options: {
 		left?: string
@@ -11,6 +12,7 @@
 		right?: string
 		rightTooltip?: string
 		rightDocumentationLink?: string
+		title?: string
 	} = {}
 	export let checked: boolean = false
 	export let disabled = false
@@ -20,6 +22,8 @@
 	export let id = (Math.random() + 1).toString(36).substring(10)
 	export let lightMode: boolean = false
 	export let eeOnly: boolean = false
+	export let aiId: string | undefined = undefined
+	export let aiDescription: string | undefined = undefined
 
 	export let size: 'sm' | 'xs' | '2xs' | '2sm' = 'sm'
 
@@ -34,6 +38,7 @@
 	class="{$$props.class || ''} z-auto flex flex-row items-center duration-50 {disabled
 		? 'grayscale opacity-50'
 		: 'cursor-pointer'}"
+	title={options?.title}
 >
 	{#if Boolean(options?.left)}
 		<span
@@ -54,7 +59,17 @@
 
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div class="relative" on:click|stopPropagation>
+	<div
+		class="relative"
+		on:click|stopPropagation
+		use:triggerableByAI={{
+			id: aiId,
+			description: aiDescription,
+			callback: () => {
+				checked = !checked
+			}
+		}}
+	>
 		<input
 			on:focus
 			on:click
@@ -90,7 +105,7 @@
 			class={twMerge(
 				'ml-2 font-medium duration-50 select-none',
 				bothOptions || textDisabled ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
-				size === 'xs' || size === '2sm' ? 'text-xs' : 'text-sm',
+				size === 'xs' || size === '2sm' ? 'text-xs' : size === '2xs' ? 'text-xs' : 'text-sm',
 				textClass
 			)}
 			style={textStyle}

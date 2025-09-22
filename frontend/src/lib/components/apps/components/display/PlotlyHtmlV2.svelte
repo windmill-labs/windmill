@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Alert } from '$lib/components/common'
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import type { AppInput } from '../../inputType'
@@ -8,20 +11,30 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let datasets: RichConfiguration | undefined
-	export let xData: RichConfiguration | undefined
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		datasets: RichConfiguration | undefined
+		xData: RichConfiguration | undefined
+		initializing?: boolean | undefined
+		render: boolean
+	}
 
-	export let initializing: boolean | undefined = undefined
-	export let render: boolean
+	let {
+		id,
+		componentInput,
+		configuration,
+		datasets,
+		xData,
+		initializing = $bindable(undefined),
+		render
+	}: Props = $props()
 
 	const { worldStore, darkMode } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['plotlycomponentv2'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['plotlycomponentv2'].initialData.configuration, configuration)
 	)
 
 	const outputs = initOutput($worldStore, id, {
@@ -29,10 +42,10 @@
 		loading: false
 	})
 
-	let result: object | undefined = undefined
-	let divEl: HTMLDivElement | null = null
+	let result: object | undefined = $state(undefined)
+	let divEl: HTMLDivElement | null = $state(null)
 
-	let Plotly
+	let Plotly = $state() as any
 	onMount(async () => {
 		//@ts-ignore
 		await import(
@@ -44,53 +57,16 @@
 		Plotly = window['Plotly']
 	})
 
-	let h: number | undefined = undefined
-	let w: number | undefined = undefined
+	let h: number | undefined = $state(undefined)
+	let w: number | undefined = $state(undefined)
 
-	let shouldeUpdate = 1
+	let shouldeUpdate = $state(1)
 
 	darkMode.subscribe(() => {
 		shouldeUpdate++
 	})
 
-	$: Plotly && render && resolvedConfig.layout && divEl && h && w && shouldeUpdate && plot(data)
-
-	$: data =
-		datasets && xData && resolvedDatasets
-			? resolvedDatasets.map((d, index) => {
-					const fields =
-						d.type === 'pie'
-							? {
-									values: resolvedDatasetsValues[index]
-							  }
-							: {
-									x: resolvedXData,
-									y: resolvedDatasetsValues[index]
-							  }
-
-					return {
-						type: d.type,
-						color: d.color,
-						text: d.tooltip,
-						...fields,
-						marker: {
-							color: d.color
-						},
-						transforms: [
-							{
-								type: 'aggregate',
-								groups: resolvedXData,
-								aggregations: [{ target: 'y', func: d.aggregation_method, enabled: true }]
-							}
-						],
-						...(d?.extraOptions ?? {})
-					}
-			  })
-			: Array.isArray(result)
-			? result
-			: [result]
-
-	let error = ''
+	let error = $state('')
 	function plot(data) {
 		try {
 			Plotly.newPlot(
@@ -110,6 +86,11 @@
 					yaxis: {
 						color: $darkMode ? '#f3f6f8' : '#000',
 						...(resolvedConfig?.layout?.['yaxis'] ?? {})
+					},
+					legend: {
+						font: {
+							color: $darkMode ? '#f3f6f8' : '#000'
+						}
 					}
 				},
 				{ responsive: true, displayModeBar: false }
@@ -131,9 +112,56 @@
 		extraOptions?: { mode: 'markers' | 'lines' | 'lines+markers' } | undefined
 	}
 
-	let resolvedDatasets: Dataset[]
-	let resolvedDatasetsValues: Array<number[]> = []
-	let resolvedXData: number[] = []
+	let resolvedDatasets: Dataset[] | undefined = $state()
+	let resolvedDatasetsValues: Array<number[]> = $state([])
+	let resolvedXData: number[] = $state([])
+	let data = $derived.by(() => {
+		return datasets && xData && resolvedDatasets
+			? resolvedDatasets.map((d, index) => {
+					const fields =
+						d.type === 'pie'
+							? {
+									values: resolvedDatasetsValues[index]
+								}
+							: {
+									x: resolvedXData,
+									y: resolvedDatasetsValues[index]
+								}
+
+					return {
+						type: d.type,
+						color: d.color,
+						text: d.tooltip,
+						name: d.name,
+						...fields,
+						marker: {
+							color: d.color
+						},
+						transforms: [
+							{
+								type: 'aggregate',
+								groups: resolvedXData,
+								aggregations: [{ target: 'y', func: d.aggregation_method, enabled: true }]
+							}
+						],
+						...(d?.extraOptions ?? {})
+					}
+				})
+			: Array.isArray(result)
+				? result
+				: [result]
+	})
+	$effect(() => {
+		Plotly &&
+			render &&
+			resolvedConfig.layout &&
+			divEl &&
+			h &&
+			w &&
+			shouldeUpdate &&
+			data &&
+			untrack(() => plot(data))
+	})
 </script>
 
 {#each Object.keys(components['plotlycomponentv2'].initialData.configuration) as key (key)}
@@ -179,7 +207,7 @@
 					</Alert>
 				</div>
 			{/if}
-			<div on:pointerdown bind:this={divEl}></div>
+			<div onpointerdown={bubble('pointerdown')} bind:this={divEl}></div>
 		</RunnableWrapper>
 	</div>
 {:else}

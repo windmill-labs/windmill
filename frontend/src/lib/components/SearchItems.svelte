@@ -39,7 +39,7 @@
 	}
 	let plaintextItems = $derived(items?.map((item) => f(item)) ?? [])
 
-	$effect(() => {
+	$effect.pre(() => {
 		plaintextItems && filter != undefined && setTimeout(() => untrack(() => filterItems()), 0)
 	})
 </script>

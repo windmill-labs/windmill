@@ -20,13 +20,13 @@ use windmill_queue::{CanceledBy, MiniPulledJob, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
 
+use crate::common::build_args_values;
 use crate::common::{
     build_http_client, resolve_job_timeout, s3_mode_args_to_worker_data, OccupancyMetrics,
     S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
-use crate::common::build_args_values;
 use windmill_common::client::AuthedClient;
 
 #[derive(Serialize)]
@@ -185,7 +185,7 @@ fn do_snowflake_inner<'a>(
 
             if s3.is_none() && response.resultSetMetaData.numRows > 10000 {
                 return Err(Error::ExecutionErr(
-                    "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows"
+                    "More than 10000 rows were requested, use LIMIT 10000 to limit the number of rows or use S3 streaming for larger datasets: https://windmill.dev/docs/core_concepts/sql_to_s3_streaming"
                         .to_string(),
                 ));
             }

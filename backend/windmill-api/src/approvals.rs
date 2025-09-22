@@ -1,17 +1,24 @@
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use uuid::Uuid;
-use std::str::FromStr;
-use regex::Regex;
-use serde_json::Value;
+use crate::auth::OptTokened;
 use crate::db::{ApiAuthed, DB};
-use crate::jobs::{cancel_suspended_job, resume_suspended_job, QueryApprover, QueryOrBody, ResumeUrls, get_resume_urls_internal};
-use axum::{extract::{Path, Query}, Extension};
-use windmill_common::error::Error;
+use crate::jobs::{
+    cancel_suspended_job, get_resume_urls_internal, resume_suspended_job, QueryApprover,
+    QueryOrBody, ResumeUrls,
+};
+use axum::{
+    extract::{Path, Query},
+    Extension,
+};
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
+use serde_json::Value;
+use std::collections::HashMap;
+use std::str::FromStr;
+use uuid::Uuid;
 use windmill_common::cache;
+use windmill_common::error::Error;
 use windmill_common::jobs::JobKind;
 use windmill_common::scripts::ScriptHash;
-use serde_json::value::RawValue;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct ResumeSchema {
@@ -101,6 +108,7 @@ pub fn extract_w_id_from_resume_url(resume_url: &str) -> Result<&str, Error> {
 
 pub async fn handle_resume_action(
     authed: Option<ApiAuthed>,
+    opt_tokened: OptTokened,
     db: DB,
     resume_url: &str,
     form_data: Value,
@@ -135,6 +143,7 @@ pub async fn handle_resume_action(
     let res = if action == "resume" {
         resume_suspended_job(
             authed,
+            opt_tokened,
             Extension(db.clone()),
             Path((
                 w_id.to_string(),
@@ -149,6 +158,7 @@ pub async fn handle_resume_action(
     } else {
         cancel_suspended_job(
             authed,
+            opt_tokened,
             Extension(db.clone()),
             Path((
                 w_id.to_string(),
@@ -230,7 +240,7 @@ pub async fn get_approval_form_details(
     .ok_or_else(|| Error::BadRequest("This workflow is no longer running and has either already timed out or been cancelled or completed.".to_string()))
     .map(|r| (r.job_kind, r.script_hash, r.raw_flow, r.parent_job, r.created_at, r.created_by, r.script_path, r.args))?;
 
-    let flow_data = match cache::job::fetch_flow(&db, job_kind, script_hash).await {
+    let flow_data = match cache::job::fetch_flow(&db, &job_kind, script_hash).await {
         Ok(data) => data,
         Err(_) => {
             if let Some(parent_job_id) = parent_job_id.as_ref() {

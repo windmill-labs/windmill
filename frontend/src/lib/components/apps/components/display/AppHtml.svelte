@@ -7,11 +7,21 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'htmlcomponent'> | undefined = undefined
-	export let render: boolean
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'htmlcomponent'> | undefined
+		render: boolean
+	}
+
+	let {
+		id,
+		componentInput,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render
+	}: Props = $props()
 
 	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -20,9 +30,9 @@
 		loading: false
 	})
 
-	let result: string | undefined = undefined
+	let result: string | undefined = $state(undefined)
 
-	let css = initCss($app.css?.htmlcomponent, customCss)
+	let css = $state(initCss($app.css?.htmlcomponent, customCss))
 </script>
 
 {#each Object.keys(css ?? {}) as key (key)}
@@ -37,7 +47,7 @@
 
 {#if render}
 	<div
-		on:pointerdown={(e) => {
+		onpointerdown={(e) => {
 			if ($mode !== 'preview') {
 				e?.preventDefault()
 			}

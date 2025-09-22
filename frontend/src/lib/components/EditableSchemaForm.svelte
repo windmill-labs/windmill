@@ -3,7 +3,7 @@
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
-	import { VariableService } from '$lib/gen'
+	import { VariableService, type ScriptLang } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
@@ -14,19 +14,27 @@
 	import FlowPropertyEditor from './schema/FlowPropertyEditor.svelte'
 	import PropertyEditor from './schema/PropertyEditor.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import { createEventDispatcher, tick, untrack } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from './Toggle.svelte'
-	import { emptyString } from '$lib/utils'
+	import {
+		DynamicInput,
+		emptyString,
+		generateRandomString,
+		readFieldsRecursively
+	} from '$lib/utils'
 	import Popover from './meltComponents/Popover.svelte'
 	import SchemaFormDnd from './schema/SchemaFormDND.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { tweened } from 'svelte/motion'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { EditableSchemaFormUi } from '$lib/components/custom_ui'
+	import Section from '$lib/components/Section.svelte'
+	import Editor from './Editor.svelte'
+	import AddPropertyV2 from './schema/AddPropertyV2.svelte'
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
@@ -45,7 +53,6 @@
 		isAppInput?: boolean
 		displayWebhookWarning?: boolean
 		onlyMaskPassword?: boolean
-		dndType?: string | undefined
 		editTab:
 			| 'inputEditor'
 			| 'history'
@@ -64,10 +71,16 @@
 		customUi?: EditableSchemaFormUi | undefined
 		pannelExtraButtonWidth?: number
 		class?: string
+		dynCode?: string | undefined
+		dynLang?: ScriptLang | undefined
+		showDynOpt?: boolean
+		addPropertyInEditorTab?: boolean
 		openEditTab?: import('svelte').Snippet
 		addProperty?: import('svelte').Snippet
 		runButton?: import('svelte').Snippet
 		extraTab?: import('svelte').Snippet
+		schemaFormClassName?: string
+		onChange?: (args: Record<string, any>) => void
 	}
 
 	let {
@@ -84,7 +97,6 @@
 		isAppInput = false,
 		displayWebhookWarning = false,
 		onlyMaskPassword = false,
-		dndType = undefined,
 		editTab,
 		previewSchema = undefined,
 		editPanelInitialSize = undefined,
@@ -96,15 +108,46 @@
 		customUi = undefined,
 		pannelExtraButtonWidth = 0,
 		class: clazz = '',
+		dynCode = $bindable(),
+		dynLang = $bindable(),
+		showDynOpt = false,
+		addPropertyInEditorTab = false,
 		openEditTab,
 		addProperty,
 		runButton,
-		extraTab
+		extraTab,
+		schemaFormClassName = undefined,
+		onChange = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
 		if (args == undefined) {
 			args = {}
+		}
+		if (dynLang === undefined) {
+			dynLang = schema?.['x-windmill-dyn-select-lang'] || 'bun'
+		}
+		if (dynCode === undefined) {
+			dynCode = schema?.['x-windmill-dyn-select-code'] || ''
+		}
+	})
+
+	$effect(() => {
+		if (onChange) {
+			readFieldsRecursively(args)
+			onChange(args ?? {})
+		}
+	})
+
+	$effect(() => {
+		if (schema && dynCode !== undefined && dynLang !== undefined) {
+			if (dynCode && dynCode.trim()) {
+				schema['x-windmill-dyn-select-code'] = dynCode.trim()
+				schema['x-windmill-dyn-select-lang'] = dynLang
+			} else {
+				delete schema['x-windmill-dyn-select-code']
+				delete schema['x-windmill-dyn-select-lang']
+			}
 		}
 	})
 
@@ -125,9 +168,10 @@
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
 	let keys: string[] = $state(
-		Array.isArray(schema?.order)
+		(Array.isArray(schema?.order)
 			? [...schema.order]
 			: (Object.keys(schema?.properties ?? {}) ?? Object.keys(schema?.properties ?? {}))
+		).filter((x) => !hiddenArgs?.includes(x))
 	)
 
 	function alignOrderWithProperties(schema: {
@@ -142,7 +186,7 @@
 		let index = 0
 		let hasChanged = false
 		for (let k of properties) {
-			if (schema.properties[k].type === 'object' && schema.properties[k].properties) {
+			if (schema.properties[k]?.type === 'object' && schema.properties[k].properties) {
 				hasChanged = hasChanged || alignOrderWithProperties(schema.properties[k])
 			}
 			if (!norder.includes(k)) {
@@ -158,20 +202,17 @@
 		return hasChanged
 	}
 	function onSchemaChange() {
-		let editSchema = false
 		if (alignOrderWithProperties(schema)) {
-			editSchema = true
+			// console.log('alignOrderWithProperties', JSON.stringify(schema, null, 2))
 		}
-		let lkeys = schema?.order ?? Object.keys(schema?.properties ?? {})
+		let lkeys = (schema?.order ?? Object.keys(schema?.properties ?? {})).filter(
+			(x) => !hiddenArgs?.includes(x)
+		)
 		if (schema?.properties && !deepEqual(lkeys, keys)) {
 			keys = [...lkeys]
-			editSchema = true
 			if (opened == undefined) {
 				opened = keys[0]
 			}
-		}
-		if (editSchema) {
-			schema = schema
 		}
 	}
 
@@ -179,13 +220,13 @@
 
 	function computeSelected(property: any) {
 		if (!opened) return ''
-		return property.type !== 'object'
-			? property.type
-			: property.format === 'resource-s3_object'
-				? 'S3'
-				: property.oneOf && property.oneOf.length >= 2
-					? 'oneOf'
-					: 'object'
+		if (property?.type !== 'object') return property?.type
+		if (property.format === 'resource-s3_object') return 'S3'
+		if (property.format?.startsWith('dynselect-')) return 'dynselect'
+		if (property.format?.startsWith('dynmultiselect-')) return 'dynmultiselect'
+		if (property.oneOf && property.oneOf.length >= 2) return 'oneOf'
+		if (property.format?.startsWith('resource-')) return 'resource'
+		return 'object'
 	}
 
 	export function openField(key: string) {
@@ -216,30 +257,31 @@
 			// clear the input
 			el.value = oldName
 		} else {
+			let newSchema = $state.snapshot(schema)
 			if (args) {
 				args[newName] = args[oldName]
 				delete args[oldName]
 			}
 
-			schema.properties[newName] = schema.properties[oldName]
-			delete schema.properties[oldName]
+			newSchema.properties[newName] = newSchema.properties[oldName]
+			delete newSchema.properties[oldName]
 
-			if (schema.required?.includes(oldName)) {
-				schema.required = schema.required?.map((x) => (x === oldName ? newName : x))
+			if (newSchema.required?.includes(oldName)) {
+				newSchema.required = newSchema.required?.map((x) => (x === oldName ? newName : x))
 			}
 
 			// Replace the old name with the new name in the order array
-			if (schema.order) {
-				const index = schema.order.indexOf(oldName)
+			if (newSchema.order) {
+				const index = newSchema.order.indexOf(oldName)
 				if (index !== -1) {
-					schema.order[index] = newName
+					newSchema.order[index] = newName
 				}
 			}
 
 			opened = newName
 
-			schema = $state.snapshot(schema)
-			dispatch('change', schema)
+			schema = newSchema
+
 			sendUserToast('Argument renamed')
 		}
 	}
@@ -248,7 +290,7 @@
 	let schemaString: string = $state(JSON.stringify(schema, null, '\t'))
 	let error: string | undefined = $state(undefined)
 	let editor: SimpleEditor | undefined = $state(undefined)
-
+	let dynamicSelectEditor: Editor | undefined = $state(undefined)
 	export function updateJson() {
 		schemaString = JSON.stringify(schema, null, '\t')
 		editor?.setCode(schemaString)
@@ -297,6 +339,45 @@
 	$effect(() => {
 		!!editTab ? openEditTabFn() : closeEditTab()
 	})
+
+	let dynamicFunctions = $derived(
+		Object.entries(schema?.properties ?? {})
+			.filter(([_, property]) => {
+				const props = property as any
+				return props?.type === 'object' && DynamicInput.isDynInputFormat(props.format)
+			})
+			.map(([fieldName, _]) => fieldName.replace(/\s+/g, '_'))
+	)
+
+	const DYNAMIC_OPTIONS = [
+		['DynSelect', 'dynselect'],
+		['DynMultiselect', 'dynmultiselect']
+	]
+
+	let typeOptions = $state([
+		['String', 'string'],
+		['Number', 'number'],
+		['Integer', 'integer'],
+		['Object', 'object'],
+		['Resource', 'resource'],
+		['OneOf', 'oneOf'],
+		['Array', 'array'],
+		['Boolean', 'boolean'],
+		['S3', 'S3']
+	])
+
+	function initDynFn(lang: ScriptLang) {
+		const generateFn = DynamicInput.getGenerateTemplateFn(lang)
+		return dynamicFunctions.map((functionName) => generateFn(functionName)).join('')
+	}
+
+	function updateDynCode(functionName: string, lang: ScriptLang = 'bun') {
+		const generateFn = DynamicInput.getGenerateTemplateFn(lang)
+		const code = generateFn(functionName)
+		dynCode = dynCode ? dynCode.concat(code) : code
+	}
+
+	let dndType = $state(generateRandomString())
 </script>
 
 <div class="w-full h-full">
@@ -333,15 +414,15 @@
 						class="min-h-0 overflow-y-auto grow rounded-md {runButton ? 'flex flex-col gap-2' : ''}"
 					>
 						<SchemaFormDnd
-							nestedClasses={'flex flex-col gap-1'}
+							{dndType}
+							nestedClasses={'flex flex-col gap-1 ' + (schemaFormClassName ?? '')}
 							bind:schema={
 								() => (previewSchema ? previewSchema : schema),
 								(newSchema) => {
 									schema = newSchema
-									tick().then(() => dispatch('change', schema))
 								}
 							}
-							{dndType}
+							{hiddenArgs}
 							{disableDnd}
 							{onlyMaskPassword}
 							bind:args
@@ -349,26 +430,82 @@
 								opened = e.detail
 							}}
 							on:reorder={(e) => {
+								let order = e.detail
+								let newProperties = {}
+								for (let key of order) {
+									newProperties[key] = schema.properties[key]
+								}
 								schema = {
 									...schema,
+									properties: newProperties,
 									order: e.detail
 								}
-								tick().then(() => dispatch('change', schema))
+							}}
+							helperScript={{
+								source: 'inline',
+								code: dynCode!,
+								lang: dynLang!
 							}}
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
 							{diff}
 							on:acceptChange
 							on:rejectChange
-							on:nestedChange={() => {
-								dispatch('change', schema)
-							}}
 							{shouldDispatchChanges}
 							bind:isValid
 							noVariablePicker={noVariablePicker || customUi?.disableVariablePicker === true}
 						/>
 
 						{@render runButton?.()}
+
+						{#if dynamicFunctions.length > 0}
+							<Section
+								label="Dynamic input functions"
+								collapsable={true}
+								collapsed={false}
+								class="text-sm"
+							>
+								<div class="flex flex-col gap-2 h-full">
+									{#if dynamicFunctions.length > 0}
+										<div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
+											<div class="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+												Expected Functions for Dynamic Input Fields:
+											</div>
+											<ul class="text-xs text-blue-700 dark:text-blue-300 space-y-1">
+												{#each dynamicFunctions as functionName}
+													<li class="font-mono bg-blue-100 dark:bg-blue-800/30 px-2 py-1 rounded">
+														{functionName}()
+													</li>
+												{/each}
+											</ul>
+										</div>
+									{/if}
+									<ToggleButtonGroup
+										bind:selected={dynLang}
+										on:selected={({ detail }) => {
+											dynCode = initDynFn(detail)
+										}}
+									>
+										{#snippet children({ item })}
+											<ToggleButton value="bun" label="Typescript (Bun)" {item} />
+											<ToggleButton value="python3" label="Python" {item} />
+										{/snippet}
+									</ToggleButtonGroup>
+									{#key dynLang}
+										<div class="border w-full h-full">
+											<Editor
+												bind:this={dynamicSelectEditor}
+												class="flex flex-1 grow h-80 w-full"
+												scriptLang={dynLang}
+												useWebsockets={false}
+												automaticLayout
+												bind:code={dynCode}
+											/>
+										</div>
+									{/key}
+								</div>
+							</Section>
+						{/if}
 					</div>
 				</div>
 			</Pane>
@@ -385,22 +522,40 @@
 				{:else}
 					<!-- WIP -->
 					{#if jsonEnabled && customUi?.jsonOnly != true}
-						<div class="w-full p-3 flex justify-end">
-							<Toggle
-								bind:checked={jsonView}
-								label="JSON View"
-								size="xs"
-								options={{
-									right: 'JSON editor',
-									rightTooltip:
-										'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
-								}}
-								lightMode
-								on:change={() => {
-									schemaString = JSON.stringify(schema, null, '\t')
-									editor?.setCode(schemaString)
-								}}
-							/>
+						<div class="w-full p-3 flex gap-4 justify-end items-center">
+							{#if addPropertyInEditorTab}
+								<AddPropertyV2
+									bind:schema
+									onAddNew={(propertyName) => {
+										openField(propertyName)
+									}}
+								>
+									{#snippet trigger()}
+										<Button color="light" size="xs" iconOnly startIcon={{ icon: Plus }} />
+									{/snippet}
+								</AddPropertyV2>
+							{/if}
+							<div class="shrink-0">
+								<Toggle
+									bind:checked={jsonView}
+									label="JSON View"
+									size="xs"
+									options={{
+										right: 'JSON editor',
+										rightTooltip:
+											'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
+									}}
+									lightMode
+									on:change={(e) => {
+										if (e.detail) {
+											schemaString = JSON.stringify(schema, null, '\t')
+											editor?.setCode(schemaString)
+										} else {
+											schema = JSON.parse(schemaString)
+										}
+									}}
+								/>
+							</div>
 						</div>
 					{/if}
 
@@ -493,11 +648,11 @@
 										</div>
 										{#if opened === argName}
 											<div class="p-4 border-t">
-												{#if !hiddenArgs.includes(argName) && Object.keys(schema?.properties ?? {}).includes(argName)}
+												{#if Object.keys(schema?.properties ?? {}).includes(argName)}
 													{#if typeof args == 'object' && schema?.properties[argName]}
 														<PropertyEditor
 															bind:description={schema.properties[argName].description}
-															type={schema.properties[argName].type}
+															type={schema.properties[argName]?.type}
 															bind:oneOf={schema.properties[argName].oneOf}
 															bind:pattern={schema.properties[argName].pattern}
 															bind:enum_={schema.properties[argName].enum}
@@ -514,10 +669,6 @@
 															bind:order={schema.properties[argName].order}
 															{isFlowInput}
 															{isAppInput}
-															on:change={() => {
-																schema = $state.snapshot(schema)
-																dispatch('change', schema)
-															}}
 														>
 															{#snippet typeeditor()}
 																{#if isFlowInput || isAppInput}
@@ -528,9 +679,11 @@
 																			bind:selected={
 																				() => computeSelected(schema.properties[opened ?? '']),
 																				(v) => {
+																					const isResource = v == 'resource'
 																					const isS3 = v == 'S3'
 																					const isOneOf = v == 'oneOf'
-
+																					const isDynSelect = v == 'dynselect'
+																					const isDynMultiselect = v == 'dynmultiselect'
 																					const emptyProperty = {
 																						contentEncoding: undefined,
 																						enum_: undefined,
@@ -548,13 +701,29 @@
 																						nullable: undefined,
 																						required: undefined
 																					}
-
 																					if (isS3) {
 																						schema.properties[argName] = {
 																							...emptyProperty,
 																							type: 'object',
 																							format: 'resource-s3_object'
 																						}
+																					} else if (isResource) {
+																						schema.properties[argName] = {
+																							...emptyProperty,
+																							type: 'object',
+																							format: 'resource-'
+																						}
+																					} else if (isDynSelect || isDynMultiselect) {
+																						const functionName = argName.replace(/\s+/g, '_')
+																						schema.properties[argName] = {
+																							...emptyProperty,
+																							type: 'object',
+																							format:
+																								(isDynSelect ? 'dynselect-' : 'dynmultiselect-') +
+																								functionName
+																						}
+																						updateDynCode(argName, dynLang)
+																						dynamicSelectEditor?.setCode(dynCode || '')
 																					} else if (isOneOf) {
 																						schema.properties[argName] = {
 																							...emptyProperty,
@@ -571,7 +740,8 @@
 																										property_1: {
 																											type: 'string'
 																										}
-																									}
+																									},
+																									order: ['property_1']
 																								},
 																								{
 																									title: 'Option 2',
@@ -584,7 +754,8 @@
 																										property_2: {
 																											type: 'string'
 																										}
-																									}
+																									},
+																									order: ['property_2']
 																								}
 																							]
 																						}
@@ -595,18 +766,19 @@
 																							type: v
 																						}
 																					}
+																					schema.properties = schema.properties
 																				}
 																			}
-																			on:selected={(e) => {
-																				schema = schema
-																				dispatch('change', schema)
-																				dispatch('schemaChange')
-																			}}
 																		>
 																			{#snippet children({ item })}
-																				{#each [['String', 'string'], ['Number', 'number'], ['Integer', 'integer'], ['Object', 'object'], ['OneOf', 'oneOf'], ['Array', 'array'], ['Boolean', 'boolean'], ['S3 Object', 'S3']] as x}
+																				{#each typeOptions as x}
 																					<ToggleButton value={x[1]} label={x[0]} {item} />
 																				{/each}
+																				{#if showDynOpt}
+																					{#each DYNAMIC_OPTIONS as x}
+																						<ToggleButton value={x[1]} label={x[0]} {item} />
+																					{/each}
+																				{/if}
 																			{/snippet}
 																		</ToggleButtonGroup>
 																	</Label>
@@ -615,12 +787,15 @@
 
 															{#if isFlowInput || isAppInput}
 																<FlowPropertyEditor
+																	onDrawerClose={() => {
+																		dndType = generateRandomString()
+																	}}
 																	bind:defaultValue={schema.properties[argName].default}
 																	{variableEditor}
 																	{itemPicker}
 																	bind:nullable={schema.properties[argName].nullable}
 																	bind:disabled={schema.properties[argName].disabled}
-																	type={schema.properties[argName].type}
+																	type={schema.properties[argName]?.type}
 																	bind:oneOf={schema.properties[argName].oneOf}
 																	bind:format={schema.properties[argName].format}
 																	contentEncoding={schema.properties[argName].contentEncoding}
@@ -645,12 +820,6 @@
 																				(x) => x !== argName
 																			)
 																		}
-																		dispatch('change', schema)
-																	}}
-																	on:schemaChange={(e) => {
-																		schema = $state.snapshot(schema)
-																		dispatch('change', schema)
-																		dispatch('schemaChange')
 																	}}
 																/>
 															{/if}
@@ -675,7 +844,6 @@
 									on:change={() => {
 										try {
 											schema = JSON.parse(schemaString)
-											dispatch('change', schema)
 											error = ''
 										} catch (err) {
 											error = err.message

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ResourceService, VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy } from 'svelte'
 	import { Badge, Button } from '../common'
 	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
 
@@ -48,7 +48,7 @@
 	let flowInputsFiltered: any = pickableProperties.flow_input
 	let resultByIdFiltered: any = pickableProperties.priorIds
 
-	let timeout: NodeJS.Timeout | undefined
+	let timeout: number | undefined
 	function onSearch(search: string) {
 		filterActive = false
 		if (timeout) {
@@ -193,7 +193,11 @@
 		await updateCollapsable()
 	}
 
-	$: search, $inputMatches, $propPickerConfig, pickableProperties, updateState()
+	$: (search, $inputMatches, $propPickerConfig, pickableProperties, updateState())
+
+	onDestroy(() => {
+		clearTimeout(timeout)
+	})
 </script>
 
 <div class="flex flex-col h-full rounded">

@@ -142,6 +142,21 @@
         "ordinal": 27,
         "name": "git_app_installations",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 28,
+        "name": "ducklake",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 29,
+        "name": "auto_add_instance_groups",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 30,
+        "name": "auto_add_instance_groups_roles",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -177,7 +192,10 @@
       true,
       true,
       true,
-      false
+      false,
+      true,
+      true,
+      true
     ]
   },
   "hash": "08f288d2781d823e109a9e5b8848234ca7d1efeee9661f3901f298da375e73f7"

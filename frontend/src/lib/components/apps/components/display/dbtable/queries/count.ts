@@ -105,7 +105,16 @@ export function makeCountQuery(
 			query += `SELECT COUNT(*) as count FROM \`${table}\``
 			break
 		}
-
+		case 'duckdb':
+			if (filteredColumns.length > 0) {
+				quicksearchCondition += ` ($quicksearch = '' OR CONCAT(' ', ${filteredColumns.join(
+					', '
+				)}) LIKE CONCAT('%', $quicksearch, '%'))`
+			} else {
+				quicksearchCondition += ` ($quicksearch = '' OR 1 = 1)`
+			}
+			query += `SELECT COUNT(*) as count FROM ${table}`
+			break
 		default:
 			throw new Error('Unsupported database type:' + dbType)
 	}
@@ -122,7 +131,8 @@ export function makeCountQuery(
 		(dbType === 'mysql' ||
 			dbType === 'postgresql' ||
 			dbType === 'snowflake' ||
-			dbType === 'bigquery')
+			dbType === 'bigquery' ||
+			dbType === 'duckdb')
 	) {
 		query = query.replace(`${andCondition}`, wherePrefix)
 	}

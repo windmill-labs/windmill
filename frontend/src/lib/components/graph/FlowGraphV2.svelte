@@ -1,11 +1,10 @@
 <script lang="ts">
-	import { FlowService, type FlowModule } from '../../gen'
+	import { FlowService, type FlowModule, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, setContext, tick, untrack } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
-	import type { FlowInput } from '../flows/types'
 	import {
 		SvelteFlow,
 		type Node,
@@ -18,6 +17,7 @@
 	import {
 		graphBuilder,
 		isTriggerStep,
+		topologicalSort,
 		type InlineScript,
 		type InsertKind,
 		type NodeLayout,
@@ -37,7 +37,7 @@
 	import { Expand } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
-	import { encodeState } from '$lib/utils'
+	import { encodeState, readFieldsRecursively } from '$lib/utils'
 	import BranchOneStart from './renderers/nodes/BranchOneStart.svelte'
 	import NoBranchNode from './renderers/nodes/NoBranchNode.svelte'
 	import HiddenBaseEdge from './renderers/edges/HiddenBaseEdge.svelte'
@@ -49,8 +49,16 @@
 	import type { TriggerContext } from '../triggers'
 	import { workspaceStore } from '$lib/stores'
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
-	import { deepEqual } from 'fast-equals'
 	import ViewportResizer from './ViewportResizer.svelte'
+	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
+	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
+	import type { FlowGraphAssetContext } from '../flows/types'
+	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
+	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
+	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
+	import type { ModulesTestStates } from '../modulesTest.svelte'
+	import { deepEqual } from 'fast-equals'
+	import type { AssetWithAltAccessType } from '../assets/lib'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -70,6 +78,7 @@
 		maxHeight?: number | undefined
 		notSelectable?: boolean
 		flowModuleStates?: Record<string, GraphModuleState> | undefined
+		testModuleStates?: ModulesTestStates
 		selectedId?: Writable<string | undefined>
 		path?: string | undefined
 		newFlow?: boolean
@@ -82,12 +91,17 @@
 		download?: boolean
 		fullSize?: boolean
 		disableAi?: boolean
-		flowInputsStore?: Writable<FlowInput | undefined>
 		triggerNode?: boolean
 		workspace?: string
 		editMode?: boolean
 		allowSimplifiedPoll?: boolean
 		expandedSubflows?: Record<string, FlowModule[]>
+		isOwner?: boolean
+		isRunning?: boolean
+		individualStepTests?: boolean
+		flowJob?: Job | undefined
+		showJobStatus?: boolean
+		suspendStatus?: Record<string, { job: Job; nb: number }>
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -96,6 +110,7 @@
 			index: number
 			detail: string
 			isPreprocessor?: boolean
+			agentId?: string
 			inlineScript?: InlineScript
 			script?: { path: string; summary: string; hash: string | undefined }
 			flow?: { path: string; summary: string }
@@ -110,6 +125,11 @@
 		onTestUpTo?: ((id: string) => void) | undefined
 		onSelectedIteration?: onSelectedIteration
 		onEditInput?: (moduleId: string, key: string) => void
+		onTestFlow?: () => void
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
+		flowHasChanged?: boolean
 	}
 
 	let {
@@ -131,6 +151,7 @@
 		maxHeight = undefined,
 		notSelectable = false,
 		flowModuleStates = undefined,
+		testModuleStates = undefined,
 		selectedId = writable<string | undefined>(undefined),
 		path = undefined,
 		newFlow = false,
@@ -142,21 +163,30 @@
 		download = false,
 		fullSize = false,
 		disableAi = false,
-		flowInputsStore = writable<FlowInput | undefined>(undefined),
 		triggerNode = false,
 		workspace = $workspaceStore ?? 'NO_WORKSPACE',
 		editMode = false,
 		allowSimplifiedPoll = true,
 		expandedSubflows = $bindable({}),
 		onTestUpTo = undefined,
-		onEditInput = undefined
+		onEditInput = undefined,
+		isOwner = false,
+		onTestFlow = undefined,
+		isRunning = false,
+		onCancelTestFlow = undefined,
+		onOpenPreview = undefined,
+		onHideJobStatus = undefined,
+		individualStepTests = false,
+		flowJob = undefined,
+		showJobStatus = false,
+		suspendStatus = {},
+		flowHasChanged = false
 	}: Props = $props()
 
 	setContext<{
 		selectedId: Writable<string | undefined>
-		flowInputsStore: Writable<FlowInput | undefined>
 		useDataflow: Writable<boolean | undefined>
-	}>('FlowGraphContext', { selectedId, flowInputsStore, useDataflow })
+	}>('FlowGraphContext', { selectedId, useDataflow })
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
@@ -185,12 +215,16 @@
 		)
 	}
 
-	let lastNodes: [NodeLayout[], Node[]] | undefined = undefined
-	function layoutNodes(nodes: NodeLayout[]): Node[] {
+	type NodeDep = { id: string; parentIds?: string[]; offset?: number }
+	type NodePos = { position: { x: number; y: number } }
+	let lastNodes: [NodeDep[], (NodeDep & NodePos)[]] | undefined = undefined
+	function layoutNodes(nodes: NodeDep[]): (NodeDep & NodePos)[] {
 		let lastResult = lastNodes?.[1]
 		if (lastResult && deepEqual(nodes, lastNodes?.[0])) {
+			console.debug('layoutNodes', 'same nodes')
 			return lastResult
 		}
+		console.debug('layoutNodes', nodes.length)
 		let seenId: string[] = []
 		for (const n of nodes) {
 			if (seenId.includes(n.id)) {
@@ -200,10 +234,10 @@
 		}
 
 		let nodeWidths: Record<string, number> = {}
-		const nodes2 = nodes.map((n) => {
+		const nodes2: (NodeDep & NodePos)[] = nodes.map((n) => {
 			return { ...n, position: { x: 0, y: 0 } }
 		})
-		for (const n of nodes.reverse()) {
+		for (const n of topologicalSort(nodes)) {
 			const endId = n.id + '-end'
 
 			if (nodeWidths[endId] != undefined) {
@@ -216,7 +250,7 @@
 			}
 		}
 
-		const dag = dagStratify().id(({ id }: Node) => id)(nodes2)
+		const dag = dagStratify().id(({ id }: NodeDep & NodePos) => id)(nodes2)
 
 		let boxSize: any
 		try {
@@ -238,13 +272,13 @@
 			boxSize = layout(dag as any)
 		}
 
+		const yOffset = insertable ? 100 : 0
 		const newNodes = dag.descendants().map((des) => ({
-			...des.data,
 			id: des.data.id,
 			position: {
 				x: des.x
 					? // @ts-ignore
-						(des.data.data.offset ?? 0) +
+						(des.data.offset ?? 0) +
 						// @ts-ignore
 						des.x +
 						(fullSize ? fullWidth : width) / 2 -
@@ -252,7 +286,7 @@
 						NODE.width / 2 -
 						(width - fullWidth) / 2
 					: 0,
-				y: des.y || 0
+				y: (des.y || 0) + yOffset
 			}
 		}))
 
@@ -311,18 +345,22 @@
 		},
 		editInput: (moduleId: string, key: string) => {
 			onEditInput?.(moduleId, key)
+		},
+		testFlow: () => {
+			onTestFlow?.()
+		},
+		cancelTestFlow: () => {
+			onCancelTestFlow?.()
+		},
+		openPreview: () => {
+			onOpenPreview?.()
+		},
+		hideJobStatus: () => {
+			onHideJobStatus?.()
 		}
 	}
 
-	let lastModules = structuredClone($state.snapshot(modules))
-	let moduleCounter = $state(0)
-	function onModulesChange2(modules) {
-		if (!deepEqual(modules, lastModules)) {
-			console.log('modules changed', modules)
-			lastModules = structuredClone($state.snapshot(modules))
-			moduleCounter++
-		}
-	}
+	let moduleTracker = new ChangeTracker($state.snapshot(modules))
 
 	let nodes = $state.raw<Node[]>([])
 	let edges = $state.raw<Edge[]>([])
@@ -345,10 +383,36 @@
 		if (graph.error) {
 			return
 		}
-		let newGraph = graph
+		// console.log('compute')
 
-		nodes = layoutNodes(newGraph.nodes)
-		edges = newGraph.edges
+		let layoutedNodes = layoutNodes(
+			Object.values(graph.nodes).map((n) => ({
+				id: n.id,
+				parentIds: n.parentIds,
+				offset: n.data.offset ?? 0
+			}))
+		)
+		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
+
+		let assetNodesResult = computeAssetNodes(
+			newNodes.map((n) => ({
+				data: { assets: n.data?.assets as AssetWithAltAccessType[] },
+				id: n.id,
+				position: n.position
+			}))
+		)
+		newNodes = newNodes.map((n) => ({
+			...n,
+			position: assetNodesResult.newNodePositions[n.id]
+		}))
+		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
+		nodes = [
+			...newNodes.map((n) => ({ ...n, position: aiToolNodesResult.newNodePositions[n.id] })),
+			...assetNodesResult.newAssetNodes,
+			...aiToolNodesResult.toolNodes
+		]
+		edges = [...assetNodesResult.newAssetEdges, ...aiToolNodesResult.toolEdges, ...graph.edges]
+
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
 	}
@@ -367,7 +431,11 @@
 		branchOneEnd: BranchOneEndNode,
 		subflowBound: SubflowBound,
 		noBranch: NoBranchNode,
-		trigger: TriggersNode
+		trigger: TriggersNode,
+		asset: AssetNode,
+		assetsOverflowed: AssetsOverflowedNode,
+		aiTool: AiToolNode,
+		newAiTool: NewAiToolNode
 	} as any
 
 	const edgeTypes = {
@@ -384,42 +452,58 @@
 	// })
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
 
+	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
+
 	$effect(() => {
 		allowSimplifiedPoll && modules && untrack(() => onModulesChange(modules ?? []))
 	})
 	$effect(() => {
-		modules && untrack(() => onModulesChange2(modules))
+		readFieldsRecursively(modules)
+		untrack(() => moduleTracker.track($state.snapshot(modules)))
 	})
+
 	let graph = $derived.by(() => {
-		moduleCounter
+		moduleTracker.counter
 		return graphBuilder(
 			untrack(() => modules),
 			{
 				disableAi,
 				insertable,
-				flowModuleStates,
-				selectedId: $selectedId,
+				flowModuleStates: untrack(() => flowModuleStates),
+				testModuleStates: untrack(() => testModuleStates),
+				selectedId: untrack(() => $selectedId),
 				path,
 				newFlow,
 				cache,
 				earlyStop,
-				editMode
+				editMode,
+				isOwner,
+				isRunning,
+				individualStepTests,
+				flowJob,
+				showJobStatus,
+				suspendStatus,
+				flowHasChanged,
+				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
-			failureModule,
+			untrack(() => failureModule),
 			preprocessorModule,
 			eventHandler,
 			success,
 			$useDataflow,
-			$selectedId,
+			untrack(() => $selectedId),
 			moving,
 			simplifiableFlow,
 			triggerNode ? path : undefined,
 			expandedSubflows
 		)
 	})
+
 	$effect(() => {
-		;(graph || allowSimplifiedPoll) && untrack(() => updateStores())
+		;[graph, allowSimplifiedPoll]
+		untrack(() => updateStores())
 	})
+
 	let showDataflow = $derived(
 		$selectedId != undefined &&
 			!$selectedId.startsWith('constants') &&
@@ -430,7 +514,7 @@
 			$selectedId !== 'triggers'
 	)
 	let debouncedWidth: number | undefined = $state(undefined)
-	let timeout: NodeJS.Timeout | undefined = $state(undefined)
+	let timeout: number | undefined = $state(undefined)
 	$effect(() => {
 		if (!debouncedWidth) {
 			return
@@ -448,13 +532,22 @@
 			}
 		}, 10)
 	})
+
+	let viewportResizer: ViewportResizer | undefined = $state(undefined)
+	export function isNodeVisible(nodeId: string): boolean {
+		return viewportResizer?.isNodeVisible(nodeId) ?? false
+	}
 </script>
 
 {#if insertable}
 	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 {/if}
 
-<div style={`height: ${height}px; max-height: ${maxHeight}px;`} bind:clientWidth={debouncedWidth}>
+<div
+	style={`height: ${height}px; max-height: ${maxHeight}px;`}
+	class="overflow-clip"
+	bind:clientWidth={debouncedWidth}
+>
 	{#if graph?.error}
 		<div class="center-center p-2">
 			<Alert title="Error parsing the flow" type="error" class="max-w-1/2">
@@ -470,7 +563,7 @@
 		</div>
 	{:else}
 		<SvelteFlowProvider>
-			<ViewportResizer {width} />
+			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
 			<SvelteFlow
 				onpaneclick={(e) => {
 					document.dispatchEvent(new Event('focus'))
@@ -492,7 +585,7 @@
 				nodesDraggable={false}
 				--background-color={false}
 			>
-				<div class="absolute inset-0 !bg-surface-secondary"></div>
+				<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
 				<Controls position="top-right" orientation="horizontal" showLock={false}>
 					{#if download}
 						<ControlButton

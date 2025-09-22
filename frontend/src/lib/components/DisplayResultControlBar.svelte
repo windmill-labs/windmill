@@ -6,14 +6,27 @@
 	import type { DisplayResultUi } from './custom_ui'
 	import { createEventDispatcher } from 'svelte'
 
-	export let customUi: DisplayResultUi | undefined = undefined
-	export let filename: string | undefined = undefined
-	export let workspaceId: string | undefined = undefined
-	export let jobId: string | undefined = undefined
-	export let nodeId: string | undefined = undefined
-	export let base: string
-	export let result: any
-	export let disableTooltips: boolean = false
+	interface Props {
+		customUi?: DisplayResultUi | undefined
+		filename?: string | undefined
+		workspaceId?: string | undefined
+		jobId?: string | undefined
+		nodeId?: string | undefined
+		base: string
+		result: any
+		disableTooltips?: boolean
+	}
+
+	let {
+		customUi = undefined,
+		filename = undefined,
+		workspaceId = undefined,
+		jobId = undefined,
+		nodeId = undefined,
+		base,
+		result,
+		disableTooltips = false
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -42,19 +55,19 @@
 	{/if}
 	{#if disableTooltips !== true}
 		<Popover documentationLink="https://www.windmill.dev/docs/core_concepts/rich_display_rendering">
-			<svelte:fragment slot="text">
+			{#snippet text()}
 				The result renderer in Windmill supports rich display rendering, allowing you to customize
 				the display format of your results.
-			</svelte:fragment>
+			{/snippet}
 			<div>
 				<InfoIcon size={14} />
 			</div>
 		</Popover>
 	{/if}
-	<button on:click={() => copyToClipboard(toJsonStr(result))}>
+	<button onclick={() => copyToClipboard(toJsonStr(result))}>
 		<ClipboardCopy size={14} />
 	</button>
-	<button on:click={() => dispatch('open-drawer')}>
+	<button onclick={() => dispatch('open-drawer')}>
 		<Expand size={14} />
 	</button>
 </div>

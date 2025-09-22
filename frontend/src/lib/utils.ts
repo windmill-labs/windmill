@@ -1,5 +1,4 @@
 // /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-// import { goto } from '$lib/navigation'
 // import { AppService, type Flow, FlowService, Script, ScriptService, type User } from '$lib/gen'
 // import { toast } from '@zerodevx/svelte-toast'
 // import type { Schema, SupportedLanguage } from './common'
@@ -11,7 +10,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, Script, ScriptLang } from './gen'
+import type { Job, RunnableKind, Script, ScriptLang } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -87,14 +86,6 @@ export function isJobReRunnable(j: Job): boolean {
 }
 
 export const WORKER_NAME_PREFIX = 'wk'
-export const AGENT_WORKER_NAME_PREFIX = 'ag'
-const SSH_AGENT_WORKER_SUFFIX = '/ssh'
-
-export function isAgentWorkerShell(workerName: string) {
-	return (
-		workerName.startsWith(AGENT_WORKER_NAME_PREFIX) && workerName.endsWith(SSH_AGENT_WORKER_SUFFIX)
-	)
-}
 
 export function isJobSelectable(selectionType: RunsSelectionMode) {
 	const f: (j: Job) => boolean = {
@@ -102,6 +93,15 @@ export function isJobSelectable(selectionType: RunsSelectionMode) {
 		're-run': isJobReRunnable
 	}[selectionType]
 	return f
+}
+
+export function escapeHtml(unsafe: string) {
+	return unsafe
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#039;')
 }
 
 export function validateUsername(username: string): string {
@@ -136,6 +136,12 @@ export function displayDateOnly(dateString: string | Date | undefined): string {
 			day: '2-digit'
 		})
 	}
+}
+
+export function retrieveCommonWorkerPrefix(workerName: string): string {
+	const lastDashIndex = workerName.lastIndexOf('-')
+
+	return workerName.substring(0, lastDashIndex)
 }
 
 export function subtractDaysFromDateString(
@@ -223,7 +229,7 @@ export function removeTriggerKindIfUnused(
 	return usedTriggerKinds
 }
 
-export function msToReadableTime(ms: number | undefined): string {
+export function msToReadableTime(ms: number | undefined, maximumFractionDigits?: number): string {
 	if (ms === undefined) return '?'
 
 	const seconds = Math.floor(ms / 1000)
@@ -238,7 +244,29 @@ export function msToReadableTime(ms: number | undefined): string {
 	} else if (minutes > 0) {
 		return `${minutes}m ${seconds % 60}s`
 	} else {
-		return `${msToSec(ms)}s`
+		return `${msToSec(ms, maximumFractionDigits)}s`
+	}
+}
+
+export function msToReadableTimeShort(
+	ms: number | undefined,
+	maximumFractionDigits?: number
+): string {
+	if (ms === undefined) return '?'
+
+	const seconds = Math.floor(ms / 1000)
+	const minutes = Math.floor(seconds / 60)
+	const hours = Math.floor(minutes / 60)
+	const days = Math.floor(hours / 24)
+
+	if (days > 0) {
+		return `${days}d`
+	} else if (hours > 0) {
+		return `${hours}h`
+	} else if (minutes > 0) {
+		return `${minutes}m`
+	} else {
+		return `${msToSec(ms, maximumFractionDigits)}s`
 	}
 }
 
@@ -281,6 +309,7 @@ interface ClickOutsideOptions {
 	exclude?: (() => Promise<HTMLElement[]>) | HTMLElement[] | undefined
 	stopPropagation?: boolean
 	customEventName?: string
+	eventToListenName?: 'click' | 'pointerdown'
 	// on:click_outside cannot be used with svelte 5
 	onClickOutside?: (event: MouseEvent) => void
 }
@@ -327,14 +356,15 @@ export function clickOutside(
 	}
 
 	const capture = typeof options === 'boolean' ? options : (options?.capture ?? true)
-	document.addEventListener('click', handleClick, capture ?? true)
+	const eventToListenName = (typeof options === 'object' && options.eventToListenName) || 'click'
+	document.addEventListener(eventToListenName, handleClick, capture ?? true)
 
 	return {
 		update(newOptions: ClickOutsideOptions | boolean) {
 			options = newOptions
 		},
 		destroy() {
-			document.removeEventListener('click', handleClick, capture ?? true)
+			document.removeEventListener(eventToListenName, handleClick, capture ?? true)
 		}
 	}
 }
@@ -380,6 +410,7 @@ export function pointerDownOutside(
 					event.stopPropagation()
 				}
 				node.dispatchEvent(new CustomEvent<PointerEvent>('pointerdown_outside', { detail: event }))
+				if (typeof options === 'object') options.onClickOutside?.(event)
 				return false
 			}
 		}
@@ -584,7 +615,57 @@ export type InputCat =
 	| 'yaml'
 	| 'currency'
 	| 'oneOf'
-	| 'dynselect'
+	| 'dynamic'
+	| 'json-schema'
+	| 'ai-provider'
+
+export namespace DynamicInput {
+	const DYN_FORMAT_PREFIX = ['dynmultiselect-', 'dynselect-']
+
+	export type HelperScript =
+		| { source: 'deployed'; path: string; runnable_kind: RunnableKind }
+		| { source: 'inline'; code: string; lang: ScriptLang }
+
+	export const generatePythonFnTemplate = (functionName: string): string => {
+		return `
+def ${functionName}():
+    return [
+        { "label": "Foo", "value": "foo" },
+        { "label": "Bar", "value": "bar" }
+    ]
+
+`
+	}
+
+	export const generateJsFnTemplate = (functionName: string): string => {
+		return `
+// you can use filterText to filter the results from the backend
+// you can refer to other args directly as parameters (e.g. foobar: string)
+export function ${functionName}(filterText: string) {
+	return [
+		{ label: 'Foo', value: 'foo' },
+		{ label: 'Bar', value: 'bar' }
+	];
+}
+
+`
+	}
+
+	export const generateDefaultTemplateFn = (functionName: string, lang: ScriptLang): string => {
+		return lang === 'bun'
+			? generateJsFnTemplate(functionName)
+			: generatePythonFnTemplate(functionName)
+	}
+
+	export const getGenerateTemplateFn = (lang: ScriptLang) => {
+		return lang === 'bun' ? generateJsFnTemplate : generatePythonFnTemplate
+	}
+
+	export const isDynInputFormat = (format?: string) => {
+		if (!format) return false
+		return DYN_FORMAT_PREFIX.some((format_prefix) => format.startsWith(format_prefix))
+	}
+}
 
 export function setInputCat(
 	type: string | undefined,
@@ -601,8 +682,10 @@ export function setInputCat(
 		return 'list'
 	} else if (type == 'object' && format?.startsWith('resource')) {
 		return 'resource-object'
-	} else if (type == 'object' && format?.startsWith('dynselect-')) {
-		return 'dynselect'
+	} else if (type == 'object' && format == 'ai-provider') {
+		return 'ai-provider'
+	} else if (type == 'object' && DynamicInput.isDynInputFormat(format)) {
+		return 'dynamic'
 	} else if (!type || type == 'object' || type == 'array') {
 		return 'object'
 	} else if (type == 'string' && enum_) {
@@ -739,11 +822,14 @@ export function isObject(obj: any): obj is Record<string, any> {
 
 export function debounce(func: (...args: any[]) => any, wait: number) {
 	let timeout: any
-	return function (...args: any[]) {
-		// @ts-ignore
-		const context = this
-		clearTimeout(timeout)
-		timeout = setTimeout(() => func.apply(context, args), wait)
+	return {
+		debounced: function (...args: any[]) {
+			// @ts-ignore
+			const context = this
+			clearTimeout(timeout)
+			timeout = setTimeout(() => func.apply(context, args), wait)
+		},
+		clearDebounce: () => clearTimeout(timeout)
 	}
 }
 
@@ -950,6 +1036,14 @@ export function isCodeInjection(expr: string | undefined): boolean {
 	}
 
 	return dynamicTemplateRegex.test(expr)
+}
+
+export function urlParamsToObject(params: URLSearchParams): Record<string, string> {
+	const result: Record<string, string> = {}
+	params.forEach((value, key) => {
+		result[key] = value
+	})
+	return result
 }
 
 export async function tryEvery({
@@ -1247,10 +1341,12 @@ export type Item = {
 	icon?: any
 	iconColor?: string
 	href?: string
+	hrefTarget?: '_blank' | '_self' | '_parent' | '_top'
 	disabled?: boolean
 	type?: 'action' | 'delete'
 	hide?: boolean | undefined
 	extra?: Snippet
+	id?: string
 }
 
 export function isObjectTooBig(obj: any): boolean {
@@ -1369,6 +1465,7 @@ import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import type { Snippet } from 'svelte'
 import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
+import type { IPosition } from 'monaco-editor'
 
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs))
@@ -1426,4 +1523,93 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 	observer.observe(elem)
 
 	return observer // return for testing
+}
+
+// Structured clone raises an error on $state values
+// $state.snapshot clones everything but prints warnings for some values (e.g. functions)
+import _clone from 'clone'
+export function clone<T>(t: T): T {
+	return _clone(t)
+}
+
+export const editorPositionMap: Record<string, IPosition> = {}
+
+export type S3Uri = `s3://${string}/${string}`
+export type S3Object =
+	| S3Uri
+	| {
+			s3: string
+			storage?: string
+	  }
+
+export function parseS3Object(s3Object: S3Object): { s3: string; storage?: string } {
+	if (typeof s3Object === 'object') return s3Object
+	const match = s3Object.match(/^s3:\/\/([^/]*)\/(.*)$/)
+	return { storage: match?.[1] || undefined, s3: match?.[2] ?? '' }
+}
+
+export function formatS3Object(s3Object: S3Object): S3Uri {
+	if (typeof s3Object === 'object') return `s3://${s3Object.storage ?? ''}/${s3Object.s3}`
+	return s3Object
+}
+
+export function isS3Uri(uri: string): uri is S3Uri {
+	const match = uri.match(/^s3:\/\/([^/]*)\/(.*)$/)
+	return !!match && match.length === 3
+}
+
+export function uniqueBy<T>(array: T[], key: (t: T) => any): T[] {
+	const seen = new Set()
+	return array.filter((item) => {
+		const value = key(item)
+		if (seen.has(value)) {
+			return false
+		} else {
+			seen.add(value)
+			return true
+		}
+	})
+}
+
+export function pruneNullishArray<T>(array: (T | null | undefined)[]): T[] {
+	return array.filter((item): item is T => item !== null && item !== undefined)
+}
+
+export function assert(msg: string, condition: boolean, value?: any) {
+	if (!condition) {
+		let m = 'Assertion failed: ' + msg
+		if (value) m += '\nValue: ' + JSON.stringify(value, null, 2)
+		m += '\nPlease alert the Windmill team about this'
+		sendUserToast(m, true)
+		console.error(m)
+	}
+}
+
+export function createCache<Keys extends Record<string, any>, T, InitialKeys extends Keys = Keys>(
+	compute: (keys: Keys) => T,
+	params?: { maxSize?: number; initial?: InitialKeys }
+): (keys: Keys) => T {
+	let cache = new Map<string, T>()
+	const maxSize = params?.maxSize ?? 15
+
+	if (params?.initial) {
+		let key = JSON.stringify(params.initial, Object.keys(params.initial).sort())
+		let value = compute(params.initial)
+		cache.set(key, value)
+	}
+
+	return (keys: Keys) => {
+		let key = JSON.stringify(keys, Object.keys(keys).sort())
+		if (!cache.get(key)) {
+			let value = compute(keys)
+			cache.set(key, value)
+
+			if (cache.size > maxSize) {
+				// remove the oldest entry (first inserted)
+				const oldestKey = cache.keys().next().value!
+				cache.delete(oldestKey)
+			}
+		}
+		return cache.get(key)!
+	}
 }

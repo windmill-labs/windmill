@@ -17,7 +17,7 @@
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import TimeAgo from './TimeAgo.svelte'
-	import JobLoader from './runs/JobLoader.svelte'
+	import JobsLoader from './runs/JobsLoader.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import SaveInputsButton from './SaveInputsButton.svelte'
 
@@ -144,7 +144,7 @@
 </script>
 
 {#if runnableId}
-	<JobLoader
+	<JobsLoader
 		bind:jobs
 		path={runnableId}
 		isSkipped={false}

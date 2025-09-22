@@ -6,24 +6,37 @@
 	import Microsoft from '$lib/components/icons/brands/Microsoft.svelte'
 	import Okta from '$lib/components/icons/brands/Okta.svelte'
 	import Auth0 from '$lib/components/icons/brands/Auth0.svelte'
+	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
-	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
+	import { classNames, emptyString, escapeHtml, parseQueryParams } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { getUserExt } from '$lib/user'
-	import { Button, Skeleton } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import Skeleton from './common/skeleton/Skeleton.svelte'
+	import Button from './common/button/Button.svelte'
 
-	export let rd: string | undefined = undefined
-	export let email: string | undefined = undefined
-	export let password: string | undefined = undefined
-	export let error: string | undefined = undefined
-	export let popup: boolean = false
-	export let firstTime: boolean = false
+	interface Props {
+		rd?: string | undefined
+		email?: string | undefined
+		password?: string | undefined
+		error?: string | undefined
+		popup?: boolean
+		firstTime?: boolean
+	}
+
+	let {
+		rd = undefined,
+		email = $bindable(undefined),
+		password = $bindable(undefined),
+		error = undefined,
+		popup = false,
+		firstTime = false
+	}: Props = $props()
 
 	const providers = [
 		{
@@ -55,14 +68,19 @@
 			type: 'auth0',
 			name: 'Auth0',
 			icon: Auth0
+		},
+		{
+			type: 'nextcloud',
+			name: 'Nextcloud',
+			icon: NextcloudIcon
 		}
 	] as const
 
 	const providersType = providers.map((p) => p.type as string)
 
-	let showPassword = false
-	let logins: OAuthLogin[] | undefined = undefined
-	let saml: string | undefined = undefined
+	let showPassword = $state(false)
+	let logins: OAuthLogin[] | undefined = $state(undefined)
+	let saml: string | undefined = $state(undefined)
 
 	type OAuthLogin = {
 		type: string
@@ -251,7 +269,9 @@
 		}
 	}
 
-	$: error && sendUserToast(error, true)
+	$effect(() => {
+		error && sendUserToast(escapeHtml(error), true)
+	})
 </script>
 
 <div class="bg-surface px-4 py-8 shadow md:border sm:rounded-lg sm:px-10">
@@ -352,7 +372,7 @@
 					</label>
 					<div>
 						<input
-							on:keyup={handleKeyUp}
+							onkeyup={handleKeyUp}
 							bind:value={password}
 							id="password"
 							type="password"
@@ -364,7 +384,7 @@
 
 				<div class="pt-2">
 					<button
-						on:click={login}
+						onclick={login}
 						disabled={!email || !password}
 						class="flex w-full justify-center rounded-md bg-frost-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-frost-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost-600"
 					>

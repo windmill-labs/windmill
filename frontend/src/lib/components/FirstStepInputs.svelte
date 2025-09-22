@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onDestroy, getContext, untrack } from 'svelte'
-	import { getFirstStepSchema } from '$lib/components/flows/flowStore.svelte'
+	import { getFirstStepSchema } from '$lib/components/flows/flowStore'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
 	import { Alert } from '$lib/components/common'
@@ -19,7 +19,7 @@
 	let mod: any | undefined = $state(undefined)
 	async function loadSchema() {
 		try {
-			const res = await getFirstStepSchema($flowStateStore, flowStore.val)
+			const res = await getFirstStepSchema(flowStateStore.val, flowStore.val)
 			schema = res.schema
 			mod = res.mod
 			dispatch('connectFirstNode', { connectFirstNode: res.connectFirstNode })
@@ -28,7 +28,7 @@
 		}
 	}
 	$effect(() => {
-		flowStore.val && $flowStateStore && untrack(() => loadSchema())
+		flowStore.val && flowStateStore.val && untrack(() => loadSchema())
 	})
 
 	function handleClick() {

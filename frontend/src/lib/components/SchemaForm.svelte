@@ -3,9 +3,9 @@
 
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
-	import { VariableService, type Script } from '$lib/gen'
+	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { allTrue, computeShow } from '$lib/utils'
+	import { allTrue, computeShow, type DynamicInput } from '$lib/utils'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -44,10 +44,7 @@
 		onlyMaskPassword?: boolean
 		dndConfig?: DndOptions | undefined
 		items?: { id: string; value: string }[] | undefined
-		helperScript?:
-			| { type: 'inline'; path?: string; lang: Script['language']; code: string }
-			| { type: 'hash'; hash: string }
-			| undefined
+		helperScript?: DynamicInput.HelperScript
 		lightHeader?: boolean
 		diff?: Record<string, SchemaDiff>
 		nestedParent?: { label: string; nestedParent: any | undefined } | undefined
@@ -111,7 +108,7 @@
 		className = '',
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
-		actions
+		actions: actions_render = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -163,19 +160,22 @@
 		if (!deepEqual(schema?.order, lkeys) || !deepEqual(keys, lkeys)) {
 			if (schema?.order && Array.isArray(schema.order)) {
 				const n = {}
-
 				;(schema.order as string[]).forEach((x) => {
 					if (schema.properties && schema.properties[x] != undefined) {
 						n[x] = schema.properties[x]
 					}
 				})
-
 				Object.keys(schema.properties ?? {})
 					.filter((x) => !schema.order?.includes(x))
 					.forEach((x) => {
 						n[x] = schema.properties[x]
 					})
-				schema.properties = n
+				if (
+					!deepEqual(schema.properties, n) ||
+					!deepEqual(Object.keys(schema.properties), Object.keys(n))
+				) {
+					schema.properties = n
+				}
 			}
 			let nkeys = Object.keys(schema.properties ?? {})
 
@@ -221,20 +221,10 @@
 			args = {}
 		}
 	})
-	$effect.pre(() => {
-		const newKeys = [
-			...new Set(
-				(Array.isArray(schema?.order)
-					? schema?.order
-					: Object.keys(schema?.properties ?? {})) as string[]
-			)
-		]
 
-		if (!deepEqual(keys, newKeys)) {
-			keys = newKeys
-		}
-	})
 	$effect.pre(() => {
+		schema?.order
+		Object.keys(schema?.properties ?? {})
 		schema && (untrack(() => reorder()), (hidden = {}))
 	})
 	$effect.pre(() => {
@@ -243,7 +233,7 @@
 		if (args && typeof args == 'object') {
 			let oneShowExpr = false
 			for (const key of fields) {
-				if (schema.properties?.[key.value]?.showExpr) {
+				if (schema?.properties?.[key.value]?.showExpr) {
 					oneShowExpr = true
 				}
 			}
@@ -259,7 +249,6 @@
 	$effect.pre(() => {
 		isValid = allTrue(inputCheck ?? {})
 	})
-	const actions_render = $derived(actions)
 </script>
 
 {#if showReset}
@@ -269,7 +258,8 @@
 		</Button>
 	</div>
 {/if}
-
+<!-- {JSON.stringify(schema.order)} -->
+<!-- {JSON.stringify(schema)} -->
 <div
 	class="w-full {className} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 ' : ''} {nestedClasses}"
 	use:dragHandleZone={dndConfig ?? { items: [], dragDisabled: true }}
@@ -326,7 +316,7 @@
 								title={formerProperty?.title}
 								placeholder={formerProperty?.placeholder}
 								orderEditable={dndConfig != undefined}
-								otherArgs={args}
+								otherArgs={{ ...args, [argName]: undefined }}
 								{helperScript}
 								{lightHeader}
 								hideNested={typeof diff[argName].diff === 'object'}
@@ -399,7 +389,7 @@
 									title={schema.properties[argName].title}
 									placeholder={schema.properties[argName].placeholder}
 									orderEditable={dndConfig != undefined}
-									otherArgs={args}
+									otherArgs={{ ...args, [argName]: undefined }}
 									{helperScript}
 									{lightHeader}
 									diffStatus={diff[argName] ?? undefined}

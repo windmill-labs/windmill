@@ -5,34 +5,57 @@
 	import { BellOff } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { goto } from '$lib/navigation'
-	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
-
-	export let marked: string | undefined
-	export let starred: boolean
-	export let canFavorite: boolean = true
-	export let errorHandlerMuted: boolean = false
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
 	const dispatch = createEventDispatcher()
 
-	export let aiId: string | undefined = undefined
-	export let aiDescription: string | undefined = undefined
-	export let kind: 'script' | 'flow' | 'app' | 'raw_app' = 'script'
-	export let summary: string | undefined = undefined
-	export let path: string
-	export let href: string
-	export let workspaceId: string
-	export let depth: number = 0
+	interface Props {
+		marked: string | undefined
+		starred: boolean
+		canFavorite?: boolean
+		errorHandlerMuted?: boolean
+		aiId?: string | undefined
+		aiDescription?: string | undefined
+		kind?: 'script' | 'flow' | 'app' | 'raw_app'
+		summary?: string | undefined
+		path: string
+		href: string
+		workspaceId: string
+		depth?: number
+		badges?: import('svelte').Snippet
+		actions?: import('svelte').Snippet
+	}
+
+	let {
+		marked,
+		starred,
+		canFavorite = true,
+		errorHandlerMuted = false,
+		aiId = undefined,
+		aiDescription = undefined,
+		kind = 'script',
+		summary = undefined,
+		path,
+		href,
+		workspaceId,
+		depth = 0,
+		badges,
+		actions
+	}: Props = $props()
 
 	let displayPath: string = (depth === 0 ? path : path?.split('/')?.slice(-1)?.[0]) ?? ''
 </script>
 
-<TriggerableByAI
-	id={aiId}
-	description={aiDescription}
-	onTrigger={() => {
-		goto(href)
+<div
+	style="display: none"
+	use:triggerableByAI={{
+		id: aiId,
+		description: aiDescription,
+		callback: () => {
+			goto(href)
+		}
 	}}
-/>
+></div>
 <div
 	class={twMerge(
 		'hover:bg-surface-hover w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-2.5 border-b last:border-b-0',
@@ -62,9 +85,9 @@
 		<BellOff class="w-8 opacity-60" size={12} fill="currentcolor" />
 	{/if}
 
-	{#if $$slots.badges}
+	{#if badges}
 		<div class="hidden lg:flex flex-row gap-4 items-center">
-			<slot name="badges" />
+			{@render badges?.()}
 		</div>
 	{/if}
 
@@ -85,6 +108,6 @@
 	{/if}
 
 	<div class="flex gap-1 items-center justify-end pr-2">
-		<slot name="actions" />
+		{@render actions?.()}
 	</div>
 </div>

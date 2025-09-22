@@ -8,7 +8,6 @@
 		BadgeX,
 		Info,
 		Plus,
-		RefreshCcw,
 		Slack,
 		X
 	} from 'lucide-svelte'
@@ -21,7 +20,6 @@
 		ConfigService,
 		IndexSearchService,
 		SettingService,
-		TeamsService,
 		type ListAvailablePythonVersionsResponse
 	} from '$lib/gen'
 	import { Button, SecondsInput, Skeleton } from './common'
@@ -63,8 +61,6 @@
 		attempted_at: string
 	} | null = $state(null)
 
-	let isFetching = $state(false)
-
 	function showSetting(setting: string, values: Record<string, any>) {
 		if (setting == 'dev_instance') {
 			if (values['license_key'] == undefined) {
@@ -84,6 +80,12 @@
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 	}
 
+	async function reloadLicenseKey() {
+		$values['license_key'] = await SettingService.getGlobal({
+			key: 'license_key'
+		})
+	}
+
 	if (setting.key == 'license_key') {
 		reloadKeyrenewalAttemptInfo()
 	}
@@ -95,11 +97,11 @@
 				licenseKey: $values['license_key'] || undefined
 			})
 			sendUserToast('Key renewal successful')
-			reloadKeyrenewalAttemptInfo()
+			reloadLicenseKey()
 		} catch (err) {
-			latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 			throw err
 		} finally {
+			reloadKeyrenewalAttemptInfo()
 			renewing = false
 		}
 	}
@@ -157,36 +159,24 @@
 		fetch_available_python_versions()
 	}
 
-	async function fetchTeams() {
-		if (isFetching) return
-		isFetching = true
-		try {
-			$values['teams'] = await TeamsService.syncTeams()
-		} catch (error) {
-			console.error('Error fetching teams:', error)
-		} finally {
-			isFetching = false
-		}
-	}
-
 	function handleTeamChange(
 		teamItem: { team_id: string; team_name: string } | undefined,
 		i: number
 	) {
-		const team =
-			(teamItem && $values['teams'].find((team) => team.team_id === teamItem.team_id)) || null
 		$values['critical_error_channels'][i] = {
-			teams_channel: {
-				team_id: team?.team_id,
-				team_name: team?.team_name,
-				channel_id: team?.channels[0]?.channel_id,
-				channel_name: team?.channels[0]?.channel_name
-			}
+			teams_channel: teamItem
+				? {
+						team_id: teamItem.team_id,
+						team_name: teamItem.team_name,
+						channel_id: undefined, // Will be set when channel is selected
+						channel_name: undefined
+					}
+				: undefined
 		}
 	}
 
 	function handleChannelChange(
-		channel: { channel_id: string; channel_name: string } | undefined,
+		channel: { channel_id?: string; channel_name?: string } | undefined,
 		i: number
 	) {
 		const team = $values['critical_error_channels'][i]?.teams_channel
@@ -376,7 +366,7 @@
 						<Password
 							small
 							placeholder={setting.placeholder}
-							on:keydown={() => {
+							onKeyDown={() => {
 								licenseKeyChanged = true
 							}}
 							bind:password={$values[setting.key]}
@@ -406,9 +396,16 @@
 							{:else if expiration}
 								<div class="flex flex-row gap-1 items-center">
 									<AlertCircle size={12} class="text-red-600" />
-									<span class="text-red-600 dark:text-red-400 text-xs"
-										>License key expired on {expiration}</span
-									>
+									<span class="text-red-600 dark:text-red-400 text-xs">
+										{#if $values[setting.key]?.endsWith('__dev')}
+											Dev license key expired on {expiration}.<br />If even after successful
+											renewal, your dev license key is still expired, it means that your production
+											key has expired due to unpaid invoices or excessive use of your production
+											instance.
+										{:else}
+											License key expired on {expiration}.
+										{/if}
+									</span>
 								</div>
 							{:else}
 								<div class="flex flex-row gap-1 items-center">
@@ -440,12 +437,17 @@
 														: 'text-red-600'
 											)}
 										>
-											{latestKeyRenewalAttempt.result === 'success'
-												? 'Latest key renewal succeeded'
-												: isTrial
-													? 'Latest key renewal ignored because in trial'
-													: 'Latest key renewal failed'}
-											on {attemptedAt}
+											{#if latestKeyRenewalAttempt.result === 'success' && $values[setting.key]?.endsWith('__dev')}
+												Latest dev key renewal succeeded on {attemptedAt}. The dev key expiry was
+												updated to align with your current production key's expiration date.
+											{:else}
+												{latestKeyRenewalAttempt.result === 'success'
+													? 'Latest key renewal succeeded'
+													: isTrial
+														? 'Latest key renewal ignored because in trial'
+														: 'Latest key renewal failed'}
+												on {attemptedAt}
+											{/if}
 										</span>
 									</div>
 									{#snippet text()}
@@ -532,9 +534,6 @@
 														[e.target['value']]: ''
 													}
 												}
-												if (e.target?.['value'] === 'teams_channel') {
-													fetchTeams()
-												}
 											}}
 											value={(() => {
 												if (!v) return 'email'
@@ -566,8 +565,6 @@
 													containerClass="w-44"
 													minWidth="140px"
 													showRefreshButton={false}
-													placeholder="Select team"
-													teams={$values['teams']}
 													bind:selectedTeam={
 														() =>
 															$values['critical_error_channels'][i]?.teams_channel
@@ -586,12 +583,8 @@
 												{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
 													<ChannelSelector
 														containerClass=""
-														placeholder="Select channel"
-														channels={$values['teams'].find(
-															(team) =>
-																team.team_id ===
-																$values['critical_error_channels'][i]?.teams_channel?.team_id
-														)?.channels ?? []}
+														placeholder="Search channels"
+														teamId={$values['critical_error_channels'][i]?.teams_channel?.team_id}
 														bind:selectedChannel={
 															() =>
 																$values['critical_error_channels'][i]?.teams_channel?.channel_id
@@ -606,13 +599,10 @@
 																	: undefined,
 															(channel) => handleChannelChange(channel, i)
 														}
+														onError={(e) =>
+															sendUserToast('Failed to load channels: ' + e.message, true)}
 													/>
 												{/if}
-												<div>
-													<button onclick={fetchTeams} class="flex items-center gap-1 mt-2">
-														<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
-													</button>
-												</div>
 											</div>
 										{:else}
 											<input
@@ -649,13 +639,14 @@
 						<Button
 							variant="border"
 							color="light"
-							size="md"
+							size="xs"
 							btnClasses="mt-1"
 							on:click={() => {
 								if ($values[setting.key] == undefined || !Array.isArray($values[setting.key])) {
 									$values[setting.key] = []
 								}
-								$values[setting.key] = $values[setting.key].concat('')
+								// Start with a typed default to avoid invalid primitives in the array
+								$values[setting.key] = $values[setting.key].concat({ email: '' })
 							}}
 							id="arg-input-add-item"
 							startIcon={{ icon: Plus }}
@@ -668,7 +659,7 @@
 								disabled={!$enterpriseLicense}
 								variant="border"
 								color="light"
-								size="md"
+								size="xs"
 								on:click={async () => {
 									try {
 										await SettingService.testCriticalChannels({

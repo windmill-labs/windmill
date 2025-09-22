@@ -9,6 +9,7 @@
 #![allow(non_snake_case)]
 
 use quick_cache::sync::Cache;
+use sqlx::{Postgres, Transaction};
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -44,7 +45,7 @@ use tower_cookies::{Cookie, Cookies};
 use tracing::Instrument;
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
-use windmill_common::auth::fetch_authed_from_permissioned_as;
+use windmill_common::auth::{fetch_authed_from_permissioned_as, TOKEN_PREFIX_LEN};
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::users::COOKIE_NAME;
@@ -153,23 +154,6 @@ pub async fn maybe_refresh_folders(
     }
 }
 
-pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
-where
-    F: FnOnce() -> String,
-{
-    if authed.scopes.as_ref().is_some_and(|scopes| {
-        scopes
-            .iter()
-            .any(|s| s.starts_with("jobs:") || s.starts_with("run:"))
-    }) {
-        let req = &required();
-        if !authed.scopes.as_ref().unwrap().contains(req) {
-            return Err(Error::BadRequest(format!("missing required scope: {req}")));
-        }
-    }
-    Ok(())
-}
-
 pub fn get_scope_tags(authed: &ApiAuthed) -> Option<Vec<&str>> {
     authed.scopes.as_ref()?.iter().find_map(|s| {
         if s.starts_with("if_jobs:filter_tags:") {
@@ -243,13 +227,14 @@ pub async fn fetch_api_authed_from_permissioned_as(
 
             let api_authed = ApiAuthed {
                 username: authed.username,
-                email: email,
+                email,
                 is_admin: authed.is_admin,
                 is_operator: authed.is_operator,
                 groups: authed.groups,
                 folders: authed.folders,
                 scopes: authed.scopes,
                 username_override: None,
+                token_prefix: authed.token_prefix,
             };
 
             API_AUTHED_CACHE.insert(
@@ -278,6 +263,8 @@ pub struct User {
     pub operator: bool,
     pub disabled: bool,
     pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub added_via: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -324,6 +311,7 @@ pub struct WorkspaceInvite {
     pub email: String,
     pub is_admin: bool,
     pub operator: bool,
+    pub parent_workspace_id: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -510,7 +498,7 @@ async fn list_user_usage(
                 WHERE workspace_id = $1
                 AND job_kind NOT IN ('flow', 'flowpreview', 'flownode')
                 AND email = usr.email
-                AND now() - '1 week'::interval < created_at 
+                AND now() - '1 week'::interval < created_at
             ) usage
         WHERE workspace_id = $1
         ",
@@ -629,7 +617,13 @@ async fn list_invites(
     let mut tx = db.begin().await?;
     let rows = sqlx::query_as!(
         WorkspaceInvite,
-        "SELECT * from workspace_invite WHERE email = $1",
+        "SELECT
+            workspace_invite.workspace_id,
+            workspace_invite.email,
+            workspace_invite.is_admin,
+            workspace_invite.operator,
+            workspace.parent_workspace_id
+        FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id WHERE email = $1",
         authed.email
     )
     .fetch_all(&mut *tx)
@@ -690,7 +684,12 @@ async fn logout(
         };
         audit_log(
             &mut *tx,
-            &AuditAuthor { email: email.clone(), username: email, username_override: None },
+            &AuditAuthor {
+                email: email.clone(),
+                username: email,
+                username_override: None,
+                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+            },
             audit_message,
             ActionKind::Delete,
             "global",
@@ -797,8 +796,8 @@ async fn get_usage(
 ) -> Result<String> {
     let usage = sqlx::query_scalar!(
         "
-    SELECT usage.usage FROM usage 
-    WHERE is_workspace = false 
+    SELECT usage.usage FROM usage
+    WHERE is_workspace = false
     AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)
     AND id = $1",
         email
@@ -821,6 +820,8 @@ pub struct User2 {
     pub role: Option<String>,
     pub super_admin: bool,
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub added_via: Option<serde_json::Value>,
 }
 
 async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo>> {
@@ -1326,47 +1327,14 @@ async fn update_workspace_user(
 
     require_admin(authed.is_admin, &authed.username)?;
 
-    if let Some(a) = eu.is_admin {
-        sqlx::query_scalar!(
-            "UPDATE usr SET is_admin = $1 WHERE username = $2 AND workspace_id = $3",
-            a,
-            &username_to_update,
-            &w_id
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    if let Some(a) = eu.operator {
-        sqlx::query_scalar!(
-            "UPDATE usr SET operator = $1 WHERE username = $2 AND workspace_id = $3",
-            a,
-            &username_to_update,
-            &w_id
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    if let Some(a) = eu.disabled {
-        sqlx::query_scalar!(
-            "UPDATE usr SET disabled = $1 WHERE username = $2 AND workspace_id = $3",
-            a,
-            &username_to_update,
-            &w_id
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "users.update",
-        ActionKind::Update,
+    update_workspace_user_internal(
         &w_id,
-        Some(&username_to_update),
-        None,
+        &username_to_update,
+        eu.is_admin,
+        eu.operator,
+        eu.disabled,
+        &mut tx,
+        Some(&authed),
     )
     .await?;
 
@@ -1403,6 +1371,7 @@ async fn update_user(
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
+    let mut revoke_tokens = false;
     if let Some(sa) = eu.is_super_admin {
         sqlx::query_scalar!(
             "UPDATE password SET super_admin = $1 WHERE email = $2",
@@ -1411,6 +1380,7 @@ async fn update_user(
         )
         .execute(&mut *tx)
         .await?;
+        revoke_tokens = true;
     }
 
     if let Some(dv) = eu.is_devops {
@@ -1421,6 +1391,13 @@ async fn update_user(
         )
         .execute(&mut *tx)
         .await?;
+        revoke_tokens = true;
+    }
+
+    if revoke_tokens {
+        sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_update)
+            .execute(&mut *tx)
+            .await?;
     }
 
     if let Some(n) = eu.name {
@@ -1511,6 +1488,105 @@ async fn create_user(
     crate::users_oss::create_user(authed, db, webhook, argon2, nu).await
 }
 
+/// Internal helper for updating workspace user permissions - used by both API and system operations
+pub async fn update_workspace_user_internal(
+    w_id: &str,
+    username_to_update: &str,
+    is_admin: Option<bool>,
+    operator: Option<bool>,
+    disabled: Option<bool>,
+    tx: &mut Transaction<'_, Postgres>,
+    authed: Option<&ApiAuthed>, // None for system operations
+) -> Result<()> {
+    if let Some(a) = is_admin {
+        sqlx::query_scalar!(
+            "UPDATE usr SET is_admin = $1 WHERE username = $2 AND workspace_id = $3",
+            a,
+            username_to_update,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    if let Some(a) = operator {
+        sqlx::query_scalar!(
+            "UPDATE usr SET operator = $1 WHERE username = $2 AND workspace_id = $3",
+            a,
+            username_to_update,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    if let Some(a) = disabled {
+        sqlx::query_scalar!(
+            "UPDATE usr SET disabled = $1 WHERE username = $2 AND workspace_id = $3",
+            a,
+            username_to_update,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // Only audit if we have an authenticated user (API calls)
+    if let Some(auth) = authed {
+        audit_log(
+            &mut **tx,
+            auth,
+            "users.update",
+            ActionKind::Update,
+            w_id,
+            Some(username_to_update),
+            None,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Internal helper for deleting workspace users - used by both API and system operations
+pub async fn delete_workspace_user_internal(
+    w_id: &str,
+    username_to_delete: &str,
+    email_to_delete: &str,
+    tx: &mut Transaction<'_, Postgres>,
+    authed: Option<&ApiAuthed>, // None for system operations
+) -> Result<()> {
+    sqlx::query_scalar!(
+        "DELETE FROM usr WHERE email = $1 AND workspace_id = $2",
+        email_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
+        username_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Only audit if we have an authenticated user (API calls)
+    if let Some(auth) = authed {
+        audit_log(
+            &mut **tx,
+            auth,
+            "users.delete",
+            ActionKind::Delete,
+            w_id,
+            Some(username_to_delete),
+            None,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
 async fn delete_workspace_user(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1530,30 +1606,12 @@ async fn delete_workspace_user(
 
     let email_to_delete = not_found_if_none(email_to_delete_o, "User", &username_to_delete)?;
 
-    sqlx::query_scalar!(
-        "DELETE FROM usr WHERE email = $1 AND workspace_id = $2",
-        email_to_delete,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "DELETE FROM usr_to_group WHERE usr = $1 AND workspace_id = $2",
-        &username_to_delete,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "users.delete",
-        ActionKind::Delete,
+    delete_workspace_user_internal(
         &w_id,
-        Some(&username_to_delete),
-        None,
+        &username_to_delete,
+        &email_to_delete,
+        &mut tx,
+        Some(&authed),
     )
     .await?;
     tx.commit().await?;
@@ -1639,8 +1697,12 @@ async fn login(
 ) -> Result<String> {
     let mut tx = db.begin().await?;
     let email = email.to_lowercase();
-    let audit_author =
-        AuditAuthor { email: email.clone(), username: email.clone(), username_override: None };
+    let audit_author = AuditAuthor {
+        email: email.clone(),
+        username: email.clone(),
+        username_override: None,
+        token_prefix: None,
+    };
     let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
         "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
          'password'",
@@ -1688,6 +1750,13 @@ async fn login(
             }
 
             let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
+
+            let audit_author = AuditAuthor {
+                email: email.clone(),
+                username: email.clone(),
+                username_override: None,
+                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+            };
 
             audit_log(
                 &mut *tx,
@@ -1758,6 +1827,7 @@ async fn refresh_token(
             email: authed.email.to_string(),
             username: authed.email.to_string(),
             username_override: None,
+            token_prefix: authed.token_prefix,
         },
         "users.token.refresh",
         ActionKind::Create,
@@ -1798,6 +1868,7 @@ pub async fn create_session_token<'c>(
                 email: email.to_string(),
                 username: email.to_string(),
                 username_override: None,
+                token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
             },
             "users.token.invalidate_old_sessions",
             ActionKind::Delete,
@@ -1853,6 +1924,18 @@ async fn create_token(
     .fetch_optional(&mut *tx)
     .await?
     .unwrap_or(false);
+    if *CLOUD_HOSTED {
+        let nb_tokens =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM token WHERE email = $1", &authed.email)
+                .fetch_one(&db)
+                .await?;
+        if nb_tokens.unwrap_or(0) >= 10000 {
+            return Err(Error::BadRequest(
+                "You have reached the maximum number of tokens (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                    .to_string(),
+            ));
+        }
+    }
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin, scopes, workspace_id)
@@ -2048,7 +2131,6 @@ struct Runnable {
     workspace: String,
     endpoint_async: String,
     endpoint_sync: String,
-    endpoint_openai_sync: String,
     summary: String,
     description: String,
     schema: Option<serde_json::Value>,
@@ -2082,8 +2164,8 @@ async fn get_all_runnables(
             })?;
         let mut tx = db.clone().begin(&nauthed).await?;
         let flows = sqlx::query!(
-            "SELECT flow.workspace_id as workspace, flow.path, summary, description, flow_version.schema 
-            FROM flow 
+            "SELECT flow.workspace_id as workspace, flow.path, summary, description, flow_version.schema
+            FROM flow
             LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
             WHERE flow.workspace_id = $1",
             workspace
@@ -2100,10 +2182,6 @@ async fn get_all_runnables(
                         "/w/{}/jobs/run_wait_result/f/{}",
                         &f.workspace, &f.path
                     ),
-                    endpoint_openai_sync: format!(
-                        "/w/{}/jobs/openai_sync/f/{}",
-                        &f.workspace, &f.path
-                    ),
                     summary: f.summary,
                     description: f.description,
                     schema: f.schema,
@@ -2113,7 +2191,9 @@ async fn get_all_runnables(
                 .collect::<Vec<_>>(),
         );
         let scripts = sqlx::query!(
-        "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o WHERE created_at = (select max(created_at) from script where o.path = path and workspace_id = $1) and workspace_id = $1", workspace
+        "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o 
+         WHERE created_at = (select max(created_at) from script where o.path = path and workspace_id = $1 AND archived = false) 
+         AND workspace_id = $1 and archived = false", workspace
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -2125,10 +2205,6 @@ async fn get_all_runnables(
                     endpoint_async: format!("/w/{}/jobs/run/p/{}", &s.workspace, &s.path),
                     endpoint_sync: format!(
                         "/w/{}/jobs/run_wait_result/p/{}",
-                        &s.workspace, &s.path
-                    ),
-                    endpoint_openai_sync: format!(
-                        "/w/{}/jobs/openai_sync/p/{}",
                         &s.workspace, &s.path
                     ),
                     summary: s.summary,
@@ -2566,9 +2642,9 @@ async fn update_username_in_workpsace<'c>(
     // ---- flows ----
     sqlx::query!(
         r#"INSERT INTO flow
-            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at) 
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at)
         SELECT workspace_id, REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1'), summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at
-            FROM flow 
+            FROM flow
             WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
@@ -2607,6 +2683,15 @@ async fn update_username_in_workpsace<'c>(
         old_username,
         w_id
     ).execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE asset SET usage_path = REGEXP_REPLACE(usage_path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE usage_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
     .await?;
 
     sqlx::query!(

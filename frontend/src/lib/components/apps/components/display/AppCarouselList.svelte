@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -36,7 +36,7 @@
 		componentContainerHeight
 	}: Props = $props()
 
-	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let everRender = $state(render)
@@ -44,10 +44,11 @@
 		render && !everRender && (everRender = true)
 	})
 
-	const outputs = initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false,
-		inputs: {}
+		inputs: {},
+		currentIndex: 0
 	})
 
 	const resolvedConfig = $state(
@@ -76,6 +77,41 @@
 			})
 	})
 	let currentPageIndex = $state(0)
+
+	// Single update function - ONLY place that calls .set()
+	function handleIndexChange() {
+		if (outputs?.currentIndex) {
+			if (!Array.isArray(result) || result.length === 0) {
+				// No data or empty data - reset to 0
+				currentPageIndex = 0
+				outputs.currentIndex.set(0)
+			} else if (currentPageIndex >= result.length) {
+				// Current index is out of bounds - reset to 0
+				currentPageIndex = 0
+				outputs.currentIndex.set(0)
+			} else {
+				// Valid data and valid current index
+				outputs.currentIndex.set(currentPageIndex)
+				// Navigate carousel to match the current index
+				if (carousel) {
+					carousel.goTo(currentPageIndex)
+				}
+			}
+		}
+	}
+
+	// Watch for changes and call update function (like working components)
+	$effect.pre(() => {
+		currentPageIndex != undefined && untrack(() => handleIndexChange())
+	})
+
+	$componentControl[id] = {
+		setSelectedIndex: (index: number) => {
+			if (Array.isArray(result) && index >= 0 && index < result.length) {
+				currentPageIndex = index
+			}
+		}
+	}
 </script>
 
 {#each Object.keys(components['carousellistcomponent'].initialData.configuration) as key (key)}
@@ -99,14 +135,20 @@
 
 <InitializeComponent {id} />
 
+{#snippet nonRenderedPlaceholder()}
+	<ListWrapper disabled value={undefined} index={0}>
+		<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
+	</ListWrapper>
+{/snippet}
 <RunnableWrapper
-	render={true}
+	{render}
 	{outputs}
 	autoRefresh
 	{componentInput}
 	{id}
 	bind:initializing
 	bind:result
+	{nonRenderedPlaceholder}
 >
 	{#if everRender}
 		<div class="w-full flex flex-wrap overflow-auto divide-y max-h-full">
@@ -204,7 +246,7 @@
 											style={css?.container?.style}
 											subGridId={`${id}-0`}
 											containerHeight={componentContainerHeight - 40}
-											on:focus={() => {
+											onFocus={() => {
 												if (!$connectingInput.opened) {
 													$selectedComponent = [id]
 												}
@@ -217,9 +259,7 @@
 						</Carousel>
 					{/key}
 				{:else}
-					<ListWrapper disabled value={undefined} index={0}>
-						<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
-					</ListWrapper>
+					{@render nonRenderedPlaceholder?.()}
 					{#if !Array.isArray(result)}
 						<div class="text-center text-tertiary">Input data is not an array</div>
 					{/if}
@@ -227,8 +267,6 @@
 			{/if}
 		</div>
 	{:else if $app.subgrids}
-		<ListWrapper disabled value={undefined} index={0}>
-			<SubGridEditor visible={false} {id} subGridId={`${id}-0`} />
-		</ListWrapper>
+		{@render nonRenderedPlaceholder?.()}
 	{/if}
 </RunnableWrapper>

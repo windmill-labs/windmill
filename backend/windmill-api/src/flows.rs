@@ -8,15 +8,14 @@
 
 use std::collections::HashMap;
 
-use crate::db::ApiAuthed;
-use crate::triggers::{
-    get_triggers_count_internal, list_tokens_internal, TriggersCount, TruncatedTokenWithEmail,
-};
 use crate::utils::WithStarredInfoQuery;
 use crate::{
-    db::DB,
+    auth::{list_tokens_internal, TruncatedTokenWithEmail},
+    db::{ApiAuthed, DB},
     schedule::clear_schedule,
+    triggers::{get_triggers_count_internal, TriggersCount},
     users::{maybe_refresh_folders, require_owner_of_path},
+    utils::check_scopes,
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -34,7 +33,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::utils::query_elems_from_hub;
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -328,24 +327,51 @@ async fn check_path_conflict<'c>(
     return Ok(());
 }
 
+#[derive(Deserialize)]
+struct ListPathsFromWorkspaceRunnableQuery {
+    match_path_start: Option<bool>,
+}
+
 async fn list_paths_from_workspace_runnable(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, runnable_kind, path)): Path<(String, RunnableKind, StripPath)>,
+    Query(query): Query<ListPathsFromWorkspaceRunnableQuery>,
 ) -> JsonResult<Vec<String>> {
+    let path = path.to_path();
+    check_scopes(&authed, || {
+        format!("flows:read:{}", format!("{}/{}", runnable_kind, path))
+    })?;
     let mut tx = user_db.begin(&authed).await?;
-    let runnables = sqlx::query_scalar!(
-        r#"SELECT f.path
-            FROM workspace_runnable_dependencies wru 
-            JOIN flow f
-                ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
-            WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
-        path.to_path(),
-        matches!(runnable_kind, RunnableKind::Flow),
-        w_id
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+
+    let runnables = if query.match_path_start.unwrap_or(false) {
+        sqlx::query_scalar!(
+            r#"SELECT DISTINCT f.path
+                FROM workspace_runnable_dependencies wru 
+                JOIN flow f
+                    ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
+                WHERE wru.runnable_path LIKE $1 || '%' AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
+            path,
+            matches!(runnable_kind, RunnableKind::Flow),
+            w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    } else {
+        sqlx::query_scalar!(
+            r#"SELECT f.path
+                FROM workspace_runnable_dependencies wru 
+                JOIN flow f
+                    ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id
+                WHERE wru.runnable_path = $1 AND wru.runnable_is_flow = $2 AND wru.workspace_id = $3"#,
+            path,
+            matches!(runnable_kind, RunnableKind::Flow),
+            w_id
+        )
+        .fetch_all(&mut *tx)
+        .await?
+    };
+
     tx.commit().await?;
     Ok(Json(runnables))
 }
@@ -358,6 +384,33 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
+    if *CLOUD_HOSTED {
+        let nb_flows =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
+                .fetch_one(&db)
+                .await?;
+        if nb_flows.unwrap_or(0) >= 1000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of flows (1000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+        if nf.summary.len() > 300 {
+            return Err(Error::BadRequest(
+                "Summary must be less than 300 characters on cloud".to_string(),
+            ));
+        }
+        if nf
+            .description
+            .as_ref()
+            .is_some_and(|desc| desc.len() > 3000)
+        {
+            return Err(Error::BadRequest(
+                "Description must be less than 3000 characters on cloud".to_string(),
+            ));
+        }
+    }
     #[cfg(not(feature = "enterprise"))]
     if nf
         .value
@@ -380,11 +433,18 @@ async fn create_flow(
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     let schema_str = nf.schema.and_then(|x| serde_json::to_string(&x.0).ok());
-
     sqlx::query!(
-        "INSERT INTO flow (workspace_id, path, summary, description, \
-         dependency_job, lock_error_logs, draft_only, tag, dedicated_worker, visible_to_runner_only, on_behalf_of_email, value, schema, edited_by, edited_at) 
-         VALUES ($1, $2, $3, $4, NULL, '', $5, $6, $7, $8, $9, $10, $11::text::json, $12, now())",
+        r#"INSERT INTO flow (
+        workspace_id, path, summary, description,
+        dependency_job, lock_error_logs, draft_only, tag,
+        dedicated_worker, visible_to_runner_only, on_behalf_of_email,
+        value, schema, edited_by, edited_at
+    ) VALUES (
+        $1, $2, $3, $4,
+        NULL, '', $5, $6,
+        $7, $8, $9,
+        $10, $11::text::json, $12, now()
+    )"#,
         w_id,
         nf.path,
         nf.summary,
@@ -468,6 +528,8 @@ async fn create_flow(
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
+        None,
         None,
         None,
         None,
@@ -482,6 +544,7 @@ async fn create_flow(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
 
@@ -552,6 +615,7 @@ async fn get_flow_history(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<FlowVersion>> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("flows:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let flows = sqlx::query_as!(
@@ -576,6 +640,7 @@ async fn get_latest_version(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<FlowVersion>> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("flows:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let version = sqlx::query_as!(
@@ -600,6 +665,7 @@ async fn get_flow_version(
     Path((w_id, version, path)): Path<(String, i64, StripPath)>,
 ) -> JsonResult<Flow> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("flows:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let flow = sqlx::query_as::<_, Flow>(
@@ -633,6 +699,7 @@ async fn update_flow_history(
     Json(history_update): Json<FlowHistoryUpdate>,
 ) -> Result<()> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("flows:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     let path_o = sqlx::query_scalar!(
         "SELECT flow.path FROM flow
@@ -674,6 +741,9 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
+    let flow_path = flow_path.to_path();
+    check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
+
     #[cfg(not(feature = "enterprise"))]
     if nf
         .value
@@ -687,9 +757,7 @@ async fn update_flow(
         ));
     }
 
-    let flow_path = flow_path.to_path();
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
-
     let mut tx = user_db.clone().begin(&authed).await?;
 
     check_schedule_conflict(&mut tx, &w_id, flow_path).await?;
@@ -702,18 +770,33 @@ async fn update_flow(
     )
     .fetch_optional(&mut *tx)
     .await?;
+
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
-
     let is_new_path = nf.path != flow_path;
-
     let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
 
     sqlx::query!(
-        "UPDATE flow SET path = $1, summary = $2, description = $3,\
-        dependency_job = NULL, lock_error_logs = '', draft_only = NULL, tag = $4, dedicated_worker = $5, visible_to_runner_only = $6, on_behalf_of_email = $7, \
-        value = $8, schema = $9::text::json, edited_by = $10, edited_at = now()
-        WHERE path = $11 AND workspace_id = $12",
-        if is_new_path { flow_path } else { &nf.path }, // if new path, do not rename directly (to avoid flow_version foreign key constraint)
+        "
+        UPDATE 
+            flow 
+        SET
+            path = $1,
+            summary = $2,
+            description = $3,
+            dependency_job = NULL,
+            lock_error_logs = '',
+            draft_only = NULL,
+            tag = $4,
+            dedicated_worker = $5,
+            visible_to_runner_only = $6,
+            on_behalf_of_email = $7,
+            value = $8,
+            schema = $9::text::json,
+            edited_by = $10,
+            edited_at = now()
+        WHERE 
+            path = $11 AND workspace_id = $12",
+        if is_new_path { flow_path } else { &nf.path },
         nf.summary,
         nf.description.unwrap_or_else(String::new),
         nf.tag,
@@ -726,12 +809,15 @@ async fn update_flow(
         },
         nf.value,
         schema_str,
-        &authed.username,
+        authed.username,
         flow_path,
         w_id,
     )
     .execute(&mut *tx)
-    .await.map_err(|e| error::Error::internal_err(format!("Error updating flow due to flow update: {e:#}")))?;
+    .await
+    .map_err(|e| {
+        error::Error::internal_err(format!("Error updating flow due to flow update: {e:#}"))
+    })?;
 
     if is_new_path {
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
@@ -903,12 +989,14 @@ async fn update_flow(
         JobPayload::FlowDependencies {
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
-            version: version,
+            version,
         },
         windmill_queue::PushArgs { args: &args, extra: None },
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
+        None,
         None,
         None,
         None,
@@ -923,6 +1011,7 @@ async fn update_flow(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     sqlx::query!(
@@ -938,6 +1027,7 @@ async fn update_flow(
             "Error updating flow due to updating dependency job field: {e:#}"
         ))
     })?;
+
     if let Some(old_dep_job) = old_dep_job {
         sqlx::query!(
             "UPDATE v2_job_queue SET
@@ -1009,37 +1099,82 @@ async fn get_flow_by_path(
     Query(query): Query<WithStarredInfoQuery>,
 ) -> JsonResult<FlowWithStarred> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("flows:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
-
     let flow_o = if query.with_starred_info.unwrap_or(false) {
         sqlx::query_as::<_, FlowWithStarred>(
-            "SELECT flow.workspace_id, flow.path, flow.lock_error_logs, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, favorite.path IS NOT NULL as starred
-            FROM flow
-            LEFT JOIN favorite
+            r#"
+        SELECT 
+            flow.workspace_id, 
+            flow.path, 
+            flow.lock_error_logs, 
+            flow.summary, 
+            flow.description, 
+            flow.archived, 
+            flow.extra_perms, 
+            flow.draft_only, 
+            flow.dedicated_worker, 
+            flow.tag, 
+            flow.ws_error_handler_muted, 
+            flow.timeout, 
+            flow.visible_to_runner_only, 
+            flow.on_behalf_of_email, 
+            flow_version.schema, 
+            flow_version.value, 
+            flow_version.created_at AS edited_at, 
+            flow_version.created_by AS edited_by,
+            favorite.path IS NOT NULL AS starred
+        FROM flow
+        LEFT JOIN favorite
             ON favorite.favorite_kind = 'flow' 
-                AND favorite.workspace_id = flow.workspace_id 
-                AND favorite.path = flow.path 
-                AND favorite.usr = $3
-            LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-            WHERE flow.path = $1 AND flow.workspace_id = $2"
+            AND favorite.workspace_id = flow.workspace_id 
+            AND favorite.path = flow.path 
+            AND favorite.usr = $3
+        LEFT JOIN flow_version 
+            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+        WHERE flow.path = $1 AND flow.workspace_id = $2
+        "#,
         )
-            .bind(path)
-            .bind(w_id)
-            .bind(&authed.username)
-            .fetch_optional(&mut *tx)
-            .await?
+        .bind(path)
+        .bind(w_id)
+        .bind(&authed.username)
+        .fetch_optional(&mut *tx)
+        .await?
     } else {
         sqlx::query_as::<_, FlowWithStarred>(
-            "SELECT flow.workspace_id, flow.path, flow.lock_error_logs, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by, NULL as starred
-            FROM flow
-            LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-            WHERE flow.path = $1 AND flow.workspace_id = $2"
+            r#"
+        SELECT 
+            flow.workspace_id, 
+            flow.path, 
+            flow.lock_error_logs, 
+            flow.summary, 
+            flow.description, 
+            flow.archived, 
+            flow.extra_perms, 
+            flow.draft_only, 
+            flow.dedicated_worker, 
+            flow.tag, 
+            flow.ws_error_handler_muted, 
+            flow.timeout, 
+            flow.visible_to_runner_only, 
+            flow.on_behalf_of_email, 
+            flow_version.schema, 
+            flow_version.value, 
+            flow_version.created_at AS edited_at, 
+            flow_version.created_by AS edited_by, 
+            NULL AS starred
+        FROM flow
+        LEFT JOIN flow_version 
+            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
+        WHERE flow.path = $1 AND flow.workspace_id = $2
+        "#,
         )
-            .bind(path)
-            .bind(w_id)
-            .fetch_optional(&mut *tx)
-            .await?
+        .bind(path)
+        .bind(w_id)
+        .fetch_optional(&mut *tx)
+        .await?
     };
+
     tx.commit().await?;
 
     let flow = not_found_if_none(flow_o, "Flow", path)?;
@@ -1076,21 +1211,38 @@ async fn get_flow_by_path_w_draft(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<FlowWDraft> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("flows:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
-
     let flow_o = sqlx::query_as::<_, FlowWDraft>(
-        "SELECT flow.path, flow.summary, flow,description, flow_version.schema, flow_version.value, flow.extra_perms, flow.draft_only, flow.ws_error_handler_muted, flow.dedicated_worker, draft.value as draft, flow.tag, flow.visible_to_runner_only, flow.on_behalf_of_email
-         FROM flow
+        "SELECT
+            flow.path,
+            flow.summary,
+            flow.description,
+            flow_version.schema,
+            flow_version.value,
+            flow.extra_perms,
+            flow.draft_only,
+            flow.ws_error_handler_muted,
+            flow.dedicated_worker,
+            draft.value AS draft,
+            flow.tag,
+            flow.visible_to_runner_only,
+            flow.on_behalf_of_email
+        FROM flow
         LEFT JOIN draft
-            ON flow.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'flow' 
-        LEFT JOIN flow_version 
+            ON flow.path = draft.path
+            AND draft.workspace_id = $2
+            AND draft.typ = 'flow'
+        LEFT JOIN flow_version
             ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-        WHERE flow.path = $1 AND flow.workspace_id = $2",
+        WHERE flow.path = $1
+        AND flow.workspace_id = $2",
     )
     .bind(path)
     .bind(w_id)
     .fetch_optional(&mut *tx)
     .await?;
+
     tx.commit().await?;
 
     let flow = not_found_if_none(flow_o, "Flow", path)?;
@@ -1129,6 +1281,7 @@ async fn archive_flow_by_path(
     Json(archived): Json<Archived>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("flows:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -1136,6 +1289,14 @@ async fn archive_flow_by_path(
         archived.archived.unwrap_or(true),
         path,
         &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'flow' AND usage_path = $2",
+        &w_id,
+        path
     )
     .execute(&mut *tx)
     .await?;
@@ -1197,6 +1358,7 @@ async fn delete_flow_by_path(
     Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("flows:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -1328,6 +1490,7 @@ mod tests {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1342,6 +1505,7 @@ mod tests {
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
                         is_trigger: None,
+                        assets: None,
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
@@ -1359,6 +1523,7 @@ mod tests {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -1388,6 +1553,7 @@ mod tests {
                     delete_after_use: None,
                     continue_on_error: None,
                     skip_if: None,
+                    apply_preprocessor: None,
                 },
             ],
             failure_module: Some(Box::new(FlowModule {
@@ -1416,6 +1582,7 @@ mod tests {
                 delete_after_use: None,
                 continue_on_error: None,
                 skip_if: None,
+                apply_preprocessor: None,
             })),
             preprocessor_module: None,
             same_worker: false,
@@ -1511,7 +1678,8 @@ mod tests {
                   "exponential": {
                     "multiplier": 1,
                     "seconds": 0
-                  }
+                  },
+                  "retry_if": null
                 }
                 "#
             )
@@ -1526,13 +1694,15 @@ mod tests {
                     multiplier: 1,
                     seconds: 123,
                     random_factor: None
-                }
+                },
+                retry_if: None
             },
             serde_json::from_str(
                 r#"
                 {
                   "constant": {},
-                  "exponential": { "seconds": 123 }
+                  "exponential": { "seconds": 123 },
+                  "retry_if" : null
                 }
                 "#
             )
@@ -1550,6 +1720,7 @@ mod tests {
                 seconds: 3,
                 random_factor: None,
             },
+            retry_if: None,
         };
         assert_eq!(
             vec![
@@ -1576,6 +1747,7 @@ mod tests {
                 seconds: 3,
                 random_factor: None,
             },
+            retry_if: None,
         };
         assert_eq!(
             vec![

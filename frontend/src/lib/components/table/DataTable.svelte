@@ -19,6 +19,7 @@
 		paginated?: boolean
 		currentPage?: number
 		showNext?: boolean
+		showPrev?: boolean
 		loadMore?: number
 		shouldLoadMore?: boolean
 		rounded?: boolean
@@ -42,6 +43,7 @@
 		paginated = false,
 		currentPage = $bindable(1),
 		showNext = true,
+		showPrev = true,
 		loadMore = 0,
 		shouldLoadMore = false,
 		rounded = true,
@@ -152,15 +154,17 @@
 							<option value={1000}>1000</option>
 						</select>
 					{/if}
-					<Button
-						color="light"
-						size="xs2"
-						on:click={() => dispatch('previous')}
-						disabled={currentPage === 1}
-						startIcon={{ icon: ArrowLeftIcon }}
-					>
-						Previous
-					</Button>
+					{#if showPrev}
+						<Button
+							color="light"
+							size="xs2"
+							on:click={() => dispatch('previous')}
+							disabled={currentPage === 1}
+							startIcon={{ icon: ArrowLeftIcon }}
+						>
+							Previous
+						</Button>
+					{/if}
 					{#if showNext}
 						<Button
 							color="light"

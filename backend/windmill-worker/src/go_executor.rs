@@ -12,7 +12,7 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
     utils::calculate_hash,
-    worker::{save_cache, write_file, Connection},
+    worker::{save_cache, write_file, Connection, GoAnnotations},
 };
 use windmill_parser_go::{parse_go_imports, REQUIRE_PARSE};
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
@@ -27,6 +27,51 @@ use crate::{
     NSJAIL_PATH, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
+
+#[cfg(windows)]
+use crate::SYSTEM_ROOT;
+
+#[cfg(windows)]
+fn get_windows_tmp_dir() -> String {
+    std::env::var("TMP")
+        .or_else(|_| std::env::var("TEMP"))
+        .unwrap_or_else(|_| {
+            let system_drive = std::env::var("SYSTEMDRIVE").unwrap_or_else(|_| "C:".to_string());
+            format!("{}\\tmp", system_drive)
+        })
+}
+
+#[cfg(windows)]
+fn get_windows_program_files() -> String {
+    std::env::var("ProgramFiles").unwrap_or_else(|_| {
+        let system_drive = std::env::var("SYSTEMDRIVE").unwrap_or_else(|_| "C:".to_string());
+        format!("{}\\Program Files", system_drive)
+    })
+}
+
+#[cfg(windows)]
+fn windows_gopath() -> String {
+    let tmp_dir = get_windows_tmp_dir();
+    GO_CACHE_DIR.replace("/tmp", &tmp_dir).replace("/", r"\\")
+}
+
+#[cfg(windows)]
+fn set_windows_env_vars(cmd: &mut Command) {
+    cmd.env("SystemRoot", SYSTEM_ROOT.as_str())
+        .env("TMP", get_windows_tmp_dir())
+        .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+        .env(
+            "APPDATA",
+            std::env::var("APPDATA")
+                .unwrap_or_else(|_| format!("{}\\AppData\\Roaming", HOME_ENV.as_str())),
+        )
+        .env("ProgramFiles", get_windows_program_files())
+        .env(
+            "LOCALAPPDATA",
+            std::env::var("LOCALAPPDATA")
+                .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
+        );
+}
 
 const GO_REQ_SPLITTER: &str = "//go.sum\n";
 const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../nsjail/run.go.config.proto");
@@ -195,7 +240,16 @@ func Run(req Req) (interface{{}}, error){{
             .env_clear()
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .env("GOPATH", GO_CACHE_DIR)
+            .env("GOPATH", {
+                #[cfg(unix)]
+                {
+                    GO_CACHE_DIR
+                }
+                #[cfg(windows)]
+                {
+                    windows_gopath()
+                }
+            })
             .env("HOME", HOME_ENV.as_str())
             .envs(PROXY_ENVS.clone())
             .args(vec!["build", "main.go"])
@@ -203,9 +257,9 @@ func Run(req Req) (interface{{}}, error){{
             .stderr(Stdio::piped());
 
         #[cfg(windows)]
-        build_go_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+        set_windows_env_vars(&mut build_go_cmd);
 
-        let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str()).await?;
+        let build_go_process = start_child_process(build_go_cmd, GO_PATH.as_str(), false).await?;
         handle_child(
             &job.id,
             conn,
@@ -220,13 +274,32 @@ func Run(req Req) (interface{{}}, error){{
             false,
             &mut Some(occupation_metrics),
             None,
+            None,
         )
         .await?;
+
+        #[cfg(unix)]
+        let executable_path = format!("{job_dir}/main");
+        #[cfg(windows)]
+        let executable_path = format!("{job_dir}/main.exe");
+
+        // Set executable permissions on Windows
+        #[cfg(windows)]
+        {
+            use std::fs;
+            if let Ok(metadata) = fs::metadata(&executable_path) {
+                let mut permissions = metadata.permissions();
+                permissions.set_readonly(false);
+                // On Windows, we need to ensure the file is not marked as read-only
+                // and has appropriate permissions for execution
+                let _ = fs::set_permissions(&executable_path, permissions);
+            }
+        }
 
         match save_cache(
             &bin_path,
             &format!("{GO_OBJECT_STORE_PREFIX}{hash}"),
-            &format!("{job_dir}/main"),
+            &executable_path,
             false,
         )
         .await
@@ -239,11 +312,20 @@ func Run(req Req) (interface{{}}, error){{
             Ok(logs) => logs,
         }
     } else {
+        #[cfg(unix)]
         let target = format!("{job_dir}/main");
+        #[cfg(windows)]
+        let target = format!("{job_dir}/main.exe");
+
         #[cfg(unix)]
         let symlink = std::os::unix::fs::symlink(&bin_path, &target);
         #[cfg(windows)]
-        let symlink = std::os::windows::fs::symlink_dir(&bin_path, &target);
+        let symlink = {
+            // On Windows, copy the file instead of creating a symlink
+            // because symlinks might not work correctly for executables
+            use std::fs;
+            fs::copy(&bin_path, &target).map(|_| ())
+        };
 
         symlink.map_err(|e| {
             Error::ExecutionErr(format!(
@@ -282,10 +364,18 @@ func Run(req Req) (interface{{}}, error){{
             .args(vec!["--config", "run.config.proto", "--", "/tmp/go/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
+        #[cfg(unix)]
         let compiled_executable_name = "./main";
-        let mut run_go = Command::new(compiled_executable_name);
+        #[cfg(windows)]
+        let compiled_executable_name = format!("{}/main.exe", job_dir);
+
+        #[cfg(unix)]
+        let mut run_go = Command::new(&compiled_executable_name);
+        #[cfg(windows)]
+        let mut run_go = Command::new(&compiled_executable_name);
+
         run_go
             .current_dir(job_dir)
             .env_clear()
@@ -294,7 +384,16 @@ func Run(req Req) (interface{{}}, error){{
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .env("GOPATH", GO_CACHE_DIR)
+            .env("GOPATH", {
+                #[cfg(unix)]
+                {
+                    GO_CACHE_DIR
+                }
+                #[cfg(windows)]
+                {
+                    windows_gopath()
+                }
+            })
             .env("HOME", HOME_ENV.as_str());
 
         if let Some(ref goprivate) = *GOPRIVATE {
@@ -305,12 +404,12 @@ func Run(req Req) (interface{{}}, error){{
         }
 
         #[cfg(windows)]
-        run_go.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+        set_windows_env_vars(&mut run_go);
 
-        run_go.stdout(Stdio::piped()).stderr(Stdio::piped());
-        start_child_process(run_go, compiled_executable_name).await?
+        run_go.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        start_child_process(run_go, &compiled_executable_name, false).await?
     };
-    handle_child(
+    let handle_result = handle_child(
         &job.id,
         conn,
         mem_peak,
@@ -324,10 +423,11 @@ func Run(req Req) (interface{{}}, error){{
         false,
         &mut Some(occupation_metrics),
         None,
+        None,
     )
     .await?;
 
-    read_result(job_dir).await
+    read_result(job_dir, handle_result.result_stream).await
 }
 
 async fn gen_go_mod(
@@ -366,6 +466,7 @@ pub async fn install_go_dependencies(
     w_id: &str,
     occupation_metrics: &mut OccupancyMetrics,
 ) -> error::Result<String> {
+    let anns = GoAnnotations::parse(code);
     if raw_deps {
         let go_mod =
             if let Some(module) = code.lines().find(|l| l.trim_start().starts_with("module ")) {
@@ -380,10 +481,19 @@ pub async fn install_go_dependencies(
         let mut child_cmd = Command::new(GO_PATH.as_str());
         child_cmd
             .current_dir(job_dir)
+            .env_clear()
             .args(vec!["mod", "init", "mymod"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let child_process = start_child_process(child_cmd, GO_PATH.as_str()).await?;
+
+        #[cfg(windows)]
+        child_cmd.env("GOPATH", windows_gopath());
+        #[cfg(unix)]
+        child_cmd.env("GOPATH", GO_CACHE_DIR);
+
+        #[cfg(windows)]
+        set_windows_env_vars(&mut child_cmd);
+        let child_process = start_child_process(child_cmd, GO_PATH.as_str(), false).await?;
 
         handle_child(
             job_id,
@@ -398,6 +508,7 @@ pub async fn install_go_dependencies(
             None,
             false,
             &mut Some(occupation_metrics),
+            None,
             None,
         )
         .await?;
@@ -422,7 +533,11 @@ pub async fn install_go_dependencies(
     } else {
         "".to_string()
     };
-    let hash = format!("go-{}", hash);
+    let hash = format!(
+        "go{}-{}",
+        if anns.go1_22_compat { "1.22" } else { "" },
+        hash
+    );
 
     let mut skip_tidy = has_sum;
 
@@ -458,11 +573,43 @@ pub async fn install_go_dependencies(
     let mut child_cmd = Command::new(GO_PATH.as_str());
     child_cmd
         .current_dir(job_dir)
-        .env("GOPATH", GO_CACHE_DIR)
+        .env_clear()
+        .env("HOME", HOME_ENV.as_str())
+        .env("PATH", PATH_ENV.as_str())
+        .env("GOPATH", {
+            #[cfg(unix)]
+            {
+                GO_CACHE_DIR
+            }
+            #[cfg(windows)]
+            {
+                windows_gopath()
+            }
+        })
         .args(vec!["mod", mod_command])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let child_process = start_child_process(child_cmd, GO_PATH.as_str()).await?;
+
+    if let Some(ref goprivate) = *GOPRIVATE {
+        child_cmd.env("GOPRIVATE", goprivate);
+    }
+
+    // TODO: Remove if no incidents reported
+    if !std::env::var("WMDEBUG_NO_GOPROXY_ON_TIDY").ok().is_some() {
+        if let Some(ref goproxy) = *GOPROXY {
+            child_cmd.env("GOPROXY", goproxy);
+        }
+    }
+
+    // If annotation used we want to call tidy with special flag to pin go to 1.22
+    // The reason for this that at some point we had to jump from go 1.22 to 1.25 and this addds backward compatibility.
+    if anns.go1_22_compat && mod_command == "tidy" {
+        child_cmd.args(vec!["-go", "1.22"]);
+    }
+
+    #[cfg(windows)]
+    set_windows_env_vars(&mut child_cmd);
+    let child_process = start_child_process(child_cmd, GO_PATH.as_str(), false).await?;
 
     handle_child(
         job_id,
@@ -477,6 +624,7 @@ pub async fn install_go_dependencies(
         None,
         false,
         &mut Some(occupation_metrics),
+        None,
         None,
     )
     .await?;

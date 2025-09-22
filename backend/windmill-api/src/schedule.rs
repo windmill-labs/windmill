@@ -10,7 +10,7 @@ use crate::{
     db::{ApiAuthed, DB},
     settings::{delete_global_setting, set_global_setting_internal},
     users::maybe_refresh_folders,
-    utils::require_super_admin,
+    utils::{check_scopes, require_super_admin},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -135,6 +135,8 @@ async fn create_schedule(
     Path(w_id): Path<String>,
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
+    check_scopes(&authed, || format!("schedules:write:{}", ns.path))?;
+
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
     #[cfg(not(feature = "enterprise"))]
@@ -255,17 +257,6 @@ async fn create_schedule(
     .await
     .map_err(|e| Error::internal_err(format!("inserting schedule in {w_id}: {e:#}")))?;
 
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Schedule { path: ns.path.clone() },
-        Some(format!("Schedule '{}' created", ns.path.clone())),
-        true,
-    )
-    .await?;
-
     audit_log(
         &mut *tx,
         &authed,
@@ -290,6 +281,17 @@ async fn create_schedule(
     }
     tx.commit().await?;
 
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Schedule { path: ns.path.clone() },
+        Some(format!("Schedule '{}' created", ns.path.clone())),
+        true,
+    )
+    .await?;
+
     Ok(ns.path.to_string())
 }
 
@@ -301,6 +303,7 @@ async fn edit_schedule(
     Json(es): Json<EditSchedule>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:write:{}", path))?;
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
     let mut tx = user_db.begin(&authed).await?;
@@ -399,17 +402,6 @@ async fn edit_schedule(
     .await
     .map_err(|e| Error::internal_err(format!("updating schedule in {w_id}: {e:#}")))?;
 
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Schedule { path: path.to_string() },
-        None,
-        true,
-    )
-    .await?;
-
     audit_log(
         &mut *tx,
         &authed,
@@ -430,6 +422,17 @@ async fn edit_schedule(
         tx = push_scheduled_job(&db, tx, &schedule, None).await?;
     }
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Schedule { path: path.to_string() },
+        None,
+        true,
+    )
+    .await?;
 
     Ok(path.to_string())
 }
@@ -567,6 +570,7 @@ async fn get_schedule(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Schedule> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let schedule_o = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
@@ -615,6 +619,7 @@ pub async fn set_enabled(
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:write:{}", path))?;
     let schedule_o = sqlx::query_as!(
         Schedule,
         r#"
@@ -666,17 +671,6 @@ pub async fn set_enabled(
 
     clear_schedule(&mut tx, path, &w_id).await?;
 
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Schedule { path: path.to_string() },
-        None,
-        true,
-    )
-    .await?;
-
     audit_log(
         &mut *tx,
         &authed,
@@ -692,6 +686,17 @@ pub async fn set_enabled(
         tx = push_scheduled_job(&db, tx, &schedule, None).await?;
     }
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Schedule { path: path.to_string() },
+        None,
+        true,
+    )
+    .await?;
 
     Ok(format!(
         "succesfully updated schedule at path {} to status {}",
@@ -752,8 +757,9 @@ async fn delete_schedule(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:write:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
 
     clear_schedule(&mut tx, path, &w_id).await?;
     let exists = sqlx::query_scalar!(
@@ -788,17 +794,6 @@ async fn delete_schedule(
         )));
     }
 
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Schedule { path: path.to_string() },
-        Some(format!("Schedule '{}' deleted", path)),
-        true,
-    )
-    .await?;
-
     audit_log(
         &mut *tx,
         &authed,
@@ -811,6 +806,17 @@ async fn delete_schedule(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Schedule { path: path.to_string() },
+        Some(format!("Schedule '{}' deleted", path)),
+        true,
+    )
+    .await?;
 
     Ok(format!("schedule {} deleted", path))
 }

@@ -1,5 +1,5 @@
 use serde_json::Value;
-use windmill_parser::{to_snake_case, Arg, MainArgSignature, Typ};
+use windmill_parser::{to_snake_case, Arg, MainArgSignature, ObjectType, Typ};
 
 use php_parser_rs::parser::{
     self,
@@ -18,7 +18,7 @@ fn parse_php_type(e: Type) -> Typ {
         Type::Integer(_) => Typ::Int,
         Type::String(_) => Typ::Str(None),
         Type::Array(_) => Typ::List(Box::new(Typ::Str(None))),
-        Type::Object(_) => Typ::Object(vec![]),
+        Type::Object(_) => Typ::Object(ObjectType::new(None, Some(vec![]))),
         Type::Named(_, name) => Typ::Resource(to_snake_case(name.to_string().as_ref())),
         _ => Typ::Unknown,
     }

@@ -1,15 +1,12 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
-	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
-	import type { FlowModule } from '$lib/gen'
-	import { Building, Repeat, Square, ArrowDown, GitBranch } from 'lucide-svelte'
+	import type { FlowModule, FlowStatusModule, Job } from '$lib/gen'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
+	import FlowModuleIcon from '../FlowModuleIcon.svelte'
 	import { prettyLanguage } from '$lib/common'
 	import { msToSec } from '$lib/utils'
-	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
 	import {
 		isTriggerStep,
@@ -17,6 +14,7 @@
 	} from '$lib/components/graph/graphBuilder.svelte'
 	import { checkIfParentLoop } from '$lib/components/flows/utils'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		moduleId: string
@@ -45,6 +43,11 @@
 			mock: { enabled: boolean; return_value?: unknown }
 		}) => void
 		onEditInput?: (moduleId: string, key: string) => void
+		flowJob?: Job | undefined
+		isOwner?: boolean
+		type?: FlowStatusModule['type'] | undefined
+		darkMode?: boolean
+		skipped?: boolean
 	}
 
 	let {
@@ -63,7 +66,12 @@
 		onSelect,
 		onTestUpTo,
 		onUpdateMock,
-		onEditInput
+		onEditInput,
+		flowJob,
+		isOwner = false,
+		type,
+		darkMode,
+		skipped
 	}: Props = $props()
 
 	const { selectedId } = getContext<{
@@ -107,12 +115,22 @@
 		{/if}
 
 		{#if duration_ms}
-			<div class="absolute z-10 right-0 -top-4 center-center text-tertiary text-2xs">
+			<div
+				class={twMerge(
+					'absolute z-10 right-0 -top-4 center-center text-tertiary text-2xs',
+					editMode ? 'text-gray-400 dark:text-gray-500 text-2xs font-normal mr-2 right-10' : ''
+				)}
+			>
 				{msToSec(duration_ms)}s
 			</div>
 		{/if}
 		{#if annotation && annotation != ''}
-			<div class="absolute z-10 left-0 -top-5 center-center text-tertiary">
+			<div
+				class={twMerge(
+					'absolute z-10 left-0 -top-5 center-center text-tertiary',
+					editMode ? '-top-4 text-gray-400 dark:text-gray-500 text-xs font-normal' : ''
+				)}
+			>
 				{annotation}
 			</div>
 		{/if}
@@ -160,11 +178,11 @@
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
 					loopStatus={{ type: 'self', flow: mod.value.type }}
 					{onTestUpTo}
+					{type}
+					{darkMode}
 				>
 					{#snippet icon()}
-						<div>
-							<Repeat size={16} />
-						</div>
+						<FlowModuleIcon module={mod} />
 					{/snippet}
 				</FlowModuleSchemaItem>
 			{:else if mod.value.type === 'branchone'}
@@ -181,11 +199,11 @@
 					{bgColor}
 					{bgHoverColor}
 					{onTestUpTo}
+					{type}
+					{darkMode}
 				>
 					{#snippet icon()}
-						<div>
-							<GitBranch size={16} />
-						</div>
+						<FlowModuleIcon module={mod} />
 					{/snippet}
 				</FlowModuleSchemaItem>
 			{:else if mod.value.type === 'branchall'}
@@ -202,11 +220,11 @@
 					{bgColor}
 					{bgHoverColor}
 					{onTestUpTo}
+					{type}
+					{darkMode}
 				>
 					{#snippet icon()}
-						<div>
-							<GitBranch size={16} />
-						</div>
+						<FlowModuleIcon module={mod} />
 					{/snippet}
 				</FlowModuleSchemaItem>
 			{:else}
@@ -230,6 +248,7 @@
 					{bgColor}
 					{bgHoverColor}
 					label={mod.summary ||
+						(mod.value.type === 'aiagent' ? 'AI Agent' : undefined) ||
 						(mod.id === 'preprocessor'
 							? 'Preprocessor'
 							: mod.id.startsWith('failure')
@@ -246,32 +265,21 @@
 					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}
 					{onTestUpTo}
 					{onEditInput}
+					{flowJob}
+					{isOwner}
+					enableTestRun
+					{type}
+					{darkMode}
+					{skipped}
 				>
 					{#snippet icon()}
-						<div>
-							{#if mod.value.type === 'rawscript'}
-								<LanguageIcon lang={mod.value.language} width={16} height={16} />
-							{:else if mod.summary == 'Terminate flow'}
-								<Square size={16} />
-							{:else if mod.value.type === 'identity'}
-								<ArrowDown size={16} />
-							{:else if mod.value.type === 'flow'}
-								<BarsStaggered size={16} />
-							{:else if mod.value.type === 'script'}
-								{#if mod.value.path.startsWith('hub/')}
-									<div>
-										<IconedResourceType
-											width="20px"
-											height="20px"
-											name={mod.value.path.split('/')[2]}
-											silent={true}
-										/>
-									</div>
-								{:else}
-									<Building size={14} />
-								{/if}
-							{/if}
-						</div>
+						{@const size =
+							mod.value.type === 'script' && mod.value.path.startsWith('hub/')
+								? 20
+								: mod.value.type === 'script'
+									? 14
+									: 16}
+						<FlowModuleIcon module={mod} {size} />
 					{/snippet}
 				</FlowModuleSchemaItem>
 			{/if}

@@ -13,6 +13,7 @@ use std::{
 };
 
 use crate::{
+    assets::AssetWithAltAccessType,
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
@@ -54,7 +55,9 @@ pub enum ScriptLang {
     Ansible,
     CSharp,
     Nu,
-    Java, // for related places search: ADD_NEW_LANG
+    Java,
+    Ruby,
+    // for related places search: ADD_NEW_LANG
 }
 
 impl ScriptLang {
@@ -82,6 +85,7 @@ impl ScriptLang {
             ScriptLang::CSharp => "csharp",
             ScriptLang::Nu => "nu",
             ScriptLang::Java => "java",
+            ScriptLang::Ruby => "ruby",
             // for related places search: ADD_NEW_LANG
         }
     }
@@ -112,6 +116,8 @@ impl FromStr for ScriptLang {
             "csharp" => ScriptLang::CSharp,
             "nu" => ScriptLang::Nu,
             "java" => ScriptLang::Java,
+            "ruby" => ScriptLang::Ruby,
+            // for related places search: ADD_NEW_LANG
             language => {
                 return Err(anyhow::anyhow!("{} is currently not supported", language).into())
             }
@@ -124,6 +130,12 @@ impl FromStr for ScriptLang {
 #[derive(Eq, PartialEq, Debug, Hash, Clone, Copy, sqlx::Type)]
 #[sqlx(transparent)]
 pub struct ScriptHash(pub i64);
+
+impl Into<u64> for ScriptHash {
+    fn into(self) -> u64 {
+        self.0 as u64
+    }
+}
 
 #[derive(PartialEq, sqlx::Type)]
 #[sqlx(transparent, no_pg_array)]
@@ -249,6 +261,9 @@ pub struct Script {
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(json(nullable))]
+    pub assets: Option<Vec<AssetWithAltAccessType>>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -348,6 +363,8 @@ pub struct NewScript {
     pub codebase: Option<String>,
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assets: Option<Vec<AssetWithAltAccessType>>,
 }
 
 fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
@@ -637,4 +654,10 @@ pub struct HubScript {
     pub language: ScriptLang,
     pub schema: Box<serde_json::value::RawValue>,
     pub summary: Option<String>,
+}
+
+pub fn hash_script(ns: &NewScript) -> i64 {
+    let mut dh = std::hash::DefaultHasher::new();
+    ns.hash(&mut dh);
+    dh.finish() as i64
 }

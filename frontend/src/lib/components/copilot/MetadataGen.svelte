@@ -11,7 +11,8 @@
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-	import TriggerableByAI from '$lib/components/TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import { validateToolName } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
 
 	type PromptConfig = {
 		system: string
@@ -24,12 +25,14 @@
 		description: PromptConfig
 		flowSummary: PromptConfig
 		flowDescription: PromptConfig
+		agentToolFunctionName: PromptConfig
 	} = {
 		summary: {
 			system: `
 You are a helpful AI assistant. You generate very brief summaries from scripts.
 The summaries need to be as short as possible (maximum 8 words) and only give a global idea. Do not specify the programming language. Do not use any punctation. Avoid using prepositions and articles.
 Examples: List the commits of a GitHub repository, Divide a number by 16, etc..
+**Return only the summary, no other text.**
 `,
 			user: `
 Generate a very short summary for the script below:
@@ -46,6 +49,7 @@ These descriptions are used to explain to other users what the script does and h
 Be as short as possible to give a global idea, maximum 3-4 sentences.
 All scripts export an asynchronous function called main, do not include it in the description.
 Do not describe how to call it either.
+**Return only the description, no other text.**
 `,
 			user: `
 Generate a description for the script below:
@@ -59,6 +63,7 @@ Generate a description for the script below:
 			system: `
 			You are a helpful AI assistant. You generate very brief summaries from scripts.
 The summaries need to be as short as possible (maximum 8 words) and only give a global idea. Do not use any punctation. Avoid using prepositions and articles.
+**Return only the summary, no other text.**
 `,
 			user: `
 Summarize the flow below in one very short sentence without punctation:
@@ -71,11 +76,26 @@ You are a helpful AI assistant. You generate descriptions from flow.
 These descriptions are used to explain to other users what the flow does and how to use it.
 Be as short as possible to give a global idea, maximum 3-4 sentences.
 Do not include line breaks.
+**Return only the description, no other text.**
 `,
 			user: `
 Generate a description for the flow below:
 {flow}`,
 			placeholderName: 'flow'
+		},
+		agentToolFunctionName: {
+			system: `
+You are a helpful AI assistant. You generate tool names from scripts.
+These tool names will be used by an AI agent to call this tool.
+It has to be based on the script code content not on the main function name.
+It has to respect the following regex: /[a-zA-Z0-9_]+/
+Examples: generate_image, classify_image, summarize_text, etc.
+**Return only the tool name, no other text.**
+`,
+			user: `
+Generate a tool name for the script below:
+{code}`,
+			placeholderName: 'code'
 		}
 	}
 
@@ -190,117 +210,124 @@ Generate a description for the flow below:
 </script>
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
-<TriggerableByAI
-	id={aiId}
-	description={aiDescription}
-	onTrigger={(value) => {
-		if (value) {
-			content = value
-			dispatchIfMounted('change', { content })
+<div
+	class={twMerge('relative', $$props.class)}
+	bind:clientWidth={width}
+	use:triggerableByAI={{
+		id: aiId,
+		description: aiDescription,
+		callback: (value) => {
+			if (value) {
+				content = value
+				dispatchIfMounted('change', { content })
+			}
+		}
+	}}
+	on:keydown={(event) => {
+		if (!$copilotInfo.enabled || !$metadataCompletionEnabled) {
+			return
+		}
+		if (event.key === 'Tab') {
+			if (manualDisabled) {
+				event.preventDefault()
+				manualDisabled = false
+			} else if (!loading && generatedContent) {
+				event.preventDefault()
+				content = generatedContent
+				generatedContent = ''
+			} else if (!loading && !content) {
+				event.preventDefault()
+				generateContent()
+			}
+		} else if (event.key === 'Escape' && !manualDisabled) {
+			event.preventDefault()
+			event.stopPropagation()
+			if (loading) {
+				abortController.abort()
+			} else {
+				manualDisabled = true
+				generatedContent = ''
+			}
+		} else if (event.key === 'Backspace' && !loading && !content) {
+			manualDisabled = true
+			generatedContent = ''
 		}
 	}}
 >
 	<div
-		class={twMerge('relative', $$props.class)}
-		bind:clientWidth={width}
-		on:keydown={(event) => {
-			if (!$copilotInfo.enabled || !$metadataCompletionEnabled) {
-				return
-			}
-			if (event.key === 'Tab') {
-				if (manualDisabled) {
-					event.preventDefault()
-					manualDisabled = false
-				} else if (!loading && generatedContent) {
-					event.preventDefault()
-					content = generatedContent
-					generatedContent = ''
-				} else if (!loading && !content) {
-					event.preventDefault()
-					generateContent()
-				}
-			} else if (event.key === 'Escape' && !manualDisabled) {
-				event.preventDefault()
-				event.stopPropagation()
-				if (loading) {
-					abortController.abort()
-				} else {
-					manualDisabled = true
-					generatedContent = ''
-				}
-			} else if (event.key === 'Backspace' && !loading && !content) {
-				manualDisabled = true
-				generatedContent = ''
-			}
-		}}
+		class="absolute left-[0.5rem] {elementType === 'textarea'
+			? 'top-[1.3rem]'
+			: 'top-[0.3rem]'}  flex flex-row gap-2 items-start pointer-events-none"
 	>
-		<div
-			class="absolute left-[0.5rem] {elementType === 'textarea'
-				? 'top-[1.3rem]'
-				: 'top-[0.3rem]'}  flex flex-row gap-2 items-start pointer-events-none"
-		>
-			{#if active}
-				<span
-					class={twMerge(
-						'absolute text-xs bg-violet-100 text-violet-800 dark:bg-gray-700 dark:text-violet-400 px-1 py-0.5 rounded-md flex flex-row items-center justify-center gap-2 transition-all shrink-0',
-						!loading && generatedContent.length > 0
-							? 'bg-green-100 text-green-800 dark:text-green-400 dark:bg-green-700'
-							: ''
-					)}
-				>
-					<span
-						class="px-0.5 py-0.5 rounded-md text-2xs text-bold flex flex-row items-center gap-1"
-					>
-						{#if loading}
-							ESC
-						{:else}
-							TAB
-						{/if}
-						{#if loading}
-							<Loader2 class="animate-spin" size={12} />
-						{:else if generatedContent}
-							<Check size={12} />
-						{:else}
-							<Wand2 size={12} />
-						{/if}
-					</span>
+		{#if active}
+			<span
+				class={twMerge(
+					'absolute text-xs bg-violet-100 text-violet-800 dark:bg-gray-700 dark:text-violet-400 px-1 py-0.5 rounded-md flex flex-row items-center justify-center gap-2 transition-all shrink-0',
+					!loading && generatedContent.length > 0
+						? 'bg-green-100 text-green-800 dark:text-green-400 dark:bg-green-700'
+						: ''
+				)}
+			>
+				<span class="px-0.5 py-0.5 rounded-md text-2xs text-bold flex flex-row items-center gap-1">
+					{#if loading}
+						ESC
+					{:else}
+						TAB
+					{/if}
+					{#if loading}
+						<Loader2 class="animate-spin" size={12} />
+					{:else if generatedContent}
+						<Check size={12} />
+					{:else}
+						<Wand2 size={12} />
+					{/if}
 				</span>
-				<div
-					bind:clientHeight={genHeight}
-					class={twMerge(
-						'text-sm leading-6 indent-[3.5rem] text-gray-500 dark:text-gray-400 pr-1',
-						elementType === 'input' ? 'text-ellipsis overflow-hidden whitespace-nowrap' : ''
-					)}
-					style={elementType === 'input' ? `max-width: calc(${width}px - 0.5rem)` : ''}
-				>
-					{generatedContent}
-				</div>
-			{/if}
-		</div>
-		{#if elementType === 'textarea'}
-			<div>
-				<div class="flex flex-row-reverse !text-3xs text-tertiary -mt-4">GH Markdown</div>
-				<textarea
-					bind:this={el}
-					bind:value={content}
-					use:autosize
-					{...elementProps}
-					placeholder={!active ? elementProps.placeholder : ''}
-					class={active ? '!indent-[3.5rem]' : ''}
-					on:focus={() => (focused = true)}
-					on:blur={() => (focused = false)}
-				></textarea>
+			</span>
+			<div
+				bind:clientHeight={genHeight}
+				class={twMerge(
+					'text-sm leading-6 indent-[3.5rem] text-gray-500 dark:text-gray-400 pr-1',
+					elementType === 'input' ? 'text-ellipsis overflow-hidden whitespace-nowrap' : ''
+				)}
+				style={elementType === 'input' ? `max-width: calc(${width}px - 0.5rem)` : ''}
+			>
+				{generatedContent}
 			</div>
-		{:else}
-			<input
+		{/if}
+	</div>
+	{#if elementType === 'textarea'}
+		<div>
+			<div class="flex flex-row-reverse !text-3xs text-tertiary -mt-4">GH Markdown</div>
+			<textarea
 				bind:this={el}
 				bind:value={content}
+				use:autosize
+				{...elementProps}
 				placeholder={!active ? elementProps.placeholder : ''}
 				class={active ? '!indent-[3.5rem]' : ''}
 				on:focus={() => (focused = true)}
 				on:blur={() => (focused = false)}
-			/>
+			></textarea>
+		</div>
+	{:else}
+		<input
+			bind:this={el}
+			bind:value={content}
+			placeholder={!active ? elementProps.placeholder : ''}
+			class={twMerge(
+				active ? '!indent-[3.5rem]' : '',
+				promptConfigName === 'agentToolFunctionName' &&
+					!validateToolName(content ?? '') &&
+					'!border-red-400'
+			)}
+			on:focus={() => (focused = true)}
+			on:blur={() => (focused = false)}
+		/>
+		{#if promptConfigName === 'agentToolFunctionName' && !validateToolName(content ?? '')}
+			<div class="text-3xs text-red-400 -mt-0.5">
+				Invalid tool name, should only contain letters, numbers and underscores
+			</div>
 		{/if}
-		<!-- <slot {updateFocus} {active} {generatedContent} classNames={active ? '!indent-[8.8rem]' : ''} /> -->
-	</div>
-</TriggerableByAI>
+	{/if}
+	<!-- <slot {updateFocus} {active} {generatedContent} classNames={active ? '!indent-[8.8rem]' : ''} /> -->
+</div>

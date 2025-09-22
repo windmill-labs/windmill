@@ -1,1 +1,1 @@
-npx esbuild node_modules/monaco-graphql/esm/graphql.worker --bundle --minify --outfile=src/lib/monaco_workers/graphql.worker.bundle.js
+npx esbuild ./node_modules/monaco-graphql/esm/graphql.worker --bundle --minify --outfile=src/lib/monaco_workers/graphql.worker.bundle.js

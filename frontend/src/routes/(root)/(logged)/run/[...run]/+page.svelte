@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { stopPropagation } from 'svelte/legacy'
 
-	import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import {
 		JobService,
@@ -23,9 +22,7 @@
 		encodeState,
 		isFlowPreview,
 		isNotFlow,
-		isScriptPreview,
-		truncateHash,
-		truncateRev
+		isScriptPreview
 	} from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -60,7 +57,7 @@
 	} from '$lib/stores'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import JobLoader from '$lib/components/JobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -68,7 +65,7 @@
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -83,23 +80,28 @@
 	import { json } from 'svelte-highlight/languages'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WorkflowTimeline from '$lib/components/WorkflowTimeline.svelte'
-	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
+
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
-	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
+
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
 	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
-	import { untrack } from 'svelte'
-	import WorkerHostname from '$lib/components/WorkerHostname.svelte'
+	import { setContext, untrack } from 'svelte'
 
-	let job: Job | undefined = $state()
+	import FlowAssetsHandler, {
+		initFlowGraphAssetsCtx
+	} from '$lib/components/flows/FlowAssetsHandler.svelte'
+	import JobAssetsViewer from '$lib/components/assets/JobAssetsViewer.svelte'
+	import { page } from '$app/state'
+	import RunBadges from '$lib/components/runs/RunBadges.svelte'
+	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
 	let scriptProgress: number | undefined = $state(undefined)
 	let currentJobIsLongRunning: boolean = $state(false)
 
-	let viewTab: 'result' | 'logs' | 'code' | 'stats' = $state('result')
+	let viewTab: 'result' | 'logs' | 'code' | 'stats' | 'assets' = $state('result')
 	let selectedJobStep: string | undefined = $state(undefined)
 	let branchOrIterationN: number = $state(0)
 
@@ -108,10 +110,9 @@
 	let restartBranchNames: [number, string][] = []
 
 	let testIsLoading = $state(false)
-	let testJobLoader: TestJobLoader | undefined = $state(undefined)
+	let jobLoader: JobLoader | undefined = $state(undefined)
 
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state(undefined)
-	let getLogs: (() => Promise<void>) | undefined = $state(undefined)
 
 	let showExplicitProgressTip: boolean = $state(
 		(localStorage.getItem('hideExplicitProgressTip') ?? 'false') == 'false'
@@ -119,6 +120,14 @@
 
 	let lastJobId: string | undefined = $state(undefined)
 	let concurrencyKey: string | undefined = $state(undefined)
+
+	let manuallySetLogs: boolean = $state(false)
+
+	setContext(
+		'FlowGraphAssetContext',
+		initFlowGraphAssetsCtx({ getModules: () => job?.raw_flow?.modules ?? [] })
+	)
+
 	async function getConcurrencyKey(job: Job | undefined) {
 		if (!job) return
 		lastJobId = job.id
@@ -164,7 +173,7 @@
 
 	// If we get results, focus on that tab. Else, focus on logs
 	function initView(): void {
-		if (job && 'result' in job && job.result != undefined) {
+		if (job && (job.result || job.result_stream)) {
 			viewTab = 'result'
 		} else if (viewTab == 'result') {
 			viewTab = 'logs'
@@ -172,7 +181,18 @@
 	}
 
 	async function getJob() {
-		await testJobLoader?.watchJob($page.params.run)
+		await jobLoader?.watchJob(page.params.run ?? '', {
+			change(job: Job & { result_stream?: string }) {
+				if (!manuallySetLogs && viewTab == 'logs' && job.result_stream) {
+					viewTab = 'result'
+				}
+			},
+			done(job) {
+				if (job?.['result'] != undefined) {
+					viewTab = 'result'
+				}
+			}
+		})
 		initView()
 	}
 
@@ -334,12 +354,14 @@
 				if (job?.job_kind == 'script') {
 					id = await JobService.runScriptByHash({
 						...commonArgs,
-						hash: job.script_hash!
+						hash: job.script_hash!,
+						skipPreprocessor: true
 					})
 				} else {
 					id = await JobService.runFlowByPath({
 						...commonArgs,
-						path: job.script_path!
+						path: job.script_path!,
+						skipPreprocessor: true
 					})
 				}
 
@@ -351,20 +373,15 @@
 			runImmediatelyLoading = false
 		}
 	}
-	$effect(() => {
-		job?.logs == undefined && job && viewTab == 'logs' && isNotFlow(job?.job_kind) && getLogs?.()
-	})
+
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
 	})
 	$effect(() => {
-		$workspaceStore && $page.params.run && untrack(() => onRunsPageChange())
+		$workspaceStore && page.params.run && untrack(() => onRunsPageChange())
 	})
 	$effect(() => {
-		$workspaceStore &&
-			$page.params.run &&
-			testJobLoader &&
-			untrack(() => onRunsPageChangeWithLoader())
+		$workspaceStore && page.params.run && jobLoader && untrack(() => onRunsPageChangeWithLoader())
 	})
 	$effect(() => {
 		selectedJobStep !== undefined && untrack(() => onSelectedJobStepChange())
@@ -410,12 +427,9 @@
 	</Drawer>
 {/if}
 {#if !job || (job?.job_kind != 'flow' && job?.job_kind != 'flownode' && job?.job_kind != 'flowpreview')}
-	<TestJobLoader
-		lazyLogs
+	<JobLoader
 		bind:scriptProgress
-		on:done={() => job?.['result'] != undefined && (viewTab = 'result')}
-		bind:this={testJobLoader}
-		bind:getLogs
+		bind:this={jobLoader}
 		bind:isLoading={testIsLoading}
 		bind:job
 		bind:jobUpdateLastFetch
@@ -431,7 +445,7 @@
 {#if notfound || (job?.workspace_id != undefined && $workspaceStore != undefined && job?.workspace_id != $workspaceStore)}
 	<div class="max-w-7xl px-4 mx-auto w-full">
 		<div class="flex flex-col gap-6">
-			<h1 class="text-red-400 mt-6">Job {$page.params.run} not found in {$workspaceStore}</h1>
+			<h1 class="text-red-400 mt-6">Job {page.params.run} not found in {$workspaceStore}</h1>
 			<h2>Are you in the right workspace?</h2>
 			<div class="flex flex-col gap-2">
 				{#each $userWorkspaces as workspace}
@@ -439,7 +453,7 @@
 						<Button
 							variant="border"
 							on:click={() => {
-								goto(`/run/${$page.params.run}?workspace=${workspace.id}`)
+								goto(`/run/${page.params.run}?workspace=${workspace.id}`)
 							}}
 						>
 							See in {workspace.name}
@@ -543,7 +557,7 @@
 					Current runs
 				</Button>
 			{/if}
-			{#if job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
+			{#if job && job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
 				{#if !forceCancel}
 					<Button
 						color="red"
@@ -749,96 +763,14 @@
 					{/if}
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 					<div class="flex flex-row gap-2 items-center flex-wrap">
-						{#if job.script_hash}
-							{#if job.job_kind == 'script'}
-								<a href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
-									><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
-								>
-							{:else}
-								<div>
-									<Badge color="gray">{truncateHash(job.script_hash)}</Badge>
-								</div>
-							{/if}
-						{/if}
-						{#if job && 'job_kind' in job}
-							<div>
-								<Badge color="blue">{job.job_kind}</Badge>
-							</div>
-						{/if}
-						{#if job && job.flow_status && job.job_kind === 'script'}
-							<PreprocessedArgsDisplay preprocessed={job.preprocessed} />
-						{/if}
-						{#if persistentScriptDefinition}
-							<button onclick={() => persistentScriptDrawer?.open?.(persistentScriptDefinition)}
-								><Badge color="red">persistent</Badge></button
-							>
-						{/if}
-						{#if job && 'priority' in job}
-							<div>
-								<Badge color="blue">priority: {job.priority}</Badge>
-							</div>
-						{/if}
-						{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'postgresql', 'mysql', 'bigquery', 'snowflake', 'mssql', 'graphql', 'oracledb', 'nativets', 'bash', 'powershell', 'php', 'rust', 'other', 'ansible', 'csharp', 'nu', 'java', 'duckdb', 'dependency'].includes(job.tag)}
-							<!-- for related places search: ADD_NEW_LANG -->
-							<div>
-								<Badge color="indigo">Tag: {job.tag}</Badge>
-							</div>
-						{/if}
-						{#if !job.visible_to_owner}
-							<div>
-								<Badge color="red">
-									only visible to you
-									<Tooltip>
-										{#snippet text()}
-											The option to hide this run from the owner of this script or flow was
-											activated
-										{/snippet}
-									</Tooltip>
-								</Badge>
-							</div>
-						{/if}
-						{#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
-							{#each job?.['labels'] as label}
-								<div>
-									<Badge>Label: {label}</Badge>
-								</div>
-							{/each}
-						{/if}
-						{#if concurrencyKey}
-							<div>
-								<Tooltip notClickable>
-									{#snippet text()}
-										This job has concurrency limits enabled with the key
-										<a
-											href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
-										>
-											{concurrencyKey}
-										</a>
-									{/snippet}
-									<a
-										href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
-									>
-										<Badge>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge></a
-									>
-								</Tooltip>
-							</div>
-						{/if}
-						{#if job?.worker}
-							<div>
-								<Tooltip notClickable>
-									{#snippet text()}
-										worker:
-										<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
-											{job?.worker}
-										</a><br />
-										<WorkerHostname worker={job?.worker!} minTs={job?.['created_at']} />
-									{/snippet}
-									<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
-										<Badge>Worker: {truncateRev(job?.worker, 20)}</Badge></a
-									>
-								</Tooltip>
-							</div>
-						{/if}
+						<RunBadges
+							{job}
+							displayPersistentScriptDefinition={!!persistentScriptDefinition}
+							openPersistentScriptDrawer={() => {
+								persistentScriptDrawer?.open?.(persistentScriptDefinition)
+							}}
+							{concurrencyKey}
+						/>
 					</div>
 				{/if}
 			</div>
@@ -907,10 +839,10 @@
 				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />
 			{/if}
 			<div class="max-w-7xl mx-auto w-full px-4 mb-10">
-				{#if job?.flow_status && typeof job.flow_status == 'object' && !('_metadata' in job.flow_status)}
+				{#if job?.workflow_as_code_status && job.job_kind !== 'aiagent'}
 					<div class="mt-10"></div>
 					<WorkflowTimeline
-						flow_status={asWorkflowStatus(job.flow_status)}
+						flow_status={asWorkflowStatus(job.workflow_as_code_status)}
 						flowDone={job.type == 'CompletedJob'}
 					/>
 				{/if}
@@ -919,10 +851,16 @@
 				{/if}
 				<!-- Logs and outputs-->
 				<div class="mr-2 sm:mr-0 mt-12">
-					<Tabs bind:selected={viewTab}>
+					<Tabs
+						bind:selected={viewTab}
+						onTabClick={(value) => {
+							manuallySetLogs = value == 'logs'
+						}}
+					>
 						<Tab value="result">Result</Tab>
 						<Tab value="logs">Logs</Tab>
 						<Tab value="stats">Metrics</Tab>
+						<Tab value="assets">Assets</Tab>
 						{#if isScriptPreview(job?.job_kind)}
 							<Tab value="code">Code</Tab>
 						{/if}
@@ -942,13 +880,17 @@
 										tag={job?.tag}
 									/>
 								</div>
+							{:else if viewTab == 'assets'}
+								<div class="w-full">
+									<JobAssetsViewer {job} />
+								</div>
 							{:else if viewTab == 'code'}
 								{#if job && 'raw_code' in job && job.raw_code}
 									<div class="text-xs">
 										<HighlightCode lines language={job.language} code={job.raw_code} />
 									</div>
 								{:else if job}
-									No code is available
+									<span class="text-sm">No code available</span>
 								{:else}
 									<Skeleton layout={[[5]]} />
 								{/if}
@@ -956,9 +898,10 @@
 								<div class="w-full">
 									<MemoryFootprintViewer jobId={job.id} bind:jobUpdateLastFetch />
 								</div>
-							{:else if job !== undefined && 'result' in job && job.result !== undefined}
+							{:else if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined))}
 								<DisplayResult
 									workspaceId={job?.workspace_id}
+									result_stream={job.result_stream}
 									jobId={job?.id}
 									result={job.result}
 									language={job?.language}
@@ -982,11 +925,11 @@
 				{#if job?.id}
 					<FlowStatusViewer
 						jobId={job?.id ?? ''}
-						on:jobsLoaded={({ detail }) => {
-							job = detail
+						onJobsLoaded={({ job: newJob }) => {
+							job = newJob
 						}}
-						on:done={(e) => {
-							job = e.detail
+						onDone={({ job: newJob }) => {
+							job = newJob
 						}}
 						initialJob={job}
 						workspaceId={$workspaceStore}
@@ -999,3 +942,9 @@
 		{/if}
 	</div>
 {/if}
+
+<FlowAssetsHandler
+	modules={job?.raw_flow?.modules ?? []}
+	enableDbExplore
+	enablePathScriptAndFlowAssets
+/>

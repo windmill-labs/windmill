@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import autosize from '$lib/autosize'
 	import { shouldDisplayPlaceholder } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
@@ -160,10 +158,10 @@
 		;[oneOf]
 		untrack(() => updateOneOfSchemas(oneOf))
 	})
-	run(() => {
+	$effect(() => {
 		extra && mounted && untrack(() => onContentChange())
 	})
-	run(() => {
+	$effect(() => {
 		;(properties || order) && untrack(() => updateSchema())
 	})
 </script>
@@ -219,7 +217,7 @@
 				bind:itemsType
 				canEditResourceType={isFlowInput || isAppInput}
 			/>
-		{:else if type == 'string' || ['number', 'integer', 'object'].includes(type ?? '')}
+		{:else if type == 'string' || ['number', 'integer'].includes(type ?? '')}
 			<div>
 				<Label label="Field settings">
 					<div>
@@ -246,45 +244,41 @@
 								bind:currency={extra['currency']}
 								bind:currencyLocale={extra['currencyLocale']}
 							/>
-						{:else if type == 'object' && oneOf && oneOf.length >= 2 && !isFlowInput && !isAppInput}
-							<ToggleButtonGroup bind:selected={oneOfSelected} class="mb-2">
-								{#snippet children({ item })}
-									{#each oneOf as obj}
-										<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
-									{/each}
-								{/snippet}
-							</ToggleButtonGroup>
-							{#if oneOfSelected && oneOfSchemas}
-								{@const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)}
-								<div class="border">
-									<EditableSchemaForm
-										on:change
-										noPreview
-										bind:schema={oneOfSchemas[idx]}
-										uiOnly
-										jsonEnabled={false}
-										editTab="inputEditor"
-									/>
-								</div>
-							{/if}
-						{:else if type == 'object' && format?.startsWith('dynselect-')}
-							<div class="text-tertiary text-xs">No settings available for Dynamic Select</div>
-						{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput && !isAppInput}
-							<div class="border">
-								<EditableSchemaForm
-									on:change
-									noPreview
-									bind:schema
-									uiOnly
-									jsonEnabled={false}
-									editTab="inputEditor"
-								/>
-							</div>
-						{:else}
-							<div class="text-tertiary text-xs">No settings available for this field type</div>
 						{/if}
 					</div>
 				</Label>
+			</div>
+		{:else if type == 'object' && oneOf && oneOf.length >= 2 && !isFlowInput && !isAppInput}
+			<ToggleButtonGroup bind:selected={oneOfSelected} class="mb-2">
+				{#snippet children({ item })}
+					{#each oneOf as obj}
+						<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
+					{/each}
+				{/snippet}
+			</ToggleButtonGroup>
+			{#if oneOfSelected && oneOfSchemas}
+				{@const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)}
+				<div class="border">
+					<EditableSchemaForm
+						on:change
+						noPreview
+						bind:schema={oneOfSchemas[idx]}
+						uiOnly
+						jsonEnabled={false}
+						editTab="inputEditor"
+					/>
+				</div>
+			{/if}
+		{:else if type == 'object' && !format?.startsWith('resource-') && !isFlowInput && !isAppInput}
+			<div class="border">
+				<EditableSchemaForm
+					on:change
+					noPreview
+					bind:schema
+					uiOnly
+					jsonEnabled={false}
+					editTab="inputEditor"
+				/>
 			</div>
 		{/if}
 

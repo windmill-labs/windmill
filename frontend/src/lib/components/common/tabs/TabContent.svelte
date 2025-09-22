@@ -2,14 +2,24 @@
 	import type { TabsContext } from '$lib/components/apps/editor/settingsPanel/inputEditor/tabs.svelte'
 	import { getContext } from 'svelte'
 
-	export let value: string
-	export let alwaysMounted: boolean = false
-	export let style = ''
+	interface Props {
+		value: string
+		alwaysMounted?: boolean
+		style?: string
+		values?: string[] | undefined
+		class?: string
+		children?: import('svelte').Snippet
+	}
 
-	export let values: string[] | undefined = undefined
+	let {
+		value,
+		alwaysMounted = false,
+		style = '',
+		values = undefined,
+		class: clazz = '',
+		children
+	}: Props = $props()
 
-	let clazz: string = ''
-	export { clazz as class }
 	const { selected } = getContext<TabsContext>('Tabs')
 </script>
 
@@ -18,6 +28,6 @@
 		class={`${clazz} ${value === $selected || values?.includes($selected) ? 'visible' : 'hidden'}`}
 		{style}
 	>
-		<slot />
+		{@render children?.()}
 	</div>
 {/if}

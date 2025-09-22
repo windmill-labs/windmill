@@ -18,11 +18,12 @@ use crate::{
     common::{
         create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file,
         read_file_content, read_result, start_child_process, write_file_binary, OccupancyMetrics,
+        StreamNotifier,
     },
     handle_child::handle_child,
-    BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_PATH, DISABLE_NSJAIL,
-    DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_PATH,
-    PATH_ENV, PROXY_ENVS, TZ_ENV,
+    BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
+    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -151,7 +152,7 @@ pub async fn gen_bun_lockfile(
         #[cfg(windows)]
         child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-        let mut child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
+        let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
 
         if let Some(db) = db {
             handle_child(
@@ -168,10 +169,11 @@ pub async fn gen_bun_lockfile(
                 false,
                 occupancy_metrics,
                 None,
+                None,
             )
             .await?;
         } else {
-            child_process.wait().await?;
+            Box::into_pin(child_process.wait()).await?;
         }
 
         let new_package_json = read_file_content(&format!("{job_dir}/package.json")).await?;
@@ -293,12 +295,21 @@ pub async fn install_bun_lockfile(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
 ) -> Result<()> {
     let mut child_cmd = Command::new(if npm_mode { &*NPM_PATH } else { &*BUN_PATH });
+
+    let mut args = vec!["install", "--save-text-lockfile"];
+
+    let no_cache = !npm_mode && *BUN_NO_CACHE;
+
+    if no_cache {
+        args.push("--no-cache");
+    }
+
     child_cmd
         .current_dir(job_dir)
         .env_clear()
         .envs(PROXY_ENVS.clone())
         .envs(common_bun_proc_envs)
-        .args(vec!["install", "--save-text-lockfile"])
+        .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -307,6 +318,8 @@ pub async fn install_bun_lockfile(
 
     let mut npm_logs = if npm_mode {
         "NPM mode\n".to_string()
+    } else if no_cache {
+        "Bun install with --no-cache flag (BUN_NO_CACHE=true)\n".to_string()
     } else {
         "".to_string()
     };
@@ -339,13 +352,13 @@ pub async fn install_bun_lockfile(
         false
     };
 
-    if npm_mode {
+    if npm_mode || no_cache {
         if let Some(db) = db {
             append_logs(&job_id.clone(), w_id, npm_logs, db).await;
         }
     }
 
-    let mut child_process = start_child_process(child_cmd, &*BUN_PATH).await?;
+    let mut child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
 
     gen_bunfig(job_dir).await?;
     if let Some(db) = db {
@@ -363,10 +376,11 @@ pub async fn install_bun_lockfile(
             false,
             occupancy_metrics,
             None,
+            None,
         )
-        .await?
+        .await?;
     } else {
-        child_process.wait().await?;
+        Box::into_pin(child_process.wait()).await?;
     }
 
     if has_file {
@@ -418,17 +432,17 @@ try {{
 
 }}
 
-const bo = await Bun.build({{
-    entrypoints: ["{job_dir}/wrapper.mjs"],
-    outdir: "./",
-    target: "node",
-    plugins: [p],
-    external: fileNames,
-    minify: true,
-  }});
-
-if (!bo.success) {{
-    bo.logs.forEach((l) => console.log(l));
+try {{
+    await Bun.build({{
+        entrypoints: ["{job_dir}/wrapper.mjs"],
+        outdir: "./",
+        target: "node",
+        plugins: [p],
+        external: fileNames,
+        minify: true,
+    }});
+}} catch(err) {{
+    console.log(err);
     console.log("Failed to build node bundle");
     process.exit(1);
 }}
@@ -462,21 +476,21 @@ plugin(p)
                 r#"
 {}
 
-const bo = await Bun.build({{
-    entrypoints: ["{job_dir}/main.ts"],
-    outdir: "./",
-    target: "{}",
-    plugins: [p],
-    external: ["electron"],
-    minify: {{
-        identifiers: false,
-        syntax: true,
-        whitespace: false
-    }},
-  }});
-
-if (!bo.success) {{
-    bo.logs.forEach((l) => console.log(l));
+try {{
+    await Bun.build({{
+        entrypoints: ["{job_dir}/main.ts"],
+        outdir: "./",
+        target: "{}",
+        plugins: [p],
+        external: ["electron"],
+        minify: {{
+            identifiers: false,
+            syntax: true,
+            whitespace: false
+        }},
+    }});
+}} catch(err) {{
+    console.log(err)
     console.log("Failed to build node bundle");
     process.exit(1);
 }}
@@ -520,7 +534,7 @@ pub async fn generate_wrapper_mjs(
     #[cfg(windows)]
     child.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-    let child_process = start_child_process(child, &*BUN_PATH).await?;
+    let child_process = start_child_process(child, &*BUN_PATH, false).await?;
     handle_child(
         job_id,
         db,
@@ -534,6 +548,7 @@ pub async fn generate_wrapper_mjs(
         timeout,
         false,
         occupancy_metrics,
+        None,
         None,
     )
     .await?;
@@ -570,7 +585,7 @@ pub async fn generate_bun_bundle(
     #[cfg(windows)]
     child.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-    let mut child_process = start_child_process(child, &*BUN_PATH).await?;
+    let mut child_process = start_child_process(child, &*BUN_PATH, false).await?;
     if let Some(db) = db {
         handle_child(
             job_id,
@@ -586,10 +601,11 @@ pub async fn generate_bun_bundle(
             false,
             occupancy_metrics,
             None,
+            None,
         )
         .await?;
     } else {
-        child_process.wait().await?;
+        Box::into_pin(child_process.wait()).await?;
     }
     Ok(())
 }
@@ -747,7 +763,7 @@ pub async fn prebundle_bun_script(
 pub const BUN_BUNDLE_OBJECT_STORE_PREFIX: &str = "bun_bundle/";
 
 async fn get_script_import_updated_at(db: &DB, w_id: &str, script_path: &str) -> Result<String> {
-    let script_hash = get_latest_hash_for_path(&mut db.begin().await?, w_id, script_path).await?;
+    let script_hash = get_latest_hash_for_path(db, w_id, script_path, false).await?;
     let last_updated_at = sqlx::query_scalar!(
         "SELECT created_at FROM script WHERE workspace_id = $1 AND hash = $2",
         w_id,
@@ -894,7 +910,8 @@ pub async fn handle_bun_job(
         annotation.nodejs = true
     }
     let main_override = job.script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job.is_flow_step() && job.preprocessed == Some(false);
+    let apply_preprocessor =
+        job.flow_step_id.as_deref() != Some("preprocessor") && job.preprocessed == Some(false);
 
     if has_bundle_cache {
         let target;
@@ -1080,6 +1097,10 @@ function argsObjToArr({{ {spread} }}) {{
     return [ {spread} ];
 }}
 
+function isAsyncIterable(obj) {{
+    return obj != null && typeof obj[Symbol.asyncIterator] === 'function';
+}}
+
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
@@ -1092,6 +1113,12 @@ async function run() {{
         throw new Error("{main_name} function is missing");
     }}
     let res = await Main.{main_name}(...argsArr);
+    if (isAsyncIterable(res)) {{
+        for await (const chunk of res) {{
+            console.log("WM_STREAM: " + chunk.replace('\n', '\\n'));
+        }}
+        res = null;
+    }}
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await fs.writeFile("result.json", res_json);
     process.exit(0);
@@ -1286,6 +1313,8 @@ try {{
 
             append_logs(&job.id, &job.workspace_id, format!("{init_logs}\n"), conn).await;
 
+            let stream_notifier = StreamNotifier::new(conn, job);
+
             let result = crate::js_eval::eval_fetch_timeout(
                 env_code,
                 inner_content.clone(),
@@ -1301,6 +1330,7 @@ try {{
                 &job.workspace_id,
                 false,
                 occupancy_metrics,
+                stream_notifier,
             )
             .await?;
             tracing::info!(
@@ -1377,7 +1407,7 @@ try {{
             .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let cmd = if annotation.nodejs {
             let script_path = format!("{job_dir}/wrapper.mjs");
@@ -1390,6 +1420,7 @@ try {{
                 .envs(reserved_variables)
                 .envs(common_bun_proc_envs)
                 .args(vec!["--preserve-symlinks", &script_path])
+                .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
 
@@ -1420,6 +1451,7 @@ try {{
                 .envs(reserved_variables)
                 .envs(common_bun_proc_envs)
                 .args(args)
+                .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
 
@@ -1436,11 +1468,14 @@ try {{
             } else {
                 &*BUN_PATH
             },
+            false,
         )
         .await?
     };
 
-    handle_child(
+    let stream_notifier = StreamNotifier::new(conn, job);
+
+    let handle_result = handle_child(
         &job.id,
         conn,
         mem_peak,
@@ -1454,6 +1489,7 @@ try {{
         false,
         &mut Some(occupancy_metrics),
         None,
+        stream_notifier,
     )
     .await?;
 
@@ -1473,7 +1509,7 @@ try {{
             })?;
         *new_args = Some(args.clone());
     }
-    read_result(job_dir).await
+    read_result(job_dir, handle_result.result_stream).await
 }
 
 pub async fn get_common_bun_proc_envs(base_internal_url: Option<&str>) -> HashMap<String, String> {
@@ -1560,6 +1596,8 @@ pub async fn start_worker(
         "NOT_AVAILABLE",
         "dedicated_worker",
         Some(script_path.to_string()),
+        None,
+        None,
         None,
         None,
         None,
@@ -1676,7 +1714,7 @@ BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
 
-console.log('start'); 
+console.log('start');
 
 for await (const line of Readline.createInterface({{ input: process.stdin }})) {{
     {print_lines}
@@ -1685,7 +1723,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
         process.exit(0);
     }}
     try {{
-        let {{ {spread} }} = JSON.parse(line) 
+        let {{ {spread} }} = JSON.parse(line)
         {dates}
         let res = await Main.main(...[ {spread} ]);
         console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));

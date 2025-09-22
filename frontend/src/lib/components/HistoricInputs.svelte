@@ -3,7 +3,7 @@
 	import { sendUserToast } from '$lib/utils.js'
 	import RunningJobSchemaPicker from '$lib/components/schema/RunningJobSchemaPicker.svelte'
 	import { createEventDispatcher, onDestroy } from 'svelte'
-	import JobLoader from './runs/JobLoader.svelte'
+	import JobsLoader from './runs/JobsLoader.svelte'
 	import { DataTable } from '$lib/components/table'
 	import HistoricList from './HistoricList.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -100,7 +100,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#if runnableId}
-	<JobLoader
+	<JobsLoader
 		bind:jobs
 		path={runnableId}
 		isSkipped={false}

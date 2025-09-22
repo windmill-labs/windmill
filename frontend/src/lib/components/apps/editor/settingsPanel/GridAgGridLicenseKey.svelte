@@ -1,10 +1,13 @@
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 
-	export let license: string
+	interface Props {
+		license: string
+	}
 
-	let valid = false
-	$: license && checkLicenseKey(license)
+	let { license = $bindable() }: Props = $props()
+
+	let valid = $state(false)
 
 	async function checkLicenseKey(key: string) {
 		try {
@@ -16,6 +19,9 @@
 			console.error(e)
 		}
 	}
+	$effect(() => {
+		license && checkLicenseKey(license)
+	})
 </script>
 
 <div class="p-2">

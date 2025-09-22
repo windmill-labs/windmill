@@ -20,7 +20,7 @@
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import StepHistory from './StepHistory.svelte'
 	import { Popover } from '$lib/components/meltComponents'
-	import { untrack } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import type { Job } from '$lib/gen'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -28,6 +28,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import DisplayResultControlBar from '$lib/components/DisplayResultControlBar.svelte'
 	import { base } from '$lib/base'
+	import { fade } from 'svelte/transition'
+	import type { FlowEditorContext, OutputViewerJob } from '../types'
 
 	interface Props {
 		prefix?: string
@@ -43,10 +45,7 @@
 		fullResult?: boolean
 		closeOnOutsideClick?: boolean
 		getLogs?: boolean
-		selectedJob?: SelectedJob
-		forceJson?: boolean
 		isLoading?: boolean
-		preview?: 'mock' | 'job' | undefined
 		hideHeaderBar?: boolean
 		simpleViewer?: any | undefined
 		path?: string
@@ -55,7 +54,7 @@
 		rightMargin?: boolean
 		disableMock?: boolean
 		disableHistory?: boolean
-		lastJob?: SelectedJob
+		testJob?: Job & { result_stream?: string }
 		derivedHistoryOpen?: boolean // derived from historyOpen
 		historyOffset?: any
 		clazz?: string
@@ -64,10 +63,13 @@
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
 		selectionId?: string
+		initial?: boolean
+		onResetInitial?: () => void
+		customEmptyJobMessage?: string
 	}
 
 	let {
-		lastJob = undefined,
+		testJob,
 		prefix = '',
 		allowCopy = false,
 		connectingData = undefined,
@@ -76,10 +78,7 @@
 		fullResult = false,
 		closeOnOutsideClick = false,
 		getLogs = false,
-		selectedJob = $bindable(undefined),
-		forceJson = $bindable(false),
 		isLoading = $bindable(false),
-		preview = $bindable(undefined),
 		hideHeaderBar = false,
 		simpleViewer = undefined,
 		path = '',
@@ -88,28 +87,16 @@
 		rightMargin = false,
 		disableMock = false,
 		disableHistory = false,
-		derivedHistoryOpen = $bindable(false),
 		historyOffset = { mainAxis: 8, crossAxis: -4.5 },
 		clazz,
 		copilot_fix,
 		onSelect,
 		onUpdateMock,
 		onEditInput,
-		selectionId
+		selectionId,
+		initial,
+		customEmptyJobMessage
 	}: Props = $props()
-
-	type SelectedJob =
-		| ((
-				| Job
-				| {
-						id: string
-						result: unknown
-						type: 'CompletedJob'
-						workspace_id: string
-						success: boolean
-				  }
-		  ) & { preview?: boolean })
-		| undefined
 
 	let jsonView = $state(false)
 	let clientHeight: number = $state(0)
@@ -119,6 +106,8 @@
 	let historyOpen = $state(false)
 	let contentEl: HTMLDivElement | undefined = $state(undefined)
 	let hasOverflow = $state(false)
+	let preview: 'mock' | 'job' | undefined = $state(undefined)
+	let selectedJob: OutputViewerJob = $state(undefined)
 
 	function checkOverflow() {
 		if (contentEl) {
@@ -126,10 +115,10 @@
 		}
 	}
 
-	function selectJob(job: SelectedJob | undefined) {
-		if (job && 'result' in job) {
-			selectedJob = job
-		} else if (lastJob && 'result' in lastJob) {
+	function selectJob(nJob: OutputViewerJob | undefined) {
+		if (nJob && (nJob.result_stream || nJob.type == 'CompletedJob')) {
+			selectedJob = nJob
+		} else if (lastJob && (lastJob.result_stream || lastJob.type == 'CompletedJob')) {
 			selectedJob = lastJob
 		} else {
 			selectedJob = undefined
@@ -137,15 +126,10 @@
 	}
 
 	$effect(() => {
-		if (!lastJob || !('result' in lastJob)) {
+		if (!lastJob || !(lastJob.result_stream || lastJob.type == 'CompletedJob')) {
 			return
 		}
 		selectJob(lastJob)
-
-		if (lastJob.preview && mock?.enabled) {
-			preview = 'job'
-			lastJob.preview = false
-		}
 	})
 
 	function togglePreview(nPrev: 'mock' | 'job' | undefined) {
@@ -165,6 +149,9 @@
 	let displayResultMock: DisplayResult | undefined = $state(undefined)
 	let toolbarLocationJob: 'self' | 'external' | undefined = $state(undefined)
 	let toolbarLocationMock: 'self' | 'external' | undefined = $state(undefined)
+
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const flowStateStore = flowEditorContext?.flowStateStore
 
 	function updateCanEditWithDblClick(newValue: boolean) {
 		canEditWithDblClick = newValue
@@ -216,16 +203,41 @@
 		}
 	}
 
-	let mockUpdateStatus = $derived(
+	function updateLastJob() {
+		if (testJob) {
+			return testJob
+		}
+		if (
+			!flowStateStore ||
+			!moduleId ||
+			flowStateStore.val[moduleId]?.previewResult === 'never tested this far'
+		) {
+			return
+		}
+		return {
+			id: flowStateStore.val[moduleId]?.previewJobId ?? '',
+			result: flowStateStore.val[moduleId]?.previewResult,
+			type: 'CompletedJob' as const,
+			success: flowStateStore.val[moduleId]?.previewSuccess ?? undefined
+		} as Job & { result_stream?: string } & { preview?: boolean }
+	}
+
+	const lastJob = $derived.by(updateLastJob)
+
+	export function setJobPreview() {
+		if (mock?.enabled) {
+			preview = 'job'
+		}
+	}
+
+	const mockUpdateStatus = $derived(
 		preview === 'mock' && !mock?.enabled
 			? 'restore'
-			: preview === 'job' && mock?.enabled && selectedJob?.type === 'CompletedJob'
+			: preview === 'job' && mock?.enabled && selectedJob?.['type'] === 'CompletedJob'
 				? 'override'
 				: undefined
 	)
-	$effect(() => {
-		derivedHistoryOpen = historyOpen
-	})
+
 	$effect(() => {
 		if (displayResultJob && typeof displayResultJob.getToolbarLocation === 'function') {
 			toolbarLocationJob = displayResultJob.getToolbarLocation()
@@ -252,7 +264,65 @@
 
 	let popoverHeight = $derived(customHeight ?? (clientHeight > 0 ? clientHeight : 0))
 
+	// If a test job is running, we override the preview to show the test job
+	const executingTestJob = $derived(testJob && testJob.type === 'QueuedJob')
+
+	const isLoadingAndNotMock = $derived(
+		isLoading && lastJob?.result_stream === undefined && (!mock?.enabled || executingTestJob)
+	)
+
 	const copilot_fix_render = $derived(copilot_fix)
+
+	export function getPreview() {
+		return preview
+	}
+
+	async function selectJobFromHistory({
+		detail
+	}: {
+		detail: 'mock' | (Job & { getFullJob: () => Promise<Job> })
+	}) {
+		if (!detail) {
+			togglePreview(undefined)
+			return
+		}
+		if (detail === 'mock') {
+			if (mock?.enabled) {
+				togglePreview(undefined)
+				return
+			}
+			togglePreview('mock')
+			return
+		}
+		if (detail.id === lastJob?.id && !mock?.enabled) {
+			togglePreview(undefined)
+			return
+		}
+
+		isLoading = true
+
+		try {
+			const fullJob = await detail.getFullJob()
+			if (fullJob) {
+				selectJob(fullJob)
+				togglePreview('job')
+			}
+		} finally {
+			isLoading = false
+		}
+	}
+
+	export function getHistoryOpen() {
+		return historyOpen
+	}
+
+	export function getSelectedJob() {
+		return selectedJob
+	}
+
+	const noHistory = $derived(
+		loopStatus ? (loopStatus.type === 'self' ? 'isLoop' : 'isInsideLoop') : undefined
+	)
 </script>
 
 <div
@@ -260,6 +330,7 @@
 	bind:clientHeight
 	style={canEditWithDblClick ? 'cursor: text;' : ''}
 >
+	<!-- Top toolbar -->
 	<div
 		class={twMerge(
 			'text-xs px-1',
@@ -275,85 +346,20 @@
 			)}
 		>
 			<div class="flex flex-row items-center gap-0.5">
+				<!-- History picker -->
 				{#if !disableHistory}
-					<Popover
-						bind:this={stepHistoryPopover}
-						floatingConfig={{
-							strategy: 'fixed',
-							placement: 'left-start',
-							offset: historyOffset,
-							gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
-						}}
-						contentClasses="w-[225px] overflow-hidden"
-						{closeOnOutsideClick}
-						usePointerDownOutside={closeOnOutsideClick}
-						disablePopup={!!connectingData || jsonView}
-						bind:isOpen={historyOpen}
-					>
-						{#snippet trigger()}
-							<Button
-								color="light"
-								size="xs2"
-								variant="contained"
-								btnClasses="bg-surface h-[27px]"
-								startIcon={{ icon: History }}
-								nonCaptureEvent
-							/>
-						{/snippet}
-						{#snippet content()}
-							<div class="rounded-[inherit]" style={`height: ${popoverHeight}px`}>
-								<StepHistory
-									{moduleId}
-									{getLogs}
-									on:select={async ({ detail }) => {
-										if (!detail) {
-											togglePreview(undefined)
-											return
-										}
-										if (detail === 'mock') {
-											if (mock?.enabled) {
-												togglePreview(undefined)
-												return
-											}
-											togglePreview('mock')
-											return
-										}
-										if (detail.id === lastJob?.id && !mock?.enabled) {
-											togglePreview(undefined)
-											return
-										}
-
-										// Create a timeout to show loading state after 200ms
-										const loadingTimeout = setTimeout(() => {
-											isLoading = true
-										}, 200)
-
-										try {
-											const fullJob = await detail.getFullJob()
-											if (fullJob) {
-												selectJob(fullJob)
-												togglePreview('job')
-											}
-										} finally {
-											// Clear the timeout if operation completed before 200ms
-											clearTimeout(loadingTimeout)
-											isLoading = false
-										}
-									}}
-									mockValue={mock?.return_value}
-									mockEnabled={mock?.enabled}
-									{path}
-									noHistory={loopStatus
-										? loopStatus.type === 'self'
-											? 'isLoop'
-											: 'isInsideLoop'
-										: undefined}
-								/>
-							</div>
-						{/snippet}
-					</Popover>
+					{@render historyPicker()}
 				{/if}
-				{#if !isLoading}
+				<!-- Badge-->
+				{#if executingTestJob}
+					<OutputBadge
+						job={testJob}
+						class={twMerge(
+							'min-w-16 min-h-[23px] text-secondary',
+							preview ? 'bg-surface shadow-sm' : ''
+						)}
+					/>
+				{:else if !isLoadingAndNotMock || mock?.enabled}
 					<div
 						class={twMerge(
 							'w-grow min-w-0 flex gap-1 items-center h-[27px] rounded-md  group',
@@ -413,7 +419,8 @@
 					</div>
 				{/if}
 
-				{#if !disableMock && !isLoading}
+				<!-- Pin button -->
+				{#if !disableMock && !isLoadingAndNotMock}
 					<Tooltip disablePopup={mock?.enabled}>
 						<Button
 							color="light"
@@ -441,6 +448,7 @@
 				{/if}
 
 				{#if jsonView}
+					<!-- Save button -->
 					<Button
 						size="xs2"
 						color="green"
@@ -461,6 +469,7 @@
 						}}
 						disabled={!!error || !tmpMock}
 					/>
+					<!-- Cancel button -->
 					<Button
 						size="xs2"
 						color="red"
@@ -472,7 +481,8 @@
 							tmpMock = undefined
 						}}
 					/>
-				{:else if mock?.enabled && !preview}
+				{:else if mock?.enabled && !preview && !executingTestJob}
+					<!-- Edit pin button -->
 					<Tooltip disablePopup={mock?.enabled}>
 						<Button
 							size="xs2"
@@ -500,7 +510,7 @@
 			</div>
 
 			<div class="px-2">
-				{#if selectedJob && 'result' in selectedJob && displayResultJob && toolbarLocationJob === 'external'}
+				{#if selectedJob && displayResultJob && toolbarLocationJob === 'external'}
 					<DisplayResultControlBar
 						workspaceId={selectedJob.workspace_id}
 						jobId={selectedJob.id}
@@ -578,11 +588,12 @@
 				hoveringResult = false
 			}}
 		>
-			{#if isLoading}
+			{#if isLoadingAndNotMock}
 				<div class="flex flex-col items-center justify-center">
 					<Loader2 class="animate-spin" />
 				</div>
 			{:else if connectingData !== undefined || simpleViewer}
+				<!-- Display data for input connections -->
 				<ObjectViewer
 					json={moduleId
 						? {
@@ -599,6 +610,7 @@
 					{editKey}
 				/>
 			{:else if jsonView}
+				<!-- Json editor for editing mock data -->
 				{#await import('$lib/components/JsonEditor.svelte')}
 					<Loader2 class="animate-spin" />
 				{:then Module}
@@ -622,16 +634,18 @@
 						class="h-full"
 					/>
 				{/await}
-			{:else if (mock?.enabled || preview == 'mock') && preview != 'job'}
+			{:else if (mock?.enabled || preview == 'mock') && preview != 'job' && !executingTestJob}
+				<!-- Display data for mock data -->
 				{#if fullResult}
 					<div class="break-words relative h-full">
 						<DisplayResult
 							bind:this={displayResultMock}
-							bind:forceJson
 							workspaceId={undefined}
 							jobId={undefined}
+							result_stream={undefined}
 							result={mock?.return_value}
 							externalToolbarAvailable
+							fixTableSizingToParent
 							on:toolbar-location-changed={({ detail }) => {
 								toolbarLocationMock = detail
 							}}
@@ -648,17 +662,19 @@
 						pureViewer={false}
 					/>
 				{/if}
-			{:else if selectedJob != undefined && 'result' in selectedJob}
+			{:else if selectedJob != undefined && (selectedJob.result_stream || selectedJob.type == 'CompletedJob')}
+				<!-- Display data for job data -->
 				{#if fullResult}
 					<div class="break-words relative h-full">
 						{#key selectedJob}
 							<DisplayResult
 								bind:this={displayResultJob}
-								bind:forceJson
 								workspaceId={selectedJob?.workspace_id}
 								jobId={selectedJob?.id}
 								result={selectedJob?.result}
+								result_stream={selectedJob?.result_stream}
 								externalToolbarAvailable
+								fixTableSizingToParent
 								on:toolbar-location-changed={({ detail }) => {
 									toolbarLocationJob = detail
 								}}
@@ -683,7 +699,7 @@
 			{:else if !lastJob}
 				<div class="flex flex-col items-center justify-center h-full">
 					<p class="text-xs text-secondary">
-						Test this step to see results{#if !disableMock}
+						{customEmptyJobMessage ?? 'Test this step to see results'}{#if !disableMock}
 							{' or'}
 							<button
 								class="text-blue-500 hover:text-blue-700 underline"
@@ -700,6 +716,13 @@
 			{/if}
 		</div>
 	</div>
+	{#if initial && !mock?.enabled}
+		<span
+			in:fade
+			class="-mb-1 -mt-0.5 w-full text-right pr-4 dark:text-gray-500 text-gray-400 font-normal text-2xs py-0"
+			>Run loaded from history</span
+		>
+	{/if}
 </div>
 
 {#snippet editKey(key: string)}
@@ -709,6 +732,47 @@
 	>
 		<Pencil size={12} class="-my-1 inline-flex items-center" />
 	</button>
+{/snippet}
+
+{#snippet historyPicker()}
+	<Popover
+		bind:this={stepHistoryPopover}
+		floatingConfig={{
+			strategy: 'fixed',
+			placement: 'left-start',
+			offset: historyOffset,
+			gutter: 0 // hack to make offset effective, see https://github.com/melt-ui/melt-ui/issues/528
+		}}
+		contentClasses="w-[225px] overflow-hidden"
+		{closeOnOutsideClick}
+		usePointerDownOutside={closeOnOutsideClick}
+		disablePopup={!!connectingData || jsonView}
+		bind:isOpen={historyOpen}
+	>
+		{#snippet trigger()}
+			<Button
+				color="light"
+				size="xs2"
+				variant="contained"
+				btnClasses="bg-surface h-[27px]"
+				startIcon={{ icon: History }}
+				nonCaptureEvent
+			/>
+		{/snippet}
+		{#snippet content()}
+			<div class="rounded-[inherit]" style={`height: ${popoverHeight}px`}>
+				<StepHistory
+					{moduleId}
+					{getLogs}
+					on:select={selectJobFromHistory}
+					mockValue={mock?.return_value}
+					mockEnabled={mock?.enabled}
+					{path}
+					{noHistory}
+				/>
+			</div>
+		{/snippet}
+	</Popover>
 {/snippet}
 
 <style>

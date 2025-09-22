@@ -2,7 +2,11 @@
 	import { getContext, onDestroy, onMount } from 'svelte'
 	import type { AppViewerContext } from '../../types'
 
-	export let id: string
+	interface Props {
+		id: string
+	}
+
+	let { id }: Props = $props()
 	const { initialized } = getContext<AppViewerContext>('AppViewerContext')
 
 	onMount(() => {

@@ -51,10 +51,12 @@
 		}
 	}}
 	{hideDropdown}
-	on:dropdownOpen={({ detail }) => (dropdownOpen = detail)}
+	on:dropdownOpen={({ detail }) => {
+		dropdownOpen = detail
+	}}
 >
 	Deploy
-	<svelte:fragment slot="tooltip">
+	{#snippet tooltip()}
 		<div class="flex flex-row gap-2 w-80 p-4 bg-surface rounded-lg shadow-lg border z-[5001]">
 			<input
 				type="text"
@@ -76,5 +78,5 @@
 				Deploy
 			</Button>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Button>

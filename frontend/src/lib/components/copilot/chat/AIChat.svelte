@@ -62,14 +62,6 @@
 		aiChatManager.cancel()
 	}
 
-	export function addSelectedLinesToContext(lines: string, startLine: number, endLine: number) {
-		aiChatManager.contextManager.addSelectedLinesToContext(lines, startLine, endLine)
-	}
-
-	export function focusTextArea() {
-		aiChatDisplay?.focusInput()
-	}
-
 	const historyManager = aiChatManager.historyManager
 	historyManager.init()
 
@@ -85,7 +77,7 @@
 	})
 
 	$effect(() => {
-		aiChatManager.listenForScriptEditorContextChange(
+		aiChatManager.listenForContextChange(
 			$dbSchemas,
 			$workspaceStore,
 			$copilotSessionModel
@@ -94,10 +86,6 @@
 
 	$effect(() => {
 		aiChatManager.updateMode(untrack(() => aiChatManager.mode))
-	})
-
-	$effect(() => {
-		aiChatManager.loadApiTools()
 	})
 </script>
 
@@ -127,9 +115,7 @@
 	pastChats={historyManager.getPastChats()}
 	bind:selectedContext={
 		() => aiChatManager.contextManager.getSelectedContext(),
-		(sc) => {
-			aiChatManager.scriptEditorOptions && aiChatManager.contextManager.setSelectedContext(sc)
-		}
+		(sc) => aiChatManager.contextManager.setSelectedContext(sc)
 	}
 	availableContext={aiChatManager.contextManager.getAvailableContext()}
 	messages={aiChatManager.currentReply

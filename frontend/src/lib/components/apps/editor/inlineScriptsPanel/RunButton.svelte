@@ -9,14 +9,23 @@
 	import { Button } from '$lib/components/common'
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 
-	export let id: string
-	export let inlineScript: InlineScript | undefined = undefined
-	export let runLoading = false
-	export let hideShortcut = false
+	interface Props {
+		id: string
+		inlineScript?: InlineScript | undefined
+		runLoading?: boolean
+		hideShortcut?: boolean
+	}
+
+	let {
+		id,
+		inlineScript = undefined,
+		runLoading = $bindable(false),
+		hideShortcut = false
+	}: Props = $props()
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 	const { runnableJobEditorPanel } = getContext<AppEditorContext>('AppEditorContext')
-	let cancelable: CancelablePromise<void>[] | undefined = undefined
+	let cancelable: CancelablePromise<void>[] | undefined = $state(undefined)
 </script>
 
 {#if $runnableComponents[id] != undefined}

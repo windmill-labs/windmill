@@ -5,13 +5,23 @@
 	import { APP_TO_ICON_COMPONENT } from '../icons'
 	import { onDestroy, onMount } from 'svelte'
 
-	export let filters: string[]
-	export let selectedFilter: string | undefined = undefined
-	export let resourceType = false
-	export let queryName = 'filter'
-	export let syncQuery = false
+	interface Props {
+		filters: string[]
+		selectedFilter?: string | undefined
+		resourceType?: boolean
+		queryName?: string
+		syncQuery?: boolean
+		bottomMargin?: boolean
+	}
 
-	export let bottomMargin: boolean = true
+	let {
+		filters,
+		selectedFilter = $bindable(undefined),
+		resourceType = false,
+		queryName = 'filter',
+		syncQuery = false,
+		bottomMargin = true
+	}: Props = $props()
 
 	const queryChange: (value: URL) => void = (url: URL) => {
 		if (syncQuery) {
@@ -53,11 +63,13 @@
 		queryChange(url)
 	}
 
-	$: filtersAndSelected = selectedFilter
-		? filters.includes(selectedFilter)
-			? filters
-			: [selectedFilter, ...filters]
-		: filters
+	let filtersAndSelected = $derived(
+		selectedFilter
+			? filters.includes(selectedFilter)
+				? filters
+				: [selectedFilter, ...filters]
+			: filters
+	)
 </script>
 
 {#if Array.isArray(filtersAndSelected) && filtersAndSelected.length > 0}
@@ -82,7 +94,8 @@
 				>
 					<span style="height: 12px" class="-mt-0.5">
 						{#if resourceType}
-							<svelte:component this={getIconComponent(filter)} height="14px" width="14px" />
+							{@const SvelteComponent = getIconComponent(filter)}
+							<SvelteComponent height="14px" width="14px" />
 						{:else if filter.startsWith('u/')}
 							<User class="mr-0.5" size={14} />
 						{:else if filter.startsWith('f/')}

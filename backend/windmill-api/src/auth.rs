@@ -3,12 +3,13 @@ use crate::ee_oss::ExternalJwks;
 use axum::{
     async_trait,
     extract::{FromRequestParts, OriginalUri, Query},
-    Extension,
+    Extension, Json,
 };
 use chrono::TimeZone;
 use http::{request::Parts, StatusCode};
 use quick_cache::sync::Cache;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 use tower_cookies::Cookies;
 use tracing::Span;
 
@@ -21,7 +22,8 @@ use std::sync::{
 use tokio::sync::RwLock;
 
 use windmill_common::{
-    auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims},
+    auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims, TOKEN_PREFIX_LEN},
+    error::{Error, JsonResult},
     jwt,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
 };
@@ -29,8 +31,8 @@ use windmill_common::{
 lazy_static::lazy_static! {
     // Global auth cache accessible from main.rs for direct invalidation
     pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
-}
 
+}
 // Global function to invalidate a specific token from cache
 pub fn invalidate_token_from_cache(token: &str) {
     // Remove all cache entries for this token (across all workspaces)
@@ -134,6 +136,7 @@ impl AuthCache {
                             folders: claims.folders,
                             scopes: None,
                             username_override,
+                            token_prefix: claims.audit_span,
                         };
 
                         AUTH_CACHE.insert(
@@ -217,6 +220,9 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
+                                            token_prefix: Some(
+                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                            ),
                                         })
                                     } else {
                                         let groups = vec![name.to_string()];
@@ -238,6 +244,9 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
+                                            token_prefix: Some(
+                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                            ),
                                         })
                                     }
                                 } else {
@@ -252,6 +261,7 @@ impl AuthCache {
                                         folders,
                                         scopes: None,
                                         username_override,
+                                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
                                     })
                                 }
                             }
@@ -299,6 +309,9 @@ impl AuthCache {
                                                 folders,
                                                 scopes,
                                                 username_override,
+                                                token_prefix: Some(
+                                                    token[0..TOKEN_PREFIX_LEN].to_string(),
+                                                ),
                                             })
                                         }
                                         None if super_admin => Some(ApiAuthed {
@@ -310,6 +323,9 @@ impl AuthCache {
                                             folders: vec![],
                                             scopes,
                                             username_override,
+                                            token_prefix: Some(
+                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                            ),
                                         }),
                                         None => None,
                                     }
@@ -323,6 +339,7 @@ impl AuthCache {
                                         folders: Vec::new(),
                                         scopes,
                                         username_override,
+                                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
                                     })
                                 }
                             }
@@ -355,6 +372,7 @@ impl AuthCache {
                         folders: Vec::new(),
                         scopes: None,
                         username_override: None,
+                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
                     })
                 } else {
                     None
@@ -397,6 +415,7 @@ pub struct Tokened {
     pub token: String,
 }
 
+#[derive(Clone, Debug)]
 pub struct OptTokened {
     #[allow(dead_code)]
     pub token: Option<String>,
@@ -483,6 +502,33 @@ where
     }
 }
 
+pub fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) {
+    if let Some(scopes) = scopes {
+        for scope in scopes.iter_mut() {
+            if scope.starts_with("run:") {
+                let (_, part_scope) = scope.split_once(":").unwrap();
+
+                if let Some((kind, path)) = part_scope.split_once("/") {
+                    //appending a 's' as runnable kind is singular while new scope format expect it to be plural
+                    *scope = format!("jobs:run:{}s:{}", kind, path);
+                }
+            } else if scope.starts_with("jobs:") {
+                // Map old jobs scopes to new format
+                let new_scope = match scope.as_str() {
+                    "jobs:listjobs" => "jobs:read",
+                    "jobs:runscript" => "jobs:run:scripts",
+                    "jobs:runflow" => "jobs:run:flows",
+                    "jobs:resumeflow" => "jobs:run:flows",
+                    "jobs:deletejob" => "jobs:write",
+                    _ => continue,
+                };
+
+                *scope = new_scope.to_string();
+            }
+        }
+    }
+}
+
 fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
     let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
         Some(path_vec[3].to_owned())
@@ -509,7 +555,7 @@ impl<S> FromRequestParts<S> for ApiAuthed
 where
     S: Send + Sync,
 {
-    type Rejection = (StatusCode, String);
+    type Rejection = Error;
 
     async fn from_request_parts(
         parts: &mut Parts,
@@ -530,7 +576,6 @@ where
         } else {
             extract_token(parts, state).await
         };
-
         if let Some(token) = token_o {
             if let Ok(Extension(cache)) =
                 Extension::<Arc<AuthCache>>::from_request_parts(parts, state).await
@@ -543,21 +588,22 @@ where
                 let path_vec: Vec<&str> = original_uri.path().split("/").collect();
                 let workspace_id = maybe_get_workspace_id_from_path(&path_vec);
 
-                if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
-                    if authed.scopes.as_ref().is_some_and(|scopes| {
-                        scopes
-                            .iter()
-                            .any(|s| s.starts_with("jobs:") || s.starts_with("run:"))
-                    }) && (path_vec.len() < 3
-                        || (path_vec[4] != "jobs" && path_vec[4] != "jobs_u"))
-                    {
-                        BRUTE_FORCE_COUNTER.increment().await;
-                        return Err((
-                            StatusCode::UNAUTHORIZED,
-                            format!("Unauthorized scoped token: {:?}", authed.scopes),
-                        ));
-                    }
+                if let Some(mut authed) = cache.get_authed(workspace_id.clone(), &token).await {
+                    if authed.scopes.is_some() {
+                        transform_old_scope_to_new_scope(authed.scopes.as_mut());
 
+                        let path = original_uri.path();
+                        let method = parts.method.as_str();
+
+                        if let Err(err) = crate::scopes::check_scopes_for_route(
+                            authed.scopes.as_deref(),
+                            path,
+                            method,
+                        ) {
+                            BRUTE_FORCE_COUNTER.increment().await;
+                            return Err(err);
+                        }
+                    }
                     parts.extensions.insert(authed.clone());
 
                     Span::current().record("username", &authed.username.as_str());
@@ -571,7 +617,7 @@ where
             }
         }
         BRUTE_FORCE_COUNTER.increment().await;
-        Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
+        Err(Error::NotAuthorized("Unauthorized".to_string()))
     }
 }
 
@@ -596,4 +642,72 @@ fn username_override_from_label(label: Option<String>) -> Option<String> {
         }
         _ => None,
     }
+}
+
+#[derive(FromRow, Serialize)]
+pub struct TruncatedTokenWithEmail {
+    pub label: Option<String>,
+    pub token_prefix: Option<String>,
+    pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: chrono::DateTime<chrono::Utc>,
+    pub scopes: Option<Vec<String>>,
+    pub email: Option<String>,
+}
+
+pub async fn list_tokens_internal(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    is_flow: bool,
+) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
+    let tokens = if is_flow {
+        sqlx::query_as!(
+            TruncatedTokenWithEmail,
+            r#"
+        SELECT label,
+               concat(substring(token for 10)) AS token_prefix,
+               expiration,
+               created_at,
+               last_used_at,
+               scopes,
+               email
+        FROM token
+        WHERE workspace_id = $1
+          AND (
+               scopes @> ARRAY['jobs:run:flows:' || $2]::text[]
+               OR scopes @> ARRAY['run:flow/' || $2]::text[]
+              )
+        "#,
+            w_id,
+            path
+        )
+        .fetch_all(db)
+        .await?
+    } else {
+        sqlx::query_as!(
+            TruncatedTokenWithEmail,
+            r#"
+        SELECT label,
+               concat(substring(token for 10)) AS token_prefix,
+               expiration,
+               created_at,
+               last_used_at,
+               scopes,
+               email
+        FROM token
+        WHERE workspace_id = $1
+          AND (
+               scopes @> ARRAY['jobs:run:scripts:' || $2]::text[]
+               OR scopes @> ARRAY['run:script/' || $2]::text[]
+              )
+        "#,
+            w_id,
+            path
+        )
+        .fetch_all(db)
+        .await?
+    };
+
+    Ok(Json(tokens))
 }

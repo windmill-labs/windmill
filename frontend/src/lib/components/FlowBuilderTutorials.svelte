@@ -7,8 +7,8 @@
 	import FlowTutorials from './FlowTutorials.svelte'
 	import { tutorialsToDo } from '$lib/stores'
 
-	let targetTutorial: string | undefined = undefined
-	let flowTutorials: FlowTutorials | undefined = undefined
+	let targetTutorial: string | undefined = $state(undefined)
+	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
 	async function getTutorialItems() {
 		const tutorials = [
@@ -42,7 +42,7 @@
 
 {#key $tutorialsToDo}
 	<Dropdown items={getTutorialItems} class="w-fit">
-		<svelte:fragment slot="buttonReplacement">
+		{#snippet buttonReplacement()}
 			<Button
 				nonCaptureEvent
 				size="xs"
@@ -51,7 +51,7 @@
 				id="tutorials-button"
 				startIcon={{ icon: BookOpen }}
 			/>
-		</svelte:fragment>
+		{/snippet}
 	</Dropdown>
 {/key}
 

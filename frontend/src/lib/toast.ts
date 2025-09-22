@@ -13,6 +13,16 @@ export function sendUserToast(
 	errorMessage: string | undefined = undefined,
 	duration: number = 5000
 ): void {
+	if (globalThis.windmillToast) {
+		globalThis.windmillToast({
+			message,
+			error,
+			actions,
+			errorMessage,
+			duration
+		})
+		return
+	}
 	toast.push({
 		component: {
 			// https://github.com/zerodevx/svelte-toast/issues/115

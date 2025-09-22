@@ -18,10 +18,11 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     error::{self},
+    worker::MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS,
     DB,
 };
 
-use crate::{db::ApiAuthed, utils::{require_devops_role}};
+use crate::{db::ApiAuthed, utils::require_devops_role};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -32,6 +33,10 @@ pub fn global_service() -> Router {
         .route(
             "/list_autoscaling_events/:worker_group",
             get(list_autoscaling_events),
+        )
+        .route(
+            "/native_kubernetes_autoscaling_healthcheck",
+            get(native_kubernetes_autoscaling_healthcheck),
         )
         .route(
             "/list_available_python_versions",
@@ -129,6 +134,42 @@ async fn update_config(
         ));
     }
 
+    if name.starts_with("worker__") {
+        let periodic_script_bash = config
+            .get("periodic_script_bash")
+            .filter(|v| !v.is_null())
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+
+        let periodic_script_interval = config
+            .get("periodic_script_interval_seconds")
+            .filter(|v| !v.is_null());
+
+        match (periodic_script_bash, periodic_script_interval) {
+            (Some(_), Some(interval_value)) => {
+                if let Some(interval) = interval_value.as_u64() {
+                    if interval < MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS {
+                        return Err(error::Error::BadRequest(format!(
+                            "Periodic script interval must be at least {} seconds, got {} seconds",
+                            MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, interval
+                        )));
+                    }
+                } else {
+                    return Err(error::Error::BadRequest(
+                        "Periodic script interval must be a valid number".to_string(),
+                    ));
+                }
+            }
+            (Some(_), None) => {
+                return Err(error::Error::BadRequest(
+                    "Periodic script interval must be specified when periodic script is configured"
+                        .to_string(),
+                ));
+            }
+            _ => {}
+        }
+    }
+
     let mut tx = db.begin().await?;
     sqlx::query!(
         "INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = $2",
@@ -207,6 +248,26 @@ async fn list_autoscaling_events(
     .fetch_all(&db)
     .await?;
     Ok(Json(events))
+}
+
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn native_kubernetes_autoscaling_healthcheck(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> Result<(), windmill_autoscaling::kubernetes_integration_ee::KubeError> {
+    require_devops_role(&db, &authed.email).await.map_err(|e| {
+        windmill_autoscaling::kubernetes_integration_ee::KubeError::Other(e.to_string())
+    })?;
+
+    windmill_autoscaling::kubernetes_integration_ee::kubernetes_healthcheck().await
+}
+
+#[cfg(not(all(feature = "enterprise", feature = "private")))]
+async fn native_kubernetes_autoscaling_healthcheck(
+) -> Result<(), error::Error> {
+    Err(error::Error::BadRequest(
+        "Native Kubernetes autoscaling available only in the enterprise version".to_string(),
+    ))
 }
 
 async fn list_available_python_versions() -> error::JsonResult<Vec<String>> {

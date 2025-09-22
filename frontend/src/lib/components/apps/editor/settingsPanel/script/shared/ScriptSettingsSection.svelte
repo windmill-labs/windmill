@@ -1,8 +1,13 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	export let title: string
-	export let tooltip: string | undefined = undefined
+	interface Props {
+		title: string
+		tooltip?: string | undefined
+		children?: import('svelte').Snippet
+	}
+
+	let { title, tooltip = undefined, children }: Props = $props()
 </script>
 
 <div class="py-2">
@@ -16,5 +21,5 @@
 		{/if}
 	</div>
 
-	<slot />
+	{@render children?.()}
 </div>

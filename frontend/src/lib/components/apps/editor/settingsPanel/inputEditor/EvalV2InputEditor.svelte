@@ -22,6 +22,7 @@
 		recomputeOnInputChanged?: boolean
 		showOnDemandOnlyToggle?: boolean
 		securedContext?: boolean
+		disabled?: boolean
 	}
 
 	let {
@@ -32,7 +33,8 @@
 		acceptSelf = false,
 		recomputeOnInputChanged = true,
 		showOnDemandOnlyToggle = false,
-		securedContext = false
+		securedContext = false,
+		disabled = false
 	}: Props = $props()
 
 	const {
@@ -136,6 +138,7 @@
 				shouldBindKey={false}
 				{extraLib}
 				autoHeight
+				{disabled}
 				{fixedOverflowWidgets}
 				on:focus={() => {
 					focus = true

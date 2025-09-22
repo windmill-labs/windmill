@@ -3,8 +3,14 @@
 	import type { AppViewerContext, ContextPanelContext } from '../../types'
 	import { dfs, selectId } from '../appUtils'
 
-	export let id: string
-	export let type: string
+	interface Props {
+		id: string
+		type: string
+		class: string
+		children?: import('svelte').Snippet
+	}
+
+	let { id, type, class: clazz, children }: Props = $props()
 
 	const { app, connectingInput, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -40,34 +46,34 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-mouse-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_mouse_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class={$$props.class}
-	on:pointerover={(e) => {
+	class={clazz}
+	onpointerover={(e) => {
 		if ($connectingInput.opened && $connectingInput.hoveredComponent !== id) {
 			$connectingInput.hoveredComponent = id
 		}
 		e.stopPropagation()
 	}}
-	on:pointerleave={(e) => {
+	onpointerleave={(e) => {
 		if ($connectingInput.opened) {
 			$connectingInput.hoveredComponent = undefined
 			e.stopPropagation()
 		}
 	}}
-	on:focus={(e) => {
+	onfocus={(e) => {
 		if ($connectingInput.opened) {
 			e.stopPropagation()
 		}
 	}}
-	on:pointerdown={onPointerDown}
-	on:click|capture={(event) =>
+	onpointerdown={onPointerDown}
+	onclickcapture={(event) =>
 		preventInteraction(event, type === 'tabscomponent' || type === 'steppercomponent')}
-	on:drag|capture={preventInteraction}
-	on:pointerup|capture={(event) =>
+	ondragcapture={preventInteraction}
+	onpointerupcapture={(event) =>
 		preventInteraction(event, type === 'tabscomponent' || type === 'steppercomponent')}
 >
-	<slot />
+	{@render children?.()}
 </div>

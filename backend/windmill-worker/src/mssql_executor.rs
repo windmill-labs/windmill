@@ -5,7 +5,9 @@ use regex::Regex;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
-use tiberius::{AuthMethod, Client, ColumnData, Config, FromSqlOwned, Query, Row, SqlBrowser};
+use tiberius::{
+    AuthMethod, Client, ColumnData, Config, EncryptionLevel, FromSqlOwned, Query, Row, SqlBrowser,
+};
 use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
@@ -39,6 +41,7 @@ struct MssqlDatabase {
     trust_cert: Option<bool>,
     #[serde(default, deserialize_with = "empty_as_none")]
     ca_cert: Option<String>,
+    encrypt: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -145,6 +148,12 @@ pub async fn do_mssql(
         config.trust_cert_ca(cert_path);
         tracing::info!("MSSQL: using provided CA certificate for trust");
     }
+
+    config.encryption(if database.encrypt.unwrap_or(true) {
+        EncryptionLevel::Required
+    } else {
+        EncryptionLevel::NotSupported
+    });
 
     let tcp = if use_instance_name {
         TcpStream::connect_named(&config).await.map_err(to_anyhow)? // named instance

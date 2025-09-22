@@ -11,7 +11,11 @@ import {
 } from "./index";
 import { OpenAPI } from "./index";
 // import type { DenoS3LightClientSettings } from "./index";
-import { DenoS3LightClientSettings, type S3Object } from "./s3Types";
+import {
+  DenoS3LightClientSettings,
+  S3ObjectRecord,
+  type S3Object,
+} from "./s3Types";
 
 export {
   AdminService,
@@ -81,7 +85,7 @@ export async function getResource(
   path?: string,
   undefinedIfEmpty?: boolean
 ): Promise<any> {
-  path = path ?? getStatePath();
+  path = parseResourceSyntax(path) ?? path ?? getStatePath();
   const mockedApi = await getMockedApi();
   if (mockedApi) {
     if (mockedApi.resources[path]) {
@@ -125,7 +129,23 @@ export async function getRootJobId(jobId?: string): Promise<string> {
   return await JobService.getRootJobId({ workspace, id: jobId });
 }
 
+/**
+ * @deprecated Use runScriptByPath or runScriptByHash instead
+ */
 export async function runScript(
+  path: string | null = null,
+  hash_: string | null = null,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  console.warn('runScript is deprecated. Use runScriptByPath or runScriptByHash instead.');
+  if (path && hash_) {
+    throw new Error("path and hash_ are mutually exclusive");
+  }
+  return _runScriptInternal(path, hash_, args, verbose);
+}
+
+async function _runScriptInternal(
   path: string | null = null,
   hash_: string | null = null,
   args: Record<string, any> | null = null,
@@ -134,11 +154,53 @@ export async function runScript(
   args = args || {};
 
   if (verbose) {
-    console.info(`running \`${path}\` synchronously with args:`, args);
+    if (path) {
+      console.info(`running \`${path}\` synchronously with args:`, args);
+    } else if (hash_) {
+      console.info(`running script with hash \`${hash_}\` synchronously with args:`, args);
+    }
   }
 
-  const jobId = await runScriptAsync(path, hash_, args);
+  const jobId = await _runScriptAsyncInternal(path, hash_, args);
   return await waitJob(jobId, verbose);
+}
+
+export async function runScriptByPath(
+  path: string,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  return _runScriptInternal(path, null, args, verbose);
+}
+
+export async function runScriptByHash(
+  hash_: string,
+  args: Record<string, any> | null = null,
+  verbose: boolean = false
+): Promise<any> {
+  return _runScriptInternal(null, hash_, args, verbose);
+}
+
+/**
+ * Append a text to the result stream
+ * @param text text to append to the result stream
+ */
+export function appendToResultStream(
+  text: string
+) {
+  console.log("WM_STREAM: " + text.replace(/\n/g, "\\n"));
+}
+
+/**
+ * Stream to the result stream
+ * @param stream stream to stream to the result stream
+ */
+export async function streamResult(
+  stream: AsyncIterable<string>
+) {
+  for await (const text of stream) {
+    appendToResultStream(text);
+  }
 }
 
 export async function runFlow(
@@ -239,16 +301,30 @@ export function task<P, T>(f: (_: P) => T): (_: P) => Promise<T> {
   };
 }
 
+/**
+ * @deprecated Use runScriptByPathAsync or runScriptByHashAsync instead
+ */
 export async function runScriptAsync(
   path: string | null,
   hash_: string | null,
   args: Record<string, any> | null,
   scheduledInSeconds: number | null = null
 ): Promise<string> {
+  console.warn('runScriptAsync is deprecated. Use runScriptByPathAsync or runScriptByHashAsync instead.');
   // Create a script job and return its job id.
   if (path && hash_) {
     throw new Error("path and hash_ are mutually exclusive");
   }
+  return _runScriptAsyncInternal(path, hash_, args, scheduledInSeconds);
+}
+
+async function _runScriptAsyncInternal(
+  path: string | null = null,
+  hash_: string | null = null,
+  args: Record<string, any> | null = null,
+  scheduledInSeconds: number | null = null
+): Promise<string> {
+  // Create a script job and return its job id.
   args = args || {};
   const params: Record<string, any> = {};
 
@@ -274,6 +350,7 @@ export async function runScriptAsync(
   } else {
     throw new Error("path or hash_ must be provided");
   }
+
   let url = new URL(OpenAPI.BASE + endpoint);
   url.search = new URLSearchParams(params).toString();
 
@@ -285,6 +362,22 @@ export async function runScriptAsync(
     },
     body: JSON.stringify(args),
   }).then((res) => res.text());
+}
+
+export async function runScriptByPathAsync(
+  path: string,
+  args: Record<string, any> | null = null,
+  scheduledInSeconds: number | null = null
+): Promise<string> {
+  return _runScriptAsyncInternal(path, null, args, scheduledInSeconds);
+}
+
+export async function runScriptByHashAsync(
+  hash_: string,
+  args: Record<string, any> | null = null,
+  scheduledInSeconds: number | null = null
+): Promise<string> {
+  return _runScriptAsyncInternal(null, hash_, args, scheduledInSeconds);
 }
 
 export async function runFlowAsync(
@@ -367,7 +460,7 @@ export async function setResource(
   path?: string,
   initializeToTypeIfNotExist?: string
 ): Promise<void> {
-  path = path ?? getStatePath();
+  path = parseResourceSyntax(path) ?? path ?? getStatePath();
   const mockedApi = await getMockedApi();
   if (mockedApi) {
     mockedApi.resources[path] = value;
@@ -551,6 +644,7 @@ export async function getState(): Promise<any> {
  * @returns variable value
  */
 export async function getVariable(path: string): Promise<string> {
+  path = parseVariableSyntax(path) ?? path;
   const mockedApi = await getMockedApi();
   if (mockedApi) {
     if (mockedApi.variables[path]) {
@@ -584,6 +678,7 @@ export async function setVariable(
   isSecretIfNotExist?: boolean,
   descriptionIfNotExist?: string
 ): Promise<void> {
+  path = parseVariableSyntax(path) ?? path;
   const mockedApi = await getMockedApi();
   if (mockedApi) {
     mockedApi.variables[path] = value;
@@ -642,7 +737,8 @@ export async function denoS3LightClientSettings(
   const s3Resource = await HelpersService.s3ResourceInfo({
     workspace: workspace,
     requestBody: {
-      s3_resource_path: s3_resource_path,
+      s3_resource_path:
+        parseResourceSyntax(s3_resource_path) ?? s3_resource_path,
     },
   });
   let settings: DenoS3LightClientSettings = {
@@ -706,20 +802,20 @@ export async function loadS3FileStream(
   s3object: S3Object,
   s3ResourcePath: string | undefined = undefined
 ): Promise<Blob | undefined> {
+  let s3Obj = s3object && parseS3Object(s3object);
   let params: Record<string, string> = {};
-  params["file_key"] = s3object.s3;
+  params["file_key"] = s3Obj.s3;
   if (s3ResourcePath !== undefined) {
     params["s3_resource_path"] = s3ResourcePath;
   }
-  if (s3object.storage !== undefined) {
-    params["storage"] = s3object.storage;
+  if (s3Obj.storage !== undefined) {
+    params["storage"] = s3Obj.storage;
   }
   const queryParams = new URLSearchParams(params);
 
   // We use raw fetch here b/c OpenAPI generated client doesn't handle Blobs nicely
-  const fileContentBlob = await fetch(
-    `${
-      OpenAPI.BASE
+  const response = await fetch(
+    `${OpenAPI.BASE
     }/w/${getWorkspace()}/job_helpers/download_s3_file?${queryParams}`,
     {
       method: "GET",
@@ -728,7 +824,16 @@ export async function loadS3FileStream(
       },
     }
   );
-  return fileContentBlob.blob();
+
+  // Check if the response was successful
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `Failed to load S3 file: ${response.status} ${response.statusText} - ${errorText}`
+    );
+  }
+
+  return response.blob();
 }
 
 /**
@@ -756,13 +861,15 @@ export async function writeS3File(
     fileContentBlob = fileContent as Blob;
   }
 
+  let s3Obj = s3object && parseS3Object(s3object);
+
   const response = await HelpersService.fileUpload({
     workspace: getWorkspace(),
-    fileKey: s3object?.s3,
+    fileKey: s3Obj?.s3,
     fileExtension: undefined,
     s3ResourcePath: s3ResourcePath,
     requestBody: fileContentBlob,
-    storage: s3object?.storage,
+    storage: s3Obj?.storage,
     contentType,
     contentDisposition,
   });
@@ -782,7 +889,7 @@ export async function signS3Objects(
   const signedKeys = await AppService.signS3Objects({
     workspace: getWorkspace(),
     requestBody: {
-      s3_objects: s3objects,
+      s3_objects: s3objects.map(parseS3Object),
     },
   });
   return signedKeys;
@@ -1159,4 +1266,19 @@ async function getMockedApi(): Promise<MockedApi | undefined> {
 interface MockedApi {
   variables: Record<string, string>;
   resources: Record<string, any>;
+}
+
+function parseResourceSyntax(s: string | undefined) {
+  if (s?.startsWith("$res:")) return s.substring(5);
+  if (s?.startsWith("res://")) return s.substring(6);
+}
+
+export function parseS3Object(s3Object: S3Object): S3ObjectRecord {
+  if (typeof s3Object === "object") return s3Object;
+  const match = s3Object.match(/^s3:\/\/([^/]*)\/(.*)$/);
+  return { storage: match?.[1] || undefined, s3: match?.[2] ?? "" };
+}
+
+function parseVariableSyntax(s: string) {
+  if (s.startsWith("var://")) return s.substring(6);
 }

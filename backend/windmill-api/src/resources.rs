@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use crate::{
     db::{ApiAuthed, DB},
     users::{maybe_refresh_folders, require_owner_of_path, Tokened},
+    utils::{check_scopes, BulkDeleteRequest},
+    var_resource_cache::{cache_resource, get_cached_resource},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -20,6 +22,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use futures::future::try_join_all;
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
@@ -29,10 +32,11 @@ use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    db::UserDB,
+    db::{UserDB, UserDbWithOptAuthed},
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
+    worker::CLOUD_HOSTED,
 };
 
 pub fn workspaced_service() -> Router {
@@ -50,6 +54,7 @@ pub fn workspaced_service() -> Router {
         .route("/update/*path", post(update_resource))
         .route("/update_value/*path", post(update_resource_value))
         .route("/delete/*path", delete(delete_resource))
+        .route("/delete_bulk", delete(delete_resources_bulk))
         .route("/create", post(create_resource))
         .route("/type/list", get(list_resource_types))
         .route("/type/listnames", get(list_resource_types_names))
@@ -279,6 +284,7 @@ async fn get_resource(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<ListableResource> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let resource_o = sqlx::query_as!(
@@ -330,6 +336,8 @@ async fn get_resource_value(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     let value_o = sqlx::query_scalar!(
@@ -346,6 +354,7 @@ async fn get_resource_value(
     }
 
     let value = not_found_if_none(value_o, "Resource", path)?;
+
     Ok(Json(value))
 }
 
@@ -412,7 +421,9 @@ async fn custom_component(
 #[derive(Deserialize)]
 struct JobInfo {
     job_id: Option<Uuid>,
+    allow_cache: Option<bool>,
 }
+
 async fn get_resource_value_interpolated(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -421,14 +432,18 @@ async fn get_resource_value_interpolated(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(job_info): Query<JobInfo>,
 ) -> JsonResult<Option<serde_json::Value>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+
     return get_resource_value_interpolated_internal(
         &authed,
         Some(user_db),
         &db,
         w_id.as_str(),
-        path.to_path(),
+        path,
         job_info.job_id,
         token.as_str(),
+        job_info.allow_cache.unwrap_or(false),
     )
     .await
     .map(|success| Json(success));
@@ -445,7 +460,13 @@ pub async fn get_resource_value_interpolated_internal(
     path: &str,
     job_id: Option<Uuid>,
     token: &str,
+    allow_cache: bool,
 ) -> Result<Option<serde_json::Value>> {
+    if allow_cache {
+        if let Some(cached_value) = get_cached_resource(&workspace, &path) {
+            return Ok(Some(cached_value));
+        }
+    }
     let mut tx = authed_transaction_or_default(authed, user_db.clone(), db).await?;
 
     let value_o = sqlx::query_scalar!(
@@ -462,18 +483,20 @@ pub async fn get_resource_value_interpolated_internal(
 
     let value = not_found_if_none(value_o, "Resource", path)?;
     if let Some(value) = value {
-        Ok(Some(
-            transform_json_value(
-                authed,
-                user_db.clone(),
-                db,
-                workspace,
-                value,
-                &job_id,
-                token,
-            )
-            .await?,
-        ))
+        let r = transform_json_value(
+            authed,
+            user_db.clone(),
+            db,
+            workspace,
+            value,
+            &job_id,
+            token,
+        )
+        .await?;
+        if allow_cache {
+            cache_resource(&workspace, &path, r.clone());
+        }
+        Ok(Some(r))
     } else {
         Ok(None)
     }
@@ -492,11 +515,10 @@ pub async fn transform_json_value<'c>(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let tx: Transaction<'_, Postgres> =
-                authed_transaction_or_default(authed, user_db.clone(), db).await?;
+            let userdb_authed = UserDbWithOptAuthed { authed: authed, user_db: user_db.clone(), db: db.clone() };
 
             let v = crate::variables::get_value_internal(
-                tx,
+                &userdb_authed,
                 db,
                 workspace,
                 path,
@@ -507,7 +529,9 @@ pub async fn transform_json_value<'c>(
                         email: "backend".to_string(),
                         username: "backend".to_string(),
                         username_override: None,
+                        token_prefix: None,
                     }),
+                false,
             )
             .await?;
             Ok(Value::String(v))
@@ -541,12 +565,18 @@ pub async fn transform_json_value<'c>(
             let job_id = job_id.unwrap();
             let job = sqlx::query!(
                 "SELECT
-                    email AS \"email!\",
-                    created_by AS \"created_by!\",
-                    parent_job, permissioned_as AS \"permissioned_as!\",
-                    script_path, schedule_path, flow_step_id, root_job,
-                    scheduled_for AS \"scheduled_for!: chrono::DateTime<chrono::Utc>\"
-                FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
+                    v2_job.permissioned_as_email,
+                    v2_job.created_by,
+                    v2_job.parent_job,
+                    v2_job.permissioned_as,
+                    v2_job.runnable_path,
+                    CASE WHEN v2_job.trigger_kind = 'schedule'::job_trigger_kind THEN v2_job.trigger END AS schedule_path,
+                    v2_job.flow_step_id,
+                    v2_job.flow_innermost_root_job,
+                    v2_job.root_job,
+                    v2_job_queue.scheduled_for AS \"scheduled_for: chrono::DateTime<chrono::Utc>\"
+                FROM v2_job INNER JOIN v2_job_queue ON v2_job.id = v2_job_queue.id
+                WHERE v2_job.id = $1 AND v2_job.workspace_id = $2",
                 job_id,
                 workspace
             )
@@ -573,17 +603,19 @@ pub async fn transform_json_value<'c>(
                 &db.into(),
                 workspace,
                 token,
-                &job.email,
+                &job.permissioned_as_email,
                 &job.created_by,
                 &job_id.to_string(),
                 &job.permissioned_as,
-                job.script_path.clone(),
+                job.runnable_path.clone(),
                 job.parent_job.map(|x| x.to_string()),
                 flow_path,
                 job.schedule_path.clone(),
                 job.flow_step_id.clone(),
+                job.flow_innermost_root_job.map(|x| x.to_string()),
                 job.root_job.map(|x| x.to_string()),
                 Some(job.scheduled_for.clone()),
+                None,
             )
             .await;
 
@@ -656,6 +688,21 @@ async fn create_resource(
     Query(q): Query<CreateResourceQuery>,
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("resources:write:{}", resource.path))?;
+    if *CLOUD_HOSTED {
+        let nb_resources = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM resource WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?;
+        if nb_resources.unwrap_or(0) >= 10000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of resources (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+    }
     let authed = maybe_refresh_folders(&resource.path, &w_id, authed, &db).await;
 
     let mut tx = user_db.begin(&authed).await?;
@@ -724,6 +771,8 @@ async fn delete_resource(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+
+    check_scopes(&authed, || format!("resources:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -771,6 +820,67 @@ async fn delete_resource(
     Ok(format!("resource {} deleted", path))
 }
 
+async fn delete_resources_bulk(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path(w_id): Path<String>,
+    Json(request): Json<BulkDeleteRequest>,
+) -> JsonResult<Vec<String>> {
+    for path in &request.paths {
+        check_scopes(&authed, || format!("resources:write:{}", path))?;
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let deleted_paths = sqlx::query_scalar!(
+        "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
+        &request.paths,
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resources.delete_bulk",
+        ActionKind::Delete,
+        &w_id,
+        Some(&deleted_paths.join(", ")),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    try_join_all(deleted_paths.iter().map(|path| {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Resource {
+                path: path.to_string(),
+                parent_path: Some(path.to_string()),
+            },
+            Some(format!("Resource '{}' deleted", path)),
+            true,
+        )
+    }))
+    .await?;
+
+    for path in &deleted_paths {
+        webhook.send_message(
+            w_id.clone(),
+            WebhookMessage::DeleteResource { workspace: w_id.clone(), path: path.to_owned() },
+        );
+    }
+
+    Ok(Json(deleted_paths))
+}
+
 async fn update_resource(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -782,6 +892,7 @@ async fn update_resource(
     use sql_builder::prelude::*;
 
     let path = path.to_path();
+    check_scopes(&authed, || format!("resources:write:{}", path))?;
 
     let mut sqlb = SqlBuilder::update_table("resource");
     sqlb.and_where_eq("path", "?".bind(&path));
@@ -875,6 +986,7 @@ async fn update_resource_value(
     Json(nv): Json<UpdateResource>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("resources:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -1043,6 +1155,18 @@ async fn create_resource_type(
     .execute(&mut *tx)
     .await?;
 
+    audit_log(
+        &mut *tx,
+        &authed,
+        "resource_types.create",
+        ActionKind::Create,
+        &w_id,
+        Some(&resource_type.name),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
@@ -1056,18 +1180,6 @@ async fn create_resource_type(
         true,
     )
     .await?;
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "resource_types.create",
-        ActionKind::Create,
-        &w_id,
-        Some(&resource_type.name),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
 
     webhook.send_message(
         w_id.clone(),
@@ -1212,7 +1324,12 @@ async fn update_resource_type(
     feature = "mqtt_trigger",
     all(
         feature = "enterprise",
-        any(feature = "sqs_trigger", feature = "gcp_trigger")
+        any(
+            feature = "sqs_trigger",
+            feature = "gcp_trigger",
+            feature = "kafka",
+            feature = "nats"
+        )
     )
 ))]
 pub async fn try_get_resource_from_db_as<T>(
@@ -1233,6 +1350,7 @@ where
         &resource_path,
         None,
         "",
+        false,
     )
     .await?;
 

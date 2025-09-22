@@ -11,7 +11,8 @@ import time
 import warnings
 import json
 from json import JSONDecodeError
-from typing import Dict, Any, Union, Literal
+from typing import Dict, Any, Union, Literal, Optional
+import re
 
 import httpx
 
@@ -119,21 +120,57 @@ class Windmill:
         args: dict = None,
         scheduled_in_secs: int = None,
     ) -> str:
-        """Create a script job and return its job id."""
+        """Create a script job and return its job id.
+        
+        .. deprecated:: Use run_script_by_path_async or run_script_by_hash_async instead.
+        """
+        logging.warning(
+            "run_script_async is deprecated. Use run_script_by_path_async or run_script_by_hash_async instead.",
+        )
         assert not (path and hash_), "path and hash_ are mutually exclusive"
+        return self._run_script_async_internal(path=path, hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs)
+
+    def _run_script_async_internal(
+        self,
+        path: str = None,
+        hash_: str = None,
+        args: dict = None,
+        scheduled_in_secs: int = None,
+    ) -> str:
+        """Internal helper for running scripts asynchronously."""
         args = args or {}
         params = {"scheduled_in_secs": scheduled_in_secs} if scheduled_in_secs else {}
         if os.environ.get("WM_JOB_ID"):
             params["parent_job"] = os.environ.get("WM_JOB_ID")
         if os.environ.get("WM_ROOT_FLOW_JOB_ID"):
             params["root_job"] = os.environ.get("WM_ROOT_FLOW_JOB_ID")
+        
         if path:
             endpoint = f"/w/{self.workspace}/jobs/run/p/{path}"
         elif hash_:
             endpoint = f"/w/{self.workspace}/jobs/run/h/{hash_}"
         else:
             raise Exception("path or hash_ must be provided")
+        
         return self.post(endpoint, json=args, params=params).text
+
+    def run_script_by_path_async(
+        self,
+        path: str,
+        args: dict = None,
+        scheduled_in_secs: int = None,
+    ) -> str:
+        """Create a script job by path and return its job id."""
+        return self._run_script_async_internal(path=path, args=args, scheduled_in_secs=scheduled_in_secs)
+
+    def run_script_by_hash_async(
+        self,
+        hash_: str,
+        args: dict = None,
+        scheduled_in_secs: int = None,
+    ) -> str:
+        """Create a script job by hash and return its job id."""
+        return self._run_script_async_internal(hash_=hash_, args=args, scheduled_in_secs=scheduled_in_secs)
 
     def run_flow_async(
         self,
@@ -169,18 +206,74 @@ class Windmill:
         cleanup: bool = True,
         assert_result_is_not_none: bool = False,
     ) -> Any:
-        """Run script synchronously and return its result."""
+        """Run script synchronously and return its result.
+        
+        .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
+        """
+        logging.warning(
+            "run_script is deprecated. Use run_script_by_path or run_script_by_hash instead.",
+        )
+        assert not (path and hash_), "path and hash_ are mutually exclusive"
+        return self._run_script_internal(
+            path=path, hash_=hash_, args=args, timeout=timeout, verbose=verbose,
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
+        )
+
+    def _run_script_internal(
+        self,
+        path: str = None,
+        hash_: str = None,
+        args: dict = None,
+        timeout: dt.timedelta | int | float | None = None,
+        verbose: bool = False,
+        cleanup: bool = True,
+        assert_result_is_not_none: bool = False,
+    ) -> Any:
+        """Internal helper for running scripts synchronously."""
         args = args or {}
 
         if verbose:
-            logger.info(f"running `{path}` synchronously with {args = }")
+            if path:
+                logger.info(f"running `{path}` synchronously with {args = }")
+            elif hash_:
+                logger.info(f"running script with hash `{hash_}` synchronously with {args = }")
 
         if isinstance(timeout, dt.timedelta):
             timeout = timeout.total_seconds()
 
-        job_id = self.run_script_async(path=path, hash_=hash_, args=args)
+        job_id = self._run_script_async_internal(path=path, hash_=hash_, args=args)
         return self.wait_job(
             job_id, timeout, verbose, cleanup, assert_result_is_not_none
+        )
+
+    def run_script_by_path(
+        self,
+        path: str,
+        args: dict = None,
+        timeout: dt.timedelta | int | float | None = None,
+        verbose: bool = False,
+        cleanup: bool = True,
+        assert_result_is_not_none: bool = False,
+    ) -> Any:
+        """Run script by path synchronously and return its result."""
+        return self._run_script_internal(
+            path=path, args=args, timeout=timeout, verbose=verbose,
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
+        )
+
+    def run_script_by_hash(
+        self,
+        hash_: str,
+        args: dict = None,
+        timeout: dt.timedelta | int | float | None = None,
+        verbose: bool = False,
+        cleanup: bool = True,
+        assert_result_is_not_none: bool = False,
+    ) -> Any:
+        """Run script by hash synchronously and return its result."""
+        return self._run_script_internal(
+            hash_=hash_, args=args, timeout=timeout, verbose=verbose,
+            cleanup=cleanup, assert_result_is_not_none=assert_result_is_not_none
         )
 
     def wait_job(
@@ -312,6 +405,7 @@ class Windmill:
             return result_text
 
     def get_variable(self, path: str) -> str:
+        path = parse_variable_syntax(path) or path
         if self.mocked_api is not None:
             variables = self.mocked_api["variables"]
             try:
@@ -326,6 +420,7 @@ class Windmill:
         return self.get(f"/w/{self.workspace}/variables/get_value/{path}").json()
 
     def set_variable(self, path: str, value: str, is_secret: bool = False) -> None:
+        path = parse_variable_syntax(path) or path
         if self.mocked_api is not None:
             self.mocked_api["variables"][path] = value
             return
@@ -358,6 +453,7 @@ class Windmill:
         path: str,
         none_if_undefined: bool = False,
     ) -> dict | None:
+        path = parse_resource_syntax(path) or path
         if self.mocked_api is not None:
             resources = self.mocked_api["resources"]
             try:
@@ -391,6 +487,7 @@ class Windmill:
         path: str,
         resource_type: str,
     ):
+        path = parse_resource_syntax(path) or path
         if self.mocked_api is not None:
             self.mocked_api["resources"][path] = value
             return
@@ -485,6 +582,7 @@ class Windmill:
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection from DuckDB
         """
+        s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
         try:
             raw_obj = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/duckdb_connection_settings",
@@ -506,6 +604,7 @@ class Windmill:
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection from Polars
         """
+        s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
         try:
             raw_obj = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/polars_connection_settings",
@@ -527,6 +626,7 @@ class Windmill:
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
         initiate an S3 connection using boto3
         """
+        s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
         try:
             s3_resource = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",
@@ -540,7 +640,7 @@ class Windmill:
                 "Could not generate Boto3 S3 connection settings from the provided resource"
             ) from e
 
-    def load_s3_file(self, s3object: S3Object, s3_resource_path: str | None) -> bytes:
+    def load_s3_file(self, s3object: S3Object | str, s3_resource_path: str | None) -> bytes:
         """
         Load a file from the workspace s3 bucket and returns its content as bytes.
 
@@ -552,11 +652,12 @@ class Windmill:
         file_content = my_obj_content.decode("utf-8")
         '''
         """
+        s3object = parse_s3_object(s3object)
         with self.load_s3_file_reader(s3object, s3_resource_path) as file_reader:
             return file_reader.read()
 
     def load_s3_file_reader(
-        self, s3object: S3Object, s3_resource_path: str | None
+        self, s3object: S3Object | str, s3_resource_path: str | None
     ) -> BufferedReader:
         """
         Load a file from the workspace s3 bucket and returns the bytes stream.
@@ -565,10 +666,11 @@ class Windmill:
         from wmill import S3Object
 
         s3_obj = S3Object(s3="/path/to/my_file.txt")
-        with wmill.load_s3_file(s3object, s3_resource_path) as file_reader:
+        with wmill.load_s3_file_reader(s3object, s3_resource_path) as file_reader:
             print(file_reader.read())
         '''
         """
+        s3object = parse_s3_object(s3object)
         reader = S3BufferedReader(
             f"{self.workspace}",
             self.client,
@@ -580,7 +682,7 @@ class Windmill:
 
     def write_s3_file(
         self,
-        s3object: S3Object | None,
+        s3object: S3Object | str | None,
         file_content: BufferedReader | bytes,
         s3_resource_path: str | None,
         content_type: str | None = None,
@@ -603,6 +705,7 @@ class Windmill:
             client.write_s3_file(s3_obj, my_file)
         '''
         """
+        s3object = parse_s3_object(s3object)
         # httpx accepts either bytes or "a bytes generator" as content. If it's a BufferedReader, we need to convert it to a generator
         if isinstance(file_content, BufferedReader):
             content_payload = bytes_generator(file_content)
@@ -644,12 +747,12 @@ class Windmill:
             raise Exception("Could not write file to S3") from e
         return S3Object(s3=response["file_key"])
 
-    def sign_s3_objects(self, s3_objects: list[S3Object]) -> list[S3Object]:
+    def sign_s3_objects(self, s3_objects: list[S3Object | str]) -> list[S3Object]:
         return self.post(
-            f"/w/{self.workspace}/apps/sign_s3_objects", json={"s3_objects": s3_objects}
+            f"/w/{self.workspace}/apps/sign_s3_objects", json={"s3_objects": list(map(parse_s3_object, s3_objects))}
         ).json()
 
-    def sign_s3_object(self, s3_object: S3Object) -> S3Object:
+    def sign_s3_object(self, s3_object: S3Object | str) -> S3Object:
         return self.post(
             f"/w/{self.workspace}/apps/sign_s3_objects",
             json={"s3_objects": [s3_object]},
@@ -953,8 +1056,21 @@ def run_script_by_path_async(
     args: Dict[str, Any] = None,
     scheduled_in_secs: Union[None, int] = None,
 ) -> str:
-    return _client.run_script_async(
+    return _client.run_script_by_path_async(
         path=path,
+        args=args,
+        scheduled_in_secs=scheduled_in_secs,
+    )
+
+
+@init_global_client
+def run_script_by_hash_async(
+    hash_: str,
+    args: Dict[str, Any] = None,
+    scheduled_in_secs: Union[None, int] = None,
+) -> str:
+    return _client.run_script_by_hash_async(
+        hash_=hash_,
         args=args,
         scheduled_in_secs=scheduled_in_secs,
     )
@@ -1027,7 +1143,7 @@ def boto3_connection_settings(s3_resource_path: str = "") -> Boto3ConnectionSett
 
 
 @init_global_client
-def load_s3_file(s3object: S3Object, s3_resource_path: str | None = None) -> bytes:
+def load_s3_file(s3object: S3Object | str, s3_resource_path: str | None = None) -> bytes:
     """
     Load the entire content of a file stored in S3 as bytes
     """
@@ -1038,7 +1154,7 @@ def load_s3_file(s3object: S3Object, s3_resource_path: str | None = None) -> byt
 
 @init_global_client
 def load_s3_file_reader(
-    s3object: S3Object, s3_resource_path: str | None = None
+    s3object: S3Object | str, s3_resource_path: str | None = None
 ) -> BufferedReader:
     """
     Load the content of a file stored in S3
@@ -1050,7 +1166,7 @@ def load_s3_file_reader(
 
 @init_global_client
 def write_s3_file(
-    s3object: S3Object | None,
+    s3object: S3Object | str | None,
     file_content: BufferedReader | bytes,
     s3_resource_path: str | None = None,
     content_type: str | None = None,
@@ -1075,7 +1191,7 @@ def write_s3_file(
 
 
 @init_global_client
-def sign_s3_objects(s3_objects: list[S3Object]) -> list[S3Object]:
+def sign_s3_objects(s3_objects: list[S3Object | str]) -> list[S3Object]:
     """
     Sign S3 objects to be used by anonymous users in public apps
     Returns a list of signed s3 tokens
@@ -1084,7 +1200,7 @@ def sign_s3_objects(s3_objects: list[S3Object]) -> list[S3Object]:
 
 
 @init_global_client
-def sign_s3_object(s3_object: S3Object) -> S3Object:
+def sign_s3_object(s3_object: S3Object| str) -> S3Object:
     """
     Sign S3 object to be used by anonymous users in public apps
     Returns a signed s3 object
@@ -1263,9 +1379,52 @@ def run_script(
     cleanup: bool = True,
     assert_result_is_not_none: bool = True,
 ) -> Any:
-    """Run script synchronously and return its result."""
+    """Run script synchronously and return its result.
+    
+    .. deprecated:: Use run_script_by_path or run_script_by_hash instead.
+    """
     return _client.run_script(
         path=path,
+        hash_=hash_,
+        args=args,
+        verbose=verbose,
+        assert_result_is_not_none=assert_result_is_not_none,
+        cleanup=cleanup,
+        timeout=timeout,
+    )
+
+
+@init_global_client
+def run_script_by_path(
+    path: str,
+    args: dict = None,
+    timeout: dt.timedelta | int | float = None,
+    verbose: bool = False,
+    cleanup: bool = True,
+    assert_result_is_not_none: bool = True,
+) -> Any:
+    """Run script by path synchronously and return its result."""
+    return _client.run_script_by_path(
+        path=path,
+        args=args,
+        verbose=verbose,
+        assert_result_is_not_none=assert_result_is_not_none,
+        cleanup=cleanup,
+        timeout=timeout,
+    )
+
+
+@init_global_client
+def run_script_by_hash(
+    hash_: str,
+    args: dict = None,
+    timeout: dt.timedelta | int | float = None,
+    verbose: bool = False,
+    cleanup: bool = True,
+    assert_result_is_not_none: bool = True,
+) -> Any:
+    """Run script by hash synchronously and return its result."""
+    return _client.run_script_by_hash(
         hash_=hash_,
         args=args,
         verbose=verbose,
@@ -1319,16 +1478,16 @@ def task(*args, **kwargs):
                 params = {}
                 if tag is not None:
                     params["tag"] = tag
-                r = _client.post(
+                w_as_code_response = _client.post(
                     f"/w/{w_id}/jobs/run/workflow_as_code/{job_id}/{f_name}",
                     json={"args": json},
                     params=params,
                 )
-                job_id = r.text
+                job_id = w_as_code_response.text
                 print(f"Executing task {func.__name__} on job {job_id}")
-                r = _client.wait_job(job_id)
+                job_result = _client.wait_job(job_id)
                 print(f"Task {func.__name__} ({job_id}) completed")
-                return r
+                return job_result
 
             return inner
 
@@ -1336,3 +1495,49 @@ def task(*args, **kwargs):
         return f(args[0], None)
     else:
         return lambda x: f(x, kwargs.get("tag"))
+
+def parse_resource_syntax(s: str) -> Optional[str]:
+    """Parse resource syntax from string."""
+    if s is None:
+        return None
+    if s.startswith("$res:"):
+        return s[5:]
+    if s.startswith("res://"):
+        return s[6:]
+    return None
+
+def parse_s3_object(s3_object: S3Object | str) -> S3Object:
+    """Parse S3 object from string or S3Object format."""
+    if isinstance(s3_object, str):
+        match = re.match(r'^s3://([^/]*)/(.*)$', s3_object)
+        if match:
+            return S3Object(s3=match.group(2) or "", storage=match.group(1) or None)
+        return S3Object(s3="")
+    else:
+        return s3_object
+
+    
+
+def parse_variable_syntax(s: str) -> Optional[str]:
+    """Parse variable syntax from string."""
+    if s.startswith("var://"):
+        return s[6:]
+    return None
+
+
+def append_to_result_stream(text: str) -> None:
+    """Append a text to the result stream.
+    
+    Args:
+        text: text to append to the result stream
+    """
+    print("WM_STREAM: {}".format(text.replace(chr(10), '\\n')))
+
+def stream_result(stream) -> None:
+    """Stream to the result stream.
+    
+    Args:
+        stream: stream to stream to the result stream
+    """
+    for text in stream:
+        append_to_result_stream(text)

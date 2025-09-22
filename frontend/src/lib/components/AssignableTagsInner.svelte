@@ -32,6 +32,34 @@
 
 	const dispatch = createEventDispatcher()
 
+	const customTagRegex = /^([\w-]+)\(((?:[\w-]+\+)*[\w-]+|(?:\^[\w-]+)+)\)$/
+	const dynamicTagRegex = /\$args\[((?:\w+\.)*\w+)\]/
+
+	let dynamicTag = $derived.by(() => {
+		let r = newTag.trim()
+		if (r == '') return undefined
+		let matched = r.match(dynamicTagRegex)
+		return matched?.[1]
+	})
+
+	let extractedCustomTag = $derived.by(() => {
+		let r = newTag.trim()
+		if (r == '') return undefined
+		let matched = r.match(customTagRegex)
+		console.log(matched)
+		let tag = matched?.[1]
+		let workspaces_raw = matched?.[2]
+		let tag_type = workspaces_raw?.includes('^') ? 'exclude' : 'include'
+		if (tag_type == 'exclude') {
+			workspaces_raw = workspaces_raw?.slice(1)
+		}
+		let workspaces = workspaces_raw?.split(tag_type == 'include' ? '+' : '^')
+		if (!workspaces_raw || workspaces_raw?.length == 0) {
+			return undefined
+		}
+		return { tag, workspaces, tag_type }
+	})
+
 	loadCustomTags()
 </script>
 
@@ -64,6 +92,53 @@
 			{/each}
 		</div>
 		<input type="text" bind:value={newTag} />
+		{#if extractedCustomTag}
+			<div class="text-2xs text-tertiary p-2 bg-gray-50 rounded border">
+				<div class="font-medium mb-1">Workspace specific tag</div>
+				<div>
+					<b>Tag:</b>
+					{extractedCustomTag.tag}
+				</div>
+				<div>
+					<b>Workspaces:</b>
+					{#if extractedCustomTag.tag_type == 'include'}
+						{extractedCustomTag.workspaces?.join(', ')}
+					{:else}
+						All workspaces except {extractedCustomTag.workspaces?.join(', ')}
+					{/if}
+				</div>
+			</div>
+		{:else if newTag.trim()}
+			{#if newTag.includes('(') || newTag.includes(')') || newTag.includes('+') || newTag.includes('^') || ((newTag.includes('.') || newTag.includes('$args[')) && !dynamicTag)}
+				<div class="text-2xs text-tertiary p-2 bg-gray-50 rounded border">
+					<div class="font-medium mb-1 text-red-500">Invalid tag</div>
+					<div>
+						<b>Tag:</b>
+						{newTag.trim()}
+					</div>
+				</div>
+			{:else}
+				<div class="text-2xs text-tertiary p-2 bg-gray-50 rounded border">
+					<div class="font-medium mb-1">
+						{#if newTag.includes('$workspace') || newTag.includes('$args')}
+							Dynamic tag
+						{:else}
+							Simple tag
+						{/if}
+					</div>
+					<div>
+						<b>Tag:</b>
+						{newTag.trim()}
+					</div>
+					{#if newTag.includes('$workspace') && !dynamicTag}
+						<div>Interpolated tag based on workspace id the job was created in </div>
+					{/if}
+					{#if dynamicTag}
+						<div>Interpolated tag based on args input of <b>{dynamicTag}</b></div>
+					{/if}
+				</div>
+			{/if}
+		{/if}
 
 		<Button
 			variant="contained"
@@ -96,8 +171,25 @@
 			></span
 		>
 		<span class="text-2xs text-tertiary"
-			>For dynamic tags based on the workspace, use <pre class="inline">$workspace</pre>, e.g:
+			>To exclude 'workspace1' and 'workspace2' from a tag, use <pre class="inline"
+				>tag(^workspace1^workspace2)</pre
+			></span
+		>
+		<span class="text-2xs text-tertiary"
+			>For <a
+				href="https://www.windmill.dev/docs/core_concepts/worker_groups#dynamic-tag"
+				target="_blank">dynamic tags</a
+			>
+			based on the workspace, use <pre class="inline">$workspace</pre>, e.g:
 			<pre class="inline">tag-$workspace</pre></span
+		>
+		<span class="text-2xs text-tertiary"
+			>For <a
+				href="https://www.windmill.dev/docs/core_concepts/worker_groups#dynamic-tag"
+				target="_blank">dynamic tags</a
+			>
+			based on args input, use <pre class="inline">$args[a.b.c]</pre> where
+			<pre class="inline">a.b.c</pre> is the path to the value in the args object</span
 		>
 	{/if}
 </div>

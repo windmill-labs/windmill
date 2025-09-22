@@ -20,8 +20,10 @@ use crate::smtp_server_oss::SmtpServer;
 
 #[cfg(feature = "mcp")]
 use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server, shutdown_mcp_server};
+use crate::triggers::start_all_listeners;
 #[cfg(feature = "mcp")]
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+use tower_http::catch_panic::CatchPanicLayer;
 
 use crate::tracing_init::MyOnFailure;
 use crate::{
@@ -34,10 +36,12 @@ use agent_workers_oss::AgentCache;
 
 use anyhow::Context;
 use argon2::Argon2;
+use axum::body::Body;
 use axum::extract::DefaultBodyLimit;
+use axum::http::HeaderValue;
+use axum::response::Response;
 use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Router};
 use db::DB;
-use http::HeaderValue;
 use reqwest::Client;
 #[cfg(feature = "oauth2")]
 use std::collections::HashMap;
@@ -70,6 +74,7 @@ mod agent_workers_oss;
 mod ai;
 mod apps;
 pub mod args;
+mod assets;
 mod audit;
 pub mod auth;
 mod capture;
@@ -86,12 +91,6 @@ mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
-#[cfg(feature = "http_trigger")]
-mod http_trigger_args;
-#[cfg(feature = "http_trigger")]
-mod http_trigger_auth;
-#[cfg(feature = "http_trigger")]
-pub mod http_triggers;
 #[cfg(feature = "private")]
 pub mod indexer_ee;
 mod indexer_oss;
@@ -100,20 +99,17 @@ mod inkeep_ee;
 mod inkeep_oss;
 mod inputs;
 mod integration;
-#[cfg(feature = "postgres_trigger")]
-mod postgres_triggers;
-
+mod live_migrations;
 pub mod openapi;
+#[cfg(all(feature = "private", feature = "parquet"))]
+pub mod s3_proxy_ee;
+mod s3_proxy_oss;
 
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 pub mod apps_ee;
 #[cfg(feature = "enterprise")]
 mod apps_oss;
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
-pub mod gcp_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-mod gcp_triggers_oss;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 pub mod git_sync_ee;
 #[cfg(feature = "enterprise")]
@@ -124,16 +120,6 @@ pub mod job_helpers_ee;
 mod job_helpers_oss;
 pub mod job_metrics;
 pub mod jobs;
-#[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
-pub mod kafka_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
-mod kafka_triggers_oss;
-#[cfg(feature = "mqtt_trigger")]
-mod mqtt_triggers;
-#[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
-pub mod nats_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "nats"))]
-mod nats_triggers_oss;
 #[cfg(all(feature = "oauth2", feature = "private"))]
 pub mod oauth2_ee;
 #[cfg(feature = "oauth2")]
@@ -150,6 +136,7 @@ mod schedule;
 #[cfg(feature = "private")]
 pub mod scim_ee;
 mod scim_oss;
+mod scopes;
 mod scripts;
 mod service_logs;
 mod settings;
@@ -158,14 +145,9 @@ mod slack_approvals;
 pub mod smtp_server_ee;
 #[cfg(feature = "smtp")]
 mod smtp_server_oss;
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
-pub mod sqs_triggers_ee;
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
-mod sqs_triggers_oss;
 #[cfg(feature = "private")]
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
-mod trigger_helpers;
 
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
@@ -173,19 +155,22 @@ pub mod stripe_ee;
 #[cfg(all(feature = "stripe", feature = "enterprise"))]
 mod stripe_oss;
 #[cfg(feature = "private")]
+pub mod teams_cache_ee;
+mod teams_cache_oss;
+#[cfg(feature = "private")]
 pub mod teams_ee;
 mod teams_oss;
+mod token;
 mod tracing_init;
-mod triggers;
+pub mod triggers;
 mod users;
 #[cfg(feature = "private")]
 pub mod users_ee;
 mod users_oss;
 mod utils;
+pub mod var_resource_cache;
 mod variables;
 pub mod webhook_util;
-#[cfg(feature = "websocket")]
-mod websocket_triggers;
 mod workers;
 mod workspaces;
 #[cfg(feature = "private")]
@@ -279,6 +264,7 @@ pub async fn run_server(
     server_mode: bool,
     mcp_mode: bool,
     _base_internal_url: String,
+    name: Option<String>,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
@@ -373,144 +359,17 @@ pub async fn run_server(
         }
     };
 
-    let kafka_triggers_service = {
-        #[cfg(all(feature = "enterprise", feature = "kafka"))]
-        {
-            kafka_triggers_oss::workspaced_service()
-        }
-
-        #[cfg(not(all(feature = "enterprise", feature = "kafka")))]
-        {
-            Router::new()
-        }
-    };
-
-    let nats_triggers_service = {
-        #[cfg(all(feature = "enterprise", feature = "nats"))]
-        {
-            nats_triggers_oss::workspaced_service()
-        }
-
-        #[cfg(not(all(feature = "enterprise", feature = "nats")))]
-        {
-            Router::new()
-        }
-    };
-
-    let mqtt_triggers_service = {
-        #[cfg(all(feature = "mqtt_trigger"))]
-        {
-            mqtt_triggers::workspaced_service()
-        }
-
-        #[cfg(not(feature = "mqtt_trigger"))]
-        {
-            Router::new()
-        }
-    };
-
-    let gcp_triggers_service = {
-        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-        {
-            gcp_triggers_oss::workspaced_service()
-        }
-
-        #[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
-        {
-            Router::new()
-        }
-    };
-
-    let sqs_triggers_service = {
-        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
-        {
-            sqs_triggers_oss::workspaced_service()
-        }
-
-        #[cfg(not(all(feature = "enterprise", feature = "sqs_trigger")))]
-        {
-            Router::new()
-        }
-    };
-
-    let websocket_triggers_service = {
-        #[cfg(feature = "websocket")]
-        {
-            websocket_triggers::workspaced_service()
-        }
-
-        #[cfg(not(feature = "websocket"))]
-        Router::new()
-    };
-
-    let http_triggers_service = {
-        #[cfg(feature = "http_trigger")]
-        {
-            http_triggers::workspaced_service()
-        }
-
-        #[cfg(not(feature = "http_trigger"))]
-        Router::new()
-    };
-
+    // Initialize HTTP trigger refresh loop
     #[cfg(feature = "http_trigger")]
     {
         let http_killpill_rx = killpill_rx.resubscribe();
-        http_triggers::refresh_routers_loop(&db, http_killpill_rx).await;
+        triggers::http::refresh_routers_loop(&db, http_killpill_rx).await;
     }
 
-    let postgres_triggers_service = {
-        #[cfg(feature = "postgres_trigger")]
-        {
-            postgres_triggers::workspaced_service()
-        }
-
-        #[cfg(not(feature = "postgres_trigger"))]
-        Router::new()
-    };
+    let triggers_service = triggers::generate_trigger_routers();
 
     if !*CLOUD_HOSTED && server_mode && !mcp_mode {
-        #[cfg(feature = "websocket")]
-        {
-            let ws_killpill_rx = killpill_rx.resubscribe();
-            websocket_triggers::start_websockets(db.clone(), ws_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "kafka"))]
-        {
-            let kafka_killpill_rx = killpill_rx.resubscribe();
-            kafka_triggers_oss::start_kafka_consumers(db.clone(), kafka_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "nats"))]
-        {
-            let nats_killpill_rx = killpill_rx.resubscribe();
-            nats_triggers_oss::start_nats_consumers(db.clone(), nats_killpill_rx);
-        }
-
-        #[cfg(feature = "postgres_trigger")]
-        {
-            let db_killpill_rx = killpill_rx.resubscribe();
-            postgres_triggers::start_database(db.clone(), db_killpill_rx);
-        }
-
-        #[cfg(feature = "mqtt_trigger")]
-        {
-            let mqtt_killpill_rx = killpill_rx.resubscribe();
-            mqtt_triggers::start_mqtt_consumer(db.clone(), mqtt_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
-        {
-            let sqs_killpill_rx = killpill_rx.resubscribe();
-            sqs_triggers_oss::start_sqs(db.clone(), sqs_killpill_rx);
-        }
-
-        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
-        {
-            let gcp_killpill_rx = killpill_rx.resubscribe();
-            gcp_triggers_oss::start_consuming_gcp_pubsub_event(db.clone(), gcp_killpill_rx);
-        }
+        start_all_listeners(db.clone(), &killpill_rx);
     }
 
     let listener = tokio::net::TcpListener::bind(addr)
@@ -538,6 +397,18 @@ pub async fn run_server(
         (Router::new(), Option::<()>::None)
     };
 
+    let mcp_list_tools_service = {
+        #[cfg(feature = "mcp")]
+        {
+            mcp::list_tools_service()
+        }
+
+        #[cfg(not(feature = "mcp"))]
+        {
+            Router::new()
+        }
+    };
+
     #[cfg(feature = "agent_worker_server")]
     let (agent_workers_router, agent_workers_bg_processor, agent_workers_killpill_tx) =
         if server_mode {
@@ -560,6 +431,7 @@ pub async fn run_server(
                         // Reordered alphabetically
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/apps", apps::workspaced_service())
+                        .nest("/assets", assets::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
                         .nest(
@@ -598,14 +470,7 @@ pub async fn run_server(
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_oss::workspaced_service())
                         .nest("/openapi", openapi::openapi_service())
-                        .nest("/http_triggers", http_triggers_service)
-                        .nest("/websocket_triggers", websocket_triggers_service)
-                        .nest("/kafka_triggers", kafka_triggers_service)
-                        .nest("/nats_triggers", nats_triggers_service)
-                        .nest("/mqtt_triggers", mqtt_triggers_service)
-                        .nest("/sqs_triggers", sqs_triggers_service)
-                        .nest("/gcp_triggers", gcp_triggers_service)
-                        .nest("/postgres_triggers", postgres_triggers_service),
+                        .merge(triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -625,6 +490,8 @@ pub async fn run_server(
                 .nest("/embeddings", embeddings::global_service())
                 .nest("/ai", ai::global_service())
                 .nest("/inkeep", inkeep_oss::global_service())
+                .nest("/mcp/w/:workspace_id/sse", mcp_router)
+                .nest("/mcp/w/:workspace_id/list_tools", mcp_list_tools_service)
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/jobs", jobs::global_root_service())
@@ -643,6 +510,7 @@ pub async fn run_server(
                     scim_oss::global_service()
                         .route_layer(axum::middleware::from_fn(has_scim_token)),
                 )
+                .nest("/tokens", token::global_service())
                 .nest("/concurrency_groups", concurrency_groups::global_service())
                 .nest("/scripts_u", scripts::global_unauthed_service())
                 .nest("/apps_u", {
@@ -662,7 +530,6 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
-                .nest("/mcp/w/:workspace_id/sse", mcp_router)
                 .layer(from_extractor::<OptAuthed>())
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
@@ -734,6 +601,9 @@ pub async fn run_server(
                     "/w/:workspace_id/capture_u",
                     capture::workspaced_unauthed_service().layer(cors.clone()),
                 )
+                .nest("/w/:workspace_id/s3_proxy", {
+                    s3_proxy_oss::workspaced_unauthed_service()
+                })
                 .nest(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
@@ -752,7 +622,7 @@ pub async fn run_server(
                     {
                         #[cfg(feature = "http_trigger")]
                         {
-                            http_triggers::routes_global_service()
+                            triggers::http::handler::http_route_trigger_handler()
                         }
 
                         #[cfg(not(feature = "http_trigger"))]
@@ -765,11 +635,19 @@ pub async fn run_server(
                 .nest(
                     "/gcp/w/:workspace_id",
                     {
-                        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+                        #[cfg(all(
+                            feature = "enterprise",
+                            feature = "gcp_trigger",
+                            feature = "private"
+                        ))]
                         {
-                            gcp_triggers_oss::gcp_push_route_handler()
+                            triggers::gcp::handler_oss::gcp_push_route_handler()
                         }
-                        #[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
+                        #[cfg(not(all(
+                            feature = "enterprise",
+                            feature = "gcp_trigger",
+                            feature = "private"
+                        )))]
                         {
                             Router::new()
                         }
@@ -797,18 +675,31 @@ pub async fn run_server(
         )
     };
 
-    let server = axum::serve(listener, app.into_make_service());
+    let app = app.layer(CatchPanicLayer::custom(|err| {
+        tracing::error!("panic in handler, returning 500: {:?}", err);
+        Response::builder()
+            .status(http::StatusCode::INTERNAL_SERVER_ERROR)
+            .body(Body::from("Internal Server Error"))
+            .unwrap()
+    }));
+
+    if let Some(name) = name.as_ref() {
+        tracing::info!("server starting for name={name}");
+    }
+    let server = axum::serve(listener, app.into_make_service()).tcp_nodelay(!server_mode);
 
     tracing::info!(
         instance = %*INSTANCE_NAME,
-        "server started on port={} and addr={}",
+        "server started on port={} and addr={} {}",
         port,
-        ip
+        ip,
+        name.map(|x| format!("name={x}")).unwrap_or_default()
     );
 
-    port_tx
-        .send(format!("http://localhost:{}", port))
-        .expect("Failed to send port");
+    if let Err(e) = port_tx.send(format!("http://localhost:{}", port)) {
+        tracing::error!("Failed to send port: {e:#}");
+        return Err(anyhow::anyhow!("Failed to send port, exiting early: {e:#}"));
+    }
 
     let server = server.with_graceful_shutdown(async move {
         killpill_rx.recv().await.ok();
@@ -890,16 +781,25 @@ async fn ee_license() -> String {
     }
 }
 
-async fn openapi() -> &'static str {
-    include_str!("../openapi-deref.yaml")
+async fn openapi() -> Response {
+    Response::builder()
+        .header("content-type", "application/yaml")
+        .body(Body::from(include_str!("../openapi-deref.yaml")))
+        .unwrap()
 }
 
-async fn openapi_json() -> &'static str {
-    include_str!("../openapi-deref.json")
+async fn openapi_json() -> Response {
+    Response::builder()
+        .header("content-type", "application/json")
+        .body(Body::from(include_str!("../openapi-deref.json")))
+        .unwrap()
 }
 
-pub async fn migrate_db(db: &DB) -> anyhow::Result<Option<JoinHandle<()>>> {
-    db::migrate(db)
+pub async fn migrate_db(
+    db: &DB,
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> anyhow::Result<Option<JoinHandle<()>>> {
+    db::migrate(db, killpill_rx)
         .await
         .map_err(|e| anyhow::anyhow!("Error migrating db: {e:#}"))
 }

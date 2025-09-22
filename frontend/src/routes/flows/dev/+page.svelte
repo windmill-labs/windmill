@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { emptySchema, sendUserToast, type StateStore } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -11,7 +11,7 @@
 	} from '$lib/components/flows/types'
 	import { writable } from 'svelte/store'
 	import { OpenAPI, type OpenFlow, type TriggersCount } from '$lib/gen'
-	import { initHistory } from '$lib/history'
+	import { initHistory } from '$lib/history.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from '$lib/components/flows/content/FlowEditorPanel.svelte'
@@ -24,7 +24,8 @@
 	import type { FlowPropPickerConfig, PropPickerContext } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
-	import { TestSteps } from '$lib/components/flows/testSteps.svelte'
+	import { StepsInputArgs } from '$lib/components/flows/stepsInputArgs.svelte'
+	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 
 	let token = $page.url.searchParams.get('wm_token') ?? undefined
 	let workspace = $page.url.searchParams.get('workspace') ?? undefined
@@ -67,14 +68,14 @@
 	})
 
 	let initialCode = JSON.stringify(flowStore, null, 4)
-	const flowStateStore = writable({} as FlowState)
+	const flowStateStore = $state({ val: {} }) as StateStore<FlowState>
 
 	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
 	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 
-	const testSteps = new TestSteps()
+	const stepsInputArgs = new StepsInputArgs()
 	const selectedIdStore = writable('settings-metadata')
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
@@ -93,7 +94,7 @@
 		pathStore: writable(''),
 		flowStateStore,
 		flowStore,
-		testSteps,
+		stepsInputArgs,
 		saveDraft: () => {},
 		initialPathStore: writable(''),
 		fakeInitialPath: '',
@@ -106,7 +107,9 @@
 			editPanelSize: undefined,
 			payloadData: undefined
 		}),
-		currentEditor: writable(undefined)
+		currentEditor: writable(undefined),
+		modulesTestStates: new ModulesTestStates(),
+		outputPickerOpenFns: {}
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
@@ -188,7 +191,7 @@
 			return
 		}
 		//@ts-ignore
-		testJobLoader.runPreview(currentScript.path, currentScript.content, args, undefined)
+		jobLoader.runPreview(currentScript.path, currentScript.content, args, undefined)
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
@@ -289,7 +292,7 @@
 						noEditor
 						on:applyArgs={(ev) => {
 							if (ev.detail.kind === 'preprocessor') {
-								testSteps.setStepArgs('preprocessor', ev.detail.args ?? {})
+								stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
 								$selectedIdStore = 'preprocessor'
 							} else {
 								previewArgsStore.val = ev.detail.args ?? {}

@@ -38,6 +38,8 @@ use windmill_common::variables::get_secret_value_as_admin;
 use std::env::var;
 use windmill_queue::{append_logs, CanceledBy, PrecomputedAgentInfo};
 
+use process_wrap::tokio::TokioChildWrapper;
+
 lazy_static::lazy_static! {
     pub(crate) static ref PYTHON_PATH: Option<String> = var("PYTHON_PATH").ok().map(|v| {
         tracing::warn!("PYTHON_PATH is set to {} and thus python will not be managed by uv and stay static regardless of annotation and instance settings. NOT RECOMMENDED", v);
@@ -66,10 +68,10 @@ lazy_static::lazy_static! {
 lazy_static::lazy_static! {
     static ref PIPTAR_UPLOAD_CHANNEL: tokio::sync::mpsc::UnboundedSender<PiptarUploadTask> = {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        
+
         // Spawn background task to handle uploads sequentially
         tokio::spawn(handle_piptar_uploads(rx));
-        
+
         tx
     };
 }
@@ -85,10 +87,11 @@ struct PiptarUploadTask {
 async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<PiptarUploadTask>) {
     use crate::global_cache::build_tar_and_push;
     use windmill_common::s3_helpers::get_object_store;
-    
+
     while let Some(task) = rx.recv().await {
         if let Some(os) = get_object_store().await {
-            match build_tar_and_push(os, task.venv_path.clone(), task.cache_dir, None, false).await {
+            match build_tar_and_push(os, task.venv_path.clone(), task.cache_dir, None, false).await
+            {
                 Ok(()) => {
                     tracing::info!("Successfully uploaded piptar for {}", task.venv_path);
                 }
@@ -97,7 +100,10 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
                 }
             }
         } else {
-            tracing::warn!("S3 object store not available for piptar upload: {}", task.venv_path);
+            tracing::warn!(
+                "S3 object store not available for piptar upload: {}",
+                task.venv_path
+            );
         }
     }
 }
@@ -115,7 +121,7 @@ use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
 use crate::{
     common::{
         create_args_and_out_file, get_reserved_variables, read_file, read_result,
-        start_child_process, OccupancyMetrics,
+        start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
     worker_utils::ping_job_status,
@@ -324,6 +330,7 @@ pub async fn uv_pip_compile(
             child_cmd
                 .env("SystemRoot", SYSTEM_ROOT.as_str())
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env("HOME", crate::USERPROFILE_ENV.as_str())
                 .env(
                     "LOCALAPPDATA",
                     std::env::var("LOCALAPPDATA")
@@ -332,10 +339,37 @@ pub async fn uv_pip_compile(
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
+                )
+                .env(
+                    "APPDATA",
+                    std::env::var("APPDATA").unwrap_or_else(|_| {
+                        format!("{}\\AppData\\Roaming", crate::USERPROFILE_ENV.as_str())
+                    }),
+                )
+                .env(
+                    "ComSpec",
+                    std::env::var("ComSpec")
+                        .unwrap_or_else(|_| String::from("C:\\Windows\\System32\\cmd.exe")),
+                )
+                .env(
+                    "PATHEXT",
+                    std::env::var("PATHEXT").unwrap_or_else(|_| {
+                        String::from(".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL")
+                    }),
+                )
+                .env(
+                    "ProgramData",
+                    std::env::var("ProgramData")
+                        .unwrap_or_else(|_| String::from("C:\\ProgramData")),
+                )
+                .env(
+                    "ProgramFiles",
+                    std::env::var("ProgramFiles")
+                        .unwrap_or_else(|_| String::from("C:\\Program Files")),
                 );
         }
 
-        let child_process = start_child_process(child_cmd, uv_cmd).await?;
+        let child_process = start_child_process(child_cmd, uv_cmd, false).await?;
         append_logs(&job_id, &w_id, logs, conn).await;
         handle_child(
             job_id,
@@ -351,6 +385,7 @@ pub async fn uv_pip_compile(
             None,
             false,
             occupancy_metrics,
+            None,
             None,
         )
         .await
@@ -576,7 +611,7 @@ pub async fn handle_python_job(
         pre_spread,
     ) = prepare_wrapper(
         job_dir,
-        job.is_flow_step(),
+        job.flow_step_id.as_deref(),
         job.preprocessed,
         job.script_entrypoint_override.as_deref(),
         inner_content,
@@ -602,7 +637,7 @@ pub async fn handle_python_job(
             if v == '<function call>':
                 del pre_args[k]
         kwargs = inner_script.preprocessor(**pre_args)
-        kwrags_json = res_to_json(kwargs)    
+        kwrags_json = res_to_json(kwargs, type(kwargs))
         with open("args.json", 'w') as f:
             f.write(kwrags_json)"#
         )
@@ -645,8 +680,7 @@ replace_invalid_fields = re.compile(r'(?:\bNaN\b|\\*\\u0000|Infinity|\-Infinity)
 
 result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.json")
 
-def res_to_json(res):
-    typ = type(res)
+def res_to_json(res, typ):
     if typ.__name__ == 'DataFrame':
         if typ.__module__ == 'pandas.core.frame':
             res = res.values.tolist()
@@ -670,7 +704,12 @@ try:
     if inner_script.{main_override} is None or not callable(inner_script.{main_override}):
         raise ValueError("{main_override} function is missing")
     res = inner_script.{main_override}(**args)
-    res_json = res_to_json(res)
+    typ = type(res)
+    if hasattr(res, '__iter__') and not isinstance(res, (str, dict, list, bytes, tuple, set, frozenset, range, memoryview, bytearray)) and typ.__name__ != 'DataFrame':
+        for chunk in res:
+            print("WM_STREAM: " + chunk.replace('\n', '\\n'))
+        res = None
+    res_json = res_to_json(res, typ)
     with open(result_json, 'w') as f:
         f.write(res_json)
 except BaseException as e:
@@ -678,7 +717,7 @@ except BaseException as e:
     tb = traceback.format_tb(exc_traceback)
     with open(result_json, 'w') as f:
         err = {{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:]) }}
-        extra = e.__dict__ 
+        extra = e.__dict__
         if extra and len(extra) > 0:
             err['extra'] = extra
         flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
@@ -792,7 +831,7 @@ mount {{
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let mut python_cmd = Command::new(&python_path);
 
@@ -807,6 +846,7 @@ mount {{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
             .args(args)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -814,6 +854,7 @@ mount {{
         {
             python_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
             python_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
+            python_cmd.env("windir", SYSTEM_ROOT.as_str());
             python_cmd.env(
                 "LOCALAPPDATA",
                 std::env::var("LOCALAPPDATA")
@@ -821,10 +862,12 @@ mount {{
             );
         }
 
-        start_child_process(python_cmd, &python_path).await?
+        start_child_process(python_cmd, &python_path, false).await?
     };
 
-    handle_child(
+    let stream_notifier = StreamNotifier::new(conn, job);
+
+    let handle_result = handle_child(
         &job.id,
         conn,
         mem_peak,
@@ -838,6 +881,7 @@ mount {{
         false,
         &mut Some(occupancy_metrics),
         None,
+        stream_notifier,
     )
     .await?;
 
@@ -858,12 +902,12 @@ mount {{
         *new_args = Some(args.clone());
     }
 
-    read_result(job_dir).await
+    read_result(job_dir, handle_result.result_stream).await
 }
 
 async fn prepare_wrapper(
     job_dir: &str,
-    job_is_flow_step: bool,
+    job_flow_step_id: Option<&str>,
     job_preprocessed: Option<bool>,
     job_script_entrypoint_override: Option<&str>,
     inner_content: &str,
@@ -881,7 +925,8 @@ async fn prepare_wrapper(
     Option<String>,
 )> {
     let main_override = job_script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job_is_flow_step && job_preprocessed == Some(false);
+    let apply_preprocessor =
+        job_flow_step_id != Some("preprocessor") && job_preprocessed == Some(false);
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
@@ -1266,7 +1311,7 @@ async fn spawn_uv_install(
     // If none, it is system python
     py_path: Option<String>,
     worker_dir: &str,
-) -> Result<tokio::process::Child, Error> {
+) -> Result<Box<dyn TokioChildWrapper>, Error> {
     if !*DISABLE_NSJAIL {
         tracing::info!(
             workspace_id = %w_id,
@@ -1323,7 +1368,7 @@ async fn spawn_uv_install(
             .args(vec!["--config", &nsjail_proto])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await
     } else {
         #[cfg(unix)]
         let req = req.to_owned();
@@ -1406,7 +1451,7 @@ async fn spawn_uv_install(
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
-            start_child_process(cmd, UV_PATH.as_str()).await
+            start_child_process(cmd, UV_PATH.as_str(), false).await
         }
 
         #[cfg(windows)]
@@ -1417,6 +1462,7 @@ async fn spawn_uv_install(
                 .envs(PROXY_ENVS.clone())
                 .env("SystemRoot", SYSTEM_ROOT.as_str())
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
+                .env("HOME", HOME_ENV.as_str())
                 .env(
                     "TMP",
                     std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
@@ -1426,10 +1472,37 @@ async fn spawn_uv_install(
                     std::env::var("LOCALAPPDATA")
                         .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
                 )
+                .env(
+                    "APPDATA",
+                    std::env::var("APPDATA").unwrap_or_else(|_| {
+                        format!("{}\\AppData\\Roaming", crate::USERPROFILE_ENV.as_str())
+                    }),
+                )
+                .env(
+                    "ComSpec",
+                    std::env::var("ComSpec")
+                        .unwrap_or_else(|_| String::from("C:\\Windows\\System32\\cmd.exe")),
+                )
+                .env(
+                    "PATHEXT",
+                    std::env::var("PATHEXT").unwrap_or_else(|_| {
+                        String::from(".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.CPL")
+                    }),
+                )
+                .env(
+                    "ProgramData",
+                    std::env::var("ProgramData")
+                        .unwrap_or_else(|_| String::from("C:\\ProgramData")),
+                )
+                .env(
+                    "ProgramFiles",
+                    std::env::var("ProgramFiles")
+                        .unwrap_or_else(|_| String::from("C:\\Program Files")),
+                )
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
-            start_child_process(cmd, "uv").await
+            start_child_process(cmd, "uv", false).await
         }
     }
 }
@@ -1810,7 +1883,7 @@ pub async fn handle_python_reqs(
 
                                 // Create a file to indicate that installation was successfull
                                 let valid_path = venv_p.clone() + "/.valid.windmill";
-                                // This is atomic operation, meaning, that it either completes and wheel is valid, 
+                                // This is atomic operation, meaning, that it either completes and wheel is valid,
                                 // or it does not and wheel is invalid and will be reinstalled next run
                                 if let Err(e) = File::create(&valid_path).await{
                                     tracing::error!(
@@ -1853,7 +1926,7 @@ pub async fn handle_python_reqs(
 
             let mut stderr_buf = String::new();
             let mut stderr_pipe = uv_install_proccess
-                .stderr
+                .stderr()
                 .take()
                 .ok_or(anyhow!("Cannot take stderr from uv_install_proccess"))?;
             let stderr_future = stderr_pipe.read_to_string(&mut stderr_buf);
@@ -1870,14 +1943,14 @@ pub async fn handle_python_reqs(
             tokio::select! {
                 // Canceled
                 _ = kill_rx.recv() => {
-                    uv_install_proccess.kill().await?;
+                    Box::into_pin(uv_install_proccess.kill()).await?;
                     pids.lock().await.get_mut(i).and_then(|e| e.take());
                     return Err(anyhow::anyhow!("uv pip install was canceled"));
                 },
                 (_, exitstatus) = async {
                     // See tokio::process::Child::wait_with_output() for more context
                     // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited before it :/
-                    (stderr_future.await, uv_install_proccess.wait().await)
+                    (stderr_future.await, Box::into_pin(uv_install_proccess.wait()).await)
                 } => match exitstatus {
                     Ok(status) => if !status.success() {
                         tracing::warn!(
@@ -1942,7 +2015,7 @@ pub async fn handle_python_reqs(
                     venv_path: venv_p.clone(),
                     cache_dir: py_version.to_cache_dir_top_level(false),
                 };
-                
+
                 if let Err(e) = PIPTAR_UPLOAD_CHANNEL.send(upload_task) {
                     tracing::warn!("Failed to queue piptar upload for {venv_p}: {e}");
                 } else {
@@ -1961,7 +2034,7 @@ pub async fn handle_python_reqs(
             pids.lock().await.get_mut(i).and_then(|e| e.take());
             // Create a file to indicate that installation was successfull
             let valid_path = venv_p.clone() + "/.valid.windmill";
-            // This is atomic operation, meaning, that it either completes and wheel is valid, 
+            // This is atomic operation, meaning, that it either completes and wheel is valid,
             // or it does not and wheel is invalid and will be reinstalled next run
             if let Err(e) = File::create(&valid_path).await{
                 tracing::error!(
@@ -2077,6 +2150,8 @@ pub async fn start_worker(
         None,
         None,
         None,
+        None,
+        None,
     )
     .await
     .to_vec();
@@ -2112,7 +2187,7 @@ pub async fn start_worker(
         spread,
         _,
         _,
-    ) = prepare_wrapper(job_dir, false, None, None, inner_content, script_path).await?;
+    ) = prepare_wrapper(job_dir, None, None, None, inner_content, script_path).await?;
 
     {
         let postprocessor = get_result_postprocessor(annotations.skip_result_postprocessing);
@@ -2196,6 +2271,8 @@ for line in sys.stdin:
         None,
         None,
         None,
+        None,
+        None,
     )
     .await;
 
@@ -2246,4 +2323,3 @@ for line in sys.stdin:
     )
     .await
 }
-

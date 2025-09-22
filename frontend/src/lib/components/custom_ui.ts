@@ -10,6 +10,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 		diff?: boolean
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
+		settings?: boolean
 	}
 	settingsPanel?: boolean
 	settingsTabs?: {
@@ -34,6 +35,9 @@ export type FlowBuilderWhitelabelCustomUi = {
 	tagEdit?: boolean
 	editorBar?: EditorBarUi
 	downloadLogs?: boolean
+	tagSelectPlaceholder?: string
+	tagSelectNoLabel?: boolean
+	tagLabel?: string
 }
 
 export type DisplayResultUi = {
@@ -48,6 +52,7 @@ export type PreviewPanelUi = {
 	displayResult?: DisplayResultUi
 	disableVariablePicker?: boolean
 	disableDownload?: boolean
+	tagLabel?: string
 }
 
 export type EditorBarUi = {
@@ -59,12 +64,17 @@ export type EditorBarUi = {
 	assistants?: boolean
 	multiplayer?: boolean
 	autoformatting?: boolean
+	editorSettings?: boolean
 	vimMode?: boolean
+	relativeLineNumbers?: boolean
 	aiGen?: boolean
 	aiCompletion?: boolean
 	library?: boolean
 	useVsCode?: boolean
 	diffMode?: boolean
+	s3object?: boolean
+	database?: boolean
+	ducklake?: boolean
 }
 
 export type EditableSchemaFormUi = {
@@ -77,6 +87,7 @@ export type SettingsPanelMetadataUi = {
 	disableScriptKind?: boolean
 	editableSchemaForm?: EditableSchemaFormUi
 	disableMute?: boolean
+	disableAiFilling?: boolean
 }
 
 export type SettingsPanelUi = {
@@ -101,10 +112,11 @@ export type ScriptBuilderWhitelabelCustomUi = {
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
 		diff?: boolean
+		tagEdit?: boolean
 	}
 	settingsPanel?: SettingsPanelUi
 	disableTooltips?: boolean
-
 	editorBar?: EditorBarUi
 	previewPanel?: PreviewPanelUi
+	tagSelectPlaceholder?: string
 }

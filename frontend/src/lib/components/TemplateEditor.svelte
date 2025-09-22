@@ -1,19 +1,5 @@
 <script module>
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-
-	languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noSemanticValidation: false,
-		noLib: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-	})
-	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-		noSemanticValidation: false,
-		noSyntaxValidation: false,
-		noSuggestionDiagnostics: false,
-		diagnosticCodesToIgnore: [1108]
-	})
 </script>
 
 <script lang="ts">
@@ -21,11 +7,12 @@
 	import {
 		convertKind,
 		createDocumentationString,
-		createHash,
 		displayPartsToString,
 		editorConfig,
 		updateOptions
 	} from '$lib/editorUtils'
+	import { createHash } from '$lib/editorLangUtils'
+
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import { editor as meditor, Uri as mUri, languages, Range, KeyMod, KeyCode } from 'monaco-editor'
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
@@ -38,6 +25,7 @@
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import { setMonacoJsonOptions } from './monacoLanguagesOptions'
 
 	export const conf = {
 		wordPattern:
@@ -432,12 +420,11 @@
 
 	let initialized = false
 
-	let jsLoader: NodeJS.Timeout | undefined = undefined
-
+	let jsLoader: number | undefined = undefined
+	let timeoutModel: number | undefined = undefined
 	async function loadMonaco() {
-		console.log('init template')
+		setMonacoJsonOptions()
 		await initializeVscode('templateEditor')
-		console.log('initialized')
 		initialized = true
 
 		languages.register({ id: 'template' })
@@ -455,7 +442,7 @@
 
 		try {
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
+				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets, false),
 				model,
 				// overflowWidgetsDomNode: widgets,
 				// lineNumbers: 'on',
@@ -486,7 +473,6 @@
 			dispatch('change', { code: ncode })
 		}
 
-		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
@@ -612,11 +598,12 @@
 	}
 
 	let mounted = false
+	let loadTimeout: number | undefined = undefined
 	onMount(async () => {
 		try {
 			if (BROWSER) {
 				if (loadAsync) {
-					setTimeout(async () => {
+					loadTimeout = setTimeout(async () => {
 						await loadMonaco()
 						mounted = true
 					}, 0)
@@ -648,6 +635,8 @@
 		try {
 			valueAfterDispose = getCode()
 			jsLoader && clearTimeout(jsLoader)
+			timeoutModel && clearTimeout(timeoutModel)
+			loadTimeout && clearTimeout(loadTimeout)
 			model && model.dispose()
 			editor && editor.dispose()
 			cip && cip.dispose()

@@ -621,7 +621,7 @@
 			customPath
 		})
 	}
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	let validateTimeout: number | undefined = undefined
 	async function validateCustomPath(customPath: string): Promise<void> {
 		customPathError = ''
 		if (validateTimeout) {
@@ -659,8 +659,8 @@
 <UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
 
 <DeployOverrideConfirmationModal
-	bind:deployedBy
-	bind:confirmCallback
+	{deployedBy}
+	{confirmCallback}
 	bind:open
 	{diffDrawer}
 	bind:deployedValue

@@ -8,16 +8,17 @@ use std::{
         atomic::{AtomicU16, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-use chrono::{NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use futures::{stream::FuturesUnordered, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize};
 use sqlx::{Pool, Postgres};
 use tokio::{
     join,
     sync::{mpsc, RwLock},
+    time::timeout,
 };
 use uuid::Uuid;
 
@@ -33,13 +34,13 @@ use windmill_common::ee_oss::low_disk_alerts;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
 
-use windmill_common::client::AuthedClient;
 #[cfg(feature = "oauth2")]
 use windmill_common::global_settings::OAUTH_SETTING;
 #[cfg(feature = "parquet")]
 use windmill_common::s3_helpers::reload_object_store_setting;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
+    apps::APP_WORKSPACED_ROUTE,
     auth::create_token_for_owner,
     ee_oss::CriticalErrorChannel,
     error,
@@ -65,7 +66,8 @@ use windmill_common::{
     users::truncate_token,
     utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode},
     worker::{
-        load_env_vars, load_init_bash_from_env, load_whitelist_env_vars_from_env,
+        load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
+        load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
         store_suspended_pull_query, update_min_version, Connection, WorkerConfig,
         DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY,
@@ -76,6 +78,7 @@ use windmill_common::{
     METRICS_DEBUG_ENABLED, METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED,
     OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
+use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
 use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
 use windmill_worker::{
     handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
@@ -111,6 +114,12 @@ lazy_static::lazy_static! {
         &["tag"]
     ).unwrap();
 
+    static ref QUEUE_RUNNING_COUNT: prometheus::IntGaugeVec = prometheus::register_int_gauge_vec!(
+        "queue_running_count",
+        "Number of running jobs in the queue",
+        &["tag"]
+    ).unwrap();
+
 }
 lazy_static::lazy_static! {
     static ref ZOMBIE_JOB_TIMEOUT: String = std::env::var("ZOMBIE_JOB_TIMEOUT")
@@ -137,8 +146,14 @@ lazy_static::lazy_static! {
     pub static ref WORKERS_NAMES: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
 
     static ref QUEUE_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
+    static ref QUEUE_RUNNING_COUNT_TAGS: Arc<RwLock<Vec<String>>> = Arc::new(RwLock::new(Vec::new()));
     static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
 
+    //legacy typo
+    static ref STALE_JOB_THRESHOLD_MINUTES: Option<u64> = std::env::var("STALE_JOB_THRESHOLD_MINUTES").or_else(|_| std::env::var("STALE_JOB_THRESHOLD_MINUTES"))
+
+    .ok()
+    .and_then(|x| x.parse::<u64>().ok());
 }
 
 pub async fn initial_load(
@@ -213,6 +228,8 @@ pub async fn initial_load(
                     priority_tags_sorted: vec![],
                     dedicated_worker: None,
                     init_bash: load_init_bash_from_env(),
+                    periodic_script_bash: load_periodic_bash_script_from_env(),
+                    periodic_script_interval_seconds: load_periodic_bash_script_interval_from_env(),
                     cache_clear: None,
                     additional_python_paths: None,
                     pip_local_dependencies: None,
@@ -232,6 +249,10 @@ pub async fn initial_load(
 
         if let Err(e) = reload_custom_tags_setting(db).await {
             tracing::error!("Error reloading custom tags: {:?}", e)
+        }
+
+        if let Err(e) = reload_app_workspaced_route_setting(db).await {
+            tracing::error!("Error reloading app workspaced route: {:?}", e)
         }
     }
 
@@ -279,6 +300,7 @@ pub async fn initial_load(
         reload_nuget_config_setting(&conn).await;
         reload_maven_repos_setting(&conn).await;
         reload_no_default_maven_setting(&conn).await;
+        reload_ruby_repos_setting(&conn).await;
     }
 }
 
@@ -673,20 +695,25 @@ async fn send_log_file_to_object_store(
         let (ok_lines, err_lines) = read_log_counters(ts_str);
 
         if let Some(db) = conn.as_sql() {
-            if let Err(e) = sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
+            match timeout(Duration::from_secs(10), sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
              VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
              ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
                 hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, *JSON_FMT)
-                .execute(db)
-                .await {
-                tracing::error!("Error inserting log file: {:?}", e);
-            } else {
-                if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
-                    last_log_file_sent.replace(ts);
-                }) {
-                    tracing::error!("Error updating last log file sent: {:?}", e);
+                .execute(db)).await {
+                Ok(Ok(_)) => {
+                    if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
+                        last_log_file_sent.replace(ts);
+                    }) {
+                        tracing::error!("Error updating last log file sent: {:?}", e);
+                    }
+                    tracing::info!("Log file sent: {}", highest_file);
                 }
-                tracing::info!("Log file sent: {}", highest_file);
+                Ok(Err(e)) => {
+                    tracing::error!("Error inserting log file: {:?}", e);
+                }
+                Err(e) => {
+                    tracing::error!("Error inserting log file, timeout elapsed: {:?}", e);
+                }
             }
         } else {
             // tracing::warn!("Not sending log file to object store in agent mode");
@@ -1006,6 +1033,7 @@ pub async fn reload_timeout_wait_result_setting(conn: &Connection) {
     )
     .await;
 }
+
 pub async fn reload_saml_metadata_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -1075,6 +1103,7 @@ pub async fn reload_nuget_config_setting(conn: &Connection) {
     )
     .await;
 }
+
 pub async fn reload_maven_repos_setting(conn: &Connection) {
     reload_option_setting_with_tracing(
         conn,
@@ -1084,6 +1113,7 @@ pub async fn reload_maven_repos_setting(conn: &Connection) {
     )
     .await;
 }
+
 pub async fn reload_no_default_maven_setting(conn: &Connection) {
     let value = load_value_from_global_settings_with_conn(
         conn,
@@ -1098,6 +1128,16 @@ pub async fn reload_no_default_maven_setting(conn: &Connection) {
         }
         _ => (),
     };
+}
+
+pub async fn reload_ruby_repos_setting(conn: &Connection) {
+    reload_url_list_setting_with_tracing(
+        conn,
+        windmill_common::global_settings::RUBY_REPOS_SETTING,
+        "RUBY_REPOS",
+        windmill_worker::RUBY_REPOS.clone(),
+    )
+    .await;
 }
 
 pub async fn reload_retention_period_setting(conn: &Connection) {
@@ -1269,6 +1309,100 @@ pub async fn reload_option_setting<T: FromStr + DeserializeOwned>(
     Ok(())
 }
 
+pub async fn reload_url_list_setting_with_tracing(
+    conn: &Connection,
+    setting_name: &str,
+    std_env_var: &str,
+    lock: Arc<RwLock<Option<Vec<url::Url>>>>,
+) {
+    if let Err(e) = reload_url_list_setting(conn, setting_name, std_env_var, lock.clone()).await {
+        tracing::error!("Error reloading setting {}: {:?}", setting_name, e)
+    }
+}
+
+pub async fn reload_url_list_setting(
+    conn: &Connection,
+    setting_name: &str,
+    std_env_var: &str,
+    lock: Arc<RwLock<Option<Vec<url::Url>>>>,
+) -> error::Result<()> {
+    // Check for force environment variable
+    if let Ok(force_value) = std::env::var(format!("FORCE_{}", std_env_var)) {
+        let mut urls = Vec::new();
+        for url_str in force_value.trim().split_whitespace() {
+            match url::Url::parse(url_str) {
+                Ok(url) => urls.push(url),
+                Err(e) => {
+                    return Err(error::Error::BadRequest(format!(
+                        "Invalid URL in FORCE_{}: '{}': {}",
+                        std_env_var, url_str, e
+                    )));
+                }
+            }
+        }
+        let mut l = lock.write().await;
+        *l = if urls.is_empty() { None } else { Some(urls) };
+        return Ok(());
+    }
+
+    let q = load_value_from_global_settings_with_conn(conn, setting_name, true).await?;
+
+    // Check regular environment variable
+    let mut value = if let Ok(env_value) = std::env::var(std_env_var) {
+        let mut urls = Vec::new();
+        for url_str in env_value.trim().split_whitespace() {
+            match url::Url::parse(url_str) {
+                Ok(url) => urls.push(url),
+                Err(_) => {
+                    // Log error but continue, similar to force variable handling
+                    tracing::error!("Invalid URL in {}: '{}'", std_env_var, url_str);
+                }
+            }
+        }
+        if urls.is_empty() {
+            None
+        } else {
+            Some(urls)
+        }
+    } else {
+        None
+    };
+
+    // Check database setting
+    if let Some(q) = q {
+        if let Ok(repos_str) = serde_json::from_value::<String>(q.clone()) {
+            let mut urls = Vec::new();
+            for url_str in repos_str.trim().split_whitespace() {
+                match url::Url::parse(url_str) {
+                    Ok(url) => urls.push(url),
+                    Err(e) => {
+                        tracing::error!("Invalid URL in {}: '{}': {}", setting_name, url_str, e);
+                        // Continue with other URLs, just skip invalid ones
+                    }
+                }
+            }
+            tracing::info!(
+                "Loaded setting {} from db config: {} URLs",
+                setting_name,
+                urls.len()
+            );
+            value = if urls.is_empty() { None } else { Some(urls) };
+        } else {
+            tracing::error!("Could not parse {} found: {:#?}", setting_name, &q);
+        }
+    }
+
+    {
+        if value.is_none() {
+            tracing::info!("Loaded {} setting to None", setting_name);
+        }
+        let mut l = lock.write().await;
+        *l = value;
+    }
+
+    Ok(())
+}
+
 pub async fn reload_setting<T: FromStr + DeserializeOwned + Display>(
     conn: &Connection,
     setting_name: &str,
@@ -1334,6 +1468,17 @@ pub async fn monitor_pool(db: &DB) {
     }
 }
 
+pub struct MonitorIteration {
+    pub rd_shift: u8,
+    pub iter: u64,
+}
+
+impl MonitorIteration {
+    pub fn should_run(&self, period: u8) -> bool {
+        self.iter % (period as u64) == self.rd_shift as u64
+    }
+}
+
 pub async fn monitor_db(
     conn: &Connection,
     base_internal_url: &str,
@@ -1341,6 +1486,7 @@ pub async fn monitor_db(
     _worker_mode: bool,
     initial_load: bool,
     _killpill_tx: KillpillSender,
+    iteration: Option<MonitorIteration>,
 ) {
     let zombie_jobs_f = async {
         if server_mode && !initial_load && !*DISABLE_ZOMBIE_JOBS_MONITORING {
@@ -1355,6 +1501,67 @@ pub async fn monitor_db(
             }
         }
     };
+
+    let stale_jobs_f = async {
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                stale_job_cancellation(&db).await;
+            }
+        }
+    };
+
+    // run every 5 minutes
+    let cleanup_concurrency_counters_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = cleanup_concurrency_counters_orphaned_keys(&db).await {
+                    tracing::error!("Error cleaning up concurrency counters: {:?}", e);
+                }
+            }
+        }
+    };
+
+    // run every 10 minutes
+    let cleanup_concurrency_counters_empty_keys_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(20) {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = cleanup_concurrency_counters_empty_keys(&db).await {
+                    tracing::error!("Error cleaning up concurrency counters: {:?}", e);
+                }
+            }
+        }
+    };
+    // run every hour (60 minutes / 30 seconds = 120)
+    let cleanup_worker_group_stats_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
+            if let Some(db) = conn.as_sql() {
+                match windmill_common::worker_group_job_stats::cleanup_old_stats(db, 60).await {
+                    Ok(count) if count > 0 => {
+                        tracing::info!("Deleted {} old worker group job stats rows", count);
+                    }
+                    Err(e) => {
+                        tracing::error!("Error cleaning up worker group job stats: {:?}", e);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    };
+
+    // run every hour
+    let vacuum_queue_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(60) {
+            if let Some(db) = conn.as_sql() {
+                let instant = Instant::now();
+                tracing::info!("vacuuming tables");
+                if let Err(e) = vacuuming_tables(&db).await {
+                    tracing::error!("Error vacuuming v2_job: {:?}", e);
+                }
+                tracing::info!("vacuum tables done in {}s", instant.elapsed().as_secs());
+            }
+        }
+    };
+
     let expired_items_f = async {
         if server_mode && !initial_load {
             if let Some(db) = conn.as_sql() {
@@ -1431,6 +1638,8 @@ pub async fn monitor_db(
     join!(
         expired_items_f,
         zombie_jobs_f,
+        stale_jobs_f,
+        vacuum_queue_f,
         expose_queue_metrics_f,
         verify_license_key_f,
         worker_groups_alerts_f,
@@ -1438,7 +1647,17 @@ pub async fn monitor_db(
         low_disk_alerts_f,
         apply_autoscaling_f,
         update_min_worker_version_f,
+        cleanup_concurrency_counters_f,
+        cleanup_concurrency_counters_empty_keys_f,
+        cleanup_worker_group_stats_f,
     );
+}
+
+async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
+    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream, job_stats, job_logs, concurrency_key, log_file, metrics")
+        .execute(db)
+        .await?;
+    Ok(())
 }
 
 pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
@@ -1511,6 +1730,30 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             let mut w = QUEUE_COUNT_TAGS.write().await;
             *w = tags_to_watch;
         }
+
+        #[cfg(feature = "prometheus")]
+        if metrics_enabled {
+            // Handle queue running count metrics
+            let queue_running_counts = windmill_common::queue::get_queue_running_counts(db).await;
+
+            for q in QUEUE_RUNNING_COUNT_TAGS.read().await.iter() {
+                if queue_running_counts.get(q).is_none() {
+                    (*QUEUE_RUNNING_COUNT).with_label_values(&[q]).set(0);
+                }
+            }
+
+            let mut running_tags_to_watch = vec![];
+            for q in queue_running_counts {
+                let count = q.1;
+                let tag = q.0;
+
+                let metric = (*QUEUE_RUNNING_COUNT).with_label_values(&[&tag]);
+                metric.set(count as i64);
+                running_tags_to_watch.push(tag.to_string());
+            }
+            let mut w = QUEUE_RUNNING_COUNT_TAGS.write().await;
+            *w = running_tags_to_watch;
+        }
     }
 
     // clean queue metrics older than 14 days
@@ -1573,6 +1816,17 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                     if let Err(e) = windmill_worker::common::clean_cache().await {
                         tracing::error!("Error cleaning the cache: {e:#}");
                     }
+                }
+
+                if (*wc).periodic_script_bash != config.periodic_script_bash {
+                    tracing::info!("Periodic script bash config changed, sending killpill. Expecting to be restarted by supervisor.");
+                    let _ = tx.send();
+                }
+
+                if (*wc).periodic_script_interval_seconds != config.periodic_script_interval_seconds
+                {
+                    tracing::info!("Periodic script interval config changed, sending killpill. Expecting to be restarted by supervisor.");
+                    let _ = tx.send();
                 }
             }
             drop(wc);
@@ -1657,6 +1911,67 @@ pub async fn reload_base_url_setting(conn: &Connection) -> error::Result<()> {
         *l = is_secure;
     }
 
+    Ok(())
+}
+
+async fn stale_job_cancellation(db: &Pool<Postgres>) {
+    if let Some(threshold) = *STALE_JOB_THRESHOLD_MINUTES {
+        let stale_jobs = sqlx::query!(
+            "SELECT v2_job_queue.id, v2_job.tag, v2_job_queue.scheduled_for, v2_job_queue.workspace_id FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id WHERE running = false AND scheduled_for < now() - ($1 || ' minutes')::interval",
+            threshold.to_string()
+        )
+        .fetch_all(db)
+            .await
+            .ok()
+            .unwrap_or_else(|| vec![]);
+
+        if !stale_jobs.is_empty() {
+            tracing::info!(
+                "Cancelling {} stale jobs (> {} minutes old)",
+                stale_jobs.len(),
+                threshold
+            );
+        }
+        for job in stale_jobs {
+            if let Err(e) =
+                cancel_stale_job(db, job.id, job.tag, job.workspace_id, job.scheduled_for).await
+            {
+                tracing::error!("Error cancelling stale job {}: {}", job.id, e);
+            }
+        }
+    }
+}
+
+async fn cancel_stale_job(
+    db: &Pool<Postgres>,
+    id: Uuid,
+    tag: String,
+    workspace_id: String,
+    scheduled_for: DateTime<Utc>,
+) -> error::Result<()> {
+    let mut tx = db.begin().await?;
+    tracing::error!(
+        "Stale job detected: {} in workspace {} with tag {} (scheduled for: {}) . Cancelling it.",
+        id,
+        workspace_id,
+        tag,
+        scheduled_for
+    );
+    (tx, _) = cancel_job(
+        "monitor",
+        Some(format!(
+            "Stale job cancellation (scheduled for: {})",
+            scheduled_for
+        )),
+        id,
+        &workspace_id,
+        tx,
+        db,
+        true,
+        false,
+    )
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -1835,12 +2150,14 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             );
         }
 
-        let jobs = sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE id = ANY($1)")
-            .bind(&timeouts[..])
-            .fetch_all(db)
-            .await
-            .map_err(|e| tracing::error!("Error fetching same worker jobs: {:?}", e))
-            .unwrap_or_default();
+        let jobs = sqlx::query_as::<_, QueuedJob>(
+            "SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE id = ANY($1)",
+        )
+        .bind(&timeouts[..])
+        .fetch_all(db)
+        .await
+        .map_err(|e| tracing::error!("Error fetching same worker jobs: {:?}", e))
+        .unwrap_or_default();
 
         jobs
     };
@@ -1848,7 +2165,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     let non_restartable_jobs = if *RESTART_ZOMBIE_JOBS {
         vec![]
     } else {
-        sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval
+        sqlx::query_as::<_, QueuedJob>("SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval
     AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false")
         .bind(ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
@@ -1873,13 +2190,14 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         }
     }
 
-    let zombie_jobs_restart_limit_reached =
-        sqlx::query_as::<_, QueuedJob>("SELECT * FROM v2_as_queue WHERE id = ANY($1)")
-            .bind(&zombie_jobs_uuid_restart_limit_reached[..])
-            .fetch_all(db)
-            .await
-            .ok()
-            .unwrap_or_else(|| vec![]);
+    let zombie_jobs_restart_limit_reached = sqlx::query_as::<_, QueuedJob>(
+        "SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE id = ANY($1)",
+    )
+    .bind(&zombie_jobs_uuid_restart_limit_reached[..])
+    .fetch_all(db)
+    .await
+    .ok()
+    .unwrap_or_else(|| vec![]);
 
     let timeouts = non_restartable_jobs
         .into_iter()
@@ -1926,6 +2244,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
             &job.email,
             &job.id,
             None,
+            Some(format!("handle_zombie_jobs")),
         )
         .await
         .expect("could not create job token");
@@ -1965,6 +2284,104 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     }
 }
 
+async fn cleanup_concurrency_counters_orphaned_keys(db: &DB) -> error::Result<()> {
+    let result = sqlx::query!(
+        "
+WITH lockable_counters AS (
+    SELECT concurrency_id, job_uuids
+    FROM concurrency_counter
+    WHERE job_uuids != '{}'::jsonb
+    FOR UPDATE SKIP LOCKED
+),
+all_job_uuids AS (
+    SELECT DISTINCT jsonb_object_keys(job_uuids) AS job_uuid
+    FROM lockable_counters
+),
+orphaned_job_uuids AS (
+    SELECT job_uuid
+    FROM all_job_uuids
+    WHERE job_uuid NOT IN (
+        SELECT id::text 
+        FROM v2_job_queue 
+        FOR SHARE SKIP LOCKED
+    )
+),
+orphaned_array AS (
+    SELECT ARRAY(SELECT job_uuid FROM orphaned_job_uuids) AS orphaned_keys
+),
+before_update AS (
+    SELECT lc.concurrency_id, lc.job_uuids, oa.orphaned_keys
+    FROM lockable_counters lc, orphaned_array oa
+    WHERE lc.job_uuids ?| oa.orphaned_keys
+),
+affected_rows AS (
+    UPDATE concurrency_counter 
+    SET job_uuids = job_uuids - orphaned_array.orphaned_keys
+    FROM orphaned_array
+    WHERE concurrency_counter.concurrency_id IN (
+        SELECT concurrency_id FROM before_update
+    )
+    RETURNING concurrency_id, job_uuids AS updated_job_uuids
+),
+expanded_orphaned AS (
+    SELECT bu.concurrency_id, 
+           bu.job_uuids AS original_job_uuids,
+           unnest(bu.orphaned_keys) AS orphaned_key
+    FROM before_update bu
+)
+SELECT 
+    eo.concurrency_id,
+    eo.orphaned_key,
+    eo.original_job_uuids,
+    ar.updated_job_uuids
+FROM expanded_orphaned eo
+JOIN affected_rows ar ON eo.concurrency_id = ar.concurrency_id
+WHERE eo.original_job_uuids ? eo.orphaned_key
+ORDER BY eo.concurrency_id, eo.orphaned_key
+",
+    )
+    .fetch_all(db)
+    .await?;
+
+    if result.len() > 0 {
+        tracing::info!("Cleaned up {} concurrency counters", result.len());
+        for row in result {
+            tracing::info!("Concurrency counter cleaned up: concurrency_id: {}, orphaned_key: {:?}, original_job_uuids: {:?}, updated_job_uuids: {:?}", row.concurrency_id, row.orphaned_key, row.original_job_uuids, row.updated_job_uuids);
+        }
+    }
+    Ok(())
+}
+
+async fn cleanup_concurrency_counters_empty_keys(db: &DB) -> error::Result<()> {
+    let result = sqlx::query!(
+        "
+WITH rows_to_delete AS (
+    SELECT concurrency_id
+    FROM concurrency_counter
+    WHERE job_uuids = '{}'::jsonb
+    FOR UPDATE SKIP LOCKED
+)
+DELETE FROM concurrency_counter
+WHERE concurrency_id IN (SELECT concurrency_id FROM rows_to_delete)  RETURNING concurrency_id",
+    )
+    .fetch_all(db)
+    .await?;
+
+    if result.len() > 0 {
+        tracing::info!(
+            "Cleaned up {} empty concurrency counters: {:?}",
+            result.len(),
+            result
+                .iter()
+                .map(|x| x.concurrency_id.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+    }
+
+    Ok(())
+}
+
 async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
     let flows = sqlx::query!(
         r#"
@@ -1976,6 +2393,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')
             AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval
             AND canceled = false
+            
         "#,
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
     )
@@ -2187,6 +2605,29 @@ pub async fn reload_critical_error_channels_setting(conn: &DB) -> error::Result<
     let mut l = CRITICAL_ERROR_CHANNELS.write().await;
     *l = critical_error_channels;
 
+    Ok(())
+}
+
+pub async fn reload_app_workspaced_route_setting(conn: &DB) -> error::Result<()> {
+    let app_workspaced_route =
+        load_value_from_global_settings(conn, APP_WORKSPACED_ROUTE_SETTING).await?;
+
+    let ws_route = match app_workspaced_route {
+        Some(serde_json::Value::Bool(ws_route)) => ws_route,
+        None => false,
+        _ => {
+            tracing::error!(
+                "Expected {} to be a boolean got: {:?}. Defaulting to false",
+                APP_WORKSPACED_ROUTE_SETTING,
+                app_workspaced_route
+            );
+            false
+        }
+    };
+
+    let mut l = APP_WORKSPACED_ROUTE.write().await;
+
+    *l = ws_route;
     Ok(())
 }
 

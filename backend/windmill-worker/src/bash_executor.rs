@@ -21,7 +21,9 @@ use windmill_common::{
 #[cfg(feature = "dind")]
 use windmill_common::error::to_anyhow;
 
-use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
+use windmill_queue::{
+    append_logs, CanceledBy, MiniPulledJob, INIT_SCRIPT_PATH_PREFIX, PERIODIC_SCRIPT_PATH_PREFIX,
+};
 
 lazy_static::lazy_static! {
     pub static ref BIN_BASH: String = std::env::var("BASH_PATH").unwrap_or_else(|_| "/bin/bash".to_string());
@@ -163,7 +165,10 @@ exit $exit_status
         && job
             .runnable_path
             .as_ref()
-            .map(|x| !x.starts_with("init_script_"))
+            .map(|x| {
+                !x.starts_with(INIT_SCRIPT_PATH_PREFIX)
+                    && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
+            })
             .unwrap_or(true);
     let child = if nsjail {
         let _ = write_file(
@@ -193,7 +198,7 @@ exit $exit_status
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let mut cmd_args = vec!["wrapper.sh"];
         cmd_args.extend(&args);
@@ -207,9 +212,10 @@ exit $exit_status
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
             .args(cmd_args)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(bash_cmd, BIN_BASH.as_str()).await?
+        start_child_process(bash_cmd, BIN_BASH.as_str(), false).await?
     };
     handle_child(
         &job.id,
@@ -224,6 +230,7 @@ exit $exit_status
         job.timeout,
         true,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;
@@ -367,6 +374,7 @@ async fn handle_docker_job(
             .await;
             loop {
                 tokio::select! {
+                    biased;
                     log = log_stream.next() => {
                         match log {
                             Some(Ok(log)) => {
@@ -461,21 +469,22 @@ async fn handle_docker_job(
         rm_container(&client, &container_id).await;
 
         return Err(e);
+    } else {
+        let _ = tokio::time::timeout(tokio::time::Duration::from_secs(5), logs).await;
+        rm_container(&client, &container_id).await;
+
+        let result = result.unwrap();
+
+        if result.is_some_and(|x| x > 0) {
+            return Err(Error::ExecutionErr(format!(
+                "Docker job completed with unsuccessful exit status: {}",
+                result.unwrap()
+            )));
+        }
+        return Ok(to_raw_value(&json!(format!(
+            "Docker job completed with success exit status"
+        ))));
     }
-
-    rm_container(&client, &container_id).await;
-
-    let result = result.unwrap();
-
-    if result.is_some_and(|x| x > 0) {
-        return Err(Error::ExecutionErr(format!(
-            "Docker job completed with unsuccessful exit status: {}",
-            result.unwrap()
-        )));
-    }
-    return Ok(to_raw_value(&json!(format!(
-        "Docker job completed with success exit status"
-    ))));
 }
 
 #[cfg(feature = "dind")]
@@ -510,6 +519,23 @@ fn raw_to_string(x: &str) -> String {
         _ => String::new(),
     }
 }
+
+const POWERSHELL_INSTALL_CODE: &str = r#"
+$availableModules = Get-Module -ListAvailable
+$path = '{path}'
+
+$moduleNames = @({modules})
+
+foreach ($module in $moduleNames) {
+    if (-not ($availableModules | Where-Object { $_.Name -eq $module })) {
+        Write-Host "Installing module $module..."
+        Save-Module -Name $module -Path $path -Force
+    } else {
+        Write-Host "Module $module already installed"
+    }
+}
+"#;
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
     mem_peak: &mut i32,
@@ -573,32 +599,40 @@ pub async fn handle_powershell_job(
         })
         .collect::<Vec<String>>();
 
-    let mut install_string: String = String::new();
+    let mut modules_to_install: Vec<String> = Vec::new();
     let mut logs1 = String::new();
     for line in content.lines() {
         for cap in RE_POWERSHELL_IMPORTS.captures_iter(line) {
             let module = cap.get(1).unwrap().as_str();
             if !installed_modules.contains(&module.to_lowercase()) {
-                logs1.push_str(&format!("\n{} not found in cache", module.to_string()));
-                // instead of using Install-Module, we use Save-Module so that we can specify the installation path
-                install_string.push_str(&format!(
-                    "Save-Module -Path {} -Force {};",
-                    POWERSHELL_CACHE_DIR, module
-                ));
+                modules_to_install.push(module.to_string());
             } else {
                 logs1.push_str(&format!("\n{} found in cache", module.to_string()));
             }
         }
     }
 
-    if !install_string.is_empty() {
-        logs1.push_str("\n\nInstalling modules...");
+    if !logs1.is_empty() {
         append_logs(&job.id, &job.workspace_id, logs1, db).await;
-        let child = Command::new(POWERSHELL_PATH.as_str())
-            .args(&["-Command", &install_string])
+    }
+
+    if !modules_to_install.is_empty() {
+        let install_string = POWERSHELL_INSTALL_CODE
+            .replace("{path}", POWERSHELL_CACHE_DIR)
+            .replace(
+                "{modules}",
+                &modules_to_install
+                    .iter()
+                    .map(|x| format!("'{x}'"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        let mut cmd = Command::new(POWERSHELL_PATH.as_str());
+        cmd.args(&["-Command", &install_string])
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            .stderr(Stdio::piped());
+
+        let child = start_child_process(cmd, POWERSHELL_PATH.as_str(), false).await?;
 
         handle_child(
             &job.id,
@@ -613,6 +647,7 @@ pub async fn handle_powershell_job(
             job.timeout,
             false,
             &mut Some(occupancy_metrics),
+            None,
             None,
         )
         .await?;
@@ -708,7 +743,16 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     let _ = write_file(job_dir, "result.out", "")?;
     let _ = write_file(job_dir, "result2.out", "")?;
 
-    let child = if !*DISABLE_NSJAIL {
+    let nsjail = !*DISABLE_NSJAIL
+        && job
+            .runnable_path
+            .as_ref()
+            .map(|x| {
+                !x.starts_with(INIT_SCRIPT_PATH_PREFIX)
+                    && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
+            })
+            .unwrap_or(true);
+    let child = if nsjail {
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -726,8 +770,8 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             "wrapper.sh",
         ];
         cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
-        Command::new(NSJAIL_PATH.as_str())
-            .current_dir(job_dir)
+        let mut cmd = Command::new(NSJAIL_PATH.as_str());
+        cmd.current_dir(job_dir)
             .env_clear()
             .envs(PROXY_ENVS.clone())
             .envs(reserved_variables)
@@ -736,8 +780,9 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(cmd_args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
+            .stderr(Stdio::piped());
+
+        start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let mut cmd;
         let mut cmd_args;
@@ -765,12 +810,14 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
             .args(&cmd_args)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
         #[cfg(windows)]
         {
             cmd.env("SystemRoot", SYSTEM_ROOT.as_str())
+                .env("WINDIR", SYSTEM_ROOT.as_str())
                 .env(
                     "LOCALAPPDATA",
                     std::env::var("LOCALAPPDATA")
@@ -809,7 +856,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
 
-        cmd.spawn()?
+        start_child_process(cmd, POWERSHELL_PATH.as_str(), false).await?
     };
 
     handle_child(
@@ -825,6 +872,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;

@@ -106,6 +106,9 @@
 	}
 
 	async function updateHasUnacknowledgedCriticalAlerts(sendToast: boolean = false) {
+		if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+			return
+		}
 		if (checkingForNewAlerts) return
 		checkingForNewAlerts = true
 		try {

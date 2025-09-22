@@ -40,7 +40,8 @@
                 "singlescriptflow",
                 "flowscript",
                 "flownode",
-                "appscript"
+                "appscript",
+                "aiagent"
               ]
             }
           }
@@ -71,7 +72,8 @@
                 "oracledb",
                 "nu",
                 "java",
-                "duckdb"
+                "duckdb",
+                "ruby"
               ]
             }
           }

@@ -7,13 +7,17 @@
 	import { workspaceStore } from '$lib/stores'
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 
-	export let theme: AppTheme
+	interface Props {
+		theme: AppTheme
+	}
 
-	let code: string | undefined = undefined
-	let codeDrawer: Drawer
+	let { theme }: Props = $props()
+
+	let code: string | undefined = $state(undefined)
+	let codeDrawer: Drawer | undefined = $state()
 
 	export async function openDrawer() {
-		codeDrawer.openDrawer()
+		codeDrawer?.openDrawer()
 		code = await resolveTheme(theme, $workspaceStore)
 	}
 </script>

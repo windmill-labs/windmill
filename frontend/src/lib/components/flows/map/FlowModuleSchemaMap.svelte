@@ -11,16 +11,14 @@
 		emptyModule,
 		pickScript,
 		pickFlow,
-		insertNewPreprocessorModule
+		insertNewPreprocessorModule,
+		createAiAgent
 	} from '$lib/components/flows/flowStateUtils.svelte'
-	import type { FlowModule, ScriptLang } from '$lib/gen'
+	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils'
-	import FlowSettingsItem from './FlowSettingsItem.svelte'
-	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
 	import { dfs } from '../dfs'
-	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
@@ -31,13 +29,18 @@
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
-	import { replaceId } from '../flowStore.svelte'
+	import { replaceId } from '../flowStore'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { JobService } from '$lib/gen'
 	import { dfsByModule } from '../previousResults'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import type { GraphModuleState } from '$lib/components/graph'
+	import FlowStickyNode from './FlowStickyNode.svelte'
+	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
+	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
+	import type { StateStore } from '$lib/utils'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -50,6 +53,23 @@
 		workspace?: string | undefined
 		onTestUpTo?: ((id: string) => void) | undefined
 		onEditInput?: (moduleId: string, key: string) => void
+		localModuleStates?: Record<string, GraphModuleState>
+		testModuleStates?: ModulesTestStates
+		aiChatOpen?: boolean
+		showFlowAiButton?: boolean
+		toggleAiChat?: () => void
+		isOwner?: boolean
+		onTestFlow?: () => void
+		isRunning?: boolean
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
+		individualStepTests?: boolean
+		flowJob?: Job | undefined
+		showJobStatus?: boolean
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
+		onDelete?: (id: string) => void
+		flowHasChanged?: boolean
 	}
 
 	let {
@@ -62,24 +82,34 @@
 		smallErrorHandler = false,
 		workspace = $workspaceStore,
 		onTestUpTo,
-		onEditInput
+		onEditInput,
+		localModuleStates = {},
+		testModuleStates = new ModulesTestStates(),
+		aiChatOpen,
+		showFlowAiButton,
+		toggleAiChat,
+		isOwner,
+		onTestFlow,
+		isRunning,
+		onCancelTestFlow,
+		onOpenPreview,
+		onHideJobStatus,
+		individualStepTests = false,
+		flowJob = undefined,
+		showJobStatus = false,
+		suspendStatus = $bindable({ val: {} }),
+		onDelete,
+		flowHasChanged
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
-	const {
-		customUi,
-		selectedId,
-		moving,
-		history,
-		flowStateStore,
-		flowStore,
-		flowInputsStore,
-		pathStore
-	} = getContext<FlowEditorContext>('FlowEditorContext')
+	const { customUi, selectedId, moving, history, flowStateStore, flowStore, pathStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
+
 	export async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
@@ -89,9 +119,9 @@
 		inlineScript?: InlineScript
 	): Promise<FlowModule[]> {
 		push(history, flowStore.val)
-		var module = emptyModule($flowStateStore, flowStore.val, kind == 'flow')
-		var state = emptyFlowModuleState()
-		$flowStateStore[module.id] = state
+		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
+		let state = emptyFlowModuleState()
+		flowStateStore.val[module.id] = state
 		if (wsFlow) {
 			;[module, state] = await pickFlow(wsFlow.path, wsFlow.summary, module.id)
 		} else if (wsScript) {
@@ -110,23 +140,19 @@
 			;[module, state] = await createBranches(module.id)
 		} else if (kind == 'branchall') {
 			;[module, state] = await createBranchAll(module.id)
+		} else if (kind == 'aiagent') {
+			;[module, state] = await createAiAgent(module.id)
 		} else if (inlineScript) {
-			const { language, kind, subkind } = inlineScript
-			;[module, state] = await createInlineScriptModule(
-				language,
-				kind,
-				subkind,
-				module.id,
-				module.summary
-			)
-			$flowStateStore[module.id] = state
+			const { language, kind, subkind, summary } = inlineScript
+			;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
+			flowStateStore.val[module.id] = state
 			if (kind == 'trigger') {
 				module.summary = 'Trigger'
 			} else if (kind == 'approval') {
 				module.summary = 'Approval'
 			}
 		}
-		$flowStateStore[module.id] = state
+		flowStateStore.val[module.id] = state
 
 		if (kind == 'approval') {
 			module.suspend = { required_events: 1, timeout: 1800 }
@@ -167,6 +193,8 @@
 					return branch
 				})
 				mod.value.default = removeAtId(mod.value.default, id)
+			} else if (mod.value.type == 'aiagent') {
+				mod.value.tools = removeAtId(mod.value.tools, id)
 			}
 			return mod
 		})
@@ -192,7 +220,7 @@
 		return dfsByModule(id, flowStore.val.value.modules)[0]
 	}
 
-	async function addBranch(id: string) {
+	export async function addBranch(id: string) {
 		push(history, flowStore.val)
 		let module = findModuleById(id)
 
@@ -209,7 +237,7 @@
 		}
 	}
 
-	function removeBranch(id: string, index: number) {
+	export function removeBranch(id: string, index: number) {
 		push(history, flowStore.val)
 		let module = findModuleById(id)
 
@@ -232,6 +260,11 @@
 	let deleteCallback: (() => void) | undefined = $state(undefined)
 	let dependents: Record<string, string[]> = $state({})
 
+	let graph: FlowGraphV2 | undefined = $state(undefined)
+	export function isNodeVisible(nodeId: string): boolean {
+		return graph?.isNodeVisible(nodeId) ?? false
+	}
+
 	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
 		return (
 			$tutorialsToDo.includes(index) &&
@@ -253,9 +286,17 @@
 		}
 	}
 
+	let stepHistoryLoader = getStepHistoryLoaderContext()
+
 	async function loadLastJob(path: string, moduleId: string) {
 		if (!path) {
 			return
+		}
+		if (stepHistoryLoader) {
+			stepHistoryLoader.stepStates[moduleId] = {
+				initial: true,
+				loadingJobs: true
+			}
 		}
 		const previousJobId = await JobService.listJobs({
 			workspace: $workspaceStore!,
@@ -270,15 +311,16 @@
 				id: previousJobId[0].id
 			})
 			if ('result' in getJobResult) {
-				$flowStateStore[moduleId] = {
-					...($flowStateStore[moduleId] ?? {}),
+				flowStateStore.val[moduleId] = {
+					...(flowStateStore.val[moduleId] ?? {}),
 					previewResult: getJobResult.result,
 					previewJobId: previousJobId[0].id,
-					previewWorkspaceId: previousJobId[0].workspace_id,
 					previewSuccess: getJobResult.success
 				}
+				if (stepHistoryLoader) {
+					stepHistoryLoader.stepStates[moduleId].loadingJobs = false
+				}
 			}
-			$flowStateStore = $flowStateStore
 		}
 	}
 	$effect(() => {
@@ -318,18 +360,22 @@
 </Portal>
 <div class="flex flex-col h-full relative -pt-1">
 	<div
-		class={`z-10 sticky inline-flex flex-col gap-2 top-0 bg-surface-secondary flex-initial p-2 items-center transition-colors duration-[400ms] ease-linear border-b`}
+		class={`z-50 absolute inline-flex flex-col gap-2 top-3 left-1/2 -translate-x-1/2 flex-initial  items-center transition-colors duration-[400ms] ease-linear bg-surface-100`}
 	>
-		{#if !disableSettings}
-			<FlowSettingsItem />
-		{/if}
-		{#if !disableStaticInputs}
-			<FlowConstantsItem />
-		{/if}
+		<FlowStickyNode
+			{showFlowAiButton}
+			{disableSettings}
+			{disableStaticInputs}
+			{smallErrorHandler}
+			on:generateStep
+			{aiChatOpen}
+			{toggleAiChat}
+		/>
 	</div>
 
 	<div class="z-10 flex-auto grow bg-surface-secondary" bind:clientHeight={minHeight}>
 		<FlowGraphV2
+			bind:this={graph}
 			earlyStop={flowStore.val.value?.skip_expr !== undefined}
 			cache={flowStore.val.value?.cache_ttl !== undefined}
 			triggerNode={customUi?.triggers != false}
@@ -344,11 +390,18 @@
 			modules={flowStore.val.value.modules}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
 			{selectedId}
-			{flowInputsStore}
 			{workspace}
 			editMode
 			{onTestUpTo}
 			{onEditInput}
+			flowModuleStates={localModuleStates}
+			{testModuleStates}
+			{isOwner}
+			{individualStepTests}
+			{flowJob}
+			{showJobStatus}
+			suspendStatus={suspendStatus.val}
+			{flowHasChanged}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
 				const cb = () => {
@@ -361,6 +414,8 @@
 						removeAtId(flowStore.val.value.modules, id)
 					}
 					refreshStateStore(flowStore)
+					onDelete?.(id)
+					delete flowStateStore.val[id]
 				}
 
 				if (Object.keys(dependents).length > 0) {
@@ -398,6 +453,8 @@
 							}
 						} else if (mod.id == detail.sourceId || mod.id == detail.targetId) {
 							targetModules = modules
+						} else if (mod.id == detail.agentId && mod.value.type === 'aiagent') {
+							targetModules = mod.value.tools
 						}
 					})
 					if (flowStore.val.value.modules && Array.isArray(flowStore.val.value.modules)) {
@@ -429,7 +486,8 @@
 									})
 								}
 							} else {
-								const index = detail.index ?? 0
+								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
+
 								await insertNewModuleAtIndex(
 									targetModules,
 									index,
@@ -472,7 +530,6 @@
 						if (['branchone', 'branchall'].includes(detail.kind)) {
 							await addBranch(targetModules[detail.index ?? 0].id)
 						}
-						$flowStateStore = $flowStateStore
 						refreshStateStore(flowStore)
 						dispatch('change')
 					}
@@ -489,6 +546,7 @@
 			}}
 			onChangeId={(detail) => {
 				let { id, newId, deps } = detail
+
 				dfs(flowStore.val.value.modules, (mod) => {
 					if (deps[mod.id]) {
 						deps[mod.id].forEach((dep) => {
@@ -521,6 +579,8 @@
 						mod.id = newId
 					}
 				})
+				flowStateStore.val[newId] = flowStateStore.val[id]
+				delete flowStateStore.val[id]
 				refreshStateStore(flowStore)
 				$selectedId = newId
 			}}
@@ -543,14 +603,12 @@
 				module.mock = $state.snapshot(detail.mock)
 				refreshStateStore(flowStore)
 			}}
+			{onTestFlow}
+			{isRunning}
+			{onCancelTestFlow}
+			{onOpenPreview}
+			{onHideJobStatus}
 		/>
-	</div>
-	<div
-		class="z-10 absolute inline-flex w-full text-sm gap-2 bottom-0 left-0 p-2 {smallErrorHandler
-			? 'flex-row-reverse'
-			: 'justify-center'} border-b"
-	>
-		<FlowErrorHandlerItem small={smallErrorHandler} on:generateStep />
 	</div>
 </div>
 

@@ -10,7 +10,7 @@ use monitor::{
     load_base_url, load_otel, reload_critical_alerts_on_db_oversize,
     reload_delete_logs_periodically_setting, reload_indexer_config,
     reload_instance_python_version_setting, reload_maven_repos_setting,
-    reload_no_default_maven_setting, reload_nuget_config_setting,
+    reload_no_default_maven_setting, reload_nuget_config_setting, reload_ruby_repos_setting,
     reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
     send_logs_to_object_store, WORKERS_NAMES,
 };
@@ -36,32 +36,35 @@ use windmill_common::{
     agent_workers::build_agent_http_client,
     get_database_url,
     global_settings::{
-        BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING,
-        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
-        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
-        PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        APP_WORKSPACED_ROUTE_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
+        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        HUB_BASE_URL_SETTING, INDEXER_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+        NO_DEFAULT_MAVEN_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING,
+        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
+        RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
     triggers::TriggerKind,
     utils::{
-        create_default_worker_suffix, create_ssh_agent_worker_suffix, worker_name_with_suffix,
-        Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
+        create_default_worker_suffix, worker_name_with_suffix, Mode, GIT_VERSION, HOSTNAME,
+        MODE_AND_ADDONS,
     },
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
     KillpillSender, METRICS_ENABLED,
 };
+
+#[cfg(feature = "enterprise")]
+use windmill_common::worker::CLOUD_HOSTED;
 
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 use monitor::monitor_mem;
@@ -80,19 +83,20 @@ use windmill_worker::{
     get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
     DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
     JAVA_CACHE_DIR, NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
-    PY312_CACHE_DIR, PY313_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
+    PY312_CACHE_DIR, PY313_CACHE_DIR, RUBY_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR,
+    UV_CACHE_DIR,
 };
 
 use crate::monitor::{
     initial_load, load_keep_job_dir, load_metrics_debug_enabled, load_require_preexisting_user,
     load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces, monitor_db,
-    reload_base_url_setting, reload_bunfig_install_scopes_setting,
-    reload_critical_alert_mute_ui_setting, reload_critical_error_channels_setting,
-    reload_extra_pip_index_url_setting, reload_hub_base_url_setting,
-    reload_job_default_timeout_setting, reload_jwt_secret_setting, reload_license_key,
-    reload_npm_config_registry_setting, reload_pip_index_url_setting,
+    reload_app_workspaced_route_setting, reload_base_url_setting,
+    reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
+    reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
+    reload_hub_base_url_setting, reload_job_default_timeout_setting, reload_jwt_secret_setting,
+    reload_license_key, reload_npm_config_registry_setting, reload_pip_index_url_setting,
     reload_retention_period_setting, reload_scim_token_setting, reload_smtp_config,
-    reload_worker_config,
+    reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -130,6 +134,44 @@ pub fn setup_deno_runtime() -> anyhow::Result<()> {
     #[cfg(feature = "deno_core")]
     deno_core::JsRuntime::init_platform(None, false);
     Ok(())
+}
+
+fn update_ca_certificates_if_requested() {
+    if std::env::var("RUN_UPDATE_CA_CERTIFICATE_AT_START")
+        .ok()
+        .map(|v| v.to_lowercase() == "true")
+        .unwrap_or(false)
+    {
+        let ca_cert_path = std::env::var("RUN_UPDATE_CA_CERTIFICATE_PATH")
+            .unwrap_or_else(|_| "/usr/sbin/update-ca-certificates".to_string());
+
+        println!(
+            "RUN_UPDATE_CA_CERTIFICATE_AT_START=true, running: {}",
+            ca_cert_path
+        );
+
+        let output = std::process::Command::new(&ca_cert_path).output();
+
+        match output {
+            Ok(result) => {
+                if result.status.success() {
+                    println!("Successfully updated CA certificates");
+                } else {
+                    let stderr = String::from_utf8_lossy(&result.stderr);
+                    println!(
+                        "Failed to update CA certificates, but continuing startup: {}",
+                        stderr.trim()
+                    );
+                }
+            }
+            Err(e) => {
+                println!(
+                    "Could not run update-ca-certificates command, but continuing startup: {}",
+                    e
+                );
+            }
+        }
+    }
 }
 
 #[inline(always)]
@@ -258,14 +300,44 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 }
 
 async fn windmill_main() -> anyhow::Result<()> {
+    let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
+    let mut monitor_killpill_rx = killpill_tx.subscribe();
+    let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
+    let server_killpill_rx = killpill_phase2_tx.subscribe();
+
+    let shutdown_tx = killpill_tx.clone();
+    let shutdown_rx = killpill_tx.subscribe();
+    tokio::spawn(async move {
+        if let Err(e) = windmill_common::shutdown_signal(shutdown_tx, shutdown_rx).await {
+            tracing::error!("Error in shutdown signal: {e:#}");
+        }
+    });
+
     dotenv::dotenv().ok();
+
+    update_ca_certificates_if_requested();
 
     if std::env::var("RUST_LOG").is_err() {
         std::env::set_var("RUST_LOG", "info")
     }
 
     if let Err(_e) = rustls::crypto::ring::default_provider().install_default() {
-        tracing::error!("Failed to install rustls crypto provider");
+        println!("Failed to install rustls crypto provider");
+    }
+
+    #[cfg(feature = "enterprise")]
+    if *CLOUD_HOSTED {
+        // Block access to AWS/GCP metadata endpoints for security in cloud-hosted mode.
+        // This is a best-effort attempt; if it fails, just warn and continue.
+        if let Err(e) = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("iptables -A OUTPUT -d 169.254.169.254 -j DROP && iptables -A FORWARD -d 169.254.169.254 -j DROP")
+            .status()
+        {
+            println!("Failed to run iptables to block metadata endpoint: {e}");
+        } else {
+            println!("Successfully blocked metadata endpoint using iptables");
+        }
     }
 
     let hostname = HOSTNAME.to_owned();
@@ -347,7 +419,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             "Creating http client for cluster using base internal url {}",
             std::env::var("BASE_INTERNAL_URL").unwrap_or_default()
         );
-        let suffix = create_ssh_agent_worker_suffix(&hostname);
+        let suffix = create_default_worker_suffix(&hostname);
         (
             Connection::Http(build_agent_http_client(&suffix)),
             Some(suffix),
@@ -359,7 +431,7 @@ async fn windmill_main() -> anyhow::Result<()> {
 
         let num_version = sqlx::query_scalar!("SELECT version()").fetch_one(&db).await;
 
-        tracing::info!(
+        println!(
             "PostgreSQL version: {} (windmill require PG >= 14)",
             num_version
                 .ok()
@@ -368,19 +440,23 @@ async fn windmill_main() -> anyhow::Result<()> {
         );
         load_otel(&db).await;
 
-        tracing::info!("Database connected");
+        println!("Database connected");
         (Connection::Sql(db), None)
     };
 
-    let environment = load_base_url(&conn)
-        .await
-        .unwrap_or_else(|_| "local".to_string())
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .split(".")
-        .next()
-        .unwrap_or_else(|| "local")
-        .to_string();
+    let environment = if let Ok(environment) = std::env::var("OTEL_ENVIRONMENT") {
+        environment
+    } else {
+        load_base_url(&conn)
+            .await
+            .unwrap_or_else(|_| "local".to_string())
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split(".")
+            .next()
+            .unwrap_or_else(|| "local")
+            .to_string()
+    };
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
@@ -400,11 +476,16 @@ async fn windmill_main() -> anyhow::Result<()> {
 
             if !skip_migration {
                 // migration code to avoid break
-                migration_handle = windmill_api::migrate_db(&db).await?;
+                migration_handle = windmill_api::migrate_db(&db, killpill_rx.resubscribe()).await?;
             } else {
                 tracing::info!("SKIP_MIGRATION set, skipping db migration...")
             }
         }
+    }
+
+    if killpill_rx.try_recv().is_ok() {
+        tracing::info!("Received early killpill, aborting startup");
+        return Ok(());
     }
 
     let worker_mode = num_workers > 0;
@@ -414,16 +495,11 @@ async fn windmill_main() -> anyhow::Result<()> {
     } else {
         // This time we use a pool of connections
         let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
+
+        // NOTE: Variable/resource cache initialization moved to API server in windmill-api
+
         Connection::Sql(db)
     };
-
-    let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
-    let mut monitor_killpill_rx = killpill_tx.subscribe();
-    let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
-    let server_killpill_rx = killpill_phase2_tx.subscribe();
-
-    let shutdown_signal =
-        windmill_common::shutdown_signal(killpill_tx.clone(), killpill_tx.subscribe());
 
     #[cfg(feature = "enterprise")]
     tracing::info!(
@@ -515,6 +591,7 @@ Windmill Community Edition {GIT_VERSION}
             worker_mode,
             true,
             killpill_tx.clone(),
+            None,
         )
         .await;
 
@@ -662,6 +739,7 @@ Windmill Community Edition {GIT_VERSION}
                         server_mode,
                         mcp_mode,
                         base_internal_url.clone(),
+                        None,
                     )
                     .await?;
                 }
@@ -742,6 +820,8 @@ Windmill Community Edition {GIT_VERSION}
                     let h = tokio::spawn(async move {
                         let mut listener = retry_listen_pg(&db_url).await;
                         let mut last_listener_refresh = Instant::now();
+                        let mut monitor_iteration: u64 = 0;
+                        let rd_shift: u8 = rand::rng().random_range(0..200);
                         loop {
                             let db = db.clone();
                             tokio::select! {
@@ -792,10 +872,15 @@ Windmill Community Edition {GIT_VERSION}
                                                     tracing::info!("Workspace envs change detected, invalidating workspace envs cache: {}", workspace_id);
                                                     windmill_common::variables::CUSTOM_ENVS_CACHE.remove(workspace_id);
                                                 },
+                                                "notify_workspace_key_change" => {
+                                                    let workspace_id = n.payload();
+                                                    tracing::info!("Workspace key change detected, invalidating workspace key cache: {}", workspace_id);
+                                                    windmill_common::variables::WORKSPACE_CRYPT_CACHE.remove(workspace_id);
+                                                },
                                                 "notify_workspace_premium_change" => {
                                                     let workspace_id = n.payload();
                                                     tracing::info!("Workspace premium change detected, invalidating workspace premium cache: {}", workspace_id);
-                                                    windmill_common::workspaces::IS_PREMIUM_CACHE.remove(workspace_id);
+                                                    windmill_common::workspaces::TEAM_PLAN_CACHE.remove(workspace_id);
                                                 },
                                                 "notify_runnable_version_change" => {
                                                     let payload = n.payload();
@@ -834,6 +919,8 @@ Windmill Community Edition {GIT_VERSION}
                                                                     }
                                                                 }
                                                                 &"flow" => {
+                                                                    let dynamic_input_key = windmill_common::jobs::generate_dynamic_input_key(workspace_id, path);
+                                                                    windmill_common::DYNAMIC_INPUT_CACHE.remove(&dynamic_input_key);
                                                                     windmill_common::FLOW_VERSION_CACHE.remove(&key);
                                                                 },
                                                                 _ => {
@@ -849,7 +936,7 @@ Windmill Community Edition {GIT_VERSION}
                                                 #[cfg(feature = "http_trigger")]
                                                 "notify_http_trigger_change" => {
                                                     tracing::info!("HTTP trigger change detected: {}", n.payload());
-                                                    match windmill_api::http_triggers::refresh_routers(&db).await {
+                                                    match windmill_api::triggers::http::refresh_routers(&db).await {
                                                         Ok((true, _)) => {
                                                             tracing::info!("Refreshed HTTP routers (trigger change)");
                                                         },
@@ -865,6 +952,26 @@ Windmill Community Edition {GIT_VERSION}
                                                     let token = n.payload();
                                                     tracing::info!("Token invalidation detected for token: {}...", &token[..token.len().min(8)]);
                                                     windmill_api::auth::invalidate_token_from_cache(token);
+                                                },
+                                                "var_cache_invalidation" => {
+                                                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(n.payload()) {
+                                                        if let (Some(workspace_id), Some(path)) =
+                                                            (payload.get("workspace_id").and_then(|v| v.as_str()),
+                                                             payload.get("path").and_then(|v| v.as_str())) {
+                                                            tracing::info!("Variable cache invalidation detected: {}:{}", workspace_id, path);
+                                                            windmill_api::var_resource_cache::invalidate_variable_cache(&workspace_id, &path);
+                                                        }
+                                                    }
+                                                },
+                                                "resource_cache_invalidation" => {
+                                                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(n.payload()) {
+                                                        if let (Some(workspace_id), Some(path)) =
+                                                            (payload.get("workspace_id").and_then(|v| v.as_str()),
+                                                             payload.get("path").and_then(|v| v.as_str())) {
+                                                            tracing::info!("Resource cache invalidation detected: {}:{}", workspace_id, path);
+                                                            windmill_api::var_resource_cache::invalidate_resource_cache(&workspace_id, &path);
+                                                        }
+                                                    }
                                                 },
                                                 "notify_global_setting_change" => {
                                                     tracing::info!("Global setting change detected: {}", n.payload());
@@ -953,6 +1060,9 @@ Windmill Community Edition {GIT_VERSION}
                                                         NO_DEFAULT_MAVEN_SETTING => {
                                                             reload_no_default_maven_setting(&conn).await
                                                         },
+                                                        RUBY_REPOS_SETTING => {
+                                                            reload_ruby_repos_setting(&conn).await
+                                                        },
                                                         KEEP_JOB_DIR_SETTING => {
                                                             load_keep_job_dir(&conn).await;
                                                         },
@@ -972,6 +1082,11 @@ Windmill Community Edition {GIT_VERSION}
                                                         EXPOSE_DEBUG_METRICS_SETTING => {
                                                             if let Err(e) = load_metrics_debug_enabled(&conn).await {
                                                                 tracing::error!(error = %e, "Could not reload debug metrics setting");
+                                                            }
+                                                        },
+                                                         APP_WORKSPACED_ROUTE_SETTING => {
+                                                             if let Err(e) = reload_app_workspaced_route_setting(&db).await {
+                                                                tracing::error!(error = %e, "Could not reload app workspaced route setting");
                                                             }
                                                         },
                                                         OTEL_SETTING => {
@@ -1077,8 +1192,13 @@ Windmill Community Edition {GIT_VERSION}
                                         worker_mode,
                                         false,
                                         tx.clone(),
+                                        Some(MonitorIteration {
+                                            rd_shift,
+                                            iter: monitor_iteration,
+                                        }),
                                     )
                                     .await;
+                                    monitor_iteration += 1;
                                     if server_mode {
                                         if !*windmill_common::QUIET_LOGS {
                                             tracing::info!("monitor task finished");
@@ -1147,10 +1267,9 @@ Windmill Community Edition {GIT_VERSION}
         }
 
         if mcp_mode {
-            futures::try_join!(shutdown_signal, workers_f, server_f)?;
+            futures::try_join!(workers_f, server_f)?;
         } else {
             futures::try_join!(
-                shutdown_signal,
                 workers_f,
                 monitor_f,
                 server_f,
@@ -1175,6 +1294,7 @@ Windmill Community Edition {GIT_VERSION}
             }
         }
     }
+    std::process::exit(0);
     Ok(())
 }
 
@@ -1193,6 +1313,7 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
         "notify_global_setting_change",
         "notify_webhook_change",
         "notify_workspace_envs_change",
+        "notify_workspace_key_change",
         "notify_runnable_version_change",
         "notify_token_invalidation",
     ];
@@ -1297,6 +1418,7 @@ pub async fn run_workers(
         HUB_CACHE_DIR,
         POWERSHELL_CACHE_DIR,
         JAVA_CACHE_DIR,
+        RUBY_CACHE_DIR,
         TAR_JAVA_CACHE_DIR, // for related places search: ADD_NEW_LANG
     ] {
         DirBuilder::new()

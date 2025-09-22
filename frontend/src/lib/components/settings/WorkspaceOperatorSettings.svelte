@@ -17,6 +17,7 @@
 		schedules: true,
 		resources: true,
 		variables: true,
+		assets: false,
 		triggers: true,
 		audit_logs: true,
 		groups: true,
@@ -29,6 +30,7 @@
 	let currentWorkspace: string | null = $state(null)
 
 	async function saveSettings() {
+		console.log('Saving operator settings:', operatorWorkspaceSettings)
 		try {
 			await WorkspaceService.updateOperatorSettings({
 				workspace: $workspaceStore!,
@@ -48,6 +50,7 @@
 		schedules: { title: 'Schedules', description: 'View schedules' },
 		resources: { title: 'Resources', description: 'View resources' },
 		variables: { title: 'Variables', description: 'View variables' },
+		assets: { title: 'Assets', description: 'View assets' },
 		triggers: { title: 'Triggers', description: 'View all triggers (HTTP, Websocket, Kafka)' },
 		audit_logs: { title: 'Audit Logs', description: 'View audit logs' },
 		groups: { title: 'Groups', description: 'View groups and group members' },
@@ -63,7 +66,10 @@
 					workspace: $workspaceStore
 				})
 				if (settings.operator_settings !== null) {
-					operatorWorkspaceSettings = settings.operator_settings ?? operatorWorkspaceSettings
+					operatorWorkspaceSettings = {
+						...operatorWorkspaceSettings,
+						...(settings.operator_settings ?? {})
+					}
 					originalSettings = { ...operatorWorkspaceSettings }
 				}
 			})()
@@ -74,22 +80,12 @@
 		isChanged = JSON.stringify(operatorWorkspaceSettings) !== JSON.stringify(originalSettings)
 	})
 
-	let enableAllState = $derived(
-		(() => {
-			const values = Object.values(operatorWorkspaceSettings)
-			if (values.every((v) => v === true)) return 'true'
-			if (values.every((v) => v === false)) return 'false'
-			return undefined
-		})()
+	const allDisabled = $derived(
+		Object.values(operatorWorkspaceSettings).every((value) => value === false)
 	)
-
-	function toggleAllSettings(event) {
-		const newValue = event.detail === true
-		Object.keys(operatorWorkspaceSettings).forEach((key) => {
-			operatorWorkspaceSettings[key] = newValue
-		})
-		operatorWorkspaceSettings = { ...operatorWorkspaceSettings }
-	}
+	const allEnabled = $derived(
+		Object.values(operatorWorkspaceSettings).every((value) => value === true)
+	)
 </script>
 
 <div class="mt-6">
@@ -118,7 +114,17 @@
 						<Cell head first>Section</Cell>
 						<Cell head>Description</Cell>
 						<Cell head last>
-							<ToggleButtonGroup bind:selected={enableAllState} on:selected={toggleAllSettings}>
+							<ToggleButtonGroup
+								bind:selected={
+									() => (allDisabled ? 'false' : allEnabled ? 'true' : ''),
+									(v) => {
+										Object.keys(operatorWorkspaceSettings).forEach((key) => {
+											if (v === 'true') operatorWorkspaceSettings[key] = true
+											if (v === 'false') operatorWorkspaceSettings[key] = false
+										})
+									}
+								}
+							>
 								{#snippet children({ item })}
 									<ToggleButton
 										icon={EyeIcon}

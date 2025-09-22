@@ -14,7 +14,8 @@
 		flowJobsSuccess: (boolean | undefined)[] | undefined
 		selected: number
 		selectedManually: boolean | undefined
-		onSelectedIteration: onSelectedIteration
+		onSelectedIteration?: onSelectedIteration
+		showIcon?: boolean
 	}
 
 	let {
@@ -24,7 +25,8 @@
 		selected,
 		selectedManually,
 		onSelectedIteration,
-		moduleId
+		moduleId,
+		showIcon = true
 	}: Props = $props()
 
 	let filter: number | undefined = $state(undefined)
@@ -37,7 +39,7 @@
 			filter > 0
 		) {
 			event.preventDefault()
-			onSelectedIteration({
+			onSelectedIteration?.({
 				index: filter - 1,
 				id: flowJobs[filter - 1],
 				manuallySet: true,
@@ -68,6 +70,7 @@
 	let isOpen = $state(false)
 
 	$effect(() => {
+		filter
 		isOpen && flowJobs && untrack(() => updateItems())
 	})
 </script>
@@ -81,7 +84,7 @@
 			onmouseleave={() => (buttonHover = false)}
 			onclick={(e) => {
 				buttonHover = false
-				onSelectedIteration({ manuallySet: false, moduleId: moduleId })
+				onSelectedIteration?.({ manuallySet: false, moduleId: moduleId })
 			}}
 		>
 			{#if buttonHover}
@@ -127,11 +130,13 @@
 					meltElement={trigger}
 				>
 					#{selected == -1 ? '?' : selected + 1}
-					<ListFilter size={15} />
+					{#if showIcon}
+						<ListFilter size={15} />
+					{/if}
 				</MeltButton>
 			{/snippet}
 
-			{#snippet children({ item })}
+			{#snippet children({ item: childrenItem })}
 				<div class="flex flex-col px-1">
 					<input type="number" bind:value={filter} onkeydown={onKeydown} />
 
@@ -140,16 +145,17 @@
 							<VirtualList height={300} width="100%" itemCount={items.length} itemSize={24}>
 								{#snippet header()}{/snippet}
 								{#snippet footer()}{/snippet}
-								{#snippet children({ index: idx, style })}
+								{#snippet item({ index: idx, style })}
 									<div {style}>
 										<MenuItem
 											class={twMerge(
 												'text-primary text-xs w-full text-left py-1 pl-2 hover:bg-surface-hover whitespace-nowrap flex flex-row gap-2 items-center',
 												items[idx].success == false ? 'text-red-400' : '',
-												'data-[highlighted]:bg-surface-hover'
+												'data-[highlighted]:bg-surface-hover',
+												items[idx].index == selected ? 'bg-surface-selected' : ''
 											)}
-											on:click={() => {
-												onSelectedIteration({
+											onClick={() => {
+												onSelectedIteration?.({
 													moduleId: moduleId,
 													index: items[idx].index,
 													id: items[idx].id,
@@ -157,7 +163,7 @@
 												})
 												menu?.close()
 											}}
-											{item}
+											item={childrenItem}
 										>
 											#{items[idx].index + 1}
 										</MenuItem>

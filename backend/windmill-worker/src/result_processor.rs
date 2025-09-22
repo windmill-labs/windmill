@@ -1,7 +1,7 @@
 #[cfg(feature = "otel")]
 use opentelemetry::trace::FutureExt;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
 use std::{
     collections::HashMap,
@@ -17,24 +17,20 @@ use windmill_common::otel_oss::FutureExt;
 use uuid::Uuid;
 
 use windmill_common::{
-    add_time,
-    error::{self, Error},
-    jobs::JobKind,
-    utils::WarnAfterExt,
-    worker::{to_raw_value, Connection, WORKER_GROUP},
-    KillpillSender, DB,
+    add_time, error::{self, Error}, flow_status::{FlowJobDuration}, jobs::JobKind, utils::WarnAfterExt, worker::{to_raw_value, Connection, WORKER_GROUP}, worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap}, KillpillSender, DB
 };
 
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, WrappedError,
+    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniPulledJob, ValidableJson,
+    WrappedError, INIT_SCRIPT_TAG,
 };
 
 use serde_json::{json, value::RawValue, Value};
 
-use tokio::task::JoinHandle;
+use tokio::{sync::Notify, task::JoinHandle};
 
 use windmill_queue::{add_completed_job, add_completed_job_error};
 
@@ -43,10 +39,16 @@ use crate::{
     common::{error_to_value, read_result, save_in_cache},
     otel_oss::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
-    JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, UpdateFlow,
-    INIT_SCRIPT_TAG, SAME_WORKER_REQUIREMENTS,
+    JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, SendResultPayload,
+    UpdateFlow, SAME_WORKER_REQUIREMENTS,
 };
 use windmill_common::client::AuthedClient;
+
+#[derive(Debug, Deserialize)]
+struct ErrorMessage {
+    message: String,
+    name: String,
+}
 
 async fn process_jc(
     jc: JobCompleted,
@@ -56,26 +58,53 @@ async fn process_jc(
     worker_dir: &str,
     same_worker_tx: Option<&SameWorkerSender>,
     job_completed_sender: &JobCompletedSender,
+    stats_map: &JobStatsMap,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
     let success: bool = jc.success;
 
-    let span = tracing::span!(
-        tracing::Level::INFO,
-        "job_postprocessing",
-        job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
-        // hostname = %hostname,
-        language = field::Empty,
-        script_path = field::Empty,
-        flow_step_id = field::Empty,
-        parent_job = field::Empty,
-        otel.name = field::Empty
-    );
+    let span = if success {
+        tracing::span!(
+            tracing::Level::INFO,
+            "job_postprocessing",
+            job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
+            // hostname = %hostname,
+            language = field::Empty,
+            script_path = field::Empty,
+            flow_step_id = field::Empty,
+            parent_job = field::Empty,
+            otel.name = field::Empty,
+            success = %success,
+            labels = field::Empty,
+        )
+    } else {
+        tracing::span!(
+            tracing::Level::INFO,
+            "job_postprocessing",
+            job_id = %jc.job.id, root_job = field::Empty, workspace_id = %jc.job.workspace_id,  worker = %worker_name,tag = %jc.job.tag,
+            // hostname = %hostname,
+            language = field::Empty,
+            script_path = field::Empty,
+            flow_step_id = field::Empty,
+            parent_job = field::Empty,
+            otel.name = field::Empty,
+            success = %success,
+            error.message = field::Empty,
+            error.name = field::Empty,
+            labels = field::Empty,
+        )
+    };
     let rj = if let Some(root_job) = jc.job.flow_innermost_root_job {
         root_job
     } else {
         jc.job.id
     };
+
+    if let Some(labels) = jc.result.wm_labels() {
+        if !labels.is_empty() {
+            span.record("labels", labels.join(","));
+        }
+    }
     windmill_common::otel_oss::set_span_parent(&span, &rj);
 
     if let Some(lg) = jc.job.script_lang.as_ref() {
@@ -99,6 +128,17 @@ async fn process_jc(
     if let Some(root_job) = jc.job.flow_innermost_root_job.as_ref() {
         span.record("root_job", root_job.to_string().as_str());
     }
+    if !success {
+        if let Ok(result_error) = serde_json::from_str::<ErrorMessage>(jc.result.get()) {
+            span.record("error.message", result_error.message.as_str());
+            span.record("error.name", result_error.name.as_str());
+        }
+    }
+
+    // Extract stats info before moving jc
+    let duration_ms = jc.duration.clone();
+    let script_lang = jc.job.script_lang.clone();
+    let workspace_id = jc.job.workspace_id.clone();
 
     let root_job = handle_receive_completed_job(
         jc,
@@ -117,11 +157,24 @@ async fn process_jc(
     if let Some(root_job) = root_job {
         add_root_flow_job_to_otlp(&root_job, success);
     }
+
+    // Accumulate job stats if duration is available
+    if let Some(duration_ms) = duration_ms {
+        accumulate_job_stats(
+            stats_map,
+            &*WORKER_GROUP,
+            script_lang,
+            &workspace_id,
+            duration_ms,
+        )
+        .await;
+    }
 }
 
 enum JobCompletedRx {
     JobCompleted(SendResult),
     Killpill,
+    WakeUp,
 }
 
 pub fn start_background_processor(
@@ -129,6 +182,8 @@ pub fn start_background_processor(
     job_completed_sender: JobCompletedSender,
     same_worker_queue_size: Arc<AtomicU16>,
     job_completed_processor_is_done: Arc<AtomicBool>,
+    wake_up_notify: Arc<Notify>,
+    last_processing_duration: Arc<AtomicU16>,
     base_internal_url: String,
     db: DB,
     worker_dir: String,
@@ -136,6 +191,7 @@ pub fn start_background_processor(
     worker_name: String,
     killpill_tx: KillpillSender,
     is_dedicated_worker: bool,
+    stats_map: JobStatsMap,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut has_been_killed = false;
@@ -145,8 +201,33 @@ pub fn start_background_processor(
         #[cfg(feature = "benchmark")]
         let mut infos = BenchmarkInfo::new();
 
+        // Start periodic stats flush task
+        let db_clone = db.clone();
+        let stats_map_clone = stats_map.clone();
+        let mut killpill_rx_clone = killpill_rx.resubscribe();
+        let flush_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(900)); // Flush every 15 min
+
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Err(e) = flush_stats_to_db(&db_clone, &stats_map_clone).await {
+                            tracing::error!("Failed to flush worker group job stats: {}", e);
+                        }
+                    }
+                    _ = killpill_rx_clone.recv() => {
+                        tracing::info!("bg processor received killpill signal, flushing remaining stats");
+                        break;
+                    }
+                }
+            }
+        });
+
         //if we have been killed, we want to drain the queue of jobs
         while let Some(sr) = {
+            if has_been_killed {
+                tracing::info!("bg processor is killed, draining. same_worker_queue_size: {}, unbounded_rx: {}, bounded_rx: {}", same_worker_queue_size.load(Ordering::SeqCst), unbounded_rx.len(), bounded_rx.len())
+            }
             if has_been_killed && same_worker_queue_size.load(Ordering::SeqCst) == 0 {
                 unbounded_rx
                     .try_recv()
@@ -156,14 +237,18 @@ pub fn start_background_processor(
             } else {
                 tokio::select! {
                     biased;
-                    result = unbounded_rx.recv_async() => {
+                    result = unbounded_rx.recv_async()  => {
                         result.ok().map(JobCompletedRx::JobCompleted)
                     }
                     result = bounded_rx.recv_async() => {
                         result.ok().map(JobCompletedRx::JobCompleted)
-                    }
-
+                    },
+                    _ = wake_up_notify.notified() => {
+                        tracing::info!("bg processor received wake up signal, checking if same worker queue is empty");
+                        Some(JobCompletedRx::WakeUp)
+                    },
                     _ = killpill_rx.recv() => {
+                        tracing::info!("bg processor received killpill signal, queuing killpill job");
                         Some(JobCompletedRx::Killpill)
                     }
                 }
@@ -173,7 +258,10 @@ pub fn start_background_processor(
             let mut bench = BenchmarkIter::new();
 
             match sr {
-                JobCompletedRx::JobCompleted(SendResult::JobCompleted(jc)) => {
+                JobCompletedRx::JobCompleted(SendResult {
+                    result: SendResultPayload::JobCompleted(jc),
+                    time,
+                }) => {
                     let is_init_script_and_failure =
                         !jc.success && jc.job.tag.as_str() == INIT_SCRIPT_TAG;
                     let is_dependency_job = matches!(
@@ -189,6 +277,7 @@ pub fn start_background_processor(
                         &worker_dir,
                         Some(&same_worker_tx),
                         &job_completed_sender,
+                        &stats_map,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
                     )
@@ -216,18 +305,24 @@ pub fn start_background_processor(
                     {
                         infos.add_iter(bench, true);
                     }
+                    last_processing_duration
+                        .store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
                 }
-                JobCompletedRx::JobCompleted(SendResult::UpdateFlow(UpdateFlow {
-                    flow,
-                    w_id,
-                    success,
-                    result,
-                    worker_dir,
-                    stop_early_override,
-                    token,
-                })) => {
+                JobCompletedRx::JobCompleted(SendResult {
+                    result:
+                        SendResultPayload::UpdateFlow(UpdateFlow {
+                            flow,
+                            w_id,
+                            success,
+                            result,
+                            worker_dir,
+                            stop_early_override,
+                            token,
+                        }),
+                    time,
+                }) => {
                     // let r;
-                    tracing::info!(parent_flow = %flow, "updating flow status");
+                    tracing::info!(parent_flow = %flow, "updating flow status after job completion");
                     if let Err(e) = update_flow_status_after_job_completion(
                         &db,
                         &AuthedClient::new(
@@ -241,6 +336,7 @@ pub fn start_background_processor(
                         &w_id,
                         success,
                         Arc::new(result),
+                        None,
                         true,
                         &same_worker_tx,
                         &worker_dir,
@@ -254,11 +350,25 @@ pub fn start_background_processor(
                     {
                         tracing::error!("Error updating flow status after job completion for {flow} on {worker_name}: {e:#}");
                     }
+                    last_processing_duration
+                        .store(time.elapsed().as_secs() as u16, Ordering::SeqCst);
                 }
                 JobCompletedRx::Killpill => {
+                    tracing::info!("killpill job received, processing only same worker jobs");
                     has_been_killed = true;
                 }
+                JobCompletedRx::WakeUp => {}
             }
+        }
+
+        // Flush any remaining stats before shutting down
+        tracing::info!("flushing remaining stats before shutting down");
+        let flush_result =
+            tokio::time::timeout(std::time::Duration::from_secs(10), flush_handle).await;
+        match flush_result {
+            Ok(Ok(())) => tracing::info!("Stats flushed successfully"),
+            Ok(Err(join_err)) => tracing::error!("Stats flush task failed: {}", join_err),
+            Err(_) => tracing::error!("Stats flush timed out after 10 seconds"),
         }
 
         job_completed_processor_is_done.store(true, Ordering::SeqCst);
@@ -320,7 +430,7 @@ pub async fn process_result(
         Err(e) => {
             let error_value = match e {
                 Error::ExitStatus(program, i) => {
-                    let res = read_result(job_dir).await.ok();
+                    let res = read_result(job_dir, None).await.ok();
 
                     if res.as_ref().is_some_and(|x| !x.get().is_empty()) {
                         res.unwrap()
@@ -467,6 +577,7 @@ pub async fn process_completed_job(
         let parent_job = job.parent_job.clone();
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
+        let started_at = job.started_at.clone();
 
         if job.flow_step_id.as_deref() == Some("preprocessor") {
             // Do this before inserting to `v2_job_completed` for backwards compatibility
@@ -499,7 +610,7 @@ pub async fn process_completed_job(
 
         add_time!(bench, "pre add_completed_job");
 
-        add_completed_job(
+        let (_, duration) = add_completed_job(
             db,
             &job,
             true,
@@ -527,6 +638,7 @@ pub async fn process_completed_job(
                     &workspace_id,
                     true,
                     result,
+                    started_at.map(|x| FlowJobDuration { started_at: x, duration_ms: duration }),
                     false,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
@@ -567,6 +679,7 @@ pub async fn process_completed_job(
                     &job.workspace_id,
                     false,
                     Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
+                    duration.map(|x| FlowJobDuration { started_at: job.started_at.unwrap(), duration_ms: x }),
                     false,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
@@ -585,18 +698,19 @@ pub async fn process_completed_job(
     return Ok(None);
 }
 
-async fn handle_non_flow_job_error(
+pub async fn handle_non_flow_job_error(
     db: &DB,
     job: &MiniPulledJob,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
-    err: Value,
+    err_string: String,
+    err_json: Value,
     worker_name: &str,
 ) -> Result<WrappedError, Error> {
     append_logs(
         &job.id,
         &job.workspace_id,
-        format!("Unexpected error during job execution:\n{err:#?}"),
+        format!("Unexpected error during job execution:\n{err_string}"),
         &db.into(),
     )
     .await;
@@ -605,7 +719,7 @@ async fn handle_non_flow_job_error(
         job,
         mem_peak,
         canceled_by,
-        err,
+        err_json,
         worker_name,
         false,
         None,
@@ -628,7 +742,8 @@ pub async fn handle_job_error(
     job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
-    let err = error_to_value(err);
+    let err_string = format!("{}: {}", err.name(), err.to_string());
+    let err_json = error_to_value(&err);
 
     let update_job_future = || async {
         handle_non_flow_job_error(
@@ -636,7 +751,8 @@ pub async fn handle_job_error(
             job,
             mem_peak,
             canceled_by.clone(),
-            err.clone(),
+            err_string,
+            err_json.clone(),
             worker_name,
         )
         .await
@@ -655,8 +771,8 @@ pub async fn handle_job_error(
             (job.id, Uuid::nil())
         };
 
-        let wrapped_error = WrappedError { error: err.clone() };
-        tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err:?}");
+        let wrapped_error = WrappedError { error: err_json.clone() };
+        tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err_json:?}");
         let updated_flow = update_flow_status_after_job_completion(
             db,
             client,
@@ -665,6 +781,7 @@ pub async fn handle_job_error(
             &job.workspace_id,
             false,
             Arc::new(serde_json::value::to_raw_value(&wrapped_error).unwrap()),
+            None,
             unrecoverable,
             &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).clone(),
             worker_dir,

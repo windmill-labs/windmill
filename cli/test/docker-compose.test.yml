@@ -1,0 +1,74 @@
+version: "3.7"
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+    compress: "true"
+
+services:
+  test_db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: testpass123
+      POSTGRES_DB: windmill_test
+      POSTGRES_USER: postgres
+    ports:
+      - "5433:5432"  # Use different port to avoid conflicts
+    volumes:
+      - test_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d windmill_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  test_windmill_server:
+    image: windmill-test:latest
+    environment:
+      - DATABASE_URL=postgres://postgres:testpass123@test_db/windmill_test?sslmode=disable
+      - MODE=server
+      - LICENSE_KEY=${EE_LICENSE_KEY}
+      - RUST_LOG=info
+      - DISABLE_TELEMETRY=true
+      - METRICS_ENABLED=false
+    ports:
+      - "8001:8000"  # Use different port to avoid conflicts
+    depends_on:
+      test_db:
+        condition: service_healthy
+    volumes:
+      - test_worker_logs:/tmp/windmill/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging: *default-logging
+
+  test_windmill_worker:
+    image: windmill-test:latest
+    environment:
+      - DATABASE_URL=postgres://postgres:testpass123@test_db/windmill_test?sslmode=disable
+      - MODE=worker
+      - WORKER_GROUP=default
+      - LICENSE_KEY=${EE_LICENSE_KEY}
+      - RUST_LOG=info
+      - DISABLE_TELEMETRY=true
+      - NUM_WORKERS=1
+      - SLEEP_QUEUE=50
+    depends_on:
+      test_db:
+        condition: service_healthy
+      test_windmill_server:
+        condition: service_healthy
+    volumes:
+      - test_worker_logs:/tmp/windmill/logs
+    logging: *default-logging
+
+volumes:
+  test_db_data: null
+  test_worker_logs: null

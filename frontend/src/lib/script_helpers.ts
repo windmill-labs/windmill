@@ -307,17 +307,33 @@ INSERT INTO demo VALUES (@P1, @P2);
 UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
-const DUCKDB_INIT_CODE = `-- $friends_csv (s3object)
--- $name (text) = Ben
+const DUCKDB_INIT_CODE = `-- $name (text) = Ben
+-- $age (text) = 20
+-- -- $friends_csv (s3object)
 
-ATTACH '$res:u/demo/amazed_postgresql' AS db (TYPE postgres);
-CREATE TABLE IF NOT EXISTS db.public.friends (name text);
+-- Click the +Database button to connect to a database
+-- https://www.windmill.dev/docs/getting_started/scripts_quickstart/sql#duckdb-1
+--
+-- ATTACH '$res:u/demo/amazed_postgresql' AS db (TYPE postgres);
+-- SELECT * FROM db.public.friends;
 
-INSERT INTO db.public.friends
-  SELECT name FROM read_csv($friends_csv);
+-- Click the +Ducklake button to use a ducklake
+-- https://www.windmill.dev/docs/core_concepts/ducklake
+--
+-- ATTACH 'ducklake' AS dl;
+-- USE dl;
+-- SELECT * FROM customers;
 
-SELECT 'Hello ' || $name || ', you have ' || 
-  (SELECT COUNT(*) FROM read_csv($friends_csv)) || ' new friends !';
+CREATE TABLE friends (
+  name text,
+  age int
+);
+
+INSERT INTO friends VALUES ($name, $age);
+-- INSERT INTO friends
+--   SELECT name, age FROM read_csv($friends_csv);
+
+SELECT * FROM friends;
 `
 
 const GRAPHQL_INIT_CODE = `query($name4: String, $name2: Int, $name3: [String]) {
@@ -694,6 +710,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       kind: "email";
       parsed_email: any;
       raw_email: string;
+      email_extra_args?: Record<string, string>;
     }
     | { kind: "websocket"; msg: string; url: string }
     | {
@@ -752,6 +769,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       delivery_type: "push" | "pull";
       headers?: Record<string, string>;
       publish_time?: string;
+      ack_id?: string;
     }
     | {
       kind: "postgres";
@@ -846,6 +864,7 @@ class EmailEvent(TypedDict):
     kind: Literal["email"]
     parsed_email: dict
     raw_email: str
+    email_extra_args: Optional[dict[str, str]]
 
 
 class WebsocketEvent(TypedDict):
@@ -918,6 +937,7 @@ class GcpEvent(TypedDict):
     delivery_type: Literal["push", "pull"]
     headers: Optional[dict[str, str]]
     publish_time: Optional[str]
+    ack_id: Optional[str]
 
 
 class PostgresEvent(TypedDict):
@@ -1089,6 +1109,55 @@ public class Main {
   }
 }
 `
+const RUBY_INIT_CODE = `require 'windmill/inline'
+require 'windmill/mini'
+
+# Dependency management: declare gems in gemfile block for automatic installation
+# Windmill uses bundler/inline compatible syntax with automatic requiring
+gemfile do
+  source 'https://rubygems.org'
+  gem 'amazing_print', '~> 1.6'
+end
+
+def main(
+  no_default,
+  name = "Nicolas Bourbaki", 
+  age = 42,
+  obj = { "even": "hashes" },
+  list = ["or", "arrays!"]
+)
+  puts "Hello World and a warm welcome especially to #{name}"
+  puts "and its acolytes.. #{age} #{obj} #{list}"
+
+  # Retrieve variables using the Windmill mini client
+  begin
+    secret = get_variable("f/examples/secret")
+  rescue => e
+    secret = "No secret yet at f/examples/secret!"
+  end
+  puts "The variable at 'f/examples/secret': #{secret}"
+
+  # Get typed resources using the mini client
+  # database = get_resource("u/user/my_postgresql") 
+
+  # Access environment variables provided by Windmill
+  user = ENV['WM_USERNAME']
+
+  # Pretty print results using amazing_print (automatically required from gemfile)
+  result = {
+    "splitted" => name.split,
+    "user" => user,
+    "age" => age,
+    "obj" => obj,
+    "list" => list
+  }
+  
+  ap result
+  
+  # Return value is automatically converted to JSON
+  return result
+end
+`
 // for related places search: ADD_NEW_LANG
 export const INITIAL_CODE = {
 	bun: {
@@ -1179,8 +1248,11 @@ export const INITIAL_CODE = {
 	},
 	java: {
 		script: JAVA_INIT_CODE
-	}
-	// for related places search: ADD_NEW_LANG
+	},
+	ruby: {
+		script: RUBY_INIT_CODE
+	},
+	// for related places search: ADD_NEW_LANG 
 }
 
 export function isInitialCode(content: string): boolean {
@@ -1288,7 +1360,9 @@ export function initialCode(
 		return INITIAL_CODE.nu.script
 	} else if (language == 'java') {
 		return INITIAL_CODE.java.script
-		// for related places search: ADD_NEW_LANG
+	} else if (language == 'ruby') {
+		return INITIAL_CODE.ruby.script
+		// for related places search: ADD_NEW_LANG 
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger

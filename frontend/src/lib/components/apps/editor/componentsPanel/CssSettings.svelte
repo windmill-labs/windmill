@@ -13,13 +13,12 @@
 	import { resolveTheme } from './themeUtils'
 	import ThemeCodePreview from './ThemeCodePreview.svelte'
 	import { sendUserToast } from '$lib/toast'
+	const { app, appPath } = getContext<AppViewerContext>('AppViewerContext')
 
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
-
-	let cssEditor: SimpleEditor | undefined = undefined
-	let alertHeight: number | undefined = undefined
-	let themeViewer: any = undefined
-	let selectedTab: 'css' | 'theme' = 'css'
+	let cssEditor: SimpleEditor | undefined = $state(undefined)
+	let alertHeight: number | undefined = $state(undefined)
+	let themeViewer: any = $state(undefined)
+	let selectedTab: 'css' | 'theme' = $state('css')
 
 	function insertSelector(selector: string) {
 		if ($app?.theme?.type === 'path') {
@@ -80,6 +79,7 @@
 									small
 									automaticLayout
 									bind:this={cssEditor}
+									key={`app-global-css-editor-${$workspaceStore}-${$appPath}`}
 								/>
 							{:else}
 								<ThemeCodePreview theme={$app.theme}>

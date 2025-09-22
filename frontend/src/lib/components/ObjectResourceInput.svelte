@@ -17,6 +17,8 @@
 		defaultValue: any
 		editor?: SimpleEditor | undefined
 		path?: string
+		disabled?: boolean
+		onClear?: () => void
 	}
 
 	let {
@@ -26,7 +28,9 @@
 		showSchemaExplorer = false,
 		selectFirst = false,
 		defaultValue,
-		editor = $bindable(undefined)
+		editor = $bindable(undefined),
+		disabled = false,
+		onClear = undefined
 	}: Props = $props()
 
 	function isResource() {
@@ -46,9 +50,10 @@
 		<S3ObjectPicker bind:value />
 	{:else if value == undefined || typeof value === 'string'}
 		<ResourcePicker
+			{disabled}
 			{selectFirst}
 			{disablePortal}
-			on:clear
+			{onClear}
 			bind:value={
 				() => valueToPath(),
 				(v) => {
@@ -69,7 +74,7 @@
 		{#await import('$lib/components/JsonEditor.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}
-			<Module.default bind:editor code={JSON.stringify(value, null, 2)} bind:value />
+			<Module.default {disabled} bind:editor code={JSON.stringify(value, null, 2)} bind:value />
 		{/await}
 	{/if}
 </div>

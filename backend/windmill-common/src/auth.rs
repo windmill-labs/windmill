@@ -1,13 +1,20 @@
+use std::{
+    hash::DefaultHasher,
+    sync::atomic::{AtomicI64, Ordering},
+};
+
 use anyhow::Context;
 use chrono::{DateTime, Duration, Utc};
+use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    db::Authed,
+    db::{Authed, AuthedRef},
     error::{Error, Result},
     jwt,
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL},
+    utils::WarnAfterExt,
     DB,
 };
 
@@ -15,6 +22,77 @@ use crate::{
 pub struct IdToken {
     token: String,
     expiration: DateTime<Utc>,
+}
+
+pub const TOKEN_PREFIX_LEN: usize = 10;
+
+lazy_static::lazy_static! {
+    // Cache for script hash permissions - (ApiAuthed hash, script_hash) -> permission result
+    pub static ref HASH_PERMS_CACHE: PermsCache = PermsCache::new();
+    pub static ref FLOW_PERMS_CACHE: PermsCache = PermsCache::new();
+}
+
+pub struct PermsCache(Cache<(u64, u64), ()>, AtomicI64);
+
+use std::hash::Hash;
+use std::hash::Hasher;
+
+impl PermsCache {
+    pub fn compute_hash(authed: &AuthedRef) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        authed.username.hash(&mut hasher);
+        authed.folders.hash(&mut hasher);
+        authed.groups.hash(&mut hasher);
+        authed.is_admin.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+pub const PERMS_CACHE_EXPIRATION_SECONDS: i64 = 60 * 60;
+
+impl PermsCache {
+    pub fn new() -> Self {
+        PermsCache(
+            Cache::new(10000),
+            AtomicI64::new(chrono::Utc::now().timestamp() as i64),
+        )
+    }
+
+    pub fn check_perms_in_cache<'e, T: Into<u64>>(
+        &self,
+        authed: &'e AuthedRef<'e>,
+        key: T,
+    ) -> (bool, u64) {
+        // Clear cache every hour
+        if self.1.load(Ordering::Relaxed)
+            < chrono::Utc::now().timestamp() - PERMS_CACHE_EXPIRATION_SECONDS
+        {
+            self.0.clear();
+            self.1
+                .store(chrono::Utc::now().timestamp() as i64, Ordering::Relaxed);
+        }
+        // Create hash of the ApiAuthed struct for caching
+        let authed_hash = Self::compute_hash(authed);
+
+        let key = key.into();
+        tracing::debug!(
+            "Checking cache for authed hash {authed_hash} and script hash {}",
+            key
+        );
+        // Check cache first
+        if let Some(_) = self.0.get(&(authed_hash, key)) {
+            tracing::debug!("Cached result for authed hash {authed_hash}",);
+            return (true, authed_hash);
+        }
+
+        return (false, authed_hash);
+    }
+
+    pub fn insert<'e, T: Into<u64>>(&self, authed_hash: u64, key: T) {
+        let key = key.into();
+        tracing::debug!("Inserting authed hash {authed_hash} and key {}", key);
+        self.0.insert((authed_hash, key), ());
+    }
 }
 
 pub fn has_expired(expiration_time: DateTime<Utc>, take: Option<Duration>) -> bool {
@@ -66,6 +144,7 @@ pub struct JWTAuthClaims {
     pub exp: usize,
     pub job_id: Option<String>,
     pub scopes: Option<Vec<String>>,
+    pub audit_span: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -92,6 +171,7 @@ impl From<JobPerms> for Authed {
                 .filter_map(|x| serde_json::from_value::<(String, bool, bool)>(x).ok())
                 .collect(),
             scopes: None,
+            token_prefix: None,
         }
     }
 }
@@ -171,38 +251,41 @@ pub async fn fetch_authed_from_permissioned_as(
             let folders = get_folders_for_user(w_id, &name, &groups, db).await?;
 
             Ok(Authed {
-                email: email,
+                email,
                 username: name.to_string(),
                 is_admin,
                 is_operator,
                 groups,
                 folders,
                 scopes: None,
+                token_prefix: None,
             })
         } else {
             let groups = vec![name.to_string()];
             let folders = get_folders_for_user(&w_id, "", &groups, db).await?;
             Ok(Authed {
-                email: email,
+                email,
                 username: format!("group-{name}"),
                 is_admin: false,
                 groups,
                 is_operator: false,
                 folders,
                 scopes: None,
+                token_prefix: None,
             })
         }
     } else {
         let groups = vec![];
         let folders = vec![];
         Ok(Authed {
-            email: email,
+            email,
             username: permissioned_as,
             is_admin: super_admin,
             is_operator: true,
             groups,
             folders,
             scopes: None,
+            token_prefix: None,
         })
     }
 }
@@ -252,6 +335,22 @@ pub async fn get_groups_for_user(
     Ok(groups)
 }
 
+pub async fn get_job_perms<'a, E: sqlx::PgExecutor<'a>>(
+    db: E,
+    job_id: &Uuid,
+    w_id: &str,
+) -> sqlx::Result<Option<JobPerms>> {
+    sqlx::query_as!(
+        JobPerms,
+        "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+        job_id,
+        w_id
+    )
+    .fetch_optional(db)
+    .warn_after_seconds(3)
+    .await
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_token_for_owner(
     db: &DB,
@@ -262,18 +361,12 @@ pub async fn create_token_for_owner(
     email: &str,
     job_id: &Uuid,
     perms: Option<JobPerms>,
+    audit_span: Option<String>,
 ) -> crate::error::Result<String> {
     let job_perms = if perms.is_some() {
         Ok(perms)
     } else {
-        sqlx::query_as!(
-            JobPerms,
-            "SELECT email, username, is_admin, is_operator, groups, folders FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
-            job_id,
-            w_id
-        )
-        .fetch_optional(db)
-        .await
+        get_job_perms(db, job_id, w_id).await
     };
     let job_authed = match job_perms {
         Ok(Some(jp)) => jp.into(),
@@ -289,32 +382,55 @@ pub async fn create_token_for_owner(
         }
     };
 
+    create_jwt_token(
+        job_authed,
+        w_id,
+        expires_in,
+        Some(*job_id),
+        Some(label.to_string()),
+        audit_span,
+        None,
+    )
+    .await
+}
+
+pub async fn create_jwt_token(
+    authed: Authed,
+    workspace_id: &str,
+    expires_in_seconds: u64,
+    job_id: Option<Uuid>,
+    label: Option<String>,
+    audit_span: Option<String>,
+    scopes: Option<Vec<String>>,
+) -> crate::error::Result<String> {
     let payload = JWTAuthClaims {
-        email: job_authed.email,
-        username: job_authed.username,
-        is_admin: job_authed.is_admin,
-        is_operator: job_authed.is_operator,
-        groups: job_authed.groups,
-        folders: job_authed.folders,
-        label: Some(label.to_string()),
-        workspace_id: w_id.to_string(),
-        exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in as i64)).timestamp()
+        email: authed.email.clone(),
+        username: authed.username.clone(),
+        is_admin: authed.is_admin,
+        is_operator: authed.is_operator,
+        groups: authed.groups.clone(),
+        folders: authed.folders.clone(),
+        label,
+        workspace_id: workspace_id.to_string(),
+        exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in_seconds as i64)).timestamp()
             as usize,
-        job_id: Some(job_id.to_string()),
-        scopes: None,
+        job_id: job_id.map(|id| id.to_string()),
+        scopes,
+        audit_span,
     };
 
     let token = jwt::encode_with_internal_secret(&payload)
         .await
-        .with_context(|| format!("Could not encode JWT token for job {job_id}"))?;
+        .with_context(|| match job_id {
+            Some(job_id) => format!("Could not encode JWT token for job {job_id}"),
+            None => "Could not encode JWT token".to_string(),
+        })?;
 
     Ok(format!("jwt_{}", token))
 }
 
 #[cfg(feature = "aws_auth")]
 pub mod aws {
-
-    use crate::error::to_anyhow;
 
     use super::*;
     use crate::utils::empty_as_none;
@@ -323,7 +439,9 @@ pub mod aws {
         config::Credentials as AwsCredentials,
         operation::{
             assume_role_with_saml::AssumeRoleWithSamlOutput,
-            assume_role_with_web_identity::AssumeRoleWithWebIdentityOutput,
+            assume_role_with_web_identity::{
+                builders::AssumeRoleWithWebIdentityFluentBuilder, AssumeRoleWithWebIdentityOutput,
+            },
         },
         types::Credentials,
         Client,
@@ -387,33 +505,27 @@ pub mod aws {
         Oidc(OidcAuth),
     }
 
-    pub async fn get_oidc_authentication_data(
-        oidc_auth: OidcAuth,
-        role_session_name: Option<impl ToString>,
+    pub async fn get_assume_role_with_web_identity_fluent_builder(
+        oidc_auth: &OidcAuth,
         token: String,
-    ) -> Result<AssumeRoleWithWebIdentityOutput> {
-        let region = oidc_auth.region.unwrap_or_else(|| "us-east-1".to_string());
+        role_session_name: Option<impl ToString>,
+    ) -> Result<AssumeRoleWithWebIdentityFluentBuilder> {
+        let region = oidc_auth.region.as_deref().unwrap_or_else(|| "us-east-1");
 
         let credentials = AwsCredentials::new("", "", None, None, "UserInput");
 
         let config = aws_config::defaults(BehaviorVersion::latest())
             .credentials_provider(credentials)
-            .region(Region::new(region.clone()))
+            .region(Region::new(region.to_string()))
             .load()
             .await;
 
         let assume_role_with_web_identity_fluent_builder = Client::new(&config)
             .assume_role_with_web_identity()
-            .set_role_arn(Some(oidc_auth.role_arn))
+            .set_role_arn(Some(oidc_auth.role_arn.to_owned()))
             .set_role_session_name(role_session_name.map(|str| str.to_string()))
             .set_web_identity_token(Some(token));
 
-        let resp = assume_role_with_web_identity_fluent_builder
-            .clone()
-            .send()
-            .await
-            .map_err(to_anyhow)?;
-
-        Ok(resp)
+        Ok(assume_role_with_web_identity_fluent_builder)
     }
 }

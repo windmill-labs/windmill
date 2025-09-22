@@ -1,12 +1,15 @@
 <script lang="ts">
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import InputPickerInner from './InputPickerInner.svelte'
 	import { ChevronDown, Plug } from 'lucide-svelte'
 	import { useSvelteFlow } from '@xyflow/svelte'
+	import { getStateColor } from '$lib/components/graph/util'
+	import type { FlowStatusModule } from '$lib/gen'
+	import type { FlowEditorContext } from '../types'
 
 	interface Props {
 		selected?: boolean
@@ -20,6 +23,11 @@
 		bottomBarOpen?: boolean
 		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
 		onEditInput?: (moduleId: string, key: string) => void
+		initial?: boolean
+		onResetInitial?: () => void
+		type: FlowStatusModule['type'] | undefined
+		darkMode?: boolean
+		skipped?: boolean
 	}
 
 	let {
@@ -33,7 +41,10 @@
 		id,
 		bottomBarOpen = $bindable(false),
 		loopStatus,
-		onEditInput
+		onEditInput,
+		type,
+		darkMode,
+		skipped
 	}: Props = $props()
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
@@ -89,18 +100,32 @@
 			placement: 'bottom',
 			gutter: 0,
 			offset: { mainAxis: 3, crossAxis: 69 * zoom },
-			overflowPadding: historyOpen ? 250 : 8
+			overflowPadding: historyOpen ? 250 : 8,
+			flip: false
 		})
 		popover?.updatePositioning({
 			placement: 'bottom',
 			gutter: 0,
 			offset: { mainAxis: 3, crossAxis: showInput ? -69 * zoom : 0 },
-			overflowPadding: historyOpen ? 250 : 8
+			overflowPadding: historyOpen ? 250 : 8,
+			flip: false
 		})
 	}
 
 	$effect(() => {
 		updatePositioning(historyOpen, zoom)
+	})
+
+	onMount(() => {
+		let { outputPickerOpenFns } = getContext<FlowEditorContext>('FlowEditorContext') || {}
+		if (outputPickerOpenFns) {
+			outputPickerOpenFns[id] = () => {
+				outputOpen = true
+			}
+			return () => {
+				delete outputPickerOpenFns[id]
+			}
+		}
 	})
 </script>
 
@@ -125,16 +150,21 @@
 			'h-1 hover:h-[20px]',
 			bottomBarOpen && 'h-[20px]'
 		)}
+		style:background-color={type && type !== 'WaitingForEvents'
+			? getStateColor(type, !!darkMode, true, skipped)
+			: undefined}
 		data-prop-picker
 	>
 		<div class="flex flex-row items-center justify-center w-full h-full">
 			{#if showInput}
 				<Popover
+					enableFlyTransition
 					floatingConfig={{
 						placement: 'bottom',
 						gutter: 0,
 						offset: { mainAxis: 3, crossAxis: 69 },
-						overflowPadding: historyOpen ? 250 : 8
+						overflowPadding: historyOpen ? 250 : 8,
+						flip: false
 					}}
 					usePointerDownOutside
 					closeOnOutsideClick={false}
@@ -169,12 +199,15 @@
 					{/snippet}
 				</Popover>
 			{/if}
+
 			<Popover
+				enableFlyTransition
 				floatingConfig={{
 					placement: 'bottom',
 					gutter: 0,
 					offset: { mainAxis: 3, crossAxis: showInput ? -69 : 0 },
-					overflowPadding: historyOpen ? 250 : 8
+					overflowPadding: historyOpen ? 250 : 8,
+					flip: false
 				}}
 				usePointerDownOutside
 				closeOnOutsideClick={false}
@@ -184,7 +217,7 @@
 				}}
 				bind:this={popover}
 				allowFullScreen
-				contentClasses="overflow-hidden resize"
+				contentClasses="overflow-hidden resize relative"
 				contentStyle={`width: calc(${MIN_WIDTH}px); min-width: calc(${MIN_WIDTH}px); height: calc(${MIN_HEIGHT}px); min-height: calc(${MIN_HEIGHT}px); `}
 				extraProps={{ 'data-prop-picker': true }}
 				closeOnOtherPopoverOpen

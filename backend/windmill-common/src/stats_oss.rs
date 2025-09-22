@@ -6,7 +6,7 @@ pub use crate::stats_ee::*;
 use sqlx::Postgres;
 
 #[cfg(not(feature = "private"))]
-use crate::{error::Result, scripts::ScriptLang, DB};
+use crate::{error::Result, DB};
 
 #[cfg(not(feature = "private"))]
 pub async fn get_disable_stats_setting(_db: &DB) -> bool {
@@ -18,14 +18,6 @@ pub async fn get_disable_stats_setting(_db: &DB) -> bool {
 #[cfg(not(feature = "private"))]
 pub async fn schedule_stats(_db: &DB, _http_client: &reqwest::Client) -> () {
     // stats details are closed source
-}
-
-#[cfg(not(feature = "private"))]
-#[derive(Debug, sqlx::FromRow, serde::Serialize)]
-struct JobsUsage {
-    language: Option<ScriptLang>,
-    total_duration: i64,
-    count: i64,
 }
 
 #[cfg(not(feature = "private"))]

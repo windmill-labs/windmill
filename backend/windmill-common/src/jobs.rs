@@ -5,15 +5,19 @@ use futures_core::Stream;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::{types::Json, Pool, Postgres};
+use sqlx::types::Json;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
 pub const ENTRYPOINT_OVERRIDE: &str = "_ENTRYPOINT_OVERRIDE";
 pub const LARGE_LOG_THRESHOLD_SIZE: usize = 9000;
 
+pub const EMAIL_ERROR_HANDLER_USER_EMAIL: &str = "email_error_handler@windmill.dev";
+
 use crate::{
     apps::AppScriptId,
+    auth::is_super_admin_email,
+    db::{AuthedRef, UserDbWithAuthed, DB},
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, RestartedFrom},
     flows::{FlowNodeId, FlowValue, Retry},
@@ -21,9 +25,53 @@ use crate::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{StripPath, HTTP_CLIENT},
-    worker::{to_raw_value, TMP_DIR},
+    worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, TMP_DIR},
     FlowVersionInfo, ScriptHashInfo,
 };
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct DynamicInput {
+    #[serde(rename = "x-windmill-dyn-select-code")]
+    pub x_windmill_dyn_select_code: String,
+    #[serde(rename = "x-windmill-dyn-select-lang")]
+    pub x_windmill_dyn_select_lang: ScriptLang,
+}
+
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
+#[sqlx(type_name = "JOB_TRIGGER_KIND", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum JobTriggerKind {
+    Webhook,
+    Http,
+    Websocket,
+    Kafka,
+    Email,
+    Nats,
+    Mqtt,
+    Sqs,
+    Postgres,
+    Schedule,
+    Gcp,
+}
+
+impl std::fmt::Display for JobTriggerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match self {
+            JobTriggerKind::Webhook => "webhook",
+            JobTriggerKind::Http => "http",
+            JobTriggerKind::Websocket => "websocket",
+            JobTriggerKind::Kafka => "kafka",
+            JobTriggerKind::Email => "email",
+            JobTriggerKind::Nats => "nats",
+            JobTriggerKind::Mqtt => "mqtt",
+            JobTriggerKind::Sqs => "sqs",
+            JobTriggerKind::Postgres => "postgres",
+            JobTriggerKind::Schedule => "schedule",
+            JobTriggerKind::Gcp => "gcp",
+        };
+        write!(f, "{}", kind)
+    }
+}
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 #[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
@@ -45,6 +93,7 @@ pub enum JobKind {
     FlowScript,
     FlowNode,
     AppScript,
+    AIAgent,
 }
 
 impl JobKind {
@@ -96,6 +145,8 @@ pub struct QueuedJob {
     pub permissioned_as: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_status: Option<Json<Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_as_code_status: Option<Json<Box<RawValue>>>,
     pub is_flow_step: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<ScriptLang>,
@@ -178,6 +229,7 @@ impl Default for QueuedJob {
             job_kind: JobKind::Identity,
             schedule_path: None,
             permissioned_as: "".to_string(),
+            workflow_as_code_status: None,
             flow_status: None,
             is_flow_step: false,
             language: None,
@@ -235,6 +287,8 @@ pub struct CompletedJob {
     pub permissioned_as: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_status: Option<sqlx::types::Json<Box<RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow_as_code_status: Option<sqlx::types::Json<Box<RawValue>>>,
     pub is_flow_step: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<ScriptLang>,
@@ -350,19 +404,26 @@ pub enum JobPayload {
         path: String,
         hash: ScriptHash,
         args: HashMap<String, Box<serde_json::value::RawValue>>,
-        retry: Retry, // for now only used to retry the script, so retry is necessarily present
+        retry: Option<Retry>,
+        error_handler_path: Option<String>,
+        error_handler_args: Option<HashMap<String, Box<RawValue>>>,
         custom_concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
         priority: Option<i16>,
         tag_override: Option<String>,
+        trigger_path: Option<String>,
+        apply_preprocessor: bool,
     },
     DeploymentCallback {
         path: String,
     },
     Identity,
     Noop,
+    AIAgent {
+        path: String,
+    },
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
@@ -380,8 +441,6 @@ pub struct RawCode {
 }
 
 type Tag = String;
-
-pub type DB = Pool<Postgres>;
 
 #[derive(Clone, Debug)]
 pub struct OnBehalfOf {
@@ -408,9 +467,10 @@ pub fn get_has_preprocessor_from_content_and_lang(
     Ok(has_preprocessor)
 }
 
-pub async fn script_path_to_payload<'e, A: sqlx::Acquire<'e, Database = Postgres> + Send>(
+pub async fn script_path_to_payload<'e>(
     script_path: &str,
-    db: A,
+    db_authed: Option<UserDbWithAuthed<'e, AuthedRef<'e>>>,
+    db: DB,
     w_id: &str,
     skip_preprocessor: Option<bool>,
 ) -> error::Result<(
@@ -457,7 +517,7 @@ pub async fn script_path_to_payload<'e, A: sqlx::Acquire<'e, Database = Postgres
             on_behalf_of_email,
             created_by,
             ..
-        } = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
+        } = get_latest_deployed_hash_for_path(db_authed, db, w_id, script_path).await?;
 
         let on_behalf_of = if let Some(email) = on_behalf_of_email {
             Some(OnBehalfOf {
@@ -497,17 +557,29 @@ pub async fn script_path_to_payload<'e, A: sqlx::Acquire<'e, Database = Postgres
     ))
 }
 
+#[inline(always)]
+pub fn generate_dynamic_input_key(workspace_id: &str, path: &str) -> String {
+    format!("{workspace_id}:{path}")
+}
+
 pub async fn get_payload_tag_from_prefixed_path(
     path: &str,
     db: &DB,
     w_id: &str,
 ) -> Result<(JobPayload, Option<String>, Option<OnBehalfOf>), Error> {
     let (payload, tag, _, _, on_behalf_of) = if path.starts_with("script/") {
-        script_path_to_payload(path.strip_prefix("script/").unwrap(), db, w_id, Some(true)).await?
+        script_path_to_payload(
+            path.strip_prefix("script/").unwrap(),
+            None,
+            db.clone(),
+            w_id,
+            Some(true),
+        )
+        .await?
     } else if path.starts_with("flow/") {
         let path = path.strip_prefix("flow/").unwrap().to_string();
         let FlowVersionInfo { dedicated_worker, tag, version, .. } =
-            get_latest_flow_version_info_for_path(db, w_id, &path, true).await?;
+            get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
         (
             JobPayload::Flow { path, dedicated_worker, apply_preprocessor: false, version },
             tag,
@@ -636,4 +708,60 @@ pub async fn get_logs_from_store(
         }
     }
     return None;
+}
+
+lazy_static::lazy_static! {
+    static ref TAGS_ARE_SENSITIVE: bool = std::env::var("TAGS_ARE_SENSITIVE").map(
+        |v| v.parse().unwrap()
+    ).unwrap_or(false);
+}
+
+pub async fn check_tag_available_for_workspace_internal(
+    db: &DB,
+    w_id: &str,
+    tag: &str,
+    email: &str,
+    scope_tags: Option<Vec<&str>>,
+) -> error::Result<()> {
+    let mut is_tag_in_scope_tags = None;
+    let mut is_tag_in_workspace_custom_tags = false;
+
+    if let Some(scope_tags) = scope_tags.as_ref() {
+        is_tag_in_scope_tags = Some(scope_tags.contains(&tag));
+    }
+
+    let custom_tags_per_w = CUSTOM_TAGS_PER_WORKSPACE.read().await;
+    if custom_tags_per_w.global.contains(&tag.to_string()) {
+        is_tag_in_workspace_custom_tags = true;
+    } else if let Some(specific_tag) = custom_tags_per_w.specific.get(tag) {
+        is_tag_in_workspace_custom_tags = specific_tag.applies_to_workspace(w_id);
+    }
+
+    match is_tag_in_scope_tags {
+        Some(true) | None => {
+            if is_tag_in_workspace_custom_tags {
+                return Ok(());
+            }
+        }
+        _ => {}
+    }
+
+    if !is_super_admin_email(db, email).await? {
+        if scope_tags.is_some() && is_tag_in_scope_tags.is_some() {
+            return Err(Error::BadRequest(format!(
+                "Tag {tag} is not available in your scope"
+            )));
+        }
+
+        if *TAGS_ARE_SENSITIVE {
+            return Err(Error::BadRequest(format!("{tag} is not available to you")));
+        } else {
+            return Err(error::Error::BadRequest(format!(
+            "Only super admins are allowed to use tags that are not included in the allowed CUSTOM_TAGS: {:?}",
+            custom_tags_per_w
+        )));
+        }
+    }
+
+    return Ok(());
 }

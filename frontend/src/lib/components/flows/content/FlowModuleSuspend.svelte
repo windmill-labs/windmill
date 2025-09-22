@@ -3,7 +3,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 
 	import { Alert, Tab, Tabs } from '$lib/components/common'
 	import { GroupService, type FlowModule } from '$lib/gen'
@@ -19,18 +19,22 @@
 	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 
 	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
-	const result = $flowStateStore[$selectedId]?.previewResult ?? {}
-	let editor: SimpleEditor | undefined = undefined
+	const result = flowStateStore.val[$selectedId]?.previewResult ?? {}
+	let editor: SimpleEditor | undefined = $state(undefined)
 
-	export let flowModule: FlowModule
-	export let previousModuleId: string | undefined
+	interface Props {
+		flowModule: FlowModule
+		previousModuleId: string | undefined
+	}
 
-	let schema = emptySchema()
+	let { flowModule = $bindable(), previousModuleId }: Props = $props()
 
-	let allUserGroups: string[] = []
-	let suspendTabSelected: 'core' | 'form' | 'permissions' = 'core'
+	let schema = $state(emptySchema())
 
-	$: isSuspendEnabled = Boolean(flowModule.suspend)
+	let allUserGroups: string[] = $state([])
+	let suspendTabSelected: 'core' | 'form' | 'permissions' = $state('core')
+
+	let isSuspendEnabled = $derived(Boolean(flowModule.suspend))
 
 	async function loadGroups(): Promise<void> {
 		allUserGroups = await GroupService.listGroupNames({ workspace: $workspaceStore! })
@@ -43,20 +47,34 @@
 		}
 	}
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore && allUserGroups.length === 0) {
-			loadGroups()
+			untrack(() => {
+				loadGroups()
+			})
 		}
-	}
+	})
 
-	let jsonView: boolean = false
+	$effect(() => {
+		// If the schema is empty, remove the form
+		if (Object.keys(flowModule?.suspend?.resume_form?.schema?.properties ?? {}).length === 0) {
+			untrack(() => {
+				tick().then(() => {
+					if (!flowModule.suspend) return
+					flowModule.suspend.resume_form = undefined
+				})
+			})
+		}
+	})
+
+	let jsonView: boolean = $state(false)
 </script>
 
 <Section label="Suspend/Approval/Prompt" class="w-full">
-	<svelte:fragment slot="action">
+	{#snippet action()}
 		<SuspendDrawer text="Approval/Prompt helpers" />
-	</svelte:fragment>
-	<svelte:fragment slot="header">
+	{/snippet}
+	{#snippet header()}
 		<div class="flex flex-row items-center gap-2">
 			<Tooltip documentationLink="https://www.windmill.dev/docs/flows/flow_approval">
 				If defined, at the end of the step, the flow will be suspended until it receives external
@@ -81,7 +99,7 @@
 				}}
 			/>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="overflow-x-auto scrollbar-hidden">
 		<Tabs bind:selected={suspendTabSelected}>
@@ -226,21 +244,7 @@
 		<div class="grid grid-cols-4 mt-4 gap-8">
 			<div class="col-span-2">
 				{#if flowModule?.suspend?.resume_form}
-					<EditableSchemaDrawer
-						bind:schema={flowModule.suspend.resume_form.schema}
-						on:change={(e) => {
-							const schema = e.detail
-
-							// If the schema is empty, remove the form
-							if (Object.keys(schema?.properties ?? {}).length === 0) {
-								tick().then(() => {
-									if (!flowModule.suspend) return
-									flowModule.suspend.resume_form = undefined
-								})
-							}
-						}}
-						{jsonView}
-					/>
+					<EditableSchemaDrawer bind:schema={flowModule.suspend.resume_form.schema} {jsonView} />
 				{:else if emptyString($enterpriseLicense)}
 					<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
 				{:else}

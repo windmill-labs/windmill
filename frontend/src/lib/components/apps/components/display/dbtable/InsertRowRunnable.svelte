@@ -9,7 +9,11 @@
 	import { sendUserToast } from '$lib/toast'
 	import { getInsertInput } from './queries/insert'
 
-	export let id: string
+	interface Props {
+		id: string
+	}
+
+	let { id }: Props = $props()
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -19,9 +23,9 @@
 		jobId: undefined
 	})
 
-	let runnableComponent: RunnableComponent
-	let loading = false
-	let input: AppInput | undefined = undefined
+	let runnableComponent: RunnableComponent | undefined = $state()
+	let loading = $state(false)
+	let input: AppInput | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -43,14 +47,14 @@
 
 		if (runnableComponent) {
 			await runnableComponent?.runComponent(undefined, undefined, undefined, values, {
-				done: (x) => {
+				onDone: (_x) => {
 					dispatch('insert')
 					sendUserToast('Row inserted', false)
 				},
-				cancel: () => {
+				onCancel: () => {
 					sendUserToast('Error inserting row', true)
 				},
-				error: () => {
+				onError: () => {
 					sendUserToast('Error inserting row', true)
 				}
 			})

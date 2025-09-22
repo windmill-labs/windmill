@@ -1,9 +1,12 @@
-import type { FlowModule, RawScript, Script } from '$lib/gen'
+import type { FlowModule, Job, PathScript, RawScript, Script } from '$lib/gen'
 import { type Edge } from '@xyflow/svelte'
-import { getDependeeAndDependentComponents } from '../flows/flowExplorer'
+import { getAllModules, getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
+import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
+import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
+import type { ModulesTestStates, ModuleTestState } from '../modulesTest.svelte'
 
 export type InsertKind =
 	| 'script'
@@ -15,6 +18,7 @@ export type InsertKind =
 	| 'trigger'
 	| 'approval'
 	| 'end'
+	| 'aiagent'
 
 export type InlineScript = {
 	language: RawScript['language']
@@ -32,13 +36,15 @@ export type onSelectedIteration = (
 
 export type GraphEventHandlers = {
 	insert: (detail: {
+		agentId?: string
 		sourceId?: string
 		targetId?: string
 		branch?: { rootId: string; branch: number }
 		index: number
-		kind: string
-		inlineScript?: string
-		script?: string
+		kind?: string
+		inlineScript?: InlineScript
+		script?: PathScript
+		flow?: { path: string; summary: string }
 		isPreprocessor?: boolean
 	}) => void
 	deleteBranch: (detail: { id: string; index: number }, label: string) => void
@@ -54,6 +60,10 @@ export type GraphEventHandlers = {
 	updateMock: (detail: { mock: FlowModule['mock']; id: string }) => void
 	testUpTo: (id: string) => void
 	editInput: (moduleId: string, key: string) => void
+	testFlow: () => void
+	cancelTestFlow: () => void
+	openPreview: () => void
+	hideJobStatus: () => void
 }
 
 export type SimplifiableFlow = { simplifiedFlow: boolean }
@@ -73,6 +83,9 @@ export function buildPrefix(prefix: string | undefined, id: string): string {
 export type NodeLayout = {
 	id: string
 	parentIds?: string[]
+	data: {
+		offset?: number
+	}
 } & FlowNode
 
 export type FlowNode =
@@ -90,6 +103,10 @@ export type FlowNode =
 	| SubflowBoundN
 	| NoBranchN
 	| TriggerN
+	| AssetN
+	| AssetsOverflowedN
+	| AiToolN
+	| NewAiToolN
 
 export type InputN = {
 	type: 'input2'
@@ -102,6 +119,12 @@ export type InputN = {
 		cache: boolean
 		earlyStop: boolean
 		editMode: boolean
+		isRunning: boolean
+		individualStepTests: boolean
+		flowJob: Job | undefined
+		showJobStatus: boolean
+		flowHasChanged: boolean
+		assets?: AssetWithAltAccessType[] | undefined
 	}
 }
 
@@ -114,9 +137,13 @@ export type ModuleN = {
 		parentIds: string[]
 		eventHandlers: GraphEventHandlers
 		moving: string | undefined
-		flowModuleStates: Record<string, GraphModuleState> | undefined
+		flowModuleState: GraphModuleState | undefined
+		testModuleState: ModuleTestState | undefined
 		insertable: boolean
 		editMode: boolean
+		flowJob: Job | undefined
+		isOwner: boolean
+		assets: AssetWithAltAccessType[] | undefined
 	}
 }
 
@@ -128,7 +155,7 @@ export type BranchAllStartN = {
 		id: string
 		branchIndex: number
 		eventHandlers: GraphEventHandlers
-		flowModuleStates: Record<string, GraphModuleState> | undefined
+		flowModuleState: GraphModuleState | undefined
 		insertable: boolean
 		branchOne: boolean
 	}
@@ -140,7 +167,7 @@ export type BranchAllEndN = {
 		offset: number
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleStates: Record<string, GraphModuleState> | undefined
+		flowModuleState: GraphModuleState | undefined
 	}
 }
 
@@ -151,7 +178,7 @@ export type ForLoopEndN = {
 		id: string
 		eventHandlers: GraphEventHandlers
 		simplifiedTriggerView: boolean
-		flowModuleStates: Record<string, GraphModuleState> | undefined
+		flowModuleState: GraphModuleState | undefined
 	}
 }
 
@@ -161,7 +188,7 @@ export type ForLoopStartN = {
 		offset: number
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleStates: Record<string, GraphModuleState> | undefined
+		flowModuleState: GraphModuleState | undefined
 		selectedId: string | undefined
 		editMode: boolean
 		simplifiedTriggerView: boolean
@@ -174,6 +201,9 @@ export type ResultN = {
 	data: {
 		success: boolean | undefined
 		eventHandlers: GraphEventHandlers
+		editMode: boolean
+		job: Job | undefined
+		showJobStatus: boolean
 	}
 }
 
@@ -198,7 +228,7 @@ export type BranchOneStartN = {
 		offset: number
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleStates: Record<string, GraphModuleState> | undefined
+		flowModuleState: GraphModuleState | undefined
 		selected: boolean
 		insertable: boolean
 		label: string
@@ -214,7 +244,7 @@ export type BranchOneEndN = {
 		offset: number
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleStates: Record<string, GraphModuleState> | undefined
+		flowModuleState: GraphModuleState | undefined
 	}
 }
 
@@ -237,7 +267,7 @@ export type NoBranchN = {
 		offset: number
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleStates: Record<string, GraphModuleState> | undefined
+		flowModuleState: GraphModuleState | undefined
 		branchOne: boolean
 		label: string
 		branchIndex: number
@@ -254,6 +284,59 @@ export type TriggerN = {
 		eventHandlers: GraphEventHandlers
 		disableAi: boolean
 	}
+}
+
+export type AssetN = {
+	type: 'asset'
+	data: {
+		asset: AssetWithAltAccessType
+	}
+}
+
+export type AssetsOverflowedN = {
+	type: 'assetsOverflowed'
+	data: {
+		overflowedAssets: AssetWithAltAccessType[]
+	}
+}
+
+export type AiToolN = {
+	type: 'aiTool'
+	data: {
+		tool: string
+		eventHandlers: GraphEventHandlers
+		moduleId: string
+		insertable: boolean
+		flowModuleStates: Record<string, GraphModuleState> | undefined
+	}
+}
+
+export type NewAiToolN = {
+	type: 'newAiTool'
+	data: {
+		eventHandlers: GraphEventHandlers
+		agentModuleId: string
+	}
+}
+
+export function topologicalSort(
+	nodes: { id: string; parentIds?: string[] }[]
+): { id: string; parentIds?: string[] }[] {
+	const nodeMap = new Map(nodes.map((n) => [n.id, n]))
+	const result: { id: string; parentIds?: string[] }[] = []
+	const visited = new Set<string>()
+
+	function visit(id: string): void {
+		if (visited.has(id)) return
+		visited.add(id)
+
+		const node = nodeMap.get(id)!
+		node.parentIds?.forEach(visit)
+		result.push(node)
+	}
+
+	nodes.forEach((n) => visit(n.id))
+	return result.reverse()
 }
 
 // input2: InputNode,
@@ -277,12 +360,21 @@ export function graphBuilder(
 		disableAi: boolean
 		insertable: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
+		testModuleStates: ModulesTestStates | undefined
 		selectedId: string | undefined
 		path: string | undefined
 		newFlow: boolean
 		cache: boolean
 		earlyStop: boolean
 		editMode: boolean
+		isOwner: boolean
+		isRunning: boolean
+		individualStepTests: boolean
+		flowJob: Job | undefined
+		showJobStatus: boolean
+		suspendStatus: Record<string, { job: Job; nb: number }>
+		flowHasChanged: boolean
+		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
@@ -299,17 +391,19 @@ export function graphBuilder(
 	// 	flowIsSimplifiable?: boolean
 	// }
 ): {
-	nodes: NodeLayout[]
+	nodes: { [key: string]: NodeLayout }
 	edges: Edge[]
 	error?: string | undefined
 } {
 	console.debug('Building graph')
-	const nodes: NodeLayout[] = []
-	const edges: Edge[] = []
+
 	try {
 		if (!modules) {
-			return { nodes, edges }
+			return { nodes: {}, edges: [] }
 		}
+
+		const nodes: NodeLayout[] = []
+		const edges: Edge[] = []
 
 		function addNode(module: FlowModule, offset: number) {
 			const duplicated = nodes.find((n) => n.id === module.id)
@@ -331,15 +425,28 @@ export function graphBuilder(
 					parentIds: [],
 					eventHandlers: eventHandlers,
 					moving: moving,
-					flowModuleStates: extra.flowModuleStates,
+					flowModuleState: extra.flowModuleStates?.[module.id],
+					testModuleState: extra.testModuleStates?.states?.[module.id],
 					insertable: extra.insertable,
-					editMode: extra.editMode
+					editMode: extra.editMode,
+					isOwner: extra.isOwner,
+					flowJob: extra.flowJob,
+					assets: getFlowModuleAssets(module, extra.additionalAssetsMap)
 				},
 				type: 'module'
 			})
 
 			return module.id
 		}
+
+		// TODO : Do better than this
+		const nodeIdsWithOutputAssets = new Set(
+			getAllModules(modules)
+				.filter((m) =>
+					getFlowModuleAssets(m, extra.additionalAssetsMap)?.some(assetDisplaysAsOutputInFlowGraph)
+				)
+				.map((m) => m.id)
+		)
 
 		const parents: { [key: string]: string[] } = {}
 
@@ -417,11 +524,13 @@ export function graphBuilder(
 					// If the index is -1, it means that the target module is not in the modules array, so we set it to the length of the array
 					index: index >= 0 ? index : (mods?.length ?? 0),
 					...extra,
-					insertable: extra.insertable && !options?.disableInsert && prefix == undefined
+					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
+					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
 				}
 			})
 		}
 
+		const inputAssets = extra.additionalAssetsMap?.['Input']
 		const inputNode: NodeLayout = {
 			id: 'Input',
 			type: 'input2',
@@ -433,7 +542,13 @@ export function graphBuilder(
 				disableAi: extra.disableAi,
 				cache: extra.cache,
 				earlyStop: extra.earlyStop,
-				editMode: extra.editMode
+				editMode: extra.editMode,
+				isRunning: extra.isRunning,
+				individualStepTests: extra.individualStepTests,
+				flowJob: extra.flowJob,
+				showJobStatus: extra.showJobStatus,
+				flowHasChanged: extra.flowHasChanged,
+				...(inputAssets ? { assets: inputAssets } : {})
 			}
 		}
 
@@ -467,7 +582,10 @@ export function graphBuilder(
 			id: 'result',
 			data: {
 				eventHandlers: eventHandlers,
-				success: success
+				success: success,
+				editMode: extra.editMode,
+				job: extra.flowJob,
+				showJobStatus: extra.showJobStatus
 			},
 			type: 'result'
 		}
@@ -528,7 +646,7 @@ export function graphBuilder(
 								offset: currentOffset,
 								id: module.id,
 								eventHandlers: eventHandlers,
-								flowModuleStates: extra.flowModuleStates
+								flowModuleState: extra.flowModuleStates?.[module.id]
 							},
 							type: 'branchAllEnd'
 						}
@@ -544,7 +662,7 @@ export function graphBuilder(
 									id: module.id,
 									branchIndex: -1,
 									eventHandlers: eventHandlers,
-									flowModuleStates: extra.flowModuleStates,
+									flowModuleState: extra.flowModuleStates?.[module.id],
 									branchOne: false,
 									label: 'No branches'
 								},
@@ -571,7 +689,7 @@ export function graphBuilder(
 										id: module.id,
 										branchIndex: branchIndex,
 										eventHandlers: eventHandlers,
-										flowModuleStates: extra.flowModuleStates,
+										flowModuleState: extra.flowModuleStates?.[module.id],
 										insertable: extra.insertable,
 										branchOne: false
 									},
@@ -619,7 +737,7 @@ export function graphBuilder(
 								simplifiedTriggerView,
 								eventHandlers: eventHandlers,
 								editMode: extra.editMode,
-								flowModuleStates: extra.flowModuleStates,
+								flowModuleState: extra.flowModuleStates?.[module.id],
 								selectedId: extra.selectedId
 							},
 							type: 'forLoopStart'
@@ -642,7 +760,7 @@ export function graphBuilder(
 								id: module.id,
 								eventHandlers: eventHandlers,
 								simplifiedTriggerView,
-								flowModuleStates: extra.flowModuleStates
+								flowModuleState: extra.flowModuleStates?.[module.id]
 							},
 							type: 'forLoopEnd'
 						}
@@ -716,26 +834,43 @@ export function graphBuilder(
 							data: {
 								offset: currentOffset,
 								eventHandlers: eventHandlers,
-								flowModuleStates: extra.flowModuleStates,
+								flowModuleState: extra.flowModuleStates?.[module.id],
 								id: module.id
 							},
 							type: 'branchOneEnd'
 						}
 						nodes.push(endNode)
 
-						// Add default branch
+						// // Add default branch
+						// const defaultBranch: NodeLayout = {
+						// 	id: `${module.id}-default`,
+						// 	data: {
+						// 		offset: currentOffset,
+						// 		label: 'Default',
+						// 		id: module.id,
+						// 		branchIndex: -1,
+						// 		eventHandlers: eventHandlers,
+						// 		branchOne: true,
+						// 		...extra
+						// 	},
+						// 	type: 'noBranch'
+						// }
+
 						const defaultBranch: NodeLayout = {
-							id: `${module.id}-default`,
+							id: `${module.id}-branch-default`,
 							data: {
 								offset: currentOffset,
 								label: 'Default',
 								id: module.id,
 								branchIndex: -1,
 								eventHandlers: eventHandlers,
-								branchOne: true,
-								...extra
+								insertable: extra.insertable,
+								preLabel: undefined,
+								flowModuleState: extra.flowModuleStates?.[module.id],
+								selected: false,
+								modules: module.value.default
 							},
-							type: 'noBranch'
+							type: 'branchOneStart'
 						}
 
 						nodes.push(defaultBranch)
@@ -769,7 +904,7 @@ export function graphBuilder(
 									branchIndex: branchIndex,
 									eventHandlers: eventHandlers,
 									insertable: extra.insertable,
-									flowModuleStates: extra.flowModuleStates,
+									flowModuleState: extra.flowModuleStates?.[module.id],
 									selected: false,
 									modules: branch.modules
 								},
@@ -800,7 +935,7 @@ export function graphBuilder(
 						let expanded = expandedSubflows[module.id]
 						if (expanded) {
 							expanded = $state.snapshot(expanded)
-							const startId = `${module.id}-subflow-start`
+							const startId = `${module.id}`
 							const idWithoutPrefix = module.id.startsWith('subflow:')
 								? module.id.substring(8)
 								: module.id
@@ -958,10 +1093,10 @@ export function graphBuilder(
 			}
 		}
 
-		return { nodes, edges }
+		return { nodes: Object.fromEntries(nodes.map((n) => [n.id, n])), edges }
 	} catch (e) {
 		return {
-			nodes: [],
+			nodes: {},
 			edges: [],
 			error: e
 		}

@@ -6,7 +6,7 @@
 
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import {
 		dfs,
 		expandGriditem,
@@ -81,8 +81,7 @@
 
 	export function moveComponentBetweenSubgrids(
 		componentId: string,
-		parentComponentId: string,
-		subGridIndex: number,
+		subgrid: { parentComponentId: string; subGridIndex: number } | undefined,
 		position?: { x: number; y: number }
 	) {
 		// Find the component in the source subgrid
@@ -106,7 +105,7 @@
 		insertNewGridItem(
 			$app,
 			(id) => ({ ...gridItem.data, id }),
-			{ parentComponentId: parentComponentId, subGridIndex: subGridIndex },
+			subgrid,
 			Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
 			component.id,
 			position,
@@ -119,10 +118,12 @@
 		// Update the app state
 		$app = $app
 
-		$selectedComponent = [parentComponentId]
-		$focusedGrid = {
-			parentComponentId,
-			subGridIndex
+		if (subgrid) {
+			$selectedComponent = [subgrid.parentComponentId]
+			$focusedGrid = subgrid
+		} else {
+			$selectedComponent = [componentId]
+			$focusedGrid = undefined
 		}
 	}
 </script>
@@ -200,21 +201,15 @@
 				allIdsInPath={$allIdsInPath}
 				selectedIds={$selectedComponent}
 				items={$app.grid}
-				on:redraw={(e) => {
+				onRedraw={(grid) => {
 					push(history, $app)
-					$app.grid = e.detail
+					$app.grid = grid
 				}}
 				root
-				on:dropped={(e) => {
-					const { id, overlapped, x, y } = e.detail
-
-					const overlappedComponent = findGridItem($app, overlapped)
+				onDropped={({ id, overlapped, x, y }) => {
+					const overlappedComponent = overlapped ? findGridItem($app, overlapped) : undefined
 
 					if (overlappedComponent && !isContainer(overlappedComponent.data.type)) {
-						return
-					}
-
-					if (!overlapped) {
 						return
 					}
 
@@ -224,14 +219,22 @@
 
 					moveComponentBetweenSubgrids(
 						id,
-						overlapped,
-						subGridIndexKey(overlappedComponent?.data?.type, overlapped, $worldStore),
+						overlapped
+							? {
+									parentComponentId: overlapped,
+									subGridIndex: subGridIndexKey(
+										overlappedComponent?.data?.type,
+										overlapped,
+										$worldStore
+									)
+								}
+							: undefined,
 						{ x, y }
 					)
 				}}
 				disableMove={!!$connectingInput.opened}
 			>
-				{#snippet children({ dataItem, overlapped, moveMode, componentDraggedId })}
+				{#snippet children({ dataItem, overlapped, componentDraggedId })}
 					<ComponentWrapper
 						id={dataItem.id}
 						type={dataItem.data.type}
@@ -276,7 +279,6 @@
 									$app = $app
 								}}
 								{overlapped}
-								{moveMode}
 								{componentDraggedId}
 							/>
 						</GridEditorMenu>

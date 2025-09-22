@@ -1,28 +1,10 @@
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
+    flows::Step,
     utils::WarnAfterExt,
     DB,
 };
-
-#[derive(Debug, Copy, Clone)]
-pub enum Step {
-    Step(usize),
-    PreprocessorStep,
-    FailureStep,
-}
-
-impl Step {
-    pub fn from_i32_and_len(step: i32, len: usize) -> Self {
-        if step < 0 {
-            Step::PreprocessorStep
-        } else if (step as usize) < len {
-            Step::Step(step as usize)
-        } else {
-            Step::FailureStep
-        }
-    }
-}
 
 pub async fn update_flow_status_in_progress(
     db: &DB,
@@ -32,7 +14,7 @@ pub async fn update_flow_status_in_progress(
 ) -> error::Result<Step> {
     let step = get_step_of_flow_status(db, flow).await?;
     match step {
-        Step::Step(step) => {
+        Step::Step { idx: step, .. } => {
             sqlx::query!(
                 "UPDATE v2_job_status SET
                     flow_status = jsonb_set(
@@ -117,7 +99,7 @@ pub async fn update_workflow_as_code_status(
 
 // TODO: merge as a CTE
 #[tracing::instrument(level = "trace", skip_all)]
-async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<Step> {
+pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<Step> {
     let r = sqlx::query!(
         "SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len
         FROM v2_job_status WHERE id = $1",

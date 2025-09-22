@@ -7,12 +7,12 @@ use std::{collections::HashMap, sync::Arc};
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-
 use crate::{
+    auth::OptTokened,
     db::{ApiAuthed, DB},
     resources::get_resource_value_interpolated_internal,
     users::{require_owner_of_path, OptAuthed},
-    utils::WithStarredInfoQuery,
+    utils::{check_scopes, WithStarredInfoQuery},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -20,7 +20,7 @@ use crate::{
 use crate::{
     job_helpers_oss::{
         download_s3_file_internal, get_random_file_name, get_s3_resource,
-        get_workspace_s3_resource, upload_file_from_req, DownloadFileQuery,
+        get_workspace_s3_resource_and_check_paths, upload_file_from_req, DownloadFileQuery,
     },
     users::fetch_api_authed_from_permissioned_as,
 };
@@ -51,7 +51,8 @@ use std::str;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
-    apps::{AppScriptId, ListAppQuery},
+    apps::{AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
+    auth::TOKEN_PREFIX_LEN,
     cache::{self, future::FutureCachedExt},
     db::UserDB,
     error::{to_anyhow, Error, JsonResult, Result},
@@ -75,7 +76,7 @@ use hmac::Mac;
 use windmill_common::{
     jwt,
     oauth2::HmacSha256,
-    s3_helpers::{build_object_store_client, S3Object},
+    s3_helpers::{build_object_store_client, S3Object, S3Permission},
     variables::get_workspace_key,
 };
 
@@ -146,16 +147,16 @@ fn is_false(b: &bool) -> bool {
     !b
 }
 
-#[derive(FromRow, Serialize, Deserialize)]
-pub struct AppVersion {
-    pub id: i64,
-    pub app_id: Uuid,
-    pub value: sqlx::types::Json<Box<RawValue>>,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-}
+// #[derive(FromRow, Serialize, Deserialize)]
+// pub struct AppVersion {
+//     pub id: i64,
+//     pub app_id: Uuid,
+//     pub value: sqlx::types::Json<Box<RawValue>>,
+//     pub created_by: String,
+//     pub created_at: chrono::DateTime<chrono::Utc>,
+// }
 
-#[derive(Serialize, Deserialize, FromRow)]
+#[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct AppWithLastVersion {
     pub id: i64,
     pub path: String,
@@ -177,15 +178,6 @@ pub struct AppWithLastVersionAndStarred {
     pub app: AppWithLastVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starred: Option<bool>,
-}
-
-#[cfg(feature = "enterprise")]
-#[derive(Serialize, FromRow)]
-pub struct AppWithLastVersionAndWorkspace {
-    #[sqlx(flatten)]
-    #[serde(flatten)]
-    pub app: AppWithLastVersion,
-    pub workspace_id: String,
 }
 
 #[derive(Serialize, Deserialize, FromRow)]
@@ -442,6 +434,7 @@ async fn get_app(
     Query(query): Query<WithStarredInfoQuery>,
 ) -> JsonResult<AppWithLastVersionAndStarred> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = if query.with_starred_info.unwrap_or(false) {
@@ -489,6 +482,7 @@ async fn get_app_lite(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<AppWithLastVersion> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
@@ -516,24 +510,40 @@ async fn get_app_w_draft(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<AppWithLastVersionAndDraft> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersionAndDraft>(
-        r#"SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
-        app.extra_perms, app_version.value,
-        app_version.created_at, app_version.created_by,
-        app.draft_only, draft.value as "draft"
-        from app
-        INNER JOIN app_version ON
-        app_version.id = app.versions[array_upper(app.versions, 1)]
-        LEFT JOIN draft ON 
-        app.path = draft.path AND draft.workspace_id = $2 AND draft.typ = 'app' 
-        WHERE app.path = $1 AND app.workspace_id = $2"#,
+        r#"
+        SELECT 
+            app.id, 
+            app.path, 
+            app.summary, 
+            app.versions, 
+            app.policy, 
+            app.custom_path,
+            app.extra_perms, 
+            app_version.value,
+            app_version.created_at, 
+            app_version.created_by,
+            app.draft_only,
+            draft.value AS "draft"
+        FROM app
+        INNER JOIN app_version 
+            ON app_version.id = app.versions[array_upper(app.versions, 1)]
+        LEFT JOIN draft 
+            ON app.path = draft.path 
+        AND draft.workspace_id = $2 
+        AND draft.typ = 'app'
+        WHERE app.path = $1 
+        AND app.workspace_id = $2
+    "#,
     )
     .bind(path.to_owned())
     .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
+
     tx.commit().await?;
 
     let app = not_found_if_none(app_o, "App", path)?;
@@ -545,6 +555,8 @@ async fn get_app_history(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<AppHistory>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", &path))?;
     let mut tx = user_db.begin(&authed).await?;
     let query_result = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
@@ -552,7 +564,7 @@ async fn get_app_history(
         WHERE a.workspace_id = $1 AND a.path = $2
         ORDER BY created_at DESC",
         w_id,
-        path.to_path(),
+        path,
     ).fetch_all(&mut *tx).await?;
     tx.commit().await?;
 
@@ -572,6 +584,8 @@ async fn get_latest_version(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<AppHistory>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
     let row = sqlx::query!(
         "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
@@ -579,7 +593,7 @@ async fn get_latest_version(
         WHERE a.workspace_id = $1 AND a.path = $2
         ORDER BY created_at DESC",
         w_id,
-        path.to_path(),
+        path,
     ).fetch_optional(&mut *tx).await?;
     tx.commit().await?;
 
@@ -607,17 +621,19 @@ async fn update_app_history(
         .fetch_optional(&mut *tx)
         .await?;
 
-    if app_path.is_none() {
+    let Some(app_path) = app_path else {
         tx.commit().await?;
         return Err(Error::NotFound(
             format!("App with ID {app_id} not found").to_string(),
         ));
-    }
+    };
+
+    check_scopes(&authed, || format!("apps:write:{}", &app_path))?;
 
     sqlx::query!(
         "INSERT INTO deployment_metadata (workspace_id, path, app_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, app_version) WHERE app_version IS NOT NULL DO UPDATE SET deployment_msg = $4",
         w_id,
-        app_path.unwrap(),
+        app_path,
         app_version,
         app_history_update.deployment_msg,
     )
@@ -631,11 +647,13 @@ async fn custom_path_exists(
     Extension(db): Extension<DB>,
     Path((w_id, custom_path)): Path<(String, String)>,
 ) -> JsonResult<bool> {
+    let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
+
     let exists =
         sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
             custom_path,
-            if *CLOUD_HOSTED { Some(&w_id) } else { None }
+            if *CLOUD_HOSTED || as_workspaced_route { Some(&w_id) } else { None }
         )
         .fetch_one(&db)
         .await?.unwrap_or(false);
@@ -662,6 +680,9 @@ async fn get_app_by_id(
     tx.commit().await?;
 
     let app = not_found_if_none(app_o, "App", id.to_string())?;
+
+    check_scopes(&authed, || format!("apps:read:{}", &app.path))?;
+
     Ok(Json(app))
 }
 
@@ -731,20 +752,26 @@ async fn get_public_resource(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Option<serde_json::Value>> {
     let path = path.to_path();
-    if !path.starts_with("f/app_themes/") {
-        return Err(Error::BadRequest(
-            "Only app themes are public resources".to_string(),
-        ));
-    }
-    let res = sqlx::query_scalar!(
-        "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
-        path.to_owned(),
-        &w_id
-    )
-    .fetch_optional(&db)
-    .await?
-    .flatten();
-    Ok(Json(res))
+
+    let res = if path.starts_with("f/app_themes/") {
+        sqlx::query_scalar!(
+            "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+            path.to_owned(),
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+    } else {
+        sqlx::query_scalar!(
+            "SELECT value from resource WHERE path = $1 AND workspace_id = $2 AND resource_type = 'json_schema'",
+            path.to_owned(),
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+    };
+
+    Ok(Json(res.flatten()))
 }
 
 async fn get_secret_id(
@@ -754,6 +781,7 @@ async fn get_secret_id(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let id_o = sqlx::query_scalar!(
@@ -859,6 +887,8 @@ async fn create_app_raw<'a>(
     )
     .await?;
 
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::CreateApp { workspace: w_id, path: path.clone() },
@@ -897,6 +927,8 @@ async fn create_app(
     Json(app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
     let path = app.path.clone();
+    check_scopes(&authed, || format!("apps:write:{}", &path))?;
+
     let (new_tx, _path, _id) = create_app_internal(authed, db, user_db, &w_id, false, app).await?;
 
     new_tx.commit().await?;
@@ -917,6 +949,23 @@ async fn create_app_internal<'a>(
     raw_app: bool,
     mut app: CreateApp,
 ) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
+    if *CLOUD_HOSTED {
+        let nb_apps =
+            sqlx::query_scalar!("SELECT COUNT(*) FROM app WHERE workspace_id = $1", &w_id)
+                .fetch_one(&db)
+                .await?;
+        if nb_apps.unwrap_or(0) >= 1000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of apps (1000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+        if app.summary.len() > 300 {
+            return Err(Error::BadRequest(
+                "Summary must be less than 300 characters on cloud".to_string(),
+            ));
+        }
+    }
     let mut tx = user_db.clone().begin(&authed).await?;
     app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
     app.policy.on_behalf_of_email = Some(authed.email.clone());
@@ -940,11 +989,12 @@ async fn create_app_internal<'a>(
     }
     if let Some(custom_path) = &app.custom_path {
         require_admin(authed.is_admin, &authed.username)?;
+        let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
 
         let exists = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2))",
             custom_path,
-            if *CLOUD_HOSTED { Some(w_id) } else { None }
+            if *CLOUD_HOSTED || as_workspaced_route { Some(w_id) } else { None }
         )
         .fetch_one(&mut *tx)
         .await?.unwrap_or(false);
@@ -1023,6 +1073,8 @@ async fn create_app_internal<'a>(
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
+        None,
         None,
         None,
         None,
@@ -1037,6 +1089,7 @@ async fn create_app_internal<'a>(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -1081,6 +1134,7 @@ async fn delete_app(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
 
     if path == "g/all/setup_app" && w_id == "admins" {
         return Err(Error::BadRequest(
@@ -1164,6 +1218,7 @@ async fn update_app(
 ) -> Result<String> {
     // create_app_internal(authed, user_db, db, &w_id, &mut app).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
     let opath = path.to_string();
     let (new_tx, npath, _v_id) =
         update_app_internal(authed, db, user_db, &w_id, path, false, ns).await?;
@@ -1190,6 +1245,7 @@ async fn update_app_raw<'a>(
     multipart: Multipart,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("apps:write:{}", path))?;
     let opath = path.to_string();
     let (npath, _id) = process_app_multipart!(
         authed,
@@ -1232,6 +1288,7 @@ async fn update_app_internal<'a>(
 ) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
     use sql_builder::prelude::*;
     let mut tx = user_db.clone().begin(&authed).await?;
+
     let npath = if ns.policy.is_some()
         || ns.path.is_some()
         || ns.summary.is_some()
@@ -1271,6 +1328,7 @@ async fn update_app_internal<'a>(
 
         if let Some(ncustom_path) = &ns.custom_path {
             require_admin(authed.is_admin, &authed.username)?;
+            let as_workspaced_route = *APP_WORKSPACED_ROUTE.read().await;
 
             if ncustom_path.is_empty() {
                 sqlb.set("custom_path", "NULL");
@@ -1278,7 +1336,7 @@ async fn update_app_internal<'a>(
                 let exists = sqlx::query_scalar!(
                     "SELECT EXISTS(SELECT 1 FROM app WHERE custom_path = $1 AND ($2::TEXT IS NULL OR workspace_id = $2) AND NOT (path = $3 AND workspace_id = $4))",
                     ncustom_path,
-                    if *CLOUD_HOSTED { Some(w_id) } else { None },
+                    if *CLOUD_HOSTED || as_workspaced_route { Some(w_id) } else { None },
                     path,
                     w_id
                 )
@@ -1394,6 +1452,8 @@ async fn update_app_internal<'a>(
         &authed.username,
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
+        authed.token_prefix.as_deref(),
+        None,
         None,
         None,
         None,
@@ -1408,6 +1468,7 @@ async fn update_app_internal<'a>(
         None,
         None,
         Some(&authed.clone().into()),
+        false,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -1500,6 +1561,7 @@ fn empty_triggerables(mut policy: Policy) -> Policy {
 
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
+    tokened: OptTokened,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -1702,6 +1764,11 @@ async fn execute_component(
         &username,
         email,
         permissioned_as,
+        opt_authed
+            .and_then(|a| a.token_prefix)
+            .or_else(|| tokened.token.map(|t| t[0..TOKEN_PREFIX_LEN].to_string()))
+            .as_deref(),
+        None,
         None,
         None,
         None,
@@ -1716,6 +1783,7 @@ async fn execute_component(
         None,
         None,
         None,
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -1895,61 +1963,86 @@ async fn upload_s3_file_from_app(
 
     let user_db = UserDB::new(db.clone());
 
-    let (s3_resource_opt, file_key, on_behalf_of_email, permissioned_as, username) = if policy
-        .as_ref()
-        .is_some_and(|p| p.s3_inputs.is_some())
-    {
-        let policy = policy.unwrap();
-        let s3_inputs = policy.s3_inputs.as_ref().unwrap();
+    let (s3_resource_opt, file_key, on_behalf_of_email, permissioned_as, username) =
+        if policy.as_ref().is_some_and(|p| p.s3_inputs.is_some()) {
+            let policy = policy.unwrap();
+            let s3_inputs = policy.s3_inputs.as_ref().unwrap();
 
-        let (username, permissioned_as, email) =
-            get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
+            let (username, permissioned_as, email) =
+                get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed).await?;
 
-        let on_behalf_authed = fetch_api_authed_from_permissioned_as(
-            permissioned_as.clone(),
-            email.clone(),
-            &w_id,
-            &db,
-            Some(username.clone()),
-        )
-        .await?;
+            let on_behalf_authed = fetch_api_authed_from_permissioned_as(
+                permissioned_as.clone(),
+                email.clone(),
+                &w_id,
+                &db,
+                Some(username.clone()),
+            )
+            .await?;
 
-        if let Some(file_key) = query.file_key {
-            // file key is provided => requires workspace, user or list policy and must match the regex
-            let matching_s3_inputs = if let Some(ref s3_resource_path) = query.s3_resource_path {
-                s3_inputs
-                    .iter()
-                    .filter(|s3_input| {
-                        s3_input.allowed_resources.contains(s3_resource_path)
-                            || s3_input.allow_user_resources
-                    })
-                    .sorted_by_key(|i| i.allow_user_resources) // consider user resources last
-                    .collect::<Vec<_>>()
-            } else {
-                s3_inputs
-                    .iter()
-                    .filter(|s3_input| s3_input.allow_workspace_resource)
-                    .collect::<Vec<_>>()
-            };
+            if let Some(file_key) = query.file_key {
+                // file key is provided => requires workspace, user or list policy and must match the regex
+                let matching_s3_inputs = if let Some(ref s3_resource_path) = query.s3_resource_path
+                {
+                    s3_inputs
+                        .iter()
+                        .filter(|s3_input| {
+                            s3_input.allowed_resources.contains(s3_resource_path)
+                                || s3_input.allow_user_resources
+                        })
+                        .sorted_by_key(|i| i.allow_user_resources) // consider user resources last
+                        .collect::<Vec<_>>()
+                } else {
+                    s3_inputs
+                        .iter()
+                        .filter(|s3_input| s3_input.allow_workspace_resource)
+                        .collect::<Vec<_>>()
+                };
 
-            let matched_input = matching_s3_inputs.iter().find(|s3_input| {
-                match Regex::new(&s3_input.file_key_regex) {
-                    Ok(re) => re.is_match(&file_key),
-                    Err(e) => {
-                        tracing::error!("Error compiling regex: {}", e);
-                        false
+                let matched_input = matching_s3_inputs.iter().find(|s3_input| {
+                    match Regex::new(&s3_input.file_key_regex) {
+                        Ok(re) => re.is_match(&file_key),
+                        Err(e) => {
+                            tracing::error!("Error compiling regex: {}", e);
+                            false
+                        }
                     }
-                }
-            });
+                });
 
-            if let Some(matched_input) = matched_input {
-                if let Some(ref s3_resource_path) = query.s3_resource_path {
-                    if matched_input.allow_user_resources {
-                        if let Some(authed) = opt_authed {
+                if let Some(matched_input) = matched_input {
+                    if let Some(ref s3_resource_path) = query.s3_resource_path {
+                        if matched_input.allow_user_resources {
+                            if let Some(authed) = opt_authed {
+                                (
+                                    Some(
+                                        get_s3_resource(
+                                            &authed,
+                                            &db,
+                                            Some(user_db),
+                                            "",
+                                            &w_id,
+                                            s3_resource_path,
+                                            None,
+                                            None,
+                                        )
+                                        .await?,
+                                    ),
+                                    file_key,
+                                    email,
+                                    permissioned_as,
+                                    username,
+                                )
+                            } else {
+                                return Err(Error::BadRequest(
+                                    "User resources are not allowed without being logged in"
+                                        .to_string(),
+                                ));
+                            }
+                        } else {
                             (
                                 Some(
                                     get_s3_resource(
-                                        &authed,
+                                        &on_behalf_authed,
                                         &db,
                                         Some(user_db),
                                         "",
@@ -1965,115 +2058,112 @@ async fn upload_s3_file_from_app(
                                 permissioned_as,
                                 username,
                             )
-                        } else {
-                            return Err(Error::BadRequest(
-                                "User resources are not allowed without being logged in"
-                                    .to_string(),
-                            ));
                         }
                     } else {
-                        (
-                            Some(
-                                get_s3_resource(
-                                    &on_behalf_authed,
-                                    &db,
-                                    Some(user_db),
-                                    "",
-                                    &w_id,
-                                    s3_resource_path,
-                                    None,
-                                    None,
-                                )
-                                .await?,
-                            ),
-                            file_key,
-                            email,
-                            permissioned_as,
-                            username,
-                        )
-                    }
-                } else {
-                    let (_, s3_resource_opt) =
-                        get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None)
-                            .await?;
-                    (s3_resource_opt, file_key, email, permissioned_as, username)
-                }
-            } else {
-                return Err(Error::BadRequest(
-                    "No matching s3 resource found for the given file key".to_string(),
-                ));
-            }
-        } else {
-            // no file key => requires unnamed upload policy => allow workspace resource and file_key_regex is empty
-            let has_unnamed_policy = s3_inputs.iter().any(|s3_input| {
-                s3_input.allow_workspace_resource && s3_input.file_key_regex.is_empty()
-            });
-
-            if !has_unnamed_policy {
-                return Err(Error::BadRequest(
-                    "no policy found for unnamed s3 file upload".to_string(),
-                ));
-            }
-
-            // for now, we place all files into `windmill_uploads` folder with a random name
-            // TODO: make the folder configurable via the workspace settings
-            let file_key = get_random_file_name(query.file_extension);
-
-            let (_, s3_resource_opt) =
-                get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None).await?;
-
-            (s3_resource_opt, file_key, email, permissioned_as, username)
-        }
-    } else {
-        // backward compatibility (no policy)
-        // if no policy but logged in, use the user's auth to get the s3 resource
-        if let Some(authed) = opt_authed {
-            let file_key = query
-                .file_key
-                .unwrap_or_else(|| get_random_file_name(query.file_extension));
-
-            let (on_behalf_of_email, permissioned_as, username) = (
-                authed.email.clone(),
-                username_to_permissioned_as(&authed.username),
-                authed.display_username().to_string(),
-            );
-
-            if let Some(ref s3_resource_path) = query.s3_resource_path {
-                (
-                    Some(
-                        get_s3_resource(
-                            &authed,
+                        let (_, s3_resource_opt) = get_workspace_s3_resource_and_check_paths(
+                            &on_behalf_authed,
                             &db,
-                            Some(user_db),
+                            None,
                             "",
                             &w_id,
-                            s3_resource_path,
                             None,
-                            None,
+                            &[(&file_key, S3Permission::WRITE)],
                         )
-                        .await?,
-                    ),
-                    file_key,
-                    on_behalf_of_email,
-                    permissioned_as,
-                    username,
-                )
+                        .await?;
+                        (s3_resource_opt, file_key, email, permissioned_as, username)
+                    }
+                } else {
+                    return Err(Error::BadRequest(
+                        "No matching s3 resource found for the given file key".to_string(),
+                    ));
+                }
             } else {
-                let (_, s3_resource) =
-                    get_workspace_s3_resource(&authed, &db, None, "", &w_id, None).await?;
+                // no file key => requires unnamed upload policy => allow workspace resource and file_key_regex is empty
+                let has_unnamed_policy = s3_inputs.iter().any(|s3_input| {
+                    s3_input.allow_workspace_resource && s3_input.file_key_regex.is_empty()
+                });
 
-                (
-                    s3_resource,
-                    file_key,
-                    on_behalf_of_email,
-                    permissioned_as,
-                    username,
+                if !has_unnamed_policy {
+                    return Err(Error::BadRequest(
+                        "no policy found for unnamed s3 file upload".to_string(),
+                    ));
+                }
+
+                // for now, we place all files into `windmill_uploads` folder with a random name
+                // TODO: make the folder configurable via the workspace settings
+                let file_key = get_random_file_name(query.file_extension);
+
+                let (_, s3_resource_opt) = get_workspace_s3_resource_and_check_paths(
+                    &on_behalf_authed,
+                    &db,
+                    None,
+                    "",
+                    &w_id,
+                    None,
+                    &[(&file_key, S3Permission::WRITE)],
                 )
+                .await?;
+
+                (s3_resource_opt, file_key, email, permissioned_as, username)
             }
         } else {
-            return Err(Error::BadRequest("Missing s3 policy".to_string()));
-        }
-    };
+            // backward compatibility (no policy)
+            // if no policy but logged in, use the user's auth to get the s3 resource
+            if let Some(authed) = opt_authed {
+                let file_key = query
+                    .file_key
+                    .unwrap_or_else(|| get_random_file_name(query.file_extension));
+
+                let (on_behalf_of_email, permissioned_as, username) = (
+                    authed.email.clone(),
+                    username_to_permissioned_as(&authed.username),
+                    authed.display_username().to_string(),
+                );
+
+                if let Some(ref s3_resource_path) = query.s3_resource_path {
+                    (
+                        Some(
+                            get_s3_resource(
+                                &authed,
+                                &db,
+                                Some(user_db),
+                                "",
+                                &w_id,
+                                s3_resource_path,
+                                None,
+                                None,
+                            )
+                            .await?,
+                        ),
+                        file_key,
+                        on_behalf_of_email,
+                        permissioned_as,
+                        username,
+                    )
+                } else {
+                    let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
+                        &authed,
+                        &db,
+                        None,
+                        "",
+                        &w_id,
+                        None,
+                        &[(&file_key, S3Permission::WRITE)],
+                    )
+                    .await?;
+
+                    (
+                        s3_resource,
+                        file_key,
+                        on_behalf_of_email,
+                        permissioned_as,
+                        username,
+                    )
+                }
+            } else {
+                return Err(Error::BadRequest("Missing s3 policy".to_string()));
+            }
+        };
 
     let s3_resource = s3_resource_opt.ok_or(Error::internal_err(
         "No files storage resource defined at the workspace level".to_string(),
@@ -2135,6 +2225,9 @@ async fn delete_s3_file_from_app(
         ..
     } = jwt::decode_with_internal_secret::<S3DeleteTokenClaims>(&query.delete_token).await?;
 
+    let path = object_store::path::Path::parse(file_key.as_str())
+        .map_err(|e| Error::internal_err(format!("Error parsing file key: {}", e)))?;
+
     if workspace != w_id {
         return Err(Error::BadRequest("Invalid workspace".to_string()));
     }
@@ -2161,8 +2254,16 @@ async fn delete_s3_file_from_app(
         )
         .await?
     } else {
-        let (_, s3_resource) =
-            get_workspace_s3_resource(&on_behalf_authed, &db, None, "", &w_id, None).await?;
+        let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
+            &on_behalf_authed,
+            &db,
+            None,
+            "",
+            &w_id,
+            None,
+            &[(&path.to_string(), S3Permission::DELETE)],
+        )
+        .await?;
 
         s3_resource.ok_or(Error::internal_err(
             "No files storage resource defined at the workspace level".to_string(),
@@ -2170,9 +2271,6 @@ async fn delete_s3_file_from_app(
     };
 
     let s3_client = build_object_store_client(&s3_resource).await?;
-
-    let path = object_store::path::Path::parse(file_key.as_str())
-        .map_err(|e| Error::internal_err(format!("Error parsing file key: {}", e)))?;
 
     s3_client.delete(&path).await.map_err(|err| {
         tracing::error!("Error deleting file: {:?}", err);
@@ -2395,10 +2493,9 @@ async fn exists_app(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
-    let path = path.to_path();
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
-        path,
+        path.to_path(),
         w_id
     )
     .fetch_one(&db)
@@ -2440,6 +2537,7 @@ async fn build_args(
                         &path,
                         None,
                         "",
+                        false,
                     )
                     .await?;
                     if res.is_none() {

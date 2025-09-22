@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
-	import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import { IS_APP_PUBLIC_CONTEXT_KEY, type EditorBreakpoint } from '$lib/components/apps/types'
 
-	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import { AppService, OpenAPI, type AppWithLastVersion } from '$lib/gen'
 	import { enterpriseLicense, userStore } from '$lib/stores'
@@ -20,12 +18,16 @@
 	import { User, UserRoundX } from 'lucide-svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/toast'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
+	import { page } from '$app/state'
+	import { urlParamsToObject } from '$lib/utils'
 
-	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
-	let notExists = false
-	let noPermission = false
+	let app: (AppWithLastVersion & { value: any }) | undefined = $state(undefined)
+	let notExists = $state(false)
+	let noPermission = $state(false)
 
-	let jwtError = false
+	let jwtError = $state(false)
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
 
 	function parseSecret(secret: string): { secret: string; jwt: string } {
@@ -36,12 +38,12 @@
 		}
 	}
 
-	const parsedSecret = parseSecret($page.params.secret)
+	const parsedSecret = parseSecret(page.params.secret ?? '')
 
 	async function loadApp() {
 		try {
 			app = await AppService.getPublicAppBySecret({
-				workspace: $page.params.workspace,
+				workspace: page.params.workspace ?? '',
 				path: parsedSecret.secret
 			})
 			noPermission = false
@@ -68,7 +70,7 @@
 			jwtError = false
 		}
 		try {
-			userStore.set(await getUserExt($page.params.workspace))
+			userStore.set(await getUserExt(page.params.workspace ?? ''))
 			if (!$userStore && parsedSecret.jwt) {
 				jwtError = true
 				sendUserToast('Could not authentify user with jwt token', true)
@@ -129,7 +131,7 @@
 					app = app
 				}}
 				popup
-				rd={$page.url.toString()}
+				rd={page.url.toString()}
 			/>
 		{/if}
 	</div>
@@ -150,10 +152,10 @@
 					name: $userStore?.name,
 					groups: $userStore?.groups,
 					username: $userStore?.username,
-					query: Object.fromEntries($page.url.searchParams.entries()),
-					hash: $page.url.hash.substring(1)
+					query: urlParamsToObject(page.url.searchParams),
+					hash: page.url.hash.substring(1)
 				}}
-				workspace={$page.params.workspace}
+				workspace={page.params.workspace}
 				summary={app.summary}
 				app={app.value}
 				appPath={app.path}

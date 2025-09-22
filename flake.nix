@@ -3,9 +3,13 @@
     nixpkgs.url = "nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
+    # Use separate channel for claude code. It always needs to be latest
+    nixpkgs-claude.url = "nixpkgs/nixos-unstable";
+    nixpkgs-oapi-gen.url =
+      "nixpkgs/2d068ae5c6516b2d04562de50a58c682540de9bf"; # openapi-generator-cli pin to 7.10.0
   };
-
-  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
+  outputs = { self, nixpkgs, nixpkgs-claude, flake-utils, rust-overlay
+    , nixpkgs-oapi-gen }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -13,6 +17,14 @@
           config.allowUnfree = true;
           overlays = [ (import rust-overlay) ];
         };
+        claude-code = (import nixpkgs-claude {
+          inherit system;
+          config.allowUnfree = true;
+        }).claude-code;
+
+        openapi-generator-cli =
+          (import nixpkgs-oapi-gen { inherit system; }).openapi-generator-cli;
+
         lib = pkgs.lib;
         stdenv = pkgs.stdenv;
         rust = pkgs.rust-bin.stable.latest.default.override {
@@ -42,6 +54,8 @@
           nodejs
           postgresql
           pkg-config
+          glibc.dev
+          clang
           cmake
         ];
         coursier = pkgs.fetchFromGitHub {
@@ -93,9 +107,42 @@
             glibc_multi
           ]);
         };
+        devShells."cli" = pkgs.mkShell {
+          shellHook = ''
+            if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+              export FLAKE_ROOT="$(git rev-parse --show-toplevel)"
+            else
+              # Fallback to PWD if not in a git repository
+              export FLAKE_ROOT="$PWD"
+            fi
+            wm-cli-deps
+          '';
+          buildInputs = buildInputs ++ [
+            pkgs.deno
+          ];
+          packages = [
+            (pkgs.writeScriptBin "wm-cli" ''
+              deno run -A --no-check $FLAKE_ROOT/cli/src/main.ts $*
+            '')
+            (pkgs.writeScriptBin "wm-cli-deps" ''
+              pushd $FLAKE_ROOT/cli/
+              ${
+                if pkgs.stdenv.isDarwin
+                then "./gen_wm_client_mac.sh && ./windmill-utils-internal/gen_wm_client_mac.sh"
+                else "./gen_wm_client.sh && ./windmill-utils-internal/gen_wm_client.sh"
+              }
+              popd
+            '')
+          ];
+        };
 
         devShells.default = pkgs.mkShell {
-          buildInputs = buildInputs ++ (with pkgs; [
+          buildInputs = buildInputs ++ [
+            # To update run: `nix flake update nixpkgs-claude`
+            claude-code
+            # To update run: `nix flake update nixpkgs-oapi-gen`
+            openapi-generator-cli
+          ] ++ (with pkgs; [
             # Essentials
             rust
             cargo-watch
@@ -105,7 +152,7 @@
             sqlx-cli
             sccache
             nsjail
-            openapi-generator-cli
+            jq
 
             # Python
             flock
@@ -118,16 +165,25 @@
 
             # Other languages
             deno
+            typescript
             nushell
             go
             bun
             dotnet-sdk_9
             oracle-instantclient
             ansible
+            ruby_3_4
 
             # LSP/Local dev
             svelte-language-server
             taplo
+
+            # Orchestration/Kubernetes
+            minikube
+            kubectl
+            kubernetes-helm
+            conntrack-tools # To run minikube without driver (--driver=none)
+            cri-tools
           ]);
           packages = [
             (pkgs.writeScriptBin "wm-caddy" ''
@@ -183,7 +239,7 @@
               set -e
               cd ./backend
               ${pkgs.minio-client}/bin/mc alias set 'wmill-minio-dev' 'http://localhost:9000' 'minioadmin' 'minioadmin'
-              ${pkgs.minio-client}/bin/mc admin accesskey create myminio | tee .minio-data/secrets.txt
+              ${pkgs.minio-client}/bin/mc admin accesskey create 'wmill-minio-dev' | tee .minio-data/secrets.txt
               echo ""
               echo 'Saving to: ./backend/.minio-data/secrets.txt'
               echo "bucket: wmill"
@@ -195,20 +251,27 @@
           GIT_PATH = "${pkgs.git}/bin/git";
           NODE_ENV = "development";
           NODE_OPTIONS = "--max-old-space-size=16384";
-          DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
+          # DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
+          DATABASE_URL =
+            "postgres://postgres:changeme@127.0.0.1:5432/windmill?sslmode=disable";
+
           REMOTE = "http://127.0.0.1:8000";
           REMOTE_LSP = "http://127.0.0.1:3001";
           RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";
           DENO_PATH = "${pkgs.deno}/bin/deno";
           GO_PATH = "${pkgs.go}/bin/go";
           PHP_PATH = "${pkgs.php}/bin/php";
+          COMPOSER_PATH = "${pkgs.php84Packages.composer}/bin/composer";
           BUN_PATH = "${pkgs.bun}/bin/bun";
           UV_PATH = "${pkgs.uv}/bin/uv";
           NU_PATH = "${pkgs.nushell}/bin/nu";
           JAVA_PATH = "${pkgs.jdk21}/bin/java";
           JAVAC_PATH = "${pkgs.jdk21}/bin/javac";
           COURSIER_PATH = "${coursier}/coursier";
-          # for related places search: ADD_NEW_LANG
+          RUBY_PATH = "${pkgs.ruby}/bin/ruby";
+          RUBY_BUNDLE_PATH = "${pkgs.ruby}/bin/bundle";
+          RUBY_GEM_PATH = "${pkgs.ruby}/bin/gem";
+          # for related places search: ADD_NEW_LANG 
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
           CARGO_SWEEP_PATH = "${pkgs.cargo-sweep}/bin/cargo-sweep";
@@ -218,7 +281,7 @@
           ANSIBLE_PLAYBOOK_PATH = "${pkgs.ansible}/bin/ansible-playbook";
           ANSIBLE_GALAXY_PATH = "${pkgs.ansible}/bin/ansible-galaxy";
           # RUST_LOG = "debug";
-          SQLX_OFFLINE = "true";
+          # RUST_LOG = "kube=debug";
 
           # See this issue: https://github.com/NixOS/nixpkgs/issues/370494
           # Allows to build jemalloc on nixos

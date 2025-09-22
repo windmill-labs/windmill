@@ -10,11 +10,16 @@
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import type { PickableProperties } from '$lib/components/flows/previousResults'
-	import type { Flow } from '$lib/gen'
+	import type { Flow, Job } from '$lib/gen'
 	import type { Trigger } from '$lib/components/triggers/utils'
 	import FlowAIChat from '../copilot/chat/flow/FlowAIChat.svelte'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import TriggerableByAI from '../TriggerableByAI.svelte'
+	import type { GraphModuleState } from '../graph'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import type { ModulesTestStates } from '../modulesTest.svelte'
+	import type { StateStore } from '$lib/utils'
+	import type { FlowOptions } from '../copilot/chat/ContextManager.svelte'
+	import { extractAllModules } from '../copilot/chat/shared'
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	interface Props {
@@ -26,6 +31,7 @@
 		disabledFlowInputs?: boolean
 		smallErrorHandler?: boolean
 		newFlow?: boolean
+		showJobStatus?: boolean
 		savedFlow?:
 			| (Flow & {
 					draft?: Flow | undefined
@@ -36,6 +42,23 @@
 		onEditInput?: ((moduleId: string, key: string) => void) | undefined
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
+		aiChatOpen?: boolean
+		showFlowAiButton?: boolean
+		toggleAiChat?: () => void
+		localModuleStates?: Record<string, GraphModuleState>
+		testModuleStates?: ModulesTestStates
+		isOwner?: boolean
+		onTestFlow?: () => void
+		isRunning?: boolean
+		onCancelTestFlow?: () => void
+		onOpenPreview?: () => void
+		onHideJobStatus?: () => void
+		individualStepTests?: boolean
+		job?: Job
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
+		onDelete?: (id: string) => void
+		flowHasChanged?: boolean
+		previewOpen: boolean
 	}
 
 	let {
@@ -46,27 +69,62 @@
 		disableSettings = false,
 		disabledFlowInputs = false,
 		smallErrorHandler = false,
+		showJobStatus = false,
 		newFlow = false,
 		savedFlow = undefined,
 		onDeployTrigger = () => {},
 		onTestUpTo = undefined,
 		onEditInput = undefined,
 		forceTestTab,
-		highlightArg
+		highlightArg,
+		localModuleStates = {},
+		testModuleStates = undefined,
+		aiChatOpen,
+		showFlowAiButton,
+		toggleAiChat,
+		isOwner,
+		onTestFlow,
+		isRunning,
+		onCancelTestFlow,
+		onOpenPreview,
+		onHideJobStatus,
+		individualStepTests = false,
+		job,
+		suspendStatus,
+		onDelete,
+		flowHasChanged,
+		previewOpen
 	}: Props = $props()
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
+
+	export function isNodeVisible(nodeId: string): boolean {
+		return flowModuleSchemaMap?.isNodeVisible(nodeId) ?? false
+	}
 
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
 
+	$effect(() => {
+		const options: FlowOptions = {
+			currentFlow: flowStore.val,
+			lastDeployedFlow: savedFlow,
+			lastSavedFlow: savedFlow?.draft,
+			path: savedFlow?.path,
+			modules: extractAllModules(flowStore.val.value.modules)
+		}
+		aiChatManager.flowOptions = options
+	})
+
 	onMount(() => {
+		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.FLOW)
 	})
 
 	onDestroy(() => {
+		aiChatManager.flowOptions = undefined
 		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 </script>
@@ -74,8 +132,11 @@
 <div
 	id="flow-editor"
 	class={'h-full overflow-hidden transition-colors duration-[400ms] ease-linear border-t'}
+	use:triggerableByAI={{
+		id: 'flow-editor',
+		description: 'Component to edit a flow'
+	}}
 >
-	<TriggerableByAI id="flow-editor" description="Component to edit a flow" />
 	<Splitpanes>
 		<Pane size={50} minSize={15} class="h-full relative z-0">
 			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
@@ -94,6 +155,7 @@
 						{disableSettings}
 						{smallErrorHandler}
 						{newFlow}
+						{showJobStatus}
 						on:reload
 						on:generateStep={({ detail }) => {
 							if (!aiChatManager.open) {
@@ -103,6 +165,22 @@
 						}}
 						{onTestUpTo}
 						{onEditInput}
+						{localModuleStates}
+						{testModuleStates}
+						{aiChatOpen}
+						{showFlowAiButton}
+						{toggleAiChat}
+						{isOwner}
+						{onTestFlow}
+						{isRunning}
+						{onCancelTestFlow}
+						{onOpenPreview}
+						{onHideJobStatus}
+						{individualStepTests}
+						flowJob={job}
+						{suspendStatus}
+						{onDelete}
+						{flowHasChanged}
 					/>
 				{/if}
 			</div>
@@ -125,6 +203,12 @@
 					{onDeployTrigger}
 					{forceTestTab}
 					{highlightArg}
+					{onTestFlow}
+					{job}
+					{isOwner}
+					{suspendStatus}
+					onOpenDetails={onOpenPreview}
+					{previewOpen}
 				/>
 			{/if}
 		</Pane>

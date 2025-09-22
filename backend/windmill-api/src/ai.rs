@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel, AZURE_API_VERSION};
 use windmill_common::error::{to_anyhow, Error, Result};
 
 lazy_static::lazy_static! {
@@ -23,9 +24,6 @@ lazy_static::lazy_static! {
 
     pub static ref AI_REQUEST_CACHE: Cache<(String, AIProvider), ExpiringAIRequestConfig> = Cache::new(500);
 }
-
-const AZURE_API_VERSION: &str = "2025-04-01-preview";
-const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
 #[derive(Deserialize, Debug)]
 struct AIOAuthResource {
@@ -153,20 +151,16 @@ impl AIRequestConfig {
 
         let base_url = self.base_url.trim_end_matches('/');
 
-        let is_azure = matches!(provider, AIProvider::OpenAI) && base_url != OPENAI_BASE_URL
-            || matches!(provider, AIProvider::AzureOpenAI);
+        let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
+        let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
 
         let url = if is_azure && method != Method::GET {
-            if base_url.ends_with("/deployments") {
-                let model = Self::get_azure_model(&body)?;
-                format!("{}/{}/{}", base_url, model, path)
-            } else if base_url.ends_with("/openai") {
-                let model = Self::get_azure_model(&body)?;
-                format!("{}/deployments/{}/{}", base_url, model, path)
-            } else {
-                format!("{}/{}", base_url, path)
-            }
+            let model = AIProvider::extract_model_from_body(&body)?;
+            AIProvider::build_azure_openai_url(base_url, &model, path)
+        } else if is_anthropic_sdk {
+            let truncated_base_url = base_url.trim_end_matches("/v1");
+            format!("{}/{}", truncated_base_url, path)
         } else {
             format!("{}/{}", base_url, path)
         };
@@ -228,18 +222,6 @@ impl AIRequestConfig {
             .map_err(|e| Error::internal_err(format!("Failed to reserialize request body: {}", e)))?
             .into())
     }
-
-    fn get_azure_model(body: &Bytes) -> Result<String> {
-        #[derive(Deserialize, Debug)]
-        struct AzureModel {
-            model: String,
-        }
-
-        let azure_model: AzureModel = serde_json::from_slice(body)
-            .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
-
-        Ok(azure_model.model)
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -257,90 +239,6 @@ impl ExpiringAIRequestConfig {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Clone)]
-#[serde(rename_all = "lowercase")]
-pub enum AIProvider {
-    OpenAI,
-    #[serde(rename = "azure_openai")]
-    AzureOpenAI,
-    Anthropic,
-    Mistral,
-    DeepSeek,
-    GoogleAI,
-    Groq,
-    OpenRouter,
-    TogetherAI,
-    CustomAI,
-}
-
-impl AIProvider {
-    pub async fn get_base_url(&self, resource_base_url: Option<String>, db: &DB) -> Result<String> {
-        match self {
-            AIProvider::OpenAI => {
-                let azure_base_path = sqlx::query_scalar!(
-                    "SELECT value
-                    FROM global_settings
-                    WHERE name = 'openai_azure_base_path'",
-                )
-                .fetch_optional(db)
-                .await?;
-
-                let azure_base_path = if let Some(azure_base_path) = azure_base_path {
-                    Some(
-                        serde_json::from_value::<String>(azure_base_path).map_err(|e| {
-                            Error::internal_err(format!("validating openai azure base path {e:#}"))
-                        })?,
-                    )
-                } else {
-                    OPENAI_AZURE_BASE_PATH.clone()
-                };
-
-                Ok(azure_base_path.unwrap_or(OPENAI_BASE_URL.to_string()))
-            }
-            AIProvider::DeepSeek => Ok("https://api.deepseek.com/v1".to_string()),
-            AIProvider::GoogleAI => {
-                Ok("https://generativelanguage.googleapis.com/v1beta/openai".to_string())
-            }
-            AIProvider::Groq => Ok("https://api.groq.com/openai/v1".to_string()),
-            AIProvider::OpenRouter => Ok("https://openrouter.ai/api/v1".to_string()),
-            AIProvider::TogetherAI => Ok("https://api.together.xyz/v1".to_string()),
-            AIProvider::Anthropic => Ok("https://api.anthropic.com/v1".to_string()),
-            AIProvider::Mistral => Ok("https://api.mistral.ai/v1".to_string()),
-            p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI) => {
-                if let Some(base_url) = resource_base_url {
-                    Ok(base_url)
-                } else {
-                    Err(Error::BadRequest(format!(
-                        "{:?} provider requires a base URL in the resource",
-                        p
-                    )))
-                }
-            }
-        }
-    }
-}
-
-impl TryFrom<&str> for AIProvider {
-    type Error = Error;
-    fn try_from(s: &str) -> Result<Self> {
-        let s = serde_json::from_value::<AIProvider>(serde_json::Value::String(s.to_string()))
-            .map_err(|e| Error::BadRequest(format!("Invalid AI provider: {}", e)))?;
-        Ok(s)
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ProviderConfig {
-    pub resource_path: String,
-    pub models: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ProviderModel {
-    pub model: String,
-    pub provider: AIProvider,
-}
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AIConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -349,6 +247,10 @@ pub struct AIConfig {
     pub default_model: Option<ProviderModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_completion_model: Option<ProviderModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_prompts: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens_per_model: Option<HashMap<String, i32>>,
 }
 
 pub fn global_service() -> Router {

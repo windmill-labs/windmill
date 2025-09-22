@@ -15,7 +15,9 @@ use std::str::FromStr;
 use windmill_common::db::Authed;
 use windmill_common::ee_oss::LICENSE_KEY_VALID;
 use windmill_common::flows::Retry;
-use windmill_common::get_latest_flow_version_info_for_path;
+use windmill_common::get_latest_flow_version_id_for_path;
+use windmill_common::get_latest_flow_version_info_for_path_from_version;
+use windmill_common::jobs::check_tag_available_for_workspace_internal;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
 use windmill_common::FlowVersionInfo;
@@ -116,13 +118,22 @@ pub async fn push_scheduled_job<'c>(
     }
 
     let (payload, tag, timeout, on_behalf_of_email, created_by) = if schedule.is_flow {
-        let FlowVersionInfo {
-            version, tag, dedicated_worker, on_behalf_of_email, edited_by, ..
-        } = get_latest_flow_version_info_for_path(
+        let version = get_latest_flow_version_id_for_path(
+            None,
             &mut *tx,
             &schedule.workspace_id,
             &schedule.script_path,
             false,
+        )
+        .await?;
+
+        let FlowVersionInfo {
+            version, tag, dedicated_worker, on_behalf_of_email, edited_by, ..
+        } = get_latest_flow_version_info_for_path_from_version(
+            &mut *tx,
+            version,
+            &schedule.workspace_id,
+            &schedule.script_path,
         )
         .await?;
         (
@@ -152,9 +163,10 @@ pub async fn push_scheduled_job<'c>(
             on_behalf_of_email,
             created_by,
         ) = windmill_common::get_latest_hash_for_path(
-            &mut tx,
+            &mut *tx,
             &schedule.workspace_id,
             &schedule.script_path,
+            false,
         )
         .await?;
 
@@ -175,7 +187,9 @@ pub async fn push_scheduled_job<'c>(
                 JobPayload::SingleScriptFlow {
                     path: schedule.script_path.clone(),
                     hash: hash,
-                    retry: parsed_retry,
+                    retry: Some(parsed_retry),
+                    error_handler_path: None,
+                    error_handler_args: None,
                     args: static_args,
                     custom_concurrency_key: None,
                     concurrent_limit: None,
@@ -183,6 +197,8 @@ pub async fn push_scheduled_job<'c>(
                     cache_ttl: cache_ttl,
                     priority: priority,
                     tag_override: schedule.tag.clone(),
+                    trigger_path: None,
+                    apply_preprocessor: false,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -261,6 +277,17 @@ pub async fn push_scheduled_job<'c>(
         )
     };
 
+    if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
+        check_tag_available_for_workspace_internal(
+            &db,
+            &schedule.workspace_id,
+            &tag,
+            email,
+            None, // no token for schedules so no scopes so no scope_tags
+        )
+        .await?;
+    }
+
     let tx = PushIsolationLevel::Transaction(tx);
     let (_, mut tx) = push(
         &db,
@@ -271,8 +298,10 @@ pub async fn push_scheduled_job<'c>(
         &schedule_to_user(&schedule.path),
         email,
         permissioned_as,
+        Some(&schedule.path),
         Some(next),
         Some(schedule.path.clone()),
+        None,
         None,
         None,
         None,
@@ -285,6 +314,7 @@ pub async fn push_scheduled_job<'c>(
         None,
         None,
         push_authed,
+        false,
     )
     .await?;
 

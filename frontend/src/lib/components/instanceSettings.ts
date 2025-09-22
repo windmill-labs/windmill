@@ -82,12 +82,11 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			error: 'Base url must start with http:// or https:// and not end with / or a space',
 			isValid: (value: string | undefined) =>
-				value
-					? value?.startsWith('http') &&
-						value.includes('://') &&
-						!value?.endsWith('/') &&
-						!value?.endsWith(' ')
-					: false
+				value == undefined ||
+				(value?.startsWith('http') &&
+					value.includes('://') &&
+					!value?.endsWith('/') &&
+					!value?.endsWith(' '))
 		},
 		{
 			label: 'Email domain',
@@ -226,6 +225,15 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			requiresReloadOnChange: true
+		},
+		{
+			label: 'App workspace prefix',
+			description:
+				'When enabled apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path} allowing you to define same custom path for apps in different workspace without conflict',
+			key: 'app_workspaced_route',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	'Auth/OAuth/SAML': [],
@@ -321,6 +329,15 @@ export const settings: Record<string, Setting[]> = {
 			description: 'Do not use default Maven repository',
 			key: 'no_default_maven',
 			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'Ruby Gems repositories',
+			description: 'Add private Ruby repositories with credentials. Should end with /',
+			key: 'ruby_repos',
+			fieldType: 'text',
+			placeholder: 'https://user:password@gems.foo.com/',
 			storage: 'setting',
 			ee_only: ''
 		}

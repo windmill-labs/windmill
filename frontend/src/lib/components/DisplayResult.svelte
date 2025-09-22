@@ -13,7 +13,8 @@
 		Table2,
 		Braces,
 		Highlighter,
-		ArrowDownFromLine
+		ArrowDownFromLine,
+		Loader2
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
@@ -34,10 +35,12 @@
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
-	import PdfViewer from './display/PdfViewer.svelte'
 	import type { DisplayResultUi } from './custom_ui'
 	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
+	import { userStore } from '$lib/stores'
+	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
@@ -45,7 +48,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	let resultKind:
+	type ResultKind =
 		| 'json'
 		| 'table-col'
 		| 'table-row'
@@ -66,7 +69,8 @@
 		| 'map'
 		| 'nondisplayable'
 		| 'pdf'
-		| undefined = $state()
+		| undefined
+	let resultKind: ResultKind = $state()
 
 	let hasBigInt = $state(false)
 
@@ -81,14 +85,18 @@
 		noControls?: boolean
 		drawerOpen?: boolean
 		nodeId?: string | undefined
+		loading?: boolean | undefined
 		language?: string | undefined
 		appPath?: string | undefined
 		customUi?: DisplayResultUi | undefined
 		isTest?: boolean
 		externalToolbarAvailable?: boolean
 		forceJson?: boolean
+		result_stream?: string | undefined
+		fixTableSizingToParent?: boolean
 		copilot_fix?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		growVertical?: boolean
 	}
 
 	let {
@@ -108,8 +116,12 @@
 		isTest = true,
 		externalToolbarAvailable = false,
 		forceJson = $bindable(false),
+		result_stream = undefined,
+		fixTableSizingToParent = false,
 		copilot_fix,
-		children
+		children,
+		loading = false,
+		growVertical = false
 	}: Props = $props()
 	let enableHtml = $state(false)
 	let s3FileDisplayRawMode = $state(false)
@@ -280,6 +292,29 @@
 						return 'markdown'
 					} else if (isTableCol(result, keys)) {
 						return 'table-col'
+					} else if (keys.length < 1000 && keys.includes('wm_renderer')) {
+						const renderer = result['wm_renderer']
+						if (typeof renderer === 'string') {
+							if (
+								[
+									'json',
+									'html',
+									'png',
+									'file',
+									'jpeg',
+									'gif',
+									'svg',
+									'filename',
+									's3object',
+									'plain',
+									'markdown',
+									'map',
+									'pdf'
+								].includes(renderer)
+							) {
+								return renderer as ResultKind
+							}
+						}
 					}
 				}
 			} catch (err) {}
@@ -441,6 +476,7 @@
 	onDestroy(() => {
 		dispatch('toolbar-location-changed', undefined)
 	})
+
 	$effect(() => {
 		;[result]
 		resultKind = inferResultKind(result)
@@ -460,7 +496,15 @@
 </script>
 
 <HighlightTheme />
-{#if is_render_all}
+
+{#if result_stream && result == undefined}
+	<div class="flex flex-col w-full gap-2">
+		<div class="flex items-center gap-2 text-tertiary">
+			<Loader2 class="animate-spin" size={16} /> Streaming result
+		</div>
+		<ResultStreamDisplay {result_stream} />
+	</div>
+{:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
 		{#if !noControls}
 			<div class="text-tertiary text-sm">
@@ -500,9 +544,11 @@
 	<div class="text-red-400">Non displayable object</div>
 {:else}
 	<div
-		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
-			? ''
-			: 'min-h-[160px]'}"
+		class={twMerge(
+			'inline-highlight relative grow flex flex-col',
+			['plain', 'markdown'].includes(resultKind ?? '') ? 'min-h-0' : 'min-h-[160px]',
+			growVertical ? '' : 'h-full'
+		)}
 	>
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full">
@@ -555,16 +601,36 @@
 					{/if}
 				</div>
 			</div>
-			<div class="grow">
+			<div class="grow relative">
 				{#if !forceJson && resultKind === 'table-col'}
-					{@const data = 'table-col' in result ? result['table-col'] : result}
-					<AutoDataTable objects={objectOfArraysToObjects(data)} />
+					{@const data =
+						typeof result === 'object' && 'table-col' in result ? result['table-col'] : result}
+					<AutoDataTable
+						class={fixTableSizingToParent
+							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
+							: ''}
+						objects={objectOfArraysToObjects(data)}
+					/>
 				{:else if !forceJson && resultKind === 'table-row'}
-					{@const data = 'table-row' in result ? result['table-row'] : result}
-					<AutoDataTable objects={arrayOfRowsToObjects(data)} />
+					{@const data =
+						typeof result === 'object' && 'table-row' in result ? result['table-row'] : result}
+					<AutoDataTable
+						class={fixTableSizingToParent
+							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
+							: ''}
+						objects={arrayOfRowsToObjects(data)}
+					/>
 				{:else if !forceJson && resultKind === 'table-row-object'}
-					{@const data = 'table-row-object' in result ? result['table-row-object'] : result}
-					<AutoDataTable objects={handleArrayOfObjectsHeaders(data)} />
+					{@const data =
+						typeof result === 'object' && 'table-row-object' in result
+							? result['table-row-object']
+							: result}
+					<AutoDataTable
+						class={fixTableSizingToParent
+							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
+							: ''}
+						objects={handleArrayOfObjectsHeaders(data)}
+					/>
 				{:else if !forceJson && resultKind === 'html'}
 					<div class="h-full">
 						{#if !requireHtmlApproval || enableHtml}
@@ -634,15 +700,19 @@
 					</div>
 				{:else if !forceJson && resultKind === 'pdf'}
 					<div class="h-96 mt-2 border">
-						<PdfViewer
-							allowFullscreen
-							source="data:application/pdf;base64,{contentOrRootString(result.pdf)}"
-						/>
+						{#await import('$lib/components/display/PdfViewer.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default
+								allowFullscreen
+								source="data:application/pdf;base64,{contentOrRootString(result.pdf)}"
+							/>
+						{/await}
 					</div>
 				{:else if !forceJson && resultKind === 'plain'}<div class="h-full text-2xs"
 						><pre class="whitespace-pre-wrap"
 							>{typeof result === 'string' ? result : result?.['result']}</pre
-						>{#if !noControls}
+						>{#if !noControls && !loading}
 							<div class="flex">
 								<Button
 									on:click={() =>
@@ -751,34 +821,38 @@
 									language={json}
 									code={toJsonStr(result).replace(/\\n/g, '\n')}
 								/>
-								<button
-									class="text-secondary underline text-2xs whitespace-nowrap"
-									onclick={() => {
-										s3FileViewer?.open?.(result)
-									}}
-									><span class="flex items-center gap-1"
-										><PanelRightOpen size={12} />object store explorer<Tooltip
-											>Require admin privilege or "S3 resource details and content can be accessed
-											by all users of this workspace" of S3 Storage to be set in the workspace
-											settings</Tooltip
-										></span
-									>
-								</button>
+								{#if $userStore}
+									<button
+										class="text-secondary underline text-2xs whitespace-nowrap"
+										onclick={() => {
+											s3FileViewer?.open?.(result)
+										}}
+										><span class="flex items-center gap-1"
+											><PanelRightOpen size={12} />object store explorer<Tooltip
+												>Require admin privilege or "S3 resource details and content can be accessed
+												by all users of this workspace" of S3 Storage to be set in the workspace
+												settings</Tooltip
+											></span
+										>
+									</button>
+								{/if}
 							{:else if !result?.disable_download}
 								<FileDownload {workspaceId} s3object={result} {appPath} />
-								<button
-									class="text-secondary underline text-2xs whitespace-nowrap"
-									onclick={() => {
-										s3FileViewer?.open?.(result)
-									}}
-									><span class="flex items-center gap-1"
-										><PanelRightOpen size={12} />object store explorer<Tooltip
-											>Require admin privilege or "S3 resource details and content can be accessed
-											by all users of this workspace" of S3 Storage to be set in the workspace
-											settings</Tooltip
-										></span
-									>
-								</button>
+								{#if $userStore}
+									<button
+										class="text-secondary underline text-2xs whitespace-nowrap"
+										onclick={() => {
+											s3FileViewer?.open?.(result)
+										}}
+										><span class="flex items-center gap-1"
+											><PanelRightOpen size={12} />object store explorer<Tooltip
+												>Require admin privilege or "S3 resource details and content can be accessed
+												by all users of this workspace" of S3 Storage to be set in the workspace
+												settings</Tooltip
+											></span
+										>
+									</button>
+								{/if}
 							{/if}
 						</div>
 						{#if typeof result?.s3 === 'string'}
@@ -809,18 +883,22 @@
 								</div>
 							{:else if result?.s3?.endsWith('.pdf')}
 								<div class="h-96 mt-2 border">
-									<PdfViewer
-										allowFullscreen
-										source="{`/api/w/${workspaceId}/${
-											appPath
-												? 'apps_u/download_s3_file/' + appPath
-												: 'job_helpers/load_image_preview'
-										}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(result.s3)}` +
-											(result.storage ? `&storage=${result.storage}` : '')}{appPath &&
-										result.presigned
-											? `&${result.presigned}`
-											: ''}"
-									/>
+									{#await import('$lib/components/display/PdfViewer.svelte')}
+										<Loader2 class="animate-spin" />
+									{:then Module}
+										<Module.default
+											allowFullscreen
+											source="{`/api/w/${workspaceId}/${
+												appPath
+													? 'apps_u/download_s3_file/' + appPath
+													: 'job_helpers/load_image_preview'
+											}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(result.s3)}` +
+												(result.storage ? `&storage=${result.storage}` : '')}{appPath &&
+											result.presigned
+												? `&${result.presigned}`
+												: ''}"
+										/>
+									{/await}
 								</div>
 							{/if}
 						{/if}
@@ -851,7 +929,7 @@
 										>
 									</button>
 								{:else if !s3object?.disable_download}
-									<FileDownload {s3object} />
+									<FileDownload {workspaceId} {s3object} {appPath} />
 								{:else}
 									<div class="flex text-secondary pt-2">{s3object?.s3} (download disabled)</div>
 								{/if}
@@ -893,12 +971,16 @@
 									{/if}
 								{:else if s3object?.s3?.endsWith('.pdf')}
 									<div class="h-96 mt-2 border" data-interactive>
-										<PdfViewer
-											allowFullscreen
-											source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
-												s3object.s3
-											)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
-										/>
+										{#await import('$lib/components/display/PdfViewer.svelte')}
+											<Loader2 class="animate-spin" />
+										{:then Module}
+											<Module.default
+												allowFullscreen
+												source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+													s3object.s3
+												)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
+											/>
+										{/await}
 									</div>
 								{/if}
 							{/each}

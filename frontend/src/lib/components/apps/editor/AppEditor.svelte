@@ -12,6 +12,7 @@
 	import type {
 		App,
 		AppEditorContext,
+		AppEditorProps,
 		AppViewerContext,
 		ConnectingInput,
 		ContextPanelContext,
@@ -26,15 +27,21 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames, encodeState, getModifierKey, sendUserToast } from '$lib/utils'
+	import {
+		classNames,
+		encodeState,
+		getModifierKey,
+		sendUserToast,
+		urlParamsToObject
+	} from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
 
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { VariableService, type Policy } from '$lib/gen'
-	import { initHistory } from '$lib/history'
+	import { VariableService } from '$lib/gen'
+	import { initHistory } from '$lib/history.svelte'
 	import { Component, Minus, Paintbrush, Plus, Smartphone, Scan, Hand, Grab } from 'lucide-svelte'
 	import { animateTo, findGridItem, findGridItemParentGrid } from './appUtils'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
@@ -51,36 +58,9 @@
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { getTheme } from './componentsPanel/themeUtils'
 	import StylePanel from './settingsPanel/StylePanel.svelte'
-	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import HideButton from './settingsPanel/HideButton.svelte'
 	import AppEditorBottomPanel from './AppEditorBottomPanel.svelte'
 	import panzoom from 'panzoom'
-
-	interface Props {
-		app: App
-		path: string
-		policy: Policy
-		summary: string
-		fromHub?: boolean
-		diffDrawer?: DiffDrawer | undefined
-		savedApp?:
-			| {
-					value: App
-					draft?: any
-					path: string
-					summary: string
-					policy: any
-					draft_only?: boolean
-					custom_path?: string
-			  }
-			| undefined
-		version?: number | undefined
-		newApp?: boolean
-		newPath?: string | undefined
-		replaceStateFn?: (path: string) => void
-		gotoFn?: (path: string, opt?: Record<string, any> | undefined) => void
-		unsavedConfirmationModal?: import('svelte').Snippet<[any]>
-	}
 
 	let {
 		app,
@@ -95,8 +75,9 @@
 		newPath = undefined,
 		replaceStateFn = (path: string) => window.history.replaceState(null, '', path),
 		gotoFn = (path: string, opt?: Record<string, any>) => window.history.pushState(null, '', path),
-		unsavedConfirmationModal
-	}: Props = $props()
+		unsavedConfirmationModal,
+		onSavedNewAppPath
+	}: AppEditorProps = $props()
 
 	migrateApp(app)
 
@@ -140,7 +121,7 @@
 		groups: $userStore?.groups,
 		username: $userStore?.username,
 		name: $userStore?.name,
-		query: Object.fromEntries(new URL(window.location.href).searchParams.entries()),
+		query: urlParamsToObject(new URL(window.location.href).searchParams),
 		hash: window.location.hash.substring(1),
 		workspace: $workspaceStore,
 		mode: 'editor',
@@ -237,7 +218,7 @@
 		stylePanel: () => StylePanel
 	})
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	function saveFrontendDraft() {
 		timeout && clearTimeout(timeout)
@@ -500,7 +481,7 @@
 		}
 	}
 
-	let runnableJobEnterTimeout: NodeJS.Timeout | undefined = $state(undefined)
+	let runnableJobEnterTimeout: number | undefined = $state(undefined)
 	let stillInJobEnter = $state(false)
 	let storedLeftPanelSize = 0
 	let storedRightPanelSize = 0
@@ -821,7 +802,7 @@
 		untrack(() => setGridPanelSize($componentActive))
 	})
 	$effect(() => {
-		$connectingInput.opened, untrack(() => updatePannelInConnecting())
+		;($connectingInput.opened, untrack(() => updatePannelInConnecting()))
 	})
 	$effect(() => {
 		forceDeactivatePanzoom = isModifierKeyPressed && handMode
@@ -872,13 +853,13 @@
 			leftPanelHidden={leftPanelSize === 0}
 			rightPanelHidden={rightPanelSize === 0}
 			bottomPanelHidden={runnablePanelSize === 0}
-			on:savedNewAppPath
-			on:showLeftPanel={() => showLeftPanel()}
-			on:showRightPanel={() => showRightPanel()}
-			on:hideLeftPanel={() => hideLeftPanel()}
-			on:hideRightPanel={() => hideRightPanel()}
-			on:hideBottomPanel={() => hideBottomPanel()}
-			on:showBottomPanel={() => showBottomPanel()}
+			{onSavedNewAppPath}
+			onShowLeftPanel={() => showLeftPanel()}
+			onShowRightPanel={() => showRightPanel()}
+			onShowBottomPanel={() => showBottomPanel()}
+			onHideLeftPanel={() => hideLeftPanel()}
+			onHideRightPanel={() => hideRightPanel()}
+			onHideBottomPanel={() => hideBottomPanel()}
 		>
 			{#snippet unsavedConfirmationModal({
 				diffDrawer,

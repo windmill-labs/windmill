@@ -176,10 +176,10 @@
 		<div class="pt-4 grow">
 			{#if jobId}
 				<FlowStatusViewer
-					{flowStateStore}
+					bind:flowState={flowStateStore.val}
 					{jobId}
-					on:jobsLoaded={({ detail }) => {
-						job = detail
+					onJobsLoaded={({ job: newJob }) => {
+						job = newJob
 					}}
 					bind:selectedJobStep
 				/>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext } from '../../../types'
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
@@ -8,14 +8,27 @@
 	import { type ColumnDef, type DbType } from './utils'
 	import { getCountInput } from './queries/count'
 
-	export let id: string
-	export let table: string | undefined
-	export let resource: string | undefined
-	export let renderCount: number
-	export let quicksearch: string
-	export let resourceType: string
-	export let columnDefs: ColumnDef[]
-	export let whereClause: string | undefined
+	interface Props {
+		id: string
+		table: string | undefined
+		resource: string | undefined
+		renderCount: number
+		quicksearch: string
+		resourceType: string
+		columnDefs: ColumnDef[]
+		whereClause: string | undefined
+	}
+
+	let {
+		id,
+		table,
+		resource,
+		renderCount,
+		quicksearch,
+		resourceType,
+		columnDefs,
+		whereClause
+	}: Props = $props()
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -25,17 +38,15 @@
 		jobId: undefined
 	})
 
-	let runnableComponent: RunnableComponent
-	let loading = false
-	let input: AppInput | undefined = undefined
+	let runnableComponent: RunnableComponent | undefined = $state()
+	let loading = $state(false)
+	let input: AppInput | undefined = $state(undefined)
 	let lastTableCount: string | undefined = undefined
 	let renderCountLast = -1
 	let quicksearchLast: string | undefined = undefined
 
 	let localColumnDefs = columnDefs
-	let lastTable = table
-
-	$: lastTable != undefined && table && onTableChange()
+	let lastTable = $state(table)
 
 	function onTableChange() {
 		if (table !== lastTable) {
@@ -43,8 +54,6 @@
 			localColumnDefs = []
 		}
 	}
-
-	$: table && renderCount != undefined && quicksearch != undefined && computeCount()
 
 	export async function computeCount(forceCompute?: boolean | undefined) {
 		if (!forceCompute) {
@@ -76,6 +85,12 @@
 			})
 		}
 	}
+	$effect(() => {
+		lastTable != undefined && table && untrack(() => onTableChange())
+	})
+	$effect(() => {
+		table && renderCount != undefined && quicksearch != undefined && untrack(() => computeCount())
+	})
 </script>
 
 <RunnableWrapper

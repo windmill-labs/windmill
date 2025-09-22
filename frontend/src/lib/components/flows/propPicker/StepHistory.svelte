@@ -69,7 +69,9 @@
 	}
 
 	$effect(() => {
-		staticInputs && infiniteList?.loadData('forceRefresh')
+		staticInputs
+		for (const s of staticInputs ?? []) s // listen to changes one level deep
+		infiniteList?.loadData('forceRefresh')
 	})
 
 	async function getJobResultAndLogs(jobId: string, noLogs: boolean) {

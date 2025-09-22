@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import type { Job } from '$lib/gen'
 	import RunRow from './RunRow.svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
@@ -10,9 +7,8 @@
 	import { AlertTriangle } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { twMerge } from 'tailwind-merge'
-	import { isJobSelectable } from '$lib/utils'
 	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
+	import './runs-grid.css'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -138,25 +134,6 @@
 	}
 	*/
 
-	let selectableJobCount = $derived.by(() => {
-		if (!selectionMode) return 0
-		return jobs?.filter(isJobSelectable(selectionMode)).length ?? 0
-	})
-	let allSelected = $derived.by(() => {
-		return selectionMode && selectedIds.length === selectableJobCount
-	})
-
-	function selectAll() {
-		if (!selectionMode) return
-		if (allSelected) {
-			allSelected = false
-			selectedIds = []
-		} else {
-			allSelected = true
-			selectedIds = jobs?.filter(isJobSelectable(selectionMode)).map((j) => j.id) ?? []
-		}
-	}
-
 	function jobCountString(jobCount: number | undefined, lastFetchWentToEnd: boolean): string {
 		if (jobCount === undefined) {
 			return ''
@@ -213,64 +190,67 @@
 		}
 		return nstickyIndices
 	})
+
+	const showTag = $derived(containerWidth > 700)
 </script>
 
 <svelte:window onresize={() => computeHeight()} />
 
 <div
-	class="divide-y min-w-[640px] h-full"
+	class="divide-y h-full border min-w-[650px]"
 	id="runs-table-wrapper"
 	bind:clientWidth={containerWidth}
 >
 	<div bind:clientHeight={headerHeight}>
-		{#if selectionMode && selectableJobCount}
-			<!-- svelte-ignore a11y_click_events_have_key_events -->
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<div
-				class={twMerge(
-					'hover:bg-surface-hover bg-surface-primary cursor-pointer',
-					allSelected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-					'flex flex-row items-center sticky w-full p-2 pr-4 top-0 font-semibold border-t text-sm'
-				)}
-				onclick={selectAll}
-			>
-				<div class="px-2">
-					<input onfocus={bubble('focus')} type="checkbox" checked={allSelected} />
-				</div>
-				Select all
-			</div>
-		{/if}
-		<div class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4">
-			{#if showExternalJobs && externalJobs.length > 0}
-				<div class="w-1/12 text-2xs">
+		<div
+			class="grid bg-surface-secondary sticky top-0 w-full py-2 pr-4"
+			class:grid-runs-table={!containsLabel && !selectionMode && showTag}
+			class:grid-runs-table-with-labels={containsLabel && !selectionMode && showTag}
+			class:grid-runs-table-selection={!containsLabel && selectionMode && showTag}
+			class:grid-runs-table-with-labels-selection={containsLabel && selectionMode && showTag}
+			class:grid-runs-table-no-tag={!containsLabel && !selectionMode && !showTag}
+			class:grid-runs-table-with-labels-no-tag={containsLabel && !selectionMode && !showTag}
+			class:grid-runs-table-selection-no-tag={!containsLabel && selectionMode && !showTag}
+			class:grid-runs-table-with-labels-selection-no-tag={containsLabel &&
+				selectionMode &&
+				!showTag}
+		>
+			{#if selectionMode}
+				<div class="text-xs font-semibold pl-4"></div>
+			{/if}
+			<div class="text-2xs px-2 flex flex-row items-center gap-2">
+				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">
 						{jobs
 							? jobCountString(jobs.length + externalJobs.length, lastFetchWentToEnd)
 							: ''}<Tooltip>{externalJobs.length} jobs obscured</Tooltip>
 					</div>
-				</div>
-			{:else if $workspaceStore !== 'admins' && omittedObscuredJobs}
-				<div class="w-1/12 text-2xs flex flex-row">
+				{:else if $workspaceStore !== 'admins' && omittedObscuredJobs}
+					<div class="flex flex-row">
+						{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
+						<Popover>
+							<AlertTriangle size={16} class="ml-0.5 text-yellow-500" />
+							{#snippet text()}
+								Too specific filtering may have caused the omission of obscured jobs. This is done
+								for security reasons. To see obscured jobs, try removing some filters.
+							{/snippet}
+						</Popover>
+					</div>
+				{:else}
 					{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
-					<Popover>
-						<AlertTriangle size={16} class="ml-0.5 text-yellow-500" />
-						{#snippet text()}
-							Too specific filtering may have caused the omission of obscured jobs. This is done for
-							security reasons. To see obscured jobs, try removing some filters.
-						{/snippet}
-					</Popover>
-				</div>
-			{:else}
-				<div class="w-1/12 text-2xs"
-					>{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}</div
-				>
-			{/if}
-			<div class="w-4/12 text-xs font-semibold"></div>
-			<div class="w-4/12 text-xs font-semibold">Path</div>
+				{/if}
+			</div>
+			<div class="text-xs font-semibold">Started</div>
+			<div class="text-xs font-semibold">Duration</div>
+			<div class="text-xs font-semibold">Path</div>
 			{#if containsLabel}
-				<div class="w-3/12 text-xs font-semibold">Label</div>
+				<div class="text-xs font-semibold">Label</div>
 			{/if}
-			<div class="w-3/12 text-xs font-semibold">Triggered by</div>
+			<div class="text-xs font-semibold">Triggered by</div>
+			{#if showTag}
+				<div class="text-xs font-semibold">Tag</div>
+			{/if}
+			<div class=""></div>
 		</div>
 	</div>
 	{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
@@ -285,23 +265,25 @@
 			{stickyIndices}
 			{scrollToIndex}
 			scrollToAlignment="center"
-			scrollToBehaviour="smooth"
 		>
 			{#snippet header()}{/snippet}
-			{#snippet children({ index, style })}
+			{#snippet item({ index, style })}
 				<div {style} class="w-full">
 					{#if flatJobs}
 						{@const jobOrDate = flatJobs[index]}
 
 						{#if jobOrDate}
 							{#if jobOrDate?.type === 'date'}
-								<div class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-5">
+								<div
+									class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-2 h-[42px] flex items-center"
+								>
 									{jobOrDate.date}
 								</div>
 							{:else}
 								<div class="flex flex-row items-center h-full w-full">
 									<RunRow
 										{containsLabel}
+										{showTag}
 										job={jobOrDate.job}
 										selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
 										{selectionMode}
@@ -315,9 +297,18 @@
 													selectedIds = selectedIds
 												}
 											} else {
-												selectedWorkspace = jobOrDate.job.workspace_id
-												selectedIds = [jobOrDate.job.id]
-												dispatch('select')
+												if (
+													JSON.stringify(selectedIds) !== JSON.stringify([jobOrDate.job.id]) ||
+													selectedWorkspace !== jobOrDate.job.workspace_id
+												) {
+													selectedWorkspace = jobOrDate.job.workspace_id
+													selectedIds = [jobOrDate.job.id]
+													dispatch('select')
+												} else {
+													selectedIds = []
+													selectedWorkspace = undefined
+													dispatch('select')
+												}
 											}
 										}}
 										{activeLabel}

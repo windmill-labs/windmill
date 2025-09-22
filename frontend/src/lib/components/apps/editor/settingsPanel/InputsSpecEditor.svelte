@@ -56,6 +56,7 @@
 		documentationLink?: string | undefined
 		markdownTooltip?: string | undefined
 		securedContext?: boolean
+		disabled?: boolean
 	}
 
 	let {
@@ -76,6 +77,7 @@
 		customTitle = undefined,
 		displayType = false,
 		allowTypeChange = true,
+		disabled = false,
 		shouldFormatExpression = false,
 		fixedOverflowWidgets = true,
 		loading = false,
@@ -195,7 +197,7 @@
 								componentInput['value'] != undefined &&
 								(componentInput['expr'] == '' || componentInput['expr'] == undefined)
 							) {
-								componentInput['expr'] = JSON.stringify(componentInput['value'])
+								componentInput['expr'] = JSON.stringify(componentInput['value'], null, 2)
 							} else if (fileUploadS3 && fieldType === 'text' && e.detail != 'uploadS3') {
 								componentInput['value'] = ''
 							} else if (e.detail == 'uploadS3') {
@@ -274,6 +276,7 @@
 				{recomputeOnInputChanged}
 				{showOnDemandOnlyToggle}
 				{securedContext}
+				{disabled}
 			/>
 		{:else if componentInput?.type === 'upload'}
 			<UploadInputEditor bind:componentInput {fileUpload} />

@@ -4,15 +4,20 @@
 
 	import type { AppViewerContext } from '../../types'
 
-	export let condition = false
+	interface Props {
+		condition?: boolean
+		children?: import('svelte').Snippet
+	}
+
+	let { condition = false, children }: Props = $props()
 
 	const { mode } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: target = $mode === 'preview' ? '#app-editor-select' : 'body'
+	let target = $derived($mode === 'preview' ? '#app-editor-select' : 'body')
 </script>
 
 {#if condition}
-	<Portal name="conditional-portal-select" {target}><slot /></Portal>
+	<Portal name="conditional-portal-select" {target}>{@render children?.()}</Portal>
 {:else}
-	<slot />
+	{@render children?.()}
 {/if}

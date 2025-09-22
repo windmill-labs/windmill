@@ -363,11 +363,11 @@ async fn parse_python_imports_inner(
     // This way we make sure there is no multiple annotations for same script
     // and we get detailed span on conflicting versions
 
-    #[derive(serde::Serialize, serde::Deserialize)]
-    struct InlineMetadata {
-        requires_python: String,
-        dependencies: Vec<String>,
-    }
+    // #[derive(serde::Serialize, serde::Deserialize)]
+    // struct InlineMetadata {
+    //     requires_python: String,
+    //     dependencies: Vec<String>,
+    // }
 
     let find_requirements = code.lines().find_position(|x| {
         x.starts_with("#requirements:")
@@ -489,8 +489,7 @@ async fn parse_python_imports_inner(
                     let code = sqlx::query_scalar!(
                         r#"
                 SELECT content FROM script WHERE path = $1 AND workspace_id = $2
-                AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND
-                workspace_id = $2)
+                AND archived = false ORDER BY created_at DESC LIMIT 1
                 "#,
                         &rpath,
                         w_id

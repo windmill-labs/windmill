@@ -10,12 +10,23 @@
 	import FileUpload from '$lib/components/common/fileUpload/FileUpload.svelte'
 	import { writable, type Writable } from 'svelte/store'
 
-	export let componentInput: UploadAppInput | UploadS3AppInput | StaticInput<any> | undefined
-	export let fileUpload: UploadAppInput['fileUpload'] | UploadS3AppInput['fileUploadS3'] | undefined
-	export let s3: boolean | undefined = false
-	export let prefix: string | undefined = undefined
-	export let workspace: string | undefined = undefined
-	export let s3FileUploadRawMode: boolean = false
+	interface Props {
+		componentInput: UploadAppInput | UploadS3AppInput | StaticInput<any> | undefined
+		fileUpload: UploadAppInput['fileUpload'] | UploadS3AppInput['fileUploadS3'] | undefined
+		s3?: boolean | undefined
+		prefix?: string | undefined
+		workspace?: string | undefined
+		s3FileUploadRawMode?: boolean
+	}
+
+	let {
+		componentInput = $bindable(),
+		fileUpload,
+		s3 = false,
+		prefix = undefined,
+		workspace = undefined,
+		s3FileUploadRawMode = $bindable(false)
+	}: Props = $props()
 
 	let fileUploads: Writable<FileUploadData[]> = writable([])
 
@@ -63,6 +74,7 @@
 			}
 		}}
 	>
+		<!-- @migration-task: migrate this slot by hand, `selected-title` is an invalid identifier -->
 		<svelte:fragment slot="selected-title">
 			<!-- Removing the title when there is a selected file -->
 			<span></span>

@@ -1,6 +1,23 @@
 import path from 'path'
 import fs from 'fs'
 
+
+// Check if we're in node_modules (installed as dependency)
+if (process.cwd().includes('node_modules')) {
+	console.log('Skipping postinstall - running as dependency');
+	process.exit(0);
+}
+
+// Check if we're in the root project
+if (process.env.INIT_CWD && process.env.INIT_CWD !== process.cwd()) {
+	console.log('Skipping postinstall - not root project');
+	process.exit(0);
+}
+
+// Your actual postinstall logic here
+console.log('Running postinstall for root project');
+
+
 import { x } from 'tar'
 
 const tarUrl = 'https://pub-06154ed168a24e73a86ab84db6bf15d8.r2.dev/ui_builder-d44b577.tar.gz'
@@ -18,16 +35,6 @@ const response = await fetch(tarUrl)
 const buffer = await response.arrayBuffer()
 await fs.promises.writeFile(outputTarPath, Buffer.from(buffer))
 
-// Check if this script is being run from the package root
-const isRootInstall = process.cwd() + '/scripts' === __dirname
-
-if (isRootInstall) {
-	console.log('Running postinstall: direct install')
-	// Your postinstall logic here
-} else {
-	console.log('Skipping postinstall: installed as dependency')
-	process.exit(0)
-}
 
 // Create extract directory if it doesn't exist
 try {

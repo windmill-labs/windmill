@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	export const openStore = writable('')
 </script>
 
@@ -6,7 +6,7 @@
 	import { onDestroy, tick } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { type Job } from '../../gen'
-	import TestJobLoader from '../TestJobLoader.svelte'
+	import JobLoader from '../JobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
 	import { writable } from 'svelte/store'
@@ -19,26 +19,35 @@
 
 	const POPUP_HEIGHT = 320 as const
 
-	export let id: string
-	let job: Job | undefined = undefined
-	let hovered = false
-	let timeout: NodeJS.Timeout | undefined
-	let watchJob: (id: string) => Promise<void>
-	let result: any
-	let loaded = false
-	let wrapper: HTMLElement
-	let popupOnTop = true
+	interface Props {
+		id: string
+		children?: import('svelte').Snippet<[any]>
+	}
 
-	$: open = $openStore === id
+	let { id, children }: Props = $props()
+	let job: Job | undefined = $state(undefined)
+	let hovered = $state(false)
+	let timeout: number | undefined
+	let result: any = $state()
+	let jobLoader: JobLoader | undefined = $state()
+	let loaded = false
+	let wrapper: HTMLElement | undefined = $state()
+	let popupOnTop = $state(true)
+
+	let open = $derived($openStore === id)
 
 	async function instantOpen() {
 		if (!open) {
 			hovered = true
-			popupOnTop = wrapper.getBoundingClientRect().top > POPUP_HEIGHT
+			popupOnTop = (wrapper?.getBoundingClientRect()?.top ?? 0) > POPUP_HEIGHT
 			openStore.set(id)
 			if (!loaded) {
 				await tick()
-				watchJob && watchJob(id)
+				jobLoader?.watchJob(id, {
+					done(job) {
+						onDone(job)
+					}
+				})
 			}
 		} else {
 			timeout && clearTimeout(timeout)
@@ -70,8 +79,8 @@
 		)
 	}
 
-	function onDone(event: { detail: Job }) {
-		job = event.detail
+	function onDone(njob: Job) {
+		job = njob
 		result = job['result']
 		loaded = true
 	}
@@ -81,19 +90,14 @@
 	})
 </script>
 
-<svelte:window on:keydown={({ key }) => ['Escape', 'Esc'].includes(key) && close()} />
+<svelte:window onkeydown={({ key }) => ['Escape', 'Esc'].includes(key) && close()} />
 {#if hovered}
-	<TestJobLoader bind:job bind:watchJob on:done={onDone} />
+	<JobLoader bind:job bind:this={jobLoader} />
 {/if}
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
-<div
-	on:mouseenter={instantOpen}
-	on:mouseleave={staggeredClose}
-	bind:this={wrapper}
-	class="relative"
->
-	<slot {open} />
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div onmouseenter={instantOpen} onmouseleave={staggeredClose} bind:this={wrapper} class="relative">
+	{@render children?.({ open })}
 	{#if open}
 		<div
 			transition:fade|local={{ duration: 50 }}

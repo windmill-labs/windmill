@@ -1,9 +1,9 @@
-<script lang="ts" generics="Item extends { label?: string; value: any; }">
+<script lang="ts" generics="Item extends { label?: string; value: any; subtitle?: string }">
 	import { clickOutside } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
 	import CloseButton from '../common/CloseButton.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import { getLabel, processItems, type ProcessedItem } from './utils.svelte'
 	import SelectDropdown from './SelectDropdown.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -28,12 +28,14 @@
 		createText,
 		noItemsMsg,
 		open = $bindable(false),
+		id,
 		groupBy,
 		sortBy,
 		onFocus,
 		onBlur,
 		onClear,
-		onCreateItem
+		onCreateItem,
+		startSnippet
 	}: {
 		items?: Item[]
 		value: Value | undefined
@@ -52,15 +54,17 @@
 		createText?: string
 		noItemsMsg?: string
 		open?: boolean
+		id?: string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
 		onBlur?: () => void
 		onClear?: () => void
 		onCreateItem?: (value: string) => void
+		startSnippet?: Snippet<[{ item: ProcessedItem<Value> }]>
 	} = $props()
 
-	let disabled = $derived(_disabled || loading)
+	let disabled = $derived(_disabled || (loading && !value))
 
 	let inputEl: HTMLInputElement | undefined = $state()
 
@@ -108,7 +112,7 @@
 		</div>
 	{:else if clearable && !disabled && value}
 		<div class="absolute z-10 right-2 h-full flex items-center">
-			<CloseButton noBg small on:close={clearValue} />
+			<CloseButton class="text-secondary" noBg small on:close={clearValue} />
 		</div>
 	{:else if RightIcon}
 		<div class="absolute z-10 right-2 h-full flex items-center">
@@ -121,18 +125,21 @@
 		{disabled}
 		type="text"
 		bind:value={() => filterText, (v) => (filterText = v)}
-		placeholder={loading ? 'Loading...' : (valueEntry?.label ?? getLabel({ value }) ?? placeholder)}
+		placeholder={loading && !value
+			? 'Loading...'
+			: (valueEntry?.label ?? getLabel({ value }) ?? placeholder)}
 		style={containerStyle}
 		class={twMerge(
 			'!bg-surface text-ellipsis',
 			open ? '' : 'cursor-pointer',
-			value && !loading ? '!placeholder-primary' : '',
+			!loading && value ? '!placeholder-primary' : '',
 			(clearable || RightIcon) && !disabled && value ? '!pr-8' : '',
 			inputClass ?? ''
 		)}
 		autocomplete="off"
 		onpointerdown={() => (open = true)}
 		bind:this={inputEl}
+		{id}
 	/>
 	<SelectDropdown
 		{disablePortal}
@@ -145,5 +152,6 @@
 		getInputRect={inputEl && (() => inputEl!.getBoundingClientRect())}
 		{listAutoWidth}
 		{noItemsMsg}
+		{startSnippet}
 	/>
 </div>

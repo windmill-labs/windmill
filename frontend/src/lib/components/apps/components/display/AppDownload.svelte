@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
@@ -13,17 +13,28 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'downloadcomponent'> | undefined = undefined
-	export let render: boolean
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let noWFull = false
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'downloadcomponent'> | undefined
+		render: boolean
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		noWFull?: boolean
+	}
 
-	const resolvedConfig = initConfig(
-		components['downloadcomponent'].initialData.configuration,
-		configuration
+	let {
+		id,
+		configuration,
+		customCss = undefined,
+		render,
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		noWFull = false
+	}: Props = $props()
+
+	const resolvedConfig = $state(
+		initConfig(components['downloadcomponent'].initialData.configuration, configuration)
 	)
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
@@ -31,11 +42,8 @@
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
 
-	let beforeIconComponent: any
-	let afterIconComponent: any
-
-	$: resolvedConfig.beforeIcon && beforeIconComponent && handleBeforeIcon()
-	$: resolvedConfig.afterIcon && afterIconComponent && handleAfterIcon()
+	let beforeIconComponent: any = $state()
+	let afterIconComponent: any = $state()
 
 	async function handleBeforeIcon() {
 		if (resolvedConfig.beforeIcon) {
@@ -61,7 +69,13 @@
 		}
 	}
 
-	let css = initCss($app.css?.downloadcomponent, customCss)
+	let css = $state(initCss($app.css?.downloadcomponent, customCss))
+	$effect(() => {
+		resolvedConfig.beforeIcon && beforeIconComponent && untrack(() => handleBeforeIcon())
+	})
+	$effect(() => {
+		resolvedConfig.afterIcon && afterIconComponent && untrack(() => handleAfterIcon())
+	})
 </script>
 
 <InitializeComponent {id} />

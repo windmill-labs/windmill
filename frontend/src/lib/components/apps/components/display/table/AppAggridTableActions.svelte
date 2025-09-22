@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy'
+
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppViewerContext } from '../../../types'
 	import type { TableAction } from '$lib/components/apps/editor/component'
@@ -18,16 +20,31 @@
 	import type { ICellRendererParams } from 'ag-grid-community'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
-	export let p: ICellRendererParams<any>
-	export let id: string
-	export let render: boolean
-	export let actions: TableAction[] = []
-	export let rowIndex: number
-	export let row: { original: Record<string, any> }
-	export let onSet: (id: string, value: any, rowIndex: number) => void
-	export let onRemove: (id: string, rowIndex: number) => void
-	export let wrapActions: boolean | undefined = undefined
-	export let selectRow: (params: ICellRendererParams<any>) => void
+	interface Props {
+		p: ICellRendererParams<any>
+		id: string
+		render: boolean
+		actions?: TableAction[]
+		rowIndex: number
+		row: { original: Record<string, any> }
+		onSet: (id: string, value: any, rowIndex: number) => void
+		onRemove: (id: string, rowIndex: number) => void
+		wrapActions?: boolean | undefined
+		selectRow: (params: ICellRendererParams<any>) => void
+	}
+
+	let {
+		p,
+		id,
+		render,
+		actions = [],
+		rowIndex,
+		row,
+		onSet,
+		onRemove,
+		wrapActions = undefined,
+		selectRow
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 	const { selectedComponent, hoverStore, mode, connectingInput } =
@@ -47,27 +64,26 @@
 		)}
 	>
 		{#each actions as action, actionIndex}
-			<!-- svelte-ignore a11y-mouse-events-have-key-events -->
-			<!-- svelte-ignore missing-declaration -->
-			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<!-- svelte-ignore a11y_mouse_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
-				on:mouseover|stopPropagation={() => {
+				onmouseover={stopPropagation(() => {
 					if (action.id !== $hoverStore) {
 						$hoverStore = action.id
 					}
-				}}
-				on:mouseout|stopPropagation={() => {
+				})}
+				onmouseout={stopPropagation(() => {
 					if ($hoverStore !== undefined) {
 						$hoverStore = undefined
 					}
-				}}
-				on:pointerdown|stopPropagation={(e) => {
+				})}
+				onpointerdown={stopPropagation((e) => {
 					selectRow(p)
 
 					if (!$connectingInput.opened) {
 						$selectedComponent = [action.id]
 					}
-				}}
+				})}
 				class={twMerge(
 					($selectedComponent?.includes(action.id) || $hoverStore === action.id) &&
 						$mode !== 'preview'
@@ -80,8 +96,8 @@
 				)}
 			>
 				{#if $mode !== 'preview'}
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<!-- svelte-ignore a11y-no-static-element-interactions -->
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						title={`Id: ${action.id}`}
 						class={twMerge(
@@ -94,9 +110,9 @@
 								? 'opacity-100'
 								: 'opacity-0'
 						)}
-						on:click|stopPropagation={() => {
+						onclick={stopPropagation(() => {
 							$selectedComponent = [action.id]
-						}}
+						})}
 					>
 						{action.id}
 					</div>
@@ -111,14 +127,14 @@
 								closeOnOtherPopoverOpen
 								contentClasses="p-4"
 							>
-								<svelte:fragment slot="trigger">
+								{#snippet trigger()}
 									<button
 										class="bg-red-500/70 border border-red-600 px-1 py-0.5"
 										title="Outputs"
 										aria-label="Open output"><Plug2 size={12} /></button
 									>
-								</svelte:fragment>
-								<svelte:fragment slot="content">
+								{/snippet}
+								{#snippet content()}
 									<ComponentOutputViewer
 										suffix="table"
 										on:select={({ detail }) => {
@@ -133,7 +149,7 @@
 										}}
 										componentId={action.id}
 									/>
-								</svelte:fragment>
+								{/snippet}
 							</Popover>
 						</div>
 					{/if}

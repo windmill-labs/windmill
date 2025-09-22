@@ -6,12 +6,12 @@
 	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
-	import { inferArgs } from '$lib/infer'
+	import { inferArgs, inferAssets } from '$lib/infer'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
 	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
-	import TestJobLoader from './TestJobLoader.svelte'
+	import JobLoader from './JobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
 	import { Button } from './common'
@@ -45,7 +45,11 @@
 	import { getStringError } from './copilot/chat/utils'
 	import type { ScriptOptions } from './copilot/chat/ContextManager.svelte'
 	import { aiChatManager, AIMode } from './copilot/chat/AIChatManager.svelte'
-	import TriggerableByAI from './TriggerableByAI.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import AssetsDropdownButton from './assets/AssetsDropdownButton.svelte'
+	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
+	import { editor as meditor } from 'monaco-editor'
+	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
 
 	interface Props {
 		// Exported
@@ -75,7 +79,10 @@
 		stablePathForCaptures?: string
 		lastSavedCode?: string | undefined
 		lastDeployedCode?: string | undefined
+		disableAi?: boolean
+		assets?: AssetWithAltAccessType[]
 		editor_bar_right?: import('svelte').Snippet
+		enablePreprocessorSnippet?: boolean
 	}
 
 	let {
@@ -104,7 +111,10 @@
 		stablePathForCaptures = '',
 		lastSavedCode = undefined,
 		lastDeployedCode = undefined,
-		editor_bar_right
+		disableAi = false,
+		assets = $bindable(),
+		editor_bar_right,
+		enablePreprocessorSnippet = false
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -133,9 +143,22 @@
 			dispatch('change', { code, schema })
 	})
 
+	$effect(() => {
+		;[lang, code]
+		untrack(() => {
+			inferAssets(lang, code).then((newAssets: AssetWithAltAccessType[]) => {
+				for (const asset of newAssets) {
+					const old = assets?.find((a) => assetEq(a, asset))
+					if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
+				}
+				assets = newAssets
+			})
+		})
+	})
+
 	let width = $state(1200)
 
-	let testJobLoader: TestJobLoader | undefined = $state(undefined)
+	let jobLoader: JobLoader | undefined = $state(undefined)
 
 	let isValid: boolean = $state(true)
 	let scriptProgress = $state(undefined)
@@ -180,14 +203,25 @@
 		// Not defined if JobProgressBar not loaded
 		if (jobProgressReset) jobProgressReset()
 		//@ts-ignore
-		let job = await testJobLoader.runPreview(
+		let job = await jobLoader.runPreview(
 			path,
 			code,
 			lang,
 			selectedTab === 'preprocessor' || kind === 'preprocessor'
 				? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...(args ?? {}) }
 				: (args ?? {}),
-			tag
+			tag,
+			undefined,
+			undefined,
+			{
+				done(_x) {
+					loadPastTests()
+				},
+				doneError({ error }) {
+					console.error(error)
+					// sendUserToast('Error running test', true)
+				}
+			}
 		)
 		logPanel?.setFocusToLogs()
 		return job
@@ -239,6 +273,7 @@
 	onMount(() => {
 		inferSchema(code)
 		loadPastTests()
+		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.SCRIPT)
 	})
 
@@ -372,7 +407,7 @@
 	function showDiffMode() {
 		diffMode = true
 		diffEditor?.setOriginal(lastDeployedCode ?? '')
-		diffEditor?.setModified(editor?.getCode() ?? '')
+		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
 		diffEditor?.show()
 		editor?.hide()
 	}
@@ -398,26 +433,33 @@
 		}
 		untrack(() => {
 			aiChatManager.scriptEditorOptions = options
-			aiChatManager.scriptEditorApplyCode = (code: string) => {
+			aiChatManager.scriptEditorApplyCode = async (code: string, opts?: ReviewChangesOpts) => {
 				hideDiffMode()
-				editor?.reviewAndApplyCode(code)
+				await editor?.reviewAndApplyCode(code, opts)
 			}
 			aiChatManager.scriptEditorShowDiffMode = showDiffMode
 		})
 	})
 </script>
 
-<TestJobLoader
-	on:done={loadPastTests}
+<JobLoader
+	noCode={true}
 	bind:scriptProgress
-	bind:this={testJobLoader}
+	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
 />
 
 <svelte:window onkeydown={onKeyDown} />
 
-<TriggerableByAI id="script-editor" description="Component to edit a script" />
+<!-- Standalone triggerable registration for the script editor -->
+<div
+	style="display: none"
+	use:triggerableByAI={{
+		id: 'script-editor',
+		description: 'Component to edit a script'
+	}}
+></div>
 
 <Modal title="Invite others" bind:open={showCollabPopup}>
 	<div>Have others join by sharing the following url:</div>
@@ -497,6 +539,9 @@
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
 			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+					{#if assets?.length}
+						<AssetsDropdownButton {assets} />
+					{/if}
 					{#if testPanelSize === 0}
 						<HideButton
 							hidden={true}
@@ -514,7 +559,7 @@
 							color="marine"
 						/>
 					{/if}
-					{#if !aiChatManager.open}
+					{#if !aiChatManager.open && !disableAi}
 						{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
 							<HideButton
 								hidden={true}
@@ -528,6 +573,9 @@
 								}}
 								btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
 								on:click={() => {
+									if (!aiChatManager.open) {
+										aiChatManager.changeMode(AIMode.SCRIPT)
+									}
 									aiChatManager.toggleOpen()
 								}}
 							>
@@ -546,6 +594,7 @@
 						{/if}
 					{/if}
 				</div>
+
 				{#key lang}
 					<Editor
 						lineNumbersMinChars={4}
@@ -560,11 +609,6 @@
 							inferSchema(e.detail)
 						}}
 						on:saveDraft
-						on:toggleAiPanel={() => aiChatManager.toggleOpen()}
-						on:addSelectedLinesToAiChat={(e) => {
-							const { lines, startLine, endLine } = e.detail
-							aiChatManager.addSelectedLinesToContext(lines, startLine, endLine)
-						}}
 						on:toggleTestPanel={toggleTestPanel}
 						cmdEnterAction={async () => {
 							await inferSchema(code)
@@ -584,18 +628,32 @@
 						automaticLayout={true}
 						{fixedOverflowWidgets}
 						{args}
+						{enablePreprocessorSnippet}
 					/>
 					<DiffEditor
-						class="h-full"
+						className="h-full"
 						bind:this={diffEditor}
+						modifiedModel={editor?.getModel() as meditor.ITextModel}
 						automaticLayout
 						defaultLang={scriptLangToEditorLang(lang)}
 						{fixedOverflowWidgets}
-						showButtons={diffMode}
-						on:hideDiffMode={hideDiffMode}
-						on:seeHistory={() => {
-							showHistoryDrawer = true
-						}}
+						buttons={diffMode
+							? [
+									{
+										text: 'See changes history',
+										onClick: () => {
+											showHistoryDrawer = true
+										}
+									},
+									{
+										text: 'Quit diff mode',
+										onClick: () => {
+											hideDiffMode()
+										},
+										color: 'red'
+									}
+								]
+							: []}
 					/>
 				{/key}
 			</div>
@@ -629,7 +687,7 @@
 						/>
 					</div>
 					{#if testIsLoading}
-						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+						<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 							<WindmillIcon
 								white={true}
 								class="mr-2 text-white"
@@ -693,7 +751,7 @@
 								{#key argsRender}
 									<SchemaForm
 										helperScript={{
-											type: 'inline',
+											source: 'inline',
 											code,
 											//@ts-ignore
 											lang

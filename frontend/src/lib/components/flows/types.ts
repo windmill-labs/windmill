@@ -1,5 +1,5 @@
-import type { OpenFlow } from '$lib/gen'
-import type { History } from '$lib/history'
+import type { Job, OpenFlow } from '$lib/gen'
+import type { History } from '$lib/history.svelte'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
 import type { FlowState } from './flowState'
@@ -7,7 +7,13 @@ import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
 import type Editor from '../Editor.svelte'
 import type SimpleEditor from '../SimpleEditor.svelte'
 import type { StateStore } from '$lib/utils'
-import type { TestSteps } from './testSteps.svelte'
+import type { StepsInputArgs } from './stepsInputArgs.svelte'
+import type { Asset, AssetWithAccessType } from '../assets/lib'
+import type S3FilePicker from '../S3FilePicker.svelte'
+import type DbManagerDrawer from '../DBManagerDrawer.svelte'
+import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
+import type { ModulesTestStates } from '../modulesTest.svelte'
+import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
 
 export type FlowInput = Record<
 	string,
@@ -52,6 +58,8 @@ export type CurrentEditor =
 					hideDiffMode: () => void
 					diffMode: boolean
 					lastDeployedCode: string | undefined
+					setDiffOriginal?: (code: string) => void
+					setDiffButtons?: (buttons: ButtonProp[]) => void
 			  }
 			| { type: 'iterator'; editor: SimpleEditor }
 	  ) & {
@@ -69,8 +77,8 @@ export type FlowEditorContext = {
 	pathStore: Writable<string>
 	flowStore: StateStore<ExtendedOpenFlow>
 	flowInputEditorState: Writable<FlowInputEditorState>
-	flowStateStore: Writable<FlowState>
-	testSteps: TestSteps
+	flowStateStore: StateStore<FlowState>
+	stepsInputArgs: StepsInputArgs
 	saveDraft: () => void
 	initialPathStore: Writable<string>
 	fakeInitialPath: string
@@ -78,4 +86,30 @@ export type FlowEditorContext = {
 	customUi: FlowBuilderWhitelabelCustomUi
 	insertButtonOpen: Writable<boolean>
 	executionCount: Writable<number>
+	modulesTestStates: ModulesTestStates
+	outputPickerOpenFns: Record<string, () => void>
 }
+
+export type FlowGraphAssetContext = StateStore<{
+	selectedAsset: Asset | undefined
+	s3FilePicker: S3FilePicker | undefined
+	dbManagerDrawer: DbManagerDrawer | undefined
+	resourceEditorDrawer: ResourceEditorDrawer | undefined
+	// Maps resource paths to their metadata. undefined is for error
+	resourceMetadataCache: Record<string, { resource_type?: string } | undefined>
+	additionalAssetsMap: Record<string, AssetWithAccessType[]>
+	computeAssetsCount: (asset: Asset) => number
+}>
+
+export type OutputViewerJob =
+	| ((
+			| Job
+			| {
+					id: string
+					result: unknown
+					type: 'CompletedJob'
+					workspace_id: string
+					success: boolean
+			  }
+	  ) & { result_stream?: string; result?: unknown })
+	| undefined

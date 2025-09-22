@@ -9,10 +9,14 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { ResourceService } from '$lib/gen'
 
-	export let row: {
-		name: string
-		path: string
+	interface Props {
+		row: {
+			name: string
+			path: string
+		}
 	}
+
+	let { row }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 

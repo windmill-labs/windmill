@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Alert } from '$lib/components/common'
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import type { AppInput } from '../../inputType'
@@ -8,18 +11,26 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		initializing?: boolean | undefined
+		render: boolean
+	}
 
-	export let initializing: boolean | undefined = undefined
-	export let render: boolean
+	let {
+		id,
+		componentInput,
+		configuration,
+		initializing = $bindable(undefined),
+		render
+	}: Props = $props()
 
 	const { worldStore, darkMode } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['plotlycomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['plotlycomponent'].initialData.configuration, configuration)
 	)
 
 	const outputs = initOutput($worldStore, id, {
@@ -27,10 +38,10 @@
 		loading: false
 	})
 
-	let result: object | undefined = undefined
-	let divEl: HTMLDivElement | null = null
+	let result: object | undefined = $state(undefined)
+	let divEl: HTMLDivElement | null = $state(null)
 
-	let Plotly
+	let Plotly = $state() as any
 	onMount(async () => {
 		//@ts-ignore
 		await import(
@@ -43,26 +54,16 @@
 		Plotly = window['Plotly']
 	})
 
-	let h: number | undefined = undefined
-	let w: number | undefined = undefined
+	let h: number | undefined = $state(undefined)
+	let w: number | undefined = $state(undefined)
 
-	let shouldeUpdate = 1
+	let shouldeUpdate = $state(1)
 
 	darkMode.subscribe(() => {
 		shouldeUpdate++
 	})
 
-	$: Plotly &&
-		render &&
-		result &&
-		resolvedConfig.layout &&
-		divEl &&
-		h &&
-		w &&
-		shouldeUpdate &&
-		plot()
-
-	let error = ''
+	let error = $state('')
 	function plot() {
 		try {
 			Plotly.newPlot(
@@ -92,6 +93,17 @@
 			console.error(e)
 		}
 	}
+	$effect.pre(() => {
+		Plotly &&
+			render &&
+			result &&
+			resolvedConfig.layout &&
+			divEl &&
+			h &&
+			w &&
+			shouldeUpdate &&
+			untrack(() => plot())
+	})
 </script>
 
 {#each Object.keys(components['plotlycomponent'].initialData.configuration) as key (key)}
@@ -113,7 +125,7 @@
 					</Alert>
 				</div>
 			{/if}
-			<div on:pointerdown bind:this={divEl}></div>
+			<div onpointerdown={bubble('pointerdown')} bind:this={divEl}></div>
 		</RunnableWrapper>
 	</div>
 {:else}
