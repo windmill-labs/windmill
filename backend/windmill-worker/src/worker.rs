@@ -796,6 +796,7 @@ pub fn start_interactive_worker_shell(
             Instant::now().checked_sub(Duration::from_millis(2500));
         loop {
             if let Ok(_) = killpill_rx.try_recv() {
+                tracing::info!("Received killpill, exiting worker shell");
                 break;
             } else {
                 let pulled_job = match &conn {
@@ -2058,8 +2059,14 @@ pub async fn run_worker(
     }
     tracing::info!(worker = %worker_name, hostname = %hostname, "waiting for interactive_shell to finish");
     if let Some(interactive_shell) = interactive_shell {
-        if let Err(e) = interactive_shell.await {
-            tracing::error!("error in awaiting interactive_shell process: {e:?}")
+        match tokio::time::timeout(Duration::from_secs(10), interactive_shell).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => {
+                tracing::error!("error in interactive_shell process: {e:?}")
+            }
+            Err(_) => {
+                tracing::error!("timed out awaiting interactive_shell process")
+            }
         }
     }
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exited", worker_name);

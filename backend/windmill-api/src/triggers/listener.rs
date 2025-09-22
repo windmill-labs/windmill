@@ -495,6 +495,13 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 None => (None, None, None),
             };
 
+        tracing::debug!(
+            "Triggering job from {} event {} with args {:?}",
+            Self::TRIGGER_KIND,
+            listening_trigger.path,
+            args
+        );
+
         trigger_runnable(
             db,
             None,
