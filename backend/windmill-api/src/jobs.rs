@@ -6849,6 +6849,8 @@ fn start_job_update_sse_stream(
 
         loop {
             i += 1;
+
+            #[allow(unused_mut)]
             let mut ms_duration = if i > 100 || !fast.unwrap_or(false) {
                 3000
             } else if i > 10 {
@@ -6857,6 +6859,7 @@ fn start_job_update_sse_stream(
                 100
             };
 
+            #[allow(unused_variables)]
             if let Some(poll_delay_ms) = poll_delay_ms {
                 #[cfg(feature = "enterprise")]
                 if poll_delay_ms < 50 {
