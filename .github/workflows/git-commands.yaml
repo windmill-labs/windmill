@@ -126,38 +126,15 @@ jobs:
       issues: write
       id-token: write
     steps:
-      - uses: actions/create-github-app-token@v2
-        id: app
-        with:
-          app-id: ${{ vars.INTERNAL_APP_ID }}
-          private-key: ${{ secrets.INTERNAL_APP_KEY }}
-
-      - name: Comment on PR - Starting demo generation
-        uses: actions/github-script@v6
-        with:
-          github-token: ${{ steps.app.outputs.token }}
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: 'Sending demo instructions...'
-            })
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          token: ${{ steps.app.outputs.token }}
           fetch-depth: 1
 
       - name: Run Claude Code for Demo Generation
         uses: anthropics/claude-code-action@beta
-        env:
-          DEMO_WEBHOOK_TOKEN: ${{ secrets.DEMO_WEBHOOK_TOKEN }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          model: claude-opus-4-1-20250805
-          fallback_model: claude-sonnet-4-20250514
           timeout_minutes: "10"
           allowed_tools: "Bash"
           direct_prompt: |
@@ -166,9 +143,11 @@ jobs:
             1. Extract the Cloudflare preview URL from the cloudflare-workers-and-pages bot comment in this PR
             2. Analyze the PR changes to understand what feature was added/modified
             3. Create detailed demo instructions showing how to showcase the new feature
-            4. Create a demo.json file, with a json object with the following fields:
+            4. Create a demo.json file with a valid JSON object containing:
               - instructions: the demo instructions
               - url: the preview URL
+            5. VALIDATE the JSON file using `jq` before finishing
+            DO NOT COMMIT THIS FILE TO THE PR.
 
             Example demo.json:
             {
@@ -176,10 +155,18 @@ jobs:
               "url": "https://preview.cloudflare.com"
             }
 
+            CRITICAL: After creating demo.json, you MUST:
+            1. Run `jq empty demo.json` to validate the JSON is properly formatted
+            2. If validation fails, fix the JSON and validate again
+            3. Only proceed once the JSON passes validation
+            4. Use proper JSON escaping for newlines, quotes, and special characters
+
             Make sure to:
-            - Have a valid JSON object in demo.json
+            - Create a valid JSON object that passes `jq empty demo.json`
             - Extract the correct preview URL (should be a .pages.dev domain)
             - Create specific, actionable demo steps based on the actual changes in the PR
+            - Properly escape all strings in the JSON (use jq to create the file if needed)
+            - NOT COMMIT THE DEMO.JSON FILE TO THE PR
 
       - name: Send instructions to Windmill
         env:
@@ -189,15 +176,21 @@ jobs:
             echo "Found demo.json, sending to Windmill..."
             cat demo.json
 
+            # Validate JSON one more time (Claude should have already done this)
+            if ! jq empty demo.json; then
+              echo "Error: demo.json is not valid JSON"
+              exit 1
+            fi
+
             RESULT=$(curl -s \
               -H 'Content-Type: application/json' \
               -H "Authorization: Bearer $DEMO_WEBHOOK_TOKEN" \
               -X POST \
               -d @demo.json \
-              'https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/u/farhad/pretty_flow')
+              'https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/ai/browserbase_demo')
 
             echo "Windmill response:"
-            echo -E "$RESULT" | jq
+            echo -E "$RESULT"
           else
             echo "Error: demo.json file not found"
             exit 1
