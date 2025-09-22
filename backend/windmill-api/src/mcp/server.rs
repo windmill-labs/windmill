@@ -521,7 +521,7 @@ pub async fn shutdown_mcp_server(session_manager: Arc<LocalSessionManager>) {
                 let manager_clone = session_manager.clone();
                 async move {
                     if let Err(_) = manager_clone.close_session(session_id).await {
-                        tracing::warn!("ErrorData closing MCP session");
+                        tracing::warn!("Error closing MCP session");
                     }
                 }
             })

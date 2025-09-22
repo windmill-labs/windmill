@@ -234,7 +234,7 @@ pub async fn shutdown_signal(
     let _ = tx.send();
 
     spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(24 * 7 * 60 * 60)).await;
+        tokio::time::sleep(std::time::Duration::from_hours(24 * 7)).await;
         tracing::info!("Forcefully exiting after 7 days");
         std::process::exit(1);
     });
