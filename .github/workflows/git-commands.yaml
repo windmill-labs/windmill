@@ -142,7 +142,7 @@ jobs:
 
             1. Extract the Cloudflare preview URL from the cloudflare-workers-and-pages bot comment in this PR
             2. Analyze the PR changes to understand what feature was added/modified
-            3. Create detailed demo instructions showing how to showcase the new feature
+            3. Create detailed instructions to give to an AI agent that will click and interact with buttons and inputs to showcase the new feature. Only include the instructions, nothing else.
             4. Create a demo.json file with a valid JSON object containing:
               - instructions: the demo instructions
               - url: the preview URL
@@ -151,7 +151,7 @@ jobs:
 
             Example demo.json:
             {
-              "instructions": "Instructions here",
+              "instructions": "Click on settings, then account settings, then 'generate new token'",
               "url": "https://example.pages.dev"
             }
 
