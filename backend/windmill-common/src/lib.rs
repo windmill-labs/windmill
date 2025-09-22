@@ -6,8 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use itertools::Itertools as _;
+use once_cell::sync::OnceCell;
 use quick_cache::sync::Cache;
 use std::{
+    collections::HashMap,
     future::Future,
     hash::{Hash, Hasher},
     net::SocketAddr,
@@ -23,7 +26,7 @@ use tokio::sync::broadcast;
 use ee_oss::CriticalErrorChannel;
 use error::Error;
 use scripts::ScriptLang;
-use sqlx::{Acquire, Postgres};
+use sqlx::{Acquire, Pool, Postgres};
 
 pub mod agent_workers;
 pub mod ai_providers;
@@ -129,6 +132,14 @@ lazy_static::lazy_static! {
     pub static ref OTEL_TRACING_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_TRACING").is_ok());
     pub static ref OTEL_LOGS_ENABLED: AtomicBool = AtomicBool::new(std::env::var("OTEL_LOGS").is_ok());
 
+    pub static ref SHARD_DB_URL: Option<String> = std::env::var("SHARD_DB_URL").ok();
+
+    pub static ref SHARD_MODE: bool = std::env::var("SHARD_MODE").is_ok();
+
+    pub static ref SHARD_URLS: Option<Vec<String>> = std::env::var("SHARD_URLS").ok().map(|shard_url| {
+        let shard_url = shard_url.split(',').map(|s| s.to_owned()).collect_vec();
+        shard_url
+    });
 
     pub static ref METRICS_DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
 
@@ -159,6 +170,10 @@ lazy_static::lazy_static! {
     pub static ref QUIET_LOGS: bool = std::env::var("QUIET_LOGS").map(|s| s.parse::<bool>().unwrap_or(false)).unwrap_or(false);
 
 }
+
+// Zero-overhead shard database instances (initialized once at startup)
+pub static SHARD_DB_INSTANCE: OnceCell<Pool<Postgres>> = OnceCell::new();
+pub static SHARD_ID_TO_DB_INSTANCE: OnceCell<HashMap<usize, Pool<Postgres>>> = OnceCell::new();
 
 const LATEST_VERSION_ID_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 
@@ -354,13 +369,17 @@ pub async fn initial_connection() -> Result<sqlx::Pool<sqlx::Postgres>, error::E
 }
 
 pub async fn connect_db(
+    database_url: Option<&str>,
     server_mode: bool,
     indexer_mode: bool,
     worker_mode: bool,
 ) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;
 
-    let database_url = get_database_url().await?;
+    let database_url = match database_url {
+        Some(db_url) => db_url.to_owned(),
+        None => get_database_url().await?,
+    };
 
     let max_connections = match std::env::var("DATABASE_CONNECTIONS") {
         Ok(n) => n.parse::<u32>().context("invalid DATABASE_CONNECTIONS")?,

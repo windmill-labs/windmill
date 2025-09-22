@@ -11,6 +11,7 @@ use axum::extract::Request;
 use axum::http::HeaderValue;
 #[cfg(feature = "deno_core")]
 use deno_core::{op2, serde_v8, v8, JsRuntime, OpState};
+use futures::future::join_all;
 use futures::{StreamExt, TryFutureExt};
 use http::{HeaderMap, HeaderName};
 use itertools::Itertools;
@@ -28,7 +29,7 @@ use tower::ServiceBuilder;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
-use windmill_common::db::UserDbWithAuthed;
+use windmill_common::db::{get_shard_db_from_shard_id, UserDbWithAuthed};
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
@@ -40,6 +41,7 @@ use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
+use windmill_common::{SHARD_ID_TO_DB_INSTANCE, SHARD_MODE};
 
 use windmill_common::scripts::PREVIEW_IS_CODEBASE_HASH;
 use windmill_common::variables::get_workspace_key;
@@ -5885,6 +5887,116 @@ struct BatchInfo {
     tag: Option<String>,
 }
 
+async fn insert_batch_jobs_to_db<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    executor: E,
+    w_id: &str,
+    raw_code: Option<String>,
+    raw_lock: Option<String>,
+    raw_flow: Option<sqlx::types::Json<FlowValue>>,
+    tag: &str,
+    hash: Option<i64>,
+    path: Option<String>,
+    job_kind: JobKind,
+    language: ScriptLang,
+    authed: &ApiAuthed,
+    concurrent_limit: Option<i32>,
+    concurrent_time_window_s: Option<i32>,
+    timeout: Option<i32>,
+    flow_status: Option<sqlx::types::Json<FlowStatus>>,
+    scheduled_for: chrono::DateTime<chrono::Utc>,
+    uuids: &[Uuid],
+) -> Result<(), Error> {
+    sqlx::query!(
+        r#"
+        WITH uuid_table AS (
+            SELECT unnest($25::uuid[]) AS uuid
+        ),
+        inserted_job AS (
+            INSERT INTO v2_job (
+                id, workspace_id, raw_code, raw_lock, raw_flow, tag,
+                runnable_id, runnable_path, kind, script_lang,
+                created_by, permissioned_as, permissioned_as_email,
+                concurrent_limit, concurrency_time_window_s, timeout, args
+            )
+            SELECT
+                uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9,
+                $10, $11, $12, $13, $14, $15,
+                ('{ "uuid": "' || uuid || '" }')::jsonb
+            FROM uuid_table
+            RETURNING id AS "id!"
+        ),
+        inserted_queue AS (
+            INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, tag)
+            SELECT uuid, $1, $23, $24 FROM uuid_table
+        ),
+        inserted_runtime AS (
+            INSERT INTO v2_job_runtime (id, ping) SELECT uuid, null FROM uuid_table
+        ),
+        inserted_job_perms AS (
+            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id)
+            SELECT uuid, $16, $17, $18, $19, $20, $21, $1 FROM uuid_table
+        )
+        INSERT INTO v2_job_status (id, flow_status)
+        SELECT uuid, $22
+        FROM uuid_table
+        WHERE $22::jsonb IS NOT NULL
+        "#,
+        w_id,
+        raw_code.as_deref(),
+        raw_lock.as_deref(),
+        raw_flow as Option<sqlx::types::Json<FlowValue>>,
+        tag,
+        hash,
+        path.as_deref(),
+        job_kind as JobKind,
+        language as ScriptLang,
+        authed.username,
+        username_to_permissioned_as(&authed.username),
+        authed.email,
+        concurrent_limit,
+        concurrent_time_window_s,
+        timeout,
+        authed.email,
+        authed.username,
+        authed.is_admin,
+        authed.is_operator,
+        &[],
+        &[],
+        flow_status as Option<sqlx::types::Json<FlowStatus>>,
+        scheduled_for,
+        tag,
+        uuids
+    )
+    .execute(executor)
+    .await?;
+
+    Ok(())
+}
+
+async fn insert_concurrency_keys(
+    tx: &mut Transaction<'_, Postgres>,
+    custom_concurrency_key: &str,
+    uuids: &[Uuid],
+) -> Result<(), Error> {
+    sqlx::query!(
+        "INSERT INTO concurrency_counter(concurrency_id, job_uuids)
+         VALUES ($1, '{}'::jsonb)",
+        custom_concurrency_key
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO concurrency_key (job_id, key) SELECT id, $1 FROM unnest($2::uuid[]) as id",
+        custom_concurrency_key,
+        uuids
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn add_batch_jobs(
     authed: ApiAuthed,
@@ -6038,6 +6150,11 @@ async fn add_batch_jobs(
         }
     };
 
+    let uuids = (0..n)
+        .into_iter()
+        .map(|_| Uuid::new_v4())
+        .collect::<Vec<Uuid>>();
+
     let language = language.unwrap_or(ScriptLang::Deno);
 
     let tag = if let Some(dedicated_worker) = dedicated_worker {
@@ -6052,106 +6169,116 @@ async fn add_batch_jobs(
         format!("{}", language.as_str())
     };
 
-    let mut tx = user_db.begin(&authed).await?;
+    if *SHARD_MODE {
+        let shard_db_store = SHARD_ID_TO_DB_INSTANCE.get().unwrap();
 
-    let uuids = sqlx::query_scalar!(
-        r#"WITH uuid_table as (
-            select gen_random_uuid() as uuid from generate_series(1, $16)
-        )
-        INSERT INTO v2_job
-            (id, workspace_id, raw_code, raw_lock, raw_flow, tag, runnable_id, runnable_path, kind,
-             script_lang, created_by, permissioned_as, permissioned_as_email, concurrent_limit,
-             concurrency_time_window_s, timeout, args)
-            (SELECT uuid, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-             ('{ "uuid": "' || uuid || '" }')::jsonb FROM uuid_table)
-        RETURNING id AS "id!""#,
-        w_id,
-        raw_code,
-        raw_lock,
-        raw_flow.map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>,
-        tag,
-        hash,
-        path,
-        job_kind.clone() as JobKind,
-        language as ScriptLang,
-        authed.username,
-        username_to_permissioned_as(&authed.username),
-        authed.email,
-        concurrent_limit,
-        concurrent_time_window_s,
-        timeout,
-        n,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+        if shard_db_store.is_empty() {
+            return Err(Error::InternalErr(
+                "No shard databases configured".to_string(),
+            ));
+        }
 
-    let uuids = sqlx::query_scalar!(
-        r#"WITH uuid_table as (
-            select unnest($4::uuid[]) as uuid
-        )
-        INSERT INTO v2_job_queue
-            (id, workspace_id, scheduled_for, tag)
-            (SELECT uuid, $1, $2, $3 FROM uuid_table)
-        RETURNING id"#,
-        w_id,
-        Utc::now(),
-        tag,
-        &uuids
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+        let mut uuid_per_db = {
+            let mut store = HashMap::with_capacity(shard_db_store.len());
+            for (shard_id, _) in shard_db_store {
+                store.insert(*shard_id, Vec::new());
+            }
+            store
+        };
 
-    sqlx::query!(
-        "INSERT INTO v2_job_runtime (id, ping) SELECT unnest($1::uuid[]), null",
-        &uuids,
-    )
-    .execute(&mut *tx)
-    .await?;
+        for uuid in &uuids {
+            let mut hasher = DefaultHasher::new();
+            uuid.hash(&mut hasher);
+            let shard_id = (hasher.finish() as usize) % shard_db_store.len();
+            uuid_per_db.get_mut(&shard_id).unwrap().push(*uuid);
+        }
 
-    sqlx::query!(
-        "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id)
-        SELECT unnest($1::uuid[]), $2, $3, $4, $5, $6, $7, $8",
-        &uuids,
-        authed.email,
-        authed.username,
-        authed.is_admin,
-        authed.is_operator,
-        &[],
-        &[],
-        w_id,
-    )
-    .execute(&mut *tx)
-    .await?;
+        let mut tx = user_db.begin(&authed).await?;
+        if let Some(custom_concurrency_key) = custom_concurrency_key {
+            insert_concurrency_keys(&mut tx, &custom_concurrency_key, &uuids).await?;
+        }
+        tx.commit().await?;
 
-    if let Some(flow_status) = flow_status {
-        sqlx::query!(
-            "INSERT INTO v2_job_status (id, flow_status)
-            SELECT unnest($1::uuid[]), $2",
+        let future_batch_jobs = uuid_per_db
+            .iter()
+            .filter_map(|(shard_id, shard_uuids)| {
+                if shard_uuids.is_empty() {
+                    return None;
+                }
+
+                let db = shard_db_store.get(shard_id).unwrap().clone();
+                let w_id = w_id.clone();
+                let raw_code = raw_code.clone();
+                let raw_lock = raw_lock.clone();
+                let raw_flow =
+                    raw_flow.clone().map(sqlx::types::Json) as Option<sqlx::types::Json<FlowValue>>;
+                let tag = tag.clone();
+                let path = path.clone();
+                let authed = authed.clone();
+                let flow_status = flow_status.clone().map(|status| sqlx::types::Json(status))
+                    as Option<sqlx::types::Json<FlowStatus>>;
+                let shard_uuids = shard_uuids.clone();
+
+                Some(async move {
+                    insert_batch_jobs_to_db(
+                        &db,
+                        &w_id,
+                        raw_code,
+                        raw_lock,
+                        raw_flow,
+                        &tag,
+                        hash,
+                        path,
+                        job_kind,
+                        language,
+                        &authed,
+                        concurrent_limit,
+                        concurrent_time_window_s,
+                        timeout,
+                        flow_status,
+                        Utc::now(),
+                        &shard_uuids,
+                    )
+                    .await
+                    .map_err(|e| Error::InternalErr(format!("Shard insert failed: {}", e)))
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let results = join_all(future_batch_jobs).await;
+        for result in results {
+            result?;
+        }
+    } else {
+        let mut tx = user_db.begin(&authed).await?;
+
+        insert_batch_jobs_to_db(
+            &mut *tx,
+            &w_id,
+            raw_code,
+            raw_lock,
+            raw_flow.map(sqlx::types::Json),
+            &tag,
+            hash,
+            path,
+            job_kind,
+            language,
+            &authed,
+            concurrent_limit,
+            concurrent_time_window_s,
+            timeout,
+            flow_status.map(sqlx::types::Json),
+            Utc::now(),
             &uuids,
-            sqlx::types::Json(flow_status) as sqlx::types::Json<FlowStatus>
         )
-        .execute(&mut *tx)
         .await?;
-    }
 
-    if let Some(custom_concurrency_key) = custom_concurrency_key {
-        sqlx::query!(
-            "INSERT INTO concurrency_counter(concurrency_id, job_uuids)
-             VALUES ($1, '{}'::jsonb)",
-            &custom_concurrency_key
-        )
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query!(
-            "INSERT INTO concurrency_key (job_id, key) SELECT id, $1 FROM unnest($2::uuid[]) as id",
-            custom_concurrency_key,
-            &uuids
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
+        if let Some(custom_concurrency_key) = custom_concurrency_key {
+            insert_concurrency_keys(&mut tx, &custom_concurrency_key, &uuids).await?;
+        }
 
-    tx.commit().await?;
+        tx.commit().await?;
+    }
 
     Ok(Json(uuids))
 }
@@ -7444,47 +7571,104 @@ async fn list_completed_jobs(
 ) -> error::JsonResult<Vec<ListableCompletedJob>> {
     let (per_page, offset) = paginate(pagination);
 
+    let fields = &[
+        "v2_job.id",
+        "v2_job.workspace_id",
+        "v2_job.parent_job",
+        "v2_job.created_by",
+        "v2_job.created_at",
+        "v2_job_completed.started_at",
+        "v2_job_completed.duration_ms",
+        "v2_job_completed.status = 'success' OR v2_job_completed.status = 'skipped' as success",
+        "v2_job.runnable_id as script_hash",
+        "v2_job.runnable_path as script_path",
+        "false as deleted",
+        "v2_job_completed.status = 'canceled' as canceled",
+        "v2_job_completed.canceled_by",
+        "v2_job_completed.canceled_reason",
+        "v2_job.kind as job_kind",
+        "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
+        "v2_job.permissioned_as",
+        "null as raw_code",
+        "null as flow_status",
+        "null as raw_flow",
+        "v2_job.flow_step_id IS NOT NULL as is_flow_step",
+        "v2_job.script_lang as language",
+        "v2_job_completed.status = 'skipped' as is_skipped",
+        "v2_job.permissioned_as_email as email",
+        "v2_job.visible_to_owner",
+        "v2_job_completed.memory_peak as mem_peak",
+        "v2_job.tag",
+        "v2_job.priority",
+        "v2_job_completed.result->'wm_labels' as labels",
+        "'CompletedJob' as type",
+    ];
+
     let sql = list_completed_jobs_query(
         &w_id,
         Some(per_page),
         offset,
         &lq,
-        &[
-            "v2_job.id",
-            "v2_job.workspace_id",
-            "v2_job.parent_job",
-            "v2_job.created_by",
-            "v2_job.created_at",
-            "v2_job_completed.started_at",
-            "v2_job_completed.duration_ms",
-            "v2_job_completed.status = 'success' OR v2_job_completed.status = 'skipped' as success",
-            "v2_job.runnable_id as script_hash",
-            "v2_job.runnable_path as script_path",
-            "false as deleted",
-            "v2_job_completed.status = 'canceled' as canceled",
-            "v2_job_completed.canceled_by",
-            "v2_job_completed.canceled_reason",
-            "v2_job.kind as job_kind",
-            "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
-            "v2_job.permissioned_as",
-            "null as raw_code",
-            "null as flow_status",
-            "null as raw_flow",
-            "v2_job.flow_step_id IS NOT NULL as is_flow_step",
-            "v2_job.script_lang as language",
-            "v2_job_completed.status = 'skipped' as is_skipped",
-            "v2_job.permissioned_as_email as email",
-            "v2_job.visible_to_owner",
-            "v2_job_completed.memory_peak as mem_peak",
-            "v2_job.tag",
-            "v2_job.priority",
-            "v2_job_completed.result->'wm_labels' as labels",
-            "'CompletedJob' as type",
-        ],
+        fields,
         false,
         get_scope_tags(&authed),
     )
     .sql()?;
+
+    if *SHARD_MODE {
+        let shard_db_map = SHARD_ID_TO_DB_INSTANCE.get().unwrap();
+        let shard_count = shard_db_map.len();
+
+        if shard_count == 0 {
+            return Err(Error::InternalErr(
+                "No shard databases configured".to_string(),
+            ));
+        }
+
+        let mut futures = Vec::new();
+
+        for shard_id in 0..shard_count {
+            let shard_db = get_shard_db_from_shard_id(shard_id).cloned().unwrap();
+            let sql_owned = sql.clone();
+
+            futures.push(async move {
+                let jobs = sqlx::query_as::<_, ListableCompletedJob>(&sql_owned)
+                    .fetch_all(&shard_db)
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!("Shard {} query failed: {}", shard_id, e))
+                    })?;
+                Ok::<Vec<ListableCompletedJob>, Error>(jobs)
+            });
+        }
+
+        let shard_results = join_all(futures).await;
+
+        let mut all_jobs = Vec::new();
+        for result in shard_results {
+            match result {
+                Ok(jobs) => all_jobs.extend(jobs),
+                Err(e) => {
+                    tracing::error!("Failed to query shard: {}", e);
+                    return Err(e);
+                }
+            }
+        }
+
+        all_jobs.sort_by(|a, b| {
+            if lq.order_desc.unwrap_or(true) {
+                b.created_at.cmp(&a.created_at)
+            } else {
+                a.created_at.cmp(&b.created_at)
+            }
+        });
+
+        let paginated_jobs: Vec<ListableCompletedJob> =
+            all_jobs.into_iter().skip(offset).take(per_page).collect();
+
+        return Ok(Json(paginated_jobs));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
     let jobs = sqlx::query_as::<_, ListableCompletedJob>(&sql)
         .fetch_all(&mut *tx)

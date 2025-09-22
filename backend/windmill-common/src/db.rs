@@ -1,4 +1,9 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use sqlx::{Acquire, Pool, Postgres, Transaction};
+use uuid::Uuid;
+
+use crate::SHARD_ID_TO_DB_INSTANCE;
 
 pub type DB = Pool<Postgres>;
 
@@ -213,4 +218,25 @@ impl UserDB {
 
         Ok(tx)
     }
+}
+
+pub fn get_shard_id_from_job_uuid(job_id: Uuid) -> usize {
+    let shard_count = SHARD_ID_TO_DB_INSTANCE.get()
+        .map(|shards| shards.len())
+        .unwrap_or(1);
+
+    let mut hasher = DefaultHasher::new();
+    job_id.hash(&mut hasher);
+
+    (hasher.finish() as usize) % shard_count
+}
+
+pub fn get_shard_db_from_shard_id(shard_id: usize) -> Option<&'static Pool<Postgres>> {
+    SHARD_ID_TO_DB_INSTANCE.get()
+        .and_then(|shards| shards.get(&shard_id))
+}
+
+pub fn get_shard_db_from_job_uuid(job_id: Uuid) -> Option<&'static Pool<Postgres>> {
+    let shard_id = get_shard_id_from_job_uuid(job_id);
+    get_shard_db_from_shard_id(shard_id)
 }

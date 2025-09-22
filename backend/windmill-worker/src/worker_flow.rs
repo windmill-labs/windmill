@@ -74,6 +74,7 @@ use windmill_queue::{canceled_job_to_result, push};
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion(
     db: &DB,
+    job_queue_db: &DB,
     client: &AuthedClient,
     flow: uuid::Uuid,
     job_id_for_status: &Uuid,
@@ -106,6 +107,7 @@ pub async fn update_flow_status_after_job_completion(
         potentially_crash_for_testing();
         let nrec = match update_flow_status_after_job_completion_internal(
             db,
+            job_queue_db,
             client,
             rec.flow,
             &rec.job_id_for_status,
@@ -130,6 +132,7 @@ pub async fn update_flow_status_after_job_completion(
                 tracing::error!("Error while updating flow status of {} after  completion of {}, updating flow status again with error: {e:#}", rec.flow, &rec.job_id_for_status);
                 update_flow_status_after_job_completion_internal(
                     db,
+                    job_queue_db,
                     client,
                     rec.flow,
                     &rec.job_id_for_status,
@@ -269,6 +272,7 @@ fn result_has_recover_true(nresult: Arc<Box<RawValue>>) -> bool {
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion_internal(
     db: &DB,
+    job_queue_db: &DB,
     client: &AuthedClient,
     flow: uuid::Uuid,
     job_id_for_status: &Uuid,
@@ -1452,6 +1456,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         if flow_job.is_canceled() {
             add_completed_job_error(
                 db,
+                job_queue_db,
                 &flow_job,
                 0,
                 Some(CanceledBy {
@@ -1478,6 +1483,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             let duration = if success {
                 let (_, duration) = add_completed_job(
                     db,
+                    job_queue_db,
                     &flow_job,
                     true,
                     stop_early && skip_if_stop_early,
@@ -1493,6 +1499,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             } else {
                 let (_, duration) = add_completed_job(
                     db,
+                    job_queue_db,
                     &flow_job,
                     false,
                     stop_early && skip_if_stop_early,
@@ -1540,8 +1547,18 @@ pub async fn update_flow_status_after_job_completion_internal(
                     &db.into(),
                 )
                 .await;
-                let _ = add_completed_job_error(db, &flow_job, 0, None, e, worker_name, true, None)
-                    .await;
+                let _ = add_completed_job_error(
+                    db,
+                    job_queue_db,
+                    &flow_job,
+                    0,
+                    None,
+                    e,
+                    worker_name,
+                    true,
+                    None,
+                )
+                .await;
                 true
             }
             Ok(_) => false,

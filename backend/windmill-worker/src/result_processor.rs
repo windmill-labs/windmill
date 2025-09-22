@@ -17,7 +17,14 @@ use windmill_common::otel_oss::FutureExt;
 use uuid::Uuid;
 
 use windmill_common::{
-    add_time, error::{self, Error}, flow_status::{FlowJobDuration}, jobs::JobKind, utils::WarnAfterExt, worker::{to_raw_value, Connection, WORKER_GROUP}, worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap}, KillpillSender, DB
+    add_time,
+    error::{self, Error},
+    flow_status::FlowJobDuration,
+    jobs::JobKind,
+    utils::WarnAfterExt,
+    worker::{to_raw_value, Connection, WORKER_GROUP},
+    worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap},
+    KillpillSender, DB,
 };
 
 #[cfg(feature = "benchmark")]
@@ -55,6 +62,7 @@ async fn process_jc(
     worker_name: &str,
     base_internal_url: &str,
     db: &DB,
+    job_queue_db: &DB,
     worker_dir: &str,
     same_worker_tx: Option<&SameWorkerSender>,
     job_completed_sender: &JobCompletedSender,
@@ -144,6 +152,7 @@ async fn process_jc(
         jc,
         &base_internal_url,
         &db,
+        &job_queue_db,
         worker_dir,
         same_worker_tx,
         &worker_name,
@@ -186,6 +195,7 @@ pub fn start_background_processor(
     last_processing_duration: Arc<AtomicU16>,
     base_internal_url: String,
     db: DB,
+    job_queue_db: &DB,
     worker_dir: String,
     same_worker_tx: SameWorkerSender,
     worker_name: String,
@@ -193,6 +203,7 @@ pub fn start_background_processor(
     is_dedicated_worker: bool,
     stats_map: JobStatsMap,
 ) -> JoinHandle<()> {
+    let job_queue_db = job_queue_db.clone();
     tokio::spawn(async move {
         let mut has_been_killed = false;
 
@@ -274,6 +285,7 @@ pub fn start_background_processor(
                         &worker_name,
                         &base_internal_url,
                         &db,
+                        &job_queue_db,
                         &worker_dir,
                         Some(&same_worker_tx),
                         &job_completed_sender,
@@ -325,6 +337,7 @@ pub fn start_background_processor(
                     tracing::info!(parent_flow = %flow, "updating flow status after job completion");
                     if let Err(e) = update_flow_status_after_job_completion(
                         &db,
+                        &job_queue_db,
                         &AuthedClient::new(
                             base_internal_url.to_string(),
                             w_id.clone(),
@@ -496,6 +509,7 @@ pub async fn handle_receive_completed_job(
     jc: JobCompleted,
     base_internal_url: &str,
     db: &DB,
+    job_queue_db: &DB,
     worker_dir: &str,
     same_worker_tx: Option<&SameWorkerSender>,
     worker_name: &str,
@@ -513,6 +527,7 @@ pub async fn handle_receive_completed_job(
         jc,
         &client,
         db,
+        job_queue_db,
         &worker_dir,
         same_worker_tx.clone(),
         worker_name,
@@ -526,6 +541,7 @@ pub async fn handle_receive_completed_job(
         Err(err) => {
             handle_job_error(
                 db,
+                job_queue_db,
                 &client,
                 job.as_ref(),
                 mem_peak,
@@ -561,6 +577,7 @@ pub async fn process_completed_job(
     }: JobCompleted,
     client: &AuthedClient,
     db: &DB,
+    job_queue_db: &DB,
     worker_dir: &str,
     same_worker_tx: Option<&SameWorkerSender>,
     worker_name: &str,
@@ -590,7 +607,7 @@ pub async fn process_completed_job(
                 WHERE id = $1 AND preprocessed = FALSE"#,
                 job.id
             )
-            .execute(db)
+            .execute(job_queue_db)
             .await
             .map_err(|e| {
                 Error::InternalErr(format!(
@@ -604,7 +621,7 @@ pub async fn process_completed_job(
                 Json(preprocessed_args) as Json<HashMap<String, Box<RawValue>>>,
                 job.id
             )
-            .execute(db)
+            .execute(job_queue_db)
             .await?;
         }
 
@@ -612,6 +629,7 @@ pub async fn process_completed_job(
 
         let (_, duration) = add_completed_job(
             db,
+            job_queue_db,
             &job,
             true,
             false,
@@ -632,6 +650,7 @@ pub async fn process_completed_job(
                 // tracing::info!(parent_flow = %parent_job, subflow = %job_id, "updating flow status (2)");
                 let r = update_flow_status_after_job_completion(
                     db,
+                    job_queue_db,
                     client,
                     parent_job,
                     &job_id,
@@ -657,6 +676,7 @@ pub async fn process_completed_job(
     } else {
         let result = add_completed_job_error(
             db,
+            job_queue_db,
             &job,
             mem_peak.to_owned(),
             canceled_by,
@@ -673,13 +693,17 @@ pub async fn process_completed_job(
                 tracing::error!(parent_flow = %parent_job, subflow = %job.id, "process completed job error, updating flow status");
                 let r = update_flow_status_after_job_completion(
                     db,
+                    job_queue_db,
                     client,
                     parent_job,
                     &job.id,
                     &job.workspace_id,
                     false,
                     Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
-                    duration.map(|x| FlowJobDuration { started_at: job.started_at.unwrap(), duration_ms: x }),
+                    duration.map(|x| FlowJobDuration {
+                        started_at: job.started_at.unwrap(),
+                        duration_ms: x,
+                    }),
                     false,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
@@ -700,6 +724,7 @@ pub async fn process_completed_job(
 
 pub async fn handle_non_flow_job_error(
     db: &DB,
+    job_queue_db: &DB,
     job: &MiniPulledJob,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
@@ -716,6 +741,7 @@ pub async fn handle_non_flow_job_error(
     .await;
     add_completed_job_error(
         db,
+        job_queue_db,
         job,
         mem_peak,
         canceled_by,
@@ -730,6 +756,7 @@ pub async fn handle_non_flow_job_error(
 #[tracing::instrument(name = "job_error", level = "info", skip_all, fields(job_id = %job.id))]
 pub async fn handle_job_error(
     db: &DB,
+    job_queue_db: &DB,
     client: &AuthedClient,
     job: &MiniPulledJob,
     mem_peak: i32,
@@ -748,6 +775,7 @@ pub async fn handle_job_error(
     let update_job_future = || async {
         handle_non_flow_job_error(
             db,
+            job_queue_db,
             job,
             mem_peak,
             canceled_by.clone(),
@@ -775,6 +803,7 @@ pub async fn handle_job_error(
         tracing::error!(parent_flow = %flow, subflow = %job_status_to_update, "handle job error, updating flow status: {err_json:?}");
         let updated_flow = update_flow_status_after_job_completion(
             db,
+            job_queue_db,
             client,
             flow,
             &job_status_to_update,
@@ -808,6 +837,7 @@ pub async fn handle_job_error(
                     .await;
                     let _ = add_completed_job_error(
                         db,
+                        job_queue_db,
                         &MiniPulledJob::from(&parent_job),
                         mem_peak,
                         canceled_by.clone(),

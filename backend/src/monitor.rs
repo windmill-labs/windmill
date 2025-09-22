@@ -2267,6 +2267,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         );
         let _ = handle_job_error(
             db,
+            db, //to update
             &client,
             &MiniPulledJob::from(&job),
             0,
