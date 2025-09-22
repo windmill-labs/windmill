@@ -119,17 +119,16 @@ jobs:
 
   demo:
     if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/demo')
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-2
     permissions:
       contents: read
-      pull-requests: write
-      issues: write
-      id-token: write
+      pull-requests: read
+      issues: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Run Claude Code for Demo Generation
         uses: anthropics/claude-code-action@beta
@@ -152,7 +151,7 @@ jobs:
             Example demo.json:
             {
               "instructions": "Instructions here",
-              "url": "https://preview.cloudflare.com"
+              "url": "https://example.pages.dev"
             }
 
             CRITICAL: After creating demo.json, you MUST:
