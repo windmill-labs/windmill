@@ -43,7 +43,7 @@
 		onSelectValue: (item: ProcessedItem<T>) => void
 		startSnippet?: Snippet<[{ item: ProcessedItem<T>; close: () => void }]>
 		endSnippet?: Snippet<[{ item: ProcessedItem<T>; close: () => void }]>
-		bottomSnippet?: Snippet<[{ item: ProcessedItem<T> }]>
+		bottomSnippet?: Snippet<[{ close: () => void }]>
 	} = $props()
 
 	let processedItems = $derived(
@@ -162,6 +162,7 @@
 					</li>
 				{/each}
 			</ul>
+			{@render bottomSnippet?.({ close: () => (open = false) })}
 		</div>
 	{/if}
 </ConditionalPortal>

@@ -72,7 +72,7 @@
 		onCreateItem?: (value: string) => void
 		startSnippet?: Snippet<[{ item: ProcessedItem<Value>; close: () => void }]>
 		endSnippet?: Snippet<[{ item: ProcessedItem<Value>; close: () => void }]>
-		bottomSnippet?: Snippet<[{ item: ProcessedItem<Value> }]>
+		bottomSnippet?: Snippet<[{ close: () => void }]>
 	} = $props()
 
 	let disabled = $derived(_disabled || (loading && !value))
