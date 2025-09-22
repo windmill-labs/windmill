@@ -165,11 +165,19 @@
 
 	// Auto-select first visible tab if current selection is hidden or invalid
 	$effect(() => {
-		if (visibleTabsIndices.length > 0) {
-			const currentIndex = tabs?.indexOf(selected) ?? -1
-			if (currentIndex === -1 || resolvedHiddenTabs[currentIndex]) {
+		if (visibleTabsIndices.length === 0) {
+			// Handle case where all tabs are hidden
+			selected = ''
+			selectedIndex = -1
+			return
+		}
+
+		const currentIndex = tabs?.indexOf(selected) ?? -1
+		if (currentIndex === -1 || resolvedHiddenTabs[currentIndex]) {
+			const firstVisibleTab = tabs[visibleTabsIndices[0]]
+			if (selected !== firstVisibleTab) {
 				// Current selection is hidden or invalid, select first visible tab
-				selected = tabs[visibleTabsIndices[0]]
+				selected = firstVisibleTab
 			}
 		}
 	})
