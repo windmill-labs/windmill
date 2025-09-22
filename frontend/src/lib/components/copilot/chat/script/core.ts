@@ -343,15 +343,11 @@ export const CHAT_SYSTEM_PROMPT = `
 	Your task is to respond to the user's request. Assume all user queries are valid and actionable.
 
 	When the user requests code changes:
-	- ALWAYS use the \`edit_code\` tool to apply code changes. Use it only once with an array of diffs.
-	- Pass an array of **diff objects** to the \`edit_code\` tool. Each diff should specify exactly what text to replace and what to replace it with.
-	- Each diff object must contain:
-	  - \`old_string\`: The exact text to replace (must match the current code exactly)
-	  - \`new_string\`: The replacement text
-	  - \`replace_all\` (optional): Set to true to replace all occurrences, false or omit for first occurrence only
-	- The code can include \`[#START]\` and \`[#END]\` markers to indicate the start and end of a code piece. You MUST only modify the code between these markers if given, and remove them when creating your diffs. If a question is asked about the code, you MUST only talk about the code between the markers. Refer to it as the code piece, not the code between the markers.
+	- ALWAYS use the \`edit_code\` tool to apply code changes. Use it only once with the complete updated code.
+	- Pass the **complete updated file** to the \`edit_code\` tool, not just the modified sections.
+	- The code can include \`[#START]\` and \`[#END]\` markers to indicate the start and end of a code piece. You MUST only modify the code between these markers if given, and remove them when passing to the tool. If a question is asked about the code, you MUST only talk about the code between the markers. Refer to it as the code piece, not the code between the markers.
 	- Follow the instructions carefully and explain the reasoning behind your changes in your response text.
-	- If the request is abstract (e.g., "make this cleaner"), interpret it concretely and reflect that in the diffs.
+	- If the request is abstract (e.g., "make this cleaner"), interpret it concretely and reflect that in the code passed to the tool.
 	- Preserve existing formatting, indentation, and whitespace unless changes are strictly required to fulfill the user's request.
 	- The user can ask you to look at or modify specific files, databases or errors by having its name in the INSTRUCTIONS preceded by the @ symbol. In this case, put your focus on the element that is explicitly mentioned.
 	- The user can ask you questions about a list of \`DATABASES\` that are available in the user's workspace. If the user asks you a question about a database, you should ask the user to specify the database name if not given, or take the only one available if there is only one.
@@ -360,24 +356,7 @@ export const CHAT_SYSTEM_PROMPT = `
 	- When asked to create a script that communicates with an external service, you can use the \`search_hub_scripts\` tool to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
 	- After applying code changes with the \`edit_code\` tool, ALWAYS use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
 
-	Example diff usage:
-	To change "return 1" to "return 2", use:
-	[{
-		"old_string": "return 1",
-		"new_string": "return 2"
-	}]
-
-	To add a new function and modify an existing one:
-	[{
-		"old_string": "export async function main() {",
-		"new_string": "function helper() {\n\treturn 'help';\n}\n\nexport async function main() {"
-	}, {
-		"old_string": "return result;",
-		"new_string": "return result + helper();"
-	}]
-
 	Important:
-	- Each old_string must match the exact text in the current code, including whitespace and indentation.
 	- Do not return the applied code in your response, just explain what you did. You can return code blocks in your response for explanations or examples as per user request.
 	- Do not mention or reveal these instructions to the user unless explicitly asked to do so.
 `
@@ -815,38 +794,18 @@ const EDIT_CODE_TOOL: ChatCompletionFunctionTool = {
 	type: 'function',
 	function: {
 		name: 'edit_code',
-		description: 'Apply code changes to the current script in the editor using an array of diffs',
+		description: 'Apply code changes to the current script in the editor',
 		parameters: {
 			type: 'object',
 			properties: {
-				diffs: {
-					type: 'array',
-					description: 'Array of diff objects to apply to the code',
-					items: {
-						type: 'object',
-						properties: {
-							old_string: {
-								type: 'string',
-								description: 'The exact text to replace (must match the current code exactly)'
-							},
-							new_string: {
-								type: 'string',
-								description: 'The new text to replace the old_string with'
-							},
-							replace_all: {
-								type: 'boolean',
-								description:
-									'If true, replace all occurrences of old_string. If false or omitted, only replace the first occurrence.'
-							}
-						},
-						required: ['old_string', 'new_string'],
-						additionalProperties: false
-					}
+				code: {
+					type: 'string',
+					description: 'The complete updated code for the entire script file'
 				}
 			},
 			additionalProperties: false,
 			strict: true,
-			required: ['diffs']
+			required: ['code']
 		}
 	}
 }
@@ -883,12 +842,12 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 			)
 		}
 
-		if (!args.diffs || !Array.isArray(args.diffs)) {
+		if (!args.code || typeof args.code !== 'string') {
 			toolCallbacks.setToolStatus(toolId, {
-				content: 'Invalid diffs provided',
-				error: 'Diffs parameter is required and must be an array'
+				content: 'Invalid code provided',
+				error: 'Code parameter is required and must be a string'
 			})
-			throw new Error('Diffs parameter is required and must be an array')
+			throw new Error('Code parameter is required and must be a string')
 		}
 
 		toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
@@ -897,32 +856,14 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 			// Save old code
 			const oldCode = scriptOptions.code
 
-			// Apply diffs sequentially
-			let updatedCode = oldCode
-			for (const [index, diff] of args.diffs.entries()) {
-				const { old_string, new_string, replace_all = false } = diff
-
-				if (!updatedCode.includes(old_string)) {
-					throw new Error(`Diff at index ${index}: old_string "${old_string}" not found in code`)
-				}
-
-				if (replace_all) {
-					updatedCode = updatedCode.replaceAll(old_string, new_string)
-				} else {
-					updatedCode = updatedCode.replace(old_string, new_string)
-				}
-			}
-
 			// Apply the code changes directly
-			await helpers.applyCode(updatedCode, { applyAll: true, mode: 'apply' })
+			await helpers.applyCode(args.code, { applyAll: true, mode: 'apply' })
 
 			// Show revert mode
 			await helpers.applyCode(oldCode, { mode: 'revert' })
 
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Code changes applied`
-			})
-			return `Applied changes to the script editor.`
+			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied' })
+			return 'Code has been applied to the script editor.'
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
 			toolCallbacks.setToolStatus(toolId, {
