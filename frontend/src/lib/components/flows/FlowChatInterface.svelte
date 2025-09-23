@@ -28,6 +28,10 @@
 	let isLoading = $state(false)
 	let messagesContainer: HTMLDivElement | undefined = $state()
 
+	export function fillInputMessage(message: string) {
+		inputMessage = message
+	}
+
 	function scrollToBottom() {
 		if (messagesContainer) {
 			messagesContainer.scrollTop = messagesContainer.scrollHeight
@@ -222,7 +226,7 @@
 				<Button
 					size="md"
 					startIcon={{ icon: isLoading ? Loader2 : Send }}
-					disabled={!inputMessage.trim() || isLoading}
+					disabled={!inputMessage?.trim() || isLoading}
 					on:click={sendMessage}
 					iconOnly
 					title="Send message (Enter)"
