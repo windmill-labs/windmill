@@ -130,7 +130,6 @@
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
 		flowHasChanged?: boolean
-		chatModeEnabled?: boolean
 	}
 
 	let {
@@ -181,8 +180,7 @@
 		flowJob = undefined,
 		showJobStatus = false,
 		suspendStatus = {},
-		flowHasChanged = false,
-		chatModeEnabled = false
+		flowHasChanged = false
 	}: Props = $props()
 
 	setContext<{
@@ -486,8 +484,7 @@
 				showJobStatus,
 				suspendStatus,
 				flowHasChanged,
-				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap,
-				chatModeEnabled
+				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
 			untrack(() => failureModule),
 			preprocessorModule,

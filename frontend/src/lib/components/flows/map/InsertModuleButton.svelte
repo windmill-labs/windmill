@@ -3,14 +3,11 @@
 	import InsertModuleInner from './InsertModuleInner.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { ComputeConfig } from 'svelte-floating-ui'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
 	import { flip, offset } from 'svelte-floating-ui/dom'
 	import { SchedulePollIcon } from '$lib/components/icons'
-	import { createAiAgent } from '../flowStateUtils.svelte'
-	import { generateRandomString } from '$lib/utils'
-	import type { FlowEditorContext } from '../types'
 
 	// import type { Writable } from 'svelte/store'
 
@@ -25,7 +22,6 @@
 		iconSize?: number
 		clazz?: string
 		placement?: Placement
-		chatModeEnabled?: boolean
 	}
 
 	let {
@@ -34,8 +30,7 @@
 		kind = 'script',
 		iconSize = 12,
 		clazz = '',
-		placement = 'bottom-center',
-		chatModeEnabled = false
+		placement = 'bottom-center'
 	}: Props = $props()
 
 	let floatingConfig: ComputeConfig = {
@@ -47,24 +42,10 @@
 	}
 
 	let open = $state(false)
-	const dispatch = createEventDispatcher()
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 
 	$effect(() => {
 		!open && (funcDesc = '')
 	})
-
-	async function handleDirectAiAgentCreation() {
-		if (!flowEditorContext) return
-
-		const id = generateRandomString()
-		const [flowModule, flowModuleState] = await createAiAgent(id)
-
-		dispatch('new', {
-			module: flowModule,
-			state: flowModuleState
-		})
-	}
 </script>
 
 <!-- <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close> -->
@@ -94,11 +75,7 @@ shouldUsePortal={true} -->
 				clazz
 			)}
 			onpointerdown={() => {
-				if (chatModeEnabled && kind === 'script') {
-					handleDirectAiAgentCreation()
-				} else {
-					open = !open
-				}
+				open = !open
 			}}
 		>
 			{#if kind === 'trigger'}

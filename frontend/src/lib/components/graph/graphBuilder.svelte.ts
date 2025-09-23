@@ -375,7 +375,6 @@ export function graphBuilder(
 		suspendStatus: Record<string, { job: Job; nb: number }>
 		flowHasChanged: boolean
 		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
-		chatModeEnabled?: boolean
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
