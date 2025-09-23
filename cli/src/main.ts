@@ -187,7 +187,7 @@ async function main() {
     log.setup({
       handlers: {
         console: new log.ConsoleHandler(LOG_LEVEL, {
-          formatter: ({ msg }) => `${msg}`,
+          formatter: ({ msg }) => msg,
           useColors: isWin ? false : true,
         }),
       },
