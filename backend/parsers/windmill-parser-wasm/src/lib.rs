@@ -173,6 +173,7 @@ pub fn parse_java(code: &str) -> String {
 pub fn parse_ruby(code: &str) -> String {
     wrap_sig(windmill_parser_ruby::parse_ruby_signature(code))
 }
+
 #[cfg(feature = "sql-parser")]
 #[wasm_bindgen]
 pub fn parse_assets_sql(code: &str) -> String {
@@ -199,6 +200,18 @@ pub fn parse_assets_py(code: &str) -> String {
     if let Ok(r) = windmill_parser_py::parse_assets(code) {
         return serde_json::to_string(&r).unwrap();
     } else {
+        return "Invalid".to_string();
+    }
+}
+
+#[cfg(feature = "ansible-parser")]
+#[wasm_bindgen]
+pub fn parse_assets_ansible(code: &str) -> String {
+    let o = windmill_parser_yaml::parse_assets(code);
+    if let Ok(r) = o {
+        return serde_json::to_string(&r).unwrap();
+    } else {
+        return format!("err: {:?}", o.err().unwrap());
         return "Invalid".to_string();
     }
 }
