@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::{get_git_repos_lock, AnsibleDependencyLocks};
-use crate::scoped_dependency_map::{ScopedDependencyMap, WMDEBUG_NO_DMAP_DISSOLVE};
+use crate::scoped_dependency_map::{ScopedDependencyMap, ScriptImporter, WMDEBUG_NO_DMAP_DISSOLVE};
 use async_recursion::async_recursion;
 use itertools::Itertools;
 use serde_json::value::RawValue;
@@ -465,48 +465,56 @@ pub async fn process_relative_imports(
     permissioned_as: &str,
     lock: Option<String>,
 ) -> error::Result<()> {
-    let relative_imports = extract_relative_imports(&code, script_path, script_lang);
-    // TODO: Do the same for flows steps
-    if let Some(relative_imports) = relative_imports {
-        let mut tx = db.begin().await?;
-        let mut dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
-            &w_id,
-            script_path,
-            "script",
-            &parent_path,
-            db,
-        )
-        .await?;
-
-        if (script_lang.is_some_and(|v| v == ScriptLang::Bun)
-            && lock
-                .as_ref()
-                .is_some_and(|v| v.contains("generatedFromPackageJson")))
-            || (script_lang.is_some_and(|v| v == ScriptLang::Python3)
+    // ---------- Handle as if it is the importer ------------
+    // TODO: Should be moved into handle_dependency_job body to be more consistent with how flows and apps are handled
+    {
+        let relative_imports = extract_relative_imports(&code, script_path, script_lang);
+        if let Some(relative_imports) = relative_imports {
+            let mut tx = db.begin().await?;
+            let mut dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
+                &w_id,
+                script_path,
+                "script",
+                &parent_path,
+                db,
+            )
+            .await?;
+            if (script_lang.is_some_and(|v| v == ScriptLang::Bun)
                 && lock
                     .as_ref()
-                    .is_some_and(|v| v.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)))
-        {
-            // if the lock file is generated from a package.json/requirements.txt, we need to clear the dependency map
-            // because we do not want to have dependencies be recomputed automatically. Empty relative imports passed
-            // to update_script_dependency_map will clear the dependency map.
+                    .is_some_and(|v| v.contains("generatedFromPackageJson")))
+                || (script_lang.is_some_and(|v| v == ScriptLang::Python3)
+                    && lock
+                        .as_ref()
+                        .is_some_and(|v| v.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)))
+            {
+                // if the lock file is generated from a package.json/requirements.txt, we need to clear the dependency map
+                // because we do not want to have dependencies be recomputed automatically. Empty relative imports passed
+                // to update_script_dependency_map will clear the dependency map.
 
-            // TODO: Rework the logic for synchronized raw requirements PR.
-            // For now we will just do nothing and let dissolve clear every item related to this script.
-        } else {
-            tx = dependency_map
-                .patch(
-                    Some(relative_imports),
-                    // Ideally should be None, but due to current implementation will use empty string to represent None.
-                    "".into(),
-                    tx,
-                )
-                .await?;
+                tracing::error!("We skip");
+                // TODO: Rework the logic for synchronized raw requirements PR.
+                // For now we will just do nothing and let dissolve clear every item related to this script.
+            } else {
+                tx = dependency_map
+                    .patch(
+                        Some(relative_imports),
+                        // Ideally should be None, but due to current implementation will use empty string to represent None.
+                        "".into(),
+                        tx,
+                    )
+                    .await?;
+            }
+            // If felt into first branch which did not call .patch(, this operation will clean dependency_map for this script.
+            dependency_map.dissolve(tx).await.commit().await?;
+
+            dbg!("Trigger deps");
         }
+    }
 
-        // If felt into first branch which did not call .patch(, this operation will clean dependency_map for this script.
-        dependency_map.dissolve(tx).await.commit().await?;
-
+    // ---------- Handle as if it is imported ------------
+    {
+        dbg!("Ok, we are here");
         let already_visited = args
             .map(|x| {
                 x.get("already_visited")
@@ -516,6 +524,8 @@ pub async fn process_relative_imports(
             .flatten()
             .unwrap_or_default();
 
+        // But currently we will do this extra db call for every script regardless of whether they have relative imports or not
+        // Script might have no relative imports but still be referenced by someone else.
         if let Err(e) = trigger_dependents_to_recompute_dependencies(
             w_id,
             script_path,
@@ -532,6 +542,7 @@ pub async fn process_relative_imports(
             tracing::error!(%e, "error triggering dependents to recompute dependencies");
         }
     }
+
     Ok(())
 }
 
@@ -603,6 +614,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         path = s.importer_path,
                         err = err
                     );
+                    dbg!("e1");
                     continue;
                 }
             }
@@ -698,6 +710,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         .commit()
                         .await?;
                     }
+                    dbg!("e2");
                     continue;
                 }
                 Err(err) => {
@@ -706,6 +719,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         path = s.importer_path,
                     );
                     // Do not commit the transaction. It will be dropped and rollbacked
+                    dbg!("e3");
                     continue;
                 }
             }
@@ -782,6 +796,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         .commit()
                         .await?;
                     }
+                    dbg!("e4");
                     continue;
                 }
                 Err(err) => {
@@ -790,6 +805,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         path = s.importer_path,
                     );
                     // Do not commit the transaction. It will be dropped and rollbacked
+                    dbg!("e5");
                     continue;
                 }
             }
@@ -799,9 +815,12 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 kind = kind,
                 path = s.importer_path
             );
+            dbg!("e6");
             continue;
         };
 
+        dbg!("Starting another job");
+        tracing::error!("Starting another job");
         let (job_uuid, new_tx) = windmill_queue::push(
             db,
             tx,

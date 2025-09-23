@@ -1,4 +1,5 @@
 // TODO: move all related logic here (if anything left anywhere in codebase)
+// TODO: Table/list with what I covered in tests vs what i miss
 mod common;
 
 mod relative_imports_languages {
@@ -162,17 +163,51 @@ mod dependency_map {
         (client, port, server)
     }
 
-    async fn clear_dmap(db: &Pool<Postgres>) {
+    async fn _clear_dmap(db: &Pool<Postgres>) {
         sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = 'test-workspace'")
             .execute(db)
             .await
             .unwrap();
     }
 
+    /// Corrects map according to provided replacements.
+    /// Only changes importer_path and/or id
+    /// Does not affect imported_path nor kind!
+    fn corrected_dmap(replacements: Vec<(&str, &str)>) -> Vec<(String, String, String, String)> {
+        CORRECT_DMAP
+            .clone()
+            .into_iter()
+            .map(|e| {
+                let mut r = (
+                    e.0.to_owned(),
+                    e.1.to_owned(),
+                    e.2.to_owned(),
+                    e.3.to_owned(),
+                );
+                for (from, to) in &replacements {
+                    r = (
+                        r.0.replace(from, to),
+                        r.1, // Kind should be immutable
+                        r.2, // Imported path should be immutable
+                        // We do not modify script contents in test, so we can assume scripts always import the same path
+                        // Modification of kind or imported path considered to be incorrect.
+                        r.3.replace(from, to),
+                    );
+                }
+                r
+            })
+            .collect()
+    }
+
     async fn assert_dmap(
         db: &Pool<Postgres>,
         importer: Option<String>,
-        expected: Vec<(&str, &str, &str, &str)>,
+        expected: Vec<(
+            impl Into<String>,
+            impl Into<String>,
+            impl Into<String>,
+            impl Into<String>,
+        )>,
     ) {
         let dmap = sqlx::query_as::<_, (String, String, String, String)>(
             "SELECT importer_path, importer_kind::text, imported_path, importer_node_id FROM dependency_map WHERE workspace_id = 'test-workspace' AND ($1::text IS NULL OR importer_path = $1::text)",
@@ -186,7 +221,7 @@ mod dependency_map {
             dmap,
             expected
                 .into_iter()
-                .map(|(f, s, t, fo)| (f.to_owned(), s.to_owned(), t.to_owned(), fo.to_owned()))
+                .map(|(f, s, t, fo)| (f.into(), s.into(), t.into(), fo.into()))
                 .collect::<Vec<(String, String, String, String)>>()
         );
     }
@@ -264,65 +299,36 @@ mod dependency_map {
         Ok(())
     }
 
-    // Consider simple one. Only referenced directly. No deep connections
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base", "dependency_map"))]
-    async fn relative_imports_test_redeploy_leaf_2(db: Pool<Postgres>) -> anyhow::Result<()> {
-        let (client, port, _s) = init(db.clone()).await;
-        client
-            .create_script(
-                "test-workspace",
-                &quick_ns(
-                    "
-def main():
-    return 'leaf2';
-                    ",
-                    windmill_api_client::types::ScriptLang::Python3,
-                    "f/rel/leaf_2",
-                    None,
-                    Some("0000000000051659".into()),
-                ),
-            )
+    async fn relative_imports_test_rebuild_lock(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let (client, _port, _s) = init(db.clone()).await;
+
+        // Spawn first rebuild
+        let handle = {
+            let client = client.clone();
+            tokio::spawn(async move { rebuild_dmap(&client).await })
+        };
+
+        // Immidiately spawn another
+        let res = client
+            .client()
+            .post(format!(
+                "{}/w/test-workspace/workspaces/rebuild_dependency_map",
+                client.baseurl()
+            ))
+            .send()
+            .await
+            .unwrap()
+            .text()
             .await
             .unwrap();
 
-        let mut completed = listen_for_completed_jobs(&db).await;
-        in_test_worker(&db, completed.next(), port).await;
-        assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
-        // rebuild map
-        assert!(rebuild_dmap(&client).await);
-        assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
-        Ok(())
-    }
+        // Should tell us there is already rebuilt in progress
+        // Or if it is too fast we will be able to trigger it second time
+        assert!(&res == "There is already one task pending, try again later." || &res == "Success");
 
-    // Consider hard one. Referenced deeply and exists in double references.
-    #[cfg(feature = "python")]
-    #[sqlx::test(fixtures("base", "dependency_map"))]
-    async fn relative_imports_test_redeploy_leaf_1(db: Pool<Postgres>) -> anyhow::Result<()> {
-        let (client, port, _s) = init(db.clone()).await;
-        client
-            .create_script(
-                "test-workspace",
-                &quick_ns(
-                    "
-def main():
-    return 'leaf1';
-                    ",
-                    windmill_api_client::types::ScriptLang::Python3,
-                    "f/rel/leaf_1",
-                    None,
-                    Some("000000000005165A".into()),
-                ),
-            )
-            .await
-            .unwrap();
-
-        let mut completed = listen_for_completed_jobs(&db).await;
-        in_test_worker(&db, completed.next(), port).await;
-        assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
-        // rebuild map
-        assert!(rebuild_dmap(&client).await);
-        assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
+        assert!(handle.await.unwrap());
         Ok(())
     }
 
@@ -367,12 +373,12 @@ def main():
 
         tokio::time::sleep(std::time::Duration::from_secs(13)).await;
 
-        assert_dmap(&db, Some("f/rel/root_script".into()), vec![]).await;
-
-        // rebuild map
-        assert!(rebuild_dmap(&client).await);
-
-        assert_dmap(&db, Some("f/rel/root_script".into()), vec![]).await;
+        assert_dmap(
+            &db,
+            Some("f/rel/root_script".into()),
+            Vec::<(String, String, String, String)>::new(),
+        )
+        .await;
 
         Ok(())
     }
@@ -408,28 +414,256 @@ def main():
         assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
         tokio::time::sleep(std::time::Duration::from_secs(13)).await;
         assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
-        // rebuild map
-        assert!(rebuild_dmap(&client).await);
-        assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
         Ok(())
     }
     // TODO: renames.
 
+    // Consider simple one. Only referenced directly. No deep connections
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base", "dependency_map"))]
-    async fn relative_imports_test_rename_script(db: Pool<Postgres>) -> anyhow::Result<()> {
-        todo!()
+    async fn relative_imports_test_rename_leaf_2(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let (client, port, _s) = init(db.clone()).await;
+        client
+            .create_script(
+                "test-workspace",
+                &quick_ns(
+                    "
+def main():
+    return 'leaf3';
+                    ",
+                    windmill_api_client::types::ScriptLang::Python3,
+                    "f/rel/leaf_2_renamed",
+                    None,
+                    Some("0000000000051659".into()),
+                ),
+            )
+            .await
+            .unwrap();
+
+        let mut completed = listen_for_completed_jobs(&db).await;
+        in_test_worker(&db, completed.next(), port).await;
+
+        // Changing leafs should not change dependency map
+        assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
+        Ok(())
+    }
+
+    // Consider hard one. Referenced deeply and exists in double references.
+    #[cfg(feature = "python")]
+    #[sqlx::test(fixtures("base", "dependency_map"))]
+    async fn relative_imports_test_rename_leaf_1(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let (client, port, _s) = init(db.clone()).await;
+        client
+            .create_script(
+                "test-workspace",
+                &quick_ns(
+                    "
+def main():
+    return 'leaf1';
+                    ",
+                    windmill_api_client::types::ScriptLang::Python3,
+                    "f/rel/leaf_1_renamed",
+                    None,
+                    Some("0000000000051658".into()),
+                ),
+            )
+            .await
+            .unwrap();
+
+        let mut completed = listen_for_completed_jobs(&db).await;
+        in_test_worker(&db, completed.next(), port).await;
+
+        // Changing leafs should not change dependency map
+        assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
+        Ok(())
     }
 
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base", "dependency_map"))]
-    async fn relative_imports_test_rename_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
-        todo!()
+    async fn relative_imports_test_rename_branch(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let (client, port, _s) = init(db.clone()).await;
+        client
+            .create_script(
+                "test-workspace",
+                &quick_ns(
+                    "
+from f.rel.leaf_1 import main as lf_1;
+
+def main():
+    return lf_1();
+                    ",
+                    windmill_api_client::types::ScriptLang::Python3,
+                    "f/rel/branch_renamed",
+                    None,
+                    Some("000000000005165A".into()),
+                ),
+            )
+            .await
+            .unwrap();
+
+        let mut completed = listen_for_completed_jobs(&db).await;
+        in_test_worker(&db, completed.next(), port).await;
+
+        // Changing branches SHOULD change dependency map
+        // Though it should only change branch item in dmap when it is importer.
+        // All entries when branch is imported should not change.
+        let mut corrected_dmap = CORRECT_DMAP.clone();
+        // Corresponds to importer path of branch entry
+        corrected_dmap[0].0 = "f/rel/branch_renamed";
+        assert_dmap(&db, None, corrected_dmap).await;
+        Ok(())
     }
 
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base", "dependency_map"))]
-    async fn relative_imports_test_rename_app(db: Pool<Postgres>) -> anyhow::Result<()> {
-        todo!()
+    async fn relative_imports_test_rename_primary_script(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let (client, port, _s) = init(db.clone()).await;
+
+        client
+            .create_script(
+                "test-workspace",
+                &quick_ns(
+                    "
+from f.rel.branch import main as br;
+from f.rel.leaf_1 import main as lf_1;
+from f.rel.leaf_2 import main as lf_2;
+
+def main():
+    return [br(), lf_1(), lf_2];
+                            ",
+                    windmill_api_client::types::ScriptLang::Python3,
+                    "f/rel/root_script_renamed",
+                    None,
+                    Some("000000000005165B".into()),
+                ),
+            )
+            .await
+            .unwrap();
+
+        let corrected_dmap = corrected_dmap(vec![("root_script", "root_script_renamed")]);
+        let mut completed = listen_for_completed_jobs(&db).await;
+        in_test_worker(&db, completed.next(), port).await;
+        assert_dmap(&db, None, corrected_dmap.clone()).await;
+        Ok(())
+    }
+
+    #[cfg(feature = "python")]
+    #[sqlx::test(fixtures("base", "dependency_map"))]
+    async fn relative_imports_test_rename_primary_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
+        use windmill_common::{cache::flow::fetch_version, flows::NewFlow};
+
+        let (client, port, _s) = init(db.clone()).await;
+        let flow = fetch_version(&db, 1443253234253454).await.unwrap();
+        let res = client
+            .client()
+            .post(format!(
+                "{}/w/test-workspace/flows/update/{}",
+                client.baseurl(),
+                "f/rel/root_flow" // encode_path()
+            ))
+            .json(&NewFlow {
+                path: "f/rel/root_flow_renamed".into(),
+                summary: "".into(),
+                description: None,
+                value: serde_json::from_str(
+                    &serde_json::to_string(flow.value())
+                        .unwrap()
+                        .replace("nstep1", "Foxes")
+                        .replace("nstep2_2", "like")
+                        .replace("nstep_4_1", "Emeralds"),
+                )
+                .unwrap(),
+                schema: None,
+                draft_only: None,
+                tag: None,
+                dedicated_worker: None,
+                timeout: None,
+                deployment_message: None,
+                visible_to_runner_only: None,
+                on_behalf_of_email: None,
+            })
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(res.text().await.unwrap(), "f/rel/root_flow_renamed");
+
+        let mut completed = listen_for_completed_jobs(&db).await;
+        in_test_worker(&db, completed.next(), port).await;
+
+        assert_dmap(
+            &db,
+            None,
+            corrected_dmap(vec![
+                ("f/rel/root_flow", "f/rel/root_flow_renamed"),
+                ("nstep1", "Foxes"),
+                ("nstep2_2", "like"),
+                ("nstep_4_1", "Emeralds"),
+            ]),
+        )
+        .await;
+        Ok(())
+    }
+
+    #[cfg(feature = "python")]
+    #[sqlx::test(fixtures("base", "dependency_map"))]
+    async fn relative_imports_test_rename_primary_app(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let (client, port, _s) = init(db.clone()).await;
+
+        let app_value: String =
+            sqlx::query_scalar!("SELECT value::text FROM app_version WHERE id = 0 AND app_id = 2")
+                .fetch_one(&db)
+                .await
+                .unwrap()
+                .unwrap();
+
+        // TODO: There is:
+        // 1. update app
+        // 2. create app
+        // 3. update app raw
+        // Ideally all of them should be handled
+        let res = client
+            .client()
+            .post(format!(
+                "{}/w/test-workspace/apps/update/{}",
+                client.baseurl(),
+                "f/rel/root_app" // encode_path()
+            ))
+            .json(&windmill_api::EditApp {
+                path: Some("f/rel/root_app_renamed".into()),
+                summary: None,
+                value: serde_json::from_str(
+                    &app_value
+                        .replace("dontpressmeplz", "Apps")
+                        .replace("youcanpressme", "Work"),
+                )
+                .unwrap(),
+                policy: None,
+                deployment_message: None,
+                custom_path: None,
+            })
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(
+            res.text().await.unwrap(),
+            "app f/rel/root_app updated (npath: \"f/rel/root_app_renamed\")"
+        );
+
+        let mut completed = listen_for_completed_jobs(&db).await;
+        in_test_worker(&db, completed.next(), port).await;
+
+        assert_dmap(
+            &db,
+            None,
+            corrected_dmap(vec![
+                ("f/rel/root_app", "f/rel/root_app_renamed"),
+                ("dontpressmeplz", "Apps"),
+                ("youcanpressme", "Work"),
+            ]),
+        )
+        .await;
+        Ok(())
     }
 }

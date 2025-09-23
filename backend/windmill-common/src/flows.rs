@@ -93,7 +93,7 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
 }
 
-#[derive(Debug, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct NewFlow {
     pub path: String,
     pub summary: String,

@@ -278,7 +278,7 @@ pub struct CreateApp {
     pub custom_path: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct EditApp {
     pub path: Option<String>,
     pub summary: Option<String>,
