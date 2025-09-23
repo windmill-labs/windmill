@@ -3,7 +3,6 @@
 	import InsertModuleInner from './InsertModuleInner.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { ComputeConfig } from 'svelte-floating-ui'
-	import { createEventDispatcher } from 'svelte'
 
 	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
 	import { flip, offset } from 'svelte-floating-ui/dom'

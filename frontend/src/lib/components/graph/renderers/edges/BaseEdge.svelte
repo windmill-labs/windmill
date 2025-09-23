@@ -18,7 +18,7 @@
 		useDataflow: Writable<boolean | undefined>
 	}>('FlowGraphContext')
 
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let {
 		// id,
@@ -76,7 +76,9 @@
 			data?.flowModuleStates?.[`${data.sourceId}-v`]?.type === 'WaitingForEvents'
 	)
 
-	let chatInputEnabled = $derived(flowStore.val.schema?.chat_input_enabled ?? false)
+	let chatInputEnabled = $derived(
+		flowEditorContext?.flowStore.val.schema?.chat_input_enabled ?? false
+	)
 
 	let suspendStatus: Record<string, { job: Job; nb: number }> | undefined = $derived(
 		data?.suspendStatus

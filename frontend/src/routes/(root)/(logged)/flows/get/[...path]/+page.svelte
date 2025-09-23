@@ -547,19 +547,21 @@
 								}}
 								{inputSelected}
 							/>
-							<Toggle
-								bind:checked={jsonView}
-								label="JSON View"
-								size="xs"
-								options={{
-									right: 'JSON',
-									rightTooltip: 'Fill args from JSON'
-								}}
-								lightMode
-								on:change={(e) => {
-									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-								}}
-							/>
+							{#if !flow?.schema?.chat_input_enabled}
+								<Toggle
+									bind:checked={jsonView}
+									label="JSON View"
+									size="xs"
+									options={{
+										right: 'JSON',
+										rightTooltip: 'Fill args from JSON'
+									}}
+									lightMode
+									on:change={(e) => {
+										runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+									}}
+								/>
+							{/if}
 						</div>
 
 						{#if flow.schema?.prompt_for_ai !== undefined}
@@ -573,7 +575,7 @@
 						{/if}
 
 						{#if flow?.schema?.chat_input_enabled}
-							<FlowChatInterface flowPath={flow.path} onRunFlow={runFlowForChat} />
+							<FlowChatInterface onRunFlow={runFlowForChat} />
 						{:else}
 							<RunForm
 								bind:scheduledForStr

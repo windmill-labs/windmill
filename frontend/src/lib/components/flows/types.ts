@@ -34,7 +34,6 @@ export type ExtendedOpenFlow = OpenFlow & {
 	dedicated_worker?: boolean
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
-	chat_input_enabled?: boolean
 }
 
 export type FlowInputEditorState = {
