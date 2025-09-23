@@ -1808,7 +1808,7 @@ async fn edit_error_handler(
             SET
                 error_handler = NULL,
                 error_handler_extra_args = NULL,
-                error_handler_muted_on_cancel = NULL
+                error_handler_muted_on_cancel = false
             WHERE
                 workspace_id = $1
         "#,

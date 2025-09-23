@@ -301,18 +301,30 @@ export function getTypeStrFromPath(
 }
 
 export function removeType(str: string, type: string) {
+  // Normalize path for cross-platform compatibility and convert to forward slashes for API consistency
+  const normalizedStr = path.normalize(str).replaceAll(SEP, "/");
+
   if (
-    !str.endsWith("." + type + ".yaml") &&
-    !str.endsWith("." + type + ".json")
+    !normalizedStr.endsWith("." + type + ".yaml") &&
+    !normalizedStr.endsWith("." + type + ".json")
   ) {
     throw new Error(str + " does not end with ." + type + ".(yaml|json)");
   }
-  return str.slice(0, str.length - type.length - 6);
+  return normalizedStr.slice(0, normalizedStr.length - type.length - 6);
 }
 
 export function removePathPrefix(str: string, prefix: string) {
-  if (!str.startsWith(prefix + "/")) {
+  // Normalize paths for cross-platform compatibility and convert to forward slashes for API consistency
+  const normalizedStr = path.normalize(str).replaceAll(SEP, "/");
+  const normalizedPrefix = path.normalize(prefix).replaceAll(SEP, "/");
+
+  // Handle exact match case
+  if (normalizedStr === normalizedPrefix) {
+    return "";
+  }
+
+  if (!normalizedStr.startsWith(normalizedPrefix + "/")) {
     throw new Error(str + " does not start with " + prefix);
   }
-  return str.slice(prefix.length + 1);
+  return normalizedStr.slice(normalizedPrefix.length + 1);
 }
