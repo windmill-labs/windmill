@@ -395,7 +395,7 @@
 		}
 	}
 	let stepDetail: FlowModule | string | undefined = $state(undefined)
-
+	let flowChatInterface: FlowChatInterface | undefined = $state(undefined)
 	let rightPaneSelected = $state('saved_inputs')
 	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
@@ -421,6 +421,7 @@
 		}
 	})
 	let mainButtons = $derived(getMainButtons(flow, args))
+	let chatInputEnabled = $derived(flow?.schema?.chat_input_enabled ?? false)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -547,7 +548,7 @@
 								}}
 								{inputSelected}
 							/>
-							{#if !flow?.schema?.chat_input_enabled}
+							{#if !chatInputEnabled}
 								<Toggle
 									bind:checked={jsonView}
 									label="JSON View"
@@ -574,8 +575,8 @@
 							/>
 						{/if}
 
-						{#if flow?.schema?.chat_input_enabled}
-							<FlowChatInterface onRunFlow={runFlowForChat} />
+						{#if chatInputEnabled}
+							<FlowChatInterface bind:this={flowChatInterface} onRunFlow={runFlowForChat} />
 						{:else}
 							<RunForm
 								bind:scheduledForStr
@@ -642,6 +643,10 @@
 			args={args ?? {}}
 			bind:inputSelected
 			on:selected_args={(e) => {
+				if (chatInputEnabled) {
+					flowChatInterface?.fillInputMessage(e.detail.user_message)
+					return
+				}
 				const nargs = JSON.parse(JSON.stringify(e.detail))
 				args = nargs
 			}}
