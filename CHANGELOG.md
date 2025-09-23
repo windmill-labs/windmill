@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.546.1](https://github.com/windmill-labs/windmill/compare/v1.546.0...v1.546.1) (2025-09-23)
+
+
+### Bug Fixes
+
+* **mcp:** use stateless mode for openai sdk compatibility ([#6656](https://github.com/windmill-labs/windmill/issues/6656)) ([389b692](https://github.com/windmill-labs/windmill/commit/389b692523507a28916e96b481c60f3c49cd31da))
+
 ## [1.546.0](https://github.com/windmill-labs/windmill/compare/v1.545.0...v1.546.0) (2025-09-23)
 
 
