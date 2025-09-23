@@ -16,7 +16,7 @@ use windmill_common::{
     get_latest_hash_for_path,
     jobs::JobKind,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
-    utils::{rd_string, StripPath, HTTP_CLIENT},
+    utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
 };
 use windmill_queue::{
@@ -27,17 +27,15 @@ use windmill_queue::{
 use crate::{
     ai::{
         image_handler::upload_image_to_s3,
-        providers::openai::{OpenAIFunction, OpenAIToolCall},
-        query_builder::{create_query_builder, BuildRequestArgs, ParsedResponse, QueryBuilder},
-        sse::SSEParser,
+        query_builder::{
+            create_query_builder, BuildRequestArgs, ParsedResponse, StreamEventChannel,
+        },
         types::*,
     },
     common::{build_args_map, error_to_value, OccupancyMetrics, StreamNotifier},
     create_job_dir,
     handle_child::run_future_with_polling_update_job_poller,
-    handle_queued_job,
-    job_logger::append_result_stream,
-    parse_sig_of_lang,
+    handle_queued_job, parse_sig_of_lang,
     result_processor::handle_non_flow_job_error,
     worker_flow::{raw_script_to_payload, script_to_payload},
     JobCompletedSender, SendResult, SendResultPayload,
@@ -97,92 +95,6 @@ pub async fn get_flow_job_runnable_and_raw_flow(
     .fetch_one(db)
     .await?;
     Ok(job)
-}
-
-/// Handle streaming response from AI provider
-async fn handle_streaming_response(
-    response: reqwest::Response,
-    query_builder: &dyn QueryBuilder,
-    conn: &Connection,
-    workspace_id: &str,
-    job_id: &Uuid,
-) -> error::Result<ParsedResponse> {
-    let streaming_response = query_builder.parse_streaming_response(response)?;
-    let sse_parser = SSEParser::new(streaming_response.response);
-
-    let mut accumulated_content = String::new();
-    let mut accumulated_tool_calls: HashMap<i64, OpenAIToolCall> = HashMap::new();
-    let mut events: Vec<StreamingEvent> = vec![];
-
-    // Process streaming events with error handling
-    let parse_result = sse_parser
-        .parse_events(|event| {
-            if let Some(mut choices) = event.choices.filter(|s| !s.is_empty()) {
-                if let Some(delta) = choices.remove(0).delta {
-                    if let Some(content) = delta.content.filter(|s| !s.is_empty()) {
-                        accumulated_content += &content;
-                        let event = StreamingEvent::TokenDelta { content };
-                        send_streaming_event(conn, workspace_id, job_id, &event)?;
-                        events.push(event)
-                    }
-
-                    if let Some(tool_calls) = delta.tool_calls {
-                        for (idx, tool_call) in tool_calls.into_iter().enumerate() {
-                            let idx = tool_call.index.unwrap_or_else(|| idx as i64);
-
-                            if let Some(function) = tool_call.function {
-                                if let Some(tool_call) = accumulated_tool_calls.get_mut(&idx) {
-                                    if let Some(arguments) = function.arguments {
-                                        tool_call.function.arguments += &arguments;
-                                    }
-                                } else {
-                                    let fun_name = function.name.unwrap_or_default();
-                                    let call_id = tool_call.id.unwrap_or_else(|| rd_string(24));
-                                    let event = StreamingEvent::ToolCall {
-                                        call_id: call_id.clone(),
-                                        function_name: fun_name.clone(),
-                                    };
-                                    send_streaming_event(conn, workspace_id, job_id, &event)?;
-                                    events.push(event);
-                                    accumulated_tool_calls.insert(
-                                        idx,
-                                        OpenAIToolCall {
-                                            id: call_id,
-                                            function: OpenAIFunction {
-                                                name: fun_name,
-                                                arguments: function.arguments.unwrap_or_default(),
-                                            },
-                                            r#type: "function".to_string(),
-                                        },
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Ok(())
-        })
-        .await;
-
-    // Handle parse errors gracefully
-    if let Err(parse_err) = parse_result {
-        tracing::warn!("SSE parsing failed: {:?}", parse_err);
-        // Return error to trigger fallback to non-streaming
-        return Err(parse_err);
-    }
-
-    // Return the accumulated response in the same format as non-streaming
-    Ok(ParsedResponse::Text {
-        content: if accumulated_content.is_empty() {
-            None
-        } else {
-            Some(accumulated_content)
-        },
-        tool_calls: accumulated_tool_calls.into_values().collect(),
-        events: Some(events),
-    })
 }
 
 pub async fn handle_ai_agent_job(
@@ -487,41 +399,6 @@ fn is_anthropic_provider(provider: &ProviderWithResource) -> bool {
     provider_is_anthropic || is_openrouter_anthropic
 }
 
-fn send_streaming_event(
-    conn: &Connection,
-    workspace_id: &str,
-    job_id: &Uuid,
-    event: &StreamingEvent,
-) -> Result<(), Error> {
-    match serde_json::to_string(&event) {
-        Ok(event_json) => {
-            let conn_clone = conn.clone();
-            let workspace_id = workspace_id.to_string();
-            let job_id = job_id.clone();
-            tokio::spawn(async move {
-                if let Err(err) = append_result_stream(
-                    &conn_clone,
-                    &workspace_id,
-                    &job_id,
-                    &format!("{}\n", event_json),
-                )
-                .await
-                {
-                    tracing::error!(
-                        "Unable to send token stream for job {job_id}. Error was: {:?}",
-                        err
-                    );
-                }
-            });
-            Ok(())
-        }
-        Err(e) => Err(Error::internal_err(format!(
-            "Failed to serialize streaming event {:#?}, error is: {}",
-            event, e
-        ))),
-    }
-}
-
 #[async_recursion]
 pub async fn run_agent(
     // connection
@@ -637,7 +514,7 @@ pub async fn run_agent(
         && query_builder.supports_streaming()
         && output_type == &OutputType::Text;
 
-    let mut final_events = vec![];
+    let mut final_events_str = String::new();
 
     // Main agent loop
     for i in 0..MAX_AGENT_ITERATIONS {
@@ -695,26 +572,24 @@ pub async fn run_agent(
 
         match resp.error_for_status_ref() {
             Ok(_) => {
-                let parsed = if should_stream {
-                    // Handle streaming response with fallback
-                    handle_streaming_response(
-                        resp,
-                        query_builder.as_ref(),
-                        &conn,
-                        &job.workspace_id,
-                        &job.id,
-                    )
-                    .await?
+                let (parsed, stream_event_channel) = if should_stream {
+                    let stream_event_channel = StreamEventChannel::new(conn, job);
+                    let parsed = query_builder
+                        .parse_streaming_response(resp, stream_event_channel.clone())
+                        .await?;
+                    (parsed, Some(stream_event_channel))
                 } else {
                     // Handle non-streaming response
-                    query_builder.parse_response(resp).await?
+                    let parsed = query_builder.parse_response(resp).await?;
+                    (parsed, None)
                 };
 
                 match parsed {
-                    ParsedResponse::Text { content: response_content, tool_calls, events } => {
-                        if let Some(events) = events {
-                            final_events.extend(events);
+                    ParsedResponse::Text { content: response_content, tool_calls, events_str } => {
+                        if let Some(events_str) = events_str {
+                            final_events_str.push_str(&events_str);
                         }
+
                         if let Some(ref response_content) = response_content {
                             actions.push(AgentAction::Message {});
                             messages.push(OpenAIMessage {
@@ -750,11 +625,12 @@ pub async fn run_agent(
                         // Handle tool calls (keeping existing tool execution logic)
                         for tool_call in tool_calls.iter() {
                             // Stream tool call progress
-                            if should_stream {
+                            if let Some(ref stream_event_channel) = stream_event_channel {
                                 let event =
                                     StreamingEvent::ToolExecution { call_id: tool_call.id.clone() };
-                                send_streaming_event(&conn, &job.workspace_id, &job.id, &event)?;
-                                final_events.push(event)
+                                stream_event_channel
+                                    .send(event, &mut final_events_str)
+                                    .await?;
                             }
 
                             // Check if this is the structured output tool
@@ -986,6 +862,11 @@ pub async fn run_agent(
                                             worker_name,
                                         )
                                         .await;
+                                        let agent_action = AgentAction::ToolCall {
+                                            job_id,
+                                            function_name: tool_call.function.name.clone(),
+                                            module_id: tool.module.id.clone(),
+                                        };
                                         messages.push(OpenAIMessage {
                                             role: "tool".to_string(),
                                             content: Some(OpenAIContent::Text(format!(
@@ -993,16 +874,12 @@ pub async fn run_agent(
                                                 err_string
                                             ))),
                                             tool_call_id: Some(tool_call.id.clone()),
-                                            agent_action: Some(AgentAction::ToolCall {
-                                                job_id,
-                                                function_name: tool_call.function.name.clone(),
-                                                module_id: tool.module.id.clone(),
-                                            }),
+                                            agent_action: Some(agent_action.clone()),
                                             ..Default::default()
                                         });
-
                                         // Stream tool result (error case)
-                                        if should_stream {
+                                        if let Some(ref stream_event_channel) = stream_event_channel
+                                        {
                                             let tool_result_event = StreamingEvent::ToolResult {
                                                 call_id: tool_call.id.clone(),
                                                 function_name: tool_call.function.name.clone(),
@@ -1010,14 +887,11 @@ pub async fn run_agent(
                                                     &serde_json::json!({"error": err_string}),
                                                 ),
                                                 success: false,
+                                                agent_action,
                                             };
-                                            send_streaming_event(
-                                                &conn,
-                                                &job.workspace_id,
-                                                &job_id,
-                                                &tool_result_event,
-                                            )?;
-                                            final_events.push(tool_result_event)
+                                            stream_event_channel
+                                                .send(tool_result_event, &mut final_events_str)
+                                                .await?;
                                         }
 
                                         update_flow_status_module_with_actions_success(
@@ -1057,37 +931,35 @@ pub async fn run_agent(
                                                 "Tool job completed but no result".to_string(),
                                             ));
                                         };
-
+                                        let agent_action = AgentAction::ToolCall {
+                                            job_id,
+                                            function_name: tool_call.function.name.clone(),
+                                            module_id: tool.module.id.clone(),
+                                        };
                                         messages.push(OpenAIMessage {
                                             role: "tool".to_string(),
                                             content: Some(OpenAIContent::Text(
                                                 result.get().to_string(),
                                             )),
                                             tool_call_id: Some(tool_call.id.clone()),
-                                            agent_action: Some(AgentAction::ToolCall {
-                                                job_id,
-                                                function_name: tool_call.function.name.clone(),
-                                                module_id: tool.module.id.clone(),
-                                            }),
+                                            agent_action: Some(agent_action.clone()),
                                             ..Default::default()
                                         });
 
                                         // Stream tool result (success case)
-                                        if should_stream {
+                                        if let Some(ref stream_event_channel) = stream_event_channel
+                                        {
                                             let tool_result_event = StreamingEvent::ToolResult {
                                                 call_id: tool_call.id.clone(),
                                                 function_name: tool_call.function.name.clone(),
                                                 result: Arc::try_unwrap(result.clone())
                                                     .unwrap_or_else(|arc| (*arc).clone()),
                                                 success: true,
+                                                agent_action,
                                             };
-                                            send_streaming_event(
-                                                &conn,
-                                                &job.workspace_id,
-                                                &job_id,
-                                                &tool_result_event,
-                                            )?;
-                                            final_events.push(tool_result_event)
+                                            stream_event_channel
+                                                .send(tool_result_event, &mut final_events_str)
+                                                .await?;
                                         }
 
                                         update_flow_status_module_with_actions_success(
@@ -1152,8 +1024,8 @@ pub async fn run_agent(
     Ok(to_raw_value(&AIAgentResult {
         output: output_value,
         messages: final_messages,
-        events: if !final_events.is_empty() {
-            Some(final_events)
+        wm_stream: if !final_events_str.is_empty() {
+            Some(final_events_str)
         } else {
             None
         },

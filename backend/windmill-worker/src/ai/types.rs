@@ -155,7 +155,7 @@ pub struct AIAgentResult<'a> {
     pub output: Box<RawValue>,
     pub messages: Vec<Message<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub events: Option<Vec<StreamingEvent>>,
+    pub wm_stream: Option<String>,
 }
 
 /// Events for streaming AI responses
@@ -171,7 +171,13 @@ pub enum StreamingEvent {
     /// Tool execution has started
     ToolExecution { call_id: String },
     /// Tool execution result
-    ToolResult { call_id: String, function_name: String, result: Box<RawValue>, success: bool },
+    ToolResult {
+        call_id: String,
+        function_name: String,
+        result: Box<RawValue>,
+        success: bool,
+        agent_action: AgentAction,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

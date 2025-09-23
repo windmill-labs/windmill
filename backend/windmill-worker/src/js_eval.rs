@@ -1109,7 +1109,7 @@ function processStreamIterative(res) {{
                 iterator.next().then(function(result) {{
                     if (!result.done) {{
                         const chunk = result.value;
-                        console.log("WM_STREAM: " + chunk.replace('\n', '\\n'));
+                        console.log("WM_STREAM: " + chunk.replace(/\n/g, '\\n'));
                         // Continue the loop
                         step();
                     }} else {{

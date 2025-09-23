@@ -1,12 +1,16 @@
+use std::collections::HashMap;
+
 use reqwest::Response;
 use serde::Deserialize;
 use serde_json;
-use windmill_common::error::Error;
+use tokio_stream::StreamExt;
+use windmill_common::{error::Error, utils::rd_string};
 
-/// Parse Server-Sent Events from a streaming HTTP response
-pub struct SSEParser {
-    response: Response,
-}
+use crate::ai::{
+    providers::openai::{OpenAIFunction, OpenAIToolCall},
+    query_builder::StreamEventChannel,
+    types::StreamingEvent,
+};
 
 #[derive(Deserialize)]
 pub struct OpenAIChoiceDeltaToolCallFunction {
@@ -37,43 +41,115 @@ pub struct OpenAISSEEvent {
     pub choices: Option<Vec<OpenAIChoice>>,
 }
 
-impl SSEParser {
-    pub fn new(response: Response) -> Self {
-        Self { response }
-    }
+pub trait SSEParser {
+    async fn parse_event_data(&mut self, data: &str) -> Result<(), Error>;
 
-    /// Parse SSE stream and yield streaming events
-    pub async fn parse_events<F>(self, mut event_handler: F) -> Result<(), Error>
-    where
-        F: FnMut(OpenAISSEEvent) -> Result<(), Error>,
-    {
-        // Get the response body as bytes
-        let body_bytes = self
-            .response
-            .bytes()
-            .await
-            .map_err(|e| Error::internal_err(format!("Failed to read response body: {}", e)))?;
+    async fn parse_events(&mut self, response: Response) -> Result<(), Error> {
+        let mut stream = response.bytes_stream();
+        let mut buffer = String::new();
 
-        // Split by lines and process
-        let body_str = String::from_utf8_lossy(&body_bytes);
-        for line in body_str.lines() {
-            // Skip empty lines and comments
-            if line.is_empty() || line.starts_with(':') {
-                continue;
-            }
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result
+                .map_err(|e| Error::internal_err(format!("Failed to read chunk: {}", e)))?;
 
-            // Parse SSE data field
-            if let Some(data) = line.strip_prefix("data: ") {
-                if data == "[DONE]" {
-                    // OpenAI sends [DONE] to indicate end of stream
-                    break;
+            // Convert chunk to string and add to buffer
+            let chunk_str = String::from_utf8_lossy(&chunk);
+            buffer.push_str(&chunk_str);
+
+            // Process complete lines from buffer
+            while let Some(newline_pos) = buffer.find("\n\n") {
+                let line = buffer.drain(..newline_pos + 2).collect::<String>();
+                let line = line.trim_end_matches('\n');
+
+                // Skip empty lines and comments
+                if line.is_empty() || line.starts_with(':') {
+                    continue;
                 }
 
-                let event: OpenAISSEEvent = serde_json::from_str(data).map_err(|e| {
-                    Error::internal_err(format!("Failed to parse SSE chunk: {}", e))
-                })?;
+                // Parse SSE data field
+                if let Some(data) = line.strip_prefix("data: ") {
+                    if data == "[DONE]" {
+                        // OpenAI sends [DONE] to indicate end of stream
+                        return Ok(());
+                    }
 
-                event_handler(event)?;
+                    self.parse_event_data(data).await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+pub struct OpenAISSEParser {
+    pub accumulated_content: String,
+    pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
+    pub events_str: String,
+    pub stream_event_channel: StreamEventChannel,
+}
+
+impl OpenAISSEParser {
+    pub fn new(stream_event_channel: StreamEventChannel) -> Self {
+        Self {
+            accumulated_content: String::new(),
+            accumulated_tool_calls: HashMap::new(),
+            events_str: String::new(),
+            stream_event_channel,
+        }
+    }
+}
+
+impl SSEParser for OpenAISSEParser {
+    async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
+        let event: OpenAISSEEvent = serde_json::from_str(data).map_err(|e| {
+            Error::internal_err(format!("Failed to parse SSE chunk {}: {}", data, e))
+        })?;
+
+        if let Some(mut choices) = event.choices.filter(|s| !s.is_empty()) {
+            if let Some(delta) = choices.remove(0).delta {
+                if let Some(content) = delta.content.filter(|s| !s.is_empty()) {
+                    self.accumulated_content.push_str(&content);
+                    let event = StreamingEvent::TokenDelta { content };
+                    self.stream_event_channel
+                        .send(event, &mut self.events_str)
+                        .await?;
+                }
+
+                if let Some(tool_calls) = delta.tool_calls {
+                    for (idx, tool_call) in tool_calls.into_iter().enumerate() {
+                        let idx = tool_call.index.unwrap_or_else(|| idx as i64);
+
+                        if let Some(function) = tool_call.function {
+                            if let Some(tool_call) = self.accumulated_tool_calls.get_mut(&idx) {
+                                if let Some(arguments) = function.arguments {
+                                    tool_call.function.arguments += &arguments;
+                                }
+                            } else {
+                                let fun_name = function.name.unwrap_or_default();
+                                let call_id = tool_call.id.unwrap_or_else(|| rd_string(24));
+                                let event = StreamingEvent::ToolCall {
+                                    call_id: call_id.clone(),
+                                    function_name: fun_name.clone(),
+                                };
+                                self.stream_event_channel
+                                    .send(event, &mut self.events_str)
+                                    .await?;
+                                self.accumulated_tool_calls.insert(
+                                    idx,
+                                    OpenAIToolCall {
+                                        id: call_id,
+                                        function: OpenAIFunction {
+                                            name: fun_name,
+                                            arguments: function.arguments.unwrap_or_default(),
+                                        },
+                                        r#type: "function".to_string(),
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
 
