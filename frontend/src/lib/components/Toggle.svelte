@@ -43,8 +43,12 @@
 	{#if Boolean(options?.left)}
 		<span
 			class={twMerge(
-				'mr-2 font-medium duration-50 select-none',
-				bothOptions || textDisabled ? (checked ? 'text-disabled' : 'text-primary') : 'text-primary',
+				'mr-2 font-normal duration-50 select-none',
+				bothOptions || textDisabled
+					? checked
+						? 'text-disabled'
+						: 'text-tertiary'
+					: 'text-tertiary',
 				size === 'xs' || size === '2sm' ? 'text-xs' : size === '2xs' ? 'text-[0.5rem]' : 'text-sm',
 				textClass
 			)}
@@ -103,8 +107,12 @@
 	{#if Boolean(options?.right)}
 		<span
 			class={twMerge(
-				'ml-2 font-medium duration-50 select-none',
-				bothOptions || textDisabled ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
+				'ml-2 font-normal duration-50 select-none',
+				bothOptions || textDisabled
+					? checked
+						? 'text-tertiary'
+						: 'text-disabled'
+					: 'text-tertiary',
 				size === 'xs' || size === '2sm' ? 'text-xs' : size === '2xs' ? 'text-xs' : 'text-sm',
 				textClass
 			)}

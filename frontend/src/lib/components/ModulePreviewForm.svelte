@@ -153,17 +153,15 @@
 							>
 								{#snippet fieldHeaderActions()}
 									{#if stepsInputArgs?.isArgManuallySet(mod.id, argName)}
-										<div class="ml-auto">
-											<Button
-												on:click={() => {
-													plugIt(argName)
-												}}
-												size="xs2"
-												variant="contained"
-												color="light"
-												title="Re-evaluate input step"><RefreshCw size={12} /></Button
-											>
-										</div>
+										<Button
+											on:click={() => {
+												plugIt(argName)
+											}}
+											size="xs2"
+											variant="contained"
+											color="light"
+											title="Re-evaluate input step"><RefreshCw size={12} /></Button
+										>
 									{/if}
 								{/snippet}
 							</ArgInput>

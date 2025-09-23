@@ -470,6 +470,7 @@
 
 	let { debounced, clearDebounce } = debounce(() => compareValues(value), 50)
 	let inputCat = $derived(computeInputCat(type, format, itemsType?.type, enum_, contentEncoding))
+	let displayJsonToggleHeader = $derived(displayHeader && inputCat === 'list')
 	$effect(() => {
 		oneOf && untrack(() => updateOneOfSelected(oneOf))
 	})
@@ -606,7 +607,26 @@
 					css?.label?.class
 				)}
 			/>
-			{@render fieldHeaderActions?.()}
+			<div class="ml-auto flex gap-2">
+				{#if displayJsonToggleHeader}
+					<Toggle
+						on:change={(e) => {
+							// Once the user has changed the input type, we should not change it back automatically
+							if (!hasIsListJsonChanged) {
+								hasIsListJsonChanged = true
+							}
+
+							evalValueToRaw()
+							isListJson = !isListJson
+						}}
+						checked={isListJson}
+						textClass="text-secondary"
+						size="xs"
+						options={{ left: 'json' }}
+					/>
+				{/if}
+				{@render fieldHeaderActions?.()}
+			</div>
 		</div>
 	{/if}
 
@@ -793,8 +813,28 @@
 									{#each value ?? [] as v, i}
 										{#if i < itemsLimit}
 											<div class="flex max-w-md mt-1 w-full items-center">
+												{#snippet deleteItemBtn()}
+													<button
+														transition:fade|local={{ duration: 100 }}
+														class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+														aria-label="Clear"
+														onclick={() => {
+															value = value.filter((_, index) => index !== i)
+															redraw += 1
+														}}
+													>
+														<X size={14} />
+													</button>
+												{/snippet}
 												{#if itemsType?.type == 'number'}
-													<input type="number" bind:value={value[i]} id="arg-input-number-array" />
+													<TextInput
+														inputProps={{ type: 'number', id: 'arg-input-number-array' }}
+														class="pr-8"
+														bind:value={value[i]}
+													/>
+													<div class="absolute z-10 right-1.5">
+														{@render deleteItemBtn()}
+													</div>
 												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
 													<input
 														type="file"
@@ -802,6 +842,7 @@
 														onchange={(x) => fileChanged(x, (val) => (value[i] = val))}
 														multiple={false}
 													/>
+													{@render deleteItemBtn()}
 												{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined && !(format?.startsWith('resource-') && resourceTypes?.includes(format.split('-')[1]))}
 													{#await import('$lib/components/JsonEditor.svelte')}
 														<Loader2 class="animate-spin" />
@@ -811,6 +852,7 @@
 															bind:value={value[i]}
 														/>
 													{/await}
+													{@render deleteItemBtn()}
 												{:else if Array.isArray(itemsType?.enum)}
 													<ArgEnum
 														create={extra['disableCreate'] != true}
@@ -828,6 +870,7 @@
 														enum_={itemsType?.enum ?? []}
 														enumLabels={extra['enumLabels']}
 													/>
+													{@render deleteItemBtn()}
 												{:else if (itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)) || (format?.startsWith('resource-') && resourceTypes?.includes(format.split('-')[1]))}
 													{@const resourceFormat =
 														itemsType?.type == 'resource' &&
@@ -840,6 +883,7 @@
 														format={resourceFormat}
 														defaultValue={undefined}
 													/>
+													{@render deleteItemBtn()}
 												{:else if itemsType?.type == 'resource'}
 													{#await import('$lib/components/JsonEditor.svelte')}
 														<Loader2 class="animate-spin" />
@@ -856,6 +900,7 @@
 															bind:value={value[i]}
 														/>
 													{/await}
+													{@render deleteItemBtn()}
 												{:else if itemsType?.type === 'object' && itemsType?.properties}
 													<div class="p-8 border rounded-md w-full">
 														<SchemaForm
@@ -868,20 +913,17 @@
 															bind:args={value[i]}
 														/>
 													</div>
+													{@render deleteItemBtn()}
 												{:else}
-													<input type="text" bind:value={value[i]} id="arg-input-array" />
+													<TextInput
+														inputProps={{ type: 'text', id: 'arg-input-array' }}
+														class="pr-8"
+														bind:value={value[i]}
+													/>
+													<div class="absolute z-10 right-1.5">
+														{@render deleteItemBtn()}
+													</div>
 												{/if}
-												<button
-													transition:fade|local={{ duration: 100 }}
-													class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-													aria-label="Clear"
-													onclick={() => {
-														value = value.filter((_, index) => index !== i)
-														redraw += 1
-													}}
-												>
-													<X size={14} />
-												</button>
 											</div>
 										{/if}
 									{/each}
@@ -938,23 +980,25 @@
 						</div>
 					{/if}
 				</div>
-				<div class="mt-2 mr-4">
-					<Toggle
-						on:change={(e) => {
-							// Once the user has changed the input type, we should not change it back automatically
-							if (!hasIsListJsonChanged) {
-								hasIsListJsonChanged = true
-							}
+				{#if !displayHeader}
+					<div class="block mt-2.5 pl-2">
+						<Toggle
+							on:change={(e) => {
+								// Once the user has changed the input type, we should not change it back automatically
+								if (!hasIsListJsonChanged) {
+									hasIsListJsonChanged = true
+								}
 
-							evalValueToRaw()
-							isListJson = !isListJson
-						}}
-						checked={isListJson}
-						textClass="text-secondary"
-						size="xs"
-						options={{ right: 'json' }}
-					/>
-				</div>
+								evalValueToRaw()
+								isListJson = !isListJson
+							}}
+							checked={isListJson}
+							textClass="text-secondary"
+							size="xs"
+							options={{ left: 'json' }}
+						/>
+					</div>
+				{/if}
 			</div>
 		{:else if inputCat == 'dynamic'}
 			<DynamicInput name={label} {otherArgs} {helperScript} bind:value format={format ?? ''} />
@@ -1212,8 +1256,8 @@
 					/>
 				{/await}
 			{/if}
-			{#if inputCat == 'list'}
-				<div class="block">
+			{#if inputCat == 'list' && !displayHeader}
+				<div class="block mt-2.5 pl-2">
 					<Toggle
 						on:change={(e) => {
 							isListJson = !isListJson
@@ -1221,7 +1265,7 @@
 						checked={isListJson}
 						textClass="text-secondary"
 						size="xs"
-						options={{ right: 'json' }}
+						options={{ left: 'json' }}
 					/>
 				</div>
 			{/if}
