@@ -1,4 +1,3 @@
-use itertools::Itertools;
 use serde::Serialize;
 use tokio::sync::RwLock;
 use windmill_common::{
@@ -9,7 +8,7 @@ use windmill_common::{
     scripts::ScriptLang,
 };
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::worker_lockfiles::{extract_relative_imports, LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT};
 
@@ -276,7 +275,6 @@ SELECT importer_node_id, imported_path
         tx
     }
 
-    // TODO: More logs
     /// Run if you want to rebuild maps on specific workspace.
     /// Potentially takes much time
     pub async fn rebuild_map(w_id: &str, db: &sqlx::Pool<sqlx::Postgres>) -> Result<String> {
@@ -353,7 +351,7 @@ SELECT importer_node_id, imported_path
                             // But just in case we will also handle other cases.
                             FlowModuleValue::FlowScript { .. } => {
                                 // Abort will cancel transaction.
-                                return Err(Error::internal_err("abort"));
+                                return Err(Error::internal_err("FlowScript is not supposed to be in flow."));
                             }
                             _ => {}
                         }
