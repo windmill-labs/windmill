@@ -3,10 +3,14 @@
 	import InsertModuleInner from './InsertModuleInner.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { ComputeConfig } from 'svelte-floating-ui'
+	import { createEventDispatcher, getContext } from 'svelte'
 
 	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
 	import { flip, offset } from 'svelte-floating-ui/dom'
 	import { SchedulePollIcon } from '$lib/components/icons'
+	import { createAiAgent } from '../flowStateUtils.svelte'
+	import { generateRandomString } from '$lib/utils'
+	import type { FlowEditorContext } from '../types'
 
 	// import type { Writable } from 'svelte/store'
 
@@ -21,6 +25,7 @@
 		iconSize?: number
 		clazz?: string
 		placement?: Placement
+		chatModeEnabled?: boolean
 	}
 
 	let {
@@ -29,7 +34,8 @@
 		kind = 'script',
 		iconSize = 12,
 		clazz = '',
-		placement = 'bottom-center'
+		placement = 'bottom-center',
+		chatModeEnabled = false
 	}: Props = $props()
 
 	let floatingConfig: ComputeConfig = {
@@ -41,9 +47,24 @@
 	}
 
 	let open = $state(false)
+	const dispatch = createEventDispatcher()
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+
 	$effect(() => {
 		!open && (funcDesc = '')
 	})
+
+	async function handleDirectAiAgentCreation() {
+		if (!flowEditorContext) return
+
+		const id = generateRandomString()
+		const [flowModule, flowModuleState] = await createAiAgent(id)
+
+		dispatch('new', {
+			module: flowModule,
+			state: flowModuleState
+		})
+	}
 </script>
 
 <!-- <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close> -->
@@ -72,7 +93,13 @@ shouldUsePortal={true} -->
 				'w-[17.5px] h-[17.5px] flex items-center justify-center !outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded',
 				clazz
 			)}
-			onpointerdown={() => (open = !open)}
+			onpointerdown={() => {
+				if (chatModeEnabled && kind === 'script') {
+					handleDirectAiAgentCreation()
+				} else {
+					open = !open
+				}
+			}}
 		>
 			{#if kind === 'trigger'}
 				<SchedulePollIcon size={14} />

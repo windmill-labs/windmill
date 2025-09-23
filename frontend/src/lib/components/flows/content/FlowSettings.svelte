@@ -40,6 +40,8 @@
 	let dirtyPath = $state(false)
 
 	let displayWorkerTagPicker = $state(false)
+	let previousSchema: any = $state(undefined)
+
 	run(() => {
 		flowStore.val.tag ? (displayWorkerTagPicker = true) : null
 	})
@@ -133,12 +135,35 @@
 						size="sm"
 						checked={Boolean(flowStore.val.chat_input_enabled)}
 						on:change={() => {
-							flowStore.val.chat_input_enabled = !flowStore.val.chat_input_enabled
+							const wasEnabled = Boolean(flowStore.val.chat_input_enabled)
+							flowStore.val.chat_input_enabled = !wasEnabled
+
+							if (!wasEnabled) {
+								// Enabling chat mode - save current schema and set user_message schema
+								previousSchema = structuredClone(flowStore.val.schema || {})
+								flowStore.val.schema = {
+									$schema: 'https://json-schema.org/draft/2020-12/schema',
+									type: 'object',
+									properties: {
+										user_message: {
+											type: 'string',
+											description: 'Message from user'
+										}
+									},
+									required: ['user_message']
+								}
+							} else {
+								// Disabling chat mode - restore previous schema
+								if (previousSchema) {
+									flowStore.val.schema = structuredClone(previousSchema)
+									previousSchema = undefined
+								}
+							}
 						}}
 						options={{
 							right: 'Chat Input Mode',
 							rightTooltip:
-								'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter.'
+								'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter. The flow schema will be automatically set to accept only a user_message string input.'
 						}}
 						class="py-1"
 					/>
