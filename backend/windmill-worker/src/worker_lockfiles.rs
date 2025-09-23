@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::{get_git_repos_lock, AnsibleDependencyLocks};
-use crate::scoped_dependency_map::{ScopedDependencyMap, ScriptImporter, WMDEBUG_NO_DMAP_DISSOLVE};
+use crate::scoped_dependency_map::{ScopedDependencyMap, WMDEBUG_NO_DMAP_DISSOLVE};
 use async_recursion::async_recursion;
 use itertools::Itertools;
 use serde_json::value::RawValue;

@@ -18,7 +18,6 @@ use crate::{
     webhook_util::WebhookShared,
 };
 
-use aws_sdk_config::config::IntoShared;
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
@@ -3422,7 +3421,6 @@ async fn get_workspace_name(
 
 async fn get_dependency_map(
     authed: ApiAuthed,
-    // TODO: Can users just change w_id??
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<DependencyMap>> {

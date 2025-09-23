@@ -1,5 +1,4 @@
 // TODO: move all related logic here (if anything left anywhere in codebase)
-// TODO: Table/list with what I covered in tests vs what i miss
 mod common;
 
 mod relative_imports_languages {
@@ -416,8 +415,6 @@ def main():
         assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
         Ok(())
     }
-    // TODO: renames.
-
     // Consider simple one. Only referenced directly. No deep connections
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base", "dependency_map"))]

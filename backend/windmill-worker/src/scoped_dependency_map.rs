@@ -26,12 +26,7 @@ pub struct DependencyMap {
     pub imported_path: Option<String>,
     pub importer_node_id: Option<String>,
 }
-// TODO: Do we have dmap for drafts?
-// TODO: Add rebuild maps in workspace -> troubleshooting
-// 1. Only Pro or EE (no trials) or Selfhosted
-// 2. timeout for workspace. e.g. run once per 24 hours (can be disabled). No timeout for admins workspace.
-// 3. Only single workspace migration at the time is possible (implement queue).
-// 4. Check workspace from the backend.
+
 #[derive(Debug)]
 pub struct ScopedDependencyMap {
     dmap: HashSet<(String, String)>,
@@ -296,9 +291,7 @@ SELECT importer_node_id, imported_path
             .await?
             {
                 let (sd, smd) = cache::script::fetch(&db.clone().into(), r.hash.into()).await?;
-                // TODO: Cover case with requirements.txt
                 let mut dmap = ScopedDependencyMap::fetch(w_id, &r.path, "script", db).await?;
-
                 let mut tx = db.begin().await?;
 
                 if (smd.language.is_some_and(|v| v == ScriptLang::Bun)
@@ -329,14 +322,6 @@ SELECT importer_node_id, imported_path
                 tracing::info!(workspace_id = w_id, "Rebuilt for script {}", &r.path);
             }
 
-            // TODO: Should this add /flow?
-            // TODO: Can triggers and other types of scripts have relative imports?
-            // TODO: Test if works with AIStep
-            // TODO: Works with triggers?
-            // TODO: Works with preprocessors
-            // TODO: What else?
-            // Flows
-            //
             // Fetch only top level versions and paths
             // It is not fetching value
             tracing::info!(workspace_id = w_id, "Rebuilding dependency map for flows");
@@ -460,82 +445,3 @@ SELECT importer_node_id, imported_path
         }
     }
 }
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct ScriptImporter {
-    pub importer_path: String,
-    pub importer_kind: Option<String>,
-    pub importer_node_ids: Option<Vec<String>>,
-}
-
-impl ScriptImporter {
-    /// Same as [Self::fetch_maybe_rearranged]
-    pub async fn fetch_importers_maybe_rearranged<'a>(
-        w_id: &str,
-        imported_path: &str,
-        parent_path: &Option<String>,
-        executor: impl sqlx::Executor<'a, Database = sqlx::Postgres>,
-    ) -> Result<Vec<Self>> {
-        //         if parent_path
-        //             .as_ref()
-        //             .is_some_and(|x| !x.is_empty() && x != imported_path)
-        //         {
-        //             tracing::info!(
-        //                 workspace_id = %w_id,
-        //                 "detected top level rename from: {} to: {imported_path} on script. reflecting in dependency_map.",
-        //                 parent_path.clone().unwrap_or_default(),
-        //             );
-        //             let mut grouped: HashMap<(String, Option<String>), Option<Vec<String>>> =
-        //                 HashMap::new();
-
-        //             sqlx::query!(
-        //                 "
-        // UPDATE dependency_map
-        //     SET imported_path = $1
-        //     WHERE imported_path = $2 AND workspace_id = $3
-        // RETURNING importer_path, importer_kind::text, importer_node_id
-        // ",
-        //                 imported_path,
-        //                 parent_path.clone().unwrap(),
-        //                 w_id
-        //             )
-        //             .fetch_all(executor)
-        //             .await?
-        //             .into_iter()
-        //             .map(|r| {
-        //                 dbg!(&r);
-        //                 let ids = grouped
-        //                     .entry((r.importer_path, r.importer_kind))
-        //                     .or_insert(None);
-
-        //                 if !r.importer_node_id.is_empty() {
-        //                     ids.get_or_insert_default().push(r.importer_node_id);
-        //                 }
-        //             })
-        //             .collect_vec();
-
-        //             Ok(grouped
-        //                 .into_iter()
-        //                 .map(|((importer_path, importer_kind), importer_node_ids)| Self {
-        //                     importer_path,
-        //                     importer_kind,
-        //                     importer_node_ids,
-        //                 })
-        //                 .collect_vec())
-        //         } else {
-        sqlx::query_as!(
-                Self,
-                "SELECT importer_path, importer_kind::text, array_agg(importer_node_id) as importer_node_ids FROM dependency_map
-                 WHERE imported_path = $1
-                 AND workspace_id = $2
-                 GROUP BY importer_path, importer_kind",
-                parent_path.clone().unwrap_or(imported_path.into()),
-                w_id
-            )
-            .fetch_all(executor)
-            .await.map_err(Error::from)
-        // }
-    }
-}
-
-// TODO: Add tests
