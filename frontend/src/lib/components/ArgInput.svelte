@@ -812,7 +812,7 @@
 								{#if Array.isArray(value)}
 									{#each value ?? [] as v, i}
 										{#if i < itemsLimit}
-											<div class="flex max-w-md w-full items-center relative">
+											<div class="flex w-full items-center relative">
 												{#snippet deleteItemBtn()}
 													<button
 														transition:fade|local={{ duration: 100 }}
