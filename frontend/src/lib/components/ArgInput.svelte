@@ -977,7 +977,7 @@
 			/>
 		{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 			{#if oneOf && oneOf.length >= 2}
-				<div class="flex flex-col gap-2 w-full">
+				<div class="flex flex-col gap-2 w-full border rounded-md p-2">
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
 							selected={oneOfSelected}
@@ -1017,72 +1017,70 @@
 							{@const obj = oneOf[objIdx]}
 							{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
 								{#key redraw}
-									<div class="px-2 pt-2 border rounded w-full">
-										{#if orderEditable}
-											<SchemaFormDnd
-												lightHeaderFont
-												{nestedClasses}
-												{onlyMaskPassword}
-												{disablePortal}
-												{disabled}
-												{prettifyHeader}
-												bind:schema={
-													() => ({
-														properties: obj.properties ?? {},
-														order: obj.order,
-														$schema: '',
-														required: obj.required ?? [],
-														type: 'object'
-													}),
-													() => {
-														dispatch('nestedChange')
-													}
-												}
-												bind:args={value}
-												hiddenArgs={[
-													oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
-														? 'kind'
-														: 'label'
-												]}
-												on:reorder={(e) => {
-													if (oneOf && oneOf[objIdx]) {
-														const keys = e.detail
-														oneOf[objIdx].order = keys
-													}
-												}}
-												on:nestedChange
-												{shouldDispatchChanges}
-											/>
-										{:else}
-											<SchemaForm
-												lightHeaderFont
-												{nestedClasses}
-												{onlyMaskPassword}
-												{disablePortal}
-												{disabled}
-												{prettifyHeader}
-												hiddenArgs={['label', 'kind']}
-												schema={{
-													properties: obj.properties,
+									{#if orderEditable}
+										<SchemaFormDnd
+											lightHeaderFont
+											{nestedClasses}
+											{onlyMaskPassword}
+											{disablePortal}
+											{disabled}
+											{prettifyHeader}
+											bind:schema={
+												() => ({
+													properties: obj.properties ?? {},
 													order: obj.order,
 													$schema: '',
 													required: obj.required ?? [],
 													type: 'object'
-												}}
-												bind:args={
-													() => value,
-													(v) => {
-														value = { ...v, [tagKey]: oneOfSelected }
-													}
-												}
-												{shouldDispatchChanges}
-												on:change={() => {
+												}),
+												() => {
 													dispatch('nestedChange')
-												}}
-												on:nestedChange
-											/>
-										{/if}
-									</div>
+												}
+											}
+											bind:args={value}
+											hiddenArgs={[
+												oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+													? 'kind'
+													: 'label'
+											]}
+											on:reorder={(e) => {
+												if (oneOf && oneOf[objIdx]) {
+													const keys = e.detail
+													oneOf[objIdx].order = keys
+												}
+											}}
+											on:nestedChange
+											{shouldDispatchChanges}
+										/>
+									{:else}
+										<SchemaForm
+											lightHeaderFont
+											{nestedClasses}
+											{onlyMaskPassword}
+											{disablePortal}
+											{disabled}
+											{prettifyHeader}
+											hiddenArgs={['label', 'kind']}
+											schema={{
+												properties: obj.properties,
+												order: obj.order,
+												$schema: '',
+												required: obj.required ?? [],
+												type: 'object'
+											}}
+											bind:args={
+												() => value,
+												(v) => {
+													value = { ...v, [tagKey]: oneOfSelected }
+												}
+											}
+											{shouldDispatchChanges}
+											on:change={() => {
+												dispatch('nestedChange')
+											}}
+											on:nestedChange
+										/>
+									{/if}
 								{/key}
 							{:else if disabled}
 								<textarea disabled></textarea>
@@ -1364,7 +1362,7 @@
 						<button
 							class="absolute {password || extra?.['password'] == true
 								? 'right-16 top-1.5'
-								: 'right-1 top-1'} opacity-0 group-hover:opacity-100 duration-200 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+								: 'right-1 top-[7px]'} opacity-0 group-hover:opacity-100 duration-200 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
 							onclick={() => {
 								pickForField = label
 								itemPicker?.openDrawer?.()
