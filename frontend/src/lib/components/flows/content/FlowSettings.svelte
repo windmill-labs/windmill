@@ -22,6 +22,7 @@
 	import Badge from '$lib/components/Badge.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
+	import { emptySchema } from '$lib/utils'
 
 	interface Props {
 		noEditor: boolean
@@ -40,7 +41,10 @@
 	let dirtyPath = $state(false)
 
 	let displayWorkerTagPicker = $state(false)
-	let previousSchema: any = $state(undefined)
+	let chatInputEnabled = $derived(Boolean(flowStore.val.schema?.chat_input_enabled))
+
+	$inspect(flowStore.val.schema)
+	$inspect(chatInputEnabled)
 
 	run(() => {
 		flowStore.val.tag ? (displayWorkerTagPicker = true) : null
@@ -133,14 +137,9 @@
 					<Toggle
 						textClass="font-normal text-sm"
 						size="sm"
-						checked={Boolean(flowStore.val.chat_input_enabled)}
+						checked={chatInputEnabled}
 						on:change={() => {
-							const wasEnabled = Boolean(flowStore.val.chat_input_enabled)
-							flowStore.val.chat_input_enabled = !wasEnabled
-
-							if (!wasEnabled) {
-								// Enabling chat mode - save current schema and set user_message schema
-								previousSchema = structuredClone(flowStore.val.schema || {})
+							if (!chatInputEnabled) {
 								flowStore.val.schema = {
 									$schema: 'https://json-schema.org/draft/2020-12/schema',
 									type: 'object',
@@ -150,14 +149,11 @@
 											description: 'Message from user'
 										}
 									},
+									chat_input_enabled: true,
 									required: ['user_message']
 								}
 							} else {
-								// Disabling chat mode - restore previous schema
-								if (previousSchema) {
-									flowStore.val.schema = structuredClone(previousSchema)
-									previousSchema = undefined
-								}
+								flowStore.val.schema = emptySchema()
 							}
 						}}
 						options={{
