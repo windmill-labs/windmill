@@ -438,12 +438,12 @@ async fn create_flow(
         workspace_id, path, summary, description,
         dependency_job, lock_error_logs, draft_only, tag,
         dedicated_worker, visible_to_runner_only, on_behalf_of_email,
-        value, schema, edited_by, edited_at
+        chat_input_enabled, value, schema, edited_by, edited_at
     ) VALUES (
         $1, $2, $3, $4,
         NULL, '', $5, $6,
         $7, $8, $9,
-        $10, $11::text::json, $12, now()
+        $10, $11, $12::text::json, $13, now()
     )"#,
         w_id,
         nf.path,
@@ -458,6 +458,7 @@ async fn create_flow(
         } else {
             None
         },
+        nf.chat_input_enabled.unwrap_or(false),
         nf.value,
         schema_str,
         &authed.username,
@@ -822,9 +823,9 @@ async fn update_flow(
     if is_new_path {
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
         sqlx::query!(
-            "INSERT INTO flow 
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at) 
-            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at
+            "INSERT INTO flow
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, chat_input_enabled, concurrency_key, versions, value, schema, edited_by, edited_at)
+            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, chat_input_enabled, concurrency_key, versions, value, schema, edited_by, edited_at
                 FROM flow
                 WHERE path = $2 AND workspace_id = $3",
             nf.path,

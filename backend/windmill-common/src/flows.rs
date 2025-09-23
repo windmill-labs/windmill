@@ -55,6 +55,8 @@ pub struct Flow {
     pub visible_to_runner_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "is_none_or_false")]
+    pub chat_input_enabled: Option<bool>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -107,6 +109,7 @@ pub struct NewFlow {
     pub deployment_message: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    pub chat_input_enabled: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
