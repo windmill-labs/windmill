@@ -482,7 +482,7 @@
 					options={{
 						right: 'Send result on error',
 						rightTooltip:
-							'Whether the runnable result should be sent as a message to the websocket server even when the execution fails with an error. This allows for graceful error handling by sending specific error payloads.'
+							'Allows the runnable result to be sent as a message to the WebSocket server if the result is a non-null error.'
 					}}
 					disabled={!can_write || !can_return_message}
 				/>
