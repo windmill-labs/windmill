@@ -23,8 +23,7 @@
 		Code,
 		Save,
 		X,
-		Check,
-		MessageCircle
+		Check
 	} from 'lucide-svelte'
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
@@ -379,7 +378,7 @@
 <FlowCard {noEditor} title="Flow Input">
 	{#if !disabled}
 		{#if flowStore.val.schema?.chat_input_enabled}
-			<FlowChatInterface flowPath={$pathStore || ''} onRunFlow={runFlowWithMessage} />
+			<FlowChatInterface onRunFlow={runFlowWithMessage} />
 		{:else}
 			<div class="py-2 px-4 h-full">
 				<EditableSchemaForm

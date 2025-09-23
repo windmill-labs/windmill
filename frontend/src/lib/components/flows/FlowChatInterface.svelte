@@ -4,6 +4,7 @@
 	import { JobService, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
+	import autosize from '$lib/autosize'
 
 	interface ChatMessage {
 		id: string
@@ -17,11 +18,10 @@
 	}
 
 	interface Props {
-		flowPath: string
 		onRunFlow: (args: Record<string, any>) => Promise<string>
 	}
 
-	let { flowPath, onRunFlow }: Props = $props()
+	let { onRunFlow }: Props = $props()
 
 	let messages = $state<ChatMessage[]>([])
 	let inputMessage = $state('')
@@ -41,7 +41,7 @@
 			let attempts = 0
 
 			while (attempts < maxAttempts) {
-				await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second
+				await new Promise((resolve) => setTimeout(resolve, 1000)) // Wait 1 second
 				attempts++
 
 				try {
@@ -52,15 +52,15 @@
 
 					if (completedJob) {
 						// Job completed, update the message with the result
-						messages = messages.map(msg =>
+						messages = messages.map((msg) =>
 							msg.id === messageId
 								? {
-									...msg,
-									result: completedJob.result,
-									job: completedJob,
-									isLoading: false,
-									content: formatJobResult(completedJob.result)
-								}
+										...msg,
+										result: completedJob.result,
+										job: completedJob,
+										isLoading: false,
+										content: formatJobResult(completedJob.result)
+									}
 								: msg
 						)
 						return
@@ -72,24 +72,24 @@
 			}
 
 			// Timeout - mark as failed
-			messages = messages.map(msg =>
+			messages = messages.map((msg) =>
 				msg.id === messageId
 					? {
-						...msg,
-						isLoading: false,
-						content: 'Job timed out or failed to complete'
-					}
+							...msg,
+							isLoading: false,
+							content: 'Job timed out or failed to complete'
+						}
 					: msg
 			)
 		} catch (error) {
 			console.error('Error polling job result:', error)
-			messages = messages.map(msg =>
+			messages = messages.map((msg) =>
 				msg.id === messageId
 					? {
-						...msg,
-						isLoading: false,
-						content: 'Error retrieving job result'
-					}
+							...msg,
+							isLoading: false,
+							content: 'Error retrieving job result'
+						}
 					: msg
 			)
 		}
@@ -105,7 +105,11 @@
 		}
 
 		if (typeof result === 'object') {
-			return JSON.stringify(result, null, 2)
+			if (result.output) {
+				return result.output
+			} else {
+				return JSON.stringify(result, null, 2)
+			}
 		}
 
 		return String(result)
@@ -166,24 +170,10 @@
 	})
 </script>
 
-<div class="flex flex-col h-full max-w-4xl mx-auto">
-	<div class="flex-1 flex flex-col min-h-0">
-		<!-- Chat Header -->
-		<div class="p-4 border-b border-gray-200 dark:border-gray-700">
-			<div class="flex items-center gap-2">
-				<MessageCircle size={20} class="text-blue-500" />
-				<h2 class="text-lg font-semibold">Chat with Flow</h2>
-			</div>
-			<p class="text-sm text-secondary mt-1">
-				Send a message to run the flow with your message as the "user_message" input
-			</p>
-		</div>
-
+<div class="flex flex-col h-full w-full">
+	<div class="flex-1 flex flex-col min-h-0 w-full">
 		<!-- Messages Container -->
-		<div
-			bind:this={messagesContainer}
-			class="flex-1 overflow-y-auto p-4 space-y-4 bg-surface-secondary"
-		>
+		<div bind:this={messagesContainer} class="flex-1 overflow-y-auto p-4 space-y-4 bg-background">
 			{#if messages.length === 0}
 				<div class="text-center text-tertiary py-8">
 					<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
@@ -199,26 +189,19 @@
 								: 'bg-surface border border-gray-200 dark:border-gray-600'}"
 						>
 							{#if message.isUser}
-								<p class="text-sm font-medium mb-1">You</p>
 								<p class="whitespace-pre-wrap">{message.content}</p>
+							{:else if message.isLoading}
+								<div class="flex items-center gap-2 text-tertiary">
+									<Loader2 size={16} class="animate-spin" />
+									<span>Processing...</span>
+								</div>
+							{:else if message.content}
+								<div class="whitespace-pre-wrap">
+									{message.content}
+								</div>
 							{:else}
-								<p class="text-sm font-medium mb-2 text-secondary">Flow Result</p>
-								{#if message.isLoading}
-									<div class="flex items-center gap-2 text-tertiary">
-										<Loader2 size={16} class="animate-spin" />
-										<span>Processing...</span>
-									</div>
-								{:else if message.content}
-									<div class="whitespace-pre-wrap font-mono text-sm bg-surface-secondary p-2 rounded border">
-										{message.content}
-									</div>
-								{:else}
-									<p class="text-tertiary">No result</p>
-								{/if}
+								<p class="text-tertiary">No result</p>
 							{/if}
-							<p class="text-xs opacity-70 mt-2">
-								{message.timestamp.toLocaleTimeString()}
-							</p>
 						</div>
 					</div>
 				{/each}
@@ -230,6 +213,7 @@
 			<div class="flex gap-2">
 				<textarea
 					bind:value={inputMessage}
+					use:autosize
 					onkeydown={handleKeyDown}
 					placeholder="Type your message here..."
 					class="flex-1 min-h-[40px] max-h-32 resize-none rounded-md border border-gray-200 dark:border-gray-600 bg-surface px-3 py-2 text-sm placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -243,9 +227,6 @@
 					iconOnly
 					title="Send message (Enter)"
 				/>
-			</div>
-			<div class="text-xs text-tertiary mt-2">
-				Press Enter to send, Shift+Enter for new line
 			</div>
 		</div>
 	</div>

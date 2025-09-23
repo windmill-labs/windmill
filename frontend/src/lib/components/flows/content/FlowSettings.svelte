@@ -152,7 +152,13 @@
 								flowStore.val.value.modules = [
 									{
 										id: 'a',
-										value: { type: 'aiagent', tools: [], input_transforms: {} }
+										value: {
+											type: 'aiagent',
+											tools: [],
+											input_transforms: {
+												user_message: { type: 'javascript', expr: 'flow_input.user_message' }
+											}
+										}
 									}
 								]
 							} else {
