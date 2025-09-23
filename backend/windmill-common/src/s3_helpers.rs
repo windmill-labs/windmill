@@ -526,6 +526,47 @@ pub async fn build_object_store_client(
     }
 }
 
+
+pub async fn upload_artifact_to_store(path: &str, data: bytes::Bytes, standalone_dir: &str) -> error::Result<()> {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    let object_store = crate::s3_helpers::get_object_store().await;
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+    let object_store: Option<()> = None;
+    Ok(if &crate::utils::MODE_AND_ADDONS.mode
+        == &crate::utils::Mode::Standalone
+        && object_store.is_none()
+    {
+        std::fs::create_dir_all(
+            standalone_dir,
+        )?;
+        crate::worker::write_file_bytes(
+            &standalone_dir,
+            &path,
+            &data,
+        )?;
+    } else {
+        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+        {
+            return Err(error::Error::ExecutionErr("codebase is an EE feature".to_string()));
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if let Some(os) = object_store {
+
+            if let Err(e) = os
+                .put(&object_store::path::Path::from(path), data.into())
+                .await
+            {
+                tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                return Err(error::Error::ExecutionErr(format!("Failed to put {path} to s3")));
+            }
+        } else {
+            return Err(error::Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+        }
+    })
+}
+
+
 #[cfg(feature = "parquet")]
 pub async fn attempt_fetch_bytes(
     client: Arc<dyn ObjectStore>,
