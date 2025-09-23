@@ -4,7 +4,6 @@
 	import { JobService, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import JobLoader from '../JobLoader.svelte'
 
 	interface ChatMessage {
 		id: string
@@ -13,6 +12,8 @@
 		isUser: boolean
 		jobId?: string
 		job?: Job
+		result?: any
+		isLoading?: boolean
 	}
 
 	interface Props {
@@ -31,6 +32,83 @@
 		if (messagesContainer) {
 			messagesContainer.scrollTop = messagesContainer.scrollHeight
 		}
+	}
+
+	async function pollJobResult(jobId: string, messageId: string) {
+		try {
+			// Poll for job completion
+			const maxAttempts = 30 // 30 seconds max
+			let attempts = 0
+
+			while (attempts < maxAttempts) {
+				await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second
+				attempts++
+
+				try {
+					const completedJob = await JobService.getCompletedJob({
+						workspace: $workspaceStore!,
+						id: jobId
+					})
+
+					if (completedJob) {
+						// Job completed, update the message with the result
+						messages = messages.map(msg =>
+							msg.id === messageId
+								? {
+									...msg,
+									result: completedJob.result,
+									job: completedJob,
+									isLoading: false,
+									content: formatJobResult(completedJob.result)
+								}
+								: msg
+						)
+						return
+					}
+				} catch (error) {
+					// Job not completed yet, continue polling
+					continue
+				}
+			}
+
+			// Timeout - mark as failed
+			messages = messages.map(msg =>
+				msg.id === messageId
+					? {
+						...msg,
+						isLoading: false,
+						content: 'Job timed out or failed to complete'
+					}
+					: msg
+			)
+		} catch (error) {
+			console.error('Error polling job result:', error)
+			messages = messages.map(msg =>
+				msg.id === messageId
+					? {
+						...msg,
+						isLoading: false,
+						content: 'Error retrieving job result'
+					}
+					: msg
+			)
+		}
+	}
+
+	function formatJobResult(result: any): string {
+		if (result === null || result === undefined) {
+			return 'No result returned'
+		}
+
+		if (typeof result === 'string') {
+			return result
+		}
+
+		if (typeof result === 'object') {
+			return JSON.stringify(result, null, 2)
+		}
+
+		return String(result)
 	}
 
 	async function sendMessage() {
@@ -53,16 +131,21 @@
 			const jobId = await onRunFlow({ user_message: messageContent })
 
 			// Add assistant message placeholder
+			const assistantMessageId = crypto.randomUUID()
 			const assistantMessage: ChatMessage = {
-				id: crypto.randomUUID(),
+				id: assistantMessageId,
 				content: '',
 				timestamp: new Date(),
 				isUser: false,
-				jobId: jobId
+				jobId: jobId,
+				isLoading: true
 			}
 
 			messages = [...messages, assistantMessage]
 			scrollToBottom()
+
+			// Start polling for job result
+			pollJobResult(jobId, assistantMessageId)
 		} catch (error) {
 			console.error('Error running flow:', error)
 			sendUserToast('Failed to run flow: ' + error, true)
@@ -120,10 +203,17 @@
 								<p class="whitespace-pre-wrap">{message.content}</p>
 							{:else}
 								<p class="text-sm font-medium mb-2 text-secondary">Flow Result</p>
-								{#if message.jobId}
-									<JobLoader jobId={message.jobId} />
+								{#if message.isLoading}
+									<div class="flex items-center gap-2 text-tertiary">
+										<Loader2 size={16} class="animate-spin" />
+										<span>Processing...</span>
+									</div>
+								{:else if message.content}
+									<div class="whitespace-pre-wrap font-mono text-sm bg-surface-secondary p-2 rounded border">
+										{message.content}
+									</div>
 								{:else}
-									<p class="text-tertiary">Processing...</p>
+									<p class="text-tertiary">No result</p>
 								{/if}
 							{/if}
 							<p class="text-xs opacity-70 mt-2">

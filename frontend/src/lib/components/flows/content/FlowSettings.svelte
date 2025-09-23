@@ -165,7 +165,7 @@
 					/>
 				</div>
 
-				{#if flowStore.val.schema && enableAi && !flowStore.val.chat_input_enabled}
+				{#if flowStore.val.schema && enableAi && !flowStore.val.schema?.chat_input_enabled}
 					<AIFormSettings
 						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
 						type="flow"
