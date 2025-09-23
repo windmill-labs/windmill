@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.545.0
+  version: 1.546.0
   title: Windmill API
 
   contact:
@@ -3684,6 +3684,7 @@ paths:
               properties:
                 refresh_token:
                   type: string
+                  description: "OAuth refresh token. For authorization_code flow, this contains the actual refresh token. For client_credentials flow, this must be set to an empty string."
                 expires_in:
                   type: integer
                 client:
@@ -3701,6 +3702,7 @@ paths:
                   type: string
                   description: "OAuth token URL override for resource-level authentication (client_credentials flow only)"
               required:
+                - refresh_token
                 - expires_in
                 - client
       responses:

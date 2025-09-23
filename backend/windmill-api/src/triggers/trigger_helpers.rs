@@ -450,6 +450,7 @@ pub trait TriggerJobArgs {
         trigger_info: HashMap<String, Box<RawValue>>,
     ) -> impl Future<Output = Result<PushArgsOwned>> + Send {
         async move {
+            tracing::debug!("Building job args for {runnable_id:?}");
             let runnable_format =
                 get_runnable_format(runnable_id, w_id, db, &Self::TRIGGER_KIND).await?;
             let job_args = match runnable_format {
@@ -460,6 +461,7 @@ pub trait TriggerJobArgs {
                     Self::build_job_args_v2(has_preprocessor, &payload, trigger_info)
                 }
             };
+
             Ok(job_args)
         }
     }

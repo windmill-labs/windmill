@@ -13,11 +13,14 @@
 	import { generateRandomString } from '$lib/utils'
 	import { GripVertical, Plus } from 'lucide-svelte'
 	import GridTabDisabled from './GridTabDisabled.svelte'
+	import GridTabHidden from './GridTabHidden.svelte'
 
 	interface Props {
 		tabs?: string[]
 		disabledTabs?: RichConfiguration[]
+		hiddenTabs?: RichConfiguration[]
 		canDisableTabs?: boolean
+		canHideTabs?: boolean
 		word?: string
 		component: AppComponent
 	}
@@ -25,7 +28,9 @@
 	let {
 		tabs = $bindable(undefined),
 		disabledTabs = $bindable(undefined),
+		hiddenTabs = $bindable(undefined),
 		canDisableTabs = false,
+		canHideTabs = false,
 		word = 'Tab',
 		component = $bindable()
 	}: Props = $props()
@@ -36,6 +41,12 @@
 		}
 		if (disabledTabs == undefined) {
 			disabledTabs = [
+				{ type: 'static', value: false, fieldType: 'boolean' },
+				{ type: 'static', value: false, fieldType: 'boolean' }
+			]
+		}
+		if (hiddenTabs == undefined) {
+			hiddenTabs = [
 				{ type: 'static', value: false, fieldType: 'boolean' },
 				{ type: 'static', value: false, fieldType: 'boolean' }
 			]
@@ -77,6 +88,7 @@
 		component.numberOfSubgrids = items.length
 
 		disabledTabs = [...(disabledTabs ?? []), { type: 'static', value: false, fieldType: 'boolean' }]
+		hiddenTabs = [...(hiddenTabs ?? []), { type: 'static', value: false, fieldType: 'boolean' }]
 	}
 
 	function deleteSubgrid(index: number) {
@@ -98,6 +110,9 @@
 
 		// Delete the item in the disabledTabs array
 		disabledTabs = (disabledTabs ?? []).filter((_, i) => i !== index)
+
+		// Delete the item in the hiddenTabs array
+		hiddenTabs = (hiddenTabs ?? []).filter((_, i) => i !== index)
 
 		component.numberOfSubgrids = items.length
 		// Update the originalIndex of the remaining items
@@ -136,10 +151,13 @@
 			}
 
 			const newDisabledTabs: RichConfiguration[] = []
+			const newHiddenTabs: RichConfiguration[] = []
 			for (let i = 0; i < items.length; i++) {
 				disabledTabs && newDisabledTabs.push(disabledTabs[items[i].originalIndex])
+				hiddenTabs && newHiddenTabs.push(hiddenTabs[items[i].originalIndex])
 			}
 			disabledTabs = newDisabledTabs
+			hiddenTabs = newHiddenTabs
 
 			// update originalIndex
 			items.forEach((item, i) => {
@@ -202,6 +220,11 @@
 
 					{#if canDisableTabs && disabledTabs}
 						<GridTabDisabled {index} bind:field={disabledTabs[index]} id={component.id} />
+					{/if}
+					{#if canHideTabs && hiddenTabs}
+						<div class="mt-2">
+							<GridTabHidden {index} bind:field={hiddenTabs[index]} id={component.id} />
+						</div>
 					{/if}
 				</div>
 			{/each}
