@@ -807,12 +807,12 @@
 							/>
 						</div>
 					{:else}
-						<div class="w-full">
+						<div class="w-full flex flex-col gap-y-1">
 							{#key redraw}
 								{#if Array.isArray(value)}
 									{#each value ?? [] as v, i}
 										{#if i < itemsLimit}
-											<div class="flex max-w-md mt-1 w-full items-center">
+											<div class="flex max-w-md w-full items-center relative">
 												{#snippet deleteItemBtn()}
 													<button
 														transition:fade|local={{ duration: 100 }}
@@ -944,40 +944,37 @@
 								{/if}
 							{/key}
 						</div>
-						<div class="flex mt-2 gap-20 items-baseline">
-							<Button
-								variant="border"
-								color="light"
-								size="xs"
-								btnClasses="mt-1"
-								on:click={() => {
-									if (value == undefined || !Array.isArray(value)) {
-										value = []
-									}
-									if (itemsType?.type == 'number') {
-										value = value.concat(0)
-									} else if (
-										(itemsType?.type == 'object' &&
-											!(
-												format?.startsWith('resource-') &&
-												resourceTypes?.includes(format.split('-')[1])
-											)) ||
-										(itemsType?.type == 'resource' &&
-											!(
-												itemsType?.resourceType && resourceTypes?.includes(itemsType?.resourceType)
-											))
-									) {
-										value = value.concat({})
-									} else {
-										value = value.concat('')
-									}
-								}}
-								id="arg-input-add-item"
-								startIcon={{ icon: Plus }}
-							>
-								Add item
-							</Button>
-						</div>
+						<Button
+							variant="border"
+							color="light"
+							size="xs"
+							btnClasses="text-tertiary"
+							wrapperClasses="w-full mt-2"
+							on:click={() => {
+								if (value == undefined || !Array.isArray(value)) {
+									value = []
+								}
+								if (itemsType?.type == 'number') {
+									value = value.concat(0)
+								} else if (
+									(itemsType?.type == 'object' &&
+										!(
+											format?.startsWith('resource-') &&
+											resourceTypes?.includes(format.split('-')[1])
+										)) ||
+									(itemsType?.type == 'resource' &&
+										!(itemsType?.resourceType && resourceTypes?.includes(itemsType?.resourceType)))
+								) {
+									value = value.concat({})
+								} else {
+									value = value.concat('')
+								}
+							}}
+							id="arg-input-add-item"
+							startIcon={{ icon: Plus }}
+						>
+							Add item
+						</Button>
 					{/if}
 				</div>
 				{#if !displayHeader}
@@ -1448,11 +1445,5 @@
 	input::-webkit-inner-spin-button {
 		-webkit-appearance: none !important;
 		margin: 0;
-	}
-
-	/* Firefox */
-	input[type='number'] {
-		-moz-appearance: textfield !important;
-		appearance: textfield !important;
 	}
 </style>
