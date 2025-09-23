@@ -470,7 +470,11 @@
 
 	let { debounced, clearDebounce } = debounce(() => compareValues(value), 50)
 	let inputCat = $derived(computeInputCat(type, format, itemsType?.type, enum_, contentEncoding))
-	let displayJsonToggleHeader = $derived(displayHeader && inputCat === 'list')
+	let displayJsonToggleHeader = $derived(
+		displayHeader &&
+			inputCat === 'list' &&
+			!(itemsType?.resourceType === 's3_object' || itemsType?.resourceType === 's3object')
+	)
 	$effect(() => {
 		oneOf && untrack(() => updateOneOfSelected(oneOf))
 	})
