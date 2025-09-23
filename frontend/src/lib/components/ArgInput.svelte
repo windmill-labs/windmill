@@ -72,6 +72,7 @@
 					properties?: { [name: string]: SchemaProperty }
 			  }
 			| undefined
+		lightHeaderFont?: boolean
 		displayHeader?: boolean
 		properties?: { [name: string]: SchemaProperty } | undefined
 		nestedRequired?: string[] | undefined
@@ -181,7 +182,8 @@
 		workspace = undefined,
 		actions,
 		innerBottomSnippet,
-		fieldHeaderActions
+		fieldHeaderActions,
+		lightHeaderFont = false
 	}: Props = $props()
 
 	$effect(() => {
@@ -599,7 +601,10 @@
 				{simpleTooltip}
 				{lightHeader}
 				{displayType}
-				labelClass={css?.label?.class}
+				labelClass={twMerge(
+					lightHeaderFont ? '!font-normal !text-sm text-tertiary' : '',
+					css?.label?.class
+				)}
 			/>
 			{@render fieldHeaderActions?.()}
 		</div>
@@ -735,8 +740,9 @@
 						<Module.default code={JSON.stringify(value, null, 2)} bind:value />
 					{/await}
 				{:else}
-					<div class="py-4 pr-2 pl-6 border rounded-md w-full">
+					<div class="px-2 pt-2 border rounded-md w-full">
 						<SchemaForm
+							lightHeaderFont
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
@@ -853,6 +859,7 @@
 												{:else if itemsType?.type === 'object' && itemsType?.properties}
 													<div class="p-8 border rounded-md w-full">
 														<SchemaForm
+															lightHeaderFont
 															{onlyMaskPassword}
 															{disablePortal}
 															{disabled}
@@ -1010,9 +1017,10 @@
 							{@const obj = oneOf[objIdx]}
 							{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
 								{#key redraw}
-									<div class="py-4 pr-2 pl-6 border rounded w-full">
+									<div class="px-2 pt-2 border rounded w-full">
 										{#if orderEditable}
 											<SchemaFormDnd
+												lightHeaderFont
 												{nestedClasses}
 												{onlyMaskPassword}
 												{disablePortal}
@@ -1047,6 +1055,7 @@
 											/>
 										{:else}
 											<SchemaForm
+												lightHeaderFont
 												{nestedClasses}
 												{onlyMaskPassword}
 												{disablePortal}
@@ -1120,9 +1129,10 @@
 					{/if}
 				</div>
 			{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
-				<div class={hideNested ? 'hidden' : 'py-4 pr-2 pl-6 border rounded-md w-full'}>
+				<div class={hideNested ? 'hidden' : 'px-2 pt-2 border rounded-md w-full'}>
 					{#if orderEditable}
 						<SchemaFormDnd
+							lightHeaderFont
 							{nestedClasses}
 							{onlyMaskPassword}
 							{disablePortal}
@@ -1153,6 +1163,7 @@
 						/>
 					{:else}
 						<SchemaForm
+							lightHeaderFont
 							{nestedClasses}
 							{onlyMaskPassword}
 							{disablePortal}
@@ -1378,13 +1389,13 @@
 	{/if}
 
 	{#if !compact || (error && error != '')}
-		<div class="text-right text-xs text-red-600 dark:text-red-400">
-			{#if disabled || error === ''}
-				&nbsp;
-			{:else}
+		{#if disabled || error === ''}
+			&nbsp;
+		{:else}
+			<div class="text-right text-xs text-red-600 dark:text-red-400">
 				{error}
-			{/if}
-		</div>
+			</div>
+		{/if}
 	{:else if !noMargin}
 		<div class="mb-2"></div>
 	{/if}

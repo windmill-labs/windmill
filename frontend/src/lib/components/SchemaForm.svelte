@@ -56,6 +56,7 @@
 		displayType?: boolean
 		appPath?: string | undefined
 		className?: string
+		lightHeaderFont?: boolean
 		computeS3ForceViewerPolicies?:
 			| (() =>
 					| {
@@ -106,6 +107,7 @@
 		displayType = true,
 		appPath = undefined,
 		className = '',
+		lightHeaderFont = false,
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
 		actions: actions_render = undefined
@@ -280,6 +282,7 @@
 						{@const formerProperty = diff[argName].oldSchema}
 						<div class="px-2">
 							<ArgInput
+								{lightHeaderFont}
 								{disablePortal}
 								{resourceTypes}
 								{prettifyHeader}
@@ -342,6 +345,7 @@
 							{JSON.stringify(args?.[argName])} -->
 							{#if !hidden[argName]}
 								<ArgInput
+									{lightHeaderFont}
 									on:change={() => {
 										dispatch('change')
 									}}

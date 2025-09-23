@@ -25,6 +25,7 @@
 		helperScript?: DynamicInput.HelperScript
 		className?: string
 		dndType?: string
+		lightHeaderFont?: boolean
 	}
 
 	let {
@@ -44,7 +45,8 @@
 		isValid = $bindable(true),
 		noVariablePicker = false,
 		className = '',
-		dndType = generateRandomString()
+		dndType = generateRandomString(),
+		lightHeaderFont
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -135,6 +137,7 @@
 	{shouldDispatchChanges}
 	bind:isValid
 	{noVariablePicker}
+	{lightHeaderFont}
 >
 	{#snippet actions()}
 		{#if !disableDnd}
