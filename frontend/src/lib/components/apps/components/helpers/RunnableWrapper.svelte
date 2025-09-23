@@ -91,6 +91,7 @@
 		onSuccess?: (result: any) => void
 		children?: import('svelte').Snippet
 		nonRenderedPlaceholder?: import('svelte').Snippet
+		preventDefaultRefresh?: boolean
 	}
 
 	let {

@@ -118,11 +118,12 @@
 		}
 	})
 
+	let keys = $derived(Object.keys(result[0] ?? []).filter((x) => x !== '__index'))
+
 	async function syncColumns() {
 		const gridItem = findGridItem($app, id)
 
 		if (gridItem && result) {
-			const keys = Object.keys(result[0] ?? {}) ?? []
 			const conf = gridItem.data.configuration.columnDefs as ColumnDefsConfiguration
 
 			const newColumns: WindmillColumnDef[] = keys.map((key) => ({
@@ -171,7 +172,7 @@
 					<div class="flex flex-col items-start gap-2">
 						<div class="text-xs"> No columns definition found. Columns found in data: </div>
 						<div class="text-sm flex flex-row gap-2">
-							{#each Object.keys(result[0] ?? []) as key}
+							{#each keys as key}
 								<Badge small color="dark-gray">{key}</Badge>
 							{/each}
 						</div>

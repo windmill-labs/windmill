@@ -32,12 +32,16 @@
 		color="light"
 		size="xs2"
 		btnClasses={twMerge(loading ? ' bg-blue-100 dark:bg-blue-400' : '', 'transition-all')}
-		on:click={() => {
+		on:click={(e) => {
 			if (buttonHover && loading) {
 				cancelCallbacks?.forEach((cb) => cb.cancel())
 			} else {
 				cancelCallbacks = $runnableComponents[id]?.cb?.map((cb) => cb())
 			}
+		}}
+		on:pointerdown={(e) => {
+			e.preventDefault()
+			e.stopPropagation()
 		}}
 		iconOnly
 	/>

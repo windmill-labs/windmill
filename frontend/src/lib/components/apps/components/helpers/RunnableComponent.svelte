@@ -163,47 +163,7 @@
 		}
 	}
 
-	// $: sendUserToast('args' + JSON.stringify(runnableInputValues) + Boolean(extraQueryParams) || args)
-	// $: console.log(runnableInputValues)
 	let firstRefresh = true
-
-	// 	on:started={(e) => {
-	// 	console.log('started', e.detail)
-	// 	loading = true
-	// 	setJobId(e.detail)
-	// 	dispatch('started', e.detail)
-	// }}
-	// 	on:done={(e) => {
-	// 	lastJobId = e.detail.id
-	// 	setResult(e.detail.result, e.detail.id)
-	// 	loading = false
-	// 	dispatch('done', { id: e.detail?.id, result: e.detail?.result })
-	// }}
-	// on:cancel={(e) => {
-	// 	let jobId = e.detail
-	// 	console.debug('cancel', jobId)
-	// 	let job = $jobsById[jobId]
-	// 	if (job && job.created_at && !job.duration_ms) {
-	// 		$jobsById[jobId] = {
-	// 			...job,
-	// 			started_at: job.started_at ?? Date.now(),
-	// 			duration_ms: Date.now() - (job.started_at ?? job.created_at)
-	// 		}
-	// 	}
-	// 	dispatch('cancel', { id: e.detail })
-	// }}
-	// on:running={(e) => {
-	// 	let jobId = e.detail
-	// 	let job = $jobsById[jobId]
-	// 	if (job && !job.started_at) {
-	// 		$jobsById[jobId] = { ...job, started_at: Date.now() }
-	// 	}
-	// }}
-	// on:doneError={(e) => {
-	// 	setResult({ error: e.detail.error }, e.detail.id)
-	// 	loading = false
-	// 	dispatch('doneError', { id: e.detail.id, result: e.detail.result })
-	// }}
 
 	type RunnableCallback = {
 		onDone?: (r: any) => void
