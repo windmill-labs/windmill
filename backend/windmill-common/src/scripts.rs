@@ -167,7 +167,7 @@ impl<'de> Deserialize<'de> for ScriptHash {
     {
         let s = String::deserialize(deserializer)?;
         let i = to_i64(&s).map_err(|e| {
-            tracing::error!("Could not deserialize ScriptHash. Note, input should be in Hex and digit amount should be dividable by 16 (can be padded). err: {}", &e);
+            tracing::error!("Could not deserialize ScriptHash. Note, input should be in Hex and digit amount should be divisible by 16 (can be padded). err: {}", &e);
             D::Error::custom(format!("{}", e))
         })?;
         Ok(ScriptHash(i))
