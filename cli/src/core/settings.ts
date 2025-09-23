@@ -78,7 +78,7 @@ export async function pushWorkspaceSettings(
       error_handler: remoteSettings.error_handler,
       error_handler_extra_args: remoteSettings.error_handler_extra_args,
       error_handler_muted_on_cancel:
-        remoteSettings.error_handler_muted_on_cancel,
+        remoteSettings.error_handler_muted_on_cancel ?? false,
       ai_config: remoteSettings.ai_config,
       large_file_storage: remoteSettings.large_file_storage,
       git_sync: remoteSettings.git_sync,
@@ -166,8 +166,8 @@ export async function pushWorkspaceSettings(
       localSettings.error_handler_extra_args,
       settings.error_handler_extra_args
     ) ||
-    localSettings.error_handler_muted_on_cancel !=
-      settings.error_handler_muted_on_cancel
+    (localSettings.error_handler_muted_on_cancel ?? false) !=
+      (settings.error_handler_muted_on_cancel ?? false)
   ) {
     log.debug(`Updating error handler...`);
     await wmill.editErrorHandler({
@@ -176,7 +176,7 @@ export async function pushWorkspaceSettings(
         error_handler: localSettings.error_handler,
         error_handler_extra_args: localSettings.error_handler_extra_args,
         error_handler_muted_on_cancel:
-          localSettings.error_handler_muted_on_cancel,
+          localSettings.error_handler_muted_on_cancel ?? false,
       },
     });
   }
