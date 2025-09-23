@@ -1587,22 +1587,30 @@ export function assert(msg: string, condition: boolean, value?: any) {
 
 export function createCache<Keys extends Record<string, any>, T, InitialKeys extends Keys = Keys>(
 	compute: (keys: Keys) => T,
-	params?: { maxSize?: number; initial?: InitialKeys }
+	params?: { maxSize?: number; initial?: InitialKeys; invalidateMs?: number }
 ): (keys: Keys) => T {
-	let cache = new Map<string, T>()
+	let cache = new Map<string, { value: T; timestamp: number }>()
 	const maxSize = params?.maxSize ?? 15
 
 	if (params?.initial) {
 		let key = JSON.stringify(params.initial, Object.keys(params.initial).sort())
 		let value = compute(params.initial)
-		cache.set(key, value)
+		cache.set(key, { value, timestamp: Date.now() })
 	}
 
 	return (keys: Keys) => {
+		if (typeof params?.invalidateMs === 'number') {
+			for (const [key, entry] of cache.entries()) {
+				if (Date.now() - entry.timestamp > params.invalidateMs) {
+					cache.delete(key)
+				}
+			}
+		}
+
 		let key = JSON.stringify(keys, Object.keys(keys).sort())
 		if (!cache.get(key)) {
 			let value = compute(keys)
-			cache.set(key, value)
+			cache.set(key, { value, timestamp: Date.now() })
 
 			if (cache.size > maxSize) {
 				// remove the oldest entry (first inserted)
@@ -1610,6 +1618,6 @@ export function createCache<Keys extends Record<string, any>, T, InitialKeys ext
 				cache.delete(oldestKey)
 			}
 		}
-		return cache.get(key)!
+		return cache.get(key)!.value
 	}
 }

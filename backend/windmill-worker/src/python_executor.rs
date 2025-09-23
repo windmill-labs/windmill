@@ -2054,6 +2054,13 @@ pub async fn handle_python_reqs(
             .unwrap_or(Err(anyhow!("Problem by joining handle")))
         {
             failed = true;
+            append_logs(
+                &job_id,
+                w_id,
+                format!("\nEnv installation failed: {:?}", e),
+                conn,
+            )
+            .await;
             tracing::warn!(
                 workspace_id = %w_id,
                 "Env installation failed: {:?}",
