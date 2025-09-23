@@ -41,7 +41,7 @@
 	let isMultiple = $derived(inputType === 'dynmultiselect')
 	let isSelect = $derived(inputType === 'dynselect' || inputType === 'dynmultiselect')
 
-	$effect(() => {
+	$effect.pre(() => {
 		if (isMultiple && value === undefined) {
 			value = []
 		}
