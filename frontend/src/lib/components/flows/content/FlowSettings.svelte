@@ -126,7 +126,25 @@
 					/>
 				</Label>
 
-				{#if flowStore.val.schema && enableAi}
+				<!-- Chat Input Section -->
+				<div>
+					<Toggle
+						textClass="font-normal text-sm"
+						size="sm"
+						checked={Boolean(flowStore.val.chat_input_enabled)}
+						on:change={() => {
+							flowStore.val.chat_input_enabled = !flowStore.val.chat_input_enabled
+						}}
+						options={{
+							right: 'Chat Input Mode',
+							rightTooltip:
+								'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter.'
+						}}
+						class="py-1"
+					/>
+				</div>
+
+				{#if flowStore.val.schema && enableAi && !flowStore.val.chat_input_enabled}
 					<AIFormSettings
 						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
 						type="flow"
