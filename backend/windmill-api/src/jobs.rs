@@ -4523,12 +4523,17 @@ pub async fn run_wait_result_internal(
 
         if result.is_none() {
             let row = sqlx::query!(
-                "SELECT
+                "
+                SELECT
                     result AS \"result: sqlx::types::Json<Box<RawValue>>\",
                     result_columns,
                     status = 'success' AS \"success!\"
-                FROM v2_job_completed
-                WHERE id = $1 AND workspace_id = $2",
+                FROM 
+                    v2_job_completed
+                WHERE 
+                    id = $1 AND 
+                    workspace_id = $2
+                ",
                 uuid,
                 &w_id
             )
