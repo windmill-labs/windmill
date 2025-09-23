@@ -149,7 +149,7 @@ SELECT importer_node_id, imported_path
         //
         // After all `reduce`'s called ScopedDependencyMap has only extra/orphan imports
         // these are going to be clean up by calling [dissolve]
-        // NOTE: `retain` iterates over vec and remove the ones whos closures returend false.
+        // NOTE: `retain` iterates over vec and remove the ones whose closures returned false.
         relative_imports.retain(|imported_path| {
             !self
                 .dmap
