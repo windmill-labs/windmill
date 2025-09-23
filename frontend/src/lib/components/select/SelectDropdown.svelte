@@ -113,7 +113,7 @@
 			transition:slide={{ duration: 150 }}
 			class={twMerge(
 				disablePortal ? 'absolute' : 'fixed',
-				'flex flex-col z-[5001] max-h-64 overflow-y-clip bg-surface-secondary text-tertiary text-sm select-none border rounded-lg shadow-lg',
+				'flex flex-col z-[5001] max-h-64 overflow-clip bg-surface-secondary text-tertiary text-sm select-none border rounded-md shadow-lg',
 				className
 			)}
 			style="{`top: ${dropdownPos.y}px; left: ${dropdownPos.x}px;`} {listAutoWidth
