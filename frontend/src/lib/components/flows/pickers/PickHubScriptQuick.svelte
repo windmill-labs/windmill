@@ -2,7 +2,7 @@
 	let listHubIntegrationsCached = createCache(
 		({ kind }: { kind: HubScriptKind & string; refreshCount?: number }) =>
 			IntegrationService.listHubIntegrations({ kind }),
-		{ initial: { kind: 'script', refreshCount: 0 } }
+		{ initial: { kind: 'script', refreshCount: 0 }, invalidateMs: 1000 * 60 }
 	)
 	let listHubScriptsCached = createCache(
 		async ({
@@ -18,7 +18,10 @@
 			filter.length > 0
 				? await ScriptService.queryHubScripts({ text: filter, limit: 40, kind })
 				: ((await ScriptService.getTopHubScripts({ limit: 40, kind, app: appFilter })).asks ?? []),
-		{ initial: { filter: '', kind: 'script', appFilter: undefined, refreshCount: 0 } }
+		{
+			initial: { filter: '', kind: 'script', appFilter: undefined, refreshCount: 0 },
+			invalidateMs: 1000 * 60
+		}
 	)
 </script>
 
@@ -67,7 +70,15 @@
 		apps = $bindable([]),
 		refreshCount = 0
 	}: Props = $props()
-	let allApps: string[] = []
+
+	let allApps: string[] = $state([])
+	$effect(() => {
+		if (filter.length > 0) {
+			apps = Array.from(new Set(items?.map((x) => x.app) ?? [])).sort()
+		} else {
+			apps = allApps
+		}
+	})
 
 	async function getAllApps(filterKind: typeof kind) {
 		try {
@@ -75,11 +86,9 @@
 			allApps = (await listHubIntegrationsCached({ kind: filterKind, refreshCount })).map(
 				(x) => x.name
 			)
-			apps = allApps
 		} catch (err) {
 			console.error('Hub is not available')
 			allApps = []
-			apps = []
 			hubNotAvailable = true
 		}
 	}
@@ -93,7 +102,6 @@
 		hubScriptsFilteredPromise.refresh()
 	})
 	$effect(() => {
-		// TODO: these should be derived ...
 		loading = hubScriptsFilteredPromise.status === 'loading'
 		hubNotAvailable = !!hubScriptsFilteredPromise.error
 		const scripts = hubScriptsFilteredPromise.value
@@ -113,11 +121,6 @@
 					summary: `${x.summary} (${x.app})`
 				})
 			)
-			if (filter.length > 0) {
-				apps = Array.from(new Set(mappedItems?.map((x) => x.app) ?? [])).sort()
-			} else {
-				apps = allApps
-			}
 
 			items = appFilter ? mappedItems.filter((x) => x.app === appFilter) : mappedItems
 		})
