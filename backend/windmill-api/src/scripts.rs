@@ -421,45 +421,7 @@ async fn create_snapshot_script(
 
             uploaded = true;
 
-            #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            let object_store = windmill_common::s3_helpers::get_object_store().await;
-
-            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-            let object_store: Option<()> = None;
-
-            if &windmill_common::utils::MODE_AND_ADDONS.mode
-                == &windmill_common::utils::Mode::Standalone
-                && object_store.is_none()
-            {
-                std::fs::create_dir_all(
-                    windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
-                )?;
-                windmill_common::worker::write_file_bytes(
-                    &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
-                    &hash,
-                    &data,
-                )?;
-            } else {
-                #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-                {
-                    return Err(Error::ExecutionErr("codebase is an EE feature".to_string()));
-                }
-
-                #[cfg(all(feature = "enterprise", feature = "parquet"))]
-                if let Some(os) = object_store {
-                    let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
-
-                    if let Err(e) = os
-                        .put(&object_store::path::Path::from(path.clone()), data.into())
-                        .await
-                    {
-                        tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
-                        return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
-                    }
-                } else {
-                    return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
-                }
-            }
+            upload_artifact_to_store(&w_id, data, hash).await?;
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
     }
@@ -477,6 +439,46 @@ async fn create_snapshot_script(
         hdm.handle(&db).await?;
     }
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
+}
+
+async fn upload_artifact_to_store(w_id: &String, data: bytes::Bytes, hash: &String) -> Result<()> {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    let object_store = windmill_common::s3_helpers::get_object_store().await;
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+    let object_store: Option<()> = None;
+    Ok(if &windmill_common::utils::MODE_AND_ADDONS.mode
+        == &windmill_common::utils::Mode::Standalone
+        && object_store.is_none()
+    {
+        std::fs::create_dir_all(
+            windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
+        )?;
+        windmill_common::worker::write_file_bytes(
+            &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+            &hash,
+            &data,
+        )?;
+    } else {
+        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+        {
+            return Err(Error::ExecutionErr("codebase is an EE feature".to_string()));
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if let Some(os) = object_store {
+            let path = windmill_common::s3_helpers::bundle(w_id, &hash);
+
+            if let Err(e) = os
+                .put(&object_store::path::Path::from(path.clone()), data.into())
+                .await
+            {
+                tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
+            }
+        } else {
+            return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+        }
+    })
 }
 
 async fn list_paths_from_workspace_runnable(
