@@ -372,6 +372,14 @@
 	}
 
 	function updateDynCode(functionName: string, lang: ScriptLang = 'bun') {
+		if (
+			(lang == 'bun' && dynCode?.includes(`function ${functionName}`)) ||
+			(lang == 'python3' && dynCode?.includes(`def ${functionName}`))
+		) {
+			// Don't add the function if it already exists
+			return
+		}
+
 		const generateFn = DynamicInput.getGenerateTemplateFn(lang)
 		const code = generateFn(functionName)
 		dynCode = dynCode ? dynCode.concat(code) : code
@@ -701,6 +709,15 @@
 																						nullable: undefined,
 																						required: undefined
 																					}
+
+																					if (
+																						isDynMultiselect &&
+																						args &&
+																						!Array.isArray(args?.[argName])
+																					) {
+																						args[argName] = []
+																					}
+
 																					if (isS3) {
 																						schema.properties[argName] = {
 																							...emptyProperty,
