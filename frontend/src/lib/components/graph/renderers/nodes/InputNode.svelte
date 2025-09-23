@@ -37,7 +37,6 @@
 				<InsertModuleButton
 					index={0}
 					kind="preprocessor"
-					chatModeEnabled={data.chatModeEnabled ?? false}
 					on:new={(e) => {
 						data?.eventHandlers.insert({
 							index: 0,

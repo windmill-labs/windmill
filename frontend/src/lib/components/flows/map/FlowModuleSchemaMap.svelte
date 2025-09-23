@@ -608,7 +608,6 @@
 			{onCancelTestFlow}
 			{onOpenPreview}
 			{onHideJobStatus}
-			chatModeEnabled={flowStore.val?.chat_input_enabled ?? false}
 		/>
 	</div>
 </div>

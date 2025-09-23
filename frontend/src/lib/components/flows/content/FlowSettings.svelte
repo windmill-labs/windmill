@@ -43,9 +43,6 @@
 	let displayWorkerTagPicker = $state(false)
 	let chatInputEnabled = $derived(Boolean(flowStore.val.schema?.chat_input_enabled))
 
-	$inspect(flowStore.val.schema)
-	$inspect(chatInputEnabled)
-
 	run(() => {
 		flowStore.val.tag ? (displayWorkerTagPicker = true) : null
 	})
@@ -152,6 +149,12 @@
 									chat_input_enabled: true,
 									required: ['user_message']
 								}
+								flowStore.val.value.modules = [
+									{
+										id: 'a',
+										value: { type: 'aiagent', tools: [], input_transforms: {} }
+									}
+								]
 							} else {
 								flowStore.val.schema = emptySchema()
 							}

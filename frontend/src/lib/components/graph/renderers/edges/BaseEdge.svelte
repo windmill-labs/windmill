@@ -12,10 +12,13 @@
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
 	import type { Job } from '$lib/gen'
 	import type { GraphModuleState } from '../../model'
+	import type { FlowEditorContext } from '$lib/components/flows/types'
 
 	const { useDataflow } = getContext<{
 		useDataflow: Writable<boolean | undefined>
 	}>('FlowGraphContext')
+
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let {
 		// id,
@@ -73,6 +76,8 @@
 			data?.flowModuleStates?.[`${data.sourceId}-v`]?.type === 'WaitingForEvents'
 	)
 
+	let chatInputEnabled = $derived(flowStore.val.schema?.chat_input_enabled ?? false)
+
 	let suspendStatus: Record<string, { job: Job; nb: number }> | undefined = $derived(
 		data?.suspendStatus
 	)
@@ -84,7 +89,7 @@
 	class="base-edge"
 	style=""
 >
-	{#if data?.insertable && !$useDataflow && !data?.moving && !waitingForEvents}
+	{#if data?.insertable && !$useDataflow && !data?.moving && !waitingForEvents && !chatInputEnabled}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
 			style:transform="translate(-50%, -50%)"
@@ -93,7 +98,6 @@
 			<!-- {data.targetId} B -->
 			<InsertModuleButton
 				index={data.index ?? 0}
-				chatModeEnabled={data.chatModeEnabled ?? false}
 				on:new={(e) => {
 					data?.eventHandlers.insert({
 						sourceId: data.sourceId,

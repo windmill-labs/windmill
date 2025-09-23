@@ -572,12 +572,8 @@
 							/>
 						{/if}
 
-						<!-- For now, treat all flows as having chat enabled -->
-						{#if true || flow?.chat_input_enabled}
-							<FlowChatInterface
-								flowPath={flow.path}
-								onRunFlow={runFlowForChat}
-							/>
+						{#if flow?.schema?.chat_input_enabled}
+							<FlowChatInterface flowPath={flow.path} onRunFlow={runFlowForChat} />
 						{:else}
 							<RunForm
 								bind:scheduledForStr
