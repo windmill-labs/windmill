@@ -186,7 +186,7 @@
 		let index = 0
 		let hasChanged = false
 		for (let k of properties) {
-			if (schema.properties[k].type === 'object' && schema.properties[k].properties) {
+			if (schema.properties[k]?.type === 'object' && schema.properties[k].properties) {
 				hasChanged = hasChanged || alignOrderWithProperties(schema.properties[k])
 			}
 			if (!norder.includes(k)) {
@@ -220,7 +220,7 @@
 
 	function computeSelected(property: any) {
 		if (!opened) return ''
-		if (property.type !== 'object') return property.type
+		if (property?.type !== 'object') return property?.type
 		if (property.format === 'resource-s3_object') return 'S3'
 		if (property.format?.startsWith('dynselect-')) return 'dynselect'
 		if (property.format?.startsWith('dynmultiselect-')) return 'dynmultiselect'
@@ -344,7 +344,7 @@
 		Object.entries(schema?.properties ?? {})
 			.filter(([_, property]) => {
 				const props = property as any
-				return props.type === 'object' && DynamicInput.isDynInputFormat(props.format)
+				return props?.type === 'object' && DynamicInput.isDynInputFormat(props.format)
 			})
 			.map(([fieldName, _]) => fieldName.replace(/\s+/g, '_'))
 	)
@@ -372,6 +372,14 @@
 	}
 
 	function updateDynCode(functionName: string, lang: ScriptLang = 'bun') {
+		if (
+			(lang == 'bun' && dynCode?.includes(`function ${functionName}`)) ||
+			(lang == 'python3' && dynCode?.includes(`def ${functionName}`))
+		) {
+			// Don't add the function if it already exists
+			return
+		}
+
 		const generateFn = DynamicInput.getGenerateTemplateFn(lang)
 		const code = generateFn(functionName)
 		dynCode = dynCode ? dynCode.concat(code) : code
@@ -442,7 +450,7 @@
 								}
 							}}
 							helperScript={{
-								type: 'inline',
+								source: 'inline',
 								code: dynCode!,
 								lang: dynLang!
 							}}
@@ -652,7 +660,7 @@
 													{#if typeof args == 'object' && schema?.properties[argName]}
 														<PropertyEditor
 															bind:description={schema.properties[argName].description}
-															type={schema.properties[argName].type}
+															type={schema.properties[argName]?.type}
 															bind:oneOf={schema.properties[argName].oneOf}
 															bind:pattern={schema.properties[argName].pattern}
 															bind:enum_={schema.properties[argName].enum}
@@ -701,6 +709,15 @@
 																						nullable: undefined,
 																						required: undefined
 																					}
+
+																					if (
+																						isDynMultiselect &&
+																						args &&
+																						!Array.isArray(args?.[argName])
+																					) {
+																						args[argName] = []
+																					}
+
 																					if (isS3) {
 																						schema.properties[argName] = {
 																							...emptyProperty,
@@ -795,7 +812,7 @@
 																	{itemPicker}
 																	bind:nullable={schema.properties[argName].nullable}
 																	bind:disabled={schema.properties[argName].disabled}
-																	type={schema.properties[argName].type}
+																	type={schema.properties[argName]?.type}
 																	bind:oneOf={schema.properties[argName].oneOf}
 																	bind:format={schema.properties[argName].format}
 																	contentEncoding={schema.properties[argName].contentEncoding}

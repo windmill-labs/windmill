@@ -18,7 +18,7 @@
 	import { onDestroy, tick, untrack } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
-	import { isScriptPreview } from '$lib/utils'
+	import { DynamicInput, isScriptPreview } from '$lib/utils'
 
 	// Will be set to number if job is not a flow
 
@@ -271,6 +271,22 @@
 				logOffset = getUpdate.log_offset ?? 0
 			}
 		}
+	}
+
+	export async function runDynamicInputScript(
+		entrypoint_function: string,
+		runnable_ref: DynamicInput.HelperScript,
+		args: Record<string, any>,
+		callbacks?: Callbacks
+	): Promise<string> {
+		return abstractRun(
+			() =>
+				JobService.runDynamicSelect({
+					workspace: $workspaceStore!,
+					requestBody: { entrypoint_function, args, runnable_ref }
+				}),
+			callbacks
+		)
 	}
 
 	export async function runPreview(
@@ -652,6 +668,12 @@
 					}
 					if (resultStreamOffset) {
 						params.set('stream_offset', resultStreamOffset.toString())
+					}
+					if (job) {
+						params.set(
+							'is_flow',
+							(job.job_kind === 'flow' || job.job_kind === 'flowpreview').toString()
+						)
 					}
 
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`

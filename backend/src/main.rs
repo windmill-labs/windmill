@@ -300,6 +300,19 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 }
 
 async fn windmill_main() -> anyhow::Result<()> {
+    let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
+    let mut monitor_killpill_rx = killpill_tx.subscribe();
+    let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
+    let server_killpill_rx = killpill_phase2_tx.subscribe();
+
+    let shutdown_tx = killpill_tx.clone();
+    let shutdown_rx = killpill_tx.subscribe();
+    tokio::spawn(async move {
+        if let Err(e) = windmill_common::shutdown_signal(shutdown_tx, shutdown_rx).await {
+            tracing::error!("Error in shutdown signal: {e:#}");
+        }
+    });
+
     dotenv::dotenv().ok();
 
     update_ca_certificates_if_requested();
@@ -463,11 +476,16 @@ async fn windmill_main() -> anyhow::Result<()> {
 
             if !skip_migration {
                 // migration code to avoid break
-                migration_handle = windmill_api::migrate_db(&db).await?;
+                migration_handle = windmill_api::migrate_db(&db, killpill_rx.resubscribe()).await?;
             } else {
                 tracing::info!("SKIP_MIGRATION set, skipping db migration...")
             }
         }
+    }
+
+    if killpill_rx.try_recv().is_ok() {
+        tracing::info!("Received early killpill, aborting startup");
+        return Ok(());
     }
 
     let worker_mode = num_workers > 0;
@@ -482,14 +500,6 @@ async fn windmill_main() -> anyhow::Result<()> {
 
         Connection::Sql(db)
     };
-
-    let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
-    let mut monitor_killpill_rx = killpill_tx.subscribe();
-    let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
-    let server_killpill_rx = killpill_phase2_tx.subscribe();
-
-    let shutdown_signal =
-        windmill_common::shutdown_signal(killpill_tx.clone(), killpill_tx.subscribe());
 
     #[cfg(feature = "enterprise")]
     tracing::info!(
@@ -909,6 +919,8 @@ Windmill Community Edition {GIT_VERSION}
                                                                     }
                                                                 }
                                                                 &"flow" => {
+                                                                    let dynamic_input_key = windmill_common::jobs::generate_dynamic_input_key(workspace_id, path);
+                                                                    windmill_common::DYNAMIC_INPUT_CACHE.remove(&dynamic_input_key);
                                                                     windmill_common::FLOW_VERSION_CACHE.remove(&key);
                                                                 },
                                                                 _ => {
@@ -1255,10 +1267,9 @@ Windmill Community Edition {GIT_VERSION}
         }
 
         if mcp_mode {
-            futures::try_join!(shutdown_signal, workers_f, server_f)?;
+            futures::try_join!(workers_f, server_f)?;
         } else {
             futures::try_join!(
-                shutdown_signal,
                 workers_f,
                 monitor_f,
                 server_f,
@@ -1283,7 +1294,7 @@ Windmill Community Edition {GIT_VERSION}
             }
         }
     }
-    Ok(())
+    std::process::exit(0);
 }
 
 async fn listen_pg(url: &str) -> Option<PgListener> {

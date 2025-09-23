@@ -20,11 +20,11 @@
 		WorkspaceService,
 		type Flow
 	} from '$lib/gen'
-	import type { ErrorHandler, ListAvailableTeamsChannelsResponse } from '$lib/gen/types.gen'
+	import type { ErrorHandler } from '$lib/gen/types.gen'
 	import { inferArgs } from '$lib/infer'
 	import { hubBaseUrlStore } from '$lib/stores'
 
-	import { CheckCircle2, Loader2, RotateCw, XCircle, RefreshCcw } from 'lucide-svelte'
+	import { CheckCircle2, Loader2, RotateCw, XCircle } from 'lucide-svelte'
 	import { hubPaths } from '$lib/hub'
 	import { isCloudHosted } from '$lib/cloud'
 
@@ -63,9 +63,8 @@
 
 	let customHandlerSchema: Schema | undefined = $state()
 	let slackHandlerSchema: Schema | undefined = $state()
-	let isFetching: boolean = $state(false)
-	let teams_channels: ListAvailableTeamsChannelsResponse = $state([])
 	let teams_team_name: string | undefined = $state(undefined)
+	let teams_team_id: string | undefined = $state(undefined)
 
 	let workspaceConnectedToSlack: boolean | undefined = $state(undefined)
 	let workspaceConnectedToTeams: boolean | undefined = $state(undefined)
@@ -85,7 +84,6 @@
 	}
 
 	async function loadTeamsResources() {
-		isFetching = true
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		if (!emptyString(settings.teams_team_name) && !emptyString(settings.teams_team_id)) {
 			workspaceConnectedToTeams = true
@@ -94,11 +92,8 @@
 		}
 		if (workspaceConnectedToTeams) {
 			teams_team_name = settings.teams_team_name
-			teams_channels = await WorkspaceService.listAvailableTeamsChannels({
-				workspace: $workspaceStore!
-			})
+			teams_team_id = settings.teams_team_id
 		}
-		isFetching = false
 	}
 
 	async function sendMessage(channel: string, platform: 'teams' | 'slack'): Promise<void> {
@@ -507,24 +502,23 @@
 				<ChannelSelector
 					containerClass="flex-grow"
 					minWidth="200px"
-					placeholder="Select Teams channel"
-					channels={teams_channels}
+					placeholder="Search Teams channels"
+					teamId={teams_team_id}
 					bind:selectedChannel={
 						() =>
 							handlerExtraArgs['channel']
-								? teams_channels.find((ch) => ch.channel_id === handlerExtraArgs['channel'])
+								? {
+										channel_id: handlerExtraArgs['channel'],
+										channel_name: handlerExtraArgs['channel_name']
+									}
 								: undefined,
-						(channel) => (handlerExtraArgs['channel'] = channel?.channel_id)
+						(channel) => {
+							handlerExtraArgs['channel'] = channel?.channel_id;
+							handlerExtraArgs['channel_name'] = channel?.channel_name;
+						}
 					}
+					onError={(e) => sendUserToast('Failed to load channels: ' + e.message, true)}
 				/>
-				<div class="flex-shrink-0">
-					<button
-						onclick={loadTeamsResources}
-						class="flex items-center gap-1 p-1.5 rounded hover:bg-surface-hover focus:bg-surface-hover"
-					>
-						<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
-					</button>
-				</div>
 			</div>
 		</div>
 		<div class="flex flex-row gap-2 pb-4">

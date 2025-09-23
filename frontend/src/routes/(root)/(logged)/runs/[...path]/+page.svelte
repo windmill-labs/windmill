@@ -165,7 +165,7 @@
 	let queue_count: Tweened<number> | undefined = $state(undefined)
 	let suspended_count: Tweened<number> | undefined = $state(undefined)
 
-	let jobKinds: string | undefined = undefined
+	let jobKinds: string | undefined = $state(undefined)
 	let loading: boolean = $state(false)
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
@@ -186,7 +186,7 @@
 				confirmBtnText: string
 				loading?: boolean
 				preContent?: string
-				onConfirm?: () => void
+				onConfirm?: (forceCancel: boolean) => void
 				type?: ConfirmationModal['$$prop_def']['type']
 		  } = $state(undefined)
 
@@ -544,10 +544,11 @@
 		}
 	}
 
-	async function cancelJobs(uuidsToCancel: string[]) {
+	async function cancelJobs(uuidsToCancel: string[], forceCancel: boolean = false) {
 		const uuids = await JobService.cancelSelection({
 			workspace: $workspaceStore ?? '',
-			requestBody: uuidsToCancel
+			requestBody: uuidsToCancel,
+			forceCancel: forceCancel
 		})
 		selectedIds = []
 		jobsLoader?.loadJobs(minTs, maxTs, true, true)
@@ -556,6 +557,7 @@
 	}
 
 	async function onCancelFilteredJobs() {
+		forceCancelInPopup = false
 		askingForConfirmation = {
 			title: 'Confirm cancelling all jobs corresponding to the selected filters',
 			confirmBtnText: 'Loading...',
@@ -570,18 +572,19 @@
 			title: `Confirm cancelling all jobs corresponding to the selected filters (${jobIdsToCancel.length} jobs)`,
 			confirmBtnText: `Cancel ${jobIdsToCancel.length} jobs that matched the filters`,
 			preContent: selectedFiltersString,
-			onConfirm: () => {
-				cancelJobs(jobIdsToCancel)
+			onConfirm: (forceCancel) => {
+				cancelJobs(jobIdsToCancel, forceCancel)
 			}
 		}
 	}
 
 	async function onCancelSelectedJobs() {
+		forceCancelInPopup = true
 		askingForConfirmation = {
 			confirmBtnText: `Cancel ${selectedIds.length} jobs`,
 			title: 'Confirm cancelling the selected jobs',
-			onConfirm: () => {
-				cancelJobs(selectedIds)
+			onConfirm: (forceCancel) => {
+				cancelJobs(selectedIds, forceCancel)
 			}
 		}
 	}
@@ -798,6 +801,8 @@
 
 	const smallScreenWidth = 1920
 	const verySmallScreenWidth = 1300
+
+	let forceCancelInPopup = $state(false)
 </script>
 
 <JobsLoader
@@ -820,7 +825,7 @@
 	computeMinAndMax={manualDatePicker?.computeMinMax}
 	bind:minTs
 	bind:maxTs
-	{jobKinds}
+	bind:jobKinds
 	bind:queue_count
 	bind:suspended_count
 	{autoRefresh}
@@ -842,7 +847,7 @@
 	open={!!askingForConfirmation}
 	on:confirmed={async () => {
 		const func = askingForConfirmation?.onConfirm
-		await func?.()
+		await func?.(forceCancelInPopup)
 		askingForConfirmation = undefined
 	}}
 	type={askingForConfirmation?.type}
@@ -853,6 +858,27 @@
 >
 	{#if askingForConfirmation?.preContent}
 		<pre>{askingForConfirmation.preContent}</pre>
+		<Toggle
+			size="xs"
+			class="mt-4"
+			color="red"
+			bind:checked={forceCancelInPopup}
+			options={{
+				right: 'Force cancel',
+				rightTooltip:
+					'Only use this for jobs that refuse to gracefully cancel. This is dangerous, only do this if you have no alternatives!'
+			}}
+		></Toggle>
+		{#if forceCancelInPopup}
+			<div class="mt-4 text-red-500 p-2 text-sm">
+				<p>
+					Force cancel is enabled. This is dangerous, only do this if you have no alternatives.
+					Instead of being gracefully cancelled, all jobs will be immediately sent to the completed
+					job table regardless of them being processed or not or part of running flows. You may end
+					up in an inconsistent state.
+				</p>
+			</div>
+		{/if}
 	{/if}
 </ConfirmationModal>
 

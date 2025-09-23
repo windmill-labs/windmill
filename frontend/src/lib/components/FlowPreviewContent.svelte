@@ -521,7 +521,7 @@
 									helperScript={flowStore.val.schema?.['x-windmill-dyn-select-code'] &&
 									flowStore.val.schema?.['x-windmill-dyn-select-lang']
 										? {
-												type: 'inline',
+												source: 'inline',
 												code: flowStore.val.schema['x-windmill-dyn-select-code'] as string,
 												lang: flowStore.val.schema['x-windmill-dyn-select-lang'] as ScriptLang
 											}
@@ -583,7 +583,7 @@
 					bind:suspendStatus
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
-					bind:flowStateStore={flowStateStore.val}
+					bind:flowState={flowStateStore.val}
 					{jobId}
 					onDone={() => {
 						isRunning = false

@@ -101,6 +101,7 @@ use tokio::{
 use rand::Rng;
 
 use crate::ai_executor::handle_ai_agent_job;
+use crate::common::StreamNotifier;
 use crate::{
     agent_workers::{queue_init_job, queue_periodic_job},
     bash_executor::{handle_bash_job, handle_powershell_job},
@@ -790,6 +791,7 @@ pub fn start_interactive_worker_shell(
 
         loop {
             if let Ok(_) = killpill_rx.try_recv() {
+                tracing::info!("Received killpill, exiting worker shell");
                 break;
             } else {
                 let pulled_job = match &conn {
@@ -2040,8 +2042,14 @@ pub async fn run_worker(
     }
     tracing::info!(worker = %worker_name, hostname = %hostname, "waiting for interactive_shell to finish");
     if let Some(interactive_shell) = interactive_shell {
-        if let Err(e) = interactive_shell.await {
-            tracing::error!("error in awaiting interactive_shell process: {e:?}")
+        match tokio::time::timeout(Duration::from_secs(10), interactive_shell).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => {
+                tracing::error!("error in interactive_shell process: {e:?}")
+            }
+            Err(_) => {
+                tracing::error!("timed out awaiting interactive_shell process")
+            }
         }
     }
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exited", worker_name);
@@ -2229,6 +2237,8 @@ async fn do_nativets(
         job.args.as_ref()
     };
 
+    let stream_notifier = StreamNotifier::new(conn, job);
+
     Ok(eval_fetch_timeout(
         env_code,
         code.clone(),
@@ -2244,6 +2254,7 @@ async fn do_nativets(
         &job.workspace_id,
         true,
         occupancy_metrics,
+        stream_notifier,
     )
     .await?)
 }

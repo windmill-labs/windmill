@@ -4,16 +4,17 @@
 //! specification. This is a thin orchestration layer that delegates to the appropriate
 //! modules for tool management, database operations, and schema transformation.
 
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::{borrow::Cow, time::Duration};
 
 use axum::body::to_bytes;
 use rmcp::{
     handler::server::ServerHandler,
     model::*,
     service::{RequestContext, RoleServer},
-    Error,
+    transport::StreamableHttpServerConfig,
+    ErrorData,
 };
 use serde_json::Value;
 use tokio::try_join;
@@ -26,34 +27,28 @@ use crate::jobs::{
     run_wait_result_flow_by_path_internal, run_wait_result_script_by_path_internal, RunJobQuery,
 };
 
+use super::tools::endpoint_tools::{
+    all_endpoint_tools, call_endpoint_tool, endpoint_tools_to_mcp_tools, EndpointTool,
+};
 use super::utils::{
     database::{
-        check_scopes, get_items, get_resources_types, get_scripts_from_hub, get_item_schema, get_hub_script_schema
+        check_scopes, get_hub_script_schema, get_item_schema, get_items, get_resources_types,
+        get_scripts_from_hub,
     },
-    models::{ScriptInfo, FlowInfo, ResourceInfo, ResourceType, SchemaType, ToolableItem, WorkspaceId},
+    models::{
+        FlowInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, ToolableItem, WorkspaceId,
+    },
     schema::transform_schema_for_resources,
     transform::{reverse_transform, reverse_transform_key},
 };
-use super::tools::{
-    endpoint_tools::{all_endpoint_tools, endpoint_tools_to_mcp_tools, call_endpoint_tool, EndpointTool},
-};
 
 use axum::{
-    extract::Path,
-    http::Request,
-    middleware::Next,
-    response::Response,
-    routing::get,
-    Json,
-    Router,
+    extract::Path, http::Request, middleware::Next, response::Response, routing::get, Json, Router,
 };
 use rmcp::transport::streamable_http_server::{
-    session::local::LocalSessionManager,
-    SessionManager,
-    StreamableHttpService,
+    session::local::LocalSessionManager, SessionManager, StreamableHttpService,
 };
 use windmill_common::error::JsonResult;
-
 
 /// MCP Server Runner - implements the core MCP protocol handlers
 #[derive(Clone)]
@@ -72,7 +67,7 @@ impl Runner {
         workspace_id: &str,
         resources_cache: &mut HashMap<String, Vec<ResourceInfo>>,
         resources_types: &Vec<ResourceType>,
-    ) -> Result<Tool, Error> {
+    ) -> Result<Tool, ErrorData> {
         let is_hub = item.is_hub();
         let path = item.get_path_or_id();
         let item_type = item.item_type();
@@ -120,17 +115,19 @@ impl Runner {
             name: Cow::Owned(path),
             description: Some(Cow::Owned(description)),
             input_schema: Arc::new(input_schema_map),
+            title: Some(item.get_summary().to_string()),
+            output_schema: None,
+            icons: None,
             annotations: Some(ToolAnnotations {
                 title: Some(item.get_summary().to_string()),
-                read_only_hint: Some(false), // Can modify environment
+                read_only_hint: Some(false),  // Can modify environment
                 destructive_hint: Some(true), // Can potentially be destructive
                 idempotent_hint: Some(false), // Are not guaranteed to be idempotent
-                open_world_hint: Some(true), // Can interact with external services
+                open_world_hint: Some(true),  // Can interact with external services
             }),
         })
     }
 }
-
 
 impl ServerHandler for Runner {
     /// Handles the `CallTool` request from the MCP client
@@ -138,34 +135,37 @@ impl ServerHandler for Runner {
         &self,
         request: CallToolRequestParam,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, Error> {
+    ) -> Result<CallToolResult, ErrorData> {
         let http_parts = context
             .extensions
             .get::<axum::http::request::Parts>()
             .ok_or_else(|| {
                 tracing::error!("http::request::Parts not found");
-                Error::internal_error("http::request::Parts not found", None)
+                ErrorData::internal_error("http::request::Parts not found", None)
             })?;
 
         let authed = http_parts.extensions.get::<ApiAuthed>().ok_or_else(|| {
             tracing::error!("ApiAuthed Axum extension not found");
-            Error::internal_error("ApiAuthed Axum extension not found", None)
+            ErrorData::internal_error("ApiAuthed Axum extension not found", None)
         })?;
 
         check_scopes(authed)?;
 
         let db = http_parts.extensions.get::<DB>().ok_or_else(|| {
             tracing::error!("DB Axum extension not found");
-            Error::internal_error("DB Axum extension not found", None)
+            ErrorData::internal_error("DB Axum extension not found", None)
         })?;
 
         let user_db = http_parts.extensions.get::<UserDB>().ok_or_else(|| {
             tracing::error!("UserDB Axum extension not found");
-            Error::internal_error("UserDB Axum extension not found", None)
+            ErrorData::internal_error("UserDB Axum extension not found", None)
         })?;
-        
+
         let args = request.arguments.map(Value::Object).ok_or_else(|| {
-            Error::invalid_params("Missing arguments for tool", Some(request.name.clone().into()))
+            ErrorData::invalid_params(
+                "Missing arguments for tool",
+                Some(request.name.clone().into()),
+            )
         })?;
 
         let workspace_id = http_parts
@@ -173,7 +173,7 @@ impl ServerHandler for Runner {
             .get::<WorkspaceId>()
             .ok_or_else(|| {
                 tracing::error!("WorkspaceId not found");
-                Error::internal_error("WorkspaceId not found", None)
+                ErrorData::internal_error("WorkspaceId not found", None)
             })
             .map(|w_id| w_id.0.clone())?;
 
@@ -182,18 +182,20 @@ impl ServerHandler for Runner {
         for endpoint_tool in endpoint_tools {
             if endpoint_tool.name.as_ref() == request.name {
                 // This is an endpoint tool, forward to the actual HTTP endpoint
-                let result = call_endpoint_tool(&endpoint_tool, args.clone(), &workspace_id, &authed).await?;
+                let result =
+                    call_endpoint_tool(&endpoint_tool, args.clone(), &workspace_id, &authed)
+                        .await?;
                 return Ok(CallToolResult::success(vec![Content::text(
-                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string())
+                    serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
                 )]));
             }
         }
 
         // Continue with script/flow logic
         let (tool_type, path, is_hub) = reverse_transform(&request.name).map_err(|e| {
-            Error::internal_error(format!("Failed to reverse transform path: {}", e), None)
+            ErrorData::internal_error(format!("Failed to reverse transform path: {}", e), None)
         })?;
-        
+
         let item_schema = if is_hub {
             get_hub_script_schema(&format!("hub/{}", path), db).await?
         } else {
@@ -259,14 +261,20 @@ impl ServerHandler for Runner {
                 let body_bytes = to_bytes(response.into_body(), usize::MAX)
                     .await
                     .map_err(|e| {
-                        Error::internal_error(format!("Failed to read response body: {}", e), None)
+                        ErrorData::internal_error(
+                            format!("Failed to read response body: {}", e),
+                            None,
+                        )
                     })?;
                 let body_str = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
-                    Error::internal_error(format!("Failed to decode response body: {}", e), None)
+                    ErrorData::internal_error(
+                        format!("Failed to decode response body: {}", e),
+                        None,
+                    )
                 })?;
                 Ok(CallToolResult::success(vec![Content::text(body_str)]))
             }
-            Err(e) => Err(Error::internal_error(
+            Err(e) => Err(ErrorData::internal_error(
                 format!("Failed to run script: {}", e),
                 None,
             )),
@@ -278,30 +286,30 @@ impl ServerHandler for Runner {
         &self,
         _request: Option<PaginatedRequestParam>,
         mut _context: RequestContext<RoleServer>,
-    ) -> Result<ListToolsResult, Error> {
+    ) -> Result<ListToolsResult, ErrorData> {
         let http_parts = _context
             .extensions
             .get::<axum::http::request::Parts>()
             .ok_or_else(|| {
                 tracing::error!("http::request::Parts not found");
-                Error::internal_error("http::request::Parts not found", None)
+                ErrorData::internal_error("http::request::Parts not found", None)
             })?;
 
         let authed = http_parts.extensions.get::<ApiAuthed>().ok_or_else(|| {
             tracing::error!("ApiAuthed Axum extension not found");
-            Error::internal_error("ApiAuthed Axum extension not found", None)
+            ErrorData::internal_error("ApiAuthed Axum extension not found", None)
         })?;
 
         check_scopes(authed)?;
 
         let db = http_parts.extensions.get::<DB>().ok_or_else(|| {
             tracing::error!("DB Axum extension not found");
-            Error::internal_error("DB Axum extension not found", None)
+            ErrorData::internal_error("DB Axum extension not found", None)
         })?;
 
         let user_db = http_parts.extensions.get::<UserDB>().ok_or_else(|| {
             tracing::error!("UserDB Axum extension not found");
-            Error::internal_error("UserDB Axum extension not found", None)
+            ErrorData::internal_error("UserDB Axum extension not found", None)
         })?;
 
         let workspace_id = http_parts
@@ -309,7 +317,7 @@ impl ServerHandler for Runner {
             .get::<WorkspaceId>()
             .ok_or_else(|| {
                 tracing::error!("WorkspaceId not found");
-                Error::internal_error("WorkspaceId not found", None)
+                ErrorData::internal_error("WorkspaceId not found", None)
             })
             .map(|w_id| w_id.0.clone())?;
 
@@ -319,10 +327,18 @@ impl ServerHandler for Runner {
                 .iter()
                 .find(|scope| scope.starts_with("mcp:") && !scope.contains("hub"))
         });
-        let hub_scope = scopes.and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:hub")));
+        let hub_scope =
+            scopes.and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:hub")));
         let (scope_type, scope_path) = owned_scope.map_or(("all", None), |scope| {
             let parts = scope.split(":").collect::<Vec<&str>>();
-            (parts[1], if parts.len() == 3 { Some(parts[2]) } else { None })
+            (
+                parts[1],
+                if parts.len() == 3 {
+                    Some(parts[2])
+                } else {
+                    None
+                },
+            )
         });
         let scope_integrations = hub_scope.and_then(|scope| {
             let parts = scope.split(":").collect::<Vec<&str>>();
@@ -341,8 +357,14 @@ impl ServerHandler for Runner {
             "script",
             scope_path.as_deref(),
         );
-        let flows_fn =
-            get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow", scope_path.as_deref());
+        let flows_fn = get_items::<FlowInfo>(
+            user_db,
+            authed,
+            &workspace_id,
+            scope_type,
+            "flow",
+            scope_path.as_deref(),
+        );
         let resources_types_fn = get_resources_types(user_db, authed, &workspace_id);
         let hub_scripts_fn = get_scripts_from_hub(db, scope_integrations.as_deref());
         let (scripts, flows, resources_types, hub_scripts) = if scope_integrations.is_some() {
@@ -410,7 +432,7 @@ impl ServerHandler for Runner {
 
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
-            protocol_version: Default::default(),
+            protocol_version: ProtocolVersion::default(),
             capabilities: ServerCapabilities::builder()
                 .enable_tools()
                 .enable_tool_list_changed()
@@ -424,7 +446,7 @@ impl ServerHandler for Runner {
         &self,
         _request: InitializeRequestParam,
         _context: RequestContext<RoleServer>,
-    ) -> Result<InitializeResult, Error> {
+    ) -> Result<InitializeResult, ErrorData> {
         Ok(self.get_info())
     }
 
@@ -432,7 +454,7 @@ impl ServerHandler for Runner {
         &self,
         _request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<ListResourcesResult, Error> {
+    ) -> Result<ListResourcesResult, ErrorData> {
         Ok(ListResourcesResult { resources: vec![], next_cursor: None })
     }
 
@@ -440,7 +462,7 @@ impl ServerHandler for Runner {
         &self,
         _request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<ListPromptsResult, Error> {
+    ) -> Result<ListPromptsResult, ErrorData> {
         Ok(ListPromptsResult::default())
     }
 
@@ -448,7 +470,7 @@ impl ServerHandler for Runner {
         &self,
         _request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
-    ) -> Result<ListResourceTemplatesResult, Error> {
+    ) -> Result<ListResourceTemplatesResult, ErrorData> {
         Ok(ListResourceTemplatesResult::default())
     }
 }
@@ -467,7 +489,10 @@ pub async fn extract_and_store_workspace_id(
 /// Setup the MCP server with HTTP transport
 pub async fn setup_mcp_server() -> anyhow::Result<(Router, Arc<LocalSessionManager>)> {
     let session_manager = Arc::new(LocalSessionManager::default());
-    let service_config = Default::default();
+    let service_config = StreamableHttpServerConfig {
+        sse_keep_alive: Some(Duration::from_secs(15)),
+        stateful_mode: false,
+    };
     let service = StreamableHttpService::new(
         || Ok(Runner::new()),
         session_manager.clone(),
@@ -513,6 +538,5 @@ async fn list_mcp_tools_handler() -> JsonResult<Vec<EndpointTool>> {
 
 /// Creates a router service for listing MCP tools
 pub fn list_tools_service() -> Router {
-    Router::new()
-        .route("/", get(list_mcp_tools_handler))
+    Router::new().route("/", get(list_mcp_tools_handler))
 }

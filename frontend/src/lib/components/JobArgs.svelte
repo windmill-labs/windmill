@@ -81,13 +81,15 @@ ${Object.entries(args)
 			</Head>
 
 			<tbody class="divide-y w-full">
-				{#if args && Object.keys(args).length > 0}
+				{#if args && typeof args === 'object' && Object.keys(args).length > 0}
 					{#each Object.entries(args).sort((a, b) => a[0].localeCompare(b[0])) as [arg, value]}
 						<Row>
 							<Cell first>{arg}</Cell>
 							<Cell><ArgInfo {value} /></Cell>
 						</Row>
 					{/each}
+				{:else if args && typeof args !== 'object'}
+					<Row><Cell>Argument is not an object (type: {typeof args})</Cell></Row>
 				{:else if args}
 					<Row><Cell>No arguments</Cell></Row>
 				{:else}

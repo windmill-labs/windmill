@@ -8,7 +8,6 @@
 		BadgeX,
 		Info,
 		Plus,
-		RefreshCcw,
 		Slack,
 		X
 	} from 'lucide-svelte'
@@ -21,7 +20,6 @@
 		ConfigService,
 		IndexSearchService,
 		SettingService,
-		TeamsService,
 		type ListAvailablePythonVersionsResponse
 	} from '$lib/gen'
 	import { Button, SecondsInput, Skeleton } from './common'
@@ -62,8 +60,6 @@
 		result: string
 		attempted_at: string
 	} | null = $state(null)
-
-	let isFetching = $state(false)
 
 	function showSetting(setting: string, values: Record<string, any>) {
 		if (setting == 'dev_instance') {
@@ -163,36 +159,24 @@
 		fetch_available_python_versions()
 	}
 
-	async function fetchTeams() {
-		if (isFetching) return
-		isFetching = true
-		try {
-			$values['teams'] = await TeamsService.syncTeams()
-		} catch (error) {
-			console.error('Error fetching teams:', error)
-		} finally {
-			isFetching = false
-		}
-	}
-
 	function handleTeamChange(
 		teamItem: { team_id: string; team_name: string } | undefined,
 		i: number
 	) {
-		const team =
-			(teamItem && $values['teams'].find((team) => team.team_id === teamItem.team_id)) || null
 		$values['critical_error_channels'][i] = {
-			teams_channel: {
-				team_id: team?.team_id,
-				team_name: team?.team_name,
-				channel_id: team?.channels[0]?.channel_id,
-				channel_name: team?.channels[0]?.channel_name
-			}
+			teams_channel: teamItem
+				? {
+						team_id: teamItem.team_id,
+						team_name: teamItem.team_name,
+						channel_id: undefined, // Will be set when channel is selected
+						channel_name: undefined
+					}
+				: undefined
 		}
 	}
 
 	function handleChannelChange(
-		channel: { channel_id: string; channel_name: string } | undefined,
+		channel: { channel_id?: string; channel_name?: string } | undefined,
 		i: number
 	) {
 		const team = $values['critical_error_channels'][i]?.teams_channel
@@ -382,7 +366,7 @@
 						<Password
 							small
 							placeholder={setting.placeholder}
-							on:keydown={() => {
+							onKeyDown={() => {
 								licenseKeyChanged = true
 							}}
 							bind:password={$values[setting.key]}
@@ -550,9 +534,6 @@
 														[e.target['value']]: ''
 													}
 												}
-												if (e.target?.['value'] === 'teams_channel') {
-													fetchTeams()
-												}
 											}}
 											value={(() => {
 												if (!v) return 'email'
@@ -584,8 +565,6 @@
 													containerClass="w-44"
 													minWidth="140px"
 													showRefreshButton={false}
-													placeholder="Select team"
-													teams={$values['teams']}
 													bind:selectedTeam={
 														() =>
 															$values['critical_error_channels'][i]?.teams_channel
@@ -604,12 +583,8 @@
 												{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
 													<ChannelSelector
 														containerClass=""
-														placeholder="Select channel"
-														channels={$values['teams'].find(
-															(team) =>
-																team.team_id ===
-																$values['critical_error_channels'][i]?.teams_channel?.team_id
-														)?.channels ?? []}
+														placeholder="Search channels"
+														teamId={$values['critical_error_channels'][i]?.teams_channel?.team_id}
 														bind:selectedChannel={
 															() =>
 																$values['critical_error_channels'][i]?.teams_channel?.channel_id
@@ -624,13 +599,10 @@
 																	: undefined,
 															(channel) => handleChannelChange(channel, i)
 														}
+														onError={(e) =>
+															sendUserToast('Failed to load channels: ' + e.message, true)}
 													/>
 												{/if}
-												<div>
-													<button onclick={fetchTeams} class="flex items-center gap-1 mt-2">
-														<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
-													</button>
-												</div>
 											</div>
 										{:else}
 											<input
@@ -673,7 +645,8 @@
 								if ($values[setting.key] == undefined || !Array.isArray($values[setting.key])) {
 									$values[setting.key] = []
 								}
-								$values[setting.key] = $values[setting.key].concat('')
+								// Start with a typed default to avoid invalid primitives in the array
+								$values[setting.key] = $values[setting.key].concat({ email: '' })
 							}}
 							id="arg-input-add-item"
 							startIcon={{ icon: Plus }}

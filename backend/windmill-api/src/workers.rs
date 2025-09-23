@@ -71,10 +71,10 @@ struct WorkerPing {
     wm_memory_usage: Option<i64>,
 }
 
-#[derive(Serialize, Deserialize)]
-struct EnableWorkerQuery {
-    disable: bool,
-}
+// #[derive(Serialize, Deserialize)]
+// struct EnableWorkerQuery {
+//     disable: bool,
+// }
 
 #[derive(Deserialize)]
 pub struct ListWorkerQuery {

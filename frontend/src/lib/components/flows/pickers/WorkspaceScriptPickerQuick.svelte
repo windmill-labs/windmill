@@ -1,13 +1,46 @@
+<script module lang="ts">
+	let initialWorkspace = get(workspaceStore)
+	let loadItemsCached = createCache(
+		({
+			workspace,
+			kind,
+			isTemplate
+		}: {
+			workspace?: string
+			kind?: string
+			isTemplate?: boolean
+			refreshCount?: number
+		}) =>
+			workspace
+				? kind == 'flow'
+					? FlowService.listFlows({ workspace })
+					: ScriptService.listScripts({ workspace, kinds: kind, isTemplate })
+				: undefined,
+		initialWorkspace
+			? {
+					initial: {
+						workspace: initialWorkspace,
+						kind: 'script',
+						isTemplate: undefined,
+						refreshCount: 0
+					}
+				}
+			: {}
+	)
+</script>
+
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { FlowService, ScriptService } from '$lib/gen'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { Skeleton } from '$lib/components/common'
-	import { emptyString } from '$lib/utils'
+	import { createCache, emptyString } from '$lib/utils'
 	import { Code2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { get } from 'svelte/store'
 
 	type Item = {
 		path: string
@@ -16,20 +49,13 @@
 		hash?: string
 	}
 
-	let items: Item[] | undefined = $state(undefined)
+	let items = usePromise(
+		async () =>
+			await loadItemsCached({ workspace: $workspaceStore!, kind, isTemplate, refreshCount }),
+		{ loadInit: false }
+	)
 
 	let filteredItems: (Item & { marked?: string })[] | undefined = $state(undefined)
-
-	async function loadItems(): Promise<void> {
-		items =
-			kind == 'flow'
-				? await FlowService.listFlows({ workspace: $workspaceStore! })
-				: await ScriptService.listScripts({
-						workspace: $workspaceStore!,
-						kinds: kind,
-						isTemplate
-					})
-	}
 
 	interface Props {
 		kind?: 'script' | 'trigger' | 'approval' | 'failure' | 'flow' | 'preprocessor'
@@ -42,6 +68,7 @@
 		ownerFilter?:
 			| { kind: 'inline' | 'owner' | 'integrations'; name: string | undefined }
 			| undefined
+		refreshCount?: number
 	}
 
 	let {
@@ -52,7 +79,8 @@
 		filteredWithOwner = $bindable(undefined),
 		filter = '',
 		owners = $bindable([]),
-		ownerFilter = $bindable(undefined)
+		ownerFilter = $bindable(undefined),
+		refreshCount = 0
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -76,7 +104,8 @@
 		}
 	}
 	$effect(() => {
-		$workspaceStore && kind && untrack(() => loadItems())
+		refreshCount
+		$workspaceStore && kind && untrack(() => items.refresh())
 	})
 	$effect(() => {
 		if ($workspaceStore) {
@@ -106,7 +135,7 @@
 
 <SearchItems
 	{filter}
-	{items}
+	items={items.value}
 	bind:filteredItems
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />

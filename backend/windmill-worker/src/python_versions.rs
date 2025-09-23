@@ -655,6 +655,7 @@ impl PyV {
             false,
             occupancy_metrics,
             None,
+            None,
         )
         .await?;
         Ok(())

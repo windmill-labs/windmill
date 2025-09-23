@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.543.0
+  version: 1.546.1
   title: Windmill API
 
   contact:
@@ -1306,8 +1306,6 @@ paths:
                     type: string
                   endpoint_sync:
                     type: string
-                  endpoint_openai_sync:
-                    type: string
                   summary:
                     type: string
                   description:
@@ -1318,7 +1316,6 @@ paths:
                   - workspace
                   - endpoint_async
                   - endpoint_sync
-                  - endpoint_openai_sync
                   - summary
                   - kind
 
@@ -2232,6 +2229,12 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: search
+          in: query
+          description: Search teams by name
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: status
@@ -2249,15 +2252,27 @@ paths:
 
   /w/{workspace}/workspaces/available_teams_channels:
     get:
-      summary: list available teams channels
+      summary: list available channels for a specific team
       operationId: listAvailableTeamsChannels
       tags:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: team_id
+          in: query
+          description: Microsoft Teams team ID
+          required: true
+          schema:
+            type: string
+        - name: search
+          in: query
+          description: Search channels by name
+          required: false
+          schema:
+            type: string
       responses:
         "200":
-          description: status
+          description: List of channels for the specified team
           content:
             application/json:
               schema:
@@ -2269,10 +2284,7 @@ paths:
                       type: string
                     channel_id:
                       type: string
-                    service_url:
-                      type: string
-                    tenant_id:
-                      type: string
+
 
   /w/{workspace}/workspaces/connect_teams:
     post:
@@ -3706,6 +3718,7 @@ paths:
               properties:
                 refresh_token:
                   type: string
+                  description: "OAuth refresh token. For authorization_code flow, this contains the actual refresh token. For client_credentials flow, this must be set to an empty string."
                 expires_in:
                   type: integer
                 client:
@@ -3723,6 +3736,7 @@ paths:
                   type: string
                   description: "OAuth token URL override for resource-level authentication (client_credentials flow only)"
               required:
+                - refresh_token
                 - expires_in
                 - client
       responses:
@@ -3934,21 +3948,6 @@ paths:
                     items:
                       type: string
 
-  /teams/sync:
-    post:
-      operationId: syncTeams
-      summary: synchronize Microsoft Teams information (teams/channels)
-      tags:
-        - teams
-      responses:
-        "200":
-          description: Teams information successfully synchronized
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/TeamInfo"
 
   /teams/activities:
     post:
@@ -5640,35 +5639,6 @@ paths:
                 type: string
                 format: uuid
 
-  /w/{workspace}/jobs/openai_sync/p/{path}:
-    post:
-      summary: run script by path in openai format
-      operationId: openaiSyncScriptByPath
-      tags:
-        - job
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-        - $ref: "#/components/parameters/ParentJob"
-        - $ref: "#/components/parameters/NewJobId"
-        - $ref: "#/components/parameters/IncludeHeader"
-        - $ref: "#/components/parameters/QueueLimit"
-
-      requestBody:
-        description: script args
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ScriptArgs"
-
-      responses:
-        "200":
-          description: job result
-          content:
-            application/json:
-              schema: {}
-
   /w/{workspace}/jobs/run_wait_result/p/{path}:
     post:
       summary: run script by path
@@ -5684,6 +5654,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/SkipPreprocessor"
 
       requestBody:
         description: script args
@@ -5715,34 +5686,7 @@ paths:
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
         - $ref: "#/components/parameters/Payload"
-
-      responses:
-        "200":
-          description: job result
-          content:
-            application/json:
-              schema: {}
-
-  /w/{workspace}/jobs/openai_sync/f/{path}:
-    post:
-      summary: run flow by path and wait until completion in openai format
-      operationId: openaiSyncFlowByPath
-      tags:
-        - job
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-        - $ref: "#/components/parameters/IncludeHeader"
-        - $ref: "#/components/parameters/QueueLimit"
-        - $ref: "#/components/parameters/NewJobId"
-
-      requestBody:
-        description: script args
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ScriptArgs"
+        - $ref: "#/components/parameters/SkipPreprocessor"
 
       responses:
         "200":
@@ -5763,6 +5707,7 @@ paths:
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
         - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/SkipPreprocessor"
 
       requestBody:
         description: script args
@@ -7148,11 +7093,7 @@ paths:
           in: query
           schema:
             type: integer
-        - name: skip_preprocessor
-          description: skip the preprocessor
-          in: query
-          schema:
-            type: boolean
+        - $ref: "#/components/parameters/SkipPreprocessor"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/NewJobId"
@@ -7310,11 +7251,7 @@ paths:
           in: query
           schema:
             type: integer
-        - name: skip_preprocessor
-          description: skip the preprocessor
-          in: query
-          schema:
-            type: boolean
+        - $ref: "#/components/parameters/SkipPreprocessor"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/CacheTtl"
@@ -7537,6 +7474,30 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/jobs/run/dynamic_select:
+    post:
+      summary: run dynamic select helper function
+      operationId: runDynamicSelect
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: dynamic select request
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DynamicInputData"
+      responses:
+        "201":
+          description: dynamic select job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
 
   /w/{workspace}/jobs/queue/list:
     get:
@@ -7802,6 +7763,10 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: force_cancel
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: uuids of the jobs to cancel
         required: true
@@ -8098,6 +8063,34 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/jobs_u/queue/get_started_at_by_ids:
+    post:
+      summary: get started at by ids
+      operationId: getStartedAtByIds
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: ids
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+      responses:
+        "200":
+          description: started at by ids
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: date-time
 
   /w/{workspace}/jobs_u/getupdate/{id}:
     get:
@@ -14147,6 +14140,12 @@ components:
       in: query
       schema:
         type: string
+    SkipPreprocessor:
+      name: skip_preprocessor
+      description: skip the preprocessor
+      in: query
+      schema:
+        type: boolean
     Payload:
       name: payload
       description: |
@@ -14524,6 +14523,12 @@ components:
           type: object
           additionalProperties:
             type: string
+        max_tokens_per_model:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 1
+            maximum: 2000000
 
     Alert:
       type: object
@@ -16828,6 +16833,12 @@ components:
           type: boolean
         auto_acknowledge_msg:
           type: boolean
+        ack_deadline:
+          type: integer
+          format: int32
+          minimum: 10
+          maximum: 600
+          description: "Time in seconds within which the message must be acknowledged. If not provided, defaults to the subscription's acknowledgment deadline (600 seconds)."
         error_handler_path:
           type: string
         error_handler_args:
@@ -18117,6 +18128,10 @@ components:
           type: string
         public_resource:
           type: boolean
+        advanced_permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/S3PermissionRule"
         secondary_storage:
           type: object
           additionalProperties:
@@ -18173,6 +18188,49 @@ components:
                     type: string
                 required:
                   - path
+
+    DynamicInputData:
+      type: object
+      properties:
+        entrypoint_function:
+          type: string
+          description: Name of the function to execute for dynamic select
+        args:
+          type: object
+          description: Arguments to pass to the function
+        runnable_ref:
+          type: object
+          oneOf:
+            - type: object
+              properties:
+                source:
+                  type: string
+                  enum: [deployed]
+                path:
+                  type: string
+                  description: Path to the deployed script or flow
+                runnable_kind:
+                  $ref: "#/components/schemas/RunnableKind"
+              required:
+                - source
+                - path
+                - runnable_kind
+            - type: object
+              properties:
+                source:
+                  type: string
+                  enum: [inline]
+                code:
+                  type: string
+                  description: Code content for inline execution
+                language:
+                  $ref: "#/components/schemas/ScriptLang"
+              required:
+                - source
+                - code
+      required:
+        - entrypoint_function
+        - runnable_ref
 
     WindmillLargeFile:
       type: object
@@ -18270,6 +18328,15 @@ components:
           additionalProperties:
             type: string
 
+    S3PermissionRule:
+      type: object
+      properties:
+        pattern:
+          type: string
+        allow:
+          type: string # comma separated permissions : "read,write,delete,list"
+      required: ["pattern", "allow"]
+
     GitRepositorySettings:
       type: object
       properties:
@@ -18309,17 +18376,6 @@ components:
       required:
         - script_path
         - git_repo_resource_path
-
-    UploadFilePart:
-      type: object
-      properties:
-        part_number:
-          type: integer
-        tag:
-          type: string
-      required:
-        - part_number
-        - tag
 
     MetricMetadata:
       type: object
