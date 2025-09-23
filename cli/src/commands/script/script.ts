@@ -29,7 +29,7 @@ import {
   parseMetadataFile,
 } from "../../utils/metadata.ts";
 import {
-    LanguageWithRawReqsSupport,
+  LanguageWithRawReqsSupport,
   ScriptLanguage,
   inferContentTypeFromFilePath,
   languagesWithRawReqsSupport,
@@ -114,8 +114,14 @@ export async function findResourceFile(path: string) {
 
   if (currentBranch) {
     // Add branch-specific candidates at the beginning (higher priority)
-    const branchSpecificJSON = specificItems.toBranchSpecificPath(contentBasePathJSON, currentBranch);
-    const branchSpecificYAML = specificItems.toBranchSpecificPath(contentBasePathYAML, currentBranch);
+    const branchSpecificJSON = specificItems.toBranchSpecificPath(
+      contentBasePathJSON,
+      currentBranch
+    );
+    const branchSpecificYAML = specificItems.toBranchSpecificPath(
+      contentBasePathYAML,
+      currentBranch
+    );
     candidates.unshift(branchSpecificJSON, branchSpecificYAML);
   }
 
@@ -624,7 +630,7 @@ export const exts = [
   ".nu",
   ".playbook.yml",
   ".java",
-  ".rb"
+  ".rb",
   // for related places search: ADD_NEW_LANG
 ];
 
@@ -727,7 +733,7 @@ async function run(
       if (opts.silent) {
         console.log(result);
       } else {
-        log.info(result);
+        log.info(JSON.stringify(result, null, 2));
       }
 
       break;
@@ -885,7 +891,10 @@ async function bootstrap(
   );
 }
 
-export type GlobalDeps = Map<LanguageWithRawReqsSupport, Record<string, string>>;
+export type GlobalDeps = Map<
+  LanguageWithRawReqsSupport,
+  Record<string, string>
+>;
 
 export async function findGlobalDeps(): Promise<GlobalDeps> {
   var globalDeps: GlobalDeps = new Map();
@@ -895,9 +904,8 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
     return (
       !isDir &&
       // Skip if the filename is not one of lockfile names
-      !(languagesWithRawReqsSupport.some(
-        lockfile =>
-        p.endsWith(SEP + lockfile.rrFilename))
+      !languagesWithRawReqsSupport.some((lockfile) =>
+        p.endsWith(SEP + lockfile.rrFilename)
       )
     );
   }, els)) {
@@ -906,9 +914,11 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
 
     // Iterate over available languages to find which lockfile
     languagesWithRawReqsSupport.map((lock) => {
-      if (entry.path.endsWith(lock.rrFilename)){
+      if (entry.path.endsWith(lock.rrFilename)) {
         const current = globalDeps.get(lock) ?? {};
-        current[entry.path.substring(0, entry.path.length - lock.rrFilename.length)] = content;
+        current[
+          entry.path.substring(0, entry.path.length - lock.rrFilename.length)
+        ] = content;
         globalDeps.set(lock, current);
       }
     });

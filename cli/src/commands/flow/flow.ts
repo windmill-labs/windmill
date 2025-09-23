@@ -14,7 +14,6 @@ import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
 import { Flow } from "../../../gen/types.gen.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 
-
 export interface FlowFile {
   summary: string;
   description?: string;
@@ -55,7 +54,7 @@ export async function pushFlow(
     async (path: string) => await Deno.readTextFile(localPath + path),
     log,
     localPath,
-    SEP,
+    SEP
   );
 
   if (flow) {
@@ -191,7 +190,7 @@ async function run(
     workspace: workspace.workspaceId,
     id,
   });
-  log.info(jobInfo.result ?? {});
+  log.info(JSON.stringify(jobInfo.result ?? {}, null, 2));
 }
 
 async function generateLocks(
@@ -201,14 +200,23 @@ async function generateLocks(
   } & SyncOptions,
   folder: string | undefined
 ) {
-  const useRawReqs = opts.useRawRequirements || Deno.env.get("USE_RAW_REQUIREMENTS") === "true";
+  const useRawReqs =
+    opts.useRawRequirements || Deno.env.get("USE_RAW_REQUIREMENTS") === "true";
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   opts = await mergeConfigWithConfigFile(opts);
   if (folder) {
     // read script metadata file
-    await generateFlowLockInternal(folder, false, workspace, opts, undefined, undefined, useRawReqs);
+    await generateFlowLockInternal(
+      folder,
+      false,
+      workspace,
+      opts,
+      undefined,
+      undefined,
+      useRawReqs
+    );
   } else {
     const ignore = await ignoreF(opts);
     const elems = Object.keys(
@@ -229,7 +237,15 @@ async function generateLocks(
     let hasAny = false;
 
     for (const folder of elems) {
-      const candidate = await generateFlowLockInternal(folder, true, workspace, opts, undefined, undefined, useRawReqs);
+      const candidate = await generateFlowLockInternal(
+        folder,
+        true,
+        workspace,
+        opts,
+        undefined,
+        undefined,
+        useRawReqs
+      );
       if (candidate) {
         hasAny = true;
         log.info(colors.green(`+ ${candidate}`));
@@ -251,7 +267,15 @@ async function generateLocks(
       return;
     }
     for (const folder of elems) {
-      await generateFlowLockInternal(folder, false, workspace, opts,undefined, undefined, useRawReqs);
+      await generateFlowLockInternal(
+        folder,
+        false,
+        workspace,
+        opts,
+        undefined,
+        undefined,
+        useRawReqs
+      );
     }
   }
 }
