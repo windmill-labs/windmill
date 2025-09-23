@@ -45,6 +45,8 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
+	import FlowChatInterface from '../FlowChatInterface.svelte'
+	import { runFlowPreview } from '../utils'
 
 	interface Props {
 		noEditor: boolean
@@ -361,6 +363,14 @@
 		jsonInputs?.resetSelected(true)
 		firstStepInputs?.resetSelected(true)
 	}
+
+	async function runFlowWithMessage(args: Record<string, any>): Promise<string> {
+		const flow = {
+			value: flowStore.val.value,
+			summary: flowStore.val.summary || ''
+		}
+		return await runFlowPreview(args, flow, $pathStore || '', undefined)
+	}
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
@@ -368,288 +378,277 @@
 
 <FlowCard {noEditor} title="Flow Input">
 	{#if !disabled}
-		<div class="py-2 px-4 h-full">
-			<EditableSchemaForm
-				bind:this={editableSchemaForm}
-				bind:schema={flowStore.val.schema}
-				isFlowInput
-				on:delete={(e) => {
-					addPropertyV2?.handleDeleteArgument([e.detail])
-				}}
-				showDynOpt
-				displayWebhookWarning
-				editTab={$flowInputEditorState?.selectedTab}
-				{previewSchema}
-				bind:args={previewArgs.val}
-				bind:editPanelSize={
-					() => {
-						return editPanelSize
-					},
-					(v) => {
-						if (editPanelSize != v) {
-							editPanelSize = v
+		{#if flowStore.val.schema?.chat_input_enabled}
+			<FlowChatInterface flowPath={$pathStore || ''} onRunFlow={runFlowWithMessage} />
+		{:else}
+			<div class="py-2 px-4 h-full">
+				<EditableSchemaForm
+					bind:this={editableSchemaForm}
+					bind:schema={flowStore.val.schema}
+					isFlowInput
+					on:delete={(e) => {
+						addPropertyV2?.handleDeleteArgument([e.detail])
+					}}
+					showDynOpt
+					displayWebhookWarning
+					editTab={$flowInputEditorState?.selectedTab}
+					{previewSchema}
+					bind:args={previewArgs.val}
+					bind:editPanelSize={
+						() => {
+							return editPanelSize
+						},
+						(v) => {
+							if (editPanelSize != v) {
+								editPanelSize = v
+							}
 						}
 					}
-				}
-				editPanelInitialSize={$flowInputEditorState?.editPanelSize}
-				pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
-				{diff}
-				disableDnd={!!previewSchema}
-				on:rejectChange={(e) => {
-					rejectChange(e.detail).then(() => {
-						updatePreviewSchema(selectedSchema)
-					})
-				}}
-				on:acceptChange={(e) => {
-					acceptChange(e.detail).then(() => {
-						updatePreviewSchema(selectedSchema)
-					})
-				}}
-				shouldDispatchChanges={true}
-				onChange={() => {
-					if (!previewSchema) {
-						let args = $state.snapshot(previewArgs.val)
-						if (!deepEqual(args, savedPreviewArgs)) {
-							savedPreviewArgs = args
+					editPanelInitialSize={$flowInputEditorState?.editPanelSize}
+					pannelExtraButtonWidth={$flowInputEditorState?.editPanelSize ? tabButtonWidth : 0}
+					{diff}
+					disableDnd={!!previewSchema}
+					on:rejectChange={(e) => {
+						rejectChange(e.detail).then(() => {
+							updatePreviewSchema(selectedSchema)
+						})
+					}}
+					on:acceptChange={(e) => {
+						acceptChange(e.detail).then(() => {
+							updatePreviewSchema(selectedSchema)
+						})
+					}}
+					shouldDispatchChanges={true}
+					onChange={() => {
+						if (!previewSchema) {
+							let args = $state.snapshot(previewArgs.val)
+							if (!deepEqual(args, savedPreviewArgs)) {
+								savedPreviewArgs = args
+							}
 						}
-					}
-				}}
-				bind:isValid
-				bind:dynCode
-				bind:dynLang
-			>
-				{#snippet openEditTab()}
-					<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>
-						<SideBarTab {dropdownItems} fullMenu={!!$flowInputEditorState?.selectedTab}>
-							{#snippet close_button()}
-								<button
-									onclick={() => {
-										handleEditSchema()
+					}}
+					bind:isValid
+					bind:dynCode
+					bind:dynLang
+				>
+					{#snippet openEditTab()}
+						<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>
+							<SideBarTab {dropdownItems} fullMenu={!!$flowInputEditorState?.selectedTab}>
+								{#snippet close_button()}
+									<button
+										onclick={() => {
+											handleEditSchema()
+										}}
+										title={!!$flowInputEditorState?.selectedTab
+											? 'Close input editor'
+											: 'Open input editor'}
+										class={twMerge(
+											ButtonType.ColorVariants.blue.contained,
+											!!$flowInputEditorState?.selectedTab
+												? 'rounded-tl-md border-l border-t'
+												: 'rounded-md border'
+										)}
+									>
+										<div class="p-2 center-center">
+											{#if !!$flowInputEditorState?.selectedTab}
+												<ChevronRight size={14} />
+											{:else}
+												<Pen size={14} />
+											{/if}
+										</div>
+									</button>
+								{/snippet}
+							</SideBarTab>
+						</div>
+					{/snippet}
+					{#snippet addProperty()}
+						{#if !!previewSchema}
+							<div class="flex flex-row items-center gap-2 right-2 justify-end">
+								<Button
+									size="xs"
+									color="green"
+									disabled={!previewSchema}
+									shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
+									startIcon={{ icon: Check }}
+									on:click={() => {
+										applySchemaAndArgs()
+										connectFirstNode()
 									}}
-									title={!!$flowInputEditorState?.selectedTab
-										? 'Close input editor'
-										: 'Open input editor'}
-									class={twMerge(
-										ButtonType.ColorVariants.blue.contained,
-										!!$flowInputEditorState?.selectedTab
-											? 'rounded-tl-md border-l border-t'
-											: 'rounded-md border'
-									)}
 								>
-									<div class="p-2 center-center">
-										{#if !!$flowInputEditorState?.selectedTab}
-											<ChevronRight size={14} />
-										{:else}
-											<Pen size={14} />
-										{/if}
-									</div>
-								</button>
-							{/snippet}
-						</SideBarTab>
-					</div>
-				{/snippet}
-				{#snippet addProperty()}
-					{#if !!previewSchema}
-						<div class="flex flex-row items-center gap-2 right-2 justify-end">
-							<Button
-								size="xs"
-								color="green"
-								disabled={!previewSchema}
-								shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
-								startIcon={{ icon: Check }}
-								on:click={() => {
-									applySchemaAndArgs()
-									connectFirstNode()
+									{Object.values(diff).every((el) => el.diff === 'same')
+										? 'Apply args'
+										: 'Update schema'}
+								</Button>
+								<Button
+									variant="border"
+									color="light"
+									size="xs"
+									startIcon={{ icon: X }}
+									shortCut={{ key: 'esc', withoutModifier: true }}
+									on:click={() => {
+										resetSelected()
+									}}
+								/>
+							</div>
+						{:else}
+							<AddPropertyV2
+								bind:schema={flowStore.val.schema}
+								bind:this={addPropertyV2}
+								onAddNew={(argName) => {
+									handleEditSchema('inputEditor')
+									editableSchemaForm?.openField(argName)
+									refreshStateStore(flowStore)
 								}}
 							>
-								{Object.values(diff).every((el) => el.diff === 'same')
-									? 'Apply args'
-									: 'Update schema'}
-							</Button>
-							<Button
-								variant="border"
-								color="light"
-								size="xs"
-								startIcon={{ icon: X }}
-								shortCut={{ key: 'esc', withoutModifier: true }}
-								on:click={() => {
-									resetSelected()
-								}}
-							/>
-						</div>
-					{:else}
-						<AddPropertyV2
-							bind:schema={flowStore.val.schema}
-							bind:this={addPropertyV2}
-							onAddNew={(argName) => {
-								handleEditSchema('inputEditor')
-								editableSchemaForm?.openField(argName)
-								refreshStateStore(flowStore)
-							}}
-						>
-							{#snippet trigger()}
-								<div
-									class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
-									id="add-flow-input-btn"
-								>
-									<Plus size={14} />
-								</div>
-							{/snippet}
-						</AddPropertyV2>
-					{/if}
-				{/snippet}
-				{#snippet extraTab()}
-					{#if $flowInputEditorState?.selectedTab === 'history'}
-						<FlowInputEditor
-							title="History"
-							on:destroy={() => {
-								updatePreviewSchemaAndArgs(undefined)
-							}}
-						>
-							<HistoricInputs
-								bind:this={historicInputs}
-								runnableId={$initialPathStore ?? undefined}
-								runnableType={$pathStore ? 'FlowPath' : undefined}
-								on:select={(e) => {
-									updatePreviewSchemaAndArgs(e.detail?.args ?? undefined)
-								}}
-								limitPayloadSize
-							/>
-						</FlowInputEditor>
-					{:else if $flowInputEditorState?.selectedTab === 'captures'}
-						<FlowInputEditor
-							on:destroy={() => {
-								updatePreviewSchemaAndArgs(undefined)
-							}}
-							title="Trigger captures"
-						>
-							{#snippet action()}
-								<svelete:fragment>
-									<div class="center-center">
-										<CaptureButton on:openTriggers small={true} />
+								{#snippet trigger()}
+									<div
+										class="w-full py-2 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
+										id="add-flow-input-btn"
+									>
+										<Plus size={14} />
 									</div>
-								</svelete:fragment>
-							{/snippet}
-							<div class="h-full">
-								<CaptureTable
-									path={$initialPathStore || fakeInitialPath}
+								{/snippet}
+							</AddPropertyV2>
+						{/if}
+					{/snippet}
+					{#snippet extraTab()}
+						{#if $flowInputEditorState?.selectedTab === 'history'}
+							<FlowInputEditor
+								title="History"
+								on:destroy={() => {
+									updatePreviewSchemaAndArgs(undefined)
+								}}
+							>
+								<HistoricInputs
+									bind:this={historicInputs}
+									runnableId={$initialPathStore ?? undefined}
+									runnableType={$pathStore ? 'FlowPath' : undefined}
+									on:select={(e) => {
+										updatePreviewSchemaAndArgs(e.detail?.args ?? undefined)
+									}}
+									limitPayloadSize
+								/>
+							</FlowInputEditor>
+						{:else if $flowInputEditorState?.selectedTab === 'captures'}
+							<FlowInputEditor
+								on:destroy={() => {
+									updatePreviewSchemaAndArgs(undefined)
+								}}
+								title="Trigger captures"
+							>
+								{#snippet action()}
+									<svelete:fragment>
+										<div class="center-center">
+											<CaptureButton on:openTriggers small={true} />
+										</div>
+									</svelete:fragment>
+								{/snippet}
+								<div class="h-full">
+									<CaptureTable
+										path={$initialPathStore || fakeInitialPath}
+										on:select={(e) => {
+											updatePreviewSchemaAndArgs(e.detail ?? undefined)
+										}}
+										isFlow={true}
+										headless={true}
+										addButton={false}
+										bind:this={captureTable}
+										limitPayloadSize
+									/>
+								</div>
+							</FlowInputEditor>
+						{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
+							<FlowInputEditor
+								on:destroy={() => {
+									updatePreviewSchemaAndArgs(undefined)
+								}}
+								title="Saved inputs"
+							>
+								<SavedInputsPicker
+									runnableId={$initialPathStore ?? undefined}
+									runnableType={$pathStore ? 'FlowPath' : undefined}
 									on:select={(e) => {
 										updatePreviewSchemaAndArgs(e.detail ?? undefined)
 									}}
-									isFlow={true}
-									headless={true}
-									addButton={false}
-									bind:this={captureTable}
+									on:isEditing={(e) => {
+										preventEnter = e.detail
+									}}
+									previewArgs={previewArgs.val}
+									{isValid}
 									limitPayloadSize
+									bind:this={savedInputsPicker}
 								/>
-							</div>
-						</FlowInputEditor>
-					{:else if $flowInputEditorState?.selectedTab === 'savedInputs'}
-						<FlowInputEditor
-							on:destroy={() => {
-								updatePreviewSchemaAndArgs(undefined)
-							}}
-							title="Saved inputs"
-						>
-							<SavedInputsPicker
-								runnableId={$initialPathStore ?? undefined}
-								runnableType={$pathStore ? 'FlowPath' : undefined}
-								on:select={(e) => {
-									updatePreviewSchemaAndArgs(e.detail ?? undefined)
+							</FlowInputEditor>
+						{:else if $flowInputEditorState?.selectedTab === 'json'}
+							<FlowInputEditor
+								on:destroy={() => {
+									updatePreviewSchemaAndArgs(undefined)
 								}}
-								on:isEditing={(e) => {
-									preventEnter = e.detail
+								title="Json payload"
+							>
+								<JsonInputs
+									on:focus={() => {
+										preventEnter = true
+									}}
+									on:blur={async () => {
+										preventEnter = false
+									}}
+									on:select={(e) => {
+										updatePreviewSchemaAndArgs(e.detail ?? undefined)
+									}}
+									selected={!!previewArgs.val}
+									bind:this={jsonInputs}
+								/>
+							</FlowInputEditor>
+						{:else if $flowInputEditorState?.selectedTab === 'firstStepInputs'}
+							<FlowInputEditor
+								on:destroy={() => {
+									updatePreviewSchemaAndArgs(undefined)
+									connectFirstNode = () => {}
 								}}
-								previewArgs={previewArgs.val}
-								{isValid}
-								limitPayloadSize
-								bind:this={savedInputsPicker}
-							/>
-						</FlowInputEditor>
-					{:else if $flowInputEditorState?.selectedTab === 'json'}
-						<FlowInputEditor
-							on:destroy={() => {
-								updatePreviewSchemaAndArgs(undefined)
-							}}
-							title="Json payload"
-						>
-							<JsonInputs
-								on:focus={() => {
-									preventEnter = true
+								title="First step's inputs"
+							>
+								<FirstStepInputs
+									bind:this={firstStepInputs}
+									on:connectFirstNode={({ detail }) => {
+										connectFirstNode = detail.connectFirstNode
+									}}
+									on:select={(e) => {
+										if (e.detail) {
+											const diffSchema = computeDiff(e.detail, flowStore.val.schema)
+											diff = diffSchema
+											previewSchema = schemaFromDiff(diffSchema, flowStore.val.schema)
+											runDisabled = true
+										} else {
+											updatePreviewSchemaAndArgs(undefined)
+										}
+									}}
+								/>
+							</FlowInputEditor>
+						{/if}
+					{/snippet}
+					{#snippet runButton()}
+						<div class="w-full flex justify-end pr-5">
+							<Button
+								color="dark"
+								btnClasses="w-fit"
+								disabled={runDisabled || !isValid}
+								size="xs"
+								shortCut={{ Icon: CornerDownLeft, hide: false }}
+								on:click={() => {
+									runPreview()
 								}}
-								on:blur={async () => {
-									preventEnter = false
-								}}
-								on:select={(e) => {
-									updatePreviewSchemaAndArgs(e.detail ?? undefined)
-								}}
-								selected={!!previewArgs.val}
-								bind:this={jsonInputs}
-							/>
-						</FlowInputEditor>
-					{:else if $flowInputEditorState?.selectedTab === 'firstStepInputs'}
-						<FlowInputEditor
-							on:destroy={() => {
-								updatePreviewSchemaAndArgs(undefined)
-								connectFirstNode = () => {}
-							}}
-							title="First step's inputs"
-						>
-							<FirstStepInputs
-								bind:this={firstStepInputs}
-								on:connectFirstNode={({ detail }) => {
-									connectFirstNode = detail.connectFirstNode
-								}}
-								on:select={(e) => {
-									if (e.detail) {
-										const diffSchema = computeDiff(e.detail, flowStore.val.schema)
-										diff = diffSchema
-										previewSchema = schemaFromDiff(diffSchema, flowStore.val.schema)
-										runDisabled = true
-									} else {
-										updatePreviewSchemaAndArgs(undefined)
-									}
-								}}
-							/>
-						</FlowInputEditor>
-					{/if}
-				{/snippet}
-				{#snippet runButton()}
-					<div class="w-full flex justify-end pr-5">
-						<Button
-							color="dark"
-							btnClasses="w-fit"
-							disabled={runDisabled || !isValid}
-							size="xs"
-							shortCut={{ Icon: CornerDownLeft, hide: false }}
-							on:click={() => {
-								runPreview()
-							}}
-						>
-							Run
-						</Button>
-					</div>
-				{/snippet}
-			</EditableSchemaForm>
-		</div>
+							>
+								Run
+							</Button>
+						</div>
+					{/snippet}
+				</EditableSchemaForm>
+			</div>
+		{/if}
 	{:else}
 		<div class="p-4 border-b">
-			{#if flowStore.val.chat_input_enabled}
-				<div class="text-center py-8">
-					<div class="inline-flex items-center justify-center w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-full mb-4">
-						<MessageCircle size={24} class="text-blue-600 dark:text-blue-400" />
-					</div>
-					<h3 class="text-lg font-semibold mb-2">Chat Input Mode</h3>
-					<p class="text-secondary mb-4">
-						This flow is configured to accept chat messages. The input schema is automatically set to accept a <code class="px-2 py-1 bg-surface-secondary rounded">user_message</code> string parameter.
-					</p>
-					<div class="text-xs text-tertiary">
-						To modify the flow schema, disable Chat Input Mode in the Settings panel.
-					</div>
-				</div>
-			{:else}
-				<FlowInputViewer schema={flowStore.val.schema} />
-			{/if}
+			<FlowInputViewer schema={flowStore.val.schema} />
 		</div>
 	{/if}
 </FlowCard>
