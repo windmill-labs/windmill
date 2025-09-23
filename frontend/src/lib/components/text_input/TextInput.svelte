@@ -32,6 +32,12 @@
 		error?: string
 	}
 
+	export function focus() {
+		inputEl?.focus()
+	}
+
+	let inputEl: HTMLInputElement | undefined = $state()
+
 	let { inputProps, value = $bindable(), class: className = '', error }: Props = $props()
 </script>
 
@@ -44,5 +50,6 @@
 		inputBorderClass({ error: !!error }),
 		className
 	)}
+	bind:this={inputEl}
 	bind:value
 />
