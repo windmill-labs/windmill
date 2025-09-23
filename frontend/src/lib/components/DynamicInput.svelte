@@ -97,7 +97,7 @@
 
 	$effect(() => {
 		if (_items.value && value !== undefined && isSelect) {
-			if (isMultiple && Array.isArray(value)) {
+			if (isMultiple && Array.isArray(value) && Array.isArray(_items.value)) {
 				const availableValues = new Set(_items.value.map((x) => x.value))
 				const filteredValue = value.filter((v) => availableValues.has(v))
 				if (filteredValue.length !== value.length) {
