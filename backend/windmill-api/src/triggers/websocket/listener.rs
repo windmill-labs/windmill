@@ -1,7 +1,10 @@
 use super::WebsocketTrigger;
 use crate::triggers::{
     listener::ListeningTrigger,
-    trigger_helpers::{trigger_runnable, trigger_runnable_and_wait_for_raw_result, TriggerJobArgs},
+    trigger_helpers::{
+        trigger_runnable, trigger_runnable_and_wait_for_raw_result,
+        trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs,
+    },
     websocket::WebsocketConfig,
     Listener,
 };
@@ -42,7 +45,7 @@ impl ListeningTrigger<WebsocketConfig> {
             self.trigger_config.url_runnable_args.as_ref().map(|r| &r.0),
         )?;
 
-        let result = trigger_runnable_and_wait_for_raw_result(
+        let result = trigger_runnable_and_wait_for_raw_result_with_error_ctx(
             db,
             None,
             authed,
@@ -116,7 +119,7 @@ impl ListeningTrigger<WebsocketConfig> {
                     }
                     let authed = authed_o.clone().unwrap();
 
-                    let result = trigger_runnable_and_wait_for_raw_result(
+                    let result = trigger_runnable_and_wait_for_raw_result_with_error_ctx(
                         db,
                         None,
                         authed.clone(),
@@ -404,6 +407,7 @@ impl Listener for WebsocketTrigger {
             let error_handler_path = error_handler_path.map(|s| s.to_string());
             let error_handler_args = error_handler_args.cloned();
             let trigger_path = path.clone();
+            let can_return_error_result = trigger_config.can_return_error_result;
             let handle_response_f = async move {
                 tokio::select! {
                     _ = killpill_rx.recv() => {
@@ -422,7 +426,11 @@ impl Listener for WebsocketTrigger {
                         error_handler_args.as_ref(),
                         format!("websocket_trigger/{}", trigger_path),
                     ) => {
-                        if let Ok(result) = result.map(|r| r.get().to_owned()) {
+                        if let Ok((result, success)) = result {
+                            if !success && !can_return_error_result {
+                                return;
+                            }
+                            let result = result.get().to_owned();
                             // only send the result if it's not null
                             if result != "null" {
                                 tracing::info!("Sending job result to WebSocket {}", url);

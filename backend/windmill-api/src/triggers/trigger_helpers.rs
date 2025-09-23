@@ -623,7 +623,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
-) -> Result<Box<RawValue>> {
+) -> Result<(Box<RawValue>, bool)> {
     let username = authed.username.clone();
     let (uuid, delete_after_use, early_return) = trigger_runnable_inner(
         db,
@@ -655,6 +655,36 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
+
+    Ok((result, success))
+}
+
+pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
+    db: &DB,
+    user_db: Option<UserDB>,
+    authed: ApiAuthed,
+    workspace_id: &str,
+    runnable_path: &str,
+    is_flow: bool,
+    args: PushArgsOwned,
+    retry: Option<&sqlx::types::Json<Retry>>,
+    error_handler_path: Option<&str>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
+    trigger_path: String,
+) -> Result<Box<RawValue>> {
+    let (result, success) = trigger_runnable_and_wait_for_raw_result(
+        db,
+        user_db,
+        authed,
+        workspace_id,
+        runnable_path,
+        is_flow,
+        args,
+        retry,
+        error_handler_path,
+        error_handler_args,
+        trigger_path,
+    ).await?;
 
     if !success {
         Err(windmill_common::error::Error::internal_err(format!(
