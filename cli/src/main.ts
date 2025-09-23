@@ -68,7 +68,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.545.0";
+export const VERSION = "1.546.1";
 
 export const WM_FORK_PREFIX = "wm-fork";
 
@@ -187,7 +187,7 @@ async function main() {
     log.setup({
       handlers: {
         console: new log.ConsoleHandler(LOG_LEVEL, {
-          formatter: ({ msg }) => `${msg}`,
+          formatter: ({ msg }) => msg,
           useColors: isWin ? false : true,
         }),
       },

@@ -56,6 +56,7 @@
 		time?: number
 		starred?: boolean
 		has_draft?: boolean
+		hash?: string
 	}
 
 	type TableScript = TableItem<Script, 'script'>
@@ -553,7 +554,7 @@
 			/>
 		{:else}
 			<div class="border rounded-md">
-				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
+				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
 						on:scriptChanged={() => loadScripts(includeWithoutMain)}

@@ -9,7 +9,7 @@
 
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import type { InputCat } from '$lib/utils'
+	import type { InputCat, DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import { computeShow } from '$lib/utils'
 
@@ -61,6 +61,7 @@
 		class?: string
 		editor?: SimpleEditor | undefined
 		otherArgs?: Record<string, InputTransform>
+		helperScript?: DynamicInputTypes.HelperScript | undefined
 	}
 
 	let {
@@ -83,7 +84,8 @@
 		hideHelpButton = false,
 		class: className = '',
 		editor = $bindable(undefined),
-		otherArgs = {}
+		otherArgs = {},
+		helperScript = undefined
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
@@ -620,6 +622,7 @@
 									</Button>
 								{:else}
 									<ToggleButton
+										disabled={inputCat === 'dynamic'}
 										small
 										light
 										tooltip="JavaScript expression ('flow_input' or 'results')."
@@ -632,7 +635,7 @@
 						</ToggleButtonGroup>
 					</div>
 
-					{#if propPickerWrapperContext}
+					{#if propPickerWrapperContext && inputCat !== 'dynamic'}
 						<FlowPlugConnect
 							id="flow-editor-plug"
 							{connecting}
@@ -733,6 +736,13 @@
 							nullable={schema.properties[argName].nullable}
 							bind:title={schema.properties[argName].title}
 							bind:placeholder={schema.properties[argName].placeholder}
+							{helperScript}
+							otherArgs={Object.fromEntries(
+								Object.entries(otherArgs).map(([key, transform]) => [
+									key,
+									transform?.type === 'static' ? transform.value : transform?.expr
+								])
+							)}
 						/>
 
 						{#if shouldShowS3ArrayHelper}
