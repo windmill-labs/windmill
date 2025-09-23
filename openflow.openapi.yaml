@@ -31,9 +31,6 @@ components:
           $ref: "#/components/schemas/FlowValue"
         schema:
           type: object
-        chat_input_enabled:
-          type: boolean
-          description: When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter
       required:
         - summary
         - value
