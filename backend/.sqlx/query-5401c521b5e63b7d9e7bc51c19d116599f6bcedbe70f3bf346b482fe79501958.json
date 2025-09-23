@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "create index concurrently if not exists ix_job_workspace_id_created_at_new_8 ON v2_job  (workspace_id, created_at DESC) where kind in ('deploymentcallback') AND parent_job IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "5401c521b5e63b7d9e7bc51c19d116599f6bcedbe70f3bf346b482fe79501958"
+}
