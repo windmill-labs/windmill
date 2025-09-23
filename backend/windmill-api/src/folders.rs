@@ -361,6 +361,11 @@ async fn update_folder(
         );
     }
     if let Some(extra_perms) = ng.extra_perms {
+        if !extra_perms.is_object() {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "extra_perms must be an object, received {}", extra_perms.to_string()
+            )));
+        }
         sqlb.set(
             "extra_perms",
             "?".bind(&serde_json::to_string(&extra_perms).map_err(to_anyhow)?),
