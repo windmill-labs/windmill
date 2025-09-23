@@ -17,6 +17,7 @@
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import FlowChatInterface from '$lib/components/flows/FlowChatInterface.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -195,6 +196,16 @@
 		} finally {
 			loading = false
 		}
+	}
+
+	async function runFlowForChat(args: Record<string, any>): Promise<string> {
+		const run = await JobService.runFlowByPath({
+			workspace: $workspaceStore!,
+			path,
+			requestBody: args,
+			skipPreprocessor: true
+		})
+		return run
 	}
 
 	let args: Record<string, any> | undefined = $state(undefined)
@@ -561,21 +572,29 @@
 							/>
 						{/if}
 
-						<RunForm
-							bind:scheduledForStr
-							bind:invisible_to_owner
-							bind:overrideTag
-							viewKeybinding
-							{loading}
-							autofocus
-							detailed={false}
-							bind:isValid
-							runnable={flow}
-							runAction={runFlow}
-							bind:args
-							bind:this={runForm}
-							{jsonView}
-						/>
+						<!-- For now, treat all flows as having chat enabled -->
+						{#if true || flow?.chat_input_enabled}
+							<FlowChatInterface
+								flowPath={flow.path}
+								onRunFlow={runFlowForChat}
+							/>
+						{:else}
+							<RunForm
+								bind:scheduledForStr
+								bind:invisible_to_owner
+								bind:overrideTag
+								viewKeybinding
+								{loading}
+								autofocus
+								detailed={false}
+								bind:isValid
+								runnable={flow}
+								runAction={runFlow}
+								bind:args
+								bind:this={runForm}
+								{jsonView}
+							/>
+						{/if}
 					</div>
 
 					<div class="py-10"></div>

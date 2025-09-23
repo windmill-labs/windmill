@@ -1,0 +1,179 @@
+<script lang="ts">
+	import { Button } from '$lib/components/common'
+	import { MessageCircle, Send, Loader2 } from 'lucide-svelte'
+	import { JobService, type Job } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
+	import JobLoader from '../JobLoader.svelte'
+
+	interface ChatMessage {
+		id: string
+		content: string
+		timestamp: Date
+		isUser: boolean
+		jobId?: string
+		job?: Job
+	}
+
+	interface Props {
+		flowPath: string
+		onRunFlow: (args: Record<string, any>) => Promise<string>
+	}
+
+	let { flowPath, onRunFlow }: Props = $props()
+
+	let messages = $state<ChatMessage[]>([])
+	let inputMessage = $state('')
+	let isLoading = $state(false)
+	let messagesContainer: HTMLDivElement | undefined = $state()
+
+	function scrollToBottom() {
+		if (messagesContainer) {
+			messagesContainer.scrollTop = messagesContainer.scrollHeight
+		}
+	}
+
+	async function sendMessage() {
+		if (!inputMessage.trim() || isLoading) return
+
+		const userMessage: ChatMessage = {
+			id: crypto.randomUUID(),
+			content: inputMessage.trim(),
+			timestamp: new Date(),
+			isUser: true
+		}
+
+		messages = [...messages, userMessage]
+		const messageContent = inputMessage.trim()
+		inputMessage = ''
+		isLoading = true
+
+		try {
+			// Run the flow with the user message as input
+			const jobId = await onRunFlow({ user_message: messageContent })
+
+			// Add assistant message placeholder
+			const assistantMessage: ChatMessage = {
+				id: crypto.randomUUID(),
+				content: '',
+				timestamp: new Date(),
+				isUser: false,
+				jobId: jobId
+			}
+
+			messages = [...messages, assistantMessage]
+			scrollToBottom()
+		} catch (error) {
+			console.error('Error running flow:', error)
+			sendUserToast('Failed to run flow: ' + error, true)
+		} finally {
+			isLoading = false
+		}
+	}
+
+	function handleKeyDown(event: KeyboardEvent) {
+		if (event.key === 'Enter' && !event.shiftKey) {
+			event.preventDefault()
+			sendMessage()
+		}
+	}
+
+	$effect(() => {
+		scrollToBottom()
+	})
+</script>
+
+<div class="flex flex-col h-full max-w-4xl mx-auto">
+	<div class="flex-1 flex flex-col min-h-0">
+		<!-- Chat Header -->
+		<div class="p-4 border-b border-gray-200 dark:border-gray-700">
+			<div class="flex items-center gap-2">
+				<MessageCircle size={20} class="text-blue-500" />
+				<h2 class="text-lg font-semibold">Chat with Flow</h2>
+			</div>
+			<p class="text-sm text-secondary mt-1">
+				Send a message to run the flow with your message as the "user_message" input
+			</p>
+		</div>
+
+		<!-- Messages Container -->
+		<div
+			bind:this={messagesContainer}
+			class="flex-1 overflow-y-auto p-4 space-y-4 bg-surface-secondary"
+		>
+			{#if messages.length === 0}
+				<div class="text-center text-tertiary py-8">
+					<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
+					<p class="text-lg font-medium">Start a conversation</p>
+					<p class="text-sm">Send a message to run the flow and see the results</p>
+				</div>
+			{:else}
+				{#each messages as message (message.id)}
+					<div class="flex {message.isUser ? 'justify-end' : 'justify-start'}">
+						<div
+							class="max-w-[80%] rounded-lg p-3 {message.isUser
+								? 'bg-blue-500 text-white'
+								: 'bg-surface border border-gray-200 dark:border-gray-600'}"
+						>
+							{#if message.isUser}
+								<p class="text-sm font-medium mb-1">You</p>
+								<p class="whitespace-pre-wrap">{message.content}</p>
+							{:else}
+								<p class="text-sm font-medium mb-2 text-secondary">Flow Result</p>
+								{#if message.jobId}
+									<JobLoader jobId={message.jobId} />
+								{:else}
+									<p class="text-tertiary">Processing...</p>
+								{/if}
+							{/if}
+							<p class="text-xs opacity-70 mt-2">
+								{message.timestamp.toLocaleTimeString()}
+							</p>
+						</div>
+					</div>
+				{/each}
+			{/if}
+		</div>
+
+		<!-- Chat Input -->
+		<div class="p-4 border-t border-gray-200 dark:border-gray-700 bg-surface">
+			<div class="flex gap-2">
+				<textarea
+					bind:value={inputMessage}
+					onkeydown={handleKeyDown}
+					placeholder="Type your message here..."
+					class="flex-1 min-h-[40px] max-h-32 resize-none rounded-md border border-gray-200 dark:border-gray-600 bg-surface px-3 py-2 text-sm placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+					disabled={isLoading}
+				></textarea>
+				<Button
+					size="md"
+					startIcon={{ icon: isLoading ? Loader2 : Send }}
+					disabled={!inputMessage.trim() || isLoading}
+					on:click={sendMessage}
+					iconOnly
+					title="Send message (Enter)"
+				/>
+			</div>
+			<div class="text-xs text-tertiary mt-2">
+				Press Enter to send, Shift+Enter for new line
+			</div>
+		</div>
+	</div>
+</div>
+
+<style>
+	/* Custom scrollbar for messages container */
+	.overflow-y-auto::-webkit-scrollbar {
+		width: 6px;
+	}
+	.overflow-y-auto::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	.overflow-y-auto::-webkit-scrollbar-thumb {
+		background: rgba(156, 163, 175, 0.5);
+		border-radius: 3px;
+	}
+	.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+		background: rgba(156, 163, 175, 0.7);
+	}
+</style>
