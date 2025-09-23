@@ -36,14 +36,16 @@
 
 	let { value = $bindable(), helperScript, format, otherArgs: otherArgs }: Props = $props()
 
-	const [inputType, entrypoint] = format.includes('-') ? format.split('-', 2) : [format, '']
+	let [inputType, entrypoint] = $derived(format.includes('-') ? format.split('-', 2) : [format, ''])
 
-	const isMultiple = inputType === 'dynmultiselect'
-	const isSelect = inputType === 'dynselect' || inputType === 'dynmultiselect'
+	let isMultiple = $derived(inputType === 'dynmultiselect')
+	let isSelect = $derived(inputType === 'dynselect' || inputType === 'dynmultiselect')
 
-	if (isMultiple && value === undefined) {
-		value = []
-	}
+	$effect.pre(() => {
+		if (isMultiple && value === undefined) {
+			value = []
+		}
+	})
 
 	let resultJobLoader: JobLoader | undefined = $state()
 	let _items = usePromise(getItemsFromOptions, { clearValueOnRefresh: false })
@@ -97,7 +99,7 @@
 
 	$effect(() => {
 		if (_items.value && value !== undefined && isSelect) {
-			if (isMultiple && Array.isArray(value)) {
+			if (isMultiple && Array.isArray(value) && Array.isArray(_items.value)) {
 				const availableValues = new Set(_items.value.map((x) => x.value))
 				const filteredValue = value.filter((v) => availableValues.has(v))
 				if (filteredValue.length !== value.length) {
