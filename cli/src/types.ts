@@ -318,6 +318,11 @@ export function removePathPrefix(str: string, prefix: string) {
   const normalizedStr = path.normalize(str).replaceAll(SEP, "/");
   const normalizedPrefix = path.normalize(prefix).replaceAll(SEP, "/");
 
+  // Handle exact match case
+  if (normalizedStr === normalizedPrefix) {
+    return "";
+  }
+
   if (!normalizedStr.startsWith(normalizedPrefix + "/")) {
     throw new Error(str + " does not start with " + prefix);
   }
