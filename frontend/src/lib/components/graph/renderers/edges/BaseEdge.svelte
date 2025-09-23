@@ -93,6 +93,7 @@
 			<!-- {data.targetId} B -->
 			<InsertModuleButton
 				index={data.index ?? 0}
+				chatModeEnabled={data.chatModeEnabled ?? false}
 				on:new={(e) => {
 					data?.eventHandlers.insert({
 						sourceId: data.sourceId,

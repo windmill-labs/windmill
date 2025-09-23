@@ -23,7 +23,8 @@
 		Code,
 		Save,
 		X,
-		Check
+		Check,
+		MessageCircle
 	} from 'lucide-svelte'
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
@@ -633,7 +634,22 @@
 		</div>
 	{:else}
 		<div class="p-4 border-b">
-			<FlowInputViewer schema={flowStore.val.schema} />
+			{#if flowStore.val.chat_input_enabled}
+				<div class="text-center py-8">
+					<div class="inline-flex items-center justify-center w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-full mb-4">
+						<MessageCircle size={24} class="text-blue-600 dark:text-blue-400" />
+					</div>
+					<h3 class="text-lg font-semibold mb-2">Chat Input Mode</h3>
+					<p class="text-secondary mb-4">
+						This flow is configured to accept chat messages. The input schema is automatically set to accept a <code class="px-2 py-1 bg-surface-secondary rounded">user_message</code> string parameter.
+					</p>
+					<div class="text-xs text-tertiary">
+						To modify the flow schema, disable Chat Input Mode in the Settings panel.
+					</div>
+				</div>
+			{:else}
+				<FlowInputViewer schema={flowStore.val.schema} />
+			{/if}
 		</div>
 	{/if}
 </FlowCard>

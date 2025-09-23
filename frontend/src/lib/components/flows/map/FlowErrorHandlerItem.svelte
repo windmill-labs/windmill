@@ -112,6 +112,7 @@
 	<InsertModuleButton
 		index={0}
 		placement={'bottom-center'}
+		chatModeEnabled={flowStore?.val?.chat_input_enabled ?? false}
 		on:new={(e) => {
 			insertFailureModule(e.detail.inlineScript)
 		}}
