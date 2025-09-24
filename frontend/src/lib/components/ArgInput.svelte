@@ -347,7 +347,7 @@
 
 	let setCodeDisabled = false
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 	function setNewValueFromCode(nvalue: any) {
 		if (!deepEqual(nvalue, value)) {
 			value = nvalue
