@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO job_result_stream_v2 (workspace_id, job_id, stream, idx)\n            VALUES (\n                $1, \n                $2,\n                $3, \n                (\n                    SELECT COALESCE(MAX(idx), -1) + 1 \n                    FROM job_result_stream_v2 \n                    WHERE job_id = $2\n                )\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "57325c31ad522bde9469756f2d9dcfcb3eddfeb78007c477dff7747792fbe47c"
+}

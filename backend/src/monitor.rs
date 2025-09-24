@@ -1654,7 +1654,7 @@ pub async fn monitor_db(
 }
 
 async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
-    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream, job_stats, job_logs, concurrency_key, log_file, metrics")
+    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream_v2, job_stats, job_logs, concurrency_key, log_file, metrics")
         .execute(db)
         .await?;
     Ok(())
