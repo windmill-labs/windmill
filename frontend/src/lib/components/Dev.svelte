@@ -142,11 +142,13 @@
 
 	let currentScript: LastEditScript | undefined = $state(undefined)
 	let mode: 'script' | 'flow' = $state('script')
+	let lastPath: string | undefined = undefined
 
 	let schema = $state(emptySchema())
 	const href = window.location.href
 	const indexQ = href.indexOf('?')
 	const searchParams = indexQ > -1 ? new URLSearchParams(href.substring(indexQ)) : undefined
+	let relativePaths: any[] = $state([])
 
 	if (searchParams?.has('local')) {
 		connectWs()
@@ -414,8 +416,6 @@
 		}
 	}
 
-	let relativePaths: any[] = $state([])
-	let lastPath: string | undefined = undefined
 	async function replaceScript(lastEdit: LastEditScript) {
 		mode = 'script'
 		currentScript = lastEdit
@@ -663,7 +663,7 @@
 
 <main class="h-screen w-full">
 	{#if mode == 'script'}
-		<div class="flex flex-col min-h-full overflow-auto">
+		<div class="flex flex-col min-h-full min-h-screen overflow-auto">
 			<div class="absolute top-0 left-2">
 				<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
 			</div>
@@ -755,7 +755,7 @@
 					</Button>
 				{/if}
 			</div>
-			<Splitpanes horizontal class="h-full">
+			<Splitpanes horizontal style="height: 1000px;">
 				<Pane size={33}>
 					<div class="px-2">
 						<div class="break-words relative font-sans">
