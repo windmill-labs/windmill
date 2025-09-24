@@ -572,9 +572,9 @@
 							{/snippet}
 						</Menu>
 					{:else}
-						<MenuSingleItem {createMenu}>
-							{#snippet children({ item })}
-								<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} {item} />
+						<MenuSingleItem>
+							{#snippet children({})}
+								<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} />
 							{/snippet}
 						</MenuSingleItem>
 					{/if}
