@@ -66,6 +66,7 @@
 	let allowWildcards: boolean = $state(page.url.searchParams.get('allow_wildcards') == 'true')
 	let concurrencyKey: string | null = $state(page.url.searchParams.get('concurrency_key'))
 	let tag: string | null = $state(page.url.searchParams.get('tag'))
+
 	// Rest of filters handled by RunsFilter
 	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined = $state(
 		(page.url.searchParams.get('success') ?? undefined) as
@@ -350,6 +351,7 @@
 	}
 
 	function reset() {
+		path = page.params.path ?? null
 		minTs = undefined
 		maxTs = undefined
 		jobs = undefined

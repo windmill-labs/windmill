@@ -19,6 +19,7 @@
 		lightMode?: boolean
 		item?: MenubarMenuElements['item'] | undefined
 		class?: string
+		onclick?: (ev: MouseEvent) => any
 	}
 
 	let {
@@ -31,7 +32,8 @@
 		disabled = false,
 		lightMode = false,
 		item = undefined,
-		class: classNames = ''
+		class: classNames = '',
+		onclick = undefined
 	}: Props = $props()
 
 	let isSelected = $state(false)
@@ -56,6 +58,7 @@
 					goto(href)
 				}
 			}}
+			{onclick}
 			class={twMerge(
 				'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-3',
 				isSelected
