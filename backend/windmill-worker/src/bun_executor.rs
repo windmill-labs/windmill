@@ -25,7 +25,7 @@ use crate::{
     DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
     NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
-use windmill_common::client::AuthedClient;
+use windmill_common::{client::AuthedClient, s3_helpers::bundle};
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -639,9 +639,9 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
             && object_store.is_none()
         {
             let bun_cache_path = format!(
-                "{}{}",
+                "{}/{}",
                 *windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
-                id
+                bundle(w_id, &id)
             );
             if std::fs::metadata(&bun_cache_path).is_ok() {
                 tracing::info!("loading {bun_cache_path} from standalone bundle cache");

@@ -536,11 +536,15 @@ pub async fn upload_artifact_to_store(path: &str, data: bytes::Bytes, standalone
         == &crate::utils::Mode::Standalone
         && object_store.is_none()
     {
+        let path = format!("{}/{}", standalone_dir, path);
+        tracing::info!("Writing file to path {path}");
+
+        let split_path = path.split("/").collect::<Vec<&str>>();
         std::fs::create_dir_all(
-            standalone_dir,
+            split_path[..split_path.len() - 1].join("/"),
         )?;
+
         crate::worker::write_file_bytes(
-            &standalone_dir,
             &path,
             &data,
         )?;
