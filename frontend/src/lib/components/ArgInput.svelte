@@ -764,7 +764,7 @@
 						<Module.default code={JSON.stringify(value, null, 2)} bind:value />
 					{/await}
 				{:else}
-					<div class="px-2 pt-2 border rounded-md w-full">
+					<div class="px-3 pt-6 border rounded-md w-full">
 						<SchemaForm
 							lightHeaderFont
 							{onlyMaskPassword}
@@ -1172,7 +1172,7 @@
 					{/if}
 				</div>
 			{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
-				<div class={hideNested ? 'hidden' : 'px-2 pt-2 border rounded-md w-full'}>
+				<div class={hideNested ? 'hidden' : 'px-3 pt-6 border rounded-md w-full'}>
 					{#if orderEditable}
 						<SchemaFormDnd
 							lightHeaderFont
