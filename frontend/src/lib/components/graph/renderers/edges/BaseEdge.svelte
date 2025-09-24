@@ -12,13 +12,10 @@
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
 	import type { Job } from '$lib/gen'
 	import type { GraphModuleState } from '../../model'
-	import type { FlowEditorContext } from '$lib/components/flows/types'
 
 	const { useDataflow } = getContext<{
 		useDataflow: Writable<boolean | undefined>
 	}>('FlowGraphContext')
-
-	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let {
 		// id,
@@ -76,10 +73,6 @@
 			data?.flowModuleStates?.[`${data.sourceId}-v`]?.type === 'WaitingForEvents'
 	)
 
-	let chatInputEnabled = $derived(
-		flowEditorContext?.flowStore.val.schema?.chat_input_enabled ?? false
-	)
-
 	let suspendStatus: Record<string, { job: Job; nb: number }> | undefined = $derived(
 		data?.suspendStatus
 	)
@@ -91,7 +84,7 @@
 	class="base-edge"
 	style=""
 >
-	{#if data?.insertable && !$useDataflow && !data?.moving && !waitingForEvents && !chatInputEnabled}
+	{#if data?.insertable && !$useDataflow && !data?.moving && !waitingForEvents}
 		<div
 			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
 			style:transform="translate(-50%, -50%)"

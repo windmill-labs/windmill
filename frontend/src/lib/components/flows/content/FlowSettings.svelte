@@ -162,7 +162,10 @@
 									}
 								]
 							} else {
-								flowStore.val.schema = emptySchema()
+								flowStore.val.schema = {
+									...flowStore.val.schema,
+									chat_input_enabled: false
+								}
 							}
 						}}
 						options={{
