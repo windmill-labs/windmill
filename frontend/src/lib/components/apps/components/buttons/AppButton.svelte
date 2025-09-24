@@ -233,6 +233,7 @@
 	{render}
 	{outputs}
 	{extraKey}
+	allowConcurentRequests={resolvedConfig.runInBackground}
 	onSuccess={(r) => {
 		let inputOutput = { result: r, loading: false }
 		if (rowContext && rowInputs) {
@@ -280,7 +281,7 @@
 				size={resolvedConfig.size}
 				color={resolvedConfig.color}
 				title={resolvedConfig.tooltip && String(resolvedConfig.tooltip).length > 0 ? String(resolvedConfig.tooltip) : undefined}
-				{loading}
+				loading={resolvedConfig.runInBackground ? false : loading}
 			>
 				{#if resolvedConfig.beforeIcon}
 					{#key resolvedConfig.beforeIcon}
