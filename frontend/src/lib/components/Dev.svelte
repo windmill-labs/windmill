@@ -755,24 +755,26 @@
 					</Button>
 				{/if}
 			</div>
-			<Splitpanes horizontal class="h-full">
-				<Pane size={33}>
-					<div class="px-2">
-						<div class="break-words relative font-sans">
-							<SchemaForm compact {schema} bind:args bind:isValid />
+			<div class="grow bg-red-500">
+				<Splitpanes horizontal class="min-h-full bg-red-400">
+					<Pane size={33}>
+						<div class="px-2">
+							<div class="break-words relative font-sans">
+								<SchemaForm compact {schema} bind:args bind:isValid />
+							</div>
 						</div>
-					</div>
-				</Pane>
-				<Pane size={67}>
-					<LogPanel
-						{workspace}
-						lang={currentScript?.language}
-						previewJob={testJob}
-						{pastPreviews}
-						previewIsLoading={testIsLoading}
-					/>
-				</Pane>
-			</Splitpanes>
+					</Pane>
+					<Pane size={67}>
+						<LogPanel
+							{workspace}
+							lang={currentScript?.language}
+							previewJob={testJob}
+							{pastPreviews}
+							previewIsLoading={testIsLoading}
+						/>
+					</Pane>
+				</Splitpanes>
+			</div>
 		</div>
 	{:else}
 		<!-- <div class="h-full w-full grid grid-cols-2"> -->
