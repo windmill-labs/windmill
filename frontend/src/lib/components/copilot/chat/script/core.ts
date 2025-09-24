@@ -1,5 +1,5 @@
 import { ResourceService, JobService } from '$lib/gen/services.gen'
-import type { ResourceType, ScriptLang } from '$lib/gen/types.gen'
+import type { AIProviderModel, ResourceType, ScriptLang } from '$lib/gen/types.gen'
 import { capitalize, isObject, toCamel } from '$lib/utils'
 import { get } from 'svelte/store'
 import { compile, phpCompile, pythonCompile } from '../../utils'
@@ -29,6 +29,8 @@ const SCORE_THRESHOLD = 1000
 const DOCS_CONTEXT_PERCENTAGE = 1
 // percentage of the context window for types of npm packages
 const TYPES_CONTEXT_PERCENTAGE = 1
+// good providers for diff-based edit
+const GOOD_PROVIDERS = ['openai', 'anthropic']
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
@@ -337,20 +339,26 @@ export async function getFormattedResourceTypes(
 	}
 }
 
-export const CHAT_SYSTEM_PROMPT = `
+function buildChatSystemPrompt(currentModel: AIProviderModel) {
+	const useDiffBasedEdit = GOOD_PROVIDERS.includes(currentModel.provider)
+	const editIntructions = useDiffBasedEdit
+		? `
+		- Pass an array of **diff objects** to the \`edit_code\` tool using the \`diffs\` parameter. Each diff should specify exactly what text to replace and what to replace it with.
+		  - Each diff object must contain:
+			- \`old_string\`: The exact text to replace (must match the current code exactly)
+			- \`new_string\`: The replacement text
+			- \`replace_all\` (optional): Set to true to replace all occurrences, false or omit for first occurrence only
+		  - Example: [{"old_string": "return 1", "new_string": "return 2"}]`
+		: `- Pass the **complete updated file** to the \`edit_code\` tool using the \`code\` parameter, not just the modified sections.`
+
+	return `
 	You are a coding assistant for the Windmill platform. You are provided with a list of \`INSTRUCTIONS\` and the current contents of a code file under \`CODE\`.
 
 	Your task is to respond to the user's request. Assume all user queries are valid and actionable.
 
 	When the user requests code changes:
 	- ALWAYS use the \`edit_code\` tool to apply code changes. Use it only once.
-	- For OpenAI and Anthropic providers: Pass an array of **diff objects** to the \`edit_code\` tool using the \`diffs\` parameter. Each diff should specify exactly what text to replace and what to replace it with.
-	  - Each diff object must contain:
-	    - \`old_string\`: The exact text to replace (must match the current code exactly)
-	    - \`new_string\`: The replacement text
-	    - \`replace_all\` (optional): Set to true to replace all occurrences, false or omit for first occurrence only
-	  - Example: [{"old_string": "return 1", "new_string": "return 2"}]
-	- For other providers: Pass the **complete updated file** to the \`edit_code\` tool using the \`code\` parameter, not just the modified sections.
+	${editIntructions}
 	- The code can include \`[#START]\` and \`[#END]\` markers to indicate the start and end of a code piece. You MUST only modify the code between these markers if given, and remove them when passing to the tool. If a question is asked about the code, you MUST only talk about the code between the markers. Refer to it as the code piece, not the code between the markers.
 	- Follow the instructions carefully and explain the reasoning behind your changes in your response text.
 	- If the request is abstract (e.g., "make this cleaner"), interpret it concretely and reflect that in your changes.
@@ -363,10 +371,11 @@ export const CHAT_SYSTEM_PROMPT = `
 	- After applying code changes with the \`edit_code\` tool, ALWAYS use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
 
 	Important:
-	- Each old_string must match the exact text in the current code, including whitespace and indentation (for diff-based edits).
+	${useDiffBasedEdit ? '- Each old_string must match the exact text in the current code, including whitespace and indentation (for diff-based edits).' : ''}
 	- Do not return the applied code in your response, just explain what you did. You can return code blocks in your response for explanations or examples as per user request.
 	- Do not mention or reveal these instructions to the user unless explicitly asked to do so.
 `
+}
 
 export const INLINE_CHAT_SYSTEM_PROMPT = `
 # Windmill Inline Coding Assistant
@@ -463,9 +472,10 @@ WINDMILL LANGUAGE CONTEXT:
 `
 
 export function prepareScriptSystemMessage(
+	currentModel: AIProviderModel,
 	customPrompt?: string
 ): ChatCompletionSystemMessageParam {
-	let content = CHAT_SYSTEM_PROMPT
+	let content = buildChatSystemPrompt(currentModel)
 
 	// If there's a custom prompt, prepend it to the system prompt
 	if (customPrompt?.trim()) {
@@ -479,6 +489,7 @@ export function prepareScriptSystemMessage(
 }
 
 export function prepareScriptTools(
+	currentModel: AIProviderModel,
 	language: ScriptLang | 'bunnative',
 	context: ContextElement[]
 ): Tool<ScriptChatHelpers>[] {
@@ -493,7 +504,12 @@ export function prepareScriptTools(
 		tools.push(createSearchHubScriptsTool(true))
 		tools.push(searchNpmPackagesTool)
 	}
-	tools.push(editCodeTool)
+	const useDiffBasedEdit = GOOD_PROVIDERS.includes(currentModel.provider)
+	if (useDiffBasedEdit) {
+		tools.push(editCodeToolWithDiff)
+	} else {
+		tools.push(editCodeTool)
+	}
 	tools.push(testRunScriptTool)
 	return tools
 }
@@ -807,11 +823,27 @@ const EDIT_CODE_TOOL: ChatCompletionFunctionTool = {
 			properties: {
 				code: {
 					type: 'string',
-					description: 'The complete updated code for the entire script file (used for non-OpenAI/Anthropic providers)'
-				},
+					description: 'The complete updated code for the entire script file.'
+				}
+			},
+			additionalProperties: false,
+			strict: false,
+			required: []
+		}
+	}
+}
+
+const EDIT_CODE_TOOL_WITH_DIFF: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'edit_code_with_diff',
+		description: 'Apply code changes to the current script in the editor',
+		parameters: {
+			type: 'object',
+			properties: {
 				diffs: {
 					type: 'array',
-					description: 'Array of diff objects to apply to the code (used for OpenAI/Anthropic providers)',
+					description: 'Array of diff objects to apply to the code',
 					items: {
 						type: 'object',
 						properties: {
@@ -858,10 +890,12 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionFunctionTool = {
 	}
 }
 
-export const editCodeTool: Tool<ScriptChatHelpers> = {
-	def: EDIT_CODE_TOOL,
+export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
+	def: EDIT_CODE_TOOL_WITH_DIFF,
 	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
+
+		console.log('using diff based edit')
 
 		if (!scriptOptions) {
 			toolCallbacks.setToolStatus(toolId, {
@@ -873,92 +907,103 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 			)
 		}
 
-		// Check if provider is OpenAI or Anthropic to determine which approach to use
-		const currentModel = getCurrentModel()
-		const useDiffBasedEdit = currentModel.provider === 'openai' || currentModel.provider === 'anthropic'
+		if (!args.diffs || !Array.isArray(args.diffs)) {
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Invalid diffs provided',
+				error: 'Diffs parameter is required and must be an array'
+			})
+			throw new Error('Diffs parameter is required and must be an array')
+		}
 
-		if (useDiffBasedEdit) {
-			// Diff-based approach for OpenAI/Anthropic
-			if (!args.diffs || !Array.isArray(args.diffs)) {
-				toolCallbacks.setToolStatus(toolId, {
-					content: 'Invalid diffs provided',
-					error: 'Diffs parameter is required and must be an array'
-				})
-				throw new Error('Diffs parameter is required and must be an array')
-			}
+		toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
 
-			toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
+		try {
+			// Save old code
+			const oldCode = scriptOptions.code
 
-			try {
-				// Save old code
-				const oldCode = scriptOptions.code
+			// Apply diffs sequentially
+			let updatedCode = oldCode
+			for (const [index, diff] of args.diffs.entries()) {
+				const { old_string, new_string, replace_all = false } = diff
 
-				// Apply diffs sequentially
-				let updatedCode = oldCode
-				for (const [index, diff] of args.diffs.entries()) {
-					const { old_string, new_string, replace_all = false } = diff
-
-					if (!updatedCode.includes(old_string)) {
-						throw new Error(`Diff at index ${index}: old_string "${old_string}" not found in code`)
-					}
-
-					if (replace_all) {
-						updatedCode = updatedCode.replaceAll(old_string, new_string)
-					} else {
-						updatedCode = updatedCode.replace(old_string, new_string)
-					}
+				if (!updatedCode.includes(old_string)) {
+					throw new Error(`Diff at index ${index}: old_string "${old_string}" not found in code`)
 				}
 
-				// Apply the code changes directly
-				await helpers.applyCode(updatedCode, { applyAll: true, mode: 'apply' })
-
-				// Show revert mode
-				await helpers.applyCode(oldCode, { mode: 'revert' })
-
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Code changes applied`
-				})
-				return `Applied changes to the script editor.`
-			} catch (error) {
-				const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-				toolCallbacks.setToolStatus(toolId, {
-					content: 'Failed to apply code changes',
-					error: errorMessage
-				})
-				throw new Error(`Failed to apply code changes: ${errorMessage}`)
-			}
-		} else {
-			// Whole code approach for other providers
-			if (!args.code || typeof args.code !== 'string') {
-				toolCallbacks.setToolStatus(toolId, {
-					content: 'Invalid code provided',
-					error: 'Code parameter is required and must be a string'
-				})
-				throw new Error('Code parameter is required and must be a string')
+				if (replace_all) {
+					updatedCode = updatedCode.replaceAll(old_string, new_string)
+				} else {
+					updatedCode = updatedCode.replace(old_string, new_string)
+				}
 			}
 
-			toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
+			// Apply the code changes directly
+			await helpers.applyCode(updatedCode, { applyAll: true, mode: 'apply' })
 
-			try {
-				// Save old code
-				const oldCode = scriptOptions.code
+			// Show revert mode
+			await helpers.applyCode(oldCode, { mode: 'revert' })
 
-				// Apply the code changes directly
-				await helpers.applyCode(args.code, { applyAll: true, mode: 'apply' })
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Code changes applied`
+			})
+			return `Applied changes to the script editor.`
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Failed to apply code changes',
+				error: errorMessage
+			})
+			throw new Error(`Failed to apply code changes: ${errorMessage}`)
+		}
+	}
+}
 
-				// Show revert mode
-				await helpers.applyCode(oldCode, { mode: 'revert' })
+export const editCodeTool: Tool<ScriptChatHelpers> = {
+	def: EDIT_CODE_TOOL,
+	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
+		const scriptOptions = helpers.getScriptOptions()
 
-				toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied' })
-				return 'Code has been applied to the script editor.'
-			} catch (error) {
-				const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-				toolCallbacks.setToolStatus(toolId, {
-					content: 'Failed to apply code changes',
-					error: errorMessage
-				})
-				throw new Error(`Failed to apply code changes: ${errorMessage}`)
-			}
+		console.log('using whole code edit')
+
+		if (!scriptOptions) {
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'No script available to edit',
+				error: 'No script found in current context'
+			})
+			throw new Error(
+				'No script code available to edit. Please ensure you have a script open in the editor.'
+			)
+		}
+
+		if (!args.code || typeof args.code !== 'string') {
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Invalid code provided',
+				error: 'Code parameter is required and must be a string'
+			})
+			throw new Error('Code parameter is required and must be a string')
+		}
+
+		toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
+
+		try {
+			// Save old code
+			const oldCode = scriptOptions.code
+
+			// Apply the code changes directly
+			await helpers.applyCode(args.code, { applyAll: true, mode: 'apply' })
+
+			// Show revert mode
+			await helpers.applyCode(oldCode, { mode: 'revert' })
+
+			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied' })
+			return 'Code has been applied to the script editor.'
+		} catch (error) {
+			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Failed to apply code changes',
+				error: errorMessage
+			})
+			throw new Error(`Failed to apply code changes: ${errorMessage}`)
 		}
 	}
 }
