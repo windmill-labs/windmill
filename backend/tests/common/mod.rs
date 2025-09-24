@@ -260,6 +260,7 @@ pub fn spawn_test_worker(
         }
         windmill_worker::run_worker(
             &db.into(),
+            None,
             worker_instance,
             worker_name,
             1,
