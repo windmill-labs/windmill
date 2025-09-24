@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO job_result_stream_v2 (workspace_id, job_id, stream, idx)\n            VALUES (\n                $1, \n                $2,\n                $3, \n                $4\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aefeede0a18c33052cea6731ad1ea80e984599daa4f5175f205be3a2868e4975"
+}

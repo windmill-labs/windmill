@@ -19,6 +19,7 @@ pub async fn append_result_stream_db(
     workspace_id: &str,
     job_id: &Uuid,
     nstream: &str,
+    offset: i32,
 ) -> error::Result<()> {
     if !nstream.is_empty() {
         sqlx::query!(
@@ -28,16 +29,13 @@ pub async fn append_result_stream_db(
                 $1, 
                 $2,
                 $3, 
-                (
-                    SELECT COALESCE(MAX(idx), -1) + 1 
-                    FROM job_result_stream_v2 
-                    WHERE job_id = $2
-                )
+                $4
             )
             "#,
             workspace_id,
             job_id,
             nstream,
+            offset
         )
         .execute(db)
         .await?;

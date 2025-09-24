@@ -67,10 +67,11 @@ pub async fn append_result_stream(
     workspace_id: &str,
     job_id: &Uuid,
     nstream: &str,
+    offset: i32,
 ) -> error::Result<()> {
     match conn {
         Connection::Sql(db) => {
-            append_result_stream_db(db, workspace_id, job_id, nstream).await?;
+            append_result_stream_db(db, workspace_id, job_id, nstream, offset).await?;
         }
         Connection::Http(client) => {
             if let Err(e) = client

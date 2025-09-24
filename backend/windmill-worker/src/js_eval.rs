@@ -808,9 +808,14 @@ pub async fn eval_fetch_timeout(
     let conn_ = conn.clone();
     let w_id_ = w_id.to_string();
     tokio::spawn(async move {
+        let mut offset = 0;
         while let Some(stream) = result_stream_receiver.recv().await {
             use crate::job_logger::append_result_stream;
-            if let Err(e) = append_result_stream(&conn_, &w_id_, &job_id, &stream).await {
+            let curr_offset = offset.clone();
+            offset += 1;
+            if let Err(e) =
+                append_result_stream(&conn_, &w_id_, &job_id, &stream, curr_offset).await
+            {
                 tracing::error!("failed to append result stream: {e}");
             }
         }
