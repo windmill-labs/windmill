@@ -83,8 +83,8 @@
 			class={twMerge(
 				'group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full',
 				lightMode
-					? 'text-primary data-[highlighted]:bg-surface-hover hover:bg-surface-hover'
-					: 'data-[highlighted]:bg-[#2A3648] hover:bg-[#2A3648] text-primary-inverse dark:text-primary',
+					? 'text-tertiary data-[highlighted]:bg-surface-hover hover:bg-surface-hover'
+					: 'data-[highlighted]:bg-[#2A3648] hover:bg-[#2A3648] text-tertiary dark:text-primary',
 				color ? 'border-4' : '',
 				'transition-all relative',
 				classNames
@@ -101,8 +101,8 @@
 					class={twMerge(
 						'flex-shrink-0',
 						lightMode
-							? 'text-primary group-hover:text-secondary'
-							: 'text-primary-inverse group-hover:text-secondary-inverse dark:group-hover:text-secondary dark:text-primary',
+							? 'text-tertiary group-hover:text-tertiary'
+							: 'text-tertiary group-hover:text-tertiary dark:group-hover:text-secondary dark:text-primary',
 						'transition-all',
 						iconClasses
 					)}
@@ -114,13 +114,13 @@
 				<span
 					class={twMerge(
 						'whitespace-pre truncate',
-						lightMode ? 'text-primary' : 'text-primary-inverse dark:text-primary',
+						lightMode ? 'text-primary' : 'text-tertiary dark:text-primary',
 						'transition-all',
 						classNames
 					)}
 				>
 					{label}
-					<span class="pl-2 text-xs dark:text-secondary light:text-secondary-inverse font-semibold">
+					<span class="pl-2 text-xs dark:text-secondary light:text-tertiary font-semibold">
 						{shortcut}
 					</span>
 				</span>

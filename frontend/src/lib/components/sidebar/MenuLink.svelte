@@ -83,10 +83,10 @@
 						isSelected
 							? lightMode
 								? 'text-primary group-hover:text-secondary'
-								: 'text-frost-200 group-hover:text-white'
+								: 'text-tertiary group-hover:text-white'
 							: lightMode
 								? 'text-primary group-hover:text-secondary'
-								: 'text-gray-100 group-hover:text-white',
+								: 'text-tertiary group-hover:text-white',
 						'transition-all'
 					)}
 				/>
@@ -99,10 +99,10 @@
 						isSelected
 							? lightMode
 								? 'text-primary group-hover:text-secondary'
-								: 'text-frost-200 group-hover:text-white'
+								: 'text-tertiary group-hover:text-white'
 							: lightMode
 								? 'text-primary group-hover:text-secondary'
-								: 'text-gray-100 group-hover:text-white',
+								: 'text-tertiary group-hover:text-white',
 						'transition-all duration-75'
 					)}
 				>

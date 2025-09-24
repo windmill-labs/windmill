@@ -53,6 +53,7 @@
 	import { Menubar } from '$lib/components/meltComponents'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
+	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -387,6 +388,8 @@
 			}
 		}
 	})
+
+	let isDarkMode = useIsDarkMode()
 </script>
 
 <svelte:window bind:innerWidth />
@@ -423,7 +426,7 @@
 					>
 						<div
 							class={classNames(
-								'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300 z-40 !dark',
+								'fixed inset-0 dark:bg-[#1e232e] bg-surface dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300 z-40',
 
 								menuOpen ? 'opacity-100' : 'opacity-0'
 							)}
@@ -467,7 +470,7 @@
 										</svg>
 									</button>
 								</div>
-								<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark flex flex-col">
+								<div class="dark:bg-[#1e232e] bg-surface h-full flex flex-col">
 									<div class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-40">
 										<WindmillIcon white={true} height="20px" width="20px" />
 										{#if $whitelabelNameStore}
@@ -521,13 +524,13 @@
 					<div
 						id="sidebar"
 						class={classNames(
-							'flex flex-col fixed inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40 ',
+							'flex flex-col fixed inset-y-0 transition-all ease-in-out duration-200 z-40 ',
 							isCollapsed ? 'md:w-12' : 'md:w-40',
 							devOnly ? '!hidden' : ''
 						)}
 					>
 						<div
-							class="flex-1 flex flex-col min-h-0 h-screen shadow-lg dark:bg-[#1e232e] bg-[#202125] !dark"
+							class="flex-1 flex flex-col min-h-0 h-screen border-r dark:bg-[#1e232e] bg-surface"
 						>
 							<button
 								onclick={() => {
@@ -539,10 +542,10 @@
 									class:w-40={!isCollapsed}
 								>
 									<div class:mr-1={!isCollapsed}>
-										<WindmillIcon white={true} height="20px" width="20px" />
+										<WindmillIcon white={!isDarkMode} height="20px" width="20px" />
 									</div>
 									{#if !isCollapsed}
-										<div class="text-sm mt-0.5 text-white">
+										<div class="text-sm mt-0.5 text-tertiary">
 											{#if $whitelabelNameStore}{capitalize(
 													$whitelabelNameStore
 												)}{:else}Windmill{/if}
@@ -550,7 +553,7 @@
 									{/if}
 								</div>
 							</button>
-							<div class="px-2 py-4 border-y border-gray-700 flex flex-col gap-1">
+							<div class="px-2 py-4 border-y border-hint/40 flex flex-col gap-1">
 								<Menubar class="flex flex-col gap-1">
 									{#snippet children({ createMenu })}
 										<WorkspaceMenu {createMenu} {isCollapsed} />
@@ -597,7 +600,7 @@
 									<ArrowLeft
 										size={16}
 										class={classNames(
-											'flex-shrink-0 h-4 w-4 transition-all ease-in-out duration-200 text-white',
+											'flex-shrink-0 h-4 w-4 transition-all ease-in-out duration-200 text-tertiary',
 											isCollapsed ? 'rotate-180' : 'rotate-0'
 										)}
 									/>
@@ -615,7 +618,7 @@
 			<!-- Legacy menu -->
 			<div
 				class={classNames(
-					'fixed inset-0 dark:bg-[#1e232e] bg-[#202125] dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300  !dark',
+					'fixed inset-0 dark:bg-[#1e232e] bg-surface dark:bg-opacity-75 bg-opacity-75 transition-opacity ease-linear duration-300 ',
 					'opacity-0 pointer-events-none'
 				)}
 			>
@@ -653,7 +656,7 @@
 								</svg>
 							</button>
 						</div>
-						<div class="dark:bg-[#1e232e] bg-[#202125] h-full !dark">
+						<div class="dark:bg-[#1e232e] bg-surface h-full">
 							<div
 								class="flex gap-x-2 flex-shrink-0 p-4 font-semibold text-gray-200 w-10"
 								class:w-40={!isCollapsed}
