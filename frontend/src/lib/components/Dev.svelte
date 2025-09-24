@@ -52,6 +52,21 @@
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import type { GraphModuleState } from './graph'
 
+	let {
+		initial = undefined
+	}: {
+		initial?:
+			| {
+					type: 'script'
+					script: LastEditScript
+			  }
+			| {
+					type: 'flow'
+					flow: LastEditFlow
+			  }
+			| undefined
+	} = $props()
+
 	let flowCopilotContext: FlowCopilotContext = {
 		shouldUpdatePropertyType: writable<{
 			[key: string]: 'static' | 'javascript' | undefined
@@ -126,6 +141,7 @@
 	}
 
 	let currentScript: LastEditScript | undefined = $state(undefined)
+	let mode: 'script' | 'flow' = $state('script')
 
 	let schema = $state(emptySchema())
 	const href = window.location.href
@@ -143,6 +159,15 @@
 
 	let loadingCodebaseButton = $state(false)
 	let lastCommandId = ''
+
+	if (initial) {
+		if (initial.type == 'script') {
+			replaceScript(initial.script)
+		} else if (initial.type == 'flow') {
+			replaceFlow(initial.flow)
+		}
+		modeInitialized = true
+	}
 
 	const el = (event) => {
 		// sendUserToast(`Received message from parent ${event.data.type}`, true)
@@ -414,8 +439,6 @@
 		}
 	}
 
-	let mode: 'script' | 'flow' = $state('script')
-
 	const flowStore = $state({
 		val: {
 			summary: '',
@@ -630,7 +653,13 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-<JobLoader noCode={true} bind:this={jobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
+<JobLoader
+	{token}
+	noCode={true}
+	bind:this={jobLoader}
+	bind:isLoading={testIsLoading}
+	bind:job={testJob}
+/>
 
 <main class="h-screen w-full">
 	{#if mode == 'script'}

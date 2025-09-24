@@ -1,3 +1,7 @@
+<script lang="ts" module>
+	let refreshCount = $state({ val: 0 })
+</script>
+
 <script lang="ts">
 	import { createEventDispatcher, getContext } from 'svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
@@ -36,8 +40,6 @@
 	let width = $state(0)
 	let height = $state(0)
 
-	let refreshCount = $state(0)
-
 	let displayPath = $derived(width > 650 || height > 400)
 </script>
 
@@ -67,7 +69,7 @@
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		{/if}
-		<RefreshButton {loading} on:click={() => (refreshCount += 1)} />
+		<RefreshButton {loading} on:click={() => (refreshCount.val += 1)} />
 	</div>
 
 	<div class="flex flex-row grow min-h-0">
@@ -169,7 +171,7 @@
 			{preFilter}
 			{small}
 			{displayPath}
-			{refreshCount}
+			refreshCount={refreshCount.val}
 		/>
 	</div>
 </div>

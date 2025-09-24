@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.546.1
+  version: 1.548.0
   title: Windmill API
 
   contact:
@@ -2133,6 +2133,40 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/rebuild_dependency_map:
+    post:
+      summary: rebuild dependency map
+      operationId: rebuildDependencyMap
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/get_dependency_map:
+    get:
+      summary: get dependency map
+      operationId: getDependencyMap
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: dmap
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DependencyMap"
 
   /w/{workspace}/workspaces/edit_slack_command:
     post:
@@ -16426,6 +16460,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+        can_return_error_result:
+          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -16438,6 +16474,7 @@ components:
         - enabled
         - filters
         - can_return_message
+        - can_return_error_result
 
     NewWebsocketTrigger:
       type: object
@@ -16471,6 +16508,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+        can_return_error_result:
+          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -16485,6 +16524,7 @@ components:
         - is_flow
         - filters
         - can_return_message
+        - can_return_error_result
 
     EditWebsocketTrigger:
       type: object
@@ -16516,6 +16556,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+        can_return_error_result:
+          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -16530,6 +16572,7 @@ components:
         - is_flow
         - filters
         - can_return_message
+        - can_return_error_result
     WebsocketTriggerInitialMessage:
       anyOf:
         - type: object
@@ -17635,6 +17678,25 @@ components:
         - name
         - owner
         - created_at
+
+    DependencyMap:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+          nullable: true
+        importer_path:
+          type: string
+          nullable: true
+        importer_kind:
+          type: string
+          nullable: true
+        imported_path:
+          type: string
+          nullable: true
+        importer_node_id:
+          type: string
+          nullable: true
 
     WorkspaceInvite:
       type: object

@@ -23,7 +23,8 @@
 						kind: 'script',
 						isTemplate: undefined,
 						refreshCount: 0
-					}
+					},
+					invalidateMs: 1000 * 60
 				}
 			: {}
 	)
@@ -52,7 +53,7 @@
 	let items = usePromise(
 		async () =>
 			await loadItemsCached({ workspace: $workspaceStore!, kind, isTemplate, refreshCount }),
-		{ loadInit: false }
+		{ loadInit: false, clearValueOnRefresh: false }
 	)
 
 	let filteredItems: (Item & { marked?: string })[] | undefined = $state(undefined)

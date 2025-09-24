@@ -150,6 +150,15 @@
 		event?.preventDefault()
 
 		$selectedComponent = [id]
+
+		// Show brief feedback for background mode
+		if (resolvedConfig.runInBackground) {
+			backgroundClickFeedback = true
+			setTimeout(() => {
+				backgroundClickFeedback = false
+			}, 300)
+		}
+
 		const action = async () => {
 			const inputOutput = { result: outputs.result.peak(), loading: true }
 			if (rowContext && rowInputs) {
@@ -176,6 +185,7 @@
 		}
 	}
 	let loading = $state(false)
+	let backgroundClickFeedback = $state(false)
 
 	let css = $state(initCss($app.css?.buttoncomponent, customCss))
 	$effect(() => {
@@ -233,6 +243,7 @@
 	{render}
 	{outputs}
 	{extraKey}
+	allowConcurentRequests={resolvedConfig.runInBackground}
 	onSuccess={(r) => {
 		let inputOutput = { result: r, loading: false }
 		if (rowContext && rowInputs) {
@@ -282,7 +293,7 @@
 				title={resolvedConfig.tooltip && String(resolvedConfig.tooltip).length > 0
 					? String(resolvedConfig.tooltip)
 					: undefined}
-				{loading}
+				loading={resolvedConfig.runInBackground ? backgroundClickFeedback : loading}
 			>
 				{#if resolvedConfig.beforeIcon}
 					{#key resolvedConfig.beforeIcon}
