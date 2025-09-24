@@ -535,7 +535,7 @@ const config = {
 					'--color-text-primary-inverse': darkThemeRgb.textPrimary,
 					'--color-text-secondary-inverse': darkThemeRgb.textSecondary,
 					'--color-text-tertiary-inverse': darkThemeRgb.textTertiary,
-					'--color-text-hint-inverse': darkThemeRgb.texthint,
+					'--color-text-hint-inverse': darkThemeRgb.textHint,
 					'--color-text-disabled-inverse': darkThemeRgb.textDisabled,
 
 					'--color-border': lightThemeRgb.border,
