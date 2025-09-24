@@ -50,6 +50,8 @@
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
 	import { editor as meditor } from 'monaco-editor'
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
+	import S3FilePicker from './S3FilePicker.svelte'
+	import S3FilePickerInner from './S3FilePickerInner.svelte'
 
 	interface Props {
 		// Exported
@@ -117,6 +119,7 @@
 		enablePreprocessorSnippet = false
 	}: Props = $props()
 
+	let s3FilePicker: S3FilePicker | undefined = $state()
 	$effect.pre(() => {
 		if (schema == undefined) {
 			schema = emptySchema()
@@ -385,6 +388,7 @@
 	let codePanelSize = $state(70)
 	let testPanelSize = $state(30)
 	let storedTestPanelSize = untrack(() => testPanelSize)
+	let selectedS3File = $state(undefined)
 
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {
@@ -537,126 +541,41 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
-			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
-				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-					{#if assets?.length}
-						<AssetsDropdownButton {assets} />
-					{/if}
-					{#if testPanelSize === 0}
-						<HideButton
-							hidden={true}
-							direction="right"
-							size="md"
-							panelName="Test"
-							shortcut="U"
-							customHiddenIcon={{
-								icon: PlayIcon
-							}}
-							on:click={() => {
-								toggleTestPanel()
-							}}
-							btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
-							color="marine"
-						/>
-					{/if}
-					{#if !aiChatManager.open && !disableAi}
-						{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
-							<HideButton
-								hidden={true}
-								direction="right"
-								panelName="AI"
-								shortcut="L"
-								size="md"
-								usePopoverOverride={!$copilotInfo.enabled}
-								customHiddenIcon={{
-									icon: WandSparkles
-								}}
-								btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
-								on:click={() => {
-									if (!aiChatManager.open) {
-										aiChatManager.changeMode(AIMode.SCRIPT)
-									}
-									aiChatManager.toggleOpen()
-								}}
-							>
-								{#snippet popoverOverride()}
-									<div class="text-sm">
-										Enable Windmill AI in the <a
-											href="{base}/workspace_settings?tab=ai"
-											target="_blank"
-											class="inline-flex flex-row items-center gap-1"
-										>
-											workspace settings <ExternalLink size={16} />
-										</a>
-									</div>
-								{/snippet}
-							</HideButton>
-						{/if}
-					{/if}
-				</div>
+			{#if lang === 'ansible' && assets?.length && assets.length > 0}
+				<!-- Vertical split for ansible with assets -->
+				<Splitpanes horizontal class="!overflow-visible h-full">
+					<Pane size={70} minSize={30} class="!overflow-visible">
+						{@render editorContent()}
+					</Pane>
+					<Pane size={30} minSize={20} class="!overflow-visible">
+						<div class="h-full bg-surface border-l border-gray-200 dark:border-gray-700">
+							<div class="p-3 border-b border-gray-200 dark:border-gray-700">
+								<h4 class="text-sm font-semibold text-primary">File Browser</h4>
+							</div>
+							<div class="h-full mb-3">
+								<!-- S3FilePicker will be integrated here inline, not as drawer -->
+								<!-- <div class="p-4 text-sm text-secondary"> -->
+									<S3FilePickerInner bind:this={s3FilePicker} readOnlyMode={true} />
 
-				{#key lang}
-					<Editor
-						lineNumbersMinChars={4}
-						folding
-						{path}
-						bind:code
-						bind:websocketAlive
-						bind:this={editor}
-						{yContent}
-						awareness={wsProvider?.awareness}
-						on:change={(e) => {
-							inferSchema(e.detail)
-						}}
-						on:saveDraft
-						on:toggleTestPanel={toggleTestPanel}
-						cmdEnterAction={async () => {
-							await inferSchema(code)
-							runTest()
-						}}
-						formatAction={async () => {
-							await inferSchema(code)
-							try {
-								localStorage.setItem(path ?? 'last_save', code)
-							} catch (e) {
-								console.error('Could not save last_save to local storage', e)
-							}
-							dispatch('format')
-						}}
-						class="flex flex-1 h-full !overflow-visible"
-						scriptLang={lang}
-						automaticLayout={true}
-						{fixedOverflowWidgets}
-						{args}
-						{enablePreprocessorSnippet}
-					/>
-					<DiffEditor
-						className="h-full"
-						bind:this={diffEditor}
-						modifiedModel={editor?.getModel() as meditor.ITextModel}
-						automaticLayout
-						defaultLang={scriptLangToEditorLang(lang)}
-						{fixedOverflowWidgets}
-						buttons={diffMode
-							? [
-									{
-										text: 'See changes history',
-										onClick: () => {
-											showHistoryDrawer = true
-										}
-									},
-									{
-										text: 'Quit diff mode',
-										onClick: () => {
-											hideDiffMode()
-										},
-										color: 'red'
-									}
-								]
-							: []}
-					/>
-				{/key}
-			</div>
+									<button
+										class="text-secondary underline text-2xs whitespace-nowrap ml-1"
+										onclick={() => {
+											s3FilePicker?.open?.(undefined)
+										}}
+										>
+										ohhohho
+									</button>
+									<!-- {assets[0].path} -->
+									<!-- S3 File Browser for Ansible assets will be integrated here -->
+								<!-- </div> -->
+							</div>
+						</div>
+					</Pane>
+				</Splitpanes>
+			{:else}
+				<!-- Original single editor layout -->
+				{@render editorContent()}
+			{/if}
 		</Pane>
 		<Pane bind:size={testPanelSize} minSize={0}>
 			<div class="flex flex-col h-full">
@@ -811,3 +730,126 @@
 		</Pane>
 	</Splitpanes>
 </SplitPanesWrapper>
+
+{#snippet editorContent()}
+	<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
+		<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+			{#if assets?.length}
+				<AssetsDropdownButton {assets} />
+			{/if}
+			{#if testPanelSize === 0}
+				<HideButton
+					hidden={true}
+					direction="right"
+					size="md"
+					panelName="Test"
+					shortcut="U"
+					customHiddenIcon={{
+						icon: PlayIcon
+					}}
+					on:click={() => {
+						toggleTestPanel()
+					}}
+					btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
+					color="marine"
+				/>
+			{/if}
+			{#if !aiChatManager.open && !disableAi}
+				{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
+					<HideButton
+						hidden={true}
+						direction="right"
+						panelName="AI"
+						shortcut="L"
+						size="md"
+						usePopoverOverride={!$copilotInfo.enabled}
+						customHiddenIcon={{
+							icon: WandSparkles
+						}}
+						btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
+						on:click={() => {
+							if (!aiChatManager.open) {
+								aiChatManager.changeMode(AIMode.SCRIPT)
+							}
+							aiChatManager.toggleOpen()
+						}}
+					>
+						{#snippet popoverOverride()}
+							<div class="text-sm">
+								Enable Windmill AI in the <a
+									href="{base}/workspace_settings?tab=ai"
+									target="_blank"
+									class="inline-flex flex-row items-center gap-1"
+								>
+									workspace settings <ExternalLink size={16} />
+								</a>
+							</div>
+						{/snippet}
+					</HideButton>
+				{/if}
+			{/if}
+		</div>
+
+		{#key lang}
+			<Editor
+				lineNumbersMinChars={4}
+				folding
+				{path}
+				bind:code
+				bind:websocketAlive
+				bind:this={editor}
+				{yContent}
+				awareness={wsProvider?.awareness}
+				on:change={(e) => {
+					inferSchema(e.detail)
+				}}
+				on:saveDraft
+				on:toggleTestPanel={toggleTestPanel}
+				cmdEnterAction={async () => {
+					await inferSchema(code)
+					runTest()
+				}}
+				formatAction={async () => {
+					await inferSchema(code)
+					try {
+						localStorage.setItem(path ?? 'last_save', code)
+					} catch (e) {
+						console.error('Could not save last_save to local storage', e)
+					}
+					dispatch('format')
+				}}
+				class="flex flex-1 h-full !overflow-visible"
+				scriptLang={lang}
+				automaticLayout={true}
+				{fixedOverflowWidgets}
+				{args}
+				{enablePreprocessorSnippet}
+			/>
+			<DiffEditor
+				className="h-full"
+				bind:this={diffEditor}
+				modifiedModel={editor?.getModel() as meditor.ITextModel}
+				automaticLayout
+				defaultLang={scriptLangToEditorLang(lang)}
+				{fixedOverflowWidgets}
+				buttons={diffMode
+					? [
+							{
+								text: 'See changes history',
+								onClick: () => {
+									showHistoryDrawer = true
+								}
+							},
+							{
+								text: 'Quit diff mode',
+								onClick: () => {
+									hideDiffMode()
+								},
+								color: 'red'
+							}
+						]
+					: []}
+			/>
+		{/key}
+	</div>
+{/snippet}
