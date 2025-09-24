@@ -1391,6 +1391,12 @@ export const components = {
 					value: false,
 					fieldType: 'boolean'
 				},
+				runInBackground: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Run the job in the background without blocking the button. Multiple clicks will trigger multiple jobs.'
+				},
 
 				onSuccess: onSuccessClick,
 				onError: onErrorClick,
