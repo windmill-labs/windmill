@@ -940,7 +940,7 @@
 									{#if value.startsWith('$res:')}
 										{@render resourceInput()}
 									{:else}
-										<div class="text-red-500">
+										<div class="text-red-500 text-xs">
 											Invalid string value: "{value}", expected array. Click add item to turn it
 											into an array.
 										</div>
