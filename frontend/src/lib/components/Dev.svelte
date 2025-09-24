@@ -759,8 +759,8 @@
 						<div class="break-words relative font-sans">
 							<SchemaForm compact {schema} bind:args bind:isValid />
 						</div>
-					</div></Splitpanes>Pane
-				>
+					</div>
+				</Pane>
 				<Pane size={67}>
 					<LogPanel
 						{workspace}
