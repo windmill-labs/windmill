@@ -625,8 +625,10 @@ pub async fn run_agent(
                         for tool_call in tool_calls.iter() {
                             // Stream tool call progress
                             if let Some(ref stream_event_processor) = stream_event_processor {
-                                let event =
-                                    StreamingEvent::ToolExecution { call_id: tool_call.id.clone() };
+                                let event = StreamingEvent::ToolExecution {
+                                    call_id: tool_call.id.clone(),
+                                    function_name: tool_call.function.name.clone(),
+                                };
                                 stream_event_processor
                                     .send(event, &mut final_events_str)
                                     .await?;

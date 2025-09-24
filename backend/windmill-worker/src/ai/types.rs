@@ -169,7 +169,7 @@ pub enum StreamingEvent {
     /// Tool call arguments are complete
     ToolCallArguments { call_id: String, function_name: String, arguments: String },
     /// Tool execution has started
-    ToolExecution { call_id: String },
+    ToolExecution { call_id: String, function_name: String },
     /// Tool execution result
     ToolResult { call_id: String, function_name: String, result: String, success: bool },
 }
