@@ -341,9 +341,10 @@ export async function getFormattedResourceTypes(
 
 function buildChatSystemPrompt(currentModel: AIProviderModel) {
 	const useDiffBasedEdit = DIFF_BASED_EDIT_PROVIDERS.includes(currentModel.provider)
+	const editToolName = EDIT_CODE_TOOL.function.name
 	const editIntructions = useDiffBasedEdit
 		? `
-		- Pass an array of **diff objects** to the \`edit_code\` tool using the \`diffs\` parameter. Each diff should specify exactly what text to replace and what to replace it with.
+		- Pass an array of **diff objects** to the \`${editToolName}\` tool using the \`diffs\` parameter. Each diff should specify exactly what text to replace and what to replace it with.
 		  - Each diff object must contain:
 			- \`old_string\`: The exact text to replace (must match the current code exactly)
 			- \`new_string\`: The replacement text
@@ -827,8 +828,8 @@ const EDIT_CODE_TOOL: ChatCompletionFunctionTool = {
 				}
 			},
 			additionalProperties: false,
-			strict: false,
-			required: []
+			strict: true,
+			required: ['code']
 		}
 	}
 }
@@ -836,7 +837,7 @@ const EDIT_CODE_TOOL: ChatCompletionFunctionTool = {
 const EDIT_CODE_TOOL_WITH_DIFF: ChatCompletionFunctionTool = {
 	type: 'function',
 	function: {
-		name: 'edit_code_with_diff',
+		name: 'edit_code',
 		description: 'Apply code changes to the current script in the editor',
 		parameters: {
 			type: 'object',
@@ -867,8 +868,8 @@ const EDIT_CODE_TOOL_WITH_DIFF: ChatCompletionFunctionTool = {
 				}
 			},
 			additionalProperties: false,
-			strict: false,
-			required: []
+			strict: true,
+			required: ['diffs']
 		}
 	}
 }
