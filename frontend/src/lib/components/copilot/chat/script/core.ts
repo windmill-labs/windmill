@@ -1,5 +1,5 @@
 import { ResourceService, JobService } from '$lib/gen/services.gen'
-import type { AIProviderModel, ResourceType, ScriptLang } from '$lib/gen/types.gen'
+import type { AIProvider, AIProviderModel, ResourceType, ScriptLang } from '$lib/gen/types.gen'
 import { capitalize, isObject, toCamel } from '$lib/utils'
 import { get } from 'svelte/store'
 import { compile, phpCompile, pythonCompile } from '../../utils'
@@ -30,7 +30,7 @@ const DOCS_CONTEXT_PERCENTAGE = 1
 // percentage of the context window for types of npm packages
 const TYPES_CONTEXT_PERCENTAGE = 1
 // good providers for diff-based edit
-const DIFF_BASED_EDIT_PROVIDERS = ['openai', 'anthropic']
+const DIFF_BASED_EDIT_PROVIDERS: AIProvider[] = ['openai', 'anthropic', 'googleai', 'azure_openai']
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
