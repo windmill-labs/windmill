@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT workspace_id, importer_path, importer_kind::text, imported_path, importer_node_id\n        FROM dependency_map WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "importer_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "importer_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "imported_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "importer_node_id",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "13297889361ac6839d6c4bd0b8ae121305d63cfcd88f69700125d17fb2c56a1f"
+}

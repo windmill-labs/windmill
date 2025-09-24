@@ -1,8 +1,8 @@
 mod common;
 use crate::common::*;
-use sqlx::Pool;
 use sqlx::postgres::Postgres;
-use windmill_common::scripts::{ ScriptLang};
+use sqlx::Pool;
+use windmill_common::scripts::ScriptLang;
 
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base", "lockfile_python"))]
@@ -162,7 +162,6 @@ use windmill_common::jobs::RawCode;
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_python_job(db: Pool<Postgres>) -> anyhow::Result<()> {
-
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -211,7 +210,6 @@ async fn test_python_global_site_packages(db: Pool<Postgres>) -> anyhow::Result<
 
     // 3.12
     {
-
         let content = r#"# py: ==3.12
 #requirements:
 #
@@ -355,7 +353,6 @@ def main():
     Ok(())
 }
 
-
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base", "relative_python"))]
 async fn test_relative_imports_python(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -391,4 +388,3 @@ def main():
     run_preview_relative_imports(&db, content, ScriptLang::Python3).await?;
     Ok(())
 }
-
