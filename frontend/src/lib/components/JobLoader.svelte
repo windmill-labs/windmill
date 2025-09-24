@@ -677,7 +677,7 @@
 					}
 
 					let token = getContext<{ token?: string }>('AuthToken')
-					if (token.token) {
+					if (token?.token) {
 						params.set('token', token.token)
 					}
 
