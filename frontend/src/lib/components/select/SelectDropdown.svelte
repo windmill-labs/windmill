@@ -113,7 +113,7 @@
 			transition:slide={{ duration: 150 }}
 			class={twMerge(
 				disablePortal ? 'absolute' : 'fixed',
-				'z-[5001] bg-surface-secondary text-tertiary text-sm select-none',
+				'z-[5001] rounded-md bg-surface-secondary text-tertiary text-sm select-none',
 				className
 			)}
 			style="{`top: ${dropdownPos.y}px; left: ${dropdownPos.x}px;`} {listAutoWidth
