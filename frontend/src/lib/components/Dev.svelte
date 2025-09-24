@@ -573,6 +573,10 @@
 	let workspace = $derived($page.url.searchParams.get('workspace') ?? undefined)
 	let themeDarkRaw = $derived($page.url.searchParams.get('activeColorTheme'))
 	let themeDark = $derived(themeDarkRaw == '2' || themeDarkRaw == '4')
+
+	$effect(() => {
+		setContext<{ token?: string }>('AuthToken', { token })
+	})
 	$effect.pre(() => {
 		if (token) {
 			OpenAPI.WITH_CREDENTIALS = true
@@ -653,13 +657,7 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-<JobLoader
-	{token}
-	noCode={true}
-	bind:this={jobLoader}
-	bind:isLoading={testIsLoading}
-	bind:job={testJob}
-/>
+<JobLoader noCode={true} bind:this={jobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
 <main class="h-screen w-full">
 	{#if mode == 'script'}

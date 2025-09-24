@@ -15,7 +15,7 @@
 		type OpenFlow
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { onDestroy, tick, untrack } from 'svelte'
+	import { getContext, onDestroy, tick, untrack } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import { DynamicInput, isScriptPreview } from '$lib/utils'
@@ -46,7 +46,6 @@
 		toastError?: boolean
 		onlyResult?: boolean
 		loadPlaceholderJobOnStart?: Job
-		token?: string
 		// If you want to find out progress of subjobs of a flow, check job.flow_status.progress
 		scriptProgress?: number | undefined
 
@@ -66,7 +65,6 @@
 		loadPlaceholderJobOnStart = undefined,
 		scriptProgress = $bindable(undefined),
 		noLogs = false,
-		token = undefined,
 		children
 	}: Props = $props()
 
@@ -678,8 +676,9 @@
 						)
 					}
 
-					if (token) {
-						params.set('token', token)
+					let token = getContext<{ token?: string }>('AuthToken')
+					if (token.token) {
+						params.set('token', token.token)
 					}
 
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`
