@@ -570,6 +570,14 @@
 														}
 														extraLib={stepPropPicker.extraLib}
 														{enableAi}
+														helperScript={(flowModule?.value as RawScript).content &&
+														(flowModule?.value as RawScript).language
+															? {
+																	source: 'inline',
+																	code: (flowModule?.value as RawScript).content ?? '',
+																	lang: (flowModule?.value as RawScript).language ?? 'deno'
+																}
+															: undefined}
 													/>
 												</PropPickerWrapper>
 											</div>

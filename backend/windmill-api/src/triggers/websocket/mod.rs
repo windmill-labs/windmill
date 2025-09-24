@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     db::ApiAuthed,
-    triggers::trigger_helpers::{trigger_runnable_and_wait_for_raw_result, TriggerJobArgs},
+    triggers::trigger_helpers::{trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -40,6 +40,8 @@ pub struct WebsocketConfig {
     pub url_runnable_args: Option<SqlxJson<Box<RawValue>>>,
     #[serde(default)]
     pub can_return_message: bool,
+    #[serde(default)]
+    pub can_return_error_result: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +51,7 @@ pub struct WebsocketConfigRequest {
     initial_messages: Option<Vec<serde_json::Value>>,
     url_runnable_args: Option<serde_json::Value>,
     can_return_message: bool,
+    can_return_error_result: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,7 +100,7 @@ pub async fn get_url_from_runnable_value(
 
     let args = value_to_args_hashmap(args)?;
 
-    let result = trigger_runnable_and_wait_for_raw_result(
+    let result = trigger_runnable_and_wait_for_raw_result_with_error_ctx(
         db,
         None,
         authed,

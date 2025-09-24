@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { VariableService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { allTrue } from '$lib/utils'
+	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { untrack } from 'svelte'
 	import { Button } from './common'
 	import StepInputsGen from './copilot/StepInputsGen.svelte'
@@ -24,6 +24,7 @@
 		pickableProperties?: PickableProperties | undefined
 		enableAi?: boolean
 		class?: string
+		helperScript?: DynamicInputTypes.HelperScript
 	}
 
 	let {
@@ -36,7 +37,8 @@
 		noDynamicToggle = false,
 		pickableProperties = undefined,
 		enableAi = false,
-		class: clazz = ''
+		class: clazz = '',
+		helperScript = undefined
 	}: Props = $props()
 
 	let inputCheck: { [id: string]: boolean } = $state({})
@@ -116,6 +118,7 @@
 						{noDynamicToggle}
 						{pickableProperties}
 						{enableAi}
+						{helperScript}
 						otherArgs={Object.fromEntries(
 							Object.entries(args ?? {}).filter(([key]) => key !== argName)
 						)}

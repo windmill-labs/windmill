@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.546.1
+  version: 1.547.0
   title: Windmill API
 
   contact:
@@ -16426,6 +16426,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+        can_return_error_result:
+          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -16438,6 +16440,7 @@ components:
         - enabled
         - filters
         - can_return_message
+        - can_return_error_result
 
     NewWebsocketTrigger:
       type: object
@@ -16471,6 +16474,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+        can_return_error_result:
+          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -16485,6 +16490,7 @@ components:
         - is_flow
         - filters
         - can_return_message
+        - can_return_error_result
 
     EditWebsocketTrigger:
       type: object
@@ -16516,6 +16522,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+        can_return_error_result:
+          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -16530,6 +16538,7 @@ components:
         - is_flow
         - filters
         - can_return_message
+        - can_return_error_result
     WebsocketTriggerInitialMessage:
       anyOf:
         - type: object

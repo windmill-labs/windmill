@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                    result AS \"result: sqlx::types::Json<Box<RawValue>>\",\n                    result_columns,\n                    status = 'success' AS \"success!\"\n                FROM v2_job_completed\n                WHERE id = $1 AND workspace_id = $2",
+  "query": "\n                SELECT\n                    result AS \"result: sqlx::types::Json<Box<RawValue>>\",\n                    result_columns,\n                    status = 'success' AS \"success!\"\n                FROM \n                    v2_job_completed\n                WHERE \n                    id = $1 AND \n                    workspace_id = $2\n                ",
   "describe": {
     "columns": [
       {
@@ -31,5 +31,5 @@
       null
     ]
   },
-  "hash": "d6f62e25faf271876874fc09ee460313159bb6ad91227f5dec37cd28006e2add"
+  "hash": "79d6b757c9556cfcf0c98f52035b5f1a9036b6005764b79c415373a5d39c3211"
 }
