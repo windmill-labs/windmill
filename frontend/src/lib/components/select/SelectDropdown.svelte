@@ -113,17 +113,14 @@
 			transition:slide={{ duration: 150 }}
 			class={twMerge(
 				disablePortal ? 'absolute' : 'fixed',
-				'z-[5001] rounded-md bg-surface-secondary text-tertiary text-sm select-none',
+				'z-[5001] rounded-md bg-surface-secondary text-tertiary shadow-lg text-sm select-none',
 				className
 			)}
 			style="{`top: ${dropdownPos.y}px; left: ${dropdownPos.x}px;`} {listAutoWidth
 				? `min-width: ${dropdownPos.width}px;`
 				: ''}"
 		>
-			<div
-				bind:this={listEl}
-				class="flex flex-col max-h-64 border rounded-md shadow-lg overflow-clip"
-			>
+			<div bind:this={listEl} class="flex flex-col max-h-64 border rounded-md overflow-clip">
 				{@render header?.()}
 				{#if processedItems?.length === 0}
 					<div class="py-8 px-4 text-center text-primary">{noItemsMsg}</div>
