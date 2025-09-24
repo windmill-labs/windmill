@@ -1,6 +1,6 @@
 -- Add up migration script here
 
-CREATE TYPE IF NOT EXISTS job_kind AS ENUM (
+CREATE TYPE job_kind AS ENUM (
     'script', 'preview', 'flow', 'dependencies', 'flowpreview', 'script_hub', 
     'identity', 'flowdependencies', 'http', 'graphql', 'postgresql', 'noop', 
     'appdependencies', 'deploymentcallback', 'singlescriptflow', 'flowscript', 
@@ -8,23 +8,23 @@ CREATE TYPE IF NOT EXISTS job_kind AS ENUM (
 );
 
 
-CREATE TYPE IF NOT EXISTS job_status AS ENUM ('success', 'failure', 'canceled', 'skipped');
+CREATE TYPE job_status AS ENUM ('success', 'failure', 'canceled', 'skipped');
 
 
 
-CREATE TYPE IF NOT EXISTS job_trigger_kind AS ENUM (
+CREATE TYPE job_trigger_kind AS ENUM (
     'webhook', 'http', 'websocket', 'kafka', 'email', 'nats', 'schedule', 
     'app', 'ui', 'postgres', 'sqs', 'gcp', 'mqtt'
 );
 
-CREATE TYPE IF NOT EXISTS script_lang AS ENUM (
+CREATE TYPE script_lang AS ENUM (
     'python3', 'deno', 'go', 'bash', 'postgresql', 'nativets', 'bun', 'mysql', 
     'bigquery', 'snowflake', 'graphql', 'powershell', 'mssql', 'php', 'bunnative', 
     'rust', 'ansible', 'csharp', 'oracledb', 'nu', 'java', 'duckdb'
 );
 
 
-CREATE TABLE IF NOT EXISTS v2_job (
+CREATE TABLE v2_job (
     id UUID PRIMARY KEY,
     raw_code TEXT,
     raw_lock TEXT,

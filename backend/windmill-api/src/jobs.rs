@@ -2266,17 +2266,55 @@ async fn count_queue_jobs(
     let tags = cq
         .tags
         .map(|t| t.split(',').map(|s| s.to_string()).collect::<Vec<_>>());
-    Ok(Json(
+
+    let count_queue_jobs = async |db: &DB| {
         sqlx::query_as!(
             QueueStats,
-            "SELECT coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" FROM v2_as_queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now() AND ($3::text[] IS NULL OR tag = ANY($3))",
+            "
+            SELECT 
+                coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", 
+                coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" 
+            FROM 
+                v2_as_queue 
+            WHERE 
+                (workspace_id = $1 OR $2) AND 
+                scheduled_for <= now() AND ($3::text[] IS NULL OR tag = ANY($3))
+            ",
             w_id,
             w_id == "admins" && cq.all_workspaces.unwrap_or(false),
             tags.as_ref().map(|v| v.as_slice())
         )
-        .fetch_one(&db)
-        .await?,
-    ))
+        .fetch_one(db)
+        .await
+    };
+
+    let count_queue_jobs = if *SHARD_MODE {
+        let count_futures = SHARD_ID_TO_DB_INSTANCE
+            .get()
+            .unwrap()
+            .iter()
+            .map(|(_, db)| count_queue_jobs(db))
+            .collect_vec();
+
+        let completed_futures = futures::future::try_join_all(count_futures).await?;
+
+        let mut count = QueueStats { database_length: 0, suspended: None };
+
+        for queue_count in completed_futures {
+            count.database_length += queue_count.database_length;
+            count.suspended = match (count.suspended, queue_count.suspended) {
+                (Some(i), Some(j)) => Some(i + j),
+                (None, Some(i)) => Some(i),
+                (count, _) => count,
+            };
+        }
+
+        count
+    } else {
+        count_queue_jobs(&db).await?
+    };
+
+    Ok(Json(count_queue_jobs))
 }
 
 #[derive(Deserialize)]
@@ -2336,15 +2374,51 @@ async fn count_completed_jobs(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> error::JsonResult<QueueStats> {
-    Ok(Json(
+    let count_completed_jobs = async |db: &DB| {
         sqlx::query_as!(
             QueueStats,
-            "SELECT coalesce(COUNT(*), 0) as \"database_length!\", null::bigint as suspended FROM v2_job_completed WHERE workspace_id = $1",
+            "
+            SELECT 
+                coalesce(COUNT(*), 0) as \"database_length!\", 
+                null::bigint as suspended 
+            FROM 
+                v2_job_completed 
+            WHERE 
+                workspace_id = $1
+            ",
             w_id
         )
-        .fetch_one(&db)
-        .await?,
-    ))
+        .fetch_one(db)
+        .await
+    };
+
+    let count_completed_jobs = if *SHARD_MODE {
+        let count_futures = SHARD_ID_TO_DB_INSTANCE
+            .get()
+            .unwrap()
+            .iter()
+            .map(|(_, db)| count_completed_jobs(db))
+            .collect_vec();
+
+        let completed_futures = futures::future::try_join_all(count_futures).await?;
+
+        let mut count = QueueStats { database_length: 0, suspended: None };
+
+        for queue_count in completed_futures {
+            count.database_length += queue_count.database_length;
+            count.suspended = match (count.suspended, queue_count.suspended) {
+                (Some(i), Some(j)) => Some(i + j),
+                (None, Some(i)) => Some(i),
+                (count, _) => count,
+            };
+        }
+
+        count
+    } else {
+        count_completed_jobs(&db).await?
+    };
+
+    Ok(Json(count_completed_jobs))
 }
 
 async fn list_jobs(

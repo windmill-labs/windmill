@@ -75,11 +75,11 @@ in `benchmarks_noop.ts`
 
 You can build it locally with:
 ```
-deno install -A benchmarks_noop.ts
+deno install -A benchmarks_oneoff.ts
 ```
 and then
 ```
-benchmarks_noop -e admin@windmill.dev -p changeme --host YOUR_HOST
+benchmark_oneoff -e admin@windmill.dev -p changeme --host YOUR_HOST
 ```
 
 By default it creates 10000 jobs in Windmill in a single batch, but this is parametrizable.

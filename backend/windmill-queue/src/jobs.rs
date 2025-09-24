@@ -862,8 +862,8 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool)> {
     // let start = std::time::Instant::now();
 
-    let mut tx = db.begin().await?;
-    let mut job_tx = job_queue_db.begin().await?;
+    let (mut tx, mut job_tx) = tokio::try_join!(db.begin(), job_queue_db.begin())?;
+
     let job_id = queued_job.id;
     // tracing::error!("1 {:?}", start.elapsed());
 
@@ -965,7 +965,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // tracing::error!("Added completed job {:#?}", queued_job);
 
     let mut _skip_downstream_error_handlers = false;
-    tx = delete_job(tx, &job_id).await?;
+    job_tx = delete_job(job_tx, &job_id).await?;
     // tracing::error!("3 {:?}", start.elapsed());
 
     if queued_job.is_flow_step() {
@@ -4888,6 +4888,7 @@ pub async fn push<'c, 'd>(
         running,
     )
     .execute(if !shard_mode {&mut *tx} else {
+        println!("Push");
          job_queue_tx.as_mut().unwrap()
     })
     .warn_after_seconds(1)

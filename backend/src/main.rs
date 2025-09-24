@@ -305,6 +305,7 @@ async fn initialize_worker_shard_db() -> anyhow::Result<Pool<Postgres>> {
         anyhow!("SHARD_DB_URL environment variable is required for worker shard mode")
     })?;
 
+    tracing::info!("Shard url: {}", shard);
     let shard = connect_db(Some(shard), false, false, true).await?;
     SHARD_DB_INSTANCE.set(shard.clone()).map_err(|_| {
         anyhow!("SHARD_DB_INSTANCE already initialized")
@@ -319,6 +320,7 @@ async fn initialize_server_shard_instances() -> anyhow::Result<()> {
 
     let mut shard_to_db = HashMap::new();
     for (i, shard_url) in shard_urls.iter().enumerate() {
+        println!("Url: {}", &shard_url);
         let shard = connect_db(Some(&shard_url), true, false, false).await?;
         shard_to_db.insert(i, shard);
     }
@@ -531,7 +533,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             if server_mode {
                 initialize_server_shard_instances().await?;
             }
-            if worker_mode {
+            else {
                 job_queue_db = Some(initialize_worker_shard_db().await?);
             }
         } else {

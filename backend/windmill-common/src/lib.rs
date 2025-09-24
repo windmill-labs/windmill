@@ -171,7 +171,6 @@ lazy_static::lazy_static! {
 
 }
 
-// Zero-overhead shard database instances (initialized once at startup)
 pub static SHARD_DB_INSTANCE: OnceCell<Pool<Postgres>> = OnceCell::new();
 pub static SHARD_ID_TO_DB_INSTANCE: OnceCell<HashMap<usize, Pool<Postgres>>> = OnceCell::new();
 
