@@ -92,6 +92,7 @@
 	let initial_messages: WebsocketTriggerInitialMessage[] = $state([])
 	let url_runnable_args: Record<string, any> | undefined = $state({})
 	let can_return_message = $state(false)
+	let can_return_error_result = $state(false)
 	let dirtyPath = $state(false)
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
@@ -126,6 +127,12 @@
 
 	$effect(() => {
 		is_flow = itemKind === 'flow'
+	})
+
+	$effect(() => {
+		if (!can_return_message) {
+			can_return_error_result = false
+		}
 	})
 
 	export async function openEdit(
@@ -183,6 +190,7 @@
 			url_runnable_args = defaultValues?.url_runnable_args ?? {}
 			dirtyPath = false
 			can_return_message = false
+			can_return_error_result = false
 			error_handler_path = defaultValues?.error_handler_path ?? undefined
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
@@ -205,6 +213,7 @@
 		initial_messages = cfg?.initial_messages ?? []
 		url_runnable_args = cfg?.url_runnable_args
 		can_return_message = cfg?.can_return_message
+		can_return_error_result = cfg?.can_return_error_result
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
 		error_handler_path = cfg?.error_handler_path
 		error_handler_args = cfg?.error_handler_args ?? {}
@@ -223,6 +232,7 @@
 			initial_messages,
 			url_runnable_args,
 			can_return_message,
+			can_return_error_result,
 			enabled,
 			error_handler_path,
 			error_handler_args,
@@ -462,6 +472,19 @@
 							'Whether the runnable result should be sent as a message to the websocket server when not null.'
 					}}
 					disabled={!can_write}
+				/>
+
+				<Toggle
+					checked={can_return_error_result}
+					on:change={() => {
+						can_return_error_result = !can_return_error_result
+					}}
+					options={{
+						right: 'Send result on error',
+						rightTooltip:
+							'Allows the runnable result to be sent as a message to the WebSocket server if the result is a non-null error.'
+					}}
+					disabled={!can_write || !can_return_message}
 				/>
 			</Section>
 
