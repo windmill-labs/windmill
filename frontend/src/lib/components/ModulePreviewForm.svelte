@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-
+	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 	import { allTrue } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
@@ -115,12 +115,14 @@
 		{#if keys.length > 0}
 			{#each keys as argName, i (argName)}
 				{#if Object.keys(schema.properties ?? {}).includes(argName)}
-					<div
+					<ResizeTransitionWrapper
+						vertical
 						class={twMerge(
-							'flex gap-2',
+							'flex gap-2 relative',
 							animateArg === argName && 'animate-pulse ring-2 ring-offset-2 ring-blue-500 rounded'
 						)}
-						data-arg={argName}
+						innerClass="w-full"
+						outerDivProps={{ 'data-arg': argName }}
 					>
 						{#if schema?.properties?.[argName]}
 							<ArgInput
@@ -166,7 +168,7 @@
 								{/snippet}
 							</ArgInput>
 						{/if}
-					</div>
+					</ResizeTransitionWrapper>
 				{/if}
 			{/each}
 		{/if}

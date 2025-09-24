@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { HTMLAttributes } from 'svelte/elements'
 	import { twMerge } from 'tailwind-merge'
 
 	type Props = {
@@ -7,8 +8,16 @@
 		class?: string
 		horizontal?: boolean
 		vertical?: boolean
+		outerDivProps?: HTMLAttributes<HTMLDivElement>
 	}
-	let { children, innerClass, class: className = '', horizontal, vertical }: Props = $props()
+	let {
+		children,
+		innerClass,
+		class: className = '',
+		horizontal,
+		vertical,
+		outerDivProps
+	}: Props = $props()
 
 	let innerContainer: HTMLElement | null = $state(null)
 	let outerContainer: HTMLElement | null = $state(null)
@@ -39,7 +48,7 @@
 	})
 </script>
 
-<div bind:this={outerContainer} class={className} {style}>
+<div bind:this={outerContainer} {...outerDivProps} class={className} {style}>
 	<div class={twMerge('absolute', innerClass)} bind:this={innerContainer}>
 		{@render children()}
 	</div>

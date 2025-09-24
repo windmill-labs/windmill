@@ -358,11 +358,11 @@
 		['String', 'string'],
 		['Number', 'number'],
 		['Integer', 'integer'],
-		['Object', 'object'],
+		['Boolean', 'boolean'],
 		['Resource', 'resource'],
+		['Object', 'object'],
 		['OneOf', 'oneOf'],
 		['Array', 'array'],
-		['Boolean', 'boolean'],
 		['S3', 'S3']
 	])
 
