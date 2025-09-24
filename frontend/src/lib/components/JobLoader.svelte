@@ -46,6 +46,7 @@
 		toastError?: boolean
 		onlyResult?: boolean
 		loadPlaceholderJobOnStart?: Job
+		token?: string
 		// If you want to find out progress of subjobs of a flow, check job.flow_status.progress
 		scriptProgress?: number | undefined
 
@@ -65,6 +66,7 @@
 		loadPlaceholderJobOnStart = undefined,
 		scriptProgress = $bindable(undefined),
 		noLogs = false,
+		token = undefined,
 		children
 	}: Props = $props()
 
@@ -674,6 +676,10 @@
 							'is_flow',
 							(job.job_kind === 'flow' || job.job_kind === 'flowpreview').toString()
 						)
+					}
+
+					if (token) {
+						params.set('token', token)
 					}
 
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`
