@@ -5,7 +5,7 @@ use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Err
 
 use crate::ai::{
     providers::openai::{OpenAIQueryBuilder, OpenAIResponse},
-    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
+    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     types::*,
 };
 
@@ -67,6 +67,11 @@ impl OpenRouterQueryBuilder {
 impl QueryBuilder for OpenRouterQueryBuilder {
     fn supports_tools_with_output_type(&self, _output_type: &OutputType) -> bool {
         // OpenRouter supports tools for both text and image output (via OpenAI-compatible API)
+        true
+    }
+
+    fn supports_streaming(&self) -> bool {
+        // OpenRouter supports streaming for text output
         true
     }
 
@@ -187,6 +192,16 @@ impl QueryBuilder for OpenRouterQueryBuilder {
             tool_calls: first_choice.message.tool_calls.unwrap_or_default(),
             events_str: None,
         })
+    }
+
+    async fn parse_streaming_response(
+        &self,
+        response: reqwest::Response,
+        stream_event_processor: StreamEventProcessor,
+    ) -> Result<ParsedResponse, Error> {
+        self.openai_builder
+            .parse_streaming_response(response, stream_event_processor)
+            .await
     }
 
     fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {

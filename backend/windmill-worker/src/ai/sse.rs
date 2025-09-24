@@ -8,7 +8,7 @@ use windmill_common::{error::Error, utils::rd_string};
 
 use crate::ai::{
     providers::openai::{OpenAIFunction, OpenAIToolCall},
-    query_builder::StreamEventChannel,
+    query_builder::StreamEventProcessor,
     types::StreamingEvent,
 };
 
@@ -86,16 +86,16 @@ pub struct OpenAISSEParser {
     pub accumulated_content: String,
     pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
     pub events_str: String,
-    pub stream_event_channel: StreamEventChannel,
+    pub stream_event_processor: StreamEventProcessor,
 }
 
 impl OpenAISSEParser {
-    pub fn new(stream_event_channel: StreamEventChannel) -> Self {
+    pub fn new(stream_event_processor: StreamEventProcessor) -> Self {
         Self {
             accumulated_content: String::new(),
             accumulated_tool_calls: HashMap::new(),
             events_str: String::new(),
-            stream_event_channel,
+            stream_event_processor,
         }
     }
 }
@@ -111,7 +111,7 @@ impl SSEParser for OpenAISSEParser {
                 if let Some(content) = delta.content.filter(|s| !s.is_empty()) {
                     self.accumulated_content.push_str(&content);
                     let event = StreamingEvent::TokenDelta { content };
-                    self.stream_event_channel
+                    self.stream_event_processor
                         .send(event, &mut self.events_str)
                         .await?;
                 }
@@ -132,7 +132,7 @@ impl SSEParser for OpenAISSEParser {
                                     call_id: call_id.clone(),
                                     function_name: fun_name.clone(),
                                 };
-                                self.stream_event_channel
+                                self.stream_event_processor
                                     .send(event, &mut self.events_str)
                                     .await?;
                                 self.accumulated_tool_calls.insert(

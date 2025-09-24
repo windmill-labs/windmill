@@ -43,9 +43,7 @@ pub trait QueryBuilder: Send + Sync {
     fn supports_tools_with_output_type(&self, output_type: &OutputType) -> bool;
 
     /// Check if this provider supports streaming
-    fn supports_streaming(&self) -> bool {
-        false // Default implementation returns false
-    }
+    fn supports_streaming(&self) -> bool;
 
     /// Build the request body for the provider
     async fn build_request(
@@ -63,10 +61,10 @@ pub trait QueryBuilder: Send + Sync {
     async fn parse_streaming_response(
         &self,
         _response: reqwest::Response,
-        _stream_event_channel: StreamEventChannel,
+        _stream_event_processor: StreamEventProcessor,
     ) -> Result<ParsedResponse, Error> {
         return Err(Error::internal_err(
-            "Streaming is not supported for this provider".to_string(),
+            "Missing implementation for parse_streaming_response for this provider".to_string(),
         ));
     }
 
@@ -94,11 +92,11 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
 }
 
 #[derive(Clone)]
-pub struct StreamEventChannel {
+pub struct StreamEventProcessor {
     tx: tokio::sync::mpsc::Sender<String>,
 }
 
-impl StreamEventChannel {
+impl StreamEventProcessor {
     pub fn new(conn: &Connection, job: &MiniPulledJob) -> Self {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(100);
         let conn = conn.clone();
@@ -106,9 +104,21 @@ impl StreamEventChannel {
         let workspace_id = job.workspace_id.clone();
         tokio::spawn(async move {
             while let Some(event) = rx.recv().await {
-                if let Err(err) = append_result_stream(&conn, &workspace_id, &job_id, &event).await
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(20),
+                    append_result_stream(&conn, &workspace_id, &job_id, &event),
+                )
+                .await
                 {
-                    tracing::error!("Failed to send event: {}", err);
+                    Ok(res) => {
+                        if let Err(err) = res {
+                            tracing::error!("Failed to save stream event: {}", err);
+                        }
+                    }
+                    Err(err) => {
+                        tracing::error!("Did not manage to save stream event after 20 seconds, stopping stream event processor: {}", err);
+                        break;
+                    }
                 }
             }
         });
@@ -121,10 +131,18 @@ impl StreamEventChannel {
             Ok(event_json) => {
                 let event_json = format!("{}\n", event_json);
                 events_str.push_str(&event_json);
-                self.tx
+                if let Err(err) = self
+                    .tx
                     .send(event_json.clone())
                     .await
-                    .map_err(|e| Error::internal_err(format!("Failed to send event: {}", e)))?;
+                    .map_err(|e| Error::internal_err(format!("Failed to send event: {}", e)))
+                {
+                    tracing::error!(
+                        "Failed to send event to stream event processor, skiping event: {}",
+                        err
+                    );
+                }
+
                 Ok(())
             }
             Err(e) => Err(Error::internal_err(format!(

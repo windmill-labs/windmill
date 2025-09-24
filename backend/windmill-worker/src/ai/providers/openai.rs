@@ -5,7 +5,7 @@ use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Err
 
 use crate::ai::{
     image_handler::download_and_encode_s3_image,
-    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventChannel},
+    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{OpenAISSEParser, SSEParser},
     types::*,
 };
@@ -351,16 +351,16 @@ impl QueryBuilder for OpenAIQueryBuilder {
     async fn parse_streaming_response(
         &self,
         response: reqwest::Response,
-        stream_event_channel: StreamEventChannel,
+        stream_event_processor: StreamEventProcessor,
     ) -> Result<ParsedResponse, Error> {
-        let mut openai_sse_parser = OpenAISSEParser::new(stream_event_channel);
+        let mut openai_sse_parser = OpenAISSEParser::new(stream_event_processor);
         openai_sse_parser.parse_events(response).await?;
 
         let OpenAISSEParser {
             accumulated_content,
             accumulated_tool_calls,
             mut events_str,
-            stream_event_channel,
+            stream_event_processor,
         } = openai_sse_parser;
 
         // Process streaming events with error handling
@@ -371,7 +371,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
                 function_name: tool_call.function.name.clone(),
                 arguments: tool_call.function.arguments.clone(),
             };
-            stream_event_channel.send(event, &mut events_str).await?;
+            stream_event_processor.send(event, &mut events_str).await?;
         }
 
         Ok(ParsedResponse::Text {
