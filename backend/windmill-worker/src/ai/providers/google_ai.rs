@@ -162,13 +162,14 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
+        stream: bool,
     ) -> Result<String, Error> {
         match args.output_type {
             OutputType::Text => {
                 // For text output, use OpenAI-compatible format
                 let openai_builder = super::openai::OpenAIQueryBuilder::new(AIProvider::GoogleAI);
                 openai_builder
-                    .build_request(args, client, workspace_id)
+                    .build_request(args, client, workspace_id, stream)
                     .await
             }
             OutputType::Image => self.build_image_request(args, client, workspace_id).await,

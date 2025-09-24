@@ -53,19 +53,8 @@ pub trait QueryBuilder: Send + Sync {
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
+        stream: bool,
     ) -> Result<String, Error>;
-
-    /// Build the request body for streaming
-    async fn build_streaming_request(
-        &self,
-        _args: &BuildRequestArgs<'_>,
-        _client: &AuthedClient,
-        _workspace_id: &str,
-    ) -> Result<String, Error> {
-        return Err(Error::internal_err(
-            "Streaming is not supported for this provider".to_string(),
-        ));
-    }
 
     /// Parse the response from the provider
     async fn parse_response(&self, response: reqwest::Response) -> Result<ParsedResponse, Error>;

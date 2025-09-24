@@ -75,12 +75,13 @@ impl QueryBuilder for OpenRouterQueryBuilder {
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
+        stream: bool,
     ) -> Result<String, Error> {
         match args.output_type {
             OutputType::Text => {
                 // For text, use standard OpenAI format without modalities
                 self.openai_builder
-                    .build_request(args, client, workspace_id)
+                    .build_request(args, client, workspace_id, stream)
                     .await
             }
             OutputType::Image => {

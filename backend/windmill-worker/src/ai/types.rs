@@ -171,13 +171,7 @@ pub enum StreamingEvent {
     /// Tool execution has started
     ToolExecution { call_id: String },
     /// Tool execution result
-    ToolResult {
-        call_id: String,
-        function_name: String,
-        result: Box<RawValue>,
-        success: bool,
-        agent_action: AgentAction,
-    },
+    ToolResult { call_id: String, function_name: String, result: Box<RawValue>, success: bool },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

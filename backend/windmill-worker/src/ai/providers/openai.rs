@@ -91,20 +91,6 @@ pub struct OpenAIRequest<'a> {
     pub max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
-}
-
-#[derive(Serialize)]
-pub struct OpenAIStreamingRequest<'a> {
-    pub model: &'a str,
-    pub messages: &'a [OpenAIMessage],
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tools: Option<&'a [ToolDef]>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_completion_tokens: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub response_format: Option<ResponseFormat>,
     pub stream: bool,
 }
 
@@ -178,6 +164,7 @@ impl OpenAIQueryBuilder {
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
+        stream: bool,
     ) -> Result<String, Error> {
         let prepared_messages = self
             .prepare_messages_for_api(args.messages, client, workspace_id)
@@ -212,57 +199,11 @@ impl OpenAIQueryBuilder {
             temperature: args.temperature,
             max_completion_tokens: args.max_tokens,
             response_format,
+            stream,
         };
 
         serde_json::to_string(&request)
             .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))
-    }
-
-    async fn build_text_streaming_request(
-        &self,
-        args: &BuildRequestArgs<'_>,
-        client: &AuthedClient,
-        workspace_id: &str,
-    ) -> Result<String, Error> {
-        let prepared_messages = self
-            .prepare_messages_for_api(args.messages, client, workspace_id)
-            .await?;
-
-        // Check if we need to add response_format for structured output
-        let has_output_properties = args
-            .output_schema
-            .and_then(|schema| schema.properties.as_ref())
-            .map(|props| !props.is_empty())
-            .unwrap_or(false);
-
-        let response_format = if has_output_properties && args.output_schema.is_some() {
-            let schema = args.output_schema.unwrap();
-            let strict_schema = schema.clone().make_strict();
-            Some(ResponseFormat {
-                r#type: "json_schema".to_string(),
-                json_schema: JsonSchemaFormat {
-                    name: "structured_output".to_string(),
-                    schema: strict_schema,
-                    strict: Some(true),
-                },
-            })
-        } else {
-            None
-        };
-
-        let request = OpenAIStreamingRequest {
-            model: args.model,
-            messages: &prepared_messages,
-            tools: args.tools,
-            temperature: args.temperature,
-            max_completion_tokens: args.max_tokens,
-            response_format,
-            stream: true,
-        };
-
-        serde_json::to_string(&request).map_err(|e| {
-            Error::internal_err(format!("Failed to serialize streaming request: {}", e))
-        })
     }
 
     async fn build_image_request(
@@ -328,28 +269,14 @@ impl QueryBuilder for OpenAIQueryBuilder {
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
-    ) -> Result<String, Error> {
-        match args.output_type {
-            OutputType::Text => self.build_text_request(args, client, workspace_id).await,
-            OutputType::Image => self.build_image_request(args, client, workspace_id).await,
-        }
-    }
-
-    async fn build_streaming_request(
-        &self,
-        args: &BuildRequestArgs<'_>,
-        client: &AuthedClient,
-        workspace_id: &str,
+        stream: bool,
     ) -> Result<String, Error> {
         match args.output_type {
             OutputType::Text => {
-                self.build_text_streaming_request(args, client, workspace_id)
+                self.build_text_request(args, client, workspace_id, stream)
                     .await
             }
-            OutputType::Image => {
-                // Image generation doesn't support streaming, fall back to regular request
-                self.build_image_request(args, client, workspace_id).await
-            }
+            OutputType::Image => self.build_image_request(args, client, workspace_id).await,
         }
     }
 

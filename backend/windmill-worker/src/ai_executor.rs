@@ -536,15 +536,9 @@ pub async fn run_agent(
             images: args.user_images.as_deref(),
         };
 
-        let request_body = if should_stream {
-            query_builder
-                .build_streaming_request(&build_args, client, &job.workspace_id)
-                .await?
-        } else {
-            query_builder
-                .build_request(&build_args, client, &job.workspace_id)
-                .await?
-        };
+        let request_body = query_builder
+            .build_request(&build_args, client, &job.workspace_id, should_stream)
+            .await?;
 
         let endpoint =
             query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
@@ -862,11 +856,6 @@ pub async fn run_agent(
                                             worker_name,
                                         )
                                         .await;
-                                        let agent_action = AgentAction::ToolCall {
-                                            job_id,
-                                            function_name: tool_call.function.name.clone(),
-                                            module_id: tool.module.id.clone(),
-                                        };
                                         messages.push(OpenAIMessage {
                                             role: "tool".to_string(),
                                             content: Some(OpenAIContent::Text(format!(
@@ -874,7 +863,11 @@ pub async fn run_agent(
                                                 err_string
                                             ))),
                                             tool_call_id: Some(tool_call.id.clone()),
-                                            agent_action: Some(agent_action.clone()),
+                                            agent_action: Some(AgentAction::ToolCall {
+                                                job_id,
+                                                function_name: tool_call.function.name.clone(),
+                                                module_id: tool.module.id.clone(),
+                                            }),
                                             ..Default::default()
                                         });
                                         // Stream tool result (error case)
@@ -887,7 +880,6 @@ pub async fn run_agent(
                                                     &serde_json::json!({"error": err_string}),
                                                 ),
                                                 success: false,
-                                                agent_action,
                                             };
                                             stream_event_channel
                                                 .send(tool_result_event, &mut final_events_str)
@@ -931,18 +923,17 @@ pub async fn run_agent(
                                                 "Tool job completed but no result".to_string(),
                                             ));
                                         };
-                                        let agent_action = AgentAction::ToolCall {
-                                            job_id,
-                                            function_name: tool_call.function.name.clone(),
-                                            module_id: tool.module.id.clone(),
-                                        };
                                         messages.push(OpenAIMessage {
                                             role: "tool".to_string(),
                                             content: Some(OpenAIContent::Text(
                                                 result.get().to_string(),
                                             )),
                                             tool_call_id: Some(tool_call.id.clone()),
-                                            agent_action: Some(agent_action.clone()),
+                                            agent_action: Some(AgentAction::ToolCall {
+                                                job_id,
+                                                function_name: tool_call.function.name.clone(),
+                                                module_id: tool.module.id.clone(),
+                                            }),
                                             ..Default::default()
                                         });
 
@@ -955,7 +946,6 @@ pub async fn run_agent(
                                                 result: Arc::try_unwrap(result.clone())
                                                     .unwrap_or_else(|arc| (*arc).clone()),
                                                 success: true,
-                                                agent_action,
                                             };
                                             stream_event_channel
                                                 .send(tool_result_event, &mut final_events_str)
