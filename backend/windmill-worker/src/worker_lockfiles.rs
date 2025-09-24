@@ -465,7 +465,6 @@ pub async fn process_relative_imports(
     permissioned_as: &str,
     lock: Option<String>,
 ) -> error::Result<()> {
-    // ---------- Handle as if it is the importer ------------
     // TODO: Should be moved into handle_dependency_job body to be more consistent with how flows and apps are handled
     {
         let relative_imports = extract_relative_imports(&code, script_path, script_lang);
@@ -492,7 +491,6 @@ pub async fn process_relative_imports(
                 // because we do not want to have dependencies be recomputed automatically. Empty relative imports passed
                 // to update_script_dependency_map will clear the dependency map.
 
-                tracing::error!("We skip");
                 // TODO: Rework the logic for synchronized raw requirements PR.
                 // For now we will just do nothing and let dissolve clear every item related to this script.
             } else {
@@ -507,14 +505,10 @@ pub async fn process_relative_imports(
             }
             // If felt into first branch which did not call .patch(, this operation will clean dependency_map for this script.
             dependency_map.dissolve(tx).await.commit().await?;
-
-            dbg!("Trigger deps");
         }
     }
 
-    // ---------- Handle as if it is imported ------------
     {
-        dbg!("Ok, we are here");
         let already_visited = args
             .map(|x| {
                 x.get("already_visited")
@@ -614,7 +608,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         path = s.importer_path,
                         err = err
                     );
-                    dbg!("e1");
                     continue;
                 }
             }
@@ -710,7 +703,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         .commit()
                         .await?;
                     }
-                    dbg!("e2");
                     continue;
                 }
                 Err(err) => {
@@ -719,7 +711,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         path = s.importer_path,
                     );
                     // Do not commit the transaction. It will be dropped and rollbacked
-                    dbg!("e3");
                     continue;
                 }
             }
@@ -796,7 +787,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         .commit()
                         .await?;
                     }
-                    dbg!("e4");
                     continue;
                 }
                 Err(err) => {
@@ -805,7 +795,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         path = s.importer_path,
                     );
                     // Do not commit the transaction. It will be dropped and rollbacked
-                    dbg!("e5");
                     continue;
                 }
             }
@@ -815,12 +804,9 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 kind = kind,
                 path = s.importer_path
             );
-            dbg!("e6");
             continue;
         };
 
-        dbg!("Starting another job");
-        tracing::error!("Starting another job");
         let (job_uuid, new_tx) = windmill_queue::push(
             db,
             tx,
@@ -1424,7 +1410,6 @@ async fn lock_modules<'c>(
 
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
-                // TODO: Is it safe to override semi-global tx here?
                 tx = dependency_map
                     .patch(relative_imports.clone(), e.id.clone(), tx)
                     .await?;
@@ -1436,7 +1421,6 @@ async fn lock_modules<'c>(
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
                 let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
                 if skip_creating_new_lock {
-                    // TODO: Is it safe to override semi-global tx here?
                     tx = dependency_map
                         .patch(relative_imports.clone(), e.id.clone(), tx)
                         .await?;
@@ -1558,7 +1542,6 @@ async fn relative_imports_bytes<'a>(
     )
 }
 
-// TODO: Clean up dependency map when moved/renamed?
 async fn insert_flow_node<'c>(
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     path: &str,
@@ -1602,7 +1585,6 @@ async fn insert_flow_node<'c>(
     Ok((tx, FlowNodeId(id)))
 }
 
-// TODO: Clean up dependency map when moved/renamed?
 async fn insert_app_script(
     db: &sqlx::Pool<sqlx::Postgres>,
     path: &str,
@@ -2170,11 +2152,6 @@ pub async fn handle_app_dependency_job(
         db,
     )
     .await?;
-
-    // // TODO: is parent_path only used for this edge-case?
-    // dependency_map
-    //     .rearrange_top_level(&parent_path, &mut *tx)
-    //     .await?;
 
     // TODO: Use transaction for entire segment?
     if let Some((app_id, value)) = record {

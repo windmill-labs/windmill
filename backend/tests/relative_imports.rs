@@ -118,11 +118,8 @@ mod dependency_map {
     use sqlx::{Pool, Postgres};
     use tokio_stream::StreamExt;
     use windmill_api_client::types::NewScript;
-    use windmill_common::{jobs::JobPayload, scripts::ScriptHash};
 
-    use crate::common::{
-        completed_job, in_test_worker, listen_for_completed_jobs, ApiServer, RunJob,
-    };
+    use crate::common::{in_test_worker, listen_for_completed_jobs, ApiServer};
 
     pub async fn initialize_tracing() {
         use std::sync::Once;
@@ -290,7 +287,7 @@ mod dependency_map {
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base", "dependency_map"))]
     async fn relative_imports_test_rebuild_correctness(db: Pool<Postgres>) -> anyhow::Result<()> {
-        let (client, port, _s) = init(db.clone()).await;
+        let (client, _port, _s) = init(db.clone()).await;
         assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
         // rebuild map
         assert!(rebuild_dmap(&client).await);
@@ -336,7 +333,7 @@ mod dependency_map {
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base", "dependency_map"))]
     async fn relative_imports_test_with_requirements_txt(db: Pool<Postgres>) -> anyhow::Result<()> {
-        let (client, port, _s) = init(db.clone()).await;
+        let (client, _port, _s) = init(db.clone()).await;
 
         client
             .create_script(
@@ -387,7 +384,7 @@ def main():
     async fn relative_imports_test_without_requirements_txt(
         db: Pool<Postgres>,
     ) -> anyhow::Result<()> {
-        let (client, port, _s) = init(db.clone()).await;
+        let (client, _port, _s) = init(db.clone()).await;
 
         client
             .create_script(
