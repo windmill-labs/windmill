@@ -65,7 +65,7 @@
 			/>
 		{/if}
 		<div class="flex items-center">
-			<DropdownV2 {items} />
+			<DropdownV2 enableFlyTransition {items} />
 		</div>
 	</div>
 </Popover>
