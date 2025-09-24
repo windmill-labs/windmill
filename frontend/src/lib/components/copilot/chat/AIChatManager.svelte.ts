@@ -211,7 +211,6 @@ class AIChatManager {
 			const customPrompt = get(copilotInfo).customPrompts?.[mode]
 			const currentModel = getCurrentModel()
 			this.systemMessage = prepareScriptSystemMessage(currentModel, customPrompt)
-			console.log(this.systemMessage)
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			const context = this.contextManager.getSelectedContext()
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
