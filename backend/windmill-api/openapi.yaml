@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.547.0
+  version: 1.548.1
   title: Windmill API
 
   contact:
@@ -2133,6 +2133,40 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/rebuild_dependency_map:
+    post:
+      summary: rebuild dependency map
+      operationId: rebuildDependencyMap
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/get_dependency_map:
+    get:
+      summary: get dependency map
+      operationId: getDependencyMap
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: dmap
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DependencyMap"
 
   /w/{workspace}/workspaces/edit_slack_command:
     post:
@@ -17644,6 +17678,25 @@ components:
         - name
         - owner
         - created_at
+
+    DependencyMap:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+          nullable: true
+        importer_path:
+          type: string
+          nullable: true
+        importer_kind:
+          type: string
+          nullable: true
+        imported_path:
+          type: string
+          nullable: true
+        importer_node_id:
+          type: string
+          nullable: true
 
     WorkspaceInvite:
       type: object

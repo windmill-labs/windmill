@@ -209,11 +209,12 @@ class AIChatManager {
 		this.pendingPrompt = pendingPrompt ?? ''
 		if (mode === AIMode.SCRIPT) {
 			const customPrompt = get(copilotInfo).customPrompts?.[mode]
-			this.systemMessage = prepareScriptSystemMessage(customPrompt)
+			const currentModel = getCurrentModel()
+			this.systemMessage = prepareScriptSystemMessage(currentModel, customPrompt)
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			const context = this.contextManager.getSelectedContext()
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
-			this.tools = [this.changeModeTool, ...prepareScriptTools(lang, context)]
+			this.tools = [this.changeModeTool, ...prepareScriptTools(currentModel, lang, context)]
 			this.helpers = {
 				getScriptOptions: () => {
 					return {

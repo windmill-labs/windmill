@@ -15,7 +15,7 @@
 		type OpenFlow
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { onDestroy, tick, untrack } from 'svelte'
+	import { getContext, onDestroy, tick, untrack } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
 	import { DynamicInput, isScriptPreview } from '$lib/utils'
@@ -674,6 +674,11 @@
 							'is_flow',
 							(job.job_kind === 'flow' || job.job_kind === 'flowpreview').toString()
 						)
+					}
+
+					let token = getContext<{ token?: string }>('AuthToken')
+					if (token?.token && token.token != '') {
+						params.set('token', token.token)
 					}
 
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`
