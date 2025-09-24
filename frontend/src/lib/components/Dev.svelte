@@ -142,11 +142,13 @@
 
 	let currentScript: LastEditScript | undefined = $state(undefined)
 	let mode: 'script' | 'flow' = $state('script')
+	let lastPath: string | undefined = undefined
 
 	let schema = $state(emptySchema())
 	const href = window.location.href
 	const indexQ = href.indexOf('?')
 	const searchParams = indexQ > -1 ? new URLSearchParams(href.substring(indexQ)) : undefined
+	let relativePaths: any[] = $state([])
 
 	if (searchParams?.has('local')) {
 		connectWs()
@@ -414,8 +416,6 @@
 		}
 	}
 
-	let relativePaths: any[] = $state([])
-	let lastPath: string | undefined = undefined
 	async function replaceScript(lastEdit: LastEditScript) {
 		mode = 'script'
 		currentScript = lastEdit
@@ -573,6 +573,10 @@
 	let workspace = $derived($page.url.searchParams.get('workspace') ?? undefined)
 	let themeDarkRaw = $derived($page.url.searchParams.get('activeColorTheme'))
 	let themeDark = $derived(themeDarkRaw == '2' || themeDarkRaw == '4')
+
+	$effect(() => {
+		setContext<{ token?: string }>('AuthToken', { token })
+	})
 	$effect.pre(() => {
 		if (token) {
 			OpenAPI.WITH_CREDENTIALS = true
@@ -653,17 +657,11 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-<JobLoader
-	{token}
-	noCode={true}
-	bind:this={jobLoader}
-	bind:isLoading={testIsLoading}
-	bind:job={testJob}
-/>
+<JobLoader noCode={true} bind:this={jobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
 <main class="h-screen w-full">
 	{#if mode == 'script'}
-		<div class="flex flex-col min-h-full overflow-auto">
+		<div class="flex flex-col min-h-full min-h-screen overflow-auto">
 			<div class="absolute top-0 left-2">
 				<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
 			</div>
@@ -755,26 +753,24 @@
 					</Button>
 				{/if}
 			</div>
-			<div class="grow bg-red-500">
-				<Splitpanes horizontal class="min-h-full bg-red-400">
-					<Pane size={33}>
-						<div class="px-2">
-							<div class="break-words relative font-sans">
-								<SchemaForm compact {schema} bind:args bind:isValid />
-							</div>
+			<Splitpanes horizontal style="height: 1000px;">
+				<Pane size={33}>
+					<div class="px-2">
+						<div class="break-words relative font-sans">
+							<SchemaForm compact {schema} bind:args bind:isValid />
 						</div>
-					</Pane>
-					<Pane size={67}>
-						<LogPanel
-							{workspace}
-							lang={currentScript?.language}
-							previewJob={testJob}
-							{pastPreviews}
-							previewIsLoading={testIsLoading}
-						/>
-					</Pane>
-				</Splitpanes>
-			</div>
+					</div></Splitpanes>Pane
+				>
+				<Pane size={67}>
+					<LogPanel
+						{workspace}
+						lang={currentScript?.language}
+						previewJob={testJob}
+						{pastPreviews}
+						previewIsLoading={testIsLoading}
+					/>
+				</Pane>
+			</Splitpanes>
 		</div>
 	{:else}
 		<!-- <div class="h-full w-full grid grid-cols-2"> -->
