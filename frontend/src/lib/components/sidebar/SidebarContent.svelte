@@ -172,7 +172,12 @@
 			href: `${base}/runs`,
 			icon: Play,
 			aiId: 'sidebar-menu-link-runs',
-			aiDescription: 'Button to navigate to runs'
+			aiDescription: 'Button to navigate to runs',
+			onclick: () => {
+				setTimeout(() => {
+					window.dispatchEvent(new Event('popstate'))
+				}, 100)
+			}
 		},
 		{
 			label: 'Variables',
