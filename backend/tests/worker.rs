@@ -2618,6 +2618,77 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[sqlx::test(fixtures("base", "relative_bun"))]
+async fn test_relative_imports_bun(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let content = r#"
+import { main as test1 } from "/f/system/same_folder_script.ts";
+import { main as test2 } from "./same_folder_script.ts";
+import { main as test3 } from "/f/system_relative/different_folder_script.ts";
+import { main as test4 } from "../system_relative/different_folder_script.ts";
+
+export async function main() {
+  return [test1(), test2(), test3(), test4()];
+}
+"#
+    .to_string();
+
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await?;
+    run_preview_relative_imports(&db, content, ScriptLang::Bun).await?;
+    Ok(())
+}
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base", "relative_bun"))]
+async fn test_nested_imports_bun(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let content = r#"
+import { main as test } from "/f/system_relative/nested_script.ts";
+
+export async function main() {
+  return test();
+}
+"#
+    .to_string();
+
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await?;
+    run_preview_relative_imports(&db, content, ScriptLang::Bun).await?;
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base", "relative_deno"))]
+async fn test_relative_imports_deno(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let content = r#"
+import { main as test1 } from "/f/system/same_folder_script.ts";
+import { main as test2 } from "./same_folder_script.ts";
+import { main as test3 } from "/f/system_relative/different_folder_script.ts";
+import { main as test4 } from "../system_relative/different_folder_script.ts";
+
+export async function main() {
+  return [test1(), test2(), test3(), test4()];
+}
+"#
+    .to_string();
+
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Deno).await?;
+    run_preview_relative_imports(&db, content, ScriptLang::Deno).await?;
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base", "relative_deno"))]
+async fn test_nested_imports_deno(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let content = r#"
+import { main as test } from "/f/system_relative/nested_script.ts";
+
+export async function main() {
+  return test();
+}
+"#
+    .to_string();
+
+    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Deno).await?;
+    run_preview_relative_imports(&db, content, ScriptLang::Deno).await?;
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base", "result_format"))]
 async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
     let ordered_result_job_id = "1eecb96a-c8b0-4a3d-b1b6-087878c55e41";
