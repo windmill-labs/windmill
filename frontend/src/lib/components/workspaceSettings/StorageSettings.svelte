@@ -24,6 +24,8 @@
 	import ClearableInput from '../common/clearableInput/ClearableInput.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
+	import Select from '../select/Select.svelte'
 
 	let { s3ResourceSettings = $bindable() }: { s3ResourceSettings: S3ResourceSettings } = $props()
 
@@ -115,9 +117,9 @@
 		<div class="flex mt-2 flex-col gap-y-4 max-w-5xl">
 			{#each s3ResourceSettings.secondaryStorage ?? [] as _, idx}
 				<div class="flex gap-1 items-center">
-					<input
+					<TextInput
 						class="max-w-[200px]"
-						type="text"
+						inputProps={{ type: 'text', placeholder: 'Storage name' }}
 						bind:value={
 							() => s3ResourceSettings.secondaryStorage?.[idx]?.[0] || '',
 							(v) => {
@@ -126,9 +128,8 @@
 								}
 							}
 						}
-						placeholder="Storage name"
 					/>
-					<select
+					<Select
 						class="max-w-[125px]"
 						bind:value={
 							() => s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourceType || 's3',
@@ -138,19 +139,19 @@
 								}
 							}
 						}
-					>
-						<option value="s3">S3</option>
-						<option value="azure_blob">Azure Blob</option>
-						<option value="s3_aws_oidc">AWS OIDC</option>
-						<option value="azure_workload_identity">Azure Workload Identity</option>
-						<option value="gcloud_storage">Google Cloud Storage</option>
-					</select>
-					<!-- this can be removed once parent moves to runes -->
-					<!-- svelte-ignore binding_property_non_reactive -->
+						items={[
+							{ value: 's3', label: 'S3' },
+							{ value: 'azure_blob', label: 'Azure Blob' },
+							{ value: 's3_aws_oidc', label: 'AWS OIDC' },
+							{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
+							{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
+						]}
+					/>
+
 					<ResourcePicker
 						resourceType={s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourceType || 's3'}
 						bind:value={
-							() => s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourcePath || '',
+							() => s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourcePath || undefined,
 							(v) => {
 								if (s3ResourceSettings.secondaryStorage?.[idx]) {
 									s3ResourceSettings.secondaryStorage[idx][1].resourcePath = v

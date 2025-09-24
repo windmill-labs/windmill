@@ -77,6 +77,7 @@
 	import Alert from '../common/alert/Alert.svelte'
 	import { deepEqual } from 'fast-equals'
 	import Popover from '../meltComponents/Popover.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 
 	const DEFAULT_DUCKLAKE_CATALOG_NAME = 'ducklake_catalog'
 
@@ -229,7 +230,7 @@
 							<code class="px-1 py-0.5 border rounded-md">ATTACH 'ducklake' AS dl;</code> shorthand
 						</Tooltip>
 					{/if}
-					<input bind:value={ducklake.name} placeholder="Name" />
+					<TextInput bind:value={ducklake.name} inputProps={{ placeholder: 'Name' }} />
 				</Cell>
 				<Cell>
 					<div class="flex gap-4">
@@ -289,9 +290,12 @@
 								}
 							}
 							class="w-48"
-							inputClass="!placeholder-primary"
+							inputClass="!placeholder-tertiary"
 						/>
-						<input placeholder="Data path (defaults to /)" bind:value={ducklake.storage.path} />
+						<TextInput
+							inputProps={{ placeholder: 'Data path (defaults to /)' }}
+							bind:value={ducklake.storage.path}
+						/>
 					</div>
 				</Cell>
 				<Cell class="w-12">

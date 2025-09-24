@@ -183,9 +183,10 @@
 		</RunOption>
 	{/if}
 	<!-- Filter by -->
-	<div class="flex flex-row gap-1">
+	<div class="flex flex-row gap-4">
 		<RunOption label="Filter by" for="filter-by">
 			<ToggleButtonGroup
+				class="h-full"
 				bind:selected={filterBy}
 				on:selected={(e) => {
 					if (e.detail != filterBy) {
@@ -226,7 +227,7 @@
 						bind:value={() => user ?? undefined, (v) => (user = v ?? null)}
 						clearable
 						onClear={() => ((user = null), dispatch('reset'))}
-						inputClass="!h-[32px] min-w-36"
+						inputClass="!h-full min-w-36"
 						onCreateItem={(item) => (usernames.push(item), (user = item))}
 						createText="Press enter to use this value"
 						id="user"
@@ -241,7 +242,7 @@
 						bind:value={() => folder ?? undefined, (v) => (folder = v ?? null)}
 						clearable
 						onClear={() => ((folder = null), dispatch('reset'))}
-						inputClass="!h-[32px] min-w-36"
+						inputClass="!h-full min-w-36"
 						id="folder"
 					/>
 				{/key}
@@ -254,7 +255,7 @@
 						bind:value={() => path ?? undefined, (v) => (path = v ?? null)}
 						clearable
 						onClear={() => ((path = null), dispatch('reset'))}
-						inputClass="!h-[32px] min-w-36"
+						inputClass="!h-full min-w-36"
 						onCreateItem={(item) => (paths.push(item), (path = item))}
 						createText="Press enter to use this value"
 						id="path"
@@ -524,7 +525,7 @@
 				selected={jobKindsCat}
 			/>
 		{:else}
-			<ToggleButtonGroup bind:selected={jobKindsCat}>
+			<ToggleButtonGroup bind:selected={jobKindsCat} class="h-full">
 				{#snippet children({ item })}
 					<ToggleButton value="all" label="All" {item} />
 					<ToggleButton
@@ -571,6 +572,7 @@
 	<!-- Status -->
 	<RunOption label="Status" for="status">
 		<ToggleButtonGroup
+			class="h-full"
 			selected={success ?? 'all'}
 			on:selected={({ detail }) => {
 				success = detail === 'all' ? undefined : detail
@@ -638,11 +640,12 @@
 		{#snippet trigger()}
 			<Button
 				color="light"
-				variant="border"
+				variant="contained"
 				size="xs"
 				nonCaptureEvent={true}
 				startIcon={{ icon: ListFilterPlus }}
 				iconOnly
+				btnClasses="bg-surface-secondary py-[8.5px]"
 			></Button>
 		{/snippet}
 
