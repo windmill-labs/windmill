@@ -360,3 +360,47 @@ pub async fn create_message(
     tx.commit().await?;
     Ok(())
 }
+
+
+// Helper function to create a message using an existing transaction
+pub async fn create_message_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    conversation_id: Uuid,
+    message_type: &str,
+    content: &str,
+    job_id: Option<Uuid>,
+    username: &str,
+    workspace_id: &str,
+) -> windmill_common::error::Result<()> {
+    // Verify the conversation exists and belongs to the user
+    let conversation_exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1 AND workspace_id = $2 AND created_by = $3)",
+        conversation_id,
+        workspace_id,
+        username
+    )
+    .fetch_one(&mut **tx)
+    .await?
+    .unwrap_or(false);
+
+    if !conversation_exists {
+        return Err(windmill_common::error::Error::NotFound(format!(
+            "Conversation not found or access denied: {}",
+            conversation_id
+        )));
+    }
+
+    // Insert the message
+    sqlx::query!(
+        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id)
+         VALUES ($1, $2, $3, $4)",
+        conversation_id,
+        message_type,
+        content,
+        job_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
