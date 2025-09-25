@@ -32,6 +32,11 @@
 		inputMessage = message
 	}
 
+	export function clearMessages() {
+		messages = []
+		inputMessage = ''
+	}
+
 	function scrollToBottom() {
 		if (messagesContainer) {
 			messagesContainer.scrollTop = messagesContainer.scrollHeight

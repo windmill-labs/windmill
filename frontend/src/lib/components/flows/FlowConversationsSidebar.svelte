@@ -1,18 +1,10 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { MessageCircle, Plus, Trash2, Clock } from 'lucide-svelte'
+	import { MessageCircle, Plus, Clock, Trash2 } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
-
-	interface FlowConversation {
-		id: string
-		workspace_id: string
-		flow_path: string
-		title?: string
-		created_at: string
-		updated_at: string
-		created_by: string
-	}
+	import { FlowConversationService, type FlowConversation } from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		flowPath: string
@@ -38,17 +30,14 @@
 
 		loading = true
 		try {
-			// TODO: Replace with actual API call once backend is implemented
-			// const response = await ConversationService.listConversations({
-			//   workspace: $workspaceStore,
-			//   flowPath
-			// })
-			// conversations = response
-
-			// For now, show empty state
-			conversations = []
+			const response = await FlowConversationService.listFlowConversations({
+				workspace: $workspaceStore,
+				flowPath: flowPath
+			})
+			conversations = response
 		} catch (error) {
 			console.error('Failed to load conversations:', error)
+			sendUserToast('Failed to load conversations', true)
 			conversations = []
 		} finally {
 			loading = false
@@ -59,16 +48,17 @@
 		event.stopPropagation()
 
 		try {
-			// TODO: Replace with actual API call once backend is implemented
-			// await ConversationService.deleteConversation({
-			//   workspace: $workspaceStore!,
-			//   conversationId
-			// })
+			await FlowConversationService.deleteFlowConversation({
+				workspace: $workspaceStore!,
+				conversationId
+			})
 
 			conversations = conversations.filter((c) => c.id !== conversationId)
 			onDeleteConversation(conversationId)
+			sendUserToast('Conversation deleted successfully')
 		} catch (error) {
 			console.error('Failed to delete conversation:', error)
+			sendUserToast('Failed to delete conversation', true)
 		}
 	}
 
@@ -118,12 +108,19 @@
 		{:else}
 			<div class="p-2">
 				{#each conversations as conversation (conversation.id)}
-					<button
+					<div
 						class="w-full p-3 rounded-md text-left hover:bg-surface-hover transition-colors mb-2 group
 							{selectedConversationId === conversation.id
 							? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700'
 							: 'border border-transparent'}"
 						onclick={() => onSelectConversation(conversation.id)}
+						role="button"
+						tabindex="0"
+						onkeydown={(e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								onSelectConversation(conversation.id)
+							}
+						}}
 					>
 						<div class="flex items-start justify-between">
 							<div class="flex-1 min-w-0">
@@ -137,15 +134,15 @@
 									</span>
 								</div>
 							</div>
-							<!-- <button
+							<button
 								class="opacity-0 group-hover:opacity-100 ml-2 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-all"
 								onclick={(e) => deleteConversation(conversation.id, e)}
 								title="Delete conversation"
 							>
 								<Trash2 size={14} />
-							</button> -->
+							</button>
 						</div>
-					</button>
+					</div>
 				{/each}
 			</div>
 		{/if}
