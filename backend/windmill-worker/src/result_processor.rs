@@ -17,7 +17,14 @@ use windmill_common::otel_oss::FutureExt;
 use uuid::Uuid;
 
 use windmill_common::{
-    add_time, error::{self, Error}, flow_status::{FlowJobDuration}, jobs::JobKind, utils::WarnAfterExt, worker::{to_raw_value, Connection, WORKER_GROUP}, worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap}, KillpillSender, DB
+    add_time,
+    error::{self, Error},
+    flow_status::FlowJobDuration,
+    jobs::JobKind,
+    utils::WarnAfterExt,
+    worker::{to_raw_value, Connection, WORKER_GROUP},
+    worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap},
+    KillpillSender, DB,
 };
 
 #[cfg(feature = "benchmark")]
@@ -567,6 +574,7 @@ pub async fn process_completed_job(
     job_completed_tx: JobCompletedSender,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> error::Result<Option<Arc<MiniPulledJob>>> {
+    println!("HERE process_completed_job");
     if success {
         // println!("bef completed job{:?}",  SystemTime::now());
         if let Some(cached_path) = cached_res_path {
@@ -679,7 +687,10 @@ pub async fn process_completed_job(
                     &job.workspace_id,
                     false,
                     Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
-                    duration.map(|x| FlowJobDuration { started_at: job.started_at.unwrap(), duration_ms: x }),
+                    duration.map(|x| FlowJobDuration {
+                        started_at: job.started_at.unwrap(),
+                        duration_ms: x,
+                    }),
                     false,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
