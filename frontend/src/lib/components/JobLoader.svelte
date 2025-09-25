@@ -96,6 +96,8 @@
 	let lastNoLogs = $state(noLogs)
 	let lastCompletedJobId = $state<string | undefined>(undefined)
 
+	let token = getContext<{ token?: string }>('AuthToken')
+
 	$effect(() => {
 		let newIsLoading = currentId !== undefined
 		untrack(() => {
@@ -674,7 +676,6 @@
 						)
 					}
 
-					let token = getContext<{ token?: string }>('AuthToken')
 					if (token?.token && token.token != '') {
 						params.set('token', token.token)
 					}
