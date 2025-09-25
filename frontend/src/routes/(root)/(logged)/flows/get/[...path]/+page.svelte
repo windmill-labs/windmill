@@ -200,10 +200,15 @@
 		}
 	}
 
-	async function runFlowForChat(args: Record<string, any>, conversationId?: string): Promise<string> {
+	async function runFlowForChat(
+		args: Record<string, any>,
+		conversationId?: string
+	): Promise<string> {
+		console.log('runFlowForChat', args, conversationId)
 		const run = await JobService.runFlowByPath({
 			workspace: $workspaceStore!,
 			path,
+			conversationId: conversationId,
 			requestBody: args,
 			skipPreprocessor: true
 		})
@@ -464,7 +469,9 @@
 		}
 	})
 	let mainButtons = $derived(getMainButtons(flow, args))
-	let chatInputEnabled = $derived(flow?.schema?.chat_input_enabled ?? false)
+	let chatInputEnabled = $derived(flow?.value?.chat_input_enabled ?? false)
+
+	$inspect(flow)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />

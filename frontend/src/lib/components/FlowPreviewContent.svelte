@@ -458,7 +458,7 @@
 		onscroll={(e) => handleScroll()}
 	>
 		{#if render}
-			{#if flowStore.val.schema?.chat_input_enabled}
+			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-row justify-center w-full">
 					<FlowChatInterface
 						onRunFlow={async (args) => {
