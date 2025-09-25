@@ -6252,6 +6252,85 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/flow_conversations/list:
+    get:
+      summary: list flow conversations
+      operationId: listFlowConversations
+      tags:
+        - flow_conversation
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: flow_path
+          description: filter conversations by flow path
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: flow conversations list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowConversation"
+
+  /w/{workspace}/flow_conversations/create:
+    post:
+      summary: create flow conversation
+      operationId: createFlowConversation
+      tags:
+        - flow_conversation
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                flow_path:
+                  type: string
+                  description: path of the flow
+                title:
+                  type: string
+                  description: optional conversation title
+              required:
+                - flow_path
+      responses:
+        "201":
+          description: flow conversation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlowConversation"
+
+  /w/{workspace}/flow_conversations/delete/{conversation_id}:
+    delete:
+      summary: delete flow conversation
+      operationId: deleteFlowConversation
+      tags:
+        - flow_conversation
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: conversation_id
+          description: conversation id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: flow conversation deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/raw_apps/list:
     get:
       summary: list all raw apps
@@ -14438,6 +14517,36 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatusModule"
     # -- INLINE END --
     # Do not change line above
+
+    FlowConversation:
+      type: object
+      required: [id, workspace_id, flow_path, created_at, updated_at, created_by]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the conversation
+        workspace_id:
+          type: string
+          description: The workspace ID where the conversation belongs
+        flow_path:
+          type: string
+          description: Path of the flow this conversation is for
+        title:
+          type: string
+          description: Optional title for the conversation
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the conversation was created
+        updated_at:
+          type: string
+          format: date-time
+          description: When the conversation was last updated
+        created_by:
+          type: string
+          description: Username who created the conversation
 
     EndpointTool:
       type: object
