@@ -1475,7 +1475,7 @@ async fn convert_user_to_group(
         ActionKind::Update,
         &w_id,
         Some(&username_to_convert),
-        Some([("group", primary_group_name), ("role", role)].into()),
+        Some([("group", primary_group_name.as_str()), ("role", role)].into()),
     )
     .await?;
 
