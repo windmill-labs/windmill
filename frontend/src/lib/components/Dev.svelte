@@ -574,7 +574,7 @@
 	let themeDarkRaw = $derived($page.url.searchParams.get('activeColorTheme'))
 	let themeDark = $derived(themeDarkRaw == '2' || themeDarkRaw == '4')
 
-	$effect(() => {
+	$effect.pre(() => {
 		setContext<{ token?: string }>('AuthToken', { token })
 	})
 	$effect.pre(() => {
