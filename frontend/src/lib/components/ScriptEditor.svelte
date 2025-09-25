@@ -552,8 +552,6 @@
 							<div class="p-3 border-b border-gray-200 dark:border-gray-700">
 								<h4 class="text-sm font-semibold text-primary">File Browser</h4>
 							</div>
-							<!-- <div class="h-full mb-3"> -->
-							<!-- S3FilePicker will be integrated here inline, not as drawer -->
 								<button
 									class="text-secondary underline text-2xs whitespace-nowrap ml-1"
 									onclick={() => {

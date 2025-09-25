@@ -555,9 +555,9 @@
 			>
 		</div>
 	{/if}
-	<div class="flex flex-row border rounded-md h-full">
+	<div class="flex flex-row border rounded-md h-full min-h-0 overflow-hidden">
 		{#if !fileListUnavailable}
-			<div class="min-w-[30%] border-r flex flex-col">
+			<div class="min-w-[30%] border-r flex flex-col min-h-0">
 				{#if !rootPath}
 					<div class="w-full p-1 border-b">
 						<input type="text" placeholder="Folder prefix" bind:value={filter} class="text-xl" />
@@ -568,7 +568,7 @@
 						No files in the workspace S3 bucket at that prefix
 					</div>
 				{:else}
-					<div class="grow" bind:clientHeight={listDivHeight}>
+					<div class="grow min-h-0" bind:clientHeight={listDivHeight}>
 						<VirtualList
 							width="100%"
 							height={listDivHeight}
@@ -658,7 +658,7 @@
 				{/if}
 			</div>
 		{/if}
-		<div class="flex flex-col h-full w-full overflow-auto">
+		<div class="flex flex-col h-full w-full min-h-0 overflow-hidden">
 			{#if fileMetadata === undefined}
 				<div class="p-4">
 					{#if fileInfoLoading}
