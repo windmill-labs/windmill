@@ -548,27 +548,31 @@
 						{@render editorContent()}
 					</Pane>
 					<Pane size={30} minSize={20} class="!overflow-visible">
-						<div class="h-full bg-surface border-l border-gray-200 dark:border-gray-700">
+						<div class="h-full flex flex-col bg-surface border-l border-gray-200 dark:border-gray-700">
 							<div class="p-3 border-b border-gray-200 dark:border-gray-700">
 								<h4 class="text-sm font-semibold text-primary">File Browser</h4>
 							</div>
-							<div class="h-full mb-3">
-								<!-- S3FilePicker will be integrated here inline, not as drawer -->
-								<!-- <div class="p-4 text-sm text-secondary"> -->
-									<S3FilePickerInner bind:this={s3FilePicker} readOnlyMode={true} />
+							<!-- <div class="h-full mb-3"> -->
+							<!-- S3FilePicker will be integrated here inline, not as drawer -->
+								<button
+									class="text-secondary underline text-2xs whitespace-nowrap ml-1"
+									onclick={() => {
+										s3FilePicker?.open?.(undefined)
+									}}
+								>
+									ohhohho
+								</button>
+								<S3FilePickerInner
+									bind:this={s3FilePicker}
+									readOnlyMode
+									hideS3SpecificDetails
+									rootPath={'git_repo_resources/u/admin/soulful_git_repository/95cabf1a3d6d9db7958f41bbd0ebf8e44e9e0b50/'}
+								/>
 
-									<button
-										class="text-secondary underline text-2xs whitespace-nowrap ml-1"
-										onclick={() => {
-											s3FilePicker?.open?.(undefined)
-										}}
-										>
-										ohhohho
-									</button>
-									<!-- {assets[0].path} -->
-									<!-- S3 File Browser for Ansible assets will be integrated here -->
-								<!-- </div> -->
-							</div>
+							<!-- {assets[0].path} -->
+							<!-- S3 File Browser for Ansible assets will be integrated here -->
+							<!-- </div> -->
+							<!-- </div> -->
 						</div>
 					</Pane>
 				</Splitpanes>

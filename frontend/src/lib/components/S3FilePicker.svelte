@@ -2,7 +2,7 @@
 	import { type S3Object } from '$lib/utils'
 	import { Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick } from 'svelte'
 	import S3FilePickerInner from './S3FilePickerInner.svelte'
 
 	let dispatch = createEventDispatcher<{
@@ -29,11 +29,12 @@
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
-	let s3FilePickerInner: S3FilePickerInner = $state()!
+	let s3FilePickerInner: S3FilePickerInner | undefined = $state()
 
 	export async function open(_preSelectedFileKey: S3Object | undefined = undefined) {
-		s3FilePickerInner.open(_preSelectedFileKey)
 		drawer?.openDrawer?.()
+		await tick()
+		s3FilePickerInner?.open?.(_preSelectedFileKey)
 	}
 </script>
 
@@ -43,25 +44,25 @@
 	bind:this={drawer}
 	on:close={() => {
 		dispatch('close')
-		s3FilePickerInner.close()
+		s3FilePickerInner?.close?.()
 	}}
 	size="1200px"
 >
 	<DrawerContent
 		title="S3 file browser"
 		on:close={() => {
-			s3FilePickerInner.exit()
+			s3FilePickerInner?.exit?.()
 			drawer?.closeDrawer?.()
 		}}
 		tooltip="Files present in the Workspace S3 bucket. You can set the workspace S3 bucket in the settings."
 		documentationLink="https://www.windmill.dev/docs/integrations/s3"
 	>
 		<S3FilePickerInner
+			bind:this={s3FilePickerInner}
 			on:selectAndClose={(e) => {
 				dispatch('selectAndClose', e.detail)
 				drawer?.closeDrawer?.()
 			}}
-			bind:this={s3FilePickerInner}
 			{fromWorkspaceSettings}
 			{readOnlyMode}
 			bind:initialFileKey

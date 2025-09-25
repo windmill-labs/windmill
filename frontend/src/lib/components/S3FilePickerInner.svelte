@@ -56,6 +56,8 @@
 		selectedFileKey?: { s3: string; storage?: string } | undefined
 		folderOnly?: boolean
 		regexFilter?: RegExp | undefined
+		hideS3SpecificDetails?: boolean
+		rootPath?: string
 	}
 
 	let {
@@ -64,8 +66,12 @@
 		initialFileKey = $bindable(undefined),
 		selectedFileKey = $bindable(undefined),
 		folderOnly = false,
-		regexFilter = undefined
+		regexFilter = undefined,
+		hideS3SpecificDetails = false,
+		rootPath = ""
 	}: Props = $props()
+
+	let rootPathNestingLevel = $derived(1 * (rootPath.split('/').length - 1))
 
 	let csvSeparatorChar: string = $state(',')
 	let csvHasHeader: boolean = $state(true)
@@ -74,7 +80,6 @@
 		close: { s3: string; storage: string | undefined } | undefined
 		selectAndClose: { s3: string; storage: string | undefined }
 	}>()
-
 
 	let fileInfoLoading: boolean = $state(true)
 	let fileListLoading: boolean = $state(true)
@@ -154,7 +159,7 @@
 			workspace: $workspaceStore!,
 			maxKeys: maxKeys, // fixed pages of 1000 files for now
 			marker: page == 0 ? undefined : listMarkers[page - 1],
-			prefix: filter.trim() != '' ? filter : undefined,
+			prefix: rootPath ?? (filter.trim() != '' ? filter : undefined),
 			storage: storage
 		})
 		if (
@@ -203,7 +208,7 @@
 					nestingLevel: nestingLevel,
 					count: 1
 				}
-				if (i == 0) {
+				if (i == rootPathNestingLevel && current_path.startsWith(rootPath)) {
 					displayedFileKeys.push(current_path)
 				}
 			}
@@ -407,12 +412,12 @@
 	}
 
 	export async function close() {
-			return selectedFileKey?.s3
-				? {
-						s3: selectedFileKey.s3,
-						storage: storage
-					}
-				: undefined
+		return selectedFileKey?.s3
+			? {
+					s3: selectedFileKey.s3,
+					storage: storage
+				}
+			: undefined
 	}
 
 	async function reloadContent() {
@@ -506,13 +511,12 @@
 		filter != undefined && untrack(() => onFilterChange())
 	})
 </script>
+
 {#if workspaceSettingsInitialized === false}
 	{#if fromWorkspaceSettings}
 		<Alert type="error" title="Connection to remote S3 bucket unsuccessful">
 			<div class="flex flex-row gap-x-1 w-full items-center">
-				<p class="text-clip grow min-w-0">
-					Double check the S3 resource fields and try again.
-				</p>
+				<p class="text-clip grow min-w-0"> Double check the S3 resource fields and try again. </p>
 			</div>
 		</Alert>
 	{:else}
@@ -538,9 +542,9 @@
 		<div class="mb-2">
 			<Alert type="info" title="Access to S3 bucket restricted">
 				<p>
-					You don't have access to the S3 bucket resource and your administrator has restricted
-					the access to it. You are not authorized to browse the bucket content. If you think
-					this is incorrect, please contact your workspace administrator.
+					You don't have access to the S3 bucket resource and your administrator has restricted the
+					access to it. You are not authorized to browse the bucket content. If you think this is
+					incorrect, please contact your workspace administrator.
 				</p>
 				<p>
 					More info in <a
@@ -554,9 +558,11 @@
 	<div class="flex flex-row border rounded-md h-full">
 		{#if !fileListUnavailable}
 			<div class="min-w-[30%] border-r flex flex-col">
-				<div class="w-full p-1 border-b">
-					<input type="text" placeholder="Folder prefix" bind:value={filter} class="text-xl" />
-				</div>
+				{#if !rootPath}
+					<div class="w-full p-1 border-b">
+						<input type="text" placeholder="Folder prefix" bind:value={filter} class="text-xl" />
+					</div>
+				{/if}
 				{#if fileListLoading === false && displayedFileKeys.length === 0}
 					<div class="p-4 text-tertiary text-xs text-center italic">
 						No files in the workspace S3 bucket at that prefix
@@ -582,39 +588,40 @@
 									)}
 								>
 									{#if file_info}
-										<div
-											onclick={() => selectItem(index)}
-											class={twMerge(
-												'flex flex-row h-full font-semibold text-xs items-center justify-start',
-												selectedFileKey !== undefined &&
-													selectedFileKey.s3 === file_info.full_key
-													? 'bg-surface-hover'
-													: ''
-											)}
-										>
+										{@const nestingLevel = file_info.nestingLevel - 2 * rootPathNestingLevel}
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
 											<div
-												class={`flex flex-row w-full gap-2 h-full items-center`}
-												style={`margin-left: ${(2 + file_info.nestingLevel) * 0.25}rem;`}
+												onclick={() => selectItem(index)}
+												class={twMerge(
+													'flex flex-row h-full font-semibold text-xs items-center justify-start',
+													selectedFileKey !== undefined && selectedFileKey.s3 === file_info.full_key
+														? 'bg-surface-hover'
+														: ''
+												)}
 											>
-												{#if file_info.type === 'folder'}
-													{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
-															size={16}
-														/>{/if}
-													<div class="truncate text-ellipsis w-56">
-														{file_info.display_name} ({file_info.count}{count % 1000 === 0 &&
-														lastKeyFolders[file_info.nestingLevel / 2] ===
-															file_info.display_name
-															? '+'
-															: ''} item{file_info.count === 1 ? '' : 's'})
-													</div>
-												{:else}
-													<FileIcon size={16} />
-													<div class="truncate text-ellipsis w-56">
-														{file_info.display_name}
-													</div>
-												{/if}
+												<div
+													class={`flex flex-row w-full gap-2 h-full items-center`}
+													style={`margin-left: ${(2 + nestingLevel) * 0.25}rem;`}
+												>
+													{#if file_info.type === 'folder'}
+														{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
+																size={16}
+															/>{/if}
+														<div class="truncate text-ellipsis w-56">
+															{file_info.display_name} ({file_info.count}{count % 1000 === 0 &&
+															lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
+																? '+'
+																: ''} item{file_info.count === 1 ? '' : 's'})
+														</div>
+													{:else}
+														<FileIcon size={16} />
+														<div class="truncate text-ellipsis w-56">
+															{file_info.display_name}
+														</div>
+													{/if}
+												</div>
 											</div>
-										</div>
 									{/if}
 								</div>
 							{/snippet}
@@ -664,51 +671,57 @@
 				</div>
 			{:else}
 				<div class="p-4 gap-2">
-					<Section label={fileMetadata.fileKey} breakAll>
+					<Section label={((p) => p.startsWith(rootPath) ? p.slice(rootPath.length) : p)(fileMetadata.fileKey)} breakAll>
 						{#snippet action()}
 							<div class="flex gap-2">
-								{#if filePreview !== undefined && !readOnlyMode}
-									<Button
-										title="Download file from S3"
-										variant="border"
-										color="light"
-										href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
-											fileMetadata?.fileKey ?? ''
-										)}${storage ? `&storage=${storage}` : ''}`}
-										download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
-										startIcon={{ icon: Download }}
-										iconOnly={true}
-									/>
-									<Button
-										title="Move file"
-										variant="border"
-										color="light"
-										on:click={() => {
-											moveDestKey = fileMetadata?.fileKey ?? ''
-											moveModalOpen = true
-										}}
-										startIcon={{ icon: MoveRight }}
-										iconOnly={true}
-									/>
-									<Button
-										title="Delete file from S3"
-										variant="border"
-										color="red"
-										on:click={() => {
-											deletionModalOpen = true
-										}}
-										startIcon={{ icon: Trash }}
-										iconOnly={true}
-									/>
+								{#if filePreview !== undefined}
+									{#if !hideS3SpecificDetails}
+										<Button
+											title="Download file from S3"
+											variant="border"
+											color="light"
+											href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
+												fileMetadata?.fileKey ?? ''
+											)}${storage ? `&storage=${storage}` : ''}`}
+											download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
+											startIcon={{ icon: Download }}
+											iconOnly={true}
+										/>
+									{/if}
+									{#if !readOnlyMode}
+										<Button
+											title="Move file"
+											variant="border"
+											color="light"
+											on:click={() => {
+												moveDestKey = fileMetadata?.fileKey ?? ''
+												moveModalOpen = true
+											}}
+											startIcon={{ icon: MoveRight }}
+											iconOnly={true}
+										/>
+										<Button
+											title="Delete file from S3"
+											variant="border"
+											color="red"
+											on:click={() => {
+												deletionModalOpen = true
+											}}
+											startIcon={{ icon: Trash }}
+											iconOnly={true}
+										/>
+									{/if}
 								{/if}
 							</div>
 						{/snippet}
 					</Section>
-					<TableSimple
-						headers={['Last modified', 'Size', 'Type']}
-						data={[fileMetadata]}
-						keys={['lastModified', 'sizeStr', 'mimeType']}
-					/>
+					{#if !hideS3SpecificDetails}
+						<TableSimple
+							headers={['Last modified', 'Size', 'Type']}
+							data={[fileMetadata]}
+							keys={['lastModified', 'sizeStr', 'mimeType']}
+						/>
+					{/if}
 				</div>
 			{/if}
 
@@ -781,7 +794,7 @@
 										)}
 									/>
 								</div>
-							{:else}
+							{:else if !hideS3SpecificDetails}
 								Previewing a {filePreview.contentType?.toLowerCase()} file.
 							{/if}
 						</div>
