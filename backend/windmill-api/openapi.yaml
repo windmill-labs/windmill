@@ -6331,6 +6331,33 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/flow_conversations/{conversation_id}/messages:
+    get:
+      summary: list conversation messages
+      operationId: listConversationMessages
+      tags:
+        - flow_conversation
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: conversation_id
+          description: conversation id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: conversation messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowConversationMessage"
+
   /w/{workspace}/raw_apps/list:
     get:
       summary: list all raw apps
@@ -14547,6 +14574,35 @@ components:
         created_by:
           type: string
           description: Username who created the conversation
+
+    FlowConversationMessage:
+      type: object
+      required: [id, conversation_id, message_type, content, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the message
+        conversation_id:
+          type: string
+          format: uuid
+          description: The conversation this message belongs to
+        message_type:
+          type: string
+          enum: [user, assistant, system]
+          description: Type of the message
+        content:
+          type: string
+          description: The message content
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Associated job ID if this message came from a flow run
+        created_at:
+          type: string
+          format: date-time
+          description: When the message was created
 
     EndpointTool:
       type: object

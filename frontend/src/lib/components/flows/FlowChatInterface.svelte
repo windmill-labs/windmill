@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { MessageCircle, Send, Loader2 } from 'lucide-svelte'
-	import { JobService, type Job } from '$lib/gen'
+	import { JobService, type Job, FlowConversationService, type FlowConversationMessage } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import autosize from '$lib/autosize'
@@ -18,10 +18,11 @@
 	}
 
 	interface Props {
-		onRunFlow: (args: Record<string, any>) => Promise<string>
+		onRunFlow: (args: Record<string, any>, conversationId?: string) => Promise<string>
+		conversationId?: string
 	}
 
-	let { onRunFlow }: Props = $props()
+	let { onRunFlow, conversationId }: Props = $props()
 
 	let messages = $state<ChatMessage[]>([])
 	let inputMessage = $state('')
@@ -35,6 +36,32 @@
 	export function clearMessages() {
 		messages = []
 		inputMessage = ''
+	}
+
+	export async function loadConversationMessages(conversationId: string) {
+		if (!$workspaceStore) return
+
+		try {
+			const response = await FlowConversationService.listConversationMessages({
+				workspace: $workspaceStore,
+				conversationId: conversationId
+			})
+
+			// Convert FlowConversationMessage to ChatMessage format
+			const chatMessages: ChatMessage[] = response.map((msg: FlowConversationMessage) => ({
+				id: msg.id,
+				content: msg.content,
+				timestamp: new Date(msg.created_at),
+				isUser: msg.message_type === 'user',
+				jobId: msg.job_id || undefined,
+				isLoading: false
+			}))
+
+			messages = chatMessages
+		} catch (error) {
+			console.error('Failed to load conversation messages:', error)
+			sendUserToast('Failed to load conversation messages', true)
+		}
 	}
 
 	function scrollToBottom() {
@@ -125,7 +152,7 @@
 	}
 
 	async function sendMessage() {
-		if (!inputMessage.trim() || isLoading) return
+		if (!inputMessage.trim() || isLoading || !conversationId) return
 
 		const userMessage: ChatMessage = {
 			id: crypto.randomUUID(),
@@ -141,7 +168,8 @@
 
 		try {
 			// Run the flow with the user message as input
-			const jobId = await onRunFlow({ user_message: messageContent })
+			// The backend will automatically store messages when the flow runs
+			const jobId = await onRunFlow({ user_message: messageContent }, conversationId)
 
 			// Add assistant message placeholder
 			const assistantMessageId = crypto.randomUUID()
