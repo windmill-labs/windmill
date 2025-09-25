@@ -527,6 +527,22 @@ pub async fn build_object_store_client(
 }
 
 
+#[derive(PartialEq)]
+pub enum BundleFormat {
+    Esm,
+    Cjs,
+}
+
+impl BundleFormat {
+   pub fn from_string(s: &str) -> Option<Self> {
+        match s {
+            "esm" => Some(Self::Esm),
+            "cjs" => Some(Self::Cjs),
+            _ => None,
+        }
+    }
+}
+
 pub async fn upload_artifact_to_store(path: &str, data: bytes::Bytes, standalone_dir: &str) -> error::Result<()> {
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let object_store = crate::s3_helpers::get_object_store().await;

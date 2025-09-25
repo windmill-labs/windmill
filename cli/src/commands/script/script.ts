@@ -222,9 +222,10 @@ export async function handleFile(
 
         log.info(`Started bundling ${path} ...`);
         const startTime = performance.now();
+        const format = codebase.format ?? "cjs";
         const out = await esbuild.build({
           entryPoints: [path],
-          format: "cjs",
+          format: format,
           bundle: true,
           write: false,
           external: codebase.external,
@@ -232,7 +233,7 @@ export async function handleFile(
           define: codebase.define,
           platform: "node",
           packages: "bundle",
-          target: "node20.15.1",
+          target: format == "cjs" ? "node20.15.1" : "es2022",
         });
         const endTime = performance.now();
         bundleContent = out.outputFiles[0].text;
