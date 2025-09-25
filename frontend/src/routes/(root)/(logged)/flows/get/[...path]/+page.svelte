@@ -18,6 +18,7 @@
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import FlowChatInterface from '$lib/components/flows/FlowChatInterface.svelte'
+	import FlowConversationsSidebar from '$lib/components/flows/FlowConversationsSidebar.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -399,7 +400,30 @@
 	let rightPaneSelected = $state('saved_inputs')
 	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
+	let selectedConversationId: string | undefined = $state(undefined)
 	let path = $derived(page.params.path ?? '')
+
+	function handleNewConversation() {
+		// Create a new conversation
+		selectedConversationId = undefined
+		// Reset the chat interface to start fresh
+		if (flowChatInterface) {
+			// TODO: Add method to reset chat interface or create new conversation
+		}
+	}
+
+	function handleSelectConversation(conversationId: string) {
+		selectedConversationId = conversationId
+		// TODO: Load conversation messages into chat interface
+	}
+
+	function handleDeleteConversation(conversationId: string) {
+		if (selectedConversationId === conversationId) {
+			selectedConversationId = undefined
+		}
+		// TODO: Clear chat interface if this was the selected conversation
+	}
+
 	$effect(() => {
 		const cliTrigger = triggersState.triggers.find((t) => t.type === 'cli')
 		if (cliTrigger) {
@@ -515,7 +539,7 @@
 	{#snippet form()}
 		{#if flow}
 			<div class="flex-col flex h-full justify-between">
-				<div class="p-8 w-full max-w-3xl mx-auto gap-2 bg-surface">
+				<div class="p-8 w-full {chatInputEnabled ? 'max-w-7xl' : 'max-w-3xl'} mx-auto gap-2 bg-surface">
 					{#if flow?.archived}
 						<Alert type="error" title="Archived">This flow was archived</Alert>
 					{/if}
@@ -576,7 +600,21 @@
 						{/if}
 
 						{#if chatInputEnabled}
-							<FlowChatInterface bind:this={flowChatInterface} onRunFlow={runFlowForChat} />
+							<!-- Chat Layout with Sidebar -->
+							<div class="flex h-96 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+								<div class="w-80 flex-shrink-0">
+									<FlowConversationsSidebar
+										flowPath={flow?.path ?? ''}
+										{selectedConversationId}
+										onNewConversation={handleNewConversation}
+										onSelectConversation={handleSelectConversation}
+										onDeleteConversation={handleDeleteConversation}
+									/>
+								</div>
+								<div class="flex-1">
+									<FlowChatInterface bind:this={flowChatInterface} onRunFlow={runFlowForChat} />
+								</div>
+							</div>
 						{:else}
 							<RunForm
 								bind:scheduledForStr

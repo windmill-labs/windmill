@@ -22,7 +22,6 @@
 	import Badge from '$lib/components/Badge.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
-	import { emptySchema } from '$lib/utils'
 
 	interface Props {
 		noEditor: boolean
