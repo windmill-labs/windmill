@@ -3,6 +3,7 @@
 		FlowService,
 		JobService,
 		WorkspaceService,
+		FlowConversationService,
 		type Flow,
 		type FlowModule,
 		type TriggersCount,
@@ -403,25 +404,44 @@
 	let selectedConversationId: string | undefined = $state(undefined)
 	let path = $derived(page.params.path ?? '')
 
-	function handleNewConversation() {
-		// Create a new conversation
-		selectedConversationId = undefined
-		// Reset the chat interface to start fresh
-		if (flowChatInterface) {
-			// TODO: Add method to reset chat interface or create new conversation
+	async function handleNewConversation() {
+		try {
+			const conversation = await FlowConversationService.createFlowConversation({
+				workspace: $workspaceStore!,
+				requestBody: {
+					flow_path: flow!.path,
+					title: undefined
+				}
+			})
+			selectedConversationId = conversation.id
+			// Reset the chat interface to start fresh
+			if (flowChatInterface) {
+				flowChatInterface.clearMessages()
+			}
+			sendUserToast('New conversation created')
+		} catch (error) {
+			console.error('Failed to create new conversation:', error)
+			sendUserToast('Failed to create new conversation', true)
 		}
 	}
 
 	function handleSelectConversation(conversationId: string) {
 		selectedConversationId = conversationId
-		// TODO: Load conversation messages into chat interface
+		// TODO: Load conversation messages into chat interface when we implement message storage
+		// For now, clear the interface when switching conversations
+		if (flowChatInterface) {
+			flowChatInterface.clearMessages()
+		}
 	}
 
 	function handleDeleteConversation(conversationId: string) {
 		if (selectedConversationId === conversationId) {
 			selectedConversationId = undefined
+			// Clear chat interface since we deleted the selected conversation
+			if (flowChatInterface) {
+				flowChatInterface.clearMessages()
+			}
 		}
-		// TODO: Clear chat interface if this was the selected conversation
 	}
 
 	$effect(() => {
@@ -539,7 +559,9 @@
 	{#snippet form()}
 		{#if flow}
 			<div class="flex-col flex h-full justify-between">
-				<div class="p-8 w-full {chatInputEnabled ? 'max-w-7xl' : 'max-w-3xl'} mx-auto gap-2 bg-surface">
+				<div
+					class="p-8 w-full {chatInputEnabled ? 'max-w-7xl' : 'max-w-3xl'} mx-auto gap-2 bg-surface"
+				>
 					{#if flow?.archived}
 						<Alert type="error" title="Archived">This flow was archived</Alert>
 					{/if}
@@ -601,7 +623,9 @@
 
 						{#if chatInputEnabled}
 							<!-- Chat Layout with Sidebar -->
-							<div class="flex h-96 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+							<div
+								class="flex h-96 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
+							>
 								<div class="w-80 flex-shrink-0">
 									<FlowConversationsSidebar
 										flowPath={flow?.path ?? ''}
