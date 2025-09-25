@@ -102,6 +102,8 @@ use windmill_queue::{
     PushArgsOwned, PushIsolationLevel,
 };
 
+use crate::flow_conversations;
+
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST])
@@ -1755,6 +1757,7 @@ pub struct RunJobQuery {
     pub cache_ttl: Option<i32>,
     pub skip_preprocessor: Option<bool>,
     pub poll_delay_ms: Option<u64>,
+    pub conversation_id: Option<Uuid>,
 }
 
 impl RunJobQuery {
@@ -3956,6 +3959,7 @@ pub async fn run_flow_by_path_inner(
         tag,
         dedicated_worker,
         has_preprocessor,
+        chat_input_enabled,
         on_behalf_of_email,
         edited_by,
         early_return,
@@ -3981,7 +3985,7 @@ pub async fn run_flow_by_path_inner(
                 &authed.email,
                 username_to_permissioned_as(&authed.username),
                 Some(authed.clone().into()),
-                PushIsolationLevel::Isolated(user_db, authed.clone().into()),
+                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
             )
         };
 
@@ -4019,6 +4023,54 @@ pub async fn run_flow_by_path_inner(
         false,
     )
     .await?;
+
+    // Handle conversation messages for chat-enabled flows
+    if chat_input_enabled.unwrap_or(false) {
+        if let Some(user_msg_raw) = args.args.get("user_message") {
+            if let Ok(user_msg) = serde_json::from_str::<String>(user_msg_raw.get()) {
+                // Get or create conversation
+                let conversation_id = if let Some(id) = run_query.conversation_id {
+                    id
+                } else {
+                    // Create a new conversation
+                    flow_conversations::create_conversation_internal(
+                        &authed,
+                        &user_db,
+                        &w_id,
+                        &flow_path.to_string(),
+                        &authed.username,
+                    )
+                    .await?
+                    .id
+                };
+
+                // Create user message
+                flow_conversations::create_message(
+                    &user_db,
+                    conversation_id,
+                    "user",
+                    &user_msg,
+                    None, // No job_id for user message
+                    &authed.username,
+                    &w_id,
+                )
+                .await?;
+
+                // // Create placeholder assistant message with job_id
+                // flow_conversations::create_message(
+                //     &user_db,
+                //     conversation_id,
+                //     "assistant",
+                //     "",         // Empty content, will be updated when job completes
+                //     Some(uuid), // Associate with the job
+                //     &authed.username,
+                //     &w_id,
+                // )
+                // .await?;
+            }
+        }
+    }
+
     tx.commit().await?;
     Ok((uuid, early_return))
 }
@@ -5430,6 +5482,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         dedicated_worker,
         early_return,
         has_preprocessor,
+        chat_input_enabled: _,
         on_behalf_of_email,
         edited_by,
         version,

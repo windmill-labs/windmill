@@ -62,6 +62,9 @@ components:
           type: number
         early_return:
           type: string
+        chat_input_enabled:
+          type: boolean
+          description: Whether this flow accepts chat-style input
       required:
         - modules
 

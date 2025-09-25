@@ -377,7 +377,7 @@
 
 <FlowCard {noEditor} title="Flow Input">
 	{#if !disabled}
-		{#if flowStore.val.schema?.chat_input_enabled}
+		{#if flowStore.val.value?.chat_input_enabled}
 			<FlowChatInterface onRunFlow={runFlowWithMessage} />
 		{:else}
 			<div class="py-2 px-4 h-full">

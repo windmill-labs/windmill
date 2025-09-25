@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { MessageCircle, Send, Loader2 } from 'lucide-svelte'
-	import { JobService, type Job, FlowConversationService, type FlowConversationMessage } from '$lib/gen'
+	import {
+		JobService,
+		type Job,
+		FlowConversationService,
+		type FlowConversationMessage
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import autosize from '$lib/autosize'
@@ -152,7 +157,7 @@
 	}
 
 	async function sendMessage() {
-		if (!inputMessage.trim() || isLoading || !conversationId) return
+		if (!inputMessage.trim() || isLoading) return
 
 		const userMessage: ChatMessage = {
 			id: crypto.randomUUID(),
@@ -169,6 +174,7 @@
 		try {
 			// Run the flow with the user message as input
 			// The backend will automatically store messages when the flow runs
+			console.log('sendMessage', { user_message: messageContent }, conversationId)
 			const jobId = await onRunFlow({ user_message: messageContent }, conversationId)
 
 			// Add assistant message placeholder

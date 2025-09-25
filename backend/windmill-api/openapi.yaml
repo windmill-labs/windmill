@@ -7230,6 +7230,12 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: conversation_id
+          description: conversation ID for chat-enabled flows
+          in: query
+          schema:
+            type: string
+            format: uuid
       requestBody:
         description: flow args
         required: true

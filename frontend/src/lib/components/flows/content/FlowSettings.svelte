@@ -40,7 +40,7 @@
 	let dirtyPath = $state(false)
 
 	let displayWorkerTagPicker = $state(false)
-	let chatInputEnabled = $derived(Boolean(flowStore.val.schema?.chat_input_enabled))
+	let chatInputEnabled = $derived(Boolean(flowStore.val.value?.chat_input_enabled))
 
 	run(() => {
 		flowStore.val.tag ? (displayWorkerTagPicker = true) : null
@@ -136,6 +136,13 @@
 						checked={chatInputEnabled}
 						on:change={() => {
 							if (!chatInputEnabled) {
+								// Enable chat input - set in flow.value
+								if (!flowStore.val.value) {
+									flowStore.val.value = { modules: [] }
+								}
+								flowStore.val.value.chat_input_enabled = true
+
+								// Set up the schema for chat input (without chat_input_enabled flag)
 								flowStore.val.schema = {
 									$schema: 'https://json-schema.org/draft/2020-12/schema',
 									type: 'object',
@@ -145,7 +152,6 @@
 											description: 'Message from user'
 										}
 									},
-									chat_input_enabled: true,
 									required: ['user_message']
 								}
 								flowStore.val.value.modules = [
@@ -161,9 +167,9 @@
 									}
 								]
 							} else {
-								flowStore.val.schema = {
-									...flowStore.val.schema,
-									chat_input_enabled: false
+								// Disable chat input - remove from flow.value
+								if (flowStore.val.value) {
+									flowStore.val.value.chat_input_enabled = false
 								}
 							}
 						}}
@@ -176,7 +182,7 @@
 					/>
 				</div>
 
-				{#if flowStore.val.schema && enableAi && !flowStore.val.schema?.chat_input_enabled}
+				{#if flowStore.val.schema && enableAi && !flowStore.val.value?.chat_input_enabled}
 					<AIFormSettings
 						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
 						type="flow"
