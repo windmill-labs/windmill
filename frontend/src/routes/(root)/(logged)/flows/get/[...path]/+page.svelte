@@ -200,7 +200,7 @@
 		}
 	}
 
-	async function runFlowForChat(args: Record<string, any>): Promise<string> {
+	async function runFlowForChat(args: Record<string, any>, conversationId?: string): Promise<string> {
 		const run = await JobService.runFlowByPath({
 			workspace: $workspaceStore!,
 			path,
@@ -425,12 +425,11 @@
 		}
 	}
 
-	function handleSelectConversation(conversationId: string) {
+	async function handleSelectConversation(conversationId: string) {
 		selectedConversationId = conversationId
-		// TODO: Load conversation messages into chat interface when we implement message storage
-		// For now, clear the interface when switching conversations
+		// Load conversation messages into chat interface
 		if (flowChatInterface) {
-			flowChatInterface.clearMessages()
+			await flowChatInterface.loadConversationMessages(conversationId)
 		}
 	}
 
@@ -636,7 +635,11 @@
 									/>
 								</div>
 								<div class="flex-1">
-									<FlowChatInterface bind:this={flowChatInterface} onRunFlow={runFlowForChat} />
+									<FlowChatInterface
+										bind:this={flowChatInterface}
+										onRunFlow={runFlowForChat}
+										conversationId={selectedConversationId}
+									/>
 								</div>
 							</div>
 						{:else}

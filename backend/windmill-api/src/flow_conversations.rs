@@ -29,6 +29,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_conversations))
         .route("/create", post(create_conversation))
         .route("/delete/:conversation_id", delete(delete_conversation))
+        .route("/:conversation_id/messages", get(list_messages))
 }
 
 #[derive(Serialize, FromRow, Debug)]
@@ -40,6 +41,16 @@ pub struct FlowConversation {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub created_by: String,
+}
+
+#[derive(Serialize, FromRow, Debug)]
+pub struct FlowConversationMessage {
+    pub id: Uuid,
+    pub conversation_id: Uuid,
+    pub message_type: String,
+    pub content: String,
+    pub job_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Deserialize)]
@@ -69,7 +80,7 @@ async fn list_conversations(
              FROM flow_conversation
              WHERE workspace_id = $1 AND created_by = $2 AND flow_path = $3
              ORDER BY updated_at DESC
-             LIMIT $4 OFFSET $5"
+             LIMIT $4 OFFSET $5",
         )
         .bind(&w_id)
         .bind(&authed.username)
@@ -84,7 +95,7 @@ async fn list_conversations(
              FROM flow_conversation
              WHERE workspace_id = $1 AND created_by = $2
              ORDER BY updated_at DESC
-             LIMIT $3 OFFSET $4"
+             LIMIT $3 OFFSET $4",
         )
         .bind(&w_id)
         .bind(&authed.username)
@@ -129,7 +140,7 @@ async fn create_conversation(
     let conversation = sqlx::query_as::<Postgres, FlowConversation>(
         "INSERT INTO flow_conversation (id, workspace_id, flow_path, title, created_by)
          VALUES ($1, $2, $3, $4, $5)
-         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by"
+         RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by",
     )
     .bind(conversation_id)
     .bind(&w_id)
@@ -167,7 +178,7 @@ async fn delete_conversation(
     let conversation = sqlx::query_as::<Postgres, FlowConversation>(
         "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
          FROM flow_conversation
-         WHERE id = $1 AND workspace_id = $2 AND created_by = $3"
+         WHERE id = $1 AND workspace_id = $2 AND created_by = $3",
     )
     .bind(conversation_id)
     .bind(&w_id)
@@ -206,4 +217,49 @@ async fn delete_conversation(
     .await?;
 
     Ok(format!("Conversation {} deleted", conversation_id))
+}
+
+async fn list_messages(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, conversation_id)): Path<(String, Uuid)>,
+    Query(pagination): Query<Pagination>,
+) -> JsonResult<Vec<FlowConversationMessage>> {
+    let (per_page, offset) = paginate(pagination);
+    let mut tx = user_db.begin(&authed).await?;
+
+    // Verify the conversation exists and belongs to the user
+    let conversation_exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1 AND workspace_id = $2 AND created_by = $3)",
+        conversation_id,
+        &w_id,
+        &authed.username
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+
+    if !conversation_exists {
+        return Err(windmill_common::error::Error::NotFound(format!(
+            "Conversation not found or access denied: {}",
+            conversation_id
+        )));
+    }
+
+    // Fetch messages for this conversation
+    let messages = sqlx::query_as::<Postgres, FlowConversationMessage>(
+        "SELECT id, conversation_id, message_type, content, job_id, created_at
+         FROM flow_conversation_message
+         WHERE conversation_id = $1
+         ORDER BY created_at ASC
+         LIMIT $2 OFFSET $3",
+    )
+    .bind(conversation_id)
+    .bind(per_page as i64)
+    .bind(offset as i64)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(Json(messages))
 }
