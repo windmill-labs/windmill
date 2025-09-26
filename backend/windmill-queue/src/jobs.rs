@@ -821,8 +821,8 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     restart_job_if_perpetual(db, queued_job, &canceled_by).await?;
 
-    // Update conversation message if this job has a conversation_id in extras
-    if success && !skipped {
+    // Update conversation message if this job is a flow step and has a conversation_id
+    if success && !skipped && flow_is_done {
         // Format the result for the assistant message
         let content = serde_json::to_string_pretty(&result)
             .unwrap_or_else(|_| "Job completed successfully".to_string());
