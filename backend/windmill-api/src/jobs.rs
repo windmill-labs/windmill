@@ -6268,8 +6268,6 @@ async fn run_dynamic_select(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    println!("Request: {:#?}", &request);
-
     if matches!(
         request.runnable_ref,
         DynamicSelectRunnableRef::Inline { .. }
