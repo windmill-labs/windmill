@@ -1693,7 +1693,7 @@ pub async fn handle_maybe_scheduled_job<'c>(
         let push_next_job_future = (|| {
             tokio::time::timeout(std::time::Duration::from_secs(5), async {
                 let mut tx = db.begin().await?;
-                tx = push_scheduled_job(db, tx, &schedule, None).await?;
+                tx = push_scheduled_job(db, tx, &schedule, None, Some(job.scheduled_for)).await?;
                 tx.commit().await?;
                 Ok::<(), Error>(())
             })
