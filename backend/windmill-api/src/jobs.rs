@@ -3552,7 +3552,7 @@ pub enum DynamicSelectRunnableRef {
     #[serde(rename = "deployed")]
     Deployed { path: String, runnable_kind: RunnableKind },
     #[serde(rename = "inline")]
-    Inline { code: String, language: Option<ScriptLang> },
+    Inline { code: String, lang: Option<ScriptLang> },
 }
 
 pub struct QueryOrBody<D>(pub Option<D>);
@@ -6268,6 +6268,8 @@ async fn run_dynamic_select(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
+    println!("Request: {:#?}", &request);
+
     if matches!(
         request.runnable_ref,
         DynamicSelectRunnableRef::Inline { .. }
@@ -6351,7 +6353,7 @@ async fn run_dynamic_select(
                 dynamic_input = dynamic_input_res;
             }
         },
-        DynamicSelectRunnableRef::Inline { code, language } => {
+        DynamicSelectRunnableRef::Inline { code, lang: language } => {
             dynamic_input = DynamicInput {
                 x_windmill_dyn_select_code: code,
                 x_windmill_dyn_select_lang: language.unwrap_or_default(),
