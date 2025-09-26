@@ -8,6 +8,7 @@
 
 	interface Props {
 		onRunFlow: (args: Record<string, any>, conversationId?: string) => Promise<string>
+		refreshConversations?: () => Promise<void>
 		conversationId?: string
 	}
 
@@ -15,7 +16,7 @@
 		loading?: boolean
 	}
 
-	let { onRunFlow, conversationId }: Props = $props()
+	let { onRunFlow, conversationId, refreshConversations }: Props = $props()
 
 	let messages = $state<ChatMessage[]>([])
 	let inputMessage = $state('')
@@ -132,6 +133,8 @@
 	async function sendMessage() {
 		if (!inputMessage.trim() || isLoading) return
 
+		const isNewConversation = messages.length === 0
+
 		const userMessage: ChatMessage = {
 			id: crypto.randomUUID(),
 			content: inputMessage.trim(),
@@ -149,8 +152,6 @@
 			// Run the flow with the user message as input
 			// The backend will automatically store messages when the flow runs
 			const jobId = await onRunFlow({ user_message: messageContent }, conversationId)
-
-			console.log('jobId', jobId)
 
 			// Add assistant message placeholder
 			const assistantMessageId = crypto.randomUUID()
@@ -174,6 +175,10 @@
 			sendUserToast('Failed to run flow: ' + error, true)
 		} finally {
 			isLoading = false
+		}
+
+		if (isNewConversation) {
+			await refreshConversations?.()
 		}
 	}
 

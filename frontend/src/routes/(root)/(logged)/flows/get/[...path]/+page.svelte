@@ -3,7 +3,6 @@
 		FlowService,
 		JobService,
 		WorkspaceService,
-		FlowConversationService,
 		type Flow,
 		type FlowModule,
 		type TriggersCount,
@@ -204,7 +203,6 @@
 		args: Record<string, any>,
 		conversationId?: string
 	): Promise<string> {
-		console.log('runFlowForChat', args, conversationId)
 		const run = await JobService.runFlowByPath({
 			workspace: $workspaceStore!,
 			path,
@@ -403,6 +401,7 @@
 	}
 	let stepDetail: FlowModule | string | undefined = $state(undefined)
 	let flowChatInterface: FlowChatInterface | undefined = $state(undefined)
+	let flowConversationsSidebar: FlowConversationsSidebar | undefined = $state(undefined)
 	let rightPaneSelected = $state('saved_inputs')
 	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
@@ -421,6 +420,17 @@
 		// Load conversation messages into chat interface
 		if (flowChatInterface) {
 			await flowChatInterface.loadConversationMessages(conversationId)
+		}
+	}
+
+	async function refreshConversations() {
+		if (flowConversationsSidebar) {
+			const newConversations = await flowConversationsSidebar.refreshConversations()
+			console.log('newConversations', newConversations)
+			if (newConversations) {
+				console.log('newConversations[0]', newConversations[0])
+				selectedConversationId = newConversations[0]?.id
+			}
 		}
 	}
 
@@ -618,6 +628,7 @@
 							>
 								<div class="w-80 flex-shrink-0">
 									<FlowConversationsSidebar
+										bind:this={flowConversationsSidebar}
 										flowPath={flow?.path ?? ''}
 										{selectedConversationId}
 										onNewConversation={handleNewConversation}
@@ -629,6 +640,7 @@
 									<FlowChatInterface
 										bind:this={flowChatInterface}
 										onRunFlow={runFlowForChat}
+										{refreshConversations}
 										conversationId={selectedConversationId}
 									/>
 								</div>
