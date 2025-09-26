@@ -10,3 +10,4 @@ windmill-api/openapi-*.*
 *ee.rs
 generate_mcp_endpoints_tools/venv
 bacon.toml
+libwindmill_duckdb_ffi_internal.so
