@@ -254,9 +254,6 @@
 		if (logOffset == 0) {
 			logOffset = job?.logs?.length ? job.logs?.length + 1 : 0
 		}
-		if (resultStreamOffset == 0) {
-			resultStreamOffset = job?.result_stream?.length ? job.result_stream?.length + 1 : 0
-		}
 	}
 	export async function getLogs() {
 		if (job) {
@@ -496,6 +493,7 @@
 						id,
 						running: job.running,
 						logOffset: logOffset,
+						streamOffset: resultStreamOffset,
 						getProgress: getProgress
 					})
 
