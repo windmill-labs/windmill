@@ -575,6 +575,27 @@ paths:
             text/plain:
               schema:
                 type: string
+  /w/{workspace}/users/convert_to_group/{username}:
+    post:
+      summary: convert manual user to group user (require admin privilege)
+      operationId: convertUserToGroup
+      tags:
+        - user
+        - admin
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: convert user to group user
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /github_app/connected_repositories:
     get:
