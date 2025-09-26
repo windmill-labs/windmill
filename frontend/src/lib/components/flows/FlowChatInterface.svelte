@@ -21,6 +21,7 @@
 	let messages = $state<ChatMessage[]>([])
 	let inputMessage = $state('')
 	let isLoading = $state(false)
+	let isLoadingMessages = $state(false)
 	let messagesContainer: HTMLDivElement | undefined = $state()
 
 	export function fillInputMessage(message: string) {
@@ -35,6 +36,7 @@
 	export async function loadConversationMessages(conversationId: string) {
 		if (!$workspaceStore) return
 
+		isLoadingMessages = true
 		try {
 			const response = await FlowConversationService.listConversationMessages({
 				workspace: $workspaceStore,
@@ -45,6 +47,11 @@
 		} catch (error) {
 			console.error('Failed to load conversation messages:', error)
 			sendUserToast('Failed to load conversation messages', true)
+		} finally {
+			isLoadingMessages = false
+			// sleep for 100ms
+			await new Promise((resolve) => setTimeout(resolve, 100))
+			scrollToBottom()
 		}
 	}
 
@@ -188,17 +195,17 @@
 			sendMessage()
 		}
 	}
-
-	$effect(() => {
-		scrollToBottom()
-	})
 </script>
 
 <div class="flex flex-col h-full w-full">
 	<div class="flex-1 flex flex-col min-h-0 w-full">
 		<!-- Messages Container -->
 		<div bind:this={messagesContainer} class="flex-1 overflow-y-auto p-4 space-y-4 bg-background">
-			{#if messages.length === 0}
+			{#if isLoadingMessages}
+				<div class="flex items-center justify-center">
+					<Loader2 size={24} class="animate-spin" />
+				</div>
+			{:else if messages.length === 0}
 				<div class="text-center text-tertiary py-8">
 					<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
 					<p class="text-lg font-medium">Start a conversation</p>
