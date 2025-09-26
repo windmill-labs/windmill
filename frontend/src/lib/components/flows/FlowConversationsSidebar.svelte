@@ -25,6 +25,10 @@
 	let conversations = $state<FlowConversation[]>([])
 	let loading = $state(false)
 
+	export async function refreshConversations() {
+		return await loadConversations()
+	}
+
 	async function loadConversations() {
 		if (!$workspaceStore || !flowPath) return
 
@@ -35,12 +39,14 @@
 				flowPath: flowPath
 			})
 			conversations = response
+			loading = false
+			return conversations
 		} catch (error) {
 			console.error('Failed to load conversations:', error)
 			sendUserToast('Failed to load conversations', true)
 			conversations = []
-		} finally {
 			loading = false
+			return []
 		}
 	}
 
