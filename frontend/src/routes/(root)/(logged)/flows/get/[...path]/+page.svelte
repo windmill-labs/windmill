@@ -410,23 +410,9 @@
 	let path = $derived(page.params.path ?? '')
 
 	async function handleNewConversation() {
-		try {
-			const conversation = await FlowConversationService.createFlowConversation({
-				workspace: $workspaceStore!,
-				requestBody: {
-					flow_path: flow!.path,
-					title: undefined
-				}
-			})
-			selectedConversationId = conversation.id
-			// Reset the chat interface to start fresh
-			if (flowChatInterface) {
-				flowChatInterface.clearMessages()
-			}
-			sendUserToast('New conversation created')
-		} catch (error) {
-			console.error('Failed to create new conversation:', error)
-			sendUserToast('Failed to create new conversation', true)
+		selectedConversationId = undefined
+		if (flowChatInterface) {
+			flowChatInterface.clearMessages()
 		}
 	}
 
@@ -470,8 +456,6 @@
 	})
 	let mainButtons = $derived(getMainButtons(flow, args))
 	let chatInputEnabled = $derived(flow?.value?.chat_input_enabled ?? false)
-
-	$inspect(flow)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />

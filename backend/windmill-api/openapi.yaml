@@ -6277,37 +6277,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/FlowConversation"
 
-  /w/{workspace}/flow_conversations/create:
-    post:
-      summary: create flow conversation
-      operationId: createFlowConversation
-      tags:
-        - flow_conversation
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                flow_path:
-                  type: string
-                  description: path of the flow
-                title:
-                  type: string
-                  description: optional conversation title
-              required:
-                - flow_path
-      responses:
-        "201":
-          description: flow conversation created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/FlowConversation"
-
   /w/{workspace}/flow_conversations/delete/{conversation_id}:
     delete:
       summary: delete flow conversation

@@ -757,7 +757,6 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     duration: Option<i64>,
     has_stream: bool,
 ) -> Result<(Uuid, i64), Error> {
-    println!("HERE add_completed_job");
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
 
@@ -822,11 +821,8 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     restart_job_if_perpetual(db, queued_job, &canceled_by).await?;
 
-    println!("HERE success: {}, skipped: {}", success, skipped);
-
     // Update conversation message if this job has a conversation_id in extras
     if success && !skipped {
-        println!("HERE update conversation message");
         // Format the result for the assistant message
         let content = serde_json::to_string_pretty(&result)
             .unwrap_or_else(|_| "Job completed successfully".to_string());
@@ -840,24 +836,17 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .await?;
 
         if flow_conversation_message_exists.unwrap_or(false) {
-            println!("HERE flow conversation message exists");
             // Update the assistant message using direct DB access
             let _ = sqlx::query!(
                 "UPDATE flow_conversation_message
                     SET content = $1
                     WHERE job_id = $2
-                    AND message_type = 'assistant'
-                    AND conversation_id IN (
-                        SELECT id FROM flow_conversation WHERE workspace_id = $3
-                    )",
+                ",
                 content,
                 queued_job.id,
-                &queued_job.workspace_id
             )
             .execute(db)
             .await;
-        } else {
-            println!("HERE flow conversation message does not exist");
         }
     }
 

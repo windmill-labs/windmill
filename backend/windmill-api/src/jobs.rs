@@ -4025,7 +4025,6 @@ pub async fn run_flow_by_path_inner(
     .await?;
 
     // Handle conversation messages for chat-enabled flows
-    let mut conversation_id_for_extras = None;
     if chat_input_enabled.unwrap_or(false) {
         if let Some(user_msg_raw) = args.args.get("user_message") {
             if let Ok(user_msg) = serde_json::from_str::<String>(user_msg_raw.get()) {
@@ -4034,22 +4033,21 @@ pub async fn run_flow_by_path_inner(
                     id
                 } else {
                     // Create a new conversation
-                    flow_conversations::create_conversation_internal(
+                    flow_conversations::create_conversation(
                         &authed,
                         &user_db,
                         &w_id,
                         &flow_path.to_string(),
                         &authed.username,
+                        &user_msg,
                     )
                     .await?
                     .id
                 };
 
-                conversation_id_for_extras = Some(conversation_id);
-
                 // Create user message
                 flow_conversations::create_message(
-                    &user_db,
+                    &mut tx,
                     conversation_id,
                     "user",
                     &user_msg,
@@ -4060,7 +4058,7 @@ pub async fn run_flow_by_path_inner(
                 .await?;
 
                 // Create placeholder assistant message in the same transaction as the job
-                flow_conversations::create_message_in_tx(
+                flow_conversations::create_message(
                     &mut tx,
                     conversation_id,
                     "assistant",
@@ -4072,19 +4070,6 @@ pub async fn run_flow_by_path_inner(
                 .await?;
             }
         }
-    }
-
-    // Add conversation_id to job extras if we have one
-    if let Some(conversation_id) = conversation_id_for_extras {
-        // Add to job extras for use in completion handler
-        let conversation_id_json = serde_json::to_string(&conversation_id.to_string()).unwrap();
-        sqlx::query!(
-            "UPDATE v2_job_queue SET extras = COALESCE(extras, '{}'::jsonb) || jsonb_build_object('conversation_id', $2::text) WHERE id = $1",
-            uuid,
-            conversation_id_json
-        )
-        .execute(&mut *tx)
-        .await?;
     }
 
     tx.commit().await?;
