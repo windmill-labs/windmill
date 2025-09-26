@@ -5,7 +5,7 @@ use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Err
 
 use crate::ai::{
     image_handler::download_and_encode_s3_image,
-    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
+    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     types::*,
 };
 
@@ -157,18 +157,24 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         matches!(output_type, OutputType::Text)
     }
 
+    fn supports_streaming(&self) -> bool {
+        // Google AI supports streaming for text output
+        true
+    }
+
     async fn build_request(
         &self,
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
+        stream: bool,
     ) -> Result<String, Error> {
         match args.output_type {
             OutputType::Text => {
                 // For text output, use OpenAI-compatible format
                 let openai_builder = super::openai::OpenAIQueryBuilder::new(AIProvider::GoogleAI);
                 openai_builder
-                    .build_request(args, client, workspace_id)
+                    .build_request(args, client, workspace_id, stream)
                     .await
             }
             OutputType::Image => self.build_image_request(args, client, workspace_id).await,
@@ -236,6 +242,17 @@ impl QueryBuilder for GoogleAIQueryBuilder {
                 "Unexpected text response in Google AI parser".to_string(),
             ))
         }
+    }
+
+    async fn parse_streaming_response(
+        &self,
+        response: reqwest::Response,
+        stream_event_processor: StreamEventProcessor,
+    ) -> Result<ParsedResponse, Error> {
+        let openai_builder = super::openai::OpenAIQueryBuilder::new(AIProvider::GoogleAI);
+        openai_builder
+            .parse_streaming_response(response, stream_event_processor)
+            .await
     }
 
     fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String {

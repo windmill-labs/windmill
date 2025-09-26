@@ -299,7 +299,7 @@ async function run() {{
     let res: any = await {main_name}(...argsArr);
     if (isAsyncIterable(res)) {{
         for await (const chunk of res) {{
-            console.log("WM_STREAM: " + chunk.replace('\n', '\\n'));
+            console.log("WM_STREAM: " + chunk.replace(/\n/g, '\\n'));
         }}
         res = null;
     }}

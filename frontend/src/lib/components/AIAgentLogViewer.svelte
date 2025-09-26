@@ -13,14 +13,14 @@
 	import { onMount } from 'svelte'
 
 	type AgentActionWithContent = NonNullable<FlowStatusModule['agent_actions']>[number] & {
-		content: string
+		content?: unknown
 	}
 
 	const resultSchema = z.object({
 		messages: z.array(
 			z.object({
 				role: z.string(),
-				content: z.string().optional(),
+				content: z.unknown(),
 				agent_action: z
 					.union([
 						z.object({
