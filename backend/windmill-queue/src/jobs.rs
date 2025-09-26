@@ -147,7 +147,7 @@ pub struct JobCompleted {
     pub token: String,
     pub canceled_by: Option<CanceledBy>,
     pub duration: Option<i64>,
-    pub has_stream: bool,
+    pub has_stream: Option<bool>,
 }
 
 pub async fn cancel_single_job<'c>(
