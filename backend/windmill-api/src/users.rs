@@ -493,12 +493,12 @@ async fn list_user_usage(
     SELECT usr.email, usage.executions
         FROM usr
             , LATERAL (
-            SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0)::BIGINT executions
-                FROM v2_as_completed_job
-                WHERE workspace_id = $1
-                AND job_kind NOT IN ('flow', 'flowpreview', 'flownode')
-                AND email = usr.email
-                AND now() - '1 week'::interval < created_at
+            SELECT COALESCE(SUM(c.duration_ms + 1000)/1000 , 0)::BIGINT executions
+                FROM v2_job_completed c JOIN v2_job j USING (id)
+                WHERE j.workspace_id = $1
+                AND j.kind NOT IN ('flow', 'flowpreview', 'flownode')
+                AND j.permissioned_as_email = usr.email
+                AND now() - '1 week'::interval < j.created_at
             ) usage
         WHERE workspace_id = $1
         ",

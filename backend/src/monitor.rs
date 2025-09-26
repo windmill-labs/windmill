@@ -2151,7 +2151,18 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         }
 
         let jobs = sqlx::query_as::<_, QueuedJob>(
-            "SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE id = ANY($1)",
+            "SELECT j.id, j.workspace_id, j.parent_job, j.created_by, j.created_at, q.started_at, q.scheduled_for, q.running,
+             j.runnable_id AS script_hash, j.runnable_path AS script_path, j.args, j.raw_code,
+             q.canceled_by IS NOT NULL AS canceled, q.canceled_by, q.canceled_reason, r.ping AS last_ping,
+             j.kind AS job_kind, CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END AS schedule_path,
+             j.permissioned_as, COALESCE(s.flow_status, s.workflow_as_code_status) AS flow_status, j.raw_flow,
+             j.flow_step_id IS NOT NULL AS is_flow_step, j.script_lang AS language, q.suspend, q.suspend_until,
+             j.same_worker, j.raw_lock, j.pre_run_error, j.permissioned_as_email AS email, j.visible_to_owner,
+             r.memory_peak AS mem_peak, j.flow_innermost_root_job AS root_job, s.flow_leaf_jobs AS leaf_jobs,
+             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.timeout, j.flow_step_id, j.cache_ttl,
+             j.priority, NULL::TEXT AS logs, j.script_entrypoint_override, j.preprocessed, null as workflow_as_code_status
+             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
+             WHERE j.id = ANY($1)",
         )
         .bind(&timeouts[..])
         .fetch_all(db)
@@ -2165,8 +2176,19 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     let non_restartable_jobs = if *RESTART_ZOMBIE_JOBS {
         vec![]
     } else {
-        sqlx::query_as::<_, QueuedJob>("SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval
-    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false")
+        sqlx::query_as::<_, QueuedJob>("SELECT j.id, j.workspace_id, j.parent_job, j.created_by, j.created_at, q.started_at, q.scheduled_for, q.running,
+             j.runnable_id AS script_hash, j.runnable_path AS script_path, j.args, j.raw_code,
+             q.canceled_by IS NOT NULL AS canceled, q.canceled_by, q.canceled_reason, r.ping AS last_ping,
+             j.kind AS job_kind, CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END AS schedule_path,
+             j.permissioned_as, COALESCE(s.flow_status, s.workflow_as_code_status) AS flow_status, j.raw_flow,
+             j.flow_step_id IS NOT NULL AS is_flow_step, j.script_lang AS language, q.suspend, q.suspend_until,
+             j.same_worker, j.raw_lock, j.pre_run_error, j.permissioned_as_email AS email, j.visible_to_owner,
+             r.memory_peak AS mem_peak, j.flow_innermost_root_job AS root_job, s.flow_leaf_jobs AS leaf_jobs,
+             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.timeout, j.flow_step_id, j.cache_ttl,
+             j.priority, NULL::TEXT AS logs, j.script_entrypoint_override, j.preprocessed, null as workflow_as_code_status
+             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
+             WHERE r.ping < now() - ($1 || ' seconds')::interval
+             AND q.running = true AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND j.same_worker = false")
         .bind(ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
         .await
@@ -2191,7 +2213,18 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     }
 
     let zombie_jobs_restart_limit_reached = sqlx::query_as::<_, QueuedJob>(
-        "SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE id = ANY($1)",
+        "SELECT j.id, j.workspace_id, j.parent_job, j.created_by, j.created_at, q.started_at, q.scheduled_for, q.running,
+         j.runnable_id AS script_hash, j.runnable_path AS script_path, j.args, j.raw_code,
+         q.canceled_by IS NOT NULL AS canceled, q.canceled_by, q.canceled_reason, r.ping AS last_ping,
+         j.kind AS job_kind, CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END AS schedule_path,
+         j.permissioned_as, COALESCE(s.flow_status, s.workflow_as_code_status) AS flow_status, j.raw_flow,
+         j.flow_step_id IS NOT NULL AS is_flow_step, j.script_lang AS language, q.suspend, q.suspend_until,
+         j.same_worker, j.raw_lock, j.pre_run_error, j.permissioned_as_email AS email, j.visible_to_owner,
+         r.memory_peak AS mem_peak, j.flow_innermost_root_job AS root_job, s.flow_leaf_jobs AS leaf_jobs,
+         j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.timeout, j.flow_step_id, j.cache_ttl,
+         j.priority, NULL::TEXT AS logs, j.script_entrypoint_override, j.preprocessed, null as workflow_as_code_status
+         FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
+         WHERE j.id = ANY($1)",
     )
     .bind(&zombie_jobs_uuid_restart_limit_reached[..])
     .fetch_all(db)
@@ -2386,13 +2419,13 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
     let flows = sqlx::query!(
         r#"
         SELECT
-            id AS "id!", workspace_id AS "workspace_id!", parent_job, is_flow_step,
-            flow_status AS "flow_status: Box<str>", last_ping, same_worker
-        FROM v2_as_queue
-        WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now()
-            AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')
-            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval
-            AND canceled = false
+            j.id AS "id!", j.workspace_id AS "workspace_id!", j.parent_job, j.flow_step_id IS NOT NULL AS "is_flow_step?",
+            COALESCE(s.flow_status, s.workflow_as_code_status) AS "flow_status: Box<str>", r.ping AS last_ping, j.same_worker AS "same_worker?"
+        FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
+        WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null AND q.scheduled_for <= now()
+            AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode')
+            AND r.ping IS NOT NULL AND r.ping < NOW() - ($1 || ' seconds')::interval
+            AND q.canceled_by IS NULL
             
         "#,
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()

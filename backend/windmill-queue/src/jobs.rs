@@ -543,7 +543,7 @@ async fn cancel_persistent_script_jobs_internal<'c>(
 
     // we could have retrieved the job IDs in the first query where we retrieve the hashes, but just in case a job was inserted in the queue right in-between the two above query, we re-do the fetch here
     let jobs_to_cancel = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM v2_as_queue WHERE workspace_id = $1 AND script_path = $2 AND canceled = false",
+        "SELECT j.id FROM v2_job_queue q JOIN v2_job j USING (id) WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND q.canceled_by IS NULL",
     )
     .bind(w_id)
     .bind(script_path)
@@ -3444,8 +3444,18 @@ async fn get_queued_job_tx<'c>(
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<Option<QueuedJob>> {
     sqlx::query_as::<_, QueuedJob>(
-        "SELECT *, null as workflow_as_code_status
-            FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
+        "SELECT j.id, j.workspace_id, j.parent_job, j.created_by, j.created_at, q.started_at, q.scheduled_for, q.running,
+         j.runnable_id AS script_hash, j.runnable_path AS script_path, j.args, j.raw_code,
+         q.canceled_by IS NOT NULL AS canceled, q.canceled_by, q.canceled_reason, r.ping AS last_ping,
+         j.kind AS job_kind, CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END AS schedule_path,
+         j.permissioned_as, COALESCE(s.flow_status, s.workflow_as_code_status) AS flow_status, j.raw_flow,
+         j.flow_step_id IS NOT NULL AS is_flow_step, j.script_lang AS language, q.suspend, q.suspend_until,
+         j.same_worker, j.raw_lock, j.pre_run_error, j.permissioned_as_email AS email, j.visible_to_owner,
+         r.memory_peak AS mem_peak, j.flow_innermost_root_job AS root_job, s.flow_leaf_jobs AS leaf_jobs,
+         j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.timeout, j.flow_step_id, j.cache_ttl,
+         j.priority, NULL::TEXT AS logs, j.script_entrypoint_override, j.preprocessed, null as workflow_as_code_status
+         FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
+         WHERE j.id = $1 AND j.workspace_id = $2",
     )
     .bind(id)
     .bind(w_id)
@@ -3456,8 +3466,18 @@ async fn get_queued_job_tx<'c>(
 
 pub async fn get_queued_job(id: &Uuid, w_id: &str, db: &DB) -> error::Result<Option<QueuedJob>> {
     sqlx::query_as::<_, QueuedJob>(
-        "SELECT *, null as workflow_as_code_status
-            FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
+        "SELECT j.id, j.workspace_id, j.parent_job, j.created_by, j.created_at, q.started_at, q.scheduled_for, q.running,
+         j.runnable_id AS script_hash, j.runnable_path AS script_path, j.args, j.raw_code,
+         q.canceled_by IS NOT NULL AS canceled, q.canceled_by, q.canceled_reason, r.ping AS last_ping,
+         j.kind AS job_kind, CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END AS schedule_path,
+         j.permissioned_as, COALESCE(s.flow_status, s.workflow_as_code_status) AS flow_status, j.raw_flow,
+         j.flow_step_id IS NOT NULL AS is_flow_step, j.script_lang AS language, q.suspend, q.suspend_until,
+         j.same_worker, j.raw_lock, j.pre_run_error, j.permissioned_as_email AS email, j.visible_to_owner,
+         r.memory_peak AS mem_peak, j.flow_innermost_root_job AS root_job, s.flow_leaf_jobs AS leaf_jobs,
+         j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.timeout, j.flow_step_id, j.cache_ttl,
+         j.priority, NULL::TEXT AS logs, j.script_entrypoint_override, j.preprocessed, null as workflow_as_code_status
+         FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
+         WHERE j.id = $1 AND j.workspace_id = $2",
     )
     .bind(id)
     .bind(w_id)
@@ -3697,7 +3717,7 @@ pub async fn push<'c, 'd>(
                     }
 
                     let in_queue = sqlx::query_scalar!(
-                        "SELECT COUNT(id) FROM v2_as_queue WHERE email = $1",
+                        "SELECT COUNT(j.id) FROM v2_job_queue q JOIN v2_job j USING (id) WHERE j.permissioned_as_email = $1",
                         email
                     )
                     .fetch_one(_db)
@@ -3711,7 +3731,7 @@ pub async fn push<'c, 'd>(
                     }
 
                     let concurrent_runs = sqlx::query_scalar!(
-                        "SELECT COUNT(id) FROM v2_as_queue WHERE running = true AND email = $1",
+                        "SELECT COUNT(j.id) FROM v2_job_queue q JOIN v2_job j USING (id) WHERE q.running = true AND j.permissioned_as_email = $1",
                         email
                     )
                     .fetch_one(_db)
@@ -4907,11 +4927,11 @@ async fn restarted_flows_resolution(
 > {
     let row = sqlx::query!(
         "SELECT
-            script_path, script_hash AS \"script_hash: ScriptHash\",
-            job_kind AS \"job_kind!: JobKind\",
-            flow_status AS \"flow_status: Json<Box<RawValue>>\",
-            raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
-        FROM v2_as_completed_job WHERE id = $1 and workspace_id = $2",
+            j.runnable_path as script_path, j.runnable_id AS \"script_hash: ScriptHash\",
+            j.kind AS \"job_kind!: JobKind\",
+            COALESCE(c.flow_status, c.workflow_as_code_status) AS \"flow_status: Json<Box<RawValue>>\",
+            j.raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
+        FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1 and j.workspace_id = $2",
         completed_flow_id,
         workspace_id,
     )
