@@ -429,7 +429,7 @@ pub async fn process_result(
                     cached_res_path,
                     token: token.to_string(),
                     duration,
-                    has_stream,
+                    has_stream: Some(has_stream),
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -492,7 +492,7 @@ pub async fn process_result(
                     cached_res_path,
                     token: token.to_string(),
                     duration,
-                    has_stream,
+                    has_stream: Some(has_stream),
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -632,7 +632,7 @@ pub async fn process_completed_job(
             canceled_by,
             false,
             duration,
-            has_stream,
+            has_stream.unwrap_or(false),
         )
         .await?;
         drop(job);
