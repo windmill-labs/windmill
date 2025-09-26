@@ -200,13 +200,18 @@ async fn list_messages(
         )));
     }
 
-    // Fetch messages for this conversation
+    // Fetch messages for this conversation, oldest first, but reverse the order of the messages for easy rendering on the frontend
     let messages = sqlx::query_as::<Postgres, FlowConversationMessage>(
         "SELECT id, conversation_id, message_type, content, job_id, created_at
-         FROM flow_conversation_message
-         WHERE conversation_id = $1
-         ORDER BY created_at ASC
-         LIMIT $2 OFFSET $3",
+         FROM (
+            SELECT id, conversation_id, message_type, content, job_id, created_at
+            FROM flow_conversation_message
+            WHERE conversation_id = $1
+            ORDER BY created_at DESC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
+            LIMIT $2 OFFSET $3
+         ) AS messages
+         ORDER BY created_at ASC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
+         ",
     )
     .bind(conversation_id)
     .bind(per_page as i64)
