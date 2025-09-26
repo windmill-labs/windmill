@@ -61,8 +61,8 @@
 		}
 
 		return () => {
+			scheduledForTimeout && clearTimeout(scheduledForTimeout)
 			if (queuePositionInterval) {
-				scheduledForTimeout && clearTimeout(scheduledForTimeout)
 				clearInterval(queuePositionInterval)
 			}
 		}
