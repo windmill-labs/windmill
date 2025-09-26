@@ -16,6 +16,17 @@ pub struct Arg {
     pub json_value: serde_json::Value,
 }
 
+// Freeing from the caller side crashes the runtime with jemalloc enabled (EXIT CODE 11 SEGFAULT)
+#[unsafe(no_mangle)]
+pub extern "C" fn free_cstr(string: *mut c_char) -> () {
+    if string.is_null() {
+        return;
+    }
+    unsafe {
+        let _ = CString::from_raw(string);
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn run_duckdb_ffi(
     query_block_list: *const *const c_char,
@@ -289,11 +300,11 @@ fn row_to_value(row: &Row<'_>, column_names: &[String]) -> Result<Box<RawValue>,
             duckdb::types::Value::UBigInt(u) => serde_json::Value::Number(u.into()),
             duckdb::types::Value::Float(f) => serde_json::Value::Number(
                 serde_json::Number::from_f64(f as f64)
-                    .ok_or_else(|| ("Could not convert to f64".to_string()))?,
+                    .ok_or_else(|| "Could not convert to f64".to_string())?,
             ),
             duckdb::types::Value::Double(f) => serde_json::Value::Number(
                 serde_json::Number::from_f64(f)
-                    .ok_or_else(|| ("Could not convert to f64".to_string()))?,
+                    .ok_or_else(|| "Could not convert to f64".to_string())?,
             ),
             duckdb::types::Value::Decimal(d) => serde_json::Value::String(d.to_string()),
             duckdb::types::Value::Timestamp(_, ts) => serde_json::Value::String(ts.to_string()),
@@ -401,7 +412,7 @@ fn json_value_to_duckdb_value(
                 "double" | "float8" => duckdb::types::Value::Double(v),
                 "decimal" | "numeric" => duckdb::types::Value::Decimal(
                     Decimal::from_f64(v)
-                        .ok_or_else(|| ("Could not convert f64 to Decimal".to_string()))?,
+                        .ok_or_else(|| "Could not convert f64 to Decimal".to_string())?,
                 ),
                 _ => duckdb::types::Value::Double(v), // default fallback
             }
@@ -436,7 +447,7 @@ fn string_to_duckdb_timestamp(s: &str) -> Result<duckdb::types::Value, String> {
 fn string_to_duckdb_date(s: &str) -> Result<duckdb::types::Value, String> {
     use chrono::Datelike;
     let date = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
-        .map_err(|e| (format!("Invalid date format: {}", e)))?;
+        .map_err(|e| format!("Invalid date format: {}", e))?;
     Ok(duckdb::types::Value::Date32(date.num_days_from_ce()))
 }
 
