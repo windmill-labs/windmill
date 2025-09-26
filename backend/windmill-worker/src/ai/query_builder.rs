@@ -91,9 +91,15 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
     }
 }
 
-#[derive(Clone)]
 pub struct StreamEventProcessor {
     tx: tokio::sync::mpsc::Sender<String>,
+    pub handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Clone for StreamEventProcessor {
+    fn clone(&self) -> Self {
+        Self { tx: self.tx.clone(), handle: None }
+    }
 }
 
 impl StreamEventProcessor {
@@ -102,11 +108,13 @@ impl StreamEventProcessor {
         let conn = conn.clone();
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
+            let mut offset = -1;
             while let Some(event) = rx.recv().await {
+                offset += 1;
                 match tokio::time::timeout(
                     std::time::Duration::from_secs(20),
-                    append_result_stream(&conn, &workspace_id, &job_id, &event),
+                    append_result_stream(&conn, &workspace_id, &job_id, &event, offset),
                 )
                 .await
                 {
@@ -123,7 +131,7 @@ impl StreamEventProcessor {
             }
         });
 
-        Self { tx }
+        Self { tx, handle: Some(handle) }
     }
 
     pub async fn send(&self, event: StreamingEvent, events_str: &mut String) -> Result<(), Error> {
@@ -150,5 +158,9 @@ impl StreamEventProcessor {
                 event, e
             ))),
         }
+    }
+
+    pub fn to_handle(self) -> Option<tokio::task::JoinHandle<()>> {
+        self.handle
     }
 }

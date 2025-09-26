@@ -117,6 +117,7 @@ pub async fn handle_ai_agent_job(
     worker_name: &str,
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+    has_stream: &mut bool,
 ) -> Result<Box<RawValue>, Error> {
     let args = build_args_map(job, client, conn).await?;
 
@@ -288,6 +289,7 @@ pub async fn handle_ai_agent_job(
         worker_name,
         hostname,
         killpill_rx,
+        has_stream,
     );
 
     let result = run_future_with_polling_update_job_poller(
@@ -421,6 +423,7 @@ pub async fn run_agent(
     worker_name: &str,
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+    has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;
@@ -515,7 +518,15 @@ pub async fn run_agent(
         && query_builder.supports_streaming()
         && output_type == &OutputType::Text;
 
+    *has_stream = should_stream;
+
     let mut final_events_str = String::new();
+
+    let stream_event_processor = if should_stream {
+        Some(StreamEventProcessor::new(conn, job))
+    } else {
+        None
+    };
 
     // Main agent loop
     for i in 0..MAX_AGENT_ITERATIONS {
@@ -571,16 +582,13 @@ pub async fn run_agent(
 
         match resp.error_for_status_ref() {
             Ok(_) => {
-                let (parsed, stream_event_processor) = if should_stream {
-                    let stream_event_processor = StreamEventProcessor::new(conn, job);
-                    let parsed = query_builder
-                        .parse_streaming_response(resp, stream_event_processor.clone())
-                        .await?;
-                    (parsed, Some(stream_event_processor))
+                let parsed = if let Some(stream_event_processor) = stream_event_processor.clone() {
+                    query_builder
+                        .parse_streaming_response(resp, stream_event_processor)
+                        .await?
                 } else {
                     // Handle non-streaming response
-                    let parsed = query_builder.parse_response(resp).await?;
-                    (parsed, None)
+                    query_builder.parse_response(resp).await?
                 };
 
                 match parsed {
@@ -1017,6 +1025,17 @@ pub async fn run_agent(
         }?,
         None => to_raw_value(&""),
     };
+
+    if let Some(stream_event_processor) = stream_event_processor {
+        if let Some(handle) = stream_event_processor.to_handle() {
+            if let Err(e) = handle.await {
+                return Err(Error::internal_err(format!(
+                    "Error waiting for stream event processor: {}",
+                    e
+                )));
+            }
+        }
+    }
 
     Ok(to_raw_value(&AIAgentResult {
         output: output_value,
