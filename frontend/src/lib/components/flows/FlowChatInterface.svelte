@@ -1,30 +1,18 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { MessageCircle, Send, Loader2 } from 'lucide-svelte'
-	import {
-		JobService,
-		type Job,
-		FlowConversationService,
-		type FlowConversationMessage
-	} from '$lib/gen'
+	import { JobService, FlowConversationService, type FlowConversationMessage } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import autosize from '$lib/autosize'
 
-	interface ChatMessage {
-		id: string
-		content: string
-		timestamp: Date
-		isUser: boolean
-		jobId?: string
-		job?: Job
-		result?: any
-		isLoading?: boolean
-	}
-
 	interface Props {
 		onRunFlow: (args: Record<string, any>, conversationId?: string) => Promise<string>
 		conversationId?: string
+	}
+
+	interface ChatMessage extends FlowConversationMessage {
+		loading?: boolean
 	}
 
 	let { onRunFlow, conversationId }: Props = $props()
@@ -52,17 +40,7 @@
 				conversationId: conversationId
 			})
 
-			// Convert FlowConversationMessage to ChatMessage format
-			const chatMessages: ChatMessage[] = response.map((msg: FlowConversationMessage) => ({
-				id: msg.id,
-				content: msg.content,
-				timestamp: new Date(msg.created_at),
-				isUser: msg.message_type === 'user',
-				jobId: msg.job_id || undefined,
-				isLoading: false
-			}))
-
-			messages = chatMessages
+			messages = response
 		} catch (error) {
 			console.error('Failed to load conversation messages:', error)
 			sendUserToast('Failed to load conversation messages', true)
@@ -92,14 +70,13 @@
 					})
 
 					if (completedJob) {
+						console.log('completedJob', completedJob)
 						// Job completed, update the message with the result
 						messages = messages.map((msg) =>
 							msg.id === messageId
 								? {
 										...msg,
-										result: completedJob.result,
-										job: completedJob,
-										isLoading: false,
+										loading: false,
 										content: formatJobResult(completedJob.result)
 									}
 								: msg
@@ -117,7 +94,7 @@
 				msg.id === messageId
 					? {
 							...msg,
-							isLoading: false,
+							loading: false,
 							content: 'Job timed out or failed to complete'
 						}
 					: msg
@@ -128,7 +105,7 @@
 				msg.id === messageId
 					? {
 							...msg,
-							isLoading: false,
+							loading: false,
 							content: 'Error retrieving job result'
 						}
 					: msg
@@ -146,11 +123,7 @@
 		}
 
 		if (typeof result === 'object') {
-			if (result.output) {
-				return result.output
-			} else {
-				return JSON.stringify(result, null, 2)
-			}
+			return JSON.stringify(result, null, 2)
 		}
 
 		return String(result)
@@ -162,8 +135,9 @@
 		const userMessage: ChatMessage = {
 			id: crypto.randomUUID(),
 			content: inputMessage.trim(),
-			timestamp: new Date(),
-			isUser: true
+			created_at: new Date().toISOString(),
+			message_type: 'user',
+			conversation_id: conversationId ?? ''
 		}
 
 		messages = [...messages, userMessage]
@@ -174,18 +148,20 @@
 		try {
 			// Run the flow with the user message as input
 			// The backend will automatically store messages when the flow runs
-			console.log('sendMessage', { user_message: messageContent }, conversationId)
 			const jobId = await onRunFlow({ user_message: messageContent }, conversationId)
+
+			console.log('jobId', jobId)
 
 			// Add assistant message placeholder
 			const assistantMessageId = crypto.randomUUID()
 			const assistantMessage: ChatMessage = {
 				id: assistantMessageId,
 				content: '',
-				timestamp: new Date(),
-				isUser: false,
-				jobId: jobId,
-				isLoading: true
+				created_at: new Date().toISOString(),
+				message_type: 'assistant',
+				conversation_id: conversationId ?? '',
+				job_id: jobId,
+				loading: true
 			}
 
 			messages = [...messages, assistantMessage]
@@ -225,15 +201,15 @@
 				</div>
 			{:else}
 				{#each messages as message (message.id)}
-					<div class="flex {message.isUser ? 'justify-end' : 'justify-start'}">
+					<div class="flex {message.message_type === 'user' ? 'justify-end' : 'justify-start'}">
 						<div
-							class="max-w-[80%] rounded-lg p-3 {message.isUser
+							class="max-w-[80%] rounded-lg p-3 {message.message_type === 'user'
 								? 'bg-blue-500 text-white'
 								: 'bg-surface border border-gray-200 dark:border-gray-600'}"
 						>
-							{#if message.isUser}
+							{#if message.message_type === 'user'}
 								<p class="whitespace-pre-wrap">{message.content}</p>
-							{:else if message.isLoading}
+							{:else if message.loading}
 								<div class="flex items-center gap-2 text-tertiary">
 									<Loader2 size={16} class="animate-spin" />
 									<span>Processing...</span>
