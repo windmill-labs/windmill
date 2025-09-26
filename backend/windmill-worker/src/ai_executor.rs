@@ -444,6 +444,80 @@ pub async fn run_agent(
             vec![]
         };
 
+    // Load previous messages from memory for text output mode
+    if matches!(output_type, OutputType::Text) {
+        if let Some(step_id) = job.flow_step_id.as_deref() {
+            // Look up conversation_id for this flow
+            match sqlx::query_scalar!(
+                "SELECT conversation_id FROM flow_conversation_message 
+                 WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
+                parent_job
+            )
+            .fetch_optional(db)
+            .await
+            {
+                Ok(Some(conversation_id)) => {
+                    tracing::info!(
+                        "Loading memory for conversation {} step {} in workspace {}",
+                        conversation_id,
+                        step_id,
+                        job.workspace_id
+                    );
+
+                    // Read messages from memory
+                    match crate::memory::read_messages(&job.workspace_id, conversation_id, step_id)
+                        .await
+                    {
+                        Ok(Some(mem_json)) => {
+                            if let Some(arr) = mem_json.as_array() {
+                                let mut loaded_count = 0;
+                                for v in arr {
+                                    if let Ok(msg) =
+                                        serde_json::from_value::<OpenAIMessage>(v.clone())
+                                    {
+                                        messages.push(msg);
+                                        loaded_count += 1;
+                                    }
+                                }
+                                tracing::info!(
+                                    "Loaded {} messages from memory for step {}",
+                                    loaded_count,
+                                    step_id
+                                );
+                            } else {
+                                tracing::warn!(
+                                    "Memory file exists but is not a JSON array for step {}",
+                                    step_id
+                                );
+                            }
+                        }
+                        Ok(None) => {
+                            tracing::info!("No memory file found for step {}", step_id);
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to read memory for step {}: {}", step_id, e);
+                        }
+                    }
+                }
+                Ok(None) => {
+                    tracing::info!(
+                        "No conversation found for parent job {}, skipping memory load",
+                        parent_job
+                    );
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to lookup conversation for parent job {}: {}",
+                        parent_job,
+                        e
+                    );
+                }
+            }
+        } else {
+            tracing::info!("No flow_step_id found, skipping memory load");
+        }
+    }
+
     // Create user message with optional images
     let mut parts = vec![ContentPart::Text { text: args.user_message.clone() }];
     if let Some(images) = &args.user_images {
