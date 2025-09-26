@@ -194,6 +194,7 @@ pub async fn handle_deno_job(
     envs: HashMap<String, String>,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
     // let mut start = Instant::now();
     let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
@@ -440,6 +441,9 @@ try {{
         stream_notifier,
     )
     .await?;
+
+    *has_stream = handle_result.result_stream.is_some();
+
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
     if let Err(e) = tokio::fs::remove_dir_all(format!("{DENO_CACHE_DIR}/gen/file/{job_dir}")).await
     {

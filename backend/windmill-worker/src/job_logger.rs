@@ -8,6 +8,7 @@ use windmill_common::worker::{Connection, CLOUD_HOSTED};
 use windmill_common::{error, DB};
 use windmill_queue::append_logs;
 
+use serde::Serialize;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
@@ -62,22 +63,33 @@ pub async fn append_job_logs(
     }
 }
 
+#[derive(Serialize)]
+struct ResultStreamBody<'a> {
+    result_stream: &'a str,
+    offset: i32,
+}
+
 pub async fn append_result_stream(
     conn: &Connection,
     workspace_id: &str,
     job_id: &Uuid,
     nstream: &str,
+    offset: i32,
 ) -> error::Result<()> {
     match conn {
         Connection::Sql(db) => {
-            append_result_stream_db(db, workspace_id, job_id, nstream).await?;
+            append_result_stream_db(db, workspace_id, job_id, nstream, offset).await?;
         }
         Connection::Http(client) => {
+            let body = ResultStreamBody { result_stream: nstream, offset };
             if let Err(e) = client
                 .post::<_, String>(
-                    &format!("/api/w/{}/agent_workers/push_logs/{}", workspace_id, job_id),
+                    &format!(
+                        "/api/w/{}/agent_workers/push_result_stream/{}",
+                        workspace_id, job_id
+                    ),
                     None,
-                    &nstream,
+                    &body,
                 )
                 .await
             {

@@ -7014,14 +7014,20 @@ async fn get_flow_stream_delta(
 ) -> error::Result<Option<(Option<String>, Option<i32>)>> {
     if let Some(job_id) = flow_stream_job_id {
         let record = sqlx::query!(
-            "SELECT SUBSTR(rs.stream, $1) AS new_result_stream, CHAR_LENGTH(rs.stream) + 1 AS stream_offset FROM job_result_stream rs WHERE rs.job_id = $2",
+            "
+            SELECT 
+                string_agg(stream, '' order by idx asc) as stream, 
+                max(idx) + 1 as offset 
+            FROM job_result_stream_v2
+            WHERE job_id = $2 AND idx >= $1
+            ",
             stream_offset.unwrap_or(0),
             job_id,
         )
         .fetch_optional(db)
         .await?;
         if let Some(record) = record {
-            Ok(Some((record.new_result_stream, record.stream_offset)))
+            Ok(Some((record.stream, record.offset)))
         } else {
             Ok(None)
         }
@@ -7070,18 +7076,28 @@ async fn get_job_update_data(
         let (result, running, mut result_stream, mut new_stream_offset, new_flow_stream_job_id) =
             if let Some(tags) = tags {
                 let r = sqlx::query!(
-                "SELECT 
+                "
+                WITH result_stream AS (
+                    SELECT 
+                        string_agg(stream, '' order by idx asc) as stream, 
+                        job_id, 
+                        max(idx) + 1 as offset 
+                    FROM job_result_stream_v2
+                    WHERE job_id = $2 AND idx >= $3
+                    GROUP BY job_id
+                )
+                SELECT 
                     jc.result as \"result: sqlx::types::Json<Box<RawValue>>\",
                     v2_job.tag,
                     v2_job_queue.running as \"running: Option<bool>\",
-                    SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
-                    CHAR_LENGTH(rs.stream) AS stream_offset,
+                    rs.stream AS \"result_stream: Option<String>\",
+                    rs.offset AS stream_offset,
                     CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                 FROM v2_job
                 LEFT JOIN v2_job_queue USING (id)
                 LEFT JOIN v2_job_completed jc USING (id)
                 LEFT JOIN v2_job_status js USING (id)
-                LEFT JOIN job_result_stream rs ON rs.job_id = $2
+                LEFT JOIN result_stream rs ON rs.job_id = $2
                 WHERE v2_job.id = $2 AND v2_job.workspace_id = $1",
                 w_id,
                 job_id,
@@ -7110,11 +7126,21 @@ async fn get_job_update_data(
             } else {
                 if running.is_some_and(|x| !x) {
                     let r = sqlx::query!(
-                    "SELECT
+                    "
+                    WITH result_stream AS (
+                        SELECT 
+                            string_agg(stream, '' order by idx asc) as stream, 
+                            job_id, 
+                            max(idx) + 1 as offset 
+                        FROM job_result_stream_v2
+                        WHERE job_id = $1 AND idx >= $3
+                        GROUP BY job_id
+                    )
+                    SELECT
                         COALESCE(jc.result, jc.result) as \"result: sqlx::types::Json<Box<RawValue>>\",
                         jq.running as \"running: Option<bool>\",
-                        SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
-                        CHAR_LENGTH(rs.stream) + 1 AS stream_offset,
+                        rs.stream AS \"result_stream: Option<String>\",
+                        rs.offset AS stream_offset,
                         CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                     FROM (
                         SELECT $1::uuid as job_id, $2::text as workspace_id
@@ -7122,7 +7148,7 @@ async fn get_job_update_data(
                     LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id
                     LEFT JOIN v2_job_queue jq ON jq.id = base.job_id AND jq.workspace_id = base.workspace_id
                     LEFT JOIN v2_job_status js ON js.id = base.job_id
-                    LEFT JOIN job_result_stream rs ON rs.job_id = base.job_id
+                    LEFT JOIN result_stream rs ON rs.job_id = base.job_id
                     WHERE base.job_id = $1",
                     job_id,
                     w_id,
@@ -7143,10 +7169,20 @@ async fn get_job_update_data(
                     }
                 } else {
                     let q = sqlx::query!(
-                    "SELECT
+                    "
+                    WITH result_stream AS (
+                        SELECT 
+                            string_agg(stream, '' order by idx asc) as stream, 
+                            job_id, 
+                            max(idx) + 1 as offset 
+                        FROM job_result_stream_v2
+                        WHERE job_id = $2 AND idx >= $3
+                        GROUP BY job_id
+                    )
+                    SELECT
                         COALESCE(jc.result, NULL) as \"result: sqlx::types::Json<Box<RawValue>>\",
-                        SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
-                        CHAR_LENGTH(rs.stream) + 1 AS stream_offset,
+                        rs.stream AS \"result_stream: Option<String>\",
+                        rs.offset AS stream_offset,
                         COALESCE(js.flow_status, jc.flow_status) as \"flow_status: sqlx::types::Json<Box<RawValue>>\",
                         CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                     FROM (
@@ -7154,7 +7190,7 @@ async fn get_job_update_data(
                     ) base
                     LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id
                     LEFT JOIN v2_job_status js ON js.id = base.job_id
-                    LEFT JOIN job_result_stream rs ON rs.job_id = base.job_id
+                    LEFT JOIN result_stream rs ON rs.job_id = base.job_id
                     WHERE base.job_id = $2",
                     w_id,
                     job_id,
@@ -7204,20 +7240,30 @@ async fn get_job_update_data(
         })
     } else {
         let mut record = sqlx::query!(
-            "SELECT
+            "
+            WITH result_stream AS (
+                SELECT 
+                    string_agg(stream, '' order by idx asc) as stream, 
+                    job_id, 
+                    max(idx) + 1 as offset 
+                FROM job_result_stream_v2
+                WHERE job_id = $3 AND idx >= $8
+                GROUP BY job_id
+            )
+            SELECT
                 c.id IS NOT NULL AS completed,
                 CASE
                     WHEN q.id IS NOT NULL THEN (CASE WHEN NOT $5 AND q.running THEN true ELSE null END)
                     ELSE false
                 END AS running,
                 CASE WHEN $7::BOOLEAN THEN NULL ELSE SUBSTR(logs, GREATEST($1 - log_offset, 0)) END AS logs,
-                SUBSTR(rs.stream, $8) AS new_result_stream,
+                rs.stream AS new_result_stream,
                 COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,
                 COALESCE(c.flow_status, f.flow_status) AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
                 (COALESCE(c.flow_status, f.flow_status)->>'stream_job')::uuid AS stream_job,
                 COALESCE(c.workflow_as_code_status, f.workflow_as_code_status) AS \"workflow_as_code_status: sqlx::types::Json<Box<RawValue>>\",
                 CASE WHEN $7::BOOLEAN THEN NULL ELSE job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1 END AS log_offset,
-                CHAR_LENGTH(rs.stream) + 1 AS stream_offset,
+                rs.offset AS stream_offset,
                 created_by AS \"created_by!\",
                 CASE WHEN $4::BOOLEAN THEN (
                     SELECT scalar_int FROM job_stats WHERE job_id = $3 AND metric_id = 'progress_perc'
@@ -7228,7 +7274,7 @@ async fn get_job_update_data(
                 LEFT JOIN v2_job_runtime r USING (id)
                 LEFT JOIN v2_job_status f USING (id)
                 LEFT JOIN v2_job_completed c USING (id)
-                LEFT JOIN job_result_stream rs ON rs.job_id = $3
+                LEFT JOIN result_stream rs ON rs.job_id = $3
                 LEFT JOIN job_logs ON job_logs.job_id =  $3
             WHERE j.workspace_id = $2 AND j.id = $3
             AND ($6::text[] IS NULL OR j.tag = ANY($6))",
