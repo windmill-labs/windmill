@@ -32,6 +32,7 @@ export interface Setting {
 		| 'smtp_connect'
 		| 'indexer_rates'
 		| 'otel'
+		| 'powershell_repo_config'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -312,6 +313,14 @@ export const settings: Record<string, Setting[]> = {
 			key: 'nuget_config',
 			fieldType: 'codearea',
 			codeAreaLang: 'xml',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'PowerShell Repository',
+			description: 'Private PowerShell repository configuration',
+			key: 'powershell_repo',
+			fieldType: 'powershell_repo_config',
 			storage: 'setting',
 			ee_only: ''
 		},

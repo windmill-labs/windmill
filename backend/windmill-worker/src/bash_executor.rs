@@ -33,7 +33,7 @@ const NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT: &str =
     include_str!("../nsjail/run.powershell.config.proto");
 
 lazy_static::lazy_static! {
-    static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"^Import-Module\s+(?:-Name\s+)?"?([^-\s"]+)"?"#).unwrap();
+    static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"^Import-Module\s+(?:-Name\s+)?"?([^\s"]+)"?"#).unwrap();
 }
 
 #[cfg(feature = "dind")]
@@ -46,7 +46,7 @@ use crate::{
     },
     handle_child::handle_child,
     DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR,
-    POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
+    POWERSHELL_PATH, POWERSHELL_REPO, PROXY_ENVS, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -520,21 +520,110 @@ fn raw_to_string(x: &str) -> String {
     }
 }
 
-const POWERSHELL_INSTALL_CODE: &str = r#"
+fn generate_powershell_install_code_with_private_repo() -> String {
+    r#"
 $availableModules = Get-Module -ListAvailable
 $path = '{path}'
+$jobId = '{job_id}'
+$privateRepoConfig = '{private_repo_config}'
+
+# Parse the private repo configuration
+try {
+    $repoSettings = $privateRepoConfig | ConvertFrom-Json -ErrorAction Stop
+    $privateRepoUrl = $repoSettings.url
+    $privateRepoPat = $repoSettings.pat
+    
+    if (-not $privateRepoUrl -or -not $privateRepoPat) {
+        Write-Host "Private repo configuration missing url or pat, skipping private repository"
+        $usePrivateRepo = $false
+    } else {
+        $usePrivateRepo = $true
+        # Register temporary private repository with job ID
+        $repoName = "windmill-private-$jobId"
+        $repoUri = "$privateRepoUrl"
+        
+        # Create PSCredential for authentication
+        $username = "token"
+        $patToken = ConvertTo-SecureString $privateRepoPat -AsPlainText -Force
+        $credentials = New-Object System.Management.Automation.PSCredential($username, $patToken)
+        
+        Write-Host "Registering temporary repository: $repoName"
+        try {
+            # Remove repository if it already exists
+            Unregister-PSResourceRepository -Name $repoName -ErrorAction SilentlyContinue
+            Register-PSResourceRepository -Name $repoName -Uri $repoUri -Trusted -ErrorAction Stop
+            Write-Host "Successfully registered repository: $repoName"
+        } catch {
+            Write-Host "Failed to register repository: $($_.Exception.Message)"
+            Write-Host "Continuing with public repositories only..."
+            $usePrivateRepo = $false
+        }
+    }
+} catch {
+    Write-Host "Failed to parse private repo configuration: $($_.Exception.Message)"
+    Write-Host "Continuing with public repositories only..."
+    $usePrivateRepo = $false
+}
 
 $moduleNames = @({modules})
-
 foreach ($module in $moduleNames) {
     if (-not ($availableModules | Where-Object { $_.Name -eq $module })) {
         Write-Host "Installing module $module..."
-        Save-Module -Name $module -Path $path -Force
+        
+        $moduleFound = $false
+        # First try private repository if configured
+        if ($usePrivateRepo) {
+            try {
+                $privateModule = Find-PSResource -Name $module -Repository $repoName -ErrorAction SilentlyContinue -Credential $credentials
+                if ($privateModule) {
+                    Write-Host "Found $module in private repository, installing from there..."
+                    Save-PSResource -Name $module -Path $path -Repository $repoName -Credential $credentials
+                    $moduleFound = $true
+                }
+            } catch {
+                Write-Host "Module $module not found in private repository or error occurred: $($_.Exception.Message)"
+            }
+        }
+        
+        # If not found in private repo, try public repositories
+        if (-not $moduleFound) {
+            Write-Host "Installing $module from public repositories..."
+            Save-PSResource -Name $module -Path $path
+        }
     } else {
         Write-Host "Module $module already installed"
     }
 }
-"#;
+
+# Clean up: Unregister the temporary repository if it was registered
+if ($usePrivateRepo -and $repoName) {
+    try {
+        Unregister-PSResourceRepository -Name $repoName -ErrorAction SilentlyContinue
+        Write-Host "Unregistered temporary repository: $repoName"
+    } catch {
+        Write-Host "Failed to unregister repository: $($_.Exception.Message)"
+    }
+}
+"#.to_string()
+}
+
+fn generate_powershell_install_code_public_only() -> String {
+    r#"
+$availableModules = Get-Module -ListAvailable
+$path = '{path}'
+
+$moduleNames = @({modules})
+foreach ($module in $moduleNames) {
+    if (-not ($availableModules | Where-Object { $_.Name -eq $module })) {
+        Write-Host "Installing module $module from public repositories..."
+        Save-PSResource -Name $module -Path $path
+    } else {
+        Write-Host "Module $module already installed"
+    }
+}
+"#.to_string()
+}
+
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
@@ -617,16 +706,30 @@ pub async fn handle_powershell_job(
     }
 
     if !modules_to_install.is_empty() {
-        let install_string = POWERSHELL_INSTALL_CODE
-            .replace("{path}", POWERSHELL_CACHE_DIR)
-            .replace(
-                "{modules}",
-                &modules_to_install
-                    .iter()
-                    .map(|x| format!("'{x}'"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            );
+        let powershell_repo = POWERSHELL_REPO.read().await.clone();
+        let install_template = if powershell_repo.is_some() {
+            generate_powershell_install_code_with_private_repo()
+        } else {
+            generate_powershell_install_code_public_only()
+        };
+        
+        let modules_list = modules_to_install
+            .iter()
+            .map(|x| format!("'{x}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        
+        let install_string = if let Some(repo_config) = &powershell_repo {
+            install_template
+                .replace("{path}", POWERSHELL_CACHE_DIR)
+                .replace("{job_id}", &job.id.to_string())
+                .replace("{private_repo_config}", repo_config)
+                .replace("{modules}", &modules_list)
+        } else {
+            install_template
+                .replace("{path}", POWERSHELL_CACHE_DIR)
+                .replace("{modules}", &modules_list)
+        };
         let mut cmd = Command::new(POWERSHELL_PATH.as_str());
         cmd.args(&["-Command", &install_string])
             .stdout(Stdio::piped())

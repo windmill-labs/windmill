@@ -343,6 +343,7 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
     pub static ref NUGET_CONFIG: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref POWERSHELL_REPO: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref MAVEN_REPOS: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref NO_DEFAULT_MAVEN: AtomicBool = AtomicBool::new(std::env::var("NO_DEFAULT_MAVEN")
         .ok()
