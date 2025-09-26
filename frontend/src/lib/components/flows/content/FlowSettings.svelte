@@ -22,6 +22,7 @@
 	import Badge from '$lib/components/Badge.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
+	import { emptySchema } from '$lib/utils'
 
 	interface Props {
 		noEditor: boolean
@@ -40,6 +41,8 @@
 	let dirtyPath = $state(false)
 
 	let displayWorkerTagPicker = $state(false)
+	let chatInputEnabled = $derived(Boolean(flowStore.val.schema?.chat_input_enabled))
+
 	run(() => {
 		flowStore.val.tag ? (displayWorkerTagPicker = true) : null
 	})
@@ -126,7 +129,52 @@
 					/>
 				</Label>
 
-				{#if flowStore.val.schema && enableAi}
+				<!-- Chat Input Section -->
+				<div>
+					<Toggle
+						textClass="font-normal text-sm"
+						size="sm"
+						checked={chatInputEnabled}
+						on:change={() => {
+							if (!chatInputEnabled) {
+								flowStore.val.schema = {
+									$schema: 'https://json-schema.org/draft/2020-12/schema',
+									type: 'object',
+									properties: {
+										user_message: {
+											type: 'string',
+											description: 'Message from user'
+										}
+									},
+									chat_input_enabled: true,
+									required: ['user_message']
+								}
+								flowStore.val.value.modules = [
+									{
+										id: 'a',
+										value: {
+											type: 'aiagent',
+											tools: [],
+											input_transforms: {
+												user_message: { type: 'javascript', expr: 'flow_input.user_message' }
+											}
+										}
+									}
+								]
+							} else {
+								flowStore.val.schema = emptySchema()
+							}
+						}}
+						options={{
+							right: 'Chat Input Mode',
+							rightTooltip:
+								'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter. The flow schema will be automatically set to accept only a user_message string input.'
+						}}
+						class="py-1"
+					/>
+				</div>
+
+				{#if flowStore.val.schema && enableAi && !flowStore.val.schema?.chat_input_enabled}
 					<AIFormSettings
 						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
 						type="flow"

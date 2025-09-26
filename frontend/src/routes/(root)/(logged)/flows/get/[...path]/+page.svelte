@@ -17,6 +17,7 @@
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import FlowChatInterface from '$lib/components/flows/FlowChatInterface.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -195,6 +196,16 @@
 		} finally {
 			loading = false
 		}
+	}
+
+	async function runFlowForChat(args: Record<string, any>): Promise<string> {
+		const run = await JobService.runFlowByPath({
+			workspace: $workspaceStore!,
+			path,
+			requestBody: args,
+			skipPreprocessor: true
+		})
+		return run
 	}
 
 	let args: Record<string, any> | undefined = $state(undefined)
@@ -536,19 +547,21 @@
 								}}
 								{inputSelected}
 							/>
-							<Toggle
-								bind:checked={jsonView}
-								label="JSON View"
-								size="xs"
-								options={{
-									right: 'JSON',
-									rightTooltip: 'Fill args from JSON'
-								}}
-								lightMode
-								on:change={(e) => {
-									runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-								}}
-							/>
+							{#if !flow?.schema?.chat_input_enabled}
+								<Toggle
+									bind:checked={jsonView}
+									label="JSON View"
+									size="xs"
+									options={{
+										right: 'JSON',
+										rightTooltip: 'Fill args from JSON'
+									}}
+									lightMode
+									on:change={(e) => {
+										runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+									}}
+								/>
+							{/if}
 						</div>
 
 						{#if flow.schema?.prompt_for_ai !== undefined}
@@ -561,21 +574,25 @@
 							/>
 						{/if}
 
-						<RunForm
-							bind:scheduledForStr
-							bind:invisible_to_owner
-							bind:overrideTag
-							viewKeybinding
-							{loading}
-							autofocus
-							detailed={false}
-							bind:isValid
-							runnable={flow}
-							runAction={runFlow}
-							bind:args
-							bind:this={runForm}
-							{jsonView}
-						/>
+						{#if flow?.schema?.chat_input_enabled}
+							<FlowChatInterface onRunFlow={runFlowForChat} />
+						{:else}
+							<RunForm
+								bind:scheduledForStr
+								bind:invisible_to_owner
+								bind:overrideTag
+								viewKeybinding
+								{loading}
+								autofocus
+								detailed={false}
+								bind:isValid
+								runnable={flow}
+								runAction={runFlow}
+								bind:args
+								bind:this={runForm}
+								{jsonView}
+							/>
+						{/if}
 					</div>
 
 					<div class="py-10"></div>
