@@ -135,7 +135,7 @@
 			{#if showWorkspace}
 				<div class="w-2/12">Workspace</div>
 			{/if}
-			<div class={showWorkspace ? "w-3/12" : "w-3/12"}>Operation</div>
+			<div class={showWorkspace ? "w-2/12" : "w-3/12"}>Operation</div>
 			<div class="w-2/12">Resource</div>
 		</div>
 	</div>
@@ -208,7 +208,7 @@
 											</div>
 										</div>
 									{/if}
-									<div class={showWorkspace ? "w-3/12 text-xs" : "w-3/12 text-xs"}>
+									<div class={showWorkspace ? "w-2/12 text-xs" : "w-3/12 text-xs"}>
 										<div class="flex flex-row gap-1">
 											<Badge
 												on:click={() => {
