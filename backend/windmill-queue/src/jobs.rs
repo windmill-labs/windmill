@@ -147,6 +147,7 @@ pub struct JobCompleted {
     pub token: String,
     pub canceled_by: Option<CanceledBy>,
     pub duration: Option<i64>,
+    pub has_stream: bool,
 }
 
 pub async fn cancel_single_job<'c>(
@@ -737,6 +738,7 @@ pub async fn add_completed_job_error(
         canceled_by,
         flow_is_done,
         duration,
+        false,
     )
     .await?;
     Ok(result)
@@ -758,6 +760,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     canceled_by: Option<CanceledBy>,
     flow_is_done: bool,
     duration: Option<i64>,
+    has_stream: bool,
 ) -> Result<(Uuid, i64), Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
@@ -782,6 +785,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             &canceled_by,
             flow_is_done,
             duration,
+            has_stream,
         )
     })
     .retry(
@@ -834,6 +838,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     canceled_by: &Option<CanceledBy>,
     flow_is_done: bool,
     duration: Option<i64>,
+    has_stream: bool,
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool)> {
     // let start = std::time::Instant::now();
 
@@ -1115,6 +1120,12 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job_id)
         .execute(&mut *tx)
         .await?;
+
+    if !success || has_stream {
+        sqlx::query!("DELETE FROM job_result_stream_v2 WHERE job_id = $1", job_id)
+            .execute(&mut *tx)
+            .await?;
+    }
 
     tx.commit().await?;
 

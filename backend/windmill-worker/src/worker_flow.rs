@@ -1473,6 +1473,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     None,
                     true,
                     None,
+                    false,
                 )
                 .await?;
                 duration
@@ -1492,6 +1493,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     None,
                     true,
                     None,
+                    false,
                 )
                 .await?;
                 duration

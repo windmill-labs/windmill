@@ -29,7 +29,7 @@ use windmill_queue::{append_logs, CanceledBy};
 use std::os::unix::process::ExitStatusExt;
 
 use std::process::ExitStatus;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::{io, panic, time::Duration};
 
@@ -388,6 +388,7 @@ pub async fn write_lines(
     let mut pipe_stdout = pipe_stdout;
 
     let is_stream = Arc::new(AtomicBool::new(false));
+    let offset = Arc::new(AtomicI32::new(0));
     while let Some(line) = output.by_ref().next().await {
         let do_write_ = do_write.shared();
 
@@ -486,6 +487,7 @@ pub async fn write_lines(
             let pg_log_total_size = pg_log_total_size.clone();
             let stream_notifier = stream_notifier.clone();
             let is_stream = is_stream.clone();
+            let offset = offset.clone();
             (do_write, write_result) = tokio::spawn(async move {
                 if !nstream.is_empty() {
                     if let Some(stream_notifier) = stream_notifier {
@@ -493,9 +495,17 @@ pub async fn write_lines(
                             is_stream.store(true, Ordering::SeqCst);
                             stream_notifier.update_flow_status_with_stream_job();
                         }
-                    }
+                    };
 
-                    if let Err(err) = append_result_stream(&conn, &w_id, &job_id, &nstream).await {
+                    if let Err(err) = append_result_stream(
+                        &conn,
+                        &w_id,
+                        &job_id,
+                        &nstream,
+                        offset.fetch_add(1, Ordering::SeqCst),
+                    )
+                    .await
+                    {
                         tracing::error!(
                             "Unable to send result stream for job {job_id}. Error was: {:?}",
                             err

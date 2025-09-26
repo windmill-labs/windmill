@@ -544,6 +544,7 @@ pub async fn handle_python_job(
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    has_stream: &mut bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
@@ -884,6 +885,8 @@ mount {{
         stream_notifier,
     )
     .await?;
+
+    *has_stream = handle_result.result_stream.is_some();
 
     if apply_preprocessor {
         let args = read_file(&format!("{job_dir}/args.json"))
