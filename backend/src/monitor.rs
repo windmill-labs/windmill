@@ -950,6 +950,17 @@ pub async fn delete_expired_items(db: &DB) -> () {
                             {
                                 tracing::error!("Error deleting job: {:?}", e);
                             }
+
+                            // should already be deleted but just in case
+                            if let Err(e) = sqlx::query!(
+                                "DELETE FROM job_result_stream_v2 WHERE job_id = ANY($1)",
+                                &deleted_jobs
+                            )
+                            .execute(&mut *tx)
+                            .await
+                            {
+                                tracing::error!("Error deleting job result stream: {:?}", e);
+                            }
                         }
                     }
                     Err(e) => {

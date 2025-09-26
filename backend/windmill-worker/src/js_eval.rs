@@ -792,6 +792,7 @@ pub async fn eval_fetch_timeout(
     load_client: bool,
     occupation_metrics: &mut OccupancyMetrics,
     stream_notifier: Option<StreamNotifier>,
+    has_stream: &mut bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
     let (append_logs_sender, mut append_logs_receiver) = mpsc::unbounded_channel::<String>();
@@ -983,22 +984,24 @@ pub async fn eval_fetch_timeout(
             drop(js_runtime);
             if let Ok(r) = r {
                 match handle.await {
-                    Ok(Some(logs)) => Ok(merge_result_stream(r, Some(logs)).await),
-                    Ok(None) => Ok(r),
+                    Ok(Some(logs)) => {
+                        Ok(merge_result_stream(r, Some(logs)).await.map(|r| (r, true)))
+                    }
+                    Ok(None) => Ok(r.map(|r| (r, false))),
                     Err(e) => Err(Error::ExecutionErr(e.to_string())),
                 }
             } else {
-                r
+                r.map(|r| r.map(|r| (r, false)))
             }
             // r
         };
         let r = runtime.block_on(future)?;
         // tracing::info!("total: {:?}", instant.elapsed());
 
-        r as windmill_common::error::Result<Box<RawValue>>
+        r as windmill_common::error::Result<(Box<RawValue>, bool)>
     });
 
-    let res = run_future_with_polling_update_job_poller(
+    let (res, new_has_stream) = run_future_with_polling_update_job_poller(
         job_id,
         job_timeout,
         conn,
@@ -1017,6 +1020,7 @@ pub async fn eval_fetch_timeout(
         }
         e
     })?;
+    *has_stream = new_has_stream;
     *mem_peak = (res.get().len() / 1000) as i32;
     Ok(res)
 }

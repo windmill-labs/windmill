@@ -4,10 +4,10 @@ CREATE TABLE job_result_stream_v2 (
     workspace_id TEXT NOT NULL,
     stream TEXT NOT NULL,
     idx INT NOT NULL,
-    PRIMARY KEY (job_id, idx),
-    FOREIGN KEY (job_id) REFERENCES v2_job_queue(id) ON DELETE CASCADE
+    PRIMARY KEY (job_id, idx)
 );
 
 GRANT ALL ON TABLE job_result_stream_v2 TO windmill_admin;
 GRANT ALL ON TABLE job_result_stream_v2 TO windmill_user;
 
+ALTER TABLE job_result_stream DROP CONSTRAINT fk_job_result_stream_job_id;

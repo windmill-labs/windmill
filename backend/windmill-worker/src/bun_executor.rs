@@ -858,6 +858,7 @@ pub async fn handle_bun_job(
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
@@ -1331,6 +1332,7 @@ try {{
                 false,
                 occupancy_metrics,
                 stream_notifier,
+                has_stream,
             )
             .await?;
             tracing::info!(
@@ -1492,6 +1494,8 @@ try {{
         stream_notifier,
     )
     .await?;
+
+    *has_stream = handle_result.result_stream.is_some();
 
     if apply_preprocessor {
         let args = read_file(&format!("{job_dir}/args.json"))
