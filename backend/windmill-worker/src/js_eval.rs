@@ -770,6 +770,7 @@ pub async fn eval_fetch_timeout(
     _load_client: bool,
     _occupation_metrics: &mut OccupancyMetrics,
     _stream_notifier: Option<StreamNotifier>,
+    _has_stream: &mut bool,
 ) -> anyhow::Result<Box<RawValue>> {
     use serde_json::value::to_raw_value;
     Ok(to_raw_value("require deno_core").unwrap())
