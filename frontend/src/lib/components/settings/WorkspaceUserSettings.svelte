@@ -68,6 +68,25 @@
 		(filteredUsers || users || []).some((user: User) => user.added_via?.source === 'instance_group' || user.added_via?.source === 'domain')
 	)
 
+	// Function to check if a manual user can be converted to a group user
+	function canConvertToGroup(user: User): boolean {
+		// User must be manually added (not via instance group or domain)
+		if (user.added_via?.source === 'instance_group' || user.added_via?.source === 'domain') {
+			return false
+		}
+
+		// Check if user's email is in any configured instance group
+		const userEmail = user.email
+		for (const groupName of autoAddInstanceGroups) {
+			const group = instanceGroups.find(g => g.name === groupName)
+			if (group && group.emails && group.emails.includes(userEmail)) {
+				return true
+			}
+		}
+
+		return false
+	}
+
 
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
@@ -195,6 +214,20 @@
 		}
 	}
 
+	async function convertUserToGroup(username: string): Promise<void> {
+		try {
+			await UserService.convertUserToGroup({
+				workspace: $workspaceStore ?? '',
+				username
+			})
+			sendUserToast('User converted to group user')
+			listUsers()
+		} catch (e) {
+			console.error('Failed to convert user:', e)
+			sendUserToast('Failed to convert user', true)
+		}
+	}
+
 	let domain = $derived($userStore?.email.split('@')[1])
 
 	$effect(() => {
@@ -220,6 +253,7 @@
 
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let removeInstanceGroupConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let convertConfirmedCallback: (() => void) | undefined = $state(undefined)
 
 	async function removeAllInvitesFromDomain() {
 		await Promise.all(
@@ -634,7 +668,8 @@
 		</Head>
 		<tbody class="divide-y bg-surface">
 			{#if filteredUsers}
-				{#each sortedUsers().slice(0, nbDisplayed) as { email, username, is_admin, operator, disabled, added_via }, index (email)}
+				{#each sortedUsers().slice(0, nbDisplayed) as user, index (user.email)}
+					{@const { email, username, is_admin, operator, disabled, added_via } = user}
 					<!-- Add separator between manual users and instance group users -->
 					{#if hasNonManualUsers && index > 0 && sortedUsers()[index - 1]?.added_via?.source !== 'instance_group' && added_via?.source === 'instance_group'}
 						<tr class="bg-surface-secondary">
@@ -774,6 +809,40 @@
 										</Button>
 										<Tooltip>Cannot remove users synced from instance groups. Either disable the user or remove them from the SCIM group.</Tooltip>
 									</div>
+								{:else if canConvertToGroup(user)}
+									<Button
+										color="light"
+										variant="contained"
+										btnClasses="text-blue-500"
+										size="xs"
+										spacingSize="xs2"
+										on:click={() => {
+											convertConfirmedCallback = async () => {
+												await convertUserToGroup(username)
+											}
+										}}
+									>
+										Convert
+									</Button>
+									<Button
+										color="light"
+										variant="contained"
+										btnClasses="text-red-500"
+										size="xs"
+										spacingSize="xs2"
+										on:click={() => {
+											deleteConfirmedCallback = async () => {
+												await UserService.deleteUser({
+													workspace: $workspaceStore ?? '',
+													username
+												})
+												sendUserToast('User removed')
+												listUsers()
+											}
+										}}
+									>
+										Remove
+									</Button>
 								{:else}
 									<Button
 										color="light"
@@ -963,3 +1032,28 @@
 		</div>
 	</ConfirmationModal>
 </div>
+
+<ConfirmationModal
+	open={Boolean(convertConfirmedCallback)}
+	title="Convert to Group User"
+	confirmationText="Convert"
+	on:canceled={() => {
+		convertConfirmedCallback = undefined
+	}}
+	on:confirmed={() => {
+		if (convertConfirmedCallback) {
+			convertConfirmedCallback()
+		}
+		convertConfirmedCallback = undefined
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to convert this user to a group user?</span>
+		<span class="text-sm text-secondary">This will:</span>
+		<ul class="text-sm text-secondary list-disc ml-4 space-y-1">
+			<li>Change the user's role based on their instance group configuration</li>
+			<li>Make their role managed through the instance group settings</li>
+			<li>Prevent manual role changes for this user</li>
+		</ul>
+	</div>
+</ConfirmationModal>
