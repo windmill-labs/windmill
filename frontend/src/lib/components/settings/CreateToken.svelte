@@ -5,13 +5,21 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
-	import { FlowService, IntegrationService, ScriptService, UserService, type NewToken } from '$lib/gen'
+	import {
+		FlowService,
+		IntegrationService,
+		ScriptService,
+		UserService,
+		type NewToken
+	} from '$lib/gen'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopeSelector from './ScopeSelector.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import FolderPicker from '../FolderPicker.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
+	import Select from '../select/Select.svelte'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -44,7 +52,7 @@
 	let loadingRunnables = $state(false)
 	let includedRunnables = $state<string[]>([])
 	let selectedFolder = $state<string>('')
-	
+
 	let runnablesCache = new Map<string, string[]>()
 
 	let customScopes = $state<string[]>([])
@@ -110,7 +118,11 @@
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
-	const warning = $derived(newMcpScope === 'favorites' ? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.` : 'Create your first scripts or flows to make them available via MCP.')
+	const warning = $derived(
+		newMcpScope === 'favorites'
+			? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.`
+			: 'Create your first scripts or flows to make them available via MCP.'
+	)
 	const noScriptsOrFlowsAvailableWarning = $derived(includedRunnables.length === 0 ? warning : '')
 
 	$effect(() => {
@@ -141,7 +153,11 @@
 		}
 	}
 
-	async function getScripts(favoriteOnly: boolean = false, workspace: string, folder: string | undefined) {
+	async function getScripts(
+		favoriteOnly: boolean = false,
+		workspace: string,
+		folder: string | undefined
+	) {
 		if (!workspace) {
 			return []
 		}
@@ -154,7 +170,11 @@
 		return scripts.map((x) => x.path)
 	}
 
-	async function getFlows(favoriteOnly: boolean = false, workspace: string, folder: string | undefined) {
+	async function getFlows(
+		favoriteOnly: boolean = false,
+		workspace: string,
+		folder: string | undefined
+	) {
 		if (!workspace) {
 			return []
 		}
@@ -167,7 +187,11 @@
 		return flows.map((x) => x.path)
 	}
 
-	async function getScriptsAndFlows(favoriteOnly: boolean = false, workspace: string, folder: string | undefined) {
+	async function getScriptsAndFlows(
+		favoriteOnly: boolean = false,
+		workspace: string,
+		folder: string | undefined
+	) {
 		const cacheKey = `${workspace}-${favoriteOnly}${folder ? `-${folder}` : ''}`
 		if (runnablesCache.has(cacheKey)) {
 			includedRunnables = runnablesCache.get(cacheKey) || []
@@ -176,7 +200,10 @@
 
 		try {
 			loadingRunnables = true
-			const [scripts, flows] = await Promise.all([getScripts(favoriteOnly, workspace, folder), getFlows(favoriteOnly, workspace, folder)])
+			const [scripts, flows] = await Promise.all([
+				getScripts(favoriteOnly, workspace, folder),
+				getFlows(favoriteOnly, workspace, folder)
+			])
 			const combined = [...scripts, ...flows]
 			runnablesCache.set(cacheKey, combined)
 			includedRunnables = combined
@@ -333,7 +360,11 @@
 
 			<div>
 				<span class="block mb-1">Label <span class="text-xs text-tertiary">(optional)</span></span>
-				<input type="text" bind:value={newTokenLabel} class="w-full" />
+				<TextInput
+					inputProps={{ type: 'text' }}
+					bind:value={newTokenLabel}
+					class="w-full !bg-surface"
+				/>
 			</div>
 
 			{#if !mcpCreationMode}
@@ -341,58 +372,61 @@
 					<span class="block mb-1"
 						>Expires In <span class="text-xs text-tertiary">(optional)</span></span
 					>
-					<select bind:value={newTokenExpiration} class="w-full">
-						<option value={undefined}>No expiration</option>
-						<option value={15 * 60}>15m</option>
-						<option value={30 * 60}>30m</option>
-						<option value={1 * 60 * 60}>1h</option>
-						<option value={1 * 24 * 60 * 60}>1d</option>
-						<option value={7 * 24 * 60 * 60}>7d</option>
-						<option value={30 * 24 * 60 * 60}>30d</option>
-						<option value={90 * 24 * 60 * 60}>90d</option>
-					</select>
+					<Select
+						bind:value={newTokenExpiration}
+						placeholder="No expiration"
+						inputClass="!bg-surface"
+						items={[
+							{ label: 'No expiration', value: undefined },
+							{ label: '15 minutes', value: 15 * 60 },
+							{ label: '30 minutes', value: 30 * 60 },
+							{ label: '1 hour', value: 1 * 60 * 60 },
+							{ label: '1 day', value: 1 * 24 * 60 * 60 },
+							{ label: '7 days', value: 7 * 24 * 60 * 60 },
+							{ label: '30 days', value: 30 * 24 * 60 * 60 },
+							{ label: '90 days', value: 90 * 24 * 60 * 60 }
+						]}
+					/>
 				</div>
 			{/if}
 			{#if mcpCreationMode && (newMcpScope !== 'folder' || selectedFolder.length > 0)}
-			{#if loadingRunnables}
-				<div class="flex flex-col gap-2 col-span-2 pr-4">
-					<span class="block text-xs text-tertiary">Scripts & Flows that will be available via MCP</span>
-					<div class="flex flex-wrap gap-1">
-						<Badge rounded small color="dark-gray" baseClass="animate-skeleton">Loading...</Badge>
-					</div>
-				</div>
-			{:else}
-				<div class="flex flex-col gap-2 col-span-2 pr-4">
-					{#if noScriptsOrFlowsAvailableWarning}
-					<Alert type="info" title="No scripts or flows available" size="xs">
-						{noScriptsOrFlowsAvailableWarning}
-					</Alert>
-					{:else}
-						<span class="block text-xs text-tertiary">Scripts & Flows that will be available via MCP</span>
+				{#if loadingRunnables}
+					<div class="flex flex-col gap-2 col-span-2 pr-4">
+						<span class="block text-xs text-tertiary"
+							>Scripts & Flows that will be available via MCP</span
+						>
 						<div class="flex flex-wrap gap-1">
-
-						{#if includedRunnables.length <= 5}
-							{#each includedRunnables as scriptOrFlow}
-								<Badge rounded small color="blue">{scriptOrFlow}</Badge>
-							{/each}
-						{:else}
-							{#each includedRunnables.slice(0, 3) as scriptOrFlow}
-								<Badge rounded small color="blue">{scriptOrFlow}</Badge>
-							{/each}
-							<Badge 
-								rounded 
-								small 
-								color="dark-gray" 
-							>
-								+{includedRunnables.length - 3} more
-							</Badge>
-							{/if}
+							<Badge rounded small color="dark-gray" baseClass="animate-skeleton">Loading...</Badge>
 						</div>
-					{/if}
-				</div>
+					</div>
+				{:else}
+					<div class="flex flex-col gap-2 col-span-2 pr-4">
+						{#if noScriptsOrFlowsAvailableWarning}
+							<Alert type="info" title="No scripts or flows available" size="xs">
+								{noScriptsOrFlowsAvailableWarning}
+							</Alert>
+						{:else}
+							<span class="block text-xs text-tertiary"
+								>Scripts & Flows that will be available via MCP</span
+							>
+							<div class="flex flex-wrap gap-1">
+								{#if includedRunnables.length <= 5}
+									{#each includedRunnables as scriptOrFlow}
+										<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+									{/each}
+								{:else}
+									{#each includedRunnables.slice(0, 3) as scriptOrFlow}
+										<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+									{/each}
+									<Badge rounded small color="dark-gray">
+										+{includedRunnables.length - 3} more
+									</Badge>
+								{/if}
+							</div>
+						{/if}
+					</div>
+				{/if}
 			{/if}
-			{/if}
-
 		</div>
 
 		<div class="mt-4 flex justify-end gap-2 flex-row">
@@ -405,7 +439,8 @@
 			</Button>
 			<Button
 				on:click={() => createToken(mcpCreationMode)}
-				disabled={mcpCreationMode && (newTokenWorkspace == undefined || (newMcpScope === 'folder' && !selectedFolder))}
+				disabled={mcpCreationMode &&
+					(newTokenWorkspace == undefined || (newMcpScope === 'folder' && !selectedFolder))}
 			>
 				New token
 			</Button>

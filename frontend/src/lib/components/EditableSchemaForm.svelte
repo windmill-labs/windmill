@@ -358,11 +358,11 @@
 		['String', 'string'],
 		['Number', 'number'],
 		['Integer', 'integer'],
-		['Object', 'object'],
+		['Boolean', 'boolean'],
 		['Resource', 'resource'],
+		['Object', 'object'],
 		['OneOf', 'oneOf'],
 		['Array', 'array'],
-		['Boolean', 'boolean'],
 		['S3', 'S3']
 	])
 
@@ -530,7 +530,7 @@
 				{:else}
 					<!-- WIP -->
 					{#if jsonEnabled && customUi?.jsonOnly != true}
-						<div class="w-full p-3 flex gap-4 justify-end items-center">
+						<div class="w-full px-3 flex gap-4 justify-end items-center">
 							{#if addPropertyInEditorTab}
 								<AddPropertyV2
 									bind:schema
@@ -549,8 +549,8 @@
 									label="JSON View"
 									size="xs"
 									options={{
-										right: 'JSON editor',
-										rightTooltip:
+										left: 'JSON editor',
+										leftTooltip:
 											'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
 									}}
 									lightMode
