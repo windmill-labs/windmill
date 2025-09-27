@@ -222,7 +222,11 @@
 	async function onJobLoaded() {
 		// We want to set up scriptProgress once job is loaded
 		// We need this to show progress bar if job has progress and is finished
-		if (job && job.type == 'CompletedJob') {
+		if (
+			job &&
+			job.type == 'CompletedJob' &&
+			(job.job_kind == 'script' || isScriptPreview(job.job_kind))
+		) {
 			// If error occured and job is completed
 			// than we fetch progress from server to display on what progress did it fail
 			// Could be displayed after run or as a historical page

@@ -168,7 +168,6 @@
 		reloadError = undefined
 		try {
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
-			console.log('reload', schema)
 			validCode = true
 
 			if (inputTransformSchemaForm) {
