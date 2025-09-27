@@ -189,7 +189,7 @@
 	class={twMerge(
 		`relative center-center flex flex-col gap-x-2 gap-y-1 justify-center items-center flex-wrap text-center font-normal text-hint text-xs rounded-md
 		bg-surface-secondary
-		border border-dashed border-transparent hover:border-blue-500
+		border border-dashed border-nord-400 dark:border-nord-300 hover:border-nord-900 dark:hover:border-nord-900
 		focus-within:border-blue-300 hover:bg-blue-50 dark:hover:bg-frost-900
 		duration-200 px-1 py-8`,
 		c
@@ -259,7 +259,7 @@
 	/>
 	{#if defaultFile && (!Array.isArray(defaultFile) || defaultFile.length > 0)}
 		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-tertiary mt-2">
-			Default file: <span class="text-blue-500">{defaultFile}</span>
+			Default file: <span class="text-nord-900">{defaultFile}</span>
 		</div>
 	{/if}
 </button>

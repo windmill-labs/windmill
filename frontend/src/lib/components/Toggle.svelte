@@ -18,7 +18,7 @@
 	export let disabled = false
 	export let textClass = ''
 	export let textStyle = ''
-	export let color: 'blue' | 'red' | 'nord' = 'blue'
+	export let color: 'blue' | 'red' | 'nord' = 'nord'
 	export let id = (Math.random() + 1).toString(36).substring(10)
 	export let lightMode: boolean = false
 	export let eeOnly: boolean = false

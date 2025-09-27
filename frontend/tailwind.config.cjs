@@ -14,7 +14,7 @@ const lightTheme = {
 	textPrimary: '#2d3748',
 	textSecondary: '#4a5568',
 	textTertiary: '#505c70',
-	textHint: '#A0A6B2',
+	textHint: '#757E8F',
 	textDisabled: '#a0aec0',
 
 	border: '#dddddd',

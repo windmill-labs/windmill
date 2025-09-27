@@ -155,19 +155,21 @@
 	}
 </script>
 
-<div class="w-full flex flex-col gap-1 bg-surface-secondary rounded-md">
+<div
+	class="w-full flex flex-col gap-1 bg-surface-secondary border-[1px] border-nord-400 rounded-md"
+>
 	<!-- Provider Selection -->
-	<div class="flex flex-col gap-2">
+	<div class="flex flex-col gap-2 mx-[-1px] mt-[-1px]">
 		<ToggleButtonGroup
 			selected={value?.kind}
 			onSelected={onProviderChange}
 			{disabled}
 			wrap
-			tabListClass="w-full"
+			tabListClass="w-full bg-transparent"
 		>
 			{#snippet children({ item })}
 				{#each providerOptions.slice(0, 3) as option}
-					<ToggleButton value={option.value} label={option.label} {item} />
+					<ToggleButton value={option.value} label={option.label} {item} class="bg-transparent" />
 				{/each}
 				<ToggleButtonMore
 					class="ml-auto"
