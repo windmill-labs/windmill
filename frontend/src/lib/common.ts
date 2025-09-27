@@ -15,7 +15,7 @@ export interface PropertyDisplayInfo {
 	propertiesNumber: number
 }
 
-export type EnumType = string[] | undefined
+export type EnumType = string[] | { value: string; label: string }[] | undefined
 
 export interface SchemaProperty {
 	type: string | undefined
