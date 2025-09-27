@@ -70,7 +70,7 @@
 				size={small ? 12 : 14}
 				{...iconProps}
 				class={twMerge(
-					'text-secondary',
+					light ? 'text-tertiary' : 'text-secondary',
 					selectedColor
 						? 'group-data-[state=on]:text-[var(--selected-color)]'
 						: 'group-data-[state=on]:text-blue-500 dark:group-data-[state=on]:text-nord-800',
