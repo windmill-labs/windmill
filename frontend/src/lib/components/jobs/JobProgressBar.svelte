@@ -14,10 +14,10 @@
 
 	let {
 		job = undefined,
-		compact = $bindable(false),
-		scriptProgress = $bindable(undefined),
-		hideStepTitle = $bindable(false),
-		class: className = $bindable('')
+		compact = false,
+		scriptProgress = undefined,
+		hideStepTitle = false,
+		class: className = ''
 	}: Props = $props()
 
 	let error: number | undefined = $state(undefined)
@@ -28,6 +28,8 @@
 	let nextInProgress = false
 
 	let progressBar: ProgressBar | undefined = $state(undefined)
+	let lastJobId = $state()
+
 	function updateJobProgress(job: Job) {
 		if (!job['running'] && !job['success']) {
 			error = 0
@@ -48,6 +50,13 @@
 		index = 0
 		scriptProgress = undefined
 	}
+
+	$effect(() => {
+		if (lastJobId && job && job.id !== lastJobId) {
+			lastJobId = job.id
+			reset()
+		}
+	})
 
 	$effect(() => {
 		if (job) updateJobProgress(job)
