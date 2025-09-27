@@ -116,7 +116,7 @@
 	<div class="mt-6">
 		<div class="flex mt-2 flex-col gap-y-4 max-w-5xl">
 			{#each s3ResourceSettings.secondaryStorage ?? [] as _, idx}
-				<div class="flex gap-1 items-center">
+				<div class="flex gap-1 relative">
 					<TextInput
 						class="max-w-[200px]"
 						inputProps={{ type: 'text', placeholder: 'Storage name' }}
@@ -174,19 +174,16 @@
 							}
 						}}>Browse content (save first)</Button
 					>
-					<button
-						transition:fade|local={{ duration: 100 }}
-						class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-						aria-label="Clear"
-						onclick={() => {
+					<CloseButton
+						class="my-auto"
+						small
+						on:close={() => {
 							if (s3ResourceSettings.secondaryStorage) {
 								s3ResourceSettings.secondaryStorage.splice(idx, 1)
 								s3ResourceSettings.secondaryStorage = [...s3ResourceSettings.secondaryStorage]
 							}
 						}}
-					>
-						<X size={14} />
-					</button>
+					/>
 				</div>
 			{/each}
 			<div class="flex gap-1">
@@ -230,7 +227,7 @@
 {#snippet permissionBtn(storage: NonNullable<S3ResourceSettings['secondaryStorage']>[number][1])}
 	<Popover closeOnOtherPopoverOpen placement="left">
 		<svelte:fragment slot="trigger">
-			<Button variant="border" btnClasses="px-2.5" color="dark" size="sm">
+			<Button variant="border" wrapperClasses="h-full" btnClasses="px-2.5" color="dark" size="sm">
 				<Shield size={16} /> Permissions <ChevronDown size={14} />
 			</Button>
 		</svelte:fragment>
