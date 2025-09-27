@@ -149,14 +149,20 @@
 		)
 	}
 
-	function isTableRowObjectWithoutHeaders(json: any, checkFirst) {
+	function isTableRowObjectWithoutHeaders(json: any, skipMaxColCheck: boolean) {
 		return (
 			Array.isArray(json) &&
 			json.length > 0 &&
-			(!checkFirst ||
-				(json[0] && typeof json[0] === 'object' && Object.keys(json[0]).length <= 100)) &&
 			json.every((item) => {
-				return typeof item === 'object' && Object.keys(item).length > 0 && !Array.isArray(item)
+				if (item && typeof item === 'object') {
+					let keys = Object.keys(item)
+					if (keys.length > 0 && !Array.isArray(item)) {
+						if (skipMaxColCheck || keys.length <= 100) {
+							return true
+						}
+					}
+				}
+				return false
 			})
 		)
 	}
