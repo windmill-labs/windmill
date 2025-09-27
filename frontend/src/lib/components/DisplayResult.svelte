@@ -142,7 +142,7 @@
 		const hasHeaders =
 			Array.isArray(json[0]) &&
 			json[0].length > 0 &&
-			json[0].length <= 100 &&
+			json[0].length <= 50 &&
 			json[0].every((item) => typeof item === 'string')
 		return isTableRowObjectInner(json, hasHeaders)
 	}
@@ -158,7 +158,7 @@
 				if (item && typeof item === 'object') {
 					let keys = Object.keys(item)
 					if (keys.length > 0 && !Array.isArray(item)) {
-						if (hasHeaders || keys.length <= 100) {
+						if (hasHeaders || keys.length <= 50) {
 							return true
 						}
 					}
@@ -372,28 +372,23 @@
 			json.length > 0 &&
 			Array.isArray(json[0]) &&
 			json[0].length > 0 &&
-			json[0].every((item) => typeof item === 'string') &&
-			json
-				.slice(1)
-				.every(
-					(item) =>
-						item && typeof item === 'object' && Object.keys(item).length > 0 && !Array.isArray(item)
-				)
+			json[0].every((item) => typeof item === 'string')
 		) {
 			const headers = json[0]
-			const rows = json.slice(1)
+			const rows: { [key: string]: string }[] = new Array(json.length - 1)
 
-			const result = rows.map((row) => {
+			for (let i = 1; i < json.length; i++) {
 				const obj: { [key: string]: string } = {}
+				const row = json[i]
 
-				for (const header of headers) {
-					obj[header] = row[header]
+				for (let j = 0; j < headers.length; j++) {
+					obj[headers[j]] = row[headers[j]]
 				}
 
-				return obj
-			})
+				rows[i - 1] = obj
+			}
 
-			return result
+			return rows
 		}
 
 		return json
