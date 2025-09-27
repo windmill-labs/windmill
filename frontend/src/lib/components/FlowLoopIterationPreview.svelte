@@ -67,7 +67,7 @@
 	let selectedJobStep: string | undefined = $state(undefined)
 
 	let isRunning: boolean = $state(false)
-	let jobProgressReset: (() => void) | undefined = $state(undefined)
+	let progressBar: FlowProgressBar | undefined = $state(undefined)
 
 	export function test() {
 		runPreview(previewArgs, undefined)
@@ -80,7 +80,7 @@
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
 	) {
-		jobProgressReset?.()
+		progressBar?.reset()
 		const newFlow = { value: { modules }, summary: '' }
 		jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
 		isRunning = true
@@ -161,7 +161,7 @@
 		<div></div>
 	</div>
 	<div class="w-full flex flex-col gap-y-1">
-		<FlowProgressBar {job} bind:reset={jobProgressReset} />
+		<FlowProgressBar {job} bind:this={progressBar} />
 	</div>
 	<div class="overflow-y-auto grow pr-4">
 		<div class="max-h-1/2 overflow-auto border-b">

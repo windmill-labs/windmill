@@ -88,7 +88,7 @@
 			retryStatus.val = {}
 			suspendStatus.val = {}
 			globalRefreshes = {}
-			flowState.val = {}
+			flowState = {}
 			localDurationStatuses = {}
 			localModuleStates = {}
 		}
