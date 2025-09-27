@@ -452,7 +452,12 @@
 				fontSize,
 				suggestOnTriggerCharacters: true,
 				renderLineHighlight: 'none',
-				lineNumbers: 'off'
+				lineNumbers: 'off',
+
+				padding: {
+					bottom: 8,
+					top: 8
+				}
 			})
 		} catch (e) {
 			console.error('Error loading monaco:', e)
