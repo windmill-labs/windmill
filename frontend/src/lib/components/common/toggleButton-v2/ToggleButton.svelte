@@ -55,7 +55,7 @@
 			small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-1',
 			light ? 'font-medium' : '',
 			'data-[state=on]:bg-surface data-[state=off]:border-transparent data-[state=on]:border-gray-300 dark:data-[state=on]:border-gray-500',
-			'text-hint hover:text-secondary data-[state=on]:text-secondary',
+			'text-hint hover:text-secondary data-[state=on]:text-secondary data-[state=on]:font-medium',
 			'bg-surface-secondary hover:bg-surface-hover',
 			disabled ? '!shadow-none' : '',
 			className
