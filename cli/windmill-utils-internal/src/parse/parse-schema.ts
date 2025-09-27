@@ -1,7 +1,7 @@
 /**
  * Type alias for enum values - can be an array of strings or undefined
  */
-export type EnumType = string[] | undefined;
+export type EnumType = string[] | { label: string; value: string }[] | undefined;
 
 /**
  * Represents a property in a JSON schema with various validation and display options
@@ -17,7 +17,7 @@ export interface SchemaProperty {
   items?: {
     type?: "string" | "number" | "bytes" | "object" | "resource";
     contentEncoding?: "base64";
-    enum?: string[];
+    enum?: EnumType;
     resourceType?: string;
     properties?: { [name: string]: SchemaProperty };
   };
@@ -54,22 +54,22 @@ export function argSigToJsonSchemaType(
     | string
     | { resource: string | null }
     | {
-        list:
-          | (string | { name?: string; props?: { key: string; typ: any }[] })
-          | { str: any }
-          | { object: { name?: string; props?: { key: string; typ: any }[] } }
-          | null;
-      }
+      list:
+      | (string | { name?: string; props?: { key: string; typ: any }[] })
+      | { str: any }
+      | { object: { name?: string; props?: { key: string; typ: any }[] } }
+      | null;
+    }
     | { dynselect: string }
     | { dynmultiselect: string }
     | { str: string[] | null }
     | { object: { name?: string; props?: { key: string; typ: any }[] } }
     | {
-        oneof: {
-          label: string;
-          properties: { key: string; typ: any }[];
-        }[];
-      },
+      oneof: {
+        label: string;
+        properties: { key: string; typ: any }[];
+      }[];
+    },
   oldS: SchemaProperty
 ): void {
   const newS: SchemaProperty = { type: "" };
