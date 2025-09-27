@@ -9,7 +9,7 @@
 	export let tooltip: string | undefined = undefined
 	export let icon: any | undefined = undefined
 	export let disabled: boolean = false
-	export let selectedColor: string = '#3b82f6'
+	export let selectedColor: string | undefined = undefined
 	export let small = false
 	export let light = false
 	export let iconProps: Record<string, any> = {}
@@ -40,7 +40,7 @@
 			$$props.class
 		)}
 		use:melt={$item(value)}
-		style={`--selected-color: ${selectedColor}`}
+		style={selectedColor ? `--selected-color: ${selectedColor}` : ''}
 	>
 		{#if icon}
 			<svelte:component
@@ -49,7 +49,9 @@
 				{...iconProps}
 				class={twMerge(
 					'text-gray-400',
-					'group-data-[state=on]:text-[var(--selected-color)]',
+					selectedColor
+						? 'group-data-[state=on]:text-[var(--selected-color)]'
+						: 'group-data-[state=on]:text-nord-950 dark:group-data-[state=on]:text-nord-900',
 					iconProps.class
 				)}
 			/>

@@ -18,7 +18,7 @@
 	}
 
 	export const inputBaseClass =
-		'rounded-md focus:ring-0 no-default-style text-sm text-tertiary !bg-surface-secondary disabled:!bg-surface-disabled disabled:!border-none disabled:!text-hint disabled:cursor-not-allowed shadow-none py-2 px-4 placeholder-hint'
+		'rounded-md focus:ring-0 no-default-style text-sm text-tertiary dark:text-secondary !bg-surface-secondary disabled:!bg-surface-disabled disabled:!border-none disabled:!text-hint disabled:cursor-not-allowed shadow-none py-2 px-3 placeholder-hint'
 </script>
 
 <script lang="ts">

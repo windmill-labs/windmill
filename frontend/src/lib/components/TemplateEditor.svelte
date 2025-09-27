@@ -670,7 +670,7 @@
 {/if}
 <div
 	bind:this={divEl}
-	style="height: 18px; padding-left: 8px;"
+	style="height: 18px; padding-left: 6px;"
 	class="{inputBorderClass({ forceFocus: isFocus })} {$$props.class ??
 		''} template nonmain-editor rounded-md min-h-4 overflow-clip {!editor ? 'hidden' : ''}"
 	bind:clientWidth={width}
