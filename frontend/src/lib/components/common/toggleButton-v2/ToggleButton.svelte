@@ -72,7 +72,7 @@
 				class={twMerge(
 					selectedColor
 						? 'group-data-[state=on]:text-[var(--selected-color)]'
-						: 'group-data-[state=on]:text-nord-950 dark:group-data-[state=on]:text-nord-900',
+						: 'group-data-[state=on]:text-nord-950 dark:group-data-[state=on]:text-nord-800',
 					iconProps.class
 				)}
 			/>
