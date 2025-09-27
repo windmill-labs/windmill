@@ -5,6 +5,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import { inputBorderClass } from './text_input/TextInput.svelte'
 
 	export let options: {
 		left?: string
@@ -100,7 +101,8 @@
 						? 'w-9 h-5 after:top-0.5 after:left-[2px] after:h-4 after:w-4'
 						: size === '2xs'
 							? 'w-5 h-3 after:top-0.5 after:left-[2px] after:h-2 after:w-2'
-							: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3'
+							: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3',
+				inputBorderClass()
 			)}
 		></div>
 	</div>
