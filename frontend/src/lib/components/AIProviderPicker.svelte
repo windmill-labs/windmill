@@ -156,10 +156,10 @@
 </script>
 
 <div
-	class="w-full flex flex-col gap-1 bg-surface-secondary border-[1px] border-nord-400 rounded-md"
+	class="w-full flex flex-col gap-1 bg-surface-secondary border-[1px] border-nord-400 dark:border-nord-300 rounded-md"
 >
 	<!-- Provider Selection -->
-	<div class="flex flex-col gap-2 mx-[-1px] mt-[-1px]">
+	<div class="flex flex-col gap-2 m-[-1px] mt-[-1px]">
 		<ToggleButtonGroup
 			selected={value?.kind}
 			onSelected={onProviderChange}
