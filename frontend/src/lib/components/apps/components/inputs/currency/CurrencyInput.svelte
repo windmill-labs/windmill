@@ -1,5 +1,6 @@
 <script lang="ts">
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import { inputBaseClass, inputBorderClass } from '$lib/components/text_input/TextInput.svelte'
 	import { onMount, untrack } from 'svelte'
 
 	/* Forked from MIT LICENSE
@@ -208,7 +209,7 @@
 		bind:value
 	/>
 	<input
-		class="
+		class="{inputBaseClass} {inputBorderClass()} 
 			{inputClasses?.formatted ?? DEFAULT_CLASS_FORMATTED}
 			{isNegativeAllowed && !isZero && !isNegative
 			? (inputClasses?.formattedPositive ?? DEFAULT_CLASS_FORMATTED_POSITIVE)

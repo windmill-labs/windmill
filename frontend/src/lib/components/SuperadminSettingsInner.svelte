@@ -300,17 +300,17 @@
 															}}
 														>
 															{#snippet children({ item })}
-																<ToggleButton value={'user'} size="xs" label="User" {item} />
+																<ToggleButton value={'user'} small label="User" {item} />
 																<ToggleButton
 																	value={'devops'}
-																	size="xs"
+																	small
 																	label="Devops"
 																	tooltip="Devops is a role that grants visibilty similar to that of a super admin, but without giving all rights. For example devops users can see service logs and crtical alerts. You can think of it as a 'readonly' super admin"
 																	{item}
 																/>
 																<ToggleButton
 																	value={'super_admin'}
-																	size="xs"
+																	small
 																	label="Superadmin"
 																	{item}
 																/>

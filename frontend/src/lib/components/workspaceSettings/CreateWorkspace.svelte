@@ -399,8 +399,8 @@
 				}}
 			>
 				{#snippet children({ item })}
-					<ToggleButton value="operator" size="xs" label="Operator" {item} />
-					<ToggleButton value="developer" size="xs" label="Developer" {item} />
+					<ToggleButton value="operator" small label="Operator" {item} />
+					<ToggleButton value="developer" small label="Developer" {item} />
 				{/snippet}
 			</ToggleButtonGroup>
 		</div>

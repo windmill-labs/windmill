@@ -27,7 +27,7 @@
 		<button
 			title="Open calendar picker"
 			class={twMerge(
-				'absolute bottom-1 right-2 top-1 py-1 min-w-min !px-2 items-center text-primary bg-surface border rounded center-center hover:bg-surface-hover transition-all cursor-pointer',
+				'absolute bottom-1 right-2 top-1 py-1 min-w-min !px-2.5 items-center text-primary bg-surface-secondary rounded center-center hover:bg-surface-hover transition-all cursor-pointer',
 				$$props.class
 			)}
 			aria-label="Open calendar picker"

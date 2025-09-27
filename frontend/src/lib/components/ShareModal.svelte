@@ -129,8 +129,8 @@
 						<div>
 							<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (owner = '')}>
 								{#snippet children({ item })}
-									<ToggleButton value="user" size="xs" label="User" {item} />
-									<ToggleButton value="group" size="xs" label="Group" {item} />
+									<ToggleButton value="user" small label="User" {item} />
+									<ToggleButton value="group" small label="Group" {item} />
 								{/snippet}
 							</ToggleButtonGroup>
 						</div>
@@ -175,8 +175,8 @@
 													}}
 												>
 													{#snippet children({ item })}
-														<ToggleButton value="viewer" size="xs" label="Viewer" {item} />
-														<ToggleButton value="writer" size="xs" label="Writer" {item} />
+														<ToggleButton value="viewer" small label="Viewer" {item} />
+														<ToggleButton value="writer" small label="Writer" {item} />
 													{/snippet}
 												</ToggleButtonGroup>
 											</div>

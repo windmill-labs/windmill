@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		type Folder,
@@ -19,7 +17,7 @@
 	import { Eye, Plus } from 'lucide-svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 
@@ -139,9 +137,11 @@
 		dispatch('update')
 		loadFolder()
 	}
-	run(() => {
+	$effect.pre(() => {
 		if ($workspaceStore && $userStore) {
-			load()
+			untrack(() => {
+				load()
+			})
 		}
 	})
 </script>
@@ -327,7 +327,6 @@
 													/>
 
 													<ToggleButton
-														position="center"
 														value="writer"
 														label="Writer"
 														tooltip="A writer of a folder has read AND write access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
@@ -335,7 +334,6 @@
 													/>
 
 													<ToggleButton
-														position="right"
 														value="admin"
 														label="Admin"
 														tooltip="An admin of a folder has read AND write access to all the elements inside the folders and can manage the permissions as well as add new admins"

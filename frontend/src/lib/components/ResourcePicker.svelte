@@ -6,11 +6,13 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
 	import { Button } from './common'
-	import { Pen, Plus, RotateCw } from 'lucide-svelte'
+	import { Loader2, Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Select from './select/Select.svelte'
 	import DbManagerDrawer from './DBManagerDrawer.svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import DropdownV2 from './DropdownV2.svelte'
 
 	interface Props {
 		initialValue?: string | undefined
@@ -24,6 +26,7 @@
 		expressOAuthSetup?: boolean
 		defaultValues?: Record<string, any> | undefined
 		placeholder?: string | undefined
+		selectInputClass?: string
 		onClear?: () => void
 		excludedValues?: string[]
 	}
@@ -40,6 +43,7 @@
 		expressOAuthSetup = false,
 		defaultValues = undefined,
 		placeholder = undefined,
+		selectInputClass = '',
 		onClear = undefined,
 		excludedValues = undefined
 	}: Props = $props()
@@ -176,91 +180,102 @@
 	}}
 />
 <!-- {JSON.stringify({ value, collection })} -->
-<div class="flex flex-col w-full items-start min-h-9">
+<div class="flex flex-col w-full items-start min-h-10">
 	<div class="flex flex-row w-full items-center">
-		{#if collection?.length > 0}
-			<Select
-				{disabled}
-				{disablePortal}
-				bind:value={
-					() => value,
-					(v) => {
-						value = v
-						valueType = collection.find((x) => x?.value == v)?.type
-					}
+		<Select
+			{disabled}
+			{disablePortal}
+			bind:value={
+				() => value,
+				(v) => {
+					value = v
+					valueType = collection.find((x) => x?.value == v)?.type
 				}
-				onClear={() => {
-					initialValue = undefined
-					value = undefined
-					valueType = undefined
-					onClear?.()
-				}}
-				items={collection}
-				clearable
-				class="text-clip grow min-w-0"
-				placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
-			/>
-		{:else if !loading}
-			<div class="text-2xs text-tertiary mr-2">0 found</div>
-		{/if}
-		{#if !loading}
-			<div class="mx-0.5"></div>
-			{#if value && value != ''}
+			}
+			onClear={() => {
+				initialValue = undefined
+				value = undefined
+				valueType = undefined
+				onClear?.()
+			}}
+			items={collection}
+			clearable
+			class="text-clip grow min-w-0"
+			inputClass={twMerge('min-h-10', selectInputClass)}
+			placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
+			itemLabelWrapperClasses="flex-1"
+			itemButtonWrapperClasses="flex"
+		>
+			{#snippet endSnippet({ item, close })}
 				<Button
 					{disabled}
 					color="light"
 					variant="contained"
-					size="sm"
-					btnClasses="w-8 px-0.5 py-1.5"
-					on:click={() => resourceEditor?.initEdit?.(value ?? '')}
+					size="xs3"
+					btnClasses="w-8 px-0.5 py-1.5 bg-transparent hover:bg-surface-secondary"
+					wrapperClasses="-mr-2 pl-1"
+					on:click={() => (resourceEditor?.initEdit?.(item.value ?? ''), close())}
 					startIcon={{ icon: Pen }}
 					iconOnly
 				/>
-			{/if}
-
-			{#if resourceType?.includes(',')}
-				{#each resourceType.split(',') as rt}
+			{/snippet}
+			{#snippet bottomSnippet({ close })}
+				<div class="flex bg-surface border-t divide-x">
+					{#if resourceType?.includes(',')}
+						<DropdownV2
+							enableFlyTransition
+							items={resourceType?.split(',').map((rt) => ({
+								displayName: `${rt} resource`,
+								icon: Plus,
+								action: () => (appConnect?.open?.(rt), close())
+							})) ?? []}
+						>
+							{#snippet buttonReplacement()}
+								<Button
+									{disabled}
+									color="light"
+									variant="contained"
+									wrapperClasses="flex-1"
+									btnClasses="rounded-none mt-0.5"
+									size="sm"
+									startIcon={{ icon: Plus }}
+								>
+									Add a resource
+								</Button>
+							{/snippet}
+						</DropdownV2>
+					{:else}
+						<Button
+							{disabled}
+							color="light"
+							variant="contained"
+							wrapperClasses="flex-1"
+							btnClasses="rounded-none"
+							size="sm"
+							on:click={() => (appConnect?.open?.(resourceType), close())}
+							startIcon={{ icon: Plus }}
+						>
+							Add a {resourceType} resource
+						</Button>
+					{/if}
 					<Button
-						{disabled}
-						color="light"
 						variant="contained"
+						color="light"
+						btnClasses="rounded-none"
 						size="sm"
-						btnClasses="w-8 px-0.5 py-1.5"
-						on:click={() => appConnect?.open?.(rt)}
-						startIcon={{ icon: Plus }}>{rt}</Button
-					>
-				{/each}
-			{:else}
-				<Button
-					{disabled}
-					color="light"
-					variant="border"
-					size="sm"
-					on:click={() => appConnect?.open?.(resourceType)}
-					startIcon={{ icon: Plus }}
-					iconOnly={collection?.length > 0}
-					>{#if collection?.length == 0}
-						Add a {resourceType} resource
-					{/if}</Button
-				>
-				<div class="mx-0.5"></div>
-			{/if}
-		{/if}
-
-		<Button
-			variant="contained"
-			color="light"
-			btnClasses="w-8 px-0.5 py-1.5"
-			size="sm"
-			on:click={() => {
-				loadResources(resourceType)
-			}}
-			startIcon={{ icon: RotateCw }}
-			iconOnly
-		/>
+						on:click={() => {
+							loadResources(resourceType)
+						}}
+						startIcon={loading ? { icon: Loader2, classes: 'animate-spin' } : { icon: RotateCw }}
+						iconOnly
+					/>
+				</div>
+			{/snippet}
+		</Select>
 	</div>
 	{#if showSchemaExplorer && value && assetCanBeExplored({ kind: 'resource', path: value }, { resource_type: resourceType })}
 		<ExploreAssetButton
+			class="mt-1"
 			_resourceMetadata={{ resource_type: resourceType }}
 			asset={{ kind: 'resource', path: value }}
 			{dbManagerDrawer}

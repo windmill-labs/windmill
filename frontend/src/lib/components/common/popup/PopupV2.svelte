@@ -48,6 +48,7 @@
 			<div
 				use:clickOutside={{
 					eventToListenName: 'pointerdown',
+					stopPropagation: true,
 					onClickOutside: () => (open = false)
 				}}
 			>
