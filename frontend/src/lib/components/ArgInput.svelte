@@ -957,8 +957,8 @@
 							variant="border"
 							color="light"
 							size="xs"
-							btnClasses="text-tertiary"
-							wrapperClasses="w-full mt-2"
+							btnClasses="text-tertiary py-2.5"
+							wrapperClasses="w-full {Array.isArray(value) && value.length > 0 ? 'mt-1.5' : ''}"
 							on:click={() => {
 								if (value == undefined || !Array.isArray(value)) {
 									value = []
