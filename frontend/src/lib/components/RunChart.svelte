@@ -301,7 +301,7 @@
 <!-- {JSON.stringify(jobs?.map((x) => x.started_at))} -->
 <div class="relative max-h-40">
 	{#if !lastFetchWentToEnd}
-		<div class="absolute top-[-26px] left-[160px]"
+		<div class="absolute top-[-26px] left-[180px]"
 			><Button size="xs" color="transparent" variant="contained" on:click={() => onLoadExtra()}
 				>Load more <Tooltip2
 					>There are more jobs to load but only the first 1000 were fetched</Tooltip2
