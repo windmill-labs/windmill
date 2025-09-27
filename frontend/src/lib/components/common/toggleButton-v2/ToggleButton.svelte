@@ -57,7 +57,6 @@
 				? 'hover:text-secondary data-[state=on]:text-secondary text-tertiary'
 				: 'hover:text-primary data-[state=on]:text-primary text-secondary',
 			'data-[state=on]:bg-surface data-[state=off]:border-transparent data-[state=on]:border-gray-300 dark:data-[state=on]:border-gray-500',
-			'text-hint',
 			'bg-surface-secondary hover:bg-surface-hover',
 			disabled ? '!shadow-none' : '',
 			className
@@ -71,7 +70,6 @@
 				size={small ? 12 : 14}
 				{...iconProps}
 				class={twMerge(
-					'text-gray-400',
 					selectedColor
 						? 'group-data-[state=on]:text-[var(--selected-color)]'
 						: 'group-data-[state=on]:text-nord-950 dark:group-data-[state=on]:text-nord-900',

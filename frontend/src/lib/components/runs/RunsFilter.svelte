@@ -587,7 +587,7 @@
 					tooltip="Running"
 					class="whitespace-nowrap"
 					icon={CirclePlay}
-					iconProps={{ color: success === 'running' ? 'blue' : 'gray' }}
+					iconProps={{ color: success === 'running' ? 'blue' : undefined }}
 					{item}
 				/>
 				<ToggleButton
@@ -595,7 +595,7 @@
 					tooltip="Success"
 					class="whitespace-nowrap"
 					icon={CircleCheck}
-					iconProps={{ color: success === 'success' ? 'green' : 'gray' }}
+					iconProps={{ color: success === 'success' ? 'green' : undefined }}
 					{item}
 				/>
 				<ToggleButton
@@ -603,7 +603,7 @@
 					tooltip="Failure"
 					class="whitespace-nowrap"
 					icon={CircleAlert}
-					iconProps={{ color: success === 'failure' ? 'red' : 'gray' }}
+					iconProps={{ color: success === 'failure' ? 'red' : undefined }}
 					{item}
 				/>
 				{#if success == 'waiting'}
