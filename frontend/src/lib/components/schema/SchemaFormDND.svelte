@@ -25,6 +25,7 @@
 		helperScript?: DynamicInput.HelperScript
 		className?: string
 		dndType?: string
+		lightHeaderFont?: boolean
 	}
 
 	let {
@@ -44,7 +45,8 @@
 		isValid = $bindable(true),
 		noVariablePicker = false,
 		className = '',
-		dndType = generateRandomString()
+		dndType = generateRandomString(),
+		lightHeaderFont
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -135,10 +137,11 @@
 	{shouldDispatchChanges}
 	bind:isValid
 	{noVariablePicker}
+	{lightHeaderFont}
 >
 	{#snippet actions()}
 		{#if !disableDnd}
-			<div class="w-4 h-8 cursor-move ml-2 handle" aria-label="drag-handle" use:dragHandle>
+			<div class="w-4 h-8 cursor-move ml-2 handle mt-[9px]" aria-label="drag-handle" use:dragHandle>
 				<GripVertical size={16} />
 			</div>
 		{/if}

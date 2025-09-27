@@ -8,6 +8,7 @@
 		autoheight?: boolean
 		lineNumbersWidth?: number
 		lineNumbersOffset?: number
+		showNumbers?: boolean
 		class?: string
 		fontSize?: number
 	}
@@ -18,6 +19,7 @@
 		lineNumbersWidth = 51,
 		lineNumbersOffset = 0,
 		class: className = '',
+		showNumbers = true,
 		fontSize = 14
 	}: Props = $props()
 
@@ -76,7 +78,9 @@
 					class="margin-view-overlays"
 					role="presentation"
 					aria-hidden="true"
-					style="position: absolute; font-family: {fontFamily}; font-weight: normal; font-size: {fontSize}px; font-feature-settings: 'liga' 0, 'calt' 0; font-variation-settings: normal; line-height: {lineHeight}px; letter-spacing: 0px; width: {lineNumbersWidth}px; height: 4893px;"
+					style="position: absolute; font-family: {fontFamily}; font-weight: normal; font-size: {fontSize}px; font-feature-settings: 'liga' 0, 'calt' 0; font-variation-settings: normal; line-height: {lineHeight}px; letter-spacing: 0px; width: {lineNumbersWidth}px; height: 4893px; display: {!showNumbers
+						? 'none'
+						: 'block'};"
 				>
 					{#each lines as _, i}
 						<div style="top:{lineHeight * i}px;height:{lineHeight}px;">

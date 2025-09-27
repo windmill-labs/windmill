@@ -572,7 +572,7 @@
 														></div>
 													{/if}
 													<InputTransformSchemaForm
-														class="px-1 xl:px-2"
+														class="px-2 xl:px-4"
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
 														schema={flowStateStore.val[$selectedId]?.schema ?? {}}

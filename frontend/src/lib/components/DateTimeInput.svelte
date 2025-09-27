@@ -7,6 +7,7 @@
 	import { Clock, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import { inputBaseClass, inputBorderClass } from './text_input/TextInput.svelte'
 	// import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 
 	interface Props {
@@ -110,20 +111,21 @@
 		bind:value={date}
 		{autofocus}
 		{disabled}
-		class={twMerge('h-8 text-sm !w-3/4 ', inputClass)}
+		class={twMerge(inputBaseClass, inputBorderClass(), 'text-sm !w-3/4 ', inputClass)}
 		min={minDate}
 		max={maxDate}
 	/>
 	<input
 		type="time"
 		bind:value={time}
-		class={twMerge('h-8 text-sm !w-1/4 min-w-[100px] ', inputClass)}
+		class={twMerge(inputBaseClass, inputBorderClass(), 'text-sm !w-1/4 min-w-[100px] ', inputClass)}
 		{disabled}
 	/>
 	<Button
-		variant="border"
+		variant="contained"
 		color="light"
-		wrapperClasses="h-8"
+		wrapperClasses="h-full"
+		btnClasses="bg-surface-secondary"
 		startIcon={{
 			icon: Clock
 		}}
@@ -168,7 +170,7 @@
 		<Button
 			variant="border"
 			color="light"
-			wrapperClasses="h-8"
+			wrapperClasses="h-full"
 			{disabled}
 			on:click={() => {
 				value = undefined

@@ -19,6 +19,8 @@
 	import { dragHandleZone, type Options as DndOptions } from '@windmill-labs/svelte-dnd-action'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
+	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		schema: Schema | any
@@ -56,6 +58,7 @@
 		displayType?: boolean
 		appPath?: string | undefined
 		className?: string
+		lightHeaderFont?: boolean
 		computeS3ForceViewerPolicies?:
 			| (() =>
 					| {
@@ -106,6 +109,7 @@
 		displayType = true,
 		appPath = undefined,
 		className = '',
+		lightHeaderFont = false,
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
 		actions: actions_render = undefined
@@ -269,10 +273,15 @@
 	{#if keys.length > 0 && args}
 		{#each fields as item, i (item.id)}
 			{@const argName = item.value}
-			<div
-				class={typeof diff[argName] === 'object' && diff[argName].diff !== 'same'
-					? 'bg-red-300 dark:bg-red-800 rounded-md'
-					: ''}
+			<ResizeTransitionWrapper
+				vertical
+				class={twMerge(
+					typeof diff[argName] === 'object' &&
+						diff[argName].diff !== 'same' &&
+						'bg-red-300 dark:bg-red-800 rounded-md',
+					'relative'
+				)}
+				innerClass="w-full"
 			>
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				{#if !hiddenArgs.includes(argName) && keys.includes(argName)}
@@ -280,6 +289,7 @@
 						{@const formerProperty = diff[argName].oldSchema}
 						<div class="px-2">
 							<ArgInput
+								{lightHeaderFont}
 								{disablePortal}
 								{resourceTypes}
 								{prettifyHeader}
@@ -342,6 +352,7 @@
 							{JSON.stringify(args?.[argName])} -->
 							{#if !hidden[argName]}
 								<ArgInput
+									{lightHeaderFont}
 									on:change={() => {
 										dispatch('change')
 									}}
@@ -443,7 +454,7 @@
 						{/if}
 					</div>
 				{/if}
-			</div>
+			</ResizeTransitionWrapper>
 		{/each}
 	{:else if !shouldHideNoInputs}
 		<div class="text-secondary text-sm">No inputs</div>

@@ -157,7 +157,7 @@
 </script>
 
 {#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
-	<div class={classNames('flex gap-1', 'flex-col')}>
+	<div class={classNames('flex gap-1 flex-col group')}>
 		<div class="flex justify-between items-end">
 			<div class="flex flex-row gap-4 items-center">
 				<div class="flex items-center">
@@ -188,8 +188,14 @@
 
 			<div class={classNames('flex gap-x-2 gap-y-1 justify-end items-center')}>
 				{#if componentInput?.type && allowTypeChange !== false}
+					<ConnectionButton
+						{closeConnection}
+						{openConnection}
+						isOpen={!!$connectingInput.opened}
+						btnWrapperClasses={'h-6 w-8 opacity-0 group-hover:opacity-100 transition-opacity'}
+					/>
 					<ToggleButtonGroup
-						class="h-7"
+						class="h-6"
 						bind:selected={componentInput.type}
 						on:selected={(e) => {
 							if (
@@ -242,7 +248,6 @@
 							<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" {item} />
 						{/snippet}
 					</ToggleButtonGroup>
-					<ConnectionButton {closeConnection} {openConnection} isOpen={!!$connectingInput.opened} />
 				{/if}
 			</div>
 		</div>

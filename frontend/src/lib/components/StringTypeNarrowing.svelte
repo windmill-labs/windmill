@@ -11,6 +11,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import RegexGen from './copilot/RegexGen.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	interface Props {
 		pattern: string | undefined
@@ -341,7 +342,10 @@
 	{:else if kind == 'none'}
 		{#if !noExtra}
 			<Label label="Min textarea rows">
-				<input type="number" bind:value={minRows} />
+				<TextInput
+					inputProps={{ type: 'number' }}
+					bind:value={() => minRows?.toString(), (v) => (minRows = v ? parseInt(v) : undefined)}
+				/>
 			</Label>
 		{/if}
 	{:else if kind === 'base64'}

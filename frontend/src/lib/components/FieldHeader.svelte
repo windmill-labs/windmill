@@ -40,17 +40,15 @@
 	{/if}
 
 	{#if displayType}
-		{#if format && !format.startsWith('resource') && !format.startsWith('jsonschema-')}
-			<span class="text-xs italic ml-2 text-tertiary dark:text-indigo-400">
+		<span class="text-xs italic ml-2 text-hint">
+			{#if format && !format.startsWith('resource') && !format.startsWith('jsonschema-')}
 				{format}
-			</span>
-		{:else}
-			<span class="text-xs italic ml-2 text-tertiary dark:text-indigo-400">
+			{:else}
 				{type ?? 'any'}{contentEncoding && contentEncoding != ''
 					? `, encoding: ${contentEncoding}`
 					: ''}
-			</span>
-		{/if}
+			{/if}
+		</span>
 	{/if}
 
 	{#if !emptyString(simpleTooltip)}

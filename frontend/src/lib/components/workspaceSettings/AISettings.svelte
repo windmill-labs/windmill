@@ -105,7 +105,8 @@
 				code_completion_model,
 				default_model,
 				custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
-				max_tokens_per_model: Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
+				max_tokens_per_model:
+					Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
 			}
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
@@ -228,9 +229,9 @@
 										: provider}
 									initialValue={aiProviders[provider].resource_path}
 									bind:value={
-										() => aiProviders[provider].resource_path,
+										() => aiProviders[provider].resource_path || undefined,
 										(v) => {
-											aiProviders[provider].resource_path = v
+											aiProviders[provider].resource_path = v ?? ''
 											onAiProviderChange(provider as AIProvider)
 										}
 									}

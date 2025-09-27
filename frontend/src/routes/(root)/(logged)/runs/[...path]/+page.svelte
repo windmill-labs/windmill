@@ -953,6 +953,7 @@
 						{#if minTs || maxTs}
 							<input
 								type="text"
+								class="!text-sm text-tertiary !bg-surface-secondary h-9 !border-none"
 								value={minTs ? new Date(minTs).toLocaleString() : 'zoom x axis to set min'}
 								disabled
 								name="min-datetimes"
@@ -984,6 +985,7 @@
 						{#if maxTs || minTs}
 							<input
 								type="text"
+								class="!text-sm text-tertiary !bg-surface-secondary h-9 !border-none"
 								value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
 								name="max-datetimes"
 								disabled
@@ -1013,7 +1015,9 @@
 
 					{#if minTs || maxTs}
 						<RunOption label="Reset" for="reset" noLabel>
-							<Button color="light" variant="border" size="xs" onClick={reset}>Reset</Button>
+							<Button color="light" variant="border" size="xs" onClick={reset} btnClasses="h-9">
+								Reset
+							</Button>
 						</RunOption>
 					{/if}
 				</div>
