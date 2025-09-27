@@ -48,11 +48,11 @@
 
 <div
 	class:border={!noBorder}
-	class="grid {!col
-		? 'grid-cols-2'
-		: 'grid-rows-2 max-h-screen'} shadow border border-tertiary-inverse grow overflow-hidden"
+	class="{!col
+		? 'grid grid-cols-2'
+		: 'flex flex-col max-h-screen gap-4'} shadow border border-tertiary-inverse grow overflow-hidden"
 >
-	<div class="bg-surface {col ? '' : 'max-h-80'} p-1 overflow-auto relative">
+	<div class="bg-surface {col ? 'max-h-1/2 grow' : 'max-h-80'} p-1 overflow-auto relative">
 		<span class="text-tertiary">Result</span>
 		{#if result !== undefined || result_stream !== undefined}
 			<DisplayResult {workspaceId} {jobId} {filename} {result} {result_stream} growVertical />
@@ -62,7 +62,7 @@
 			<div class="text-gray-400">No result (result is undefined)</div>
 		{/if}
 	</div>
-	<div class="overflow-auto {col ? '' : 'max-h-80'} relative">
+	<div class="overflow-auto {col ? 'grow' : 'max-h-80'} relative">
 		{#if aiAgentStatus}
 			<AiAgentLogViewer {...aiAgentStatus} {workspaceId} />
 		{:else}
