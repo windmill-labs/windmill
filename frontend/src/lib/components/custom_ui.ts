@@ -38,6 +38,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 	tagSelectPlaceholder?: string
 	tagSelectNoLabel?: boolean
 	tagLabel?: string
+	aiAgent?: boolean
 }
 
 export type DisplayResultUi = {
