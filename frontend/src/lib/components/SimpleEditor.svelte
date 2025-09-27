@@ -90,8 +90,7 @@
 		key,
 		disabled = false,
 		minHeight = 1000,
-		renderLineHighlight = 'none',
-		yPadding
+		renderLineHighlight = 'none'
 	}: {
 		lang: string
 		code?: string
@@ -120,7 +119,6 @@
 		disabled?: boolean
 		minHeight?: number
 		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
-		yPadding?: number
 	} = $props()
 
 	const dispatch = createEventDispatcher()
@@ -338,7 +336,6 @@
 					$relativeLineNumbers
 				),
 				model,
-				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {}),
 				renderLineHighlight,
 				lineDecorationsWidth: 6,
 				lineNumbersMinChars: 2,

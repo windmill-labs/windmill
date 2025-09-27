@@ -766,7 +766,6 @@
 							<SimpleEditor
 								bind:this={monaco}
 								bind:code={arg.expr}
-								yPadding={8}
 								{extraLib}
 								lang="javascript"
 								shouldBindKey={false}

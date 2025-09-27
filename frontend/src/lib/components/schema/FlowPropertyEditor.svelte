@@ -447,7 +447,6 @@
 	{#if showExpr}
 		<div class="mt-2 bg-surface-secondary rounded-md pl-4">
 			<SimpleEditor
-				yPadding={8}
 				extraLib={`declare const fields: Record<${propsNames
 					?.filter((x) => x != name)
 					.map((x) => `"${x}"`)
