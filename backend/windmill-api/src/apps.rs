@@ -2365,13 +2365,13 @@ async fn check_if_allowed_to_access_s3_file_from_app(
             || {
                 sqlx::query_scalar!(
                     r#"SELECT EXISTS (
-                SELECT 1 FROM v2_as_completed_job
-                WHERE workspace_id = $2
-                    AND (job_kind = 'appscript' OR job_kind = 'preview')
-                    AND created_by = 'anonymous'
-                    AND started_at > now() - interval '3 hours'
-                    AND script_path LIKE $3 || '/%'
-                    AND result @> ('{"s3":"' || $1 ||  '"}')::jsonb
+                SELECT 1 FROM v2_job_completed c JOIN v2_job j USING (id)
+                WHERE j.workspace_id = $2
+                    AND (j.kind = 'appscript' OR j.kind = 'preview')
+                    AND j.created_by = 'anonymous'
+                    AND c.started_at > now() - interval '3 hours'
+                    AND j.runnable_path LIKE $3 || '/%'
+                    AND c.result @> ('{"s3":"' || $1 ||  '"}')::jsonb
             )"#,
                     file_query.s3,
                     w_id,
