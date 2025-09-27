@@ -2,18 +2,27 @@
 	import { type Job } from '$lib/gen'
 	import ProgressBar from '../progressBar/ProgressBar.svelte'
 
-	export let job: Job | undefined = undefined
-	export let currentSubJobProgress: number | undefined = undefined
+	interface Props {
+		job?: Job | undefined
+		currentSubJobProgress?: number | undefined
+		class?: string
+	}
 
-	let error: number | undefined = undefined
-	let index = 0
-	let subIndex: number | undefined = undefined
-	let subLength: number | undefined = undefined
-	let length = 1
-	let nextInProgress = false
-	let subIndexIsPercent: boolean = false
+	let {
+		job = undefined,
+		currentSubJobProgress = $bindable(undefined),
+		class: className
+	}: Props = $props()
 
-	$: if (job) updateJobProgress(job)
+	let error: number | undefined = $state(undefined)
+	let index = $state(0)
+	let subIndex: number | undefined = $state(undefined)
+	let subLength: number | undefined = $state(undefined)
+	let length = $state(1)
+	let nextInProgress = $state(false)
+	let subIndexIsPercent: boolean = $state(false)
+
+	let progressBar = $state<ProgressBar | undefined>(undefined)
 
 	function updateJobProgress(job: Job) {
 		const modules = job?.flow_status?.modules
@@ -40,8 +49,8 @@
 				newError = maxDone
 				maxDone = maxDone + 1
 			}
-		}		
-		subIndexIsPercent = false;
+		}
+		subIndexIsPercent = false
 
 		// Loop is still iterating
 		if (module?.iterator) {
@@ -54,12 +63,12 @@
 		} else if (module?.branchall) {
 			subStepIndex = module.branchall.branch
 			subStepLength = module.branchall.len
-		} else if (module?.progress) {		
+		} else if (module?.progress) {
 			const clamp = (num, min, max) => Math.min(Math.max(num, min), max)
 			subStepIndex = clamp(module?.progress, subIndex ?? 0, 99)
 			//                  Jitter protection >^^^^^^^^
 			subStepLength = 100
-			subIndexIsPercent = true;
+			subIndexIsPercent = true
 			currentSubJobProgress = subStepIndex
 		} else {
 			currentSubJobProgress = undefined
@@ -73,26 +82,27 @@
 		nextInProgress = newNextInProgress
 	}
 
-	let resetP: any
-
 	export function reset() {
-		resetP?.()
+		progressBar?.resetP()
 		error = undefined
 		subIndex = undefined
 		subLength = undefined
 		length = 1
 		index = 0
 	}
+	$effect(() => {
+		job && updateJobProgress(job)
+	})
 </script>
 
 <ProgressBar
-	bind:resetP
+	bind:this={progressBar}
 	{length}
 	{index}
 	{nextInProgress}
 	{subLength}
 	{subIndex}
 	{error}
-	bind:subIndexIsPercent
-	class={$$props.class}
+	{subIndexIsPercent}
+	class={className}
 />
