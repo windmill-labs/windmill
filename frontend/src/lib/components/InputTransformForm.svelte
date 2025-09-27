@@ -488,7 +488,7 @@
 				{#if isStaticTemplate(inputCat)}
 					<div>
 						<span
-							class="border border-blue-100 text-blue-500 text-2xs font-medium mr-2 px-1 !py-[1px] rounded ml-2 {propertyType ==
+							class="border text-gray-400 dark:text-gray-500 text-2xs font-medium mr-2 px-1 !py-[1px] rounded ml-2.5 {propertyType ==
 								'static' && arg.type === 'javascript'
 								? 'visible'
 								: 'invisible'}"

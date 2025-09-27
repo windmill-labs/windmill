@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { emptyString, sendUserToast } from '$lib/utils'
-	import { ChevronDown, Plus, Shield, X } from 'lucide-svelte'
+	import { ChevronDown, Plus, Shield } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import Button from '../common/button/Button.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
@@ -19,7 +19,6 @@
 	import { WorkspaceService } from '$lib/gen'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import Portal from '../Portal.svelte'
-	import { fade } from 'svelte/transition'
 	import Popover from '../meltComponents/Popover.svelte'
 	import ClearableInput from '../common/clearableInput/ClearableInput.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
