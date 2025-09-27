@@ -10,9 +10,13 @@
 	import { Clock, MemoryStick, Calendar, Bot, User, Code2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
-	export let job: Job
 	const SMALL_ICON_SIZE = 14
-	export let scheduleEditor: ScheduleEditor
+	interface Props {
+		job: Job
+		scheduleEditor: ScheduleEditor
+	}
+
+	let { job, scheduleEditor }: Props = $props()
 </script>
 
 <div
@@ -74,11 +78,11 @@
 				<Calendar size={SMALL_ICON_SIZE} class="text-secondary min-w-3.5" />
 				<span class="whitespace-nowrap">
 					Schedule:
-					<!-- svelte-ignore a11y-invalid-attribute -->
+					<!-- svelte-ignore a11y_invalid_attribute -->
 					<a
 						href="#"
 						class="break-words text-blue-600 font-normal"
-						on:click={() =>
+						onclick={() =>
 							scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
 					>
 						{truncateRev(job.schedule_path, 40)}
