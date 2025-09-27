@@ -18,6 +18,7 @@
 		selectedId?: number | undefined
 		usernameFilter?: string | undefined
 		resourceFilter?: string | undefined
+		showWorkspace?: boolean
 		onselect?: (id: number) => void
 	}
 
@@ -31,6 +32,7 @@
 		selectedId = undefined,
 		usernameFilter = $bindable(),
 		resourceFilter = $bindable(),
+		showWorkspace = false,
 		onselect
 	}: Props = $props()
 
@@ -128,9 +130,12 @@
 			class="flex flex-row bg-surface-secondary sticky top-0 w-full p-2 pr-4 text-xs font-semibold"
 		>
 			<div class="w-1/12">ID</div>
-			<div class="w-3/12">Timestamp</div>
-			<div class="w-3/12">Username</div>
-			<div class="w-3/12">Operation</div>
+			<div class={showWorkspace ? "w-2/12" : "w-3/12"}>Timestamp</div>
+			<div class={showWorkspace ? "w-2/12" : "w-3/12"}>Username</div>
+			{#if showWorkspace}
+				<div class="w-2/12">Workspace</div>
+			{/if}
+			<div class={showWorkspace ? "w-2/12" : "w-3/12"}>Operation</div>
 			<div class="w-2/12">Resource</div>
 		</div>
 	</div>
@@ -174,10 +179,10 @@
 									<div class="w-1/12 text-xs truncate">
 										{logOrDate.log.id}
 									</div>
-									<div class="w-3/12 text-xs">
+									<div class={showWorkspace ? "w-2/12 text-xs" : "w-3/12 text-xs"}>
 										{displayDate(logOrDate.log.timestamp)}
 									</div>
-									<div class="w-3/12 text-xs">
+									<div class={showWorkspace ? "w-2/12 text-xs" : "w-3/12 text-xs"}>
 										<div class="flex flex-row gap-2 items-center">
 											<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-60">
 												{logOrDate.log.username}
@@ -196,7 +201,14 @@
 											/>
 										</div>
 									</div>
-									<div class="w-3/12 text-xs">
+									{#if showWorkspace}
+										<div class="w-2/12 text-xs">
+											<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-60">
+												{logOrDate.log.workspace_id}
+											</div>
+										</div>
+									{/if}
+									<div class={showWorkspace ? "w-2/12 text-xs" : "w-3/12 text-xs"}>
 										<div class="flex flex-row gap-1">
 											<Badge
 												on:click={() => {

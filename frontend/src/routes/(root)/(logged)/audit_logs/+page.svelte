@@ -170,6 +170,7 @@
 								bind:usernameFilter={username}
 								bind:resourceFilter={resource}
 								bind:hasMore
+								showWorkspace={scope === 'instance' || scope === 'all_workspaces'}
 								onselect={(id) => {
 									selectedId = id
 								}}
@@ -200,6 +201,7 @@
 					bind:operation
 					bind:usernameFilter={username}
 					bind:resourceFilter={resource}
+					showWorkspace={scope === 'instance' || scope === 'all_workspaces'}
 					onselect={(id) => {
 						selectedId = id
 						auditLogDrawer?.openDrawer()
