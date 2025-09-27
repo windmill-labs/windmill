@@ -139,25 +139,26 @@
 
 	function isTableRowObject(json) {
 		// check array of objects (with possible a first row of headers)
-		return (
-			isTableRowObjectWithoutHeaders(json, true) ||
-			(Array.isArray(json[0]) &&
-				json[0].length > 0 &&
-				json[0].length <= 100 &&
-				json[0].every((item) => typeof item === 'string') &&
-				isTableRowObjectWithoutHeaders(json.slice(1), false))
-		)
+		const hasHeaders =
+			Array.isArray(json[0]) &&
+			json[0].length > 0 &&
+			json[0].length <= 100 &&
+			json[0].every((item) => typeof item === 'string')
+		return isTableRowObjectInner(json, hasHeaders)
 	}
 
-	function isTableRowObjectWithoutHeaders(json: any, skipMaxColCheck: boolean) {
+	function isTableRowObjectInner(json: any, hasHeaders: boolean) {
 		return (
 			Array.isArray(json) &&
-			json.length > 0 &&
-			json.every((item) => {
+			json.length > (hasHeaders ? 1 : 0) &&
+			json.every((item, index) => {
+				if (hasHeaders && index === 0) {
+					return true
+				}
 				if (item && typeof item === 'object') {
 					let keys = Object.keys(item)
 					if (keys.length > 0 && !Array.isArray(item)) {
-						if (skipMaxColCheck || keys.length <= 100) {
+						if (hasHeaders || keys.length <= 100) {
 							return true
 						}
 					}
