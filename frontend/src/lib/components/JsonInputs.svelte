@@ -49,7 +49,7 @@
 <!-- Add a hidden button that can receive focus -->
 <button bind:this={focusTrap} class="sr-only" tabindex="-1" aria-hidden="true">Focus trap</button>
 
-<div class="h-full">
+<div class="h-full py-3 rounded-md border">
 	<SimpleEditor
 		bind:this={simpleEditor}
 		on:focus={() => {

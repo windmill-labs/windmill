@@ -530,10 +530,10 @@
 
 {#snippet variableInput()}
 	{#if variableEditor}
-		<div class="text-sm text-tertiary">
+		<div class="text-sm text-hint">
 			{#if value && typeof value == 'string' && value?.startsWith('$var:')}
 				Linked to variable <button
-					class="text-blue-500 underline"
+					class="text-nord-950 underline font-normal"
 					onclick={() => variableEditor?.editVariable?.(value.slice(5))}>{value.slice(5)}</button
 				>
 			{/if}
@@ -1440,7 +1440,7 @@
 		{#if disabled || error === ''}
 			&nbsp;
 		{:else}
-			<div class="text-right text-xs text-red-600 dark:text-red-400">
+			<div class="text-right text-xs text-red-600 dark:text-red-400 mb-2">
 				{error}
 			</div>
 		{/if}
