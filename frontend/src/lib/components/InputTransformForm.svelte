@@ -624,13 +624,15 @@
 							{#snippet children({ item })}
 								{#if isStaticTemplate(inputCat)}
 									<ToggleButton
+										light
+										small
 										tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
 										value="static"
 										label={'${}'}
 										{item}
 									/>
 								{:else}
-									<ToggleButton small label="static" value="static" {item} />
+									<ToggleButton light small label="static" value="static" {item} />
 								{/if}
 
 								{#if codeInjectionDetected && propertyType == 'static'}

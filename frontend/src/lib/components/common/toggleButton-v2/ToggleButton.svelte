@@ -51,11 +51,13 @@
 		{id}
 		{disabled}
 		class={twMerge(
-			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center border',
+			'group rounded-md transition-all font-normal data-[state=on]:font-medium hover:font-medium  flex gap-1 flex-row items-center border',
 			small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-1 text-sm',
-			light ? 'font-medium' : '',
+			light
+				? 'hover:text-secondary data-[state=on]:text-secondary text-tertiary'
+				: 'hover:text-primary data-[state=on]:text-primary text-secondary',
 			'data-[state=on]:bg-surface data-[state=off]:border-transparent data-[state=on]:border-gray-300 dark:data-[state=on]:border-gray-500',
-			'text-hint hover:text-secondary data-[state=on]:text-secondary data-[state=on]:font-medium hover:font-medium',
+			'text-hint',
 			'bg-surface-secondary hover:bg-surface-hover',
 			disabled ? '!shadow-none' : '',
 			className
