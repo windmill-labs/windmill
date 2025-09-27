@@ -145,7 +145,7 @@
 			inputBorderClass({ error, forceFocus: open }),
 			'w-full',
 			open ? '' : 'cursor-pointer',
-			!loading && value ? 'placeholder-tertiary' : 'placeholder-hint',
+			!loading && value && !disabled ? '!placeholder-secondary' : 'placeholder-hint',
 			(clearable || RightIcon) && !disabled && value ? 'pr-8' : '',
 			inputClass ?? ''
 		)}

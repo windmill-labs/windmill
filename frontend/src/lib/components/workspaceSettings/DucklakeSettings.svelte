@@ -290,7 +290,7 @@
 								}
 							}
 							class="w-48"
-							inputClass="!placeholder-tertiary"
+							inputClass="!placeholder-secondary"
 						/>
 						<TextInput
 							inputProps={{ placeholder: 'Data path (defaults to /)' }}

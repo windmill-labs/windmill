@@ -819,7 +819,7 @@
 			<div class="flex gap-1">
 				{#if secondaryStorageNames.value?.length}
 					<Select
-						inputClass="h-10 min-w-44 !placeholder-tertiary"
+						inputClass="h-10 min-w-44 !placeholder-secondary"
 						items={[
 							{ value: undefined, label: 'Default storage' },
 							...secondaryStorageNames.value.map((value) => ({ value }))

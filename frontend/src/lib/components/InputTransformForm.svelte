@@ -810,7 +810,9 @@
 
 						<div class="mb-2"></div>
 					{:else}
-						Not recognized input type {argName} ({arg.expr}, {propertyType})
+						<span class="text-xs text-red-500">
+							Not recognized input type {argName} ({arg.expr}, {propertyType})
+						</span>
 						<div class="flex mt-2">
 							<Button
 								variant="border"
