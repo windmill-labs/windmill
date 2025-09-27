@@ -16,6 +16,7 @@ const lightTheme = {
 	textTertiary: '#505c70',
 	textHint: '#757E8F',
 	textDisabled: '#a0aec0',
+	textError: '#C84545',
 
 	border: '#dddddd',
 	borderHover: '#cccccc'
@@ -35,6 +36,7 @@ const darkTheme = {
 	textTertiary: '#A8AEB7',
 	textHint: '#989DA5',
 	textDisabled: '#989DA5',
+	textError: '#ff6e6e',
 
 	border: '#3e4c60',
 	borderHover: '#3e4c60'
@@ -306,11 +308,11 @@ const config = {
 				200: '#fecaca',
 				300: '#fca5a5',
 				400: '#f87171',
-				500: '#ef4444',
-				600: '#dc2626',
-				700: '#b91c1c',
-				800: '#991b1b',
-				900: '#7f1d1d'
+				500: '#DB5C5C',
+				600: '#C84545',
+				700: '#9C3535',
+				800: '#903636',
+				900: '#652525'
 			},
 			orange: {
 				100: '#ffedd5',
@@ -417,6 +419,7 @@ const config = {
 			tertiary: 'rgb(var(--color-text-tertiary) / <alpha-value>)',
 			hint: 'rgb(var(--color-text-hint) / <alpha-value>)',
 			disabled: 'rgb(var(--color-text-disabled) / <alpha-value>)',
+			error: 'rgb(var(--color-text-error) / <alpha-value>)',
 
 			'surface-inverse': 'rgb(var(--color-surface-inverse) / <alpha-value>)',
 			'surface-secondary-inverse': 'rgb(var(--color-surface-secondary-inverse) / <alpha-value>)',
@@ -525,6 +528,7 @@ const config = {
 					'--color-text-tertiary': lightThemeRgb.textTertiary,
 					'--color-text-hint': lightThemeRgb.textHint,
 					'--color-text-disabled': lightThemeRgb.textDisabled,
+					'--color-text-error': lightThemeRgb.textError,
 
 					'--color-surface-inverse': darkThemeRgb.surface,
 					'--color-surface-secondary-inverse': darkThemeRgb.surfaceSecondary,
@@ -568,6 +572,7 @@ const config = {
 						'--color-text-tertiary': darkThemeRgb.textTertiary,
 						'--color-text-hint': darkThemeRgb.textHint,
 						'--color-text-disabled': darkThemeRgb.textDisabled,
+						'--color-text-error': darkTheme.textError,
 
 						'--color-surface-inverse': lightThemeRgb.surface,
 						'--color-surface-secondary-inverse': lightThemeRgb.surfaceSecondary,

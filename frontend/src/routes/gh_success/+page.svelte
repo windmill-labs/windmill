@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte'
 	import { CheckCircle, XCircle } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	let isLoading = true
 	let isSuccess = false
@@ -61,7 +62,9 @@
 	<div class="w-full max-w-3xl p-8 rounded-md border bg-surface shadow-sm">
 		{#if isLoading}
 			<div class="flex flex-col items-center justify-center py-8">
-				<div class="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mb-4"></div>
+				<div
+					class="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mb-4"
+				></div>
 				<p class="text-lg text-secondary">Processing GitHub app installation...</p>
 			</div>
 		{:else if isSuccess}
@@ -71,7 +74,8 @@
 					Windmill GitHub app installation completed successfully
 				</h1>
 				<p class="text-secondary mb-8">
-					The GitHub app has been successfully installed. You can now close this window and return to Windmill to start using the GitHub integration.
+					The GitHub app has been successfully installed. You can now close this window and return
+					to Windmill to start using the GitHub integration.
 				</p>
 				<button
 					on:click={closeWindow}
@@ -83,22 +87,17 @@
 		{:else}
 			<div class="flex flex-col">
 				<h1 class="text-2xl font-bold pb-6 flex flex-row items-center gap-2">
-					<XCircle class="w-8 h-8 text-red-500" />
+					<XCircle class="w-8 h-8 text-error" />
 					Failed to install Windmill GitHub app
 				</h1>
 				<p class="text-secondary pb-4">There was an error during the installation process:</p>
-				<div class="bg-surface-secondary p-4 rounded border border-red-300 text-red-600 mb-8">
+				<div class="bg-red-50 p-4 rounded border border-red-300 text-error mb-8">
 					{errorMessage}
 				</div>
 				<p class="text-secondary mb-8">
 					Please try again or contact your administrator for assistance.
 				</p>
-				<button
-					on:click={closeWindow}
-					class="w-full py-2 px-4 bg-red-600 hover:bg-red-700 text-white font-medium rounded transition-colors"
-				>
-					Close this window
-				</button>
+				<Button color="red" onClick={closeWindow}>Close this window</Button>
 			</div>
 		{/if}
 	</div>
