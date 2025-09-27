@@ -53,7 +53,7 @@ use windmill_common::{
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING,
-        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
@@ -83,7 +83,7 @@ use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
 use windmill_worker::{
     handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
     INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
-    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
+    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO,
 };
 
 #[cfg(feature = "parquet")]
@@ -298,6 +298,7 @@ pub async fn initial_load(
         reload_bunfig_install_scopes_setting(&conn).await;
         reload_instance_python_version_setting(&conn).await;
         reload_nuget_config_setting(&conn).await;
+        reload_powershell_repo_setting(&conn).await;
         reload_maven_repos_setting(&conn).await;
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
@@ -1111,6 +1112,16 @@ pub async fn reload_nuget_config_setting(conn: &Connection) {
         NUGET_CONFIG_SETTING,
         "NUGET_CONFIG",
         NUGET_CONFIG.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_powershell_repo_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        POWERSHELL_REPO_SETTING,
+        "POWERSHELL_REPO",
+        POWERSHELL_REPO.clone(),
     )
     .await;
 }

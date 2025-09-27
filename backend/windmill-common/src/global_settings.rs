@@ -11,6 +11,7 @@ pub const LICENSE_KEY_SETTING: &str = "license_key";
 pub const NPM_CONFIG_REGISTRY_SETTING: &str = "npm_config_registry";
 pub const BUNFIG_INSTALL_SCOPES_SETTING: &str = "bunfig_install_scopes";
 pub const NUGET_CONFIG_SETTING: &str = "nuget_config";
+pub const POWERSHELL_REPO_SETTING: &str = "powershell_repo";
 pub const MAVEN_REPOS_SETTING: &str = "maven_repos";
 pub const NO_DEFAULT_MAVEN_SETTING: &str = "no_default_maven";
 pub const RUBY_REPOS_SETTING: &str = "ruby_repos";

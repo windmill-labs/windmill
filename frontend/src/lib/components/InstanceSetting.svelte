@@ -56,6 +56,10 @@
 		$values[setting.key] = 'default'
 	}
 
+	if (setting.fieldType == 'powershell_repo_config' && $values[setting.key] == undefined) {
+		$values[setting.key] = { url: '', pat: '' }
+	}
+
 	let latestKeyRenewalAttempt: {
 		result: string
 		attempted_at: string
@@ -1023,6 +1027,65 @@
 								bind:value={$values[setting.key].otel_exporter_otlp_compression}
 							/>
 						</div> -->
+						{/if}
+					</div>
+				{:else if setting.fieldType == 'powershell_repo_config'}
+					<div class="flex flex-col gap-4 border rounded p-4">
+						{#if $values[setting.key]}
+							<div>
+								<label for="powershell_repo_url" class="block text-sm font-medium">
+									Repository URL
+									<Tooltip>
+										The URL of your private PowerShell repository feed. For Azure DevOps, this is typically in the format: https://pkgs.dev.azure.com/organization/project/_packaging/feedname/nuget/v3/index.json
+									</Tooltip>
+								</label>
+								<input
+									disabled={!$enterpriseLicense}
+									type="url"
+									id="powershell_repo_url"
+									placeholder="https://pkgs.dev.azure.com/org/project/_packaging/feed/nuget/v3/index.json"
+									bind:value={$values[setting.key].url}
+								/>
+							</div>
+							<div>
+								<label for="powershell_repo_pat" class="block text-sm font-medium">
+									Personal Access Token
+									<Tooltip>
+										A personal access token (PAT) with permissions to read packages from the repository. For Azure DevOps, this should have Packaging Read permissions.
+									</Tooltip>
+								</label>
+								<Password
+									placeholder="your_personal_access_token"
+									bind:password={$values[setting.key].pat}
+									disabled={!$enterpriseLicense}
+								/>
+							</div>
+							<div class="flex mt-2">
+								<Button
+									disabled={!$enterpriseLicense || !$values[setting.key].url || !$values[setting.key].pat}
+									variant="border"
+									color="light"
+									size="xs"
+									on:click={async () => {
+										try {
+											// Test the configuration by attempting to validate the provided values
+											const config = $values[setting.key]
+											if (!config.url || !config.pat) {
+												throw new Error('Both URL and PAT are required')
+											}
+											
+											// Check if URL is a valid URL
+											new URL(config.url)
+											
+											sendUserToast('PowerShell repository configuration appears valid', false)
+										} catch (error) {
+											sendUserToast('Invalid PowerShell repository configuration: ' + error.message, true)
+										}
+									}}
+								>
+									Validate configuration
+								</Button>
+							</div>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'object_store_config'}
