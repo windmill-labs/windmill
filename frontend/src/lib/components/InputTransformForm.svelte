@@ -473,7 +473,7 @@
 {#if arg != undefined}
 	<div class={twMerge('pt-2 pb-2 relative group', className)}>
 		<div class="flex flex-row justify-between gap-1 pb-1">
-			<div class="flex flex-wrap grow">
+			<div class="flex flex-wrap grow min-h-7 items-end">
 				<FieldHeader
 					label={argName}
 					simpleTooltip={headerTooltip}
