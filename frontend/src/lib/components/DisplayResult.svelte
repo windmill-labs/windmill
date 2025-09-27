@@ -36,7 +36,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import type { DisplayResultUi } from './custom_ui'
-	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
+	import { getContext, hasContext, createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
@@ -140,23 +140,24 @@
 	function isTableRowObject(json) {
 		// check array of objects (with possible a first row of headers)
 		return (
+			isTableRowObjectWithoutHeaders(json, true) ||
+			(Array.isArray(json[0]) &&
+				json[0].length > 0 &&
+				json[0].length <= 100 &&
+				json[0].every((item) => typeof item === 'string') &&
+				isTableRowObjectWithoutHeaders(json.slice(1), false))
+		)
+	}
+
+	function isTableRowObjectWithoutHeaders(json: any, checkFirst) {
+		return (
 			Array.isArray(json) &&
 			json.length > 0 &&
-			(json.every(
-				(item) =>
-					item && typeof item === 'object' && Object.keys(item).length > 0 && !Array.isArray(item)
-			) ||
-				(Array.isArray(json[0]) &&
-					json[0].every((item) => typeof item === 'string') &&
-					json
-						.slice(1)
-						.every(
-							(item) =>
-								item &&
-								typeof item === 'object' &&
-								Object.keys(item).length > 0 &&
-								!Array.isArray(item)
-						)))
+			(!checkFirst ||
+				(json[0] && typeof json[0] === 'object' && Object.keys(json[0]).length <= 100)) &&
+			json.every((item) => {
+				return typeof item === 'object' && Object.keys(item).length > 0 && !Array.isArray(item)
+			})
 		)
 	}
 
@@ -200,6 +201,7 @@
 				}
 
 				let size = roughSizeOfObject(result)
+				console.debug('size of object', size)
 				// Otherwise, check if the result is too large (10kb) for json
 
 				if (size > TABLE_MAX_SIZE) {
@@ -479,7 +481,9 @@
 
 	$effect(() => {
 		;[result]
-		resultKind = inferResultKind(result)
+		untrack(() => {
+			resultKind = inferResultKind(result)
+		})
 	})
 	$effect(() => {
 		chooseToolbarLocation(

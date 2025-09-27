@@ -3,25 +3,42 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { DatatableContext } from './DataTable.svelte'
 
-	export let first: boolean = false
-	export let last: boolean = false
-	export let numeric: boolean = false
-	export let head: boolean = false
-	export let shouldStopPropagation: boolean = false
-	export let selected = false
-	export let sticky: boolean = false
-	export let wrap: boolean = false
+	interface Props {
+		first?: boolean
+		last?: boolean
+		numeric?: boolean
+		head?: boolean
+		shouldStopPropagation?: boolean
+		selected?: boolean
+		sticky?: boolean
+		wrap?: boolean
+		children?: import('svelte').Snippet
+		[key: string]: any
+	}
+
+	let {
+		first = false,
+		last = false,
+		numeric = false,
+		head = false,
+		shouldStopPropagation = false,
+		selected = false,
+		sticky = false,
+		wrap = false,
+		children,
+		...rest
+	}: Props = $props()
 
 	let Tag = head ? 'th' : 'td'
 
 	const { size } = getContext<DatatableContext>('datatable')
 </script>
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <svelte:element
 	this={Tag}
-	{...$$restProps}
-	on:click={(e) => {
+	{...rest}
+	onclick={(e) => {
 		if (shouldStopPropagation) e.stopPropagation()
 	}}
 	class={twMerge(
@@ -41,14 +58,14 @@
 		size === 'xs' ? 'px-1 py-1.5' : '',
 		selected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
 		'transition-all',
-		$$restProps.class
+		rest.class
 	)}
 >
 	{#if sticky}
 		<div class={twMerge(first ? 'border-r' : ' border-l ')}>
-			<slot />
+			{@render children?.()}
 		</div>
 	{:else}
-		<slot />
+		{@render children?.()}
 	{/if}
 </svelte:element>
