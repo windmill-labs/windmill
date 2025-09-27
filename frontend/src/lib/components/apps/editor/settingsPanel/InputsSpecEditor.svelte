@@ -217,35 +217,51 @@
 						}}
 					>
 						{#snippet children({ item })}
-							<ToggleButton value="static" icon={Pen} iconOnly tooltip="Static" {item} />
+							<ToggleButton light value="static" icon={Pen} iconOnly tooltip="Static" {item} />
 							{#if userInputEnabled}
-								<ToggleButton value="user" icon={User} iconOnly tooltip="User Input" {item} />
+								<ToggleButton light value="user" icon={User} iconOnly tooltip="User Input" {item} />
 							{/if}
 							{#if fileUpload}
-								<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" {item} />
+								<ToggleButton light value="upload" icon={Upload} iconOnly tooltip="Upload" {item} />
 							{/if}
 							{#if fileUploadS3}
 								<ToggleButton
 									value="uploadS3"
 									icon={UploadCloud}
 									iconOnly
+									light
 									tooltip="Upload S3"
 									{item}
 								/>
 							{/if}
 							{#if componentInput?.type === 'connected'}
-								<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" {item} />
+								<ToggleButton
+									light
+									value="connected"
+									icon={Plug2}
+									iconOnly
+									tooltip="Connect"
+									{item}
+								/>
 							{/if}
 							{#if componentInput?.type === 'eval'}
 								<ToggleButton
 									value="eval"
 									icon={FunctionSquare}
 									iconOnly
+									light
 									tooltip="Eval Legacy"
 									{item}
 								/>
 							{/if}
-							<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" {item} />
+							<ToggleButton
+								value="evalv2"
+								light
+								icon={FunctionSquare}
+								iconOnly
+								tooltip="Eval"
+								{item}
+							/>
 						{/snippet}
 					</ToggleButtonGroup>
 				{/if}
