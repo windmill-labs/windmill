@@ -420,10 +420,7 @@
 							<ToggleButton
 								icon={User}
 								disabled={disabled || disableEditing}
-								light
-								size="xs"
 								value="user"
-								position="left"
 								label="User"
 								{item}
 							/>
@@ -431,10 +428,7 @@
 							<ToggleButton
 								icon={Folder}
 								disabled={disabled || disableEditing}
-								light
-								size="xs"
 								value="folder"
-								position="right"
 								label="Folder"
 								{item}
 							/>

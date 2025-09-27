@@ -852,19 +852,14 @@
 																	{#if flowModule.value['language'] === 'deno'}
 																		<ToggleButton
 																			value="s3_client"
-																			size="sm"
+																			small
 																			label="S3 lite client"
 																			{item}
 																		/>
 																	{:else}
-																		<ToggleButton
-																			value="s3_client"
-																			size="sm"
-																			label="Boto3"
-																			{item}
-																		/>
-																		<ToggleButton value="polars" size="sm" label="Polars" {item} />
-																		<ToggleButton value="duckdb" size="sm" label="DuckDB" {item} />
+																		<ToggleButton value="s3_client" small label="Boto3" {item} />
+																		<ToggleButton value="polars" small label="Polars" {item} />
+																		<ToggleButton value="duckdb" small label="DuckDB" {item} />
 																	{/if}
 																{/snippet}
 															</ToggleButtonGroup>

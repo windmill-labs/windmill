@@ -430,15 +430,14 @@
 													{#snippet children({ item })}
 														<ToggleButton
 															value="inlined"
-															size="sm"
+															small
 															label="Inlined"
 															tooltip="The value is inlined in the resource and thus has no special treatment."
 															{item}
 														/>
 														<ToggleButton
-															position="right"
 															value="secret"
-															size="sm"
+															small
 															label="Secret"
 															tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
 															{item}
