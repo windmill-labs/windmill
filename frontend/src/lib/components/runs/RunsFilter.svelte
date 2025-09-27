@@ -186,7 +186,7 @@
 	<div class="flex flex-row gap-4">
 		<RunOption label="Filter by" for="filter-by">
 			<ToggleButtonGroup
-				class="h-full"
+				class="h-9"
 				bind:selected={filterBy}
 				on:selected={(e) => {
 					if (e.detail != filterBy) {
@@ -227,7 +227,7 @@
 						bind:value={() => user ?? undefined, (v) => (user = v ?? null)}
 						clearable
 						onClear={() => ((user = null), dispatch('reset'))}
-						inputClass="!h-full min-w-36"
+						inputClass="!max-h-9 min-w-36 border-none"
 						onCreateItem={(item) => (usernames.push(item), (user = item))}
 						createText="Press enter to use this value"
 						id="user"
@@ -242,7 +242,7 @@
 						bind:value={() => folder ?? undefined, (v) => (folder = v ?? null)}
 						clearable
 						onClear={() => ((folder = null), dispatch('reset'))}
-						inputClass="!h-full min-w-36"
+						inputClass="!max-h-9 min-w-36 border-none"
 						id="folder"
 					/>
 				{/key}
@@ -255,7 +255,7 @@
 						bind:value={() => path ?? undefined, (v) => (path = v ?? null)}
 						clearable
 						onClear={() => ((path = null), dispatch('reset'))}
-						inputClass="!h-full min-w-36"
+						inputClass="!max-h-9 min-w-36 border-none"
 						onCreateItem={(item) => (paths.push(item), (path = item))}
 						createText="Press enter to use this value"
 						id="path"
@@ -480,7 +480,7 @@
 	<RunOption label="Kind" for="kind">
 		{#if small && !calendarSmall}
 			<DropdownSelect
-				btnClasses="min-w-24"
+				btnClasses="min-w-24 h-9 bg-surface-secondary font-normal"
 				items={[
 					{
 						displayName: 'All',
@@ -525,7 +525,7 @@
 				selected={jobKindsCat}
 			/>
 		{:else}
-			<ToggleButtonGroup bind:selected={jobKindsCat} class="h-full">
+			<ToggleButtonGroup bind:selected={jobKindsCat} class="h-9">
 				{#snippet children({ item })}
 					<ToggleButton value="all" label="All" {item} />
 					<ToggleButton
@@ -572,7 +572,7 @@
 	<!-- Status -->
 	<RunOption label="Status" for="status">
 		<ToggleButtonGroup
-			class="h-full"
+			class="h-9"
 			selected={success ?? 'all'}
 			on:selected={({ detail }) => {
 				success = detail === 'all' ? undefined : detail
