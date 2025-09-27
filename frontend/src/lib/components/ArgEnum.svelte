@@ -32,11 +32,19 @@
 	let customItems: string[] = $state([])
 
 	let items = $derived.by(() => {
-		const l = [...(enum_ ? enum_ : []), ...customItems].map((item) => ({
-			value: item,
-			label: enumLabels?.[item] ?? item
-		}))
-		if (create && filterText && l.every((i) => i.value !== filterText)) {
+		const l = [...(enum_ ? enum_ : []), ...customItems]
+			.map((item) => {
+				if (typeof item === 'string') {
+					return {
+						value: item,
+						label: enumLabels?.[item] ?? item
+					}
+				} else if (typeof item === 'object') {
+					return item
+				}
+			})
+			.filter((i) => i != undefined)
+		if (create && filterText && l.every((i) => i?.value !== filterText)) {
 			l.push({ value: filterText, label: `Add new: ${filterText}` })
 		}
 		return l

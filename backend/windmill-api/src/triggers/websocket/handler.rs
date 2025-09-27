@@ -12,6 +12,7 @@ use tokio_tungstenite::connect_async;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    worker::to_raw_value,
 };
 use windmill_git_sync::DeployedObject;
 
@@ -236,7 +237,7 @@ impl TriggerCrud for WebsocketTrigger {
                         url.starts_with("$flow:"),
                         &db,
                         authed.clone(),
-                        config.url_runnable_args.as_ref(),
+                        config.url_runnable_args.as_ref().map(to_raw_value).as_ref(),
                         &workspace_id,
                     )
                     .await?,

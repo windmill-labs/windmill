@@ -255,7 +255,12 @@
 				if (inputCat === 'string') {
 					nvalue = nullable ? null : ''
 				} else if (inputCat == 'enum' && required) {
-					nvalue = enum_?.[0]
+					let firstV = enum_?.[0]
+					if (typeof firstV === 'string') {
+						nvalue = firstV
+					} else if (firstV && typeof firstV === 'object') {
+						nvalue = firstV.value
+					}
 				} else if (inputCat == 'boolean') {
 					nvalue = false
 				} else if (inputCat == 'list') {

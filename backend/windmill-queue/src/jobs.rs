@@ -147,6 +147,7 @@ pub struct JobCompleted {
     pub token: String,
     pub canceled_by: Option<CanceledBy>,
     pub duration: Option<i64>,
+    pub has_stream: Option<bool>,
 }
 
 pub async fn cancel_single_job<'c>(
@@ -737,6 +738,7 @@ pub async fn add_completed_job_error(
         canceled_by,
         flow_is_done,
         duration,
+        false,
     )
     .await?;
     Ok(result)
@@ -758,6 +760,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     canceled_by: Option<CanceledBy>,
     flow_is_done: bool,
     duration: Option<i64>,
+    has_stream: bool,
 ) -> Result<(Uuid, i64), Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
@@ -782,6 +785,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             &canceled_by,
             flow_is_done,
             duration,
+            has_stream,
         )
     })
     .retry(
@@ -790,7 +794,11 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             .with_max_times(5)
             .build(),
     )
-    .when(|err| !matches!(err, Error::QuotaExceeded(_)) && !matches!(err, Error::ResultTooLarge(_)))
+    .when(|err| {
+        !matches!(err, Error::QuotaExceeded(_))
+            && !matches!(err, Error::ResultTooLarge(_))
+            && !matches!(err, Error::AlreadyCompleted(_))
+    })
     .notify(|err, dur| {
         tracing::error!("Could not insert completed job, retrying in {dur:#?}, err: {err:#?}");
     })
@@ -834,6 +842,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     canceled_by: &Option<CanceledBy>,
     flow_is_done: bool,
     duration: Option<i64>,
+    has_stream: bool,
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool)> {
     // let start = std::time::Instant::now();
 
@@ -855,7 +864,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         return value;
     }
 
-    let _duration =  sqlx::query_scalar!(
+    let duration =  sqlx::query_scalar!(
             "INSERT INTO v2_job_completed AS cj
                     ( workspace_id
                     , id
@@ -891,9 +900,32 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             /* $9 */ duration,
             /* $10 */ result_columns as Option<&Vec<String>>,
         )
-        .fetch_one(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?;
+
+    let duration = if let Some(duration) = duration {
+        duration
+    } else {
+        let already_inserted = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM v2_job_completed WHERE id = $1)",
+            job_id
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?
+        .unwrap_or(false);
+
+        if already_inserted {
+            return Err(Error::AlreadyCompleted(format!(
+                "The queued job {job_id} is already completed."
+            )));
+        } else {
+            return Err(Error::AlreadyCompleted(format!(
+                "There is no queued job anymore for {job_id} but there is no completed job either."
+            )));
+        }
+    };
 
     if let Some(labels) = result.wm_labels() {
         sqlx::query!(
@@ -924,7 +956,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         )
                     WHERE id = $3",
                 &queued_job.id.to_string(),
-                _duration,
+                duration,
                 parent_job
             )
             .execute(&mut *tx)
@@ -1116,6 +1148,12 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .execute(&mut *tx)
         .await?;
 
+    if !success || has_stream {
+        sqlx::query!("DELETE FROM job_result_stream_v2 WHERE job_id = $1", job_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
     tx.commit().await?;
 
     tracing::info!(
@@ -1124,7 +1162,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         path = &queued_job.runnable_path(),
         job_kind = ?queued_job.kind,
         started_at = ?queued_job.started_at.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
-        duration = ?_duration,
+        duration = ?duration,
         permissioned_as = ?queued_job.permissioned_as,
         email = ?queued_job.permissioned_as_email,
         created_by = queued_job.created_by,
@@ -1137,7 +1175,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         queued_job.id
     );
     // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
-    Ok((None, _duration, _skip_downstream_error_handlers))
+    Ok((None, duration, _skip_downstream_error_handlers))
 }
 
 async fn check_result_size<T: ValidableJson>(
@@ -1655,7 +1693,7 @@ pub async fn handle_maybe_scheduled_job<'c>(
         let push_next_job_future = (|| {
             tokio::time::timeout(std::time::Duration::from_secs(5), async {
                 let mut tx = db.begin().await?;
-                tx = push_scheduled_job(db, tx, &schedule, None).await?;
+                tx = push_scheduled_job(db, tx, &schedule, None, Some(job.scheduled_for)).await?;
                 tx.commit().await?;
                 Ok::<(), Error>(())
             })

@@ -124,7 +124,7 @@
 	})
 	let showHistoryDrawer = $state(false)
 
-	let jobProgressReset: (() => void) | undefined = $state(undefined)
+	let jobProgressBar: JobProgressBar | undefined = $state(undefined)
 	let diffMode = $state(false)
 
 	let websocketAlive = $state({
@@ -201,7 +201,7 @@
 
 	export async function runTest() {
 		// Not defined if JobProgressBar not loaded
-		if (jobProgressReset) jobProgressReset()
+		jobProgressBar?.reset()
 		//@ts-ignore
 		let job = await jobLoader.runPreview(
 			path,
@@ -784,8 +784,8 @@
 								<!-- Put to the slot in logpanel -->
 								<JobProgressBar
 									job={testJob}
-									bind:scriptProgress
-									bind:reset={jobProgressReset}
+									{scriptProgress}
+									bind:this={jobProgressBar}
 									compact={true}
 								/>
 							{/if}

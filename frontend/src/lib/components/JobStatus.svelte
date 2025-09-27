@@ -10,7 +10,11 @@
 
 	const SMALL_ICON_SIZE = 12
 
-	export let job: QueuedJob | CompletedJob | undefined
+	interface Props {
+		job: QueuedJob | CompletedJob | undefined
+	}
+
+	let { job }: Props = $props()
 </script>
 
 {#if job && 'success' in job && job.success}

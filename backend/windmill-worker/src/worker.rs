@@ -765,6 +765,7 @@ pub async fn handle_all_job_kind_error(
                         cached_res_path: None,
                         token: authed_client.token.clone(),
                         duration: None,
+                        has_stream: Some(false),
                     },
                     false,
                 )
@@ -1687,6 +1688,7 @@ pub async fn run_worker(
                                 token: "".to_string(),
                                 canceled_by: None,
                                 duration: None,
+                                has_stream: Some(false),
                             },
                             true,
                         )
@@ -2229,6 +2231,7 @@ async fn do_nativets(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    has_stream: &mut bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let args = build_args_map(job, client, conn).await?.map(Json);
     let job_args = if args.is_some() {
@@ -2255,6 +2258,7 @@ async fn do_nativets(
         true,
         occupancy_metrics,
         stream_notifier,
+        has_stream,
     )
     .await?)
 }
@@ -2408,6 +2412,7 @@ pub async fn handle_queued_job(
                             cached_res_path: None,
                             token: client.token.clone(),
                             duration: None,
+                            has_stream: Some(false),
                         },
                         true,
                     )
@@ -2491,6 +2496,7 @@ pub async fn handle_queued_job(
 
         let mut column_order: Option<Vec<String>> = None;
         let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
+        let mut has_stream = false;
         let result = match job.kind {
             JobKind::Dependencies => match conn {
                 Connection::Sql(db) => {
@@ -2582,6 +2588,7 @@ pub async fn handle_queued_job(
                         worker_name,
                         hostname,
                         killpill_rx,
+                        &mut has_stream,
                     )
                     .await
                 }
@@ -2614,6 +2621,7 @@ pub async fn handle_queued_job(
                     occupancy_metrics,
                     killpill_rx,
                     precomputed_agent_info,
+                    &mut has_stream,
                 )
                 .await;
                 occupancy_metrics.total_duration_of_running_jobs +=
@@ -2646,6 +2654,7 @@ pub async fn handle_queued_job(
             new_args,
             conn,
             Some(started.elapsed().as_millis() as i64),
+            has_stream,
         )
         .await
     }
@@ -2833,6 +2842,7 @@ async fn handle_code_execution_job(
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
     let script_hash = || {
         job.runnable_id
@@ -3172,6 +3182,7 @@ async fn handle_code_execution_job(
             canceled_by,
             worker_name,
             occupancy_metrics,
+            has_stream,
         )
         .await?;
         return Ok(result);
@@ -3245,6 +3256,7 @@ mount {{
                 new_args,
                 occupancy_metrics,
                 precomputed_agent_info,
+                has_stream,
             )
             .await
         }
@@ -3264,6 +3276,7 @@ mount {{
                 envs,
                 new_args,
                 occupancy_metrics,
+                has_stream,
             )
             .await
         }
@@ -3286,6 +3299,7 @@ mount {{
                 new_args,
                 occupancy_metrics,
                 precomputed_agent_info,
+                has_stream,
             )
             .await
         }

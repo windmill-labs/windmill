@@ -175,6 +175,7 @@ pub fn workspaced_service() -> Router {
         .route(
             "/run_and_stream/f/*script_path",
             get(stream_flow_by_path)
+                .post(stream_flow_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
@@ -182,6 +183,7 @@ pub fn workspaced_service() -> Router {
         .route(
             "/run_and_stream/p/*script_path",
             get(stream_script_by_path)
+                .post(stream_script_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
@@ -189,6 +191,7 @@ pub fn workspaced_service() -> Router {
         .route(
             "/run_and_stream/h/:hash",
             get(stream_script_by_hash)
+                .post(stream_script_by_hash)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
@@ -3552,7 +3555,7 @@ pub enum DynamicSelectRunnableRef {
     #[serde(rename = "deployed")]
     Deployed { path: String, runnable_kind: RunnableKind },
     #[serde(rename = "inline")]
-    Inline { code: String, language: Option<ScriptLang> },
+    Inline { code: String, lang: Option<ScriptLang> },
 }
 
 pub struct QueryOrBody<D>(pub Option<D>);
@@ -5220,6 +5223,7 @@ pub async fn stream_flow_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
+    method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
     stream_job(
@@ -5230,6 +5234,7 @@ pub async fn stream_flow_by_path(
         RunnableId::from_flow_path(flow_path.to_path()),
         args,
         run_query,
+        method == http::Method::GET,
     )
     .await
 }
@@ -5240,6 +5245,7 @@ pub async fn stream_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
+    method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
     stream_job(
@@ -5250,6 +5256,7 @@ pub async fn stream_script_by_path(
         RunnableId::from_script_path(script_path.to_path()),
         args,
         run_query,
+        method == http::Method::GET,
     )
     .await
 }
@@ -5260,6 +5267,7 @@ pub async fn stream_script_by_hash(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
+    method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
     stream_job(
@@ -5270,6 +5278,7 @@ pub async fn stream_script_by_hash(
         RunnableId::from_script_hash(script_hash),
         args,
         run_query,
+        method == http::Method::GET,
     )
     .await
 }
@@ -5282,23 +5291,38 @@ pub async fn stream_job(
     runnable_id: RunnableId,
     args: RawWebhookArgs,
     run_query: RunJobQuery,
+    is_get: bool,
 ) -> error::Result<Response> {
-    let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
-        x.map_err(|e| Error::internal_err(format!("Impossible to decode query payload: {e:#?}")))
-    });
+    let args = if is_get {
+        let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
+            x.map_err(|e| {
+                Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
+            })
+        });
 
-    let payload_args = if let Some(payload) = payload_r {
-        payload?
+        let payload_args = if let Some(payload) = payload_r {
+            payload?
+        } else {
+            HashMap::new()
+        };
+
+        let mut args = args.process_args(&authed, &db, &w_id, None).await?;
+        args.body = args::Body::HashMap(payload_args);
+
+        let args = args
+            .to_args_from_runnable(&db, &w_id, runnable_id.clone(), run_query.skip_preprocessor)
+            .await?;
+        args
     } else {
-        HashMap::new()
+        args.to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            runnable_id.clone(),
+            run_query.skip_preprocessor,
+        )
+        .await?
     };
-
-    let mut args = args.process_args(&authed, &db, &w_id, None).await?;
-    args.body = args::Body::HashMap(payload_args);
-
-    let args = args
-        .to_args_from_runnable(&db, &w_id, runnable_id.clone(), run_query.skip_preprocessor)
-        .await?;
 
     let poll_delay_ms = run_query.poll_delay_ms;
     let uuid = match runnable_id {
@@ -6351,7 +6375,7 @@ async fn run_dynamic_select(
                 dynamic_input = dynamic_input_res;
             }
         },
-        DynamicSelectRunnableRef::Inline { code, language } => {
+        DynamicSelectRunnableRef::Inline { code, lang: language } => {
             dynamic_input = DynamicInput {
                 x_windmill_dyn_select_code: code,
                 x_windmill_dyn_select_lang: language.unwrap_or_default(),
@@ -6678,7 +6702,7 @@ async fn get_job_update(
             &job_id,
             log_offset,
             stream_offset,
-            get_progress,
+            get_progress.unwrap_or(false),
             running,
             true,
             false,
@@ -6782,6 +6806,7 @@ fn start_job_update_sse_stream(
         // Send initial update immediately
         let mut running = running;
         let mut mem_peak = 0;
+
         match get_job_update_data(
             &opt_authed,
             &opt_tokened,
@@ -6790,7 +6815,7 @@ fn start_job_update_sse_stream(
             &job_id,
             log_offset,
             stream_offset,
-            get_progress,
+            false,
             running,
             true,
             true,
@@ -6847,11 +6872,12 @@ fn start_job_update_sse_stream(
             }
         }
 
+        let mut get_progress_m: bool = false;
         // Poll for updates every 1 second
         let mut i = 0;
         let start = Instant::now();
         let mut last_ping = Instant::now();
-
+        let mut last_progress_check = Instant::now();
         loop {
             i += 1;
 
@@ -6894,6 +6920,10 @@ fn start_job_update_sse_stream(
             }
             tokio::time::sleep(std::time::Duration::from_millis(ms_duration)).await;
 
+            // Check progress if the user requested it, and check periodically if the job has progress
+            // Once it has progress, we always check progress
+            let check_progress = get_progress.unwrap_or(false)
+                && (get_progress_m || last_progress_check.elapsed().as_secs() > 5);
             match get_job_update_data(
                 &opt_authed,
                 &opt_tokened,
@@ -6902,7 +6932,7 @@ fn start_job_update_sse_stream(
                 &job_id,
                 log_offset,
                 stream_offset,
-                get_progress,
+                check_progress,
                 running,
                 false,
                 true,
@@ -6922,6 +6952,13 @@ fn start_job_update_sse_stream(
                     }
                     if update.new_logs.as_ref().is_some_and(|x| x.is_empty()) {
                         update.new_logs = None;
+                    }
+                    if check_progress {
+                        if update.progress.is_some() {
+                            get_progress_m = true;
+                        } else {
+                            last_progress_check = Instant::now();
+                        }
                     }
 
                     // if !only_result.unwrap_or(false) {
@@ -6990,14 +7027,20 @@ async fn get_flow_stream_delta(
 ) -> error::Result<Option<(Option<String>, Option<i32>)>> {
     if let Some(job_id) = flow_stream_job_id {
         let record = sqlx::query!(
-            "SELECT SUBSTR(rs.stream, $1) AS new_result_stream, CHAR_LENGTH(rs.stream) + 1 AS stream_offset FROM job_result_stream rs WHERE rs.job_id = $2",
+            "
+            SELECT 
+                string_agg(stream, '' order by idx asc) as stream, 
+                max(idx) + 1 as offset 
+            FROM job_result_stream_v2
+            WHERE job_id = $2 AND idx >= $1
+            ",
             stream_offset.unwrap_or(0),
             job_id,
         )
         .fetch_optional(db)
         .await?;
         if let Some(record) = record {
-            Ok(Some((record.new_result_stream, record.stream_offset)))
+            Ok(Some((record.stream, record.offset)))
         } else {
             Ok(None)
         }
@@ -7014,7 +7057,7 @@ async fn get_job_update_data(
     job_id: &Uuid,
     log_offset: Option<i32>,
     stream_offset: Option<i32>,
-    get_progress: Option<bool>,
+    get_progress: bool,
     running: Option<bool>,
     log_view: bool,
     get_full_job_on_completion: bool,
@@ -7046,18 +7089,28 @@ async fn get_job_update_data(
         let (result, running, mut result_stream, mut new_stream_offset, new_flow_stream_job_id) =
             if let Some(tags) = tags {
                 let r = sqlx::query!(
-                "SELECT 
+                "
+                WITH result_stream AS (
+                    SELECT 
+                        string_agg(stream, '' order by idx asc) as stream, 
+                        job_id, 
+                        max(idx) + 1 as offset 
+                    FROM job_result_stream_v2
+                    WHERE job_id = $2 AND idx >= $3
+                    GROUP BY job_id
+                )
+                SELECT 
                     jc.result as \"result: sqlx::types::Json<Box<RawValue>>\",
                     v2_job.tag,
                     v2_job_queue.running as \"running: Option<bool>\",
-                    SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
-                    CHAR_LENGTH(rs.stream) AS stream_offset,
+                    rs.stream AS \"result_stream: Option<String>\",
+                    rs.offset AS stream_offset,
                     CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                 FROM v2_job
                 LEFT JOIN v2_job_queue USING (id)
                 LEFT JOIN v2_job_completed jc USING (id)
                 LEFT JOIN v2_job_status js USING (id)
-                LEFT JOIN job_result_stream rs ON rs.job_id = $2
+                LEFT JOIN result_stream rs ON rs.job_id = $2
                 WHERE v2_job.id = $2 AND v2_job.workspace_id = $1",
                 w_id,
                 job_id,
@@ -7086,11 +7139,21 @@ async fn get_job_update_data(
             } else {
                 if running.is_some_and(|x| !x) {
                     let r = sqlx::query!(
-                    "SELECT
+                    "
+                    WITH result_stream AS (
+                        SELECT 
+                            string_agg(stream, '' order by idx asc) as stream, 
+                            job_id, 
+                            max(idx) + 1 as offset 
+                        FROM job_result_stream_v2
+                        WHERE job_id = $1 AND idx >= $3
+                        GROUP BY job_id
+                    )
+                    SELECT
                         COALESCE(jc.result, jc.result) as \"result: sqlx::types::Json<Box<RawValue>>\",
                         jq.running as \"running: Option<bool>\",
-                        SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
-                        CHAR_LENGTH(rs.stream) + 1 AS stream_offset,
+                        rs.stream AS \"result_stream: Option<String>\",
+                        rs.offset AS stream_offset,
                         CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                     FROM (
                         SELECT $1::uuid as job_id, $2::text as workspace_id
@@ -7098,7 +7161,7 @@ async fn get_job_update_data(
                     LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id
                     LEFT JOIN v2_job_queue jq ON jq.id = base.job_id AND jq.workspace_id = base.workspace_id
                     LEFT JOIN v2_job_status js ON js.id = base.job_id
-                    LEFT JOIN job_result_stream rs ON rs.job_id = base.job_id
+                    LEFT JOIN result_stream rs ON rs.job_id = base.job_id
                     WHERE base.job_id = $1",
                     job_id,
                     w_id,
@@ -7119,10 +7182,20 @@ async fn get_job_update_data(
                     }
                 } else {
                     let q = sqlx::query!(
-                    "SELECT
+                    "
+                    WITH result_stream AS (
+                        SELECT 
+                            string_agg(stream, '' order by idx asc) as stream, 
+                            job_id, 
+                            max(idx) + 1 as offset 
+                        FROM job_result_stream_v2
+                        WHERE job_id = $2 AND idx >= $3
+                        GROUP BY job_id
+                    )
+                    SELECT
                         COALESCE(jc.result, NULL) as \"result: sqlx::types::Json<Box<RawValue>>\",
-                        SUBSTR(rs.stream, $3) AS \"result_stream: Option<String>\",
-                        CHAR_LENGTH(rs.stream) + 1 AS stream_offset,
+                        rs.stream AS \"result_stream: Option<String>\",
+                        rs.offset AS stream_offset,
                         COALESCE(js.flow_status, jc.flow_status) as \"flow_status: sqlx::types::Json<Box<RawValue>>\",
                         CASE WHEN $4 THEN NULL ELSE (COALESCE(js.flow_status, jc.flow_status)->>'stream_job')::uuid END as stream_job
                     FROM (
@@ -7130,7 +7203,7 @@ async fn get_job_update_data(
                     ) base
                     LEFT JOIN v2_job_completed jc ON jc.id = base.job_id AND jc.workspace_id = base.workspace_id
                     LEFT JOIN v2_job_status js ON js.id = base.job_id
-                    LEFT JOIN job_result_stream rs ON rs.job_id = base.job_id
+                    LEFT JOIN result_stream rs ON rs.job_id = base.job_id
                     WHERE base.job_id = $2",
                     w_id,
                     job_id,
@@ -7180,20 +7253,30 @@ async fn get_job_update_data(
         })
     } else {
         let mut record = sqlx::query!(
-            "SELECT
+            "
+            WITH result_stream AS (
+                SELECT 
+                    string_agg(stream, '' order by idx asc) as stream, 
+                    job_id, 
+                    max(idx) + 1 as offset 
+                FROM job_result_stream_v2
+                WHERE job_id = $3 AND idx >= $8
+                GROUP BY job_id
+            )
+            SELECT
                 c.id IS NOT NULL AS completed,
                 CASE
                     WHEN q.id IS NOT NULL THEN (CASE WHEN NOT $5 AND q.running THEN true ELSE null END)
                     ELSE false
                 END AS running,
                 CASE WHEN $7::BOOLEAN THEN NULL ELSE SUBSTR(logs, GREATEST($1 - log_offset, 0)) END AS logs,
-                SUBSTR(rs.stream, $8) AS new_result_stream,
+                rs.stream AS new_result_stream,
                 COALESCE(r.memory_peak, c.memory_peak) AS mem_peak,
                 COALESCE(c.flow_status, f.flow_status) AS \"flow_status: sqlx::types::Json<Box<RawValue>>\",
                 (COALESCE(c.flow_status, f.flow_status)->>'stream_job')::uuid AS stream_job,
                 COALESCE(c.workflow_as_code_status, f.workflow_as_code_status) AS \"workflow_as_code_status: sqlx::types::Json<Box<RawValue>>\",
                 CASE WHEN $7::BOOLEAN THEN NULL ELSE job_logs.log_offset + CHAR_LENGTH(job_logs.logs) + 1 END AS log_offset,
-                CHAR_LENGTH(rs.stream) + 1 AS stream_offset,
+                rs.offset AS stream_offset,
                 created_by AS \"created_by!\",
                 CASE WHEN $4::BOOLEAN THEN (
                     SELECT scalar_int FROM job_stats WHERE job_id = $3 AND metric_id = 'progress_perc'
@@ -7204,14 +7287,14 @@ async fn get_job_update_data(
                 LEFT JOIN v2_job_runtime r USING (id)
                 LEFT JOIN v2_job_status f USING (id)
                 LEFT JOIN v2_job_completed c USING (id)
-                LEFT JOIN job_result_stream rs ON rs.job_id = $3
+                LEFT JOIN result_stream rs ON rs.job_id = $3
                 LEFT JOIN job_logs ON job_logs.job_id =  $3
             WHERE j.workspace_id = $2 AND j.id = $3
             AND ($6::text[] IS NULL OR j.tag = ANY($6))",
             log_offset,
             w_id,
             job_id,
-            get_progress.unwrap_or(false),
+            get_progress,
             running,
             tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
             no_logs.unwrap_or(false),
