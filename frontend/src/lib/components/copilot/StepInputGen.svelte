@@ -1,3 +1,14 @@
+<script lang="ts" module>
+	export function stepInputGenButtonClasses(selected: boolean) {
+		return twMerge(
+			'text-violet-500 dark:text-violet-400 border',
+			selected
+				? 'bg-green-50 hover:bg-green-50 dark:bg-green-400/15 dark:hover:bg-green-400/15 text-green-800 border-green-200 dark:border-green-300/60 dark:text-green-400 '
+				: 'hover:bg-violet-50 border-violet-100 dark:hover:bg-violet-400/15 dark:border-violet-400/20'
+		)
+	}
+</script>
+
 <script lang="ts">
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
@@ -212,10 +223,7 @@ Only return the expression without any wrapper.`
 			size="xs"
 			color="light"
 			btnClasses={twMerge(
-				'text-violet-500 dark:text-violet-400 border border-violet-100 dark:border-gray-700 dark:hover:bg-surface-hover',
-				!loading && generatedContent.length > 0
-					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
-					: '',
+				stepInputGenButtonClasses(!loading && generatedContent.length > 0),
 				btnClass
 			)}
 			on:click={() => {
