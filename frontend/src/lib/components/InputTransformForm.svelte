@@ -678,7 +678,7 @@
 			<div class="relative flex flex-row items-top gap-2 justify-between">
 				<div class="min-w-0 grow">
 					{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-						<div class="min-h-[28px]">
+						<div>
 							{#if arg}
 								<TemplateEditor
 									bind:this={monacoTemplate}
