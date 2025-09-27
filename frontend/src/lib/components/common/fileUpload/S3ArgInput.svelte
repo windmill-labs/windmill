@@ -143,7 +143,7 @@
 	{@render bottom?.()}
 	<Toggle
 		class="mt-1"
-		textClass="font-normal text-tertiary"
+		textClass="font-normal text-hint"
 		bind:checked={s3FileUploadRawMode}
 		size="xs"
 		options={{ right: `Raw S3 object${multiple ? 's' : ''} input` }}

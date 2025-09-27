@@ -93,7 +93,7 @@
 					? 'peer-checked:bg-red-600'
 					: color == 'blue'
 						? 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500'
-						: 'peer-checked:bg-nord-950 dark:peer-checked:bg-nord-400',
+						: 'peer-checked:bg-nord-950 dark:peer-checked:bg-nord-900',
 				size === 'sm'
 					? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
 					: size === '2sm'
