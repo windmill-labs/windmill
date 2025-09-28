@@ -36,8 +36,7 @@ use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
-#[cfg(feature = "enterprise")]
-use windmill_common::BASE_URL;
+
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     cache::{self, FlowData},
@@ -88,7 +87,7 @@ lazy_static::lazy_static! {
     )
     .unwrap();
 
-    static ref QUEUE_PULL_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
+    pub static ref QUEUE_PULL_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
         "queue_pull_count",
         "Total number of jobs pulled from the queue."
     )
@@ -1078,7 +1077,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 {
                     if !success {
                         tracing::error!("Could not apply schedule error handler: {}", err);
-                        let base_url = BASE_URL.read().await;
+                        let base_url = windmill_common::BASE_URL.read().await;
                         let w_id: &String = &queued_job.workspace_id;
                         if !matches!(err, Error::QuotaExceeded(_)) {
                             report_error_to_workspace_handler_or_critical_side_channel(
@@ -3068,7 +3067,7 @@ pub async fn push<'c, 'd>(
                 if !team_plan_status.premium
                     && email != ERROR_HANDLER_USER_EMAIL
                     && email != SCHEDULE_ERROR_HANDLER_USER_EMAIL
-                    && email != SCHEDULE_RECOVERY_HANDLER_USER_EMAIL
+                    && email != crate::jobs_ee::SCHEDULE_RECOVERY_HANDLER_USER_EMAIL
                     && email != "worker@windmill.dev"
                     && email != SUPERADMIN_SECRET_EMAIL
                     && permissioned_as != SUPERADMIN_SYNC_EMAIL
