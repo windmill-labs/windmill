@@ -3063,11 +3063,16 @@ pub async fn push<'c, 'd>(
                     .await?
                     .unwrap_or(false);
 
+            #[cfg(feature = "private")]
+            let recovery_email = crate::jobs_ee::SCHEDULE_RECOVERY_HANDLER_USER_EMAIL;
+            #[cfg(not(feature = "private"))]
+            let recovery_email = "recovery@windmill.dev";
+
             if !is_super_admin {
                 if !team_plan_status.premium
                     && email != ERROR_HANDLER_USER_EMAIL
                     && email != SCHEDULE_ERROR_HANDLER_USER_EMAIL
-                    && email != crate::jobs_ee::SCHEDULE_RECOVERY_HANDLER_USER_EMAIL
+                    && email != recovery_email
                     && email != "worker@windmill.dev"
                     && email != SUPERADMIN_SECRET_EMAIL
                     && permissioned_as != SUPERADMIN_SYNC_EMAIL
