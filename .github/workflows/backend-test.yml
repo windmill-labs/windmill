@@ -66,7 +66,7 @@ jobs:
 
       - name: Substitute EE code (EE logic is behind feature flag)
         run: |
-          ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
+          ./substitute_ee_code.sh --copy --dir ./windmill-ee-private
       - name: cargo test
         timeout-minutes: 16
         run:
