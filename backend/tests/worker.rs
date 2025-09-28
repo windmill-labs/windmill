@@ -2302,7 +2302,7 @@ async fn test_rust_client(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 #[sqlx::test(fixtures("base", "schedule"))]
 async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -2459,7 +2459,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
     Ok(())
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 #[sqlx::test(fixtures("base", "schedule"))]
 async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
