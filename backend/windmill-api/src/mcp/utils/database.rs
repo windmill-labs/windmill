@@ -144,7 +144,14 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
     scope_path: Option<&str>,
 ) -> Result<Vec<T>, ErrorData> {
     let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
-    let fields = vec!["o.path", "o.summary", "o.description", "o.schema"];
+    let fields = if item_type == "script" {
+        vec!["o.path", "o.hash", "o.summary", "o.description", "o.schema"]
+    } else {
+        // For flows, we need to join with flow_version to get the latest version ID
+        sqlb.join(&format!("{}_version as fv", item_type))
+            .on(&format!("fv.workspace_id = o.workspace_id AND fv.path = o.path AND fv.id = (SELECT MAX(id) FROM {}_version WHERE workspace_id = o.workspace_id AND path = o.path)", item_type));
+        vec!["o.path", "fv.id", "o.summary", "o.description", "o.schema"]
+    };
     sqlb.fields(&fields);
     if scope_type == "favorites" {
         sqlb.join("favorite")
@@ -259,4 +266,190 @@ pub async fn get_hub_script_schema(path: &str, db: &DB) -> Result<Option<Schema>
             Ok(None)
         }
     }
+}
+
+/// Get script path by hash
+pub async fn get_script_path_by_hash(
+    hash: &str,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+) -> Result<String, ErrorData> {
+    let hash_i64 = hash
+        .parse::<i64>()
+        .map_err(|_| ErrorData::internal_error("Invalid hash format", None))?;
+
+    let mut sqlb = SqlBuilder::select_from("script as o");
+    sqlb.fields(&["o.path"]);
+    sqlb.and_where("o.hash = ?".bind(&hash_i64));
+    sqlb.and_where("o.workspace_id = ?".bind(&workspace_id));
+    sqlb.and_where("o.archived = false");
+    sqlb.and_where("o.draft_only IS NOT TRUE");
+    sqlb.and_where("(o.no_main_func IS NOT TRUE OR o.no_main_func IS NULL)");
+
+    let sql = sqlb.sql().map_err(|_e| {
+        tracing::error!("failed to build sql: {}", _e);
+        ErrorData::internal_error("failed to build sql", None)
+    })?;
+
+    let mut tx = user_db
+        .clone()
+        .begin(authed)
+        .await
+        .map_err(|_e| ErrorData::internal_error("failed to begin transaction", None))?;
+
+    let row = sqlx::query_scalar::<_, String>(&sql)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_e| {
+            tracing::error!("failed to fetch script path by hash: {}", _e);
+            ErrorData::internal_error("failed to fetch script path by hash", None)
+        })?;
+
+    tx.commit()
+        .await
+        .map_err(|_e| ErrorData::internal_error("failed to commit transaction", None))?;
+
+    Ok(row)
+}
+
+/// Get flow path by version id
+pub async fn get_flow_path_by_id(
+    version_id: &str,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+) -> Result<String, ErrorData> {
+    let mut sqlb = SqlBuilder::select_from("flow_version as fv");
+    sqlb.join("flow as o")
+        .on("o.workspace_id = fv.workspace_id AND o.path = fv.path");
+    sqlb.fields(&["o.path"]);
+    sqlb.and_where(
+        "fv.id = ?".bind(
+            &version_id
+                .parse::<i64>()
+                .map_err(|_| ErrorData::internal_error("Invalid version ID format", None))?,
+        ),
+    );
+    sqlb.and_where("fv.workspace_id = ?".bind(&workspace_id));
+    sqlb.and_where("o.archived = false");
+    sqlb.and_where("o.draft_only IS NOT TRUE");
+
+    let sql = sqlb.sql().map_err(|_e| {
+        tracing::error!("failed to build sql: {}", _e);
+        ErrorData::internal_error("failed to build sql", None)
+    })?;
+
+    let mut tx = user_db
+        .clone()
+        .begin(authed)
+        .await
+        .map_err(|_e| ErrorData::internal_error("failed to begin transaction", None))?;
+
+    let row = sqlx::query_scalar::<_, String>(&sql)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_e| {
+            tracing::error!("failed to fetch flow path by version id: {}", _e);
+            ErrorData::internal_error("failed to fetch flow path by version id", None)
+        })?;
+
+    tx.commit()
+        .await
+        .map_err(|_e| ErrorData::internal_error("failed to commit transaction", None))?;
+
+    Ok(row)
+}
+
+/// Get script path and schema by hash
+pub async fn get_script_path_and_schema_by_hash(
+    hash: &str,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+) -> Result<ItemPathAndSchema, ErrorData> {
+    let hash_i64 = hash
+        .parse::<i64>()
+        .map_err(|_| ErrorData::internal_error("Invalid hash format", None))?;
+
+    let mut sqlb = SqlBuilder::select_from("script as o");
+    sqlb.fields(&["o.path", "o.schema"]);
+    sqlb.and_where("o.hash = ?".bind(&hash_i64));
+    sqlb.and_where("o.workspace_id = ?".bind(&workspace_id));
+    sqlb.and_where("o.archived = false");
+    sqlb.and_where("o.draft_only IS NOT TRUE");
+    sqlb.and_where("(o.no_main_func IS NOT TRUE OR o.no_main_func IS NULL)");
+
+    let sql = sqlb.sql().map_err(|_e| {
+        tracing::error!("failed to build sql: {}", _e);
+        ErrorData::internal_error("failed to build sql", None)
+    })?;
+
+    let mut tx = user_db
+        .clone()
+        .begin(authed)
+        .await
+        .map_err(|_e| ErrorData::internal_error("failed to begin transaction", None))?;
+
+    let row = sqlx::query_as::<_, ItemPathAndSchema>(&sql)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_e| {
+            tracing::error!("failed to fetch script path and schema by hash: {}", _e);
+            ErrorData::internal_error("failed to fetch script path and schema by hash", None)
+        })?;
+
+    tx.commit()
+        .await
+        .map_err(|_e| ErrorData::internal_error("failed to commit transaction", None))?;
+
+    Ok(row)
+}
+
+/// Get flow path and schema by version id
+pub async fn get_flow_path_and_schema_by_id(
+    version_id: &str,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+) -> Result<ItemPathAndSchema, ErrorData> {
+    let mut sqlb = SqlBuilder::select_from("flow_version as fv");
+    sqlb.join("flow as o")
+        .on("o.workspace_id = fv.workspace_id AND o.path = fv.path");
+    sqlb.fields(&["o.path", "fv.schema"]);
+    sqlb.and_where(
+        "fv.id = ?".bind(
+            &version_id
+                .parse::<i64>()
+                .map_err(|_| ErrorData::internal_error("Invalid version ID format", None))?,
+        ),
+    );
+    sqlb.and_where("fv.workspace_id = ?".bind(&workspace_id));
+    sqlb.and_where("o.archived = false");
+    sqlb.and_where("o.draft_only IS NOT TRUE");
+
+    let sql = sqlb.sql().map_err(|_e| {
+        tracing::error!("failed to build sql: {}", _e);
+        ErrorData::internal_error("failed to build sql", None)
+    })?;
+
+    let mut tx = user_db
+        .clone()
+        .begin(authed)
+        .await
+        .map_err(|_e| ErrorData::internal_error("failed to begin transaction", None))?;
+
+    let row = sqlx::query_as::<_, ItemPathAndSchema>(&sql)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|_e| {
+            tracing::error!("failed to fetch flow path and schema by version id: {}", _e);
+            ErrorData::internal_error("failed to fetch flow path and schema by version id", None)
+        })?;
+
+    tx.commit()
+        .await
+        .map_err(|_e| ErrorData::internal_error("failed to commit transaction", None))?;
+
+    Ok(row)
 }

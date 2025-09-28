@@ -3,15 +3,18 @@
 //! Contains functionality for converting Windmill flows into MCP tools.
 
 use super::super::utils::{
-    models::{FlowInfo, ToolableItem, SchemaType},
+    models::{FlowInfo, SchemaType, ToolableItem},
     schema::convert_schema_to_schema_type,
-    transform::transform_path,
 };
 
 /// Implementation of ToolableItem for FlowInfo
 impl ToolableItem for FlowInfo {
-    fn get_path_or_id(&self) -> String {
-        transform_path(&self.path, "flow")
+    fn get_path(&self) -> String {
+        self.path.clone()
+    }
+
+    fn get_id(&self) -> String {
+        format!("flow:{}", self.id)
     }
 
     fn get_summary(&self) -> &str {

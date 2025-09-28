@@ -32,8 +32,8 @@ use super::tools::endpoint_tools::{
 };
 use super::utils::{
     database::{
-        check_scopes, get_hub_script_schema, get_item_schema, get_items, get_resources_types,
-        get_scripts_from_hub,
+        check_scopes, get_flow_path_and_schema_by_id, get_hub_script_schema, get_item_schema,
+        get_items, get_resources_types, get_script_path_and_schema_by_hash, get_scripts_from_hub,
     },
     models::{
         FlowInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, ToolableItem, WorkspaceId,
@@ -72,12 +72,20 @@ impl Runner {
         resources_types: &Vec<ResourceType>,
     ) -> Result<Tool, ErrorData> {
         let is_hub = item.is_hub();
-        let path = item.get_path_or_id();
+        let tool_id = item.get_id();
         let item_type = item.item_type();
+
+        // Use path for title if summary is empty, otherwise use summary
+        let title = if item.get_summary().is_empty() || item.get_summary() == "No summary" {
+            item.get_path()
+        } else {
+            item.get_summary().to_string()
+        };
+
         let description = format!(
             "This is a {} named `{}` with the following description: `{}`.{}",
             item_type,
-            item.get_summary(),
+            title,
             item.get_description(),
             if is_hub {
                 format!(
@@ -101,13 +109,13 @@ impl Runner {
         let input_schema_map = match serde_json::to_value(schema_obj) {
             Ok(Value::Object(map)) => map,
             Ok(_) => {
-                tracing::warn!("Schema object for tool '{}' did not serialize to a JSON object, using empty schema.", path);
+                tracing::warn!("Schema object for tool '{}' did not serialize to a JSON object, using empty schema.", tool_id);
                 serde_json::Map::new()
             }
             Err(e) => {
                 tracing::error!(
                     "Failed to serialize schema object for tool '{}': {}. Using empty schema.",
-                    path,
+                    tool_id,
                     e
                 );
                 serde_json::Map::new()
@@ -115,14 +123,14 @@ impl Runner {
         };
 
         Ok(Tool {
-            name: Cow::Owned(path),
+            name: Cow::Owned(tool_id),
             description: Some(Cow::Owned(description)),
             input_schema: Arc::new(input_schema_map),
-            title: Some(item.get_summary().to_string()),
+            title: Some(title.clone()),
             output_schema: None,
             icons: None,
             annotations: Some(ToolAnnotations {
-                title: Some(item.get_summary().to_string()),
+                title: Some(title),
                 read_only_hint: Some(false),  // Can modify environment
                 destructive_hint: Some(true), // Can potentially be destructive
                 idempotent_hint: Some(false), // Are not guaranteed to be idempotent
@@ -195,14 +203,27 @@ impl ServerHandler for Runner {
         }
 
         // Continue with script/flow logic
-        let (tool_type, path, is_hub) = reverse_transform(&request.name).map_err(|e| {
-            ErrorData::internal_error(format!("Failed to reverse transform path: {}", e), None)
-        })?;
-
-        let item_schema = if is_hub {
-            get_hub_script_schema(&format!("hub/{}", path), db).await?
+        let (tool_type, path, item_schema, is_hub) = if request.name.starts_with("script:") {
+            let id = &request.name[7..]; // Remove "script:" prefix
+            let item_data =
+                get_script_path_and_schema_by_hash(id, user_db, authed, &workspace_id).await?;
+            ("script", item_data.path, item_data.schema, false)
+        } else if request.name.starts_with("flow:") {
+            let version_id = &request.name[5..]; // Remove "flow:" prefix
+            let item_data =
+                get_flow_path_and_schema_by_id(version_id, user_db, authed, &workspace_id).await?;
+            ("flow", item_data.path, item_data.schema, false)
         } else {
-            get_item_schema(&path, user_db, authed, &workspace_id, &tool_type).await?
+            // Fall back to old transform method for hub scripts and other tools
+            let (tool_type, path, is_hub) = reverse_transform(&request.name).map_err(|e| {
+                ErrorData::internal_error(format!("Failed to reverse transform path: {}", e), None)
+            })?;
+            let item_schema = if is_hub {
+                get_hub_script_schema(&format!("hub/{}", path), db).await?
+            } else {
+                get_item_schema(&path, user_db, authed, &workspace_id, &tool_type).await?
+            };
+            (tool_type, path, item_schema, is_hub)
         };
 
         let schema_obj = if let Some(ref s) = item_schema {
@@ -384,7 +405,7 @@ impl ServerHandler for Runner {
         let mut tools: Vec<Tool> = Vec::new();
 
         for script in scripts {
-            if script.get_path_or_id().len() <= MAX_PATH_LENGTH {
+            if script.get_id().len() <= MAX_PATH_LENGTH {
                 tools.push(
                     Runner::create_tool_from_item(
                         &script,
@@ -400,7 +421,7 @@ impl ServerHandler for Runner {
         }
 
         for flow in flows {
-            if flow.get_path_or_id().len() <= MAX_PATH_LENGTH {
+            if flow.get_id().len() <= MAX_PATH_LENGTH {
                 tools.push(
                     Runner::create_tool_from_item(
                         &flow,
@@ -416,7 +437,7 @@ impl ServerHandler for Runner {
         }
 
         for hub_script in hub_scripts {
-            if hub_script.get_path_or_id().len() <= MAX_PATH_LENGTH {
+            if hub_script.get_id().len() <= MAX_PATH_LENGTH {
                 tools.push(
                     Runner::create_tool_from_item(
                         &hub_script,

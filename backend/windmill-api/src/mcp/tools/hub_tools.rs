@@ -2,13 +2,18 @@
 //!
 //! Contains functionality for integrating Windmill Hub scripts as MCP tools.
 
-use super::super::utils::{
-    models::{HubScriptInfo, ToolableItem, SchemaType},
-};
+use super::super::utils::models::{HubScriptInfo, SchemaType, ToolableItem};
 
 /// Implementation of ToolableItem for HubScriptInfo
 impl ToolableItem for HubScriptInfo {
-    fn get_path_or_id(&self) -> String {
+    fn get_path(&self) -> String {
+        // Hub scripts don't have a traditional path, use the ID format
+        let id = self.version_id;
+        let summary = self.summary.as_deref().unwrap_or("No summary");
+        format!("hub/{}-{}", id, summary.replace(" ", "_"))
+    }
+
+    fn get_id(&self) -> String {
         let id = self.version_id;
         let summary = self.summary.as_deref().unwrap_or("No summary");
         format!("hs-{}-{}", id, summary.replace(" ", "_"))
