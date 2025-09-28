@@ -39,6 +39,8 @@
 		newTokenLabel = $bindable(undefined)
 	}: Props = $props()
 
+	const MAX_PATH_LENGTH = 55
+
 	let newToken = $state<string | undefined>(undefined)
 	let newMcpToken = $state<string | undefined>(undefined)
 	let newTokenExpiration = $state<number | undefined>(undefined)
@@ -124,6 +126,17 @@
 			: 'Create your first scripts or flows to make them available via MCP.'
 	)
 	const noScriptsOrFlowsAvailableWarning = $derived(includedRunnables.length === 0 ? warning : '')
+	const longPathRunnables = $derived(
+		includedRunnables.filter((path) => path.length > MAX_PATH_LENGTH)
+	)
+	const validRunnables = $derived(
+		includedRunnables.filter((path) => path.length <= MAX_PATH_LENGTH)
+	)
+	const longPathWarning = $derived(
+		longPathRunnables.length > 0
+			? `${longPathRunnables.length} script(s)/flow(s) have paths longer than 60 characters and will be excluded from MCP tools. Consider shortening the paths: ${longPathRunnables.slice(0, 3).join(', ')}${longPathRunnables.length > 3 ? ` and ${longPathRunnables.length - 3} more` : ''}`
+			: ''
+	)
 
 	$effect(() => {
 		if (mcpCreationMode) {
@@ -406,20 +419,25 @@
 								{noScriptsOrFlowsAvailableWarning}
 							</Alert>
 						{:else}
+							{#if longPathWarning}
+								<Alert type="warning" title="Some paths are too long" size="xs">
+									{longPathWarning}
+								</Alert>
+							{/if}
 							<span class="block text-xs text-tertiary"
 								>Scripts & Flows that will be available via MCP</span
 							>
 							<div class="flex flex-wrap gap-1">
-								{#if includedRunnables.length <= 5}
-									{#each includedRunnables as scriptOrFlow}
+								{#if validRunnables.length <= 5}
+									{#each validRunnables as scriptOrFlow}
 										<Badge rounded small color="blue">{scriptOrFlow}</Badge>
 									{/each}
 								{:else}
-									{#each includedRunnables.slice(0, 3) as scriptOrFlow}
+									{#each validRunnables.slice(0, 3) as scriptOrFlow}
 										<Badge rounded small color="blue">{scriptOrFlow}</Badge>
 									{/each}
 									<Badge rounded small color="dark-gray">
-										+{includedRunnables.length - 3} more
+										+{validRunnables.length - 3} more
 									</Badge>
 								{/if}
 							</div>

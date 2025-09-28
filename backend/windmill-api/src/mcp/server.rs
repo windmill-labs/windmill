@@ -50,6 +50,9 @@ use rmcp::transport::streamable_http_server::{
 };
 use windmill_common::error::JsonResult;
 
+// MCP clients do not allow names longer than 60 characters
+const MAX_PATH_LENGTH: usize = 60;
+
 /// MCP Server Runner - implements the core MCP protocol handlers
 #[derive(Clone)]
 pub struct Runner {}
@@ -381,45 +384,51 @@ impl ServerHandler for Runner {
         let mut tools: Vec<Tool> = Vec::new();
 
         for script in scripts {
-            tools.push(
-                Runner::create_tool_from_item(
-                    &script,
-                    user_db,
-                    authed,
-                    &workspace_id,
-                    &mut resources_cache,
-                    &resources_types,
-                )
-                .await?,
-            );
+            if script.get_path_or_id().len() <= MAX_PATH_LENGTH {
+                tools.push(
+                    Runner::create_tool_from_item(
+                        &script,
+                        user_db,
+                        authed,
+                        &workspace_id,
+                        &mut resources_cache,
+                        &resources_types,
+                    )
+                    .await?,
+                );
+            }
         }
 
         for flow in flows {
-            tools.push(
-                Runner::create_tool_from_item(
-                    &flow,
-                    user_db,
-                    authed,
-                    &workspace_id,
-                    &mut resources_cache,
-                    &resources_types,
-                )
-                .await?,
-            );
+            if flow.get_path_or_id().len() <= MAX_PATH_LENGTH {
+                tools.push(
+                    Runner::create_tool_from_item(
+                        &flow,
+                        user_db,
+                        authed,
+                        &workspace_id,
+                        &mut resources_cache,
+                        &resources_types,
+                    )
+                    .await?,
+                );
+            }
         }
 
         for hub_script in hub_scripts {
-            tools.push(
-                Runner::create_tool_from_item(
-                    &hub_script,
-                    user_db,
-                    authed,
-                    &workspace_id,
-                    &mut resources_cache,
-                    &resources_types,
-                )
-                .await?,
-            );
+            if hub_script.get_path_or_id().len() <= MAX_PATH_LENGTH {
+                tools.push(
+                    Runner::create_tool_from_item(
+                        &hub_script,
+                        user_db,
+                        authed,
+                        &workspace_id,
+                        &mut resources_cache,
+                        &resources_types,
+                    )
+                    .await?,
+                );
+            }
         }
 
         // Add endpoint tools from the generated MCP tools
