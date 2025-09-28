@@ -528,7 +528,7 @@
 						icon: Github
 					}}
 				>
-					Use VScode
+					VScode
 				</Button>
 			</div>
 		{/if}

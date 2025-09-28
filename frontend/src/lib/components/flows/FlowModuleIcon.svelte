@@ -19,26 +19,26 @@
 	const iconHeight = height || size
 </script>
 
-{#if module.value.type === 'aiagent'}
+{#if module?.value?.type === 'aiagent'}
 	<Bot size={16} class="text-violet-800 dark:text-violet-400" />
-{:else if module.value.type === 'rawscript'}
+{:else if module?.value?.type === 'rawscript'}
 	<LanguageIcon lang={module.value.language} width={iconWidth} height={iconHeight} />
-{:else if module.summary === 'Terminate flow'}
+{:else if module?.summary === 'Terminate flow'}
 	<Square {size} />
-{:else if module.value.type === 'identity'}
+{:else if module?.value?.type === 'identity'}
 	<ArrowDown {size} />
-{:else if module.value.type === 'flow'}
+{:else if module?.value?.type === 'flow'}
 	<BarsStaggered {size} />
-{:else if module.value.type === 'forloopflow' || module.value.type === 'whileloopflow'}
+{:else if module?.value?.type === 'forloopflow' || module?.value?.type === 'whileloopflow'}
 	<Repeat {size} />
-{:else if module.value.type === 'branchone' || module.value.type === 'branchall'}
+{:else if module?.value?.type === 'branchone' || module?.value?.type === 'branchall'}
 	<GitBranch {size} />
-{:else if module.value.type === 'script'}
-	{#if module.value.path.startsWith('hub/')}
+{:else if module?.value?.type === 'script'}
+	{#if module?.value?.path?.startsWith('hub/')}
 		<IconedResourceType
 			width={iconWidth.toString() + 'px'}
 			height={iconHeight.toString() + 'px'}
-			name={module.value.path.split('/')[2]}
+			name={module?.value?.path?.split('/')[2]}
 			silent={true}
 		/>
 	{:else}
