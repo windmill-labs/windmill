@@ -444,7 +444,6 @@ impl ServerHandler for Runner {
             protocol_version: ProtocolVersion::default(),
             capabilities: ServerCapabilities::builder()
                 .enable_tools()
-                .enable_tool_list_changed()
                 .build(),
             server_info: Implementation::from_build_env(),
             instructions: Some("This server provides a list of scripts and flows the user can run on Windmill. Each flow and script is a tool callable with their respective arguments.".to_string()),
