@@ -17,8 +17,10 @@ import {
 	type EmailTrigger,
 	EmailTriggerService
 } from '$lib/gen'
+import { enterpriseLicense } from '$lib/stores'
+
 import { getLightConfig, sortTriggers, updateTriggersCount, type Trigger } from './utils'
-import type { Writable } from 'svelte/store'
+import { get, type Writable } from 'svelte/store'
 import type { TriggerType } from './utils'
 import type { UserExt } from '$lib/stores'
 import type { ScheduleTrigger } from '../triggers'
@@ -474,12 +476,13 @@ export class Triggers {
 			this.fetchHttpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchWebsocketTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchPostgresTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchKafkaTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchNatsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchMqttTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchSqsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchEmailTriggers(triggersCountStore, workspaceId, path, isFlow, user)
+			this.fetchEmailTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+			...(get(enterpriseLicense) ? [
+				this.fetchKafkaTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+				this.fetchSqsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+				this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow, user)] : [])
 		])
 	}
 }
