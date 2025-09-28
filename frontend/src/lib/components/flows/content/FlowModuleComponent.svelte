@@ -572,7 +572,7 @@
 														></div>
 													{/if}
 													<InputTransformSchemaForm
-														class="px-1 xl:px-2"
+														class="px-2 xl:px-4"
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
 														schema={flowStateStore.val[$selectedId]?.schema ?? {}}
@@ -852,19 +852,14 @@
 																	{#if flowModule.value['language'] === 'deno'}
 																		<ToggleButton
 																			value="s3_client"
-																			size="sm"
+																			small
 																			label="S3 lite client"
 																			{item}
 																		/>
 																	{:else}
-																		<ToggleButton
-																			value="s3_client"
-																			size="sm"
-																			label="Boto3"
-																			{item}
-																		/>
-																		<ToggleButton value="polars" size="sm" label="Polars" {item} />
-																		<ToggleButton value="duckdb" size="sm" label="DuckDB" {item} />
+																		<ToggleButton value="s3_client" small label="Boto3" {item} />
+																		<ToggleButton value="polars" small label="Polars" {item} />
+																		<ToggleButton value="duckdb" small label="DuckDB" {item} />
 																	{/if}
 																{/snippet}
 															</ToggleButtonGroup>

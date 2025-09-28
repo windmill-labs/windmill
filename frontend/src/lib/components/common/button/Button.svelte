@@ -349,6 +349,7 @@
 			on:open={() => dispatch('dropdownOpen', true)}
 			on:close={() => dispatch('dropdownOpen', false)}
 			bind:open={dropdownOpen}
+			enableFlyTransition
 		>
 			{#snippet buttonReplacement()}
 				<div

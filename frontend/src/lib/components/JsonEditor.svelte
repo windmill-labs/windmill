@@ -7,6 +7,8 @@
 	import { createEventDispatcher } from 'svelte'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import Button from './common/button/Button.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import { inputBorderClass } from './text_input/TextInput.svelte'
 
 	interface Props {
 		code: string | undefined
@@ -34,6 +36,7 @@
 
 	let tooBig = $derived(code && code?.length > 1000000)
 	let loadTooBigAnyway = $state(false)
+	let focused = $state(false)
 
 	const dispatch = createEventDispatcher()
 	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
@@ -66,12 +69,17 @@
 	</div>
 {:else}
 	<div class="flex flex-col w-full">
-		<div class="border w-full">
+		<div
+			class={twMerge(
+				'w-full rounded-md bg-surface-secondary',
+				inputBorderClass({ error: !!error, forceFocus: focused })
+			)}
+		>
 			<SimpleEditor
 				{loadAsync}
 				{small}
-				on:focus
-				on:blur
+				on:focus={() => (dispatch('focus'), (focused = true))}
+				on:blur={() => (dispatch('blur'), (focused = false))}
 				bind:this={editor}
 				on:change
 				autoHeight
@@ -80,10 +88,12 @@
 				class={clazz}
 				{disabled}
 				{fixedOverflowWidgets}
+				renderLineHighlight="none"
+				yPadding={8}
 			/>
 		</div>
 		{#if error != ''}
-			<span class="text-red-600 text-xs">{error}</span>
+			<span class="text-red-600 text-xs mt-1">{error}</span>
 		{/if}
 	</div>
 {/if}
