@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::env;
-use std::ffi::{c_char, CString};
+use std::ffi::{c_char, CStr, CString};
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 
@@ -193,6 +193,7 @@ struct DuckDbFfiLib {
             column_order_ptr: *mut *mut c_char,
         ) -> *mut c_char,
     >,
+    free_cstr: Symbol<'static, unsafe extern "C" fn(string: *mut c_char) -> ()>,
 }
 
 impl DuckDbFfiLib {
@@ -232,6 +233,7 @@ impl DuckDbFfiLib {
         let lib = Box::leak(Box::new(lib));
         Ok(DuckDbFfiLib {
             run_duckdb_ffi: unsafe { lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? },
+            free_cstr: unsafe { lib.get(b"free_cstr").map_err(to_anyhow)? },
         })
     }
 }
@@ -264,8 +266,9 @@ fn run_duckdb_ffi_safe<'a>(
     let w_id = CString::new(w_id).map_err(to_anyhow)?;
 
     let run_duckdb_ffi = &DuckDbFfiLib::get_singleton()?.run_duckdb_ffi;
+    let free_cstr = &DuckDbFfiLib::get_singleton()?.free_cstr;
     let mut column_order: *mut c_char = std::ptr::null_mut();
-    let result_cstr = unsafe {
+    let result_str = unsafe {
         let ptr = run_duckdb_ffi(
             query_block_list.as_ptr(),
             query_block_list_count,
@@ -275,26 +278,18 @@ fn run_duckdb_ffi_safe<'a>(
             w_id.as_ptr(),
             &mut column_order,
         );
-        CString::from_raw(ptr) // Using from_raw to take ownership and ensure it gets freed
+        let str = CStr::from_ptr(ptr).to_string_lossy().to_string();
+        free_cstr(ptr);
+        str
     };
 
     let column_order = if column_order.is_null() {
         None
     } else {
-        Some(unsafe {
-            serde_json::from_str::<Vec<String>>(&CString::from_raw(column_order).to_string_lossy())?
-        })
+        let str = unsafe { CStr::from_ptr(column_order).to_string_lossy().to_string() };
+        unsafe { free_cstr(column_order) };
+        Some(serde_json::from_str::<Vec<String>>(&str)?)
     };
-
-    let result_str = result_cstr
-        .to_str()
-        .map_err(|e| {
-            Error::ExecutionErr(format!(
-                "Failed to convert result C string to Rust string: {}",
-                e.to_string()
-            ))
-        })?
-        .to_string();
 
     if result_str.starts_with("ERROR") {
         Err(Error::ExecutionErr(result_str[6..].to_string()))

@@ -183,8 +183,9 @@
 			}
 		}
 
-		const sortedNewNodes = clone(nodes)
+		const sortedNewNodes = nodes
 			.filter((n) => n.type !== 'asset')
+			.map((n) => ({ id: n.id, position: $state.snapshot(n.position) }))
 			.sort((a, b) => a.position.y - b.position.y)
 		let currentYOffset = 0
 		let prevYPos = NaN
@@ -234,7 +235,6 @@
 	import { MessageCircle, Play, Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getContext } from 'svelte'
-	import { clone } from '$lib/utils'
 	import type { Edge, Node } from '@xyflow/svelte'
 
 	import type { Writable } from 'svelte/store'

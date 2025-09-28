@@ -26,6 +26,7 @@
 	import EditorTheme from './EditorTheme.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { setMonacoJsonOptions } from './monacoLanguagesOptions'
+	import { inputBorderClass } from './text_input/TextInput.svelte'
 
 	export const conf = {
 		wordPattern:
@@ -449,7 +450,14 @@
 				lineDecorationsWidth: 6,
 				lineNumbersMinChars: 2,
 				fontSize,
-				suggestOnTriggerCharacters: true
+				suggestOnTriggerCharacters: true,
+				renderLineHighlight: 'none',
+				lineNumbers: 'off',
+
+				padding: {
+					bottom: 8,
+					top: 8
+				}
 			})
 		} catch (e) {
 			console.error('Error loading monaco:', e)
@@ -498,10 +506,12 @@
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
+			isFocus = true
 		})
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
+			isFocus = false
 			updateCode()
 		})
 
@@ -597,6 +607,7 @@
 		editor?.focus()
 	}
 
+	let isFocus = false
 	let mounted = false
 	let loadTimeout: number | undefined = undefined
 	onMount(async () => {
@@ -650,19 +661,18 @@
 {#if !editor}
 	<FakeMonacoPlaceHolder
 		autoheight
+		showNumbers={false}
 		{code}
-		lineNumbersWidth={23}
-		lineNumbersOffset={-8}
-		class="border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
+		lineNumbersWidth={14}
+		lineNumbersOffset={-20}
+		class="template nonmain-editor rounded-md min-h-4 bg-surface-secondary !py-[9px] overflow-clip"
 	/>
 {/if}
 <div
 	bind:this={divEl}
-	style="height: 18px;"
-	class="{$$props.class ??
-		''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip {!editor
-		? 'hidden'
-		: ''}"
+	style="height: 18px; padding-left: 6px;"
+	class="{inputBorderClass({ forceFocus: isFocus })} {$$props.class ??
+		''} template nonmain-editor rounded-md min-h-4 overflow-clip {!editor ? 'hidden' : ''}"
 	bind:clientWidth={width}
 ></div>
 

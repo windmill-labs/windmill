@@ -1712,7 +1712,7 @@
 							{#if $workerTags?.length ?? 0 > 0}
 								<div class="max-w-[200px] pr-8">
 									<WorkerTagSelect
-										inputClass="text-sm text-secondary !placeholder-secondary"
+										inputClass="text-sm text-secondary !h-8 !placeholder-secondary"
 										nullTag={script.language}
 										placeholder={customUi?.tagSelectPlaceholder}
 										bind:tag={script.tag}

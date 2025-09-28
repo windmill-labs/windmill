@@ -7,6 +7,7 @@
 	import DraggableTags from './DraggableTags.svelte'
 	import { Search } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import TextInput, { inputBorderClass } from '../text_input/TextInput.svelte'
 
 	type Value = Item['value']
 
@@ -59,7 +60,7 @@
 	let filterText = $state<string>('')
 	let open = $state<boolean>(false)
 	let wrapperEl: HTMLDivElement | undefined = $state()
-	let searchInputEl: HTMLInputElement | undefined = $state()
+	let searchInputEl: TextInput | undefined = $state()
 
 	$effect(() => searchInputEl?.focus())
 
@@ -99,7 +100,8 @@
 <div
 	bind:this={wrapperEl}
 	class={twMerge(
-		'relative min-h-8 flex items-center w-full bg-surface border border-gray-300 rounded-md text-tertiary',
+		'relative min-h-10 flex items-center w-full bg-surface-secondary !text-secondary rounded-md',
+		inputBorderClass({ forceFocus: open && !disabled }),
 		disabled ? 'pointer-events-none' : '',
 		open && !disabled ? 'open' : '',
 		disabled ? 'disabled' : '',
@@ -113,7 +115,9 @@
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 
 	{#if value.length === 0}
-		<span class={twMerge('text-sm ml-2 h-full flex items-center flex-1', placeholderClass)}>
+		<span
+			class={twMerge('text-sm ml-4 h-full flex items-center flex-1 text-hint', placeholderClass)}
+		>
 			{placeholder}
 		</span>
 	{:else}
@@ -134,10 +138,10 @@
 			/>
 		</ul>
 	{/if}
-	{#if allowClear && !hideMainClearBtn}
+	{#if allowClear && !hideMainClearBtn && !!value?.length}
 		<CloseButton
 			noBg
-			class="mr-1 remove-all"
+			class="mr-1 remove-all bg-transparent text-hint"
 			small
 			on:close={(e) => (clearValue(), e.stopPropagation())}
 		/>
@@ -163,12 +167,14 @@
 		{#snippet header()}
 			{#if processedItems.length - value.length > 0 || onCreateItem}
 				<div class="mx-2 mb-1 mt-2 flex items-center relative">
-					<input
+					<TextInput
 						bind:this={searchInputEl}
 						bind:value={filterText}
-						onblur={(e) => (e.preventDefault(), searchInputEl?.focus())}
-						placeholder="Search"
-						class="!pr-7"
+						inputProps={{
+							onblur: (e) => (e.preventDefault(), searchInputEl?.focus()),
+							placeholder: 'Search...'
+						}}
+						class="!pr-7 !bg-surface"
 					/>
 					<Search size={16} class="absolute right-2 text-tertiary" />
 				</div>
