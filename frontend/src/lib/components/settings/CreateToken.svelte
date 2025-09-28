@@ -39,6 +39,7 @@
 		newTokenLabel = $bindable(undefined)
 	}: Props = $props()
 
+	// MCP clients do not allow names longer than 60 characters, here we use 55 because final tool name server side will add ~5 characters
 	const MAX_PATH_LENGTH = 55
 
 	let newToken = $state<string | undefined>(undefined)
