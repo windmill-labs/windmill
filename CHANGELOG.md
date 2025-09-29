@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.551.4](https://github.com/windmill-labs/windmill/compare/v1.551.3...v1.551.4) (2025-09-29)
+
+
+### Bug Fixes
+
+* migrate dotnet from msft images to script install ([cfec8e9](https://github.com/windmill-labs/windmill/commit/cfec8e99fb55928dfed3b7e80fb63cc279553dec))
+
 ## [1.551.3](https://github.com/windmill-labs/windmill/compare/v1.551.2...v1.551.3) (2025-09-29)
 
 
