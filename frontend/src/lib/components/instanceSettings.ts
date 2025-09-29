@@ -340,6 +340,24 @@ export const settings: Record<string, Setting[]> = {
 			placeholder: 'https://user:password@gems.foo.com/',
 			storage: 'setting',
 			ee_only: ''
+		},
+		{
+			label: 'PowerShell Repository URL',
+			description: 'Add private PowerShell repository URL',
+			key: 'powershell_repo_url',
+			placeholder:
+				'https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json',
+			fieldType: 'text',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'PowerShell Repository PAT',
+			description: 'Add private PowerShell repository Personal Access Token',
+			key: 'powershell_repo_pat',
+			fieldType: 'text',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	Alerts: [
