@@ -57,8 +57,8 @@ RUN apt-get update \
 RUN rustup component add rustfmt
 
 # C#
-COPY --from=bitnami/dotnet-sdk:9.0.101-debian-12-r0 /opt/bitnami/dotnet-sdk /opt/dotnet-sdk
-RUN ln -s /opt/dotnet-sdk/bin/dotnet /usr/bin/dotnet
+COPY --from=mcr.microsoft.com/dotnet/sdk:9.0 /usr/bin/dotnet /usr/bin/dotnet
+ENV DOTNET_ROOT="/usr/bin"
 
 # Nushell
 COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu
