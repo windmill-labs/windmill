@@ -94,16 +94,35 @@ async fn list_conversations(
     Ok(Json(conversations))
 }
 
-pub async fn create_conversation(
+pub async fn get_or_create_conversation_with_id(
     authed: &ApiAuthed,
     user_db: &UserDB,
     w_id: &str,
     flow_path: &str,
     username: &str,
     title: &str,
+    conversation_id: Uuid,
 ) -> Result<FlowConversation> {
     let mut tx = user_db.clone().begin(authed).await?;
-    let conversation_id = Uuid::new_v4();
+
+    // Check if conversation already exists
+    let existing_conversation = sqlx::query_as::<Postgres, FlowConversation>(
+        "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
+         FROM flow_conversation
+         WHERE id = $1 AND workspace_id = $2 AND created_by = $3",
+    )
+    .bind(conversation_id)
+    .bind(w_id)
+    .bind(username)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if let Some(existing) = existing_conversation {
+        tx.commit().await?;
+        return Ok(existing);
+    }
+
+    // Create new conversation with provided ID
     let conversation = sqlx::query_as::<Postgres, FlowConversation>(
         "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title)
          VALUES ($1, $2, $3, $4, $5)

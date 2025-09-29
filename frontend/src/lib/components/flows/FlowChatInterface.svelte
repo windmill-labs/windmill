@@ -142,12 +142,18 @@
 
 		const isNewConversation = messages.length === 0
 
+		// Generate a new conversation ID if we don't have one
+		let currentConversationId = conversationId
+		if (!currentConversationId) {
+			currentConversationId = crypto.randomUUID()
+		}
+
 		const userMessage: ChatMessage = {
 			id: crypto.randomUUID(),
 			content: inputMessage.trim(),
 			created_at: new Date().toISOString(),
 			message_type: 'user',
-			conversation_id: conversationId ?? ''
+			conversation_id: currentConversationId
 		}
 
 		messages = [...messages, userMessage]
@@ -158,7 +164,7 @@
 		try {
 			// Run the flow with the user message as input
 			// The backend will automatically store messages when the flow runs
-			const jobId = await onRunFlow({ user_message: messageContent }, conversationId)
+			const jobId = await onRunFlow({ user_message: messageContent }, currentConversationId)
 
 			// Add assistant message placeholder
 			const assistantMessageId = crypto.randomUUID()
@@ -167,7 +173,7 @@
 				content: '',
 				created_at: new Date().toISOString(),
 				message_type: 'assistant',
-				conversation_id: conversationId ?? '',
+				conversation_id: currentConversationId,
 				job_id: jobId,
 				loading: true
 			}

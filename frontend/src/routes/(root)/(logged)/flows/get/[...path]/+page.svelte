@@ -409,7 +409,7 @@
 	let path = $derived(page.params.path ?? '')
 
 	async function handleNewConversation() {
-		selectedConversationId = undefined
+		selectedConversationId = crypto.randomUUID()
 		if (flowChatInterface) {
 			flowChatInterface.clearMessages()
 		}

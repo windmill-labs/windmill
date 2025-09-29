@@ -4028,22 +4028,24 @@ pub async fn run_flow_by_path_inner(
     if chat_input_enabled.unwrap_or(false) {
         if let Some(user_msg_raw) = args.args.get("user_message") {
             if let Ok(user_msg) = serde_json::from_str::<String>(user_msg_raw.get()) {
-                // Get or create conversation
-                let conversation_id = if let Some(id) = run_query.conversation_id {
-                    id
-                } else {
-                    // Create a new conversation
-                    flow_conversations::create_conversation(
-                        &authed,
-                        &user_db,
-                        &w_id,
-                        &flow_path.to_string(),
-                        &authed.username,
-                        &user_msg,
+                // Use provided conversation_id or return error if missing
+                let conversation_id = run_query.conversation_id.ok_or_else(|| {
+                    windmill_common::error::Error::BadRequest(
+                        "conversation_id is required for chat-enabled flows".to_string(),
                     )
-                    .await?
-                    .id
-                };
+                })?;
+
+                // Create conversation with provided ID (or get existing one)
+                flow_conversations::get_or_create_conversation_with_id(
+                    &authed,
+                    &user_db,
+                    &w_id,
+                    &flow_path.to_string(),
+                    &authed.username,
+                    &user_msg,
+                    conversation_id,
+                )
+                .await?;
 
                 // Create user message
                 flow_conversations::create_message(
