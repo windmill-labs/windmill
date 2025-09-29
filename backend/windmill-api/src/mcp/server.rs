@@ -151,7 +151,7 @@ impl ServerHandler for Runner {
 
         check_scopes(authed)?;
 
-        if request.name.contains("_TRUNC") {
+        if request.name.ends_with("_TRUNC") {
             return Ok(CallToolResult::error(
                 vec![
                     Annotated::new(

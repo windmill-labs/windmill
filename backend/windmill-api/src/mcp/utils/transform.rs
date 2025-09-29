@@ -19,7 +19,12 @@ pub fn transform_path(path: &str, type_str: &str) -> String {
     // first letter of type_str is used as prefix, only one letter to avoid reaching 60 char name limit
     let transformed_path = format!("{}-{}", &type_str[..1], escaped_path);
     if transformed_path.len() > MAX_PATH_LENGTH {
-        return format!("{}{}", &transformed_path[..54], "_TRUNC");
+        let suffix = "_TRUNC";
+        return format!(
+            "{}{}",
+            &transformed_path[..MAX_PATH_LENGTH - suffix.len()],
+            suffix
+        );
     }
     transformed_path
 }
