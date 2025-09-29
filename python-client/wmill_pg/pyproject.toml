@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "wmill-pg"
-version = "1.552.0"
+version = "1.552.1"
 description = "An extension client for the wmill client library focused on pg"
 license = "Apache-2.0"
 homepage = "https://windmill.dev"
