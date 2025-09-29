@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { MessageCircle, Plus, Clock, Trash2, Menu } from 'lucide-svelte'
+	import { MessageCircle, Plus, Trash2, Menu } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
-	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { FlowConversationService, type FlowConversation } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 
@@ -25,30 +24,78 @@
 	let conversations = $state<FlowConversation[]>([])
 	let loading = $state(false)
 	let isExpanded = $state(false)
+	let page = $state(1)
+	let perPage = 20
+	let hasMore = $state(true)
+	let loadingMore = $state(false)
+	let conversationsContainer: HTMLDivElement | undefined = $state()
+	let scrollTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	export async function refreshConversations() {
-		return await loadConversations()
+		page = 1
+		return await loadConversations(true)
 	}
 
-	async function loadConversations() {
+	async function loadConversations(reset: boolean = false, pageToFetch: number = 1) {
 		if (!$workspaceStore || !flowPath) return
 
-		loading = true
+		if (reset) {
+			loading = true
+			page = 1
+		} else {
+			loadingMore = true
+			page = pageToFetch
+		}
+
 		try {
 			const response = await FlowConversationService.listFlowConversations({
 				workspace: $workspaceStore,
-				flowPath: flowPath
+				flowPath: flowPath,
+				page: pageToFetch,
+				perPage: perPage
 			})
-			conversations = response
+
+			if (reset) {
+				conversations = response
+			} else {
+				conversations = [...conversations, ...response]
+			}
+
+			// If we got fewer items than perPage, we've reached the end
+			hasMore = response.length === perPage
+
 			loading = false
+			loadingMore = false
 			return conversations
 		} catch (error) {
 			console.error('Failed to load conversations:', error)
 			sendUserToast('Failed to load conversations', true)
-			conversations = []
+			if (reset) {
+				conversations = []
+			}
 			loading = false
+			loadingMore = false
+			hasMore = false
 			return []
 		}
+	}
+
+	function handleScroll() {
+		// Clear existing timeout
+		if (scrollTimeout) {
+			clearTimeout(scrollTimeout)
+		}
+
+		// Debounce scroll events
+		scrollTimeout = setTimeout(() => {
+			if (!conversationsContainer || !hasMore || loadingMore) return
+
+			const { scrollTop, scrollHeight, clientHeight } = conversationsContainer
+			// Load more when user scrolls to within 100px of the bottom
+			if (scrollTop + clientHeight >= scrollHeight - 10) {
+				loadConversations(false, page + 1)
+			}
+		}, 200)
 	}
 
 	async function deleteConversation(conversationId: string, event: Event) {
@@ -76,7 +123,9 @@
 	// Load conversations when component mounts or flowPath changes
 	$effect(() => {
 		if ($workspaceStore && flowPath) {
-			loadConversations()
+			page = 1
+			hasMore = true
+			loadConversations(true)
 		}
 	})
 </script>
@@ -112,7 +161,7 @@
 	</div>
 
 	<!-- Conversations List -->
-	<div class="flex-1 overflow-y-auto">
+	<div bind:this={conversationsContainer} class="flex-1 overflow-y-auto" onscroll={handleScroll}>
 		{#if !isExpanded}
 			<!-- Collapsed state - show chat icons -->
 			<div class="p-2 flex flex-col gap-2 items-center">
@@ -173,6 +222,21 @@
 						</div>
 					</div>
 				{/each}
+
+				<!-- Loading more indicator -->
+				{#if loadingMore}
+					<div class="p-4 text-center">
+						<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mx-auto"></div>
+						<p class="text-xs text-tertiary mt-1">Loading more...</p>
+					</div>
+				{/if}
+
+				<!-- End of list indicator -->
+				{#if !hasMore && conversations.length > 0}
+					<div class="p-4 text-center">
+						<p class="text-xs text-tertiary">No more conversations</p>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>
