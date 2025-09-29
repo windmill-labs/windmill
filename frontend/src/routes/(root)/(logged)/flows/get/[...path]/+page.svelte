@@ -558,33 +558,28 @@
 	{/snippet}
 	{#snippet form()}
 		{#if flow}
-			<div class="flex flex-col h-full overflow-hidden">
+			<div class="flex flex-col h-full">
 				{#if chatInputEnabled}
-					<!-- Chat Mode: Full height layout -->
-					<div class="flex flex-col h-full w-full max-w-7xl mx-auto p-4 gap-2 overflow-hidden">
+					<!-- Chat Mode: Scrollable layout like normal mode -->
+					<div class="w-full max-w-7xl p-4 mx-auto gap-2 bg-surface">
 						{#if flow?.archived}
 							<Alert type="error" title="Archived">This flow was archived</Alert>
 						{/if}
 
 						{#if !emptyString(flow?.description)}
-							<div class="flex-shrink-0">
+							<div class="mb-1">
 								<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
 							</div>
 						{/if}
 
 						{#if deploymentInProgress}
-							<div class="flex-shrink-0">
-								<HeaderBadge color="yellow">
-									<Loader2 size={12} class="inline animate-spin mr-1" />
-									Deployment in progress
-								</HeaderBadge>
-							</div>
+							<HeaderBadge color="yellow">
+								<Loader2 size={12} class="inline animate-spin mr-1" />
+								Deployment in progress
+							</HeaderBadge>
 						{/if}
 						{#if flow.lock_error_logs && flow.lock_error_logs != ''}
-							<div
-								class="flex-shrink-0 bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4"
-								role="alert"
-							>
+							<div class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4" role="alert">
 								<p class="font-bold">Error deploying this flow</p>
 								<p>
 									This flow has not been deployed successfully because of the following errors:
@@ -595,7 +590,8 @@
 
 						<!-- Chat Layout with Sidebar -->
 						<div
-							class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1 min-h-0"
+							class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
+							style="height: 600px;"
 						>
 							<div class="flex-shrink-0">
 								<FlowConversationsSidebar
