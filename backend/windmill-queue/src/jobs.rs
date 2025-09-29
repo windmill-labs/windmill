@@ -822,7 +822,8 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     restart_job_if_perpetual(db, queued_job, &canceled_by).await?;
 
     // Update conversation message if this job is a flow step and has a conversation_id
-    if success && !skipped && flow_is_done {
+    let chat_input_enabled = queued_job.parse_chat_input_enabled();
+    if success && !skipped && flow_is_done && chat_input_enabled.unwrap_or(false) {
         // Format the result for the assistant message
         let content = serde_json::to_string_pretty(&result)
             .unwrap_or_else(|_| "Job completed successfully".to_string());
@@ -1886,6 +1887,11 @@ pub struct MiniPulledJob {
     pub visible_to_owner: bool,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct FlowStatusChatInputEnabled {
+    chat_input_enabled: Option<bool>,
+}
+
 impl MiniPulledJob {
     pub fn runnable_path(&self) -> &str {
         self.runnable_path
@@ -1908,6 +1914,13 @@ impl MiniPulledJob {
         self.flow_status
             .as_ref()
             .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
+    }
+
+    pub fn parse_chat_input_enabled(&self) -> Option<bool> {
+        self.flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_str::<FlowStatusChatInputEnabled>((**v).get()).ok())
+            .and_then(|f| f.chat_input_enabled)
     }
 
     pub fn from(job: &QueuedJob) -> MiniPulledJob {
@@ -3536,6 +3549,7 @@ pub async fn push<'c, 'd>(
                         user_states,
                         preprocessor_module: None,
                         stream_job: None,
+                        chat_input_enabled: None,
                     }
                 }
                 _ => {
@@ -3792,6 +3806,7 @@ pub async fn push<'c, 'd>(
                 user_states,
                 preprocessor_module: None,
                 stream_job: None,
+                chat_input_enabled: None,
             };
             let value = flow_data.value();
             let priority = value.priority;
