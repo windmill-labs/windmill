@@ -560,7 +560,9 @@
 		{#if flow}
 			<div class="flex-col flex h-full justify-between">
 				<div
-					class="p-8 w-full {chatInputEnabled ? 'max-w-7xl' : 'max-w-3xl'} mx-auto gap-2 bg-surface"
+					class="w-full {chatInputEnabled
+						? 'max-w-7xl p-4 h-full'
+						: 'max-w-3xl p-8 '} mx-auto gap-2 bg-surface"
 				>
 					{#if flow?.archived}
 						<Alert type="error" title="Archived">This flow was archived</Alert>
@@ -586,15 +588,15 @@
 						</div>
 					{/if}
 
-					<div class="flex flex-col align-left">
-						<div class="flex flex-row justify-between">
-							<InputSelectedBadge
-								onReject={() => {
-									savedInputsV2?.resetSelected()
-								}}
-								{inputSelected}
-							/>
-							{#if !chatInputEnabled}
+					<div class="flex flex-col align-left h-full">
+						{#if !chatInputEnabled}
+							<div class="flex flex-row justify-between">
+								<InputSelectedBadge
+									onReject={() => {
+										savedInputsV2?.resetSelected()
+									}}
+									{inputSelected}
+								/>
 								<Toggle
 									bind:checked={jsonView}
 									label="JSON View"
@@ -608,8 +610,8 @@
 										runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
 									}}
 								/>
-							{/if}
-						</div>
+							</div>
+						{/if}
 
 						{#if flow.schema?.prompt_for_ai !== undefined}
 							<AIFormAssistant
@@ -624,7 +626,7 @@
 						{#if chatInputEnabled}
 							<!-- Chat Layout with Sidebar -->
 							<div
-								class="flex h-96 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
+								class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-grow"
 							>
 								<div class="w-80 flex-shrink-0">
 									<FlowConversationsSidebar
@@ -664,18 +666,20 @@
 						{/if}
 					</div>
 
-					<div class="py-10"></div>
+					{#if !chatInputEnabled}
+						<div class="py-10"></div>
 
-					{#if !emptyString(flow.summary)}
-						<div class="mb-2">
-							<span class="!text-tertiary">{flow.path}</span>
+						{#if !emptyString(flow.summary)}
+							<div class="mb-2">
+								<span class="!text-tertiary">{flow.path}</span>
+							</div>
+						{/if}
+						<div class="flex flex-row gap-x-2 flex-wrap items-center">
+							<span class="text-sm text-tertiary">
+								Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
+							</span>
 						</div>
 					{/if}
-					<div class="flex flex-row gap-x-2 flex-wrap items-center">
-						<span class="text-sm text-tertiary">
-							Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
-						</span>
-					</div>
 				</div>
 				<div class="mt-8">
 					<FlowGraphViewer
