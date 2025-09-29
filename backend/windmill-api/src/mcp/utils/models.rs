@@ -39,7 +39,11 @@ pub struct SchemaType {
 
 impl Default for SchemaType {
     fn default() -> Self {
-        Self { r#type: "object".to_string(), properties: HashMap::new(), required: vec![] }
+        Self {
+            r#type: "object".to_string(),
+            properties: HashMap::new(),
+            required: vec![],
+        }
     }
 }
 
@@ -47,7 +51,6 @@ impl Default for SchemaType {
 #[derive(Serialize, FromRow, Debug)]
 pub struct ScriptInfo {
     pub path: String,
-    pub hash: i64, // Script hash is stored as bigint in the database
     pub summary: Option<String>,
     pub description: Option<String>,
     pub schema: Option<Schema>,
@@ -57,7 +60,6 @@ pub struct ScriptInfo {
 #[derive(Serialize, FromRow, Debug)]
 pub struct FlowInfo {
     pub path: String,
-    pub id: i64, // This is the flow_version.id, not a string
     pub summary: Option<String>,
     pub description: Option<String>,
     pub schema: Option<Schema>,
@@ -84,17 +86,9 @@ pub struct ItemSchema {
     pub schema: Option<Schema>,
 }
 
-/// Path and schema holder for database queries
-#[derive(Serialize, FromRow)]
-pub struct ItemPathAndSchema {
-    pub path: String,
-    pub schema: Option<Schema>,
-}
-
 /// Trait for objects that can be converted to MCP tools
 pub trait ToolableItem {
-    fn get_path(&self) -> String;
-    fn get_id(&self) -> String;
+    fn get_path_or_id(&self) -> String;
     fn get_summary(&self) -> &str;
     fn get_description(&self) -> &str;
     fn get_schema(&self) -> SchemaType;

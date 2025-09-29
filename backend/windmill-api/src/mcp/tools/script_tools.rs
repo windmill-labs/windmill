@@ -3,18 +3,15 @@
 //! Contains functionality for converting Windmill scripts into MCP tools.
 
 use super::super::utils::{
-    models::{SchemaType, ScriptInfo, ToolableItem},
+    models::{ScriptInfo, ToolableItem, SchemaType},
     schema::convert_schema_to_schema_type,
+    transform::transform_path,
 };
 
 /// Implementation of ToolableItem for ScriptInfo
 impl ToolableItem for ScriptInfo {
-    fn get_path(&self) -> String {
-        self.path.clone()
-    }
-
-    fn get_id(&self) -> String {
-        format!("script:{}", self.hash)
+    fn get_path_or_id(&self) -> String {
+        transform_path(&self.path, "script")
     }
 
     fn get_summary(&self) -> &str {
