@@ -23,6 +23,12 @@
 	let isLoading = $state(false)
 	let isLoadingMessages = $state(false)
 	let messagesContainer: HTMLDivElement | undefined = $state()
+	let page = $state(1)
+	let perPage = 50
+	let hasMoreMessages = $state(true)
+	let loadingMoreMessages = $state(false)
+	let scrollTimeout: ReturnType<typeof setTimeout> | undefined = undefined
+	let currentConversationId: string | undefined = $state(undefined)
 
 	export function fillInputMessage(message: string) {
 		inputMessage = message
@@ -31,28 +37,73 @@
 	export function clearMessages() {
 		messages = []
 		inputMessage = ''
+		page = 1
+		hasMoreMessages = true
 	}
 
-	export async function loadConversationMessages(conversationId: string) {
-		if (!$workspaceStore) return
+	export async function loadConversationMessages(convId: string) {
+		currentConversationId = convId
+		page = 1
+		hasMoreMessages = true
+		await loadMessages(true)
+	}
 
-		isLoadingMessages = true
+	async function loadMessages(reset: boolean) {
+		if (!$workspaceStore || !currentConversationId) return
+
+		if (reset) {
+			isLoadingMessages = true
+		} else {
+			loadingMoreMessages = true
+		}
+
+		const pageToFetch = reset ? 1 : page + 1
+
 		try {
+			const previousScrollHeight = messagesContainer?.scrollHeight || 0
+
 			const response = await FlowConversationService.listConversationMessages({
 				workspace: $workspaceStore,
-				conversationId: conversationId
+				conversationId: currentConversationId,
+				page: pageToFetch,
+				perPage: perPage
 			})
 
-			messages = response
+			if (reset) {
+				messages = response
+				isLoadingMessages = false
+				await new Promise((resolve) => setTimeout(resolve, 100))
+				scrollToBottom()
+			} else {
+				messages = [...response, ...messages]
+				page = pageToFetch
+				// Restore scroll position
+				await new Promise((resolve) => setTimeout(resolve, 50))
+				if (messagesContainer) {
+					messagesContainer.scrollTop = messagesContainer.scrollHeight - previousScrollHeight
+				}
+			}
+
+			hasMoreMessages = response.length === perPage
 		} catch (error) {
-			console.error('Failed to load conversation messages:', error)
-			sendUserToast('Failed to load conversation messages', true)
+			console.error('Failed to load messages:', error)
+			sendUserToast('Failed to load messages', true)
 		} finally {
 			isLoadingMessages = false
-			// sleep for 100ms
-			await new Promise((resolve) => setTimeout(resolve, 100))
-			scrollToBottom()
+			loadingMoreMessages = false
 		}
+	}
+
+	function handleScroll() {
+		if (scrollTimeout) clearTimeout(scrollTimeout)
+
+		scrollTimeout = setTimeout(() => {
+			if (!messagesContainer || !hasMoreMessages || loadingMoreMessages) return
+
+			if (messagesContainer.scrollTop <= 10) {
+				loadMessages(false)
+			}
+		}, 200)
 	}
 
 	function scrollToBottom() {
@@ -206,7 +257,11 @@
 <div class="flex flex-col h-full w-full">
 	<div class="flex-1 flex flex-col min-h-0 w-full">
 		<!-- Messages Container -->
-		<div bind:this={messagesContainer} class="flex-1 overflow-y-auto p-4 space-y-4 bg-background">
+		<div
+			bind:this={messagesContainer}
+			class="flex-1 overflow-y-auto p-4 space-y-4 bg-background"
+			onscroll={handleScroll}
+		>
 			{#if isLoadingMessages}
 				<div class="flex items-center justify-center">
 					<Loader2 size={24} class="animate-spin" />
@@ -218,6 +273,21 @@
 					<p class="text-sm">Send a message to run the flow and see the results</p>
 				</div>
 			{:else}
+				<!-- Loading older messages indicator -->
+				{#if loadingMoreMessages}
+					<div class="flex items-center justify-center py-2">
+						<Loader2 size={16} class="animate-spin text-tertiary" />
+						<span class="text-xs text-tertiary ml-2">Loading older messages...</span>
+					</div>
+				{/if}
+
+				<!-- No more messages indicator -->
+				{#if !hasMoreMessages && messages.length > 0}
+					<div class="text-center py-2">
+						<span class="text-xs text-tertiary">No more messages</span>
+					</div>
+				{/if}
+
 				{#each messages as message (message.id)}
 					<div class="flex {message.message_type === 'user' ? 'justify-end' : 'justify-start'}">
 						<div
