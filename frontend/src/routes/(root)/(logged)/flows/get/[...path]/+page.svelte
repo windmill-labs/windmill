@@ -409,17 +409,36 @@
 	let path = $derived(page.params.path ?? '')
 
 	async function handleNewConversation() {
-		selectedConversationId = crypto.randomUUID()
+		const newConversationId = crypto.randomUUID()
+
+		// Add the new conversation to the sidebar (returns id of draft or new conversation)
+		if (flowConversationsSidebar) {
+			const actualConversationId = await flowConversationsSidebar.addNewConversation(
+				newConversationId,
+				$userStore?.username || 'anonymous'
+			)
+			selectedConversationId = actualConversationId
+		} else {
+			selectedConversationId = newConversationId
+		}
+
+		// Clear messages in the chat interface
 		if (flowChatInterface) {
 			flowChatInterface.clearMessages()
 		}
 	}
 
-	async function handleSelectConversation(conversationId: string) {
+	async function handleSelectConversation(conversationId: string, isDraft?: boolean) {
 		selectedConversationId = conversationId
 		// Load conversation messages into chat interface
 		if (flowChatInterface) {
-			await flowChatInterface.loadConversationMessages(conversationId)
+			if (isDraft) {
+				// For draft conversations, just clear messages (don't try to load from backend)
+				flowChatInterface.clearMessages()
+			} else {
+				// For persisted conversations, load messages from backend
+				await flowChatInterface.loadConversationMessages(conversationId)
+			}
 		}
 	}
 

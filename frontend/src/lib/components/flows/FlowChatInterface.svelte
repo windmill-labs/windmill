@@ -87,7 +87,7 @@
 			hasMoreMessages = response.length === perPage
 		} catch (error) {
 			console.error('Failed to load messages:', error)
-			sendUserToast('Failed to load messages', true)
+			sendUserToast('Failed to load messages: ' + error)
 		} finally {
 			isLoadingMessages = false
 			loadingMoreMessages = false

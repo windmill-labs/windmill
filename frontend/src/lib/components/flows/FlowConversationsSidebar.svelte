@@ -9,8 +9,12 @@
 		flowPath: string
 		selectedConversationId?: string
 		onNewConversation: () => void
-		onSelectConversation: (conversationId: string) => void
+		onSelectConversation: (conversationId: string, isDraft?: boolean) => void
 		onDeleteConversation: (conversationId: string) => void
+	}
+
+	interface ConversationWithDraft extends FlowConversation {
+		isDraft?: boolean
 	}
 
 	let {
@@ -21,7 +25,7 @@
 		onDeleteConversation
 	}: Props = $props()
 
-	let conversations = $state<FlowConversation[]>([])
+	let conversations = $state<ConversationWithDraft[]>([])
 	let loading = $state(false)
 	let isExpanded = $state(false)
 	let page = $state(1)
@@ -34,6 +38,32 @@
 	export async function refreshConversations() {
 		page = 1
 		return await loadConversations(true)
+	}
+
+	export async function addNewConversation(conversationId: string, username: string) {
+		// Check if there's already a draft conversation
+		const existingDraft = conversations.find((c) => c.isDraft)
+		if (existingDraft) {
+			// Select the existing draft instead of creating a new one
+			onSelectConversation(existingDraft.id, true)
+			return existingDraft.id
+		}
+
+		// Create a new conversation object and add it to the top of the list
+		const newConversation: ConversationWithDraft = {
+			id: conversationId,
+			workspace_id: $workspaceStore!,
+			flow_path: flowPath,
+			title: 'New chat',
+			created_at: new Date().toISOString(),
+			updated_at: new Date().toISOString(),
+			created_by: username,
+			isDraft: true
+		}
+
+		// Prepend to conversations list
+		conversations = [newConversation, ...conversations]
+		return conversationId
 	}
 
 	async function loadConversations(reset: boolean = false, pageToFetch: number = 1) {
@@ -171,7 +201,7 @@
 						btnClasses={selectedConversationId === conversation.id
 							? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700'
 							: ''}
-						onclick={() => onSelectConversation(conversation.id)}
+						onclick={() => onSelectConversation(conversation.id, conversation.isDraft)}
 						title={getConversationTitle(conversation)}
 						startIcon={{ icon: MessageCircle }}
 						iconOnly
@@ -197,7 +227,7 @@
 							{selectedConversationId === conversation.id
 							? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700'
 							: 'border border-transparent'}"
-						onclick={() => onSelectConversation(conversation.id)}
+						onclick={() => onSelectConversation(conversation.id, conversation.isDraft)}
 						role="button"
 						tabindex="0"
 						onkeydown={(e) => {
