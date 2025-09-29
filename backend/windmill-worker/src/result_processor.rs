@@ -17,7 +17,14 @@ use windmill_common::otel_oss::FutureExt;
 use uuid::Uuid;
 
 use windmill_common::{
-    add_time, error::{self, Error}, flow_status::{FlowJobDuration}, jobs::JobKind, utils::WarnAfterExt, worker::{to_raw_value, Connection, WORKER_GROUP}, worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap}, KillpillSender, DB
+    add_time,
+    error::{self, Error},
+    flow_status::FlowJobDuration,
+    jobs::JobKind,
+    utils::WarnAfterExt,
+    worker::{to_raw_value, Connection, WORKER_GROUP},
+    worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap},
+    KillpillSender, DB,
 };
 
 #[cfg(feature = "benchmark")]
@@ -405,6 +412,7 @@ pub async fn process_result(
     preprocessed_args: Option<HashMap<String, Box<RawValue>>>,
     conn: &Connection,
     duration: Option<i64>,
+    has_stream: bool,
 ) -> error::Result<bool> {
     match result {
         Ok(result) => {
@@ -421,6 +429,7 @@ pub async fn process_result(
                     cached_res_path,
                     token: token.to_string(),
                     duration,
+                    has_stream: Some(has_stream),
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -483,6 +492,7 @@ pub async fn process_result(
                     cached_res_path,
                     token: token.to_string(),
                     duration,
+                    has_stream: Some(has_stream),
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -557,6 +567,7 @@ pub async fn process_completed_job(
         duration,
         result_columns,
         preprocessed_args,
+        has_stream,
         ..
     }: JobCompleted,
     client: &AuthedClient,
@@ -621,6 +632,7 @@ pub async fn process_completed_job(
             canceled_by,
             false,
             duration,
+            has_stream.unwrap_or(false),
         )
         .await?;
         drop(job);
@@ -679,7 +691,10 @@ pub async fn process_completed_job(
                     &job.workspace_id,
                     false,
                     Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
-                    duration.map(|x| FlowJobDuration { started_at: job.started_at.unwrap(), duration_ms: x }),
+                    duration.map(|x| FlowJobDuration {
+                        started_at: job.started_at.unwrap(),
+                        duration_ms: x,
+                    }),
                     false,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,

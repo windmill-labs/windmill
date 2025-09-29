@@ -745,7 +745,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                                 .await
                                 .map_err(|e| {
                                     Error::internal_err(format!(
-                                        "error while fetching sucess from completed_jobs: {e:#}"
+                                        "error while fetching success from completed_jobs: {e:#}"
                                     ))
                                 })?
                                 .into_iter()
@@ -1473,6 +1473,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     None,
                     true,
                     None,
+                    false,
                 )
                 .await?;
                 duration
@@ -1492,6 +1493,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     None,
                     true,
                     None,
+                    false,
                 )
                 .await?;
                 duration

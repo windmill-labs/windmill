@@ -4,6 +4,7 @@
 	import { untrack, type Snippet } from 'svelte'
 	import type { ProcessedItem } from './utils.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { slide } from 'svelte/transition'
 
 	let {
 		processedItems: _processedItems,
@@ -16,10 +17,14 @@
 		noItemsMsg = 'No items found',
 		class: className = '',
 		ulClass = '',
+		itemLabelWrapperClasses = '',
+		itemButtonWrapperClasses = '',
 		header,
 		getInputRect,
 		onSelectValue,
-		startSnippet
+		startSnippet,
+		endSnippet,
+		bottomSnippet
 	}: {
 		processedItems?: ProcessedItem<T>[]
 		value: T | undefined
@@ -31,10 +36,14 @@
 		noItemsMsg?: string
 		class?: string
 		ulClass?: string
+		itemLabelWrapperClasses?: string
+		itemButtonWrapperClasses?: string
 		header?: Snippet
 		getInputRect?: () => DOMRect
 		onSelectValue: (item: ProcessedItem<T>) => void
-		startSnippet?: Snippet<[{ item: ProcessedItem<T> }]>
+		startSnippet?: Snippet<[{ item: ProcessedItem<T>; close: () => void }]>
+		endSnippet?: Snippet<[{ item: ProcessedItem<T>; close: () => void }]>
+		bottomSnippet?: Snippet<[{ close: () => void }]>
 	} = $props()
 
 	let processedItems = $derived(
@@ -101,53 +110,60 @@
 <ConditionalPortal condition={!disablePortal} name="select-dropdown-portal">
 	{#if open && !disabled}
 		<div
+			transition:slide={{ duration: 150 }}
 			class={twMerge(
 				disablePortal ? 'absolute' : 'fixed',
-				'flex flex-col z-[5001] max-h-64 overflow-y-auto bg-surface-secondary text-tertiary text-sm select-none border rounded-lg shadow-lg',
+				'z-[5001] rounded-md bg-surface-secondary text-tertiary shadow-lg text-sm select-none',
 				className
 			)}
 			style="{`top: ${dropdownPos.y}px; left: ${dropdownPos.x}px;`} {listAutoWidth
 				? `min-width: ${dropdownPos.width}px;`
 				: ''}"
-			bind:this={listEl}
 		>
-			{@render header?.()}
-			{#if processedItems?.length === 0}
-				<div class="py-8 px-4 text-center text-primary">{noItemsMsg}</div>
-			{/if}
-			<ul class={twMerge('flex-1 overflow-y-auto flex flex-col', ulClass)}>
-				{#each processedItems ?? [] as item, itemIndex}
-					{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
-						<li
-							class={twMerge(
-								'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b',
-								itemIndex === 0 ? 'mt-3' : 'mt-6'
-							)}
-						>
-							{item.__select_group}
+			<div bind:this={listEl} class="flex flex-col max-h-64 border rounded-md overflow-clip">
+				{@render header?.()}
+				{#if processedItems?.length === 0}
+					<div class="py-8 px-4 text-center text-primary">{noItemsMsg}</div>
+				{/if}
+				<ul class={twMerge('flex-1 overflow-y-auto flex flex-col', ulClass)}>
+					{#each processedItems ?? [] as item, itemIndex}
+						{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
+							<li
+								class={twMerge(
+									'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b',
+									itemIndex === 0 ? 'mt-3' : 'mt-6'
+								)}
+							>
+								{item.__select_group}
+							</li>
+						{/if}
+						<li>
+							<button
+								class={twMerge(
+									'py-2 px-4 w-full font-normal text-left text-primary',
+									itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
+									item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover',
+									itemButtonWrapperClasses
+								)}
+								onclick={(e) => {
+									e.stopImmediatePropagation()
+									onSelectValue(item)
+								}}
+							>
+								{@render startSnippet?.({ item, close: () => (open = false) })}
+								<span class={itemLabelWrapperClasses}>
+									{item.label || '\xa0'}
+								</span>
+								{@render endSnippet?.({ item, close: () => (open = false) })}
+								{#if item.subtitle}
+									<div class="text-xs text-tertiary">{item.subtitle}</div>
+								{/if}
+							</button>
 						</li>
-					{/if}
-					<li>
-						<button
-							class={twMerge(
-								'py-2 px-4 w-full font-normal text-left text-primary',
-								itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
-								item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover'
-							)}
-							onclick={(e) => {
-								e.stopImmediatePropagation()
-								onSelectValue(item)
-							}}
-						>
-							{@render startSnippet?.({ item })}
-							{item.label || '\xa0'}
-							{#if item.subtitle}
-								<div class="text-xs text-tertiary">{item.subtitle}</div>
-							{/if}
-						</button>
-					</li>
-				{/each}
-			</ul>
+					{/each}
+				</ul>
+				{@render bottomSnippet?.({ close: () => (open = false) })}
+			</div>
 		</div>
 	{/if}
 </ConditionalPortal>

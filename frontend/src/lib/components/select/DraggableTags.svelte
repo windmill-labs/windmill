@@ -30,7 +30,7 @@
 		role="listitem"
 		class={twMerge(
 			allowClear ? 'pr-1' : 'pr-3',
-			'pl-3 min-h-6 bg-surface-secondary rounded-full flex items-center gap-0.5',
+			'pl-3 min-h-6 border bg-surface rounded-full flex items-center gap-0.5',
 			currentlyDraggingIndex !== undefined ? 'hover:opacity-20' : ''
 		)}
 		style={currentlyDraggingIndex === index
@@ -54,7 +54,7 @@
 		<span class="text-sm select-none">{item.label || item.value}</span>
 		{#if allowClear}
 			<CloseButton
-				class="text-tertiary"
+				class="text-hint bg-transparent"
 				small
 				on:close={(e) => (onRemove(item), e.stopPropagation())}
 			/>

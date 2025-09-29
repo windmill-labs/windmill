@@ -108,11 +108,7 @@
 		>
 			<slot />
 		</Pane>
-		<Pane
-			minSize={20}
-			size={40}
-			class="!transition-none z-1000 {$propPickerConfig ? 'ml-[-1px]' : ''} {paneClass}"
-		>
+		<Pane minSize={20} size={40} class="!transition-none z-1000 {paneClass}">
 			<AnimatedButton
 				animate={$propPickerConfig?.insertionMode == 'connect'}
 				baseRadius="4px"
@@ -158,14 +154,3 @@
 		</Pane>
 	</Splitpanes>
 </div>
-
-<style>
-	:global(.splitpanes-remove-splitter > .splitpanes__pane) {
-		background-color: inherit !important;
-	}
-	:global(.splitpanes-remove-splitter > .splitpanes__splitter) {
-		background-color: transparent !important;
-		width: 0 !important;
-		border: none !important;
-	}
-</style>

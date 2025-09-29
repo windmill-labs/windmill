@@ -124,7 +124,7 @@
 	})
 	let showHistoryDrawer = $state(false)
 
-	let jobProgressReset: (() => void) | undefined = $state(undefined)
+	let jobProgressBar: JobProgressBar | undefined = $state(undefined)
 	let diffMode = $state(false)
 
 	let websocketAlive = $state({
@@ -201,7 +201,7 @@
 
 	export async function runTest() {
 		// Not defined if JobProgressBar not loaded
-		if (jobProgressReset) jobProgressReset()
+		jobProgressBar?.reset()
 		//@ts-ignore
 		let job = await jobLoader.runPreview(
 			path,
@@ -528,7 +528,7 @@
 						icon: Github
 					}}
 				>
-					Use VScode
+					VScode
 				</Button>
 			</div>
 		{/if}
@@ -537,7 +537,7 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
-			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
+			<div class="h-full !overflow-visible bg-surface dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
 					{#if assets?.length}
 						<AssetsDropdownButton {assets} />
@@ -784,8 +784,8 @@
 								<!-- Put to the slot in logpanel -->
 								<JobProgressBar
 									job={testJob}
-									bind:scriptProgress
-									bind:reset={jobProgressReset}
+									{scriptProgress}
+									bind:this={jobProgressBar}
 									compact={true}
 								/>
 							{/if}

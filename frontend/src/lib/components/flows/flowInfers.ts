@@ -77,6 +77,13 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 					type: 'string',
 					description: 'The system prompt to give as input to the AI agent.'
 				},
+				streaming: {
+					type: 'boolean',
+					description:
+						'Whether to stream the output of the AI agent (only used if output_type is text).',
+					default: false,
+					showExpr: "fields.output_type === 'text'"
+				},
 				user_images: {
 					type: 'array',
 					description:
@@ -99,7 +106,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				output_schema: {
 					type: 'object',
 					description:
-						'JSON schema that the AI agent will follow for its response format (only used if output_type is text)',
+						'JSON schema that the AI agent will follow for its response format (only used if output_type is text).',
 					format: 'json-schema',
 					showExpr: "fields.output_type === 'text'"
 				}

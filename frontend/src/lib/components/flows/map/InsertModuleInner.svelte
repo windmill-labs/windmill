@@ -145,13 +145,15 @@
 						dispatch('new', { kind: 'branchall' })
 					}}
 				/>
-				<TopLevelNode
-					label="AI Agent"
-					on:select={() => {
-						dispatch('close')
-						dispatch('new', { kind: 'aiagent' })
-					}}
-				/>
+				{#if customUi?.aiAgent != false}
+					<TopLevelNode
+						label="AI Agent"
+						on:select={() => {
+							dispatch('close')
+							dispatch('new', { kind: 'aiagent' })
+						}}
+					/>
+				{/if}
 			</div>
 		{/if}
 

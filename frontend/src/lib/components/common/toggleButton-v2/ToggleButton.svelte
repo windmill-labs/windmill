@@ -4,20 +4,41 @@
 	import { type ToggleGroupElements, type ToggleGroupItemProps, melt } from '@melt-ui/svelte'
 	import { Info } from 'lucide-svelte'
 
-	export let label: string | undefined = undefined
-	export let iconOnly: boolean = false
-	export let tooltip: string | undefined = undefined
-	export let icon: any | undefined = undefined
-	export let disabled: boolean = false
-	export let selectedColor: string = '#3b82f6'
-	export let small = false
-	export let light = false
-	export let iconProps: Record<string, any> = {}
-	export let showTooltipIcon: boolean = false
-	export let documentationLink: string | undefined = undefined
-	export let id: string | undefined = undefined
-	export let item: ToggleGroupElements['item']
-	export let value: ToggleGroupItemProps
+	interface Props {
+		label?: string | undefined
+		iconOnly?: boolean
+		tooltip?: string | undefined
+		icon?: any | undefined
+		disabled?: boolean
+		selectedColor?: string | undefined
+		small?: boolean
+		light?: boolean
+		iconProps?: Record<string, any>
+		showTooltipIcon?: boolean
+		documentationLink?: string | undefined
+		id?: string | undefined
+		item: ToggleGroupElements['item']
+		value: ToggleGroupItemProps
+		class?: string
+	}
+
+	let {
+		label = undefined,
+		iconOnly = false,
+		tooltip = undefined,
+		icon = undefined,
+		disabled = false,
+		selectedColor = undefined,
+		small = false,
+		light = false,
+		iconProps = {},
+		showTooltipIcon = false,
+		documentationLink = undefined,
+		id = undefined,
+		item,
+		value,
+		class: className = ''
+	}: Props = $props()
 </script>
 
 <Tooltip
@@ -30,25 +51,29 @@
 		{id}
 		{disabled}
 		class={twMerge(
-			'group rounded-md transition-all text-xs flex gap-1 flex-row items-center',
-			small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-1',
-			light ? 'font-medium' : '',
-			'data-[state=on]:bg-surface data-[state=on]:shadow-md',
+			'group rounded-md transition-all font-normal data-[state=on]:font-medium hover:font-medium  flex gap-1 flex-row items-center border',
+			small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-1 text-sm',
+			light
+				? 'hover:text-secondary data-[state=on]:text-secondary text-tertiary'
+				: 'hover:text-primary data-[state=on]:text-primary text-secondary',
+			'data-[state=on]:bg-surface data-[state=off]:border-transparent data-[state=on]:border-gray-300 dark:data-[state=on]:border-gray-500',
 			'bg-surface-secondary hover:bg-surface-hover',
 			disabled ? '!shadow-none' : '',
-			$$props.class
+			className
 		)}
 		use:melt={$item(value)}
-		style={`--selected-color: ${selectedColor}`}
+		style={selectedColor ? `--selected-color: ${selectedColor}` : ''}
 	>
 		{#if icon}
-			<svelte:component
-				this={icon}
+			{@const SvelteComponent = icon}
+			<SvelteComponent
 				size={small ? 12 : 14}
 				{...iconProps}
 				class={twMerge(
-					'text-gray-400',
-					'group-data-[state=on]:text-[var(--selected-color)]',
+					light ? 'text-tertiary' : 'text-secondary',
+					selectedColor
+						? 'group-data-[state=on]:text-[var(--selected-color)]'
+						: 'group-data-[state=on]:text-blue-500 dark:group-data-[state=on]:text-nord-800',
 					iconProps.class
 				)}
 			/>
@@ -61,7 +86,7 @@
 		{/if}
 	</button>
 
-	<svelte:fragment slot="text">
+	{#snippet text()}
 		{tooltip}
-	</svelte:fragment>
+	{/snippet}
 </Tooltip>

@@ -7,6 +7,7 @@
 	import { getLabel, processItems, type ProcessedItem } from './utils.svelte'
 	import SelectDropdown from './SelectDropdown.svelte'
 	import { deepEqual } from 'fast-equals'
+	import { inputBaseClass, inputBorderClass } from '../text_input/TextInput.svelte'
 
 	type Value = Item['value']
 
@@ -23,19 +24,24 @@
 		inputClass = '',
 		disablePortal = false,
 		loading = false,
+		error = false,
 		autofocus,
 		RightIcon,
 		createText,
 		noItemsMsg,
 		open = $bindable(false),
 		id,
+		itemLabelWrapperClasses,
+		itemButtonWrapperClasses,
 		groupBy,
 		sortBy,
 		onFocus,
 		onBlur,
 		onClear,
 		onCreateItem,
-		startSnippet
+		startSnippet,
+		endSnippet,
+		bottomSnippet
 	}: {
 		items?: Item[]
 		value: Value | undefined
@@ -49,19 +55,24 @@
 		inputClass?: string
 		disablePortal?: boolean
 		loading?: boolean
+		error?: boolean
 		autofocus?: boolean
 		RightIcon?: any
 		createText?: string
 		noItemsMsg?: string
 		open?: boolean
 		id?: string
+		itemLabelWrapperClasses?: string
+		itemButtonWrapperClasses?: string
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
 		onBlur?: () => void
 		onClear?: () => void
 		onCreateItem?: (value: string) => void
-		startSnippet?: Snippet<[{ item: ProcessedItem<Value> }]>
+		startSnippet?: Snippet<[{ item: ProcessedItem<Value>; close: () => void }]>
+		endSnippet?: Snippet<[{ item: ProcessedItem<Value>; close: () => void }]>
+		bottomSnippet?: Snippet<[{ close: () => void }]>
 	} = $props()
 
 	let disabled = $derived(_disabled || (loading && !value))
@@ -112,7 +123,7 @@
 		</div>
 	{:else if clearable && !disabled && value}
 		<div class="absolute z-10 right-2 h-full flex items-center">
-			<CloseButton class="text-secondary" noBg small on:close={clearValue} />
+			<CloseButton class="bg-transparent text-hint" noBg small on:close={clearValue} />
 		</div>
 	{:else if RightIcon}
 		<div class="absolute z-10 right-2 h-full flex items-center">
@@ -130,10 +141,12 @@
 			: (valueEntry?.label ?? getLabel({ value }) ?? placeholder)}
 		style={containerStyle}
 		class={twMerge(
-			'!bg-surface text-ellipsis',
+			inputBaseClass,
+			inputBorderClass({ error, forceFocus: open }),
+			'w-full',
 			open ? '' : 'cursor-pointer',
-			!loading && value ? '!placeholder-primary' : '',
-			(clearable || RightIcon) && !disabled && value ? '!pr-8' : '',
+			!loading && value && !disabled ? '!placeholder-secondary' : 'placeholder-hint',
+			(clearable || RightIcon) && !disabled && value ? 'pr-8' : '',
 			inputClass ?? ''
 		)}
 		autocomplete="off"
@@ -152,6 +165,10 @@
 		getInputRect={inputEl && (() => inputEl!.getBoundingClientRect())}
 		{listAutoWidth}
 		{noItemsMsg}
+		{itemLabelWrapperClasses}
+		{itemButtonWrapperClasses}
 		{startSnippet}
+		{endSnippet}
+		{bottomSnippet}
 	/>
 </div>

@@ -172,9 +172,9 @@ export function displayDate(
 		}
 		const dateChoices: Intl.DateTimeFormatOptions = displayDate
 			? {
-					day: 'numeric',
-					month: 'numeric'
-				}
+				day: 'numeric',
+				month: 'numeric'
+			}
 			: {}
 		return date.toLocaleString(undefined, {
 			...timeChoices,
@@ -1065,25 +1065,24 @@ export async function tryEvery({
 		try {
 			await tryCode()
 			break
-		} catch (err) {}
+		} catch (err) { }
 		i++
 	}
 	if (i >= times) {
 		timeoutCode()
 	}
 }
-
-export function roughSizeOfObject(object: object | string) {
-	if (typeof object == 'string') {
+export function roughSizeOfObject(object: object | string | any) {
+	if (typeof object === 'string') {
 		return object.length * 2
 	}
 
-	var objectList: any[] = []
-	var stack = [object]
-	var bytes = 0
+	const visited = new Set<object>()
+	const stack = [object]
+	let bytes = 0
 
 	while (stack.length) {
-		let value: any = stack.pop()
+		const value = stack.pop()
 
 		if (typeof value === 'boolean') {
 			bytes += 4
@@ -1091,12 +1090,12 @@ export function roughSizeOfObject(object: object | string) {
 			bytes += value.length * 2
 		} else if (typeof value === 'number') {
 			bytes += 8
-		} else if (typeof value === 'object' && objectList.indexOf(value) === -1) {
-			objectList.push(value)
+		} else if (typeof value === 'object' && value !== null && !visited.has(value)) {
+			visited.add(value)
 
-			for (var i in value) {
-				bytes += 2 * i.length
-				stack.push(value[i])
+			for (const key in value) {
+				bytes += 2 * key.length
+				stack.push(value[key])
 			}
 		}
 	}
@@ -1332,7 +1331,7 @@ export function conditionalMelt(node: HTMLElement, meltItem: AnyMeltElement | un
 	if (meltItem) {
 		return meltItem(node)
 	}
-	return { destroy: () => {} }
+	return { destroy: () => { } }
 }
 
 export type Item = {
@@ -1538,9 +1537,9 @@ export type S3Uri = `s3://${string}/${string}`
 export type S3Object =
 	| S3Uri
 	| {
-			s3: string
-			storage?: string
-	  }
+		s3: string
+		storage?: string
+	}
 
 export function parseS3Object(s3Object: S3Object): { s3: string; storage?: string } {
 	if (typeof s3Object === 'object') return s3Object
