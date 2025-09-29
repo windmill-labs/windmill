@@ -628,7 +628,7 @@
 							<div
 								class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-grow"
 							>
-								<div class="w-80 flex-shrink-0">
+								<div class="flex-shrink-0">
 									<FlowConversationsSidebar
 										bind:this={flowConversationsSidebar}
 										flowPath={flow?.path ?? ''}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { MessageCircle, Plus, Clock, Trash2 } from 'lucide-svelte'
+	import { MessageCircle, Plus, Clock, Trash2, Menu } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { FlowConversationService, type FlowConversation } from '$lib/gen'
@@ -24,6 +24,7 @@
 
 	let conversations = $state<FlowConversation[]>([])
 	let loading = $state(false)
+	let isExpanded = $state(false)
 
 	export async function refreshConversations() {
 		return await loadConversations()
@@ -80,27 +81,55 @@
 	})
 </script>
 
-<div class="flex flex-col h-full bg-surface border-r border-gray-200 dark:border-gray-700">
+<div
+	class="flex flex-col h-full bg-surface border-r border-gray-200 dark:border-gray-700 transition-all duration-300 {isExpanded
+		? 'w-60'
+		: 'w-16'}"
+>
 	<!-- Header -->
-	<div class="flex-shrink-0 p-4 border-b border-gray-200 dark:border-gray-700">
-		<div class="flex items-center justify-between mb-4">
-			<div class="flex items-center gap-2">
-				<MessageCircle size={20} class="text-tertiary" />
-				<h3 class="text-sm font-medium text-primary">Conversations</h3>
-			</div>
+	<div class="flex-shrink-0 p-2 border-b border-gray-200 dark:border-gray-700">
+		<div class="flex flex-col gap-2">
 			<Button
-				size="xs"
+				color="light"
+				startIcon={{ icon: Menu }}
+				onclick={() => (isExpanded = !isExpanded)}
+				iconOnly={!isExpanded}
+				btnClasses="!w-auto"
+			>
+				{#if isExpanded}Conversations{/if}
+			</Button>
+			<Button
 				color="light"
 				startIcon={{ icon: Plus }}
 				onclick={onNewConversation}
 				title="Start new conversation"
-			/>
+				iconOnly={!isExpanded}
+				btnClasses="!w-auto"
+			>
+				{#if isExpanded}New chat{/if}
+			</Button>
 		</div>
 	</div>
 
 	<!-- Conversations List -->
 	<div class="flex-1 overflow-y-auto">
-		{#if loading}
+		{#if !isExpanded}
+			<!-- Collapsed state - show chat icons -->
+			<div class="p-2 flex flex-col gap-2 items-center">
+				{#each conversations as conversation (conversation.id)}
+					<Button
+						color="light"
+						btnClasses={selectedConversationId === conversation.id
+							? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700'
+							: ''}
+						onclick={() => onSelectConversation(conversation.id)}
+						title={getConversationTitle(conversation)}
+						startIcon={{ icon: MessageCircle }}
+						iconOnly
+					/>
+				{/each}
+			</div>
+		{:else if loading}
 			<div class="p-4 text-center">
 				<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto"></div>
 				<p class="text-sm text-tertiary mt-2">Loading conversations...</p>
@@ -133,12 +162,6 @@
 								<p class="text-sm font-medium text-primary truncate">
 									{getConversationTitle(conversation)}
 								</p>
-								<div class="flex items-center gap-1 mt-1">
-									<Clock size={12} class="text-tertiary" />
-									<span class="text-xs text-tertiary">
-										<TimeAgo date={conversation.updated_at} />
-									</span>
-								</div>
 							</div>
 							<button
 								class="opacity-0 group-hover:opacity-100 ml-2 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-all"
@@ -155,11 +178,13 @@
 	</div>
 
 	<!-- Footer -->
-	<div class="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
-		<p class="text-xs text-tertiary">
-			{conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
-		</p>
-	</div>
+	{#if isExpanded}
+		<div class="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
+			<p class="text-xs text-tertiary">
+				{conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
+			</p>
+		</div>
+	{/if}
 </div>
 
 <style>
