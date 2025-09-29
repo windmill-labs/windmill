@@ -15,11 +15,15 @@
 
 	let loading = $state(true)
 	let events: AutoscalingEvent[] | undefined = $state(undefined)
+	let limit = $state(5)
 
 	async function loadEvents() {
 		loading = true
 		try {
-			events = await ConfigService.listAutoscalingEvents({ workerGroup: worker_group })
+			events = await ConfigService.listAutoscalingEvents({
+				workerGroup: worker_group,
+				perPage: limit
+			})
 		} catch (e) {
 			events = []
 			console.error(e)
@@ -28,6 +32,7 @@
 		}
 	}
 	$effect(() => {
+		limit
 		worker_group && untrack(() => loadEvents())
 	})
 </script>
@@ -73,6 +78,14 @@
 						<div class="text-tertiary"><TimeAgo date={event.applied_at ?? ''} /></div>
 					</div>
 				{/each}
+			</div>
+		{/if}
+		<div class="mt-4 flex">
+			<Button color="light" size="xs2" on:click={() => (limit = limit + 25)}>Show more</Button>
+		</div>
+		{#if limit > 50}
+			<div class="mt-4 flex text-xs text-tertiary">
+				Note that autoscaling events are only stored for the last 30 days.
 			</div>
 		{/if}
 	{/if}

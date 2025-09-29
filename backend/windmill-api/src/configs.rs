@@ -240,12 +240,19 @@ struct AutoscalingEvent {
 async fn list_autoscaling_events(
     Extension(db): Extension<DB>,
     Path(worker_group): Path<String>,
-    Query(pagination): Query<Pagination>,
+    Query(mut pagination): Query<Pagination>,
 ) -> error::JsonResult<Vec<AutoscalingEvent>> {
+    if pagination.per_page.is_none() {
+        pagination.per_page = Some(5);
+    }
+    let (per_page, offset) = windmill_common::utils::paginate(pagination);
+
     let events = sqlx::query_as!(
         AutoscalingEvent,
-        "SELECT id, worker_group, event_type::text, desired_workers, reason, applied_at FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT 5",
-        worker_group
+        "SELECT id, worker_group, event_type::text, desired_workers, reason, applied_at FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT $2 OFFSET $3",
+        worker_group,
+        per_page as i64,
+        offset as i64
     )
     .fetch_all(&db)
     .await?;
