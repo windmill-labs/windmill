@@ -353,13 +353,21 @@
 						</div>
 					{/if}
 				{:else if setting.fieldType == 'codearea'}
-					<SimpleEditor
-						autoHeight
-						class="editor"
-						lang={setting.codeAreaLang ?? 'txt'}
-						bind:code={$values[setting.key]}
-						fixedOverflowWidgets={false}
-					/>
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						onclick={(ev) => {
+							ev.stopPropagation() // this is to prevent wrapping label interference
+						}}
+					>
+						<SimpleEditor
+							autoHeight
+							class="editor"
+							lang={setting.codeAreaLang ?? 'txt'}
+							bind:code={$values[setting.key]}
+							fixedOverflowWidgets={false}
+						/></div
+					>
 				{:else if setting.fieldType == 'license_key'}
 					{@const { valid, expiration } = parseLicenseKey($values[setting.key] ?? '')}
 					<div class="flex gap-2">
