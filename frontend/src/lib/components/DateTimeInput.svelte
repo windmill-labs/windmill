@@ -68,7 +68,6 @@
 		if (date && time && (initialDate != date || initialTime != time)) {
 			let newDate = new Date(`${date}T${time}`)
 			if (newDate.toString() === 'Invalid Date') return
-			if (newDate.getFullYear() < 2000) return
 
 			value = newDate.toISOString()
 			dispatchIfMounted('change', value)
