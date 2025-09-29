@@ -8,6 +8,7 @@
 	import { devopsRole } from '$lib/stores'
 	import List from '$lib/components/common/layout/List.svelte'
 	import { Skeleton } from '../common'
+	import Linkify from './Linkify.svelte'
 
 	export let alerts: any[]
 	export let hideAcknowledged = false
@@ -111,7 +112,7 @@
 							</Cell>
 
 							<Cell wrap>
-								<div class="flex-shrink min-w-0 break-words">{message}</div>
+								<div class="flex-shrink min-w-0 break-words"><Linkify text={message} /></div>
 							</Cell>
 							<!-- Flexible width -->
 							<Cell wrap>{formatDate(created_at)}</Cell>
