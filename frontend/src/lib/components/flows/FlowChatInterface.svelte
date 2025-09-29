@@ -281,13 +281,6 @@
 					</div>
 				{/if}
 
-				<!-- No more messages indicator -->
-				{#if !hasMoreMessages && messages.length > 0}
-					<div class="text-center py-2">
-						<span class="text-xs text-tertiary">No more messages</span>
-					</div>
-				{/if}
-
 				{#each messages as message (message.id)}
 					<div class="flex {message.message_type === 'user' ? 'justify-end' : 'justify-start'}">
 						<div
