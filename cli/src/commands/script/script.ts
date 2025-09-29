@@ -233,7 +233,7 @@ export async function handleFile(
           define: codebase.define,
           platform: "node",
           packages: "bundle",
-          target: format == "cjs" ? "node20.15.1" : "es2022",
+          target: format == "cjs" ? "node20.15.1" : "esnext",
         });
         const endTime = performance.now();
         bundleContent = out.outputFiles[0].text;
