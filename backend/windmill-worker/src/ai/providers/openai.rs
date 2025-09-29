@@ -5,7 +5,8 @@ use windmill_common::{ai_providers::AIProvider, client::AuthedClient, error::Err
 
 use crate::ai::{
     image_handler::download_and_encode_s3_image,
-    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder},
+    query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
+    sse::{OpenAISSEParser, SSEParser},
     types::*,
 };
 
@@ -90,6 +91,7 @@ pub struct OpenAIRequest<'a> {
     pub max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
+    pub stream: bool,
 }
 
 pub struct OpenAIQueryBuilder {
@@ -162,6 +164,7 @@ impl OpenAIQueryBuilder {
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
+        stream: bool,
     ) -> Result<String, Error> {
         let prepared_messages = self
             .prepare_messages_for_api(args.messages, client, workspace_id)
@@ -196,6 +199,7 @@ impl OpenAIQueryBuilder {
             temperature: args.temperature,
             max_completion_tokens: args.max_tokens,
             response_format,
+            stream,
         };
 
         serde_json::to_string(&request)
@@ -255,14 +259,23 @@ impl QueryBuilder for OpenAIQueryBuilder {
         true
     }
 
+    fn supports_streaming(&self) -> bool {
+        // OpenAI supports streaming for text output
+        true
+    }
+
     async fn build_request(
         &self,
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
+        stream: bool,
     ) -> Result<String, Error> {
         match args.output_type {
-            OutputType::Text => self.build_text_request(args, client, workspace_id).await,
+            OutputType::Text => {
+                self.build_text_request(args, client, workspace_id, stream)
+                    .await
+            }
             OutputType::Image => self.build_image_request(args, client, workspace_id).await,
         }
     }
@@ -330,8 +343,46 @@ impl QueryBuilder for OpenAIQueryBuilder {
                     }
                 }),
                 tool_calls: first_choice.message.tool_calls.unwrap_or_default(),
+                events_str: None,
             })
         }
+    }
+
+    async fn parse_streaming_response(
+        &self,
+        response: reqwest::Response,
+        stream_event_processor: StreamEventProcessor,
+    ) -> Result<ParsedResponse, Error> {
+        let mut openai_sse_parser = OpenAISSEParser::new(stream_event_processor);
+        openai_sse_parser.parse_events(response).await?;
+
+        let OpenAISSEParser {
+            accumulated_content,
+            accumulated_tool_calls,
+            mut events_str,
+            stream_event_processor,
+        } = openai_sse_parser;
+
+        // Process streaming events with error handling
+
+        for tool_call in accumulated_tool_calls.values() {
+            let event = StreamingEvent::ToolCallArguments {
+                call_id: tool_call.id.clone(),
+                function_name: tool_call.function.name.clone(),
+                arguments: tool_call.function.arguments.clone(),
+            };
+            stream_event_processor.send(event, &mut events_str).await?;
+        }
+
+        Ok(ParsedResponse::Text {
+            content: if accumulated_content.is_empty() {
+                None
+            } else {
+                Some(accumulated_content)
+            },
+            tool_calls: accumulated_tool_calls.into_values().collect(),
+            events_str: Some(events_str),
+        })
     }
 
     fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String {

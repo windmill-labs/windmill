@@ -17,7 +17,8 @@
 		computeS3ForceViewerPolicies,
 		workspace,
 		editor = $bindable(),
-		appPath
+		appPath,
+		bottom
 	}: {
 		multiple: boolean
 		value: any
@@ -38,6 +39,7 @@
 		workspace: string | undefined
 		editor: SimpleEditor | undefined
 		appPath: string | undefined
+		bottom?: import('svelte').Snippet
 	} = $props()
 
 	let s3FileUploadRawMode: boolean = $state(false)
@@ -67,13 +69,7 @@
 	/>
 {/if}
 
-<div class="flex flex-col w-full gap-1">
-	<Toggle
-		class="flex justify-end"
-		bind:checked={s3FileUploadRawMode}
-		size="xs"
-		options={{ left: `Raw S3 object${multiple ? 's' : ''} input` }}
-	/>
+<div class="flex flex-col w-full gap-1 relative">
 	{#if s3FileUploadRawMode}
 		{#await import('$lib/components/JsonEditor.svelte')}
 			<Loader2 class="animate-spin" />
@@ -135,7 +131,7 @@
 			variant="border"
 			color="light"
 			size="xs"
-			btnClasses="mt-1"
+			btnClasses="mt-1 font-normal text-tertiary"
 			on:click={() => {
 				s3FilePicker?.open?.(value)
 			}}
@@ -144,4 +140,12 @@
 			{multiple ? 'Add' : 'Choose'} an object from the catalog
 		</Button>
 	{/if}
+	{@render bottom?.()}
+	<Toggle
+		class="mt-1"
+		textClass="font-normal text-hint"
+		bind:checked={s3FileUploadRawMode}
+		size="xs"
+		options={{ right: `Raw S3 object${multiple ? 's' : ''} input` }}
+	/>
 </div>

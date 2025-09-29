@@ -900,7 +900,7 @@ async fn create_script_internal<'c>(
             clear_schedule(&mut tx, &schedule.path, &w_id).await?;
 
             if schedule.enabled {
-                tx = push_scheduled_job(&db, tx, &schedule, None).await?;
+                tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
             }
         }
     } else {
@@ -1036,6 +1036,9 @@ async fn create_script_internal<'c>(
             let content = ns.content.clone();
             let language = ns.language.clone();
             tokio::spawn(async move {
+                // TODO: I don't think we want this. We might want to send dependency job. But skip any calculations if lock is already present.
+                // It will allow us to make code more consistent and predictable.
+
                 // wait for 10 seconds to make sure the script is deployed and that the CLI sync that pushed it (f one) is complete
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                 if let Err(e) = process_relative_imports(

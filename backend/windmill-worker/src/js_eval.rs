@@ -770,6 +770,7 @@ pub async fn eval_fetch_timeout(
     _load_client: bool,
     _occupation_metrics: &mut OccupancyMetrics,
     _stream_notifier: Option<StreamNotifier>,
+    _has_stream: &mut bool,
 ) -> anyhow::Result<Box<RawValue>> {
     use serde_json::value::to_raw_value;
     Ok(to_raw_value("require deno_core").unwrap())
@@ -792,6 +793,7 @@ pub async fn eval_fetch_timeout(
     load_client: bool,
     occupation_metrics: &mut OccupancyMetrics,
     stream_notifier: Option<StreamNotifier>,
+    has_stream: &mut bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
     let (append_logs_sender, mut append_logs_receiver) = mpsc::unbounded_channel::<String>();
@@ -808,9 +810,11 @@ pub async fn eval_fetch_timeout(
     let conn_ = conn.clone();
     let w_id_ = w_id.to_string();
     tokio::spawn(async move {
+        let mut offset = -1;
         while let Some(stream) = result_stream_receiver.recv().await {
             use crate::job_logger::append_result_stream;
-            if let Err(e) = append_result_stream(&conn_, &w_id_, &job_id, &stream).await {
+            offset += 1;
+            if let Err(e) = append_result_stream(&conn_, &w_id_, &job_id, &stream, offset).await {
                 tracing::error!("failed to append result stream: {e}");
             }
         }
@@ -978,22 +982,24 @@ pub async fn eval_fetch_timeout(
             drop(js_runtime);
             if let Ok(r) = r {
                 match handle.await {
-                    Ok(Some(logs)) => Ok(merge_result_stream(r, Some(logs)).await),
-                    Ok(None) => Ok(r),
+                    Ok(Some(logs)) => {
+                        Ok(merge_result_stream(r, Some(logs)).await.map(|r| (r, true)))
+                    }
+                    Ok(None) => Ok(r.map(|r| (r, false))),
                     Err(e) => Err(Error::ExecutionErr(e.to_string())),
                 }
             } else {
-                r
+                r.map(|r| r.map(|r| (r, false)))
             }
             // r
         };
         let r = runtime.block_on(future)?;
         // tracing::info!("total: {:?}", instant.elapsed());
 
-        r as windmill_common::error::Result<Box<RawValue>>
+        r as windmill_common::error::Result<(Box<RawValue>, bool)>
     });
 
-    let res = run_future_with_polling_update_job_poller(
+    let (res, new_has_stream) = run_future_with_polling_update_job_poller(
         job_id,
         job_timeout,
         conn,
@@ -1012,6 +1018,7 @@ pub async fn eval_fetch_timeout(
         }
         e
     })?;
+    *has_stream = new_has_stream;
     *mem_peak = (res.get().len() / 1000) as i32;
     Ok(res)
 }
@@ -1109,7 +1116,7 @@ function processStreamIterative(res) {{
                 iterator.next().then(function(result) {{
                     if (!result.done) {{
                         const chunk = result.value;
-                        console.log("WM_STREAM: " + chunk.replace('\n', '\\n'));
+                        console.log("WM_STREAM: " + chunk.replace(/\n/g, '\\n'));
                         // Continue the loop
                         step();
                     }} else {{

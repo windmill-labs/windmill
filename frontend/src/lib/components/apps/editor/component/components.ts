@@ -1391,6 +1391,12 @@ export const components = {
 					value: false,
 					fieldType: 'boolean'
 				},
+				runInBackground: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Run the job in the background without blocking the button. Multiple clicks will trigger multiple jobs.'
+				},
 
 				onSuccess: onSuccessClick,
 				onError: onErrorClick,
@@ -3582,7 +3588,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'object',
 					value: {},
 					tooltip:
-						'This enables setting form enum values dynamically using an object: keys are field names, and values are arrays of strings.'
+						'This enables setting form enum values dynamically using an object: keys are field names, and values are arrays of strings or { "label": "myLabel", "value": "myValue" }.'
 				},
 
 				displayType: {

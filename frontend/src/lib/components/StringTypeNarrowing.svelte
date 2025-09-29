@@ -11,6 +11,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import RegexGen from './copilot/RegexGen.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	interface Props {
 		pattern: string | undefined
@@ -98,12 +99,12 @@
 		}
 
 		let choice = `choice ${enum_?.length ? enum_?.length + 1 : 1}`
-		enum_ = enum_ ? enum_.concat(choice) : [choice]
+		enum_ = enum_ ? (enum_.concat(choice) as EnumType) : [choice]
 	}
 
 	function remove(item: string) {
-		enum_ = (enum_ || []).filter((el) => el !== item)
-		if (enum_.length == 0) {
+		enum_ = (enum_ || []).filter((el) => el !== item) as EnumType
+		if (enum_?.length == 0) {
 			enum_ = undefined
 		}
 
@@ -230,34 +231,49 @@
 			<div class="flex flex-col gap-1">
 				{#if enum_}
 					{#each enum_ as _, i}
-						<div class="flex flex-row w-full gap-2 pt-2">
-							<input
-								id="input"
-								type="text"
-								bind:value={enum_[i]}
-								oninput={(event) => enum_ && onEnumKeyChange(event?.currentTarget.value, enum_[i])}
-							/>
-							{#if enumLabels !== undefined}
+						{#if typeof enum_[i] === 'string'}
+							<div class="flex flex-row w-full gap-2 pt-2">
 								<input
 									id="input"
 									type="text"
-									bind:value={enumLabels[enum_[i]]}
-									placeholder="Optional title..."
-									oninput={(event) => {
-										if (event?.currentTarget.value === '') {
-											if (enumLabels === undefined) {
-												enumLabels = {}
-											}
-											enum_ && delete enumLabels[enum_[i]]
-										}
-									}}
+									bind:value={enum_[i]}
+									oninput={(event) =>
+										enum_ &&
+										typeof enum_[i] === 'string' &&
+										onEnumKeyChange(event?.currentTarget.value, enum_[i])}
 								/>
-							{/if}
+								{#if enumLabels !== undefined}
+									<input
+										id="input"
+										type="text"
+										bind:value={enumLabels[enum_[i]]}
+										placeholder="Optional title..."
+										oninput={(event) => {
+											if (event?.currentTarget.value === '') {
+												if (enumLabels === undefined) {
+													enumLabels = {}
+												}
+												if (typeof enum_?.[i] === 'string') {
+													enum_ && delete enumLabels[enum_[i]]
+												}
+											}
+										}}
+									/>
+								{/if}
 
-							{#if allowKindChange}
-								<Button size="sm" on:click={() => enum_ && remove(enum_[i])}>-</Button>
-							{/if}
-						</div>
+								{#if allowKindChange}
+									<Button
+										size="sm"
+										on:click={() => enum_ && typeof enum_[i] === 'string' && remove(enum_[i])}
+										>-</Button
+									>
+								{/if}
+							</div>
+						{:else}
+							<div class="flex flex-row w-full gap-2 pt-2">
+								{JSON.stringify(enum_[i])} is not a string, remove it
+							</div>
+						{/if}
 					{/each}
 				{/if}
 			</div>
@@ -326,7 +342,10 @@
 	{:else if kind == 'none'}
 		{#if !noExtra}
 			<Label label="Min textarea rows">
-				<input type="number" bind:value={minRows} />
+				<TextInput
+					inputProps={{ type: 'number' }}
+					bind:value={() => minRows?.toString(), (v) => (minRows = v ? parseInt(v) : undefined)}
+				/>
 			</Label>
 		{/if}
 	{:else if kind === 'base64'}

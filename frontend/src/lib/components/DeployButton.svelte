@@ -70,7 +70,7 @@
 				bind:this={msgInput}
 			/>
 			<Button
-				size="xs"
+				size="sm"
 				on:click={async () => dispatch('save', deploymentMsg)}
 				endIcon={{ icon: CornerDownLeft }}
 				loading={loadingSave}

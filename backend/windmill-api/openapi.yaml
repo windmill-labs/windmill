@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.547.0
+  version: 1.552.0
   title: Windmill API
 
   contact:
@@ -571,6 +571,27 @@ paths:
       responses:
         "200":
           description: delete user
+          content:
+            text/plain:
+              schema:
+                type: string
+  /w/{workspace}/users/convert_to_group/{username}:
+    post:
+      summary: convert manual user to group user (require admin privilege)
+      operationId: convertUserToGroup
+      tags:
+        - user
+        - admin
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: convert user to group user
           content:
             text/plain:
               schema:
@@ -2134,6 +2155,40 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/rebuild_dependency_map:
+    post:
+      summary: rebuild dependency map
+      operationId: rebuildDependencyMap
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/get_dependency_map:
+    get:
+      summary: get dependency map
+      operationId: getDependencyMap
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: dmap
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DependencyMap"
+
   /w/{workspace}/workspaces/edit_slack_command:
     post:
       summary: edit slack command
@@ -2250,7 +2305,6 @@ paths:
                       type: string
                     channel_id:
                       type: string
-
 
   /w/{workspace}/workspaces/connect_teams:
     post:
@@ -3913,7 +3967,6 @@ paths:
                     type: array
                     items:
                       type: string
-
 
   /teams/activities:
     post:
@@ -12024,6 +12077,8 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: List of autoscaling events
@@ -15319,6 +15374,8 @@ components:
     AuditLog:
       type: object
       properties:
+        workspace_id:
+          type: string
         id:
           type: integer
         timestamp:
@@ -15424,6 +15481,7 @@ components:
         span:
           type: string
       required:
+        - workspace_id
         - id
         - timestamp
         - username
@@ -17644,6 +17702,25 @@ components:
         - name
         - owner
         - created_at
+
+    DependencyMap:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+          nullable: true
+        importer_path:
+          type: string
+          nullable: true
+        importer_kind:
+          type: string
+          nullable: true
+        imported_path:
+          type: string
+          nullable: true
+        importer_node_id:
+          type: string
+          nullable: true
 
     WorkspaceInvite:
       type: object

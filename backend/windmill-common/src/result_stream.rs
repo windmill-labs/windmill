@@ -19,17 +19,24 @@ pub async fn append_result_stream_db(
     workspace_id: &str,
     job_id: &Uuid,
     nstream: &str,
+    offset: i32,
 ) -> error::Result<()> {
     if !nstream.is_empty() {
         sqlx::query!(
             r#"
-            INSERT INTO job_result_stream (workspace_id, job_id, stream)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (job_id) DO UPDATE SET stream = job_result_stream.stream || $3
+            INSERT INTO job_result_stream_v2 (workspace_id, job_id, stream, idx)
+            VALUES (
+                $1, 
+                $2,
+                $3, 
+                $4
+            )
+            ON CONFLICT (job_id, idx) DO UPDATE SET stream = job_result_stream_v2.stream || $3
             "#,
             workspace_id,
             job_id,
             nstream,
+            offset
         )
         .execute(db)
         .await?;

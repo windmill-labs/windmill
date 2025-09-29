@@ -244,20 +244,8 @@
 			class="mb-4"
 		>
 			{#snippet children({ item })}
-				<ToggleButton
-					position="left"
-					value="normal"
-					size="sm"
-					label="Any jobs within worker tags"
-					{item}
-				/>
-				<ToggleButton
-					position="dedicated"
-					value="dedicated"
-					size="sm"
-					label="Dedicated to a script/flow"
-					{item}
-				/>
+				<ToggleButton value="normal" small label="Any jobs within worker tags" {item} />
+				<ToggleButton value="dedicated" small label="Dedicated to a script/flow" {item} />
 			{/snippet}
 		</ToggleButtonGroup>
 		{#if selected == 'normal'}

@@ -418,6 +418,7 @@ pub async fn process_result(
     preprocessed_args: Option<HashMap<String, Box<RawValue>>>,
     conn: &Connection,
     duration: Option<i64>,
+    has_stream: bool,
 ) -> error::Result<bool> {
     match result {
         Ok(result) => {
@@ -434,6 +435,7 @@ pub async fn process_result(
                     cached_res_path,
                     token: token.to_string(),
                     duration,
+                    has_stream: Some(has_stream),
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -496,6 +498,7 @@ pub async fn process_result(
                     cached_res_path,
                     token: token.to_string(),
                     duration,
+                    has_stream: Some(has_stream),
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -573,6 +576,7 @@ pub async fn process_completed_job(
         duration,
         result_columns,
         preprocessed_args,
+        has_stream,
         ..
     }: JobCompleted,
     client: &AuthedClient,
@@ -639,6 +643,7 @@ pub async fn process_completed_job(
             canceled_by,
             false,
             duration,
+            has_stream.unwrap_or(false),
         )
         .await?;
         drop(job);

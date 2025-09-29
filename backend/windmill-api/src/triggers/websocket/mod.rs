@@ -61,11 +61,11 @@ pub struct TestWebsocketConfig {
 }
 
 pub fn value_to_args_hashmap(
-    args: Option<&serde_json::Value>,
+    args: Option<&Box<RawValue>>,
 ) -> Result<HashMap<String, Box<RawValue>>> {
     let args = if let Some(args) = args {
         let args_map: Option<HashMap<String, serde_json::Value>> =
-            serde_json::from_value(args.clone())
+            serde_json::from_str(args.get())
                 .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)))?;
 
         args_map
@@ -89,7 +89,7 @@ pub async fn get_url_from_runnable_value(
     is_flow: bool,
     db: &DB,
     authed: ApiAuthed,
-    args: Option<&serde_json::Value>,
+    args: Option<&Box<RawValue>>,
     workspace_id: &str,
 ) -> Result<String> {
     tracing::info!(
