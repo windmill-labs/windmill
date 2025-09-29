@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.551.4
+  version: 1.552.0
   title: Windmill API
 
   contact:
@@ -2306,7 +2306,6 @@ paths:
                     channel_id:
                       type: string
 
-
   /w/{workspace}/workspaces/connect_teams:
     post:
       summary: connect teams
@@ -3968,7 +3967,6 @@ paths:
                     type: array
                     items:
                       type: string
-
 
   /teams/activities:
     post:
@@ -12079,6 +12077,8 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: List of autoscaling events

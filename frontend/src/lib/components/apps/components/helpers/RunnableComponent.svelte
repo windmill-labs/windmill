@@ -861,7 +861,7 @@
 	<div class="h-full flex relative flex-row flex-wrap {wrapperClass} visible" style={wrapperStyle}>
 		<!-- {Object.keys(schemaStripped?.properties ?? {}).length > 0} -->
 		{#if render && (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
-			<div class="px-2 h-fit min-h-0">
+			<div class="px-2 h-fit min-h-0 w-full min-w-[350px]">
 				<SchemaForm
 					noVariablePicker
 					onlyMaskPassword
