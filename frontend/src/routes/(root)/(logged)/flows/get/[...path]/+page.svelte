@@ -558,38 +558,95 @@
 	{/snippet}
 	{#snippet form()}
 		{#if flow}
-			<div class="flex-col flex h-full justify-between">
-				<div
-					class="w-full {chatInputEnabled
-						? 'max-w-7xl p-4 h-full'
-						: 'max-w-3xl p-8 '} mx-auto gap-2 bg-surface"
-				>
-					{#if flow?.archived}
-						<Alert type="error" title="Archived">This flow was archived</Alert>
-					{/if}
-
-					<div class="mb-1">
-						{#if !emptyString(flow?.description)}
-							<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
+			<div class="flex flex-col h-full overflow-hidden">
+				{#if chatInputEnabled}
+					<!-- Chat Mode: Full height layout -->
+					<div class="flex flex-col h-full w-full max-w-7xl mx-auto p-4 gap-2 overflow-hidden">
+						{#if flow?.archived}
+							<Alert type="error" title="Archived">This flow was archived</Alert>
 						{/if}
-					</div>
 
-					{#if deploymentInProgress}
-						<HeaderBadge color="yellow">
-							<Loader2 size={12} class="inline animate-spin mr-1" />
-							Deployment in progress
-						</HeaderBadge>
-					{/if}
-					{#if flow.lock_error_logs && flow.lock_error_logs != ''}
-						<div class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4" role="alert">
-							<p class="font-bold">Error deploying this flow</p>
-							<p> This flow has not been deployed successfully because of the following errors: </p>
-							<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
+						{#if !emptyString(flow?.description)}
+							<div class="flex-shrink-0">
+								<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
+							</div>
+						{/if}
+
+						{#if deploymentInProgress}
+							<div class="flex-shrink-0">
+								<HeaderBadge color="yellow">
+									<Loader2 size={12} class="inline animate-spin mr-1" />
+									Deployment in progress
+								</HeaderBadge>
+							</div>
+						{/if}
+						{#if flow.lock_error_logs && flow.lock_error_logs != ''}
+							<div
+								class="flex-shrink-0 bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4"
+								role="alert"
+							>
+								<p class="font-bold">Error deploying this flow</p>
+								<p>
+									This flow has not been deployed successfully because of the following errors:
+								</p>
+								<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
+							</div>
+						{/if}
+
+						<!-- Chat Layout with Sidebar -->
+						<div
+							class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1 min-h-0"
+						>
+							<div class="flex-shrink-0">
+								<FlowConversationsSidebar
+									bind:this={flowConversationsSidebar}
+									flowPath={flow?.path ?? ''}
+									{selectedConversationId}
+									onNewConversation={handleNewConversation}
+									onSelectConversation={handleSelectConversation}
+									onDeleteConversation={handleDeleteConversation}
+								/>
+							</div>
+							<div class="flex-1 min-h-0">
+								<FlowChatInterface
+									bind:this={flowChatInterface}
+									onRunFlow={runFlowForChat}
+									{refreshConversations}
+									conversationId={selectedConversationId}
+								/>
+							</div>
 						</div>
-					{/if}
+					</div>
+				{:else}
+					<!-- Normal Mode: Scrollable layout -->
+					<div class="w-full max-w-3xl p-8 mx-auto gap-2 bg-surface">
+						{#if flow?.archived}
+							<Alert type="error" title="Archived">This flow was archived</Alert>
+						{/if}
 
-					<div class="flex flex-col align-left h-full">
-						{#if !chatInputEnabled}
+						<div class="mb-1">
+							{#if !emptyString(flow?.description)}
+								<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
+							{/if}
+						</div>
+
+						{#if deploymentInProgress}
+							<HeaderBadge color="yellow">
+								<Loader2 size={12} class="inline animate-spin mr-1" />
+								Deployment in progress
+							</HeaderBadge>
+						{/if}
+						{#if flow.lock_error_logs && flow.lock_error_logs != ''}
+							<div class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4" role="alert">
+								<p class="font-bold">Error deploying this flow</p>
+								<p>
+									This flow has not been deployed successfully because of the following errors:
+								</p>
+								<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
+							</div>
+						{/if}
+
+						<div class="flex flex-col align-left h-full">
 							<div class="flex flex-row justify-between">
 								<InputSelectedBadge
 									onReject={() => {
@@ -611,43 +668,17 @@
 									}}
 								/>
 							</div>
-						{/if}
 
-						{#if flow.schema?.prompt_for_ai !== undefined}
-							<AIFormAssistant
-								instructions={flow.schema?.prompt_for_ai as string}
-								onEditInstructions={() => {
-									goto(`/flows/edit/${flow?.path}`)
-								}}
-								runnableType="flow"
-							/>
-						{/if}
+							{#if flow.schema?.prompt_for_ai !== undefined}
+								<AIFormAssistant
+									instructions={flow.schema?.prompt_for_ai as string}
+									onEditInstructions={() => {
+										goto(`/flows/edit/${flow?.path}`)
+									}}
+									runnableType="flow"
+								/>
+							{/if}
 
-						{#if chatInputEnabled}
-							<!-- Chat Layout with Sidebar -->
-							<div
-								class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-grow"
-							>
-								<div class="flex-shrink-0">
-									<FlowConversationsSidebar
-										bind:this={flowConversationsSidebar}
-										flowPath={flow?.path ?? ''}
-										{selectedConversationId}
-										onNewConversation={handleNewConversation}
-										onSelectConversation={handleSelectConversation}
-										onDeleteConversation={handleDeleteConversation}
-									/>
-								</div>
-								<div class="flex-1">
-									<FlowChatInterface
-										bind:this={flowChatInterface}
-										onRunFlow={runFlowForChat}
-										{refreshConversations}
-										conversationId={selectedConversationId}
-									/>
-								</div>
-							</div>
-						{:else}
 							<RunForm
 								bind:scheduledForStr
 								bind:invisible_to_owner
@@ -663,10 +694,8 @@
 								bind:this={runForm}
 								{jsonView}
 							/>
-						{/if}
-					</div>
+						</div>
 
-					{#if !chatInputEnabled}
 						<div class="py-10"></div>
 
 						{#if !emptyString(flow.summary)}
@@ -679,8 +708,8 @@
 								Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
 							</span>
 						</div>
-					{/if}
-				</div>
+					</div>
+				{/if}
 				<div class="mt-8">
 					<FlowGraphViewer
 						triggerNode={true}
