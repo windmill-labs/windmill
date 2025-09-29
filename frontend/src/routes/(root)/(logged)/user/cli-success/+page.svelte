@@ -5,7 +5,7 @@
 
 	import { sendUserToast } from '$lib/toast'
 
-	sendUserToast('Sucess. You can return to your terminal now.')
+	sendUserToast('Success. You can return to your terminal now.')
 	goto('/')
 </script>
 
