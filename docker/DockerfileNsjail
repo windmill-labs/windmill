@@ -51,9 +51,8 @@ RUN /usr/local/cargo/bin/cargo install cargo-sweep --version ^0.7
 RUN uv tool install ansible && [ -d "$(uv tool dir)/ansible/bin/" ] && find "$(uv tool dir)/ansible/bin/" -mindepth 1 -maxdepth 1 -type f -executable -regextype posix-extended -regex '^((.+/)?)[^.]+' -print0 | xargs -0 ln -s -t "$UV_TOOL_BIN_DIR/" || true
 
 # dotnet SDK
-COPY --from=bitnami/dotnet-sdk:9.0.101-debian-12-r0 /opt/bitnami/dotnet-sdk /opt/dotnet-sdk
-RUN ln -s /opt/dotnet-sdk/bin/dotnet /usr/bin/dotnet
-ENV DOTNET_ROOT="/opt/dotnet-sdk/bin"
+COPY --from=mcr.microsoft.com/dotnet/sdk:9.0 /usr/bin/dotnet /usr/bin/dotnet
+ENV DOTNET_ROOT="/usr/bin"
 
 # Oracle DB Client
 COPY --from=oracledb-client /opt/oracle/23/lib /opt/oracle/23/lib
