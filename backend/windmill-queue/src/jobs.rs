@@ -924,29 +924,6 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .await
         .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?;
 
-    let duration = if let Some(duration) = duration {
-        duration
-    } else {
-        let already_inserted = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM v2_job_completed WHERE id = $1)",
-            job_id
-        )
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?
-        .unwrap_or(false);
-
-        if already_inserted {
-            return Err(Error::AlreadyCompleted(format!(
-                "The queued job {job_id} is already completed."
-            )));
-        } else {
-            return Err(Error::AlreadyCompleted(format!(
-                "There is no queued job anymore for {job_id} but there is no completed job either."
-            )));
-        }
-    };
-
     if let Some(labels) = result.wm_labels() {
         sqlx::query!(
             "UPDATE v2_job SET labels = (
@@ -1178,6 +1155,11 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .execute(&mut *job_tx)
         .await?;
 
+    if !success || has_stream {
+        sqlx::query!("DELETE FROM job_result_stream_v2 WHERE job_id = $1", job_id)
+            .execute(&mut *tx)
+            .await?;
+    }
     let main_db_result = tx.commit().await;
 
     match main_db_result {
@@ -1218,11 +1200,6 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             )));
         }
     }
-    if !success || has_stream {
-        sqlx::query!("DELETE FROM job_result_stream_v2 WHERE job_id = $1", job_id).execute(&mut *tx);
-    }
-
-    tx.commit().await?;
 
     tracing::info!(
         %job_id,
