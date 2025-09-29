@@ -32,7 +32,6 @@ export interface Setting {
 		| 'smtp_connect'
 		| 'indexer_rates'
 		| 'otel'
-		| 'powershell_repo_config'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -317,14 +316,6 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'PowerShell Repository',
-			description: 'Private PowerShell repository configuration',
-			key: 'powershell_repo',
-			fieldType: 'powershell_repo_config',
-			storage: 'setting',
-			ee_only: ''
-		},
-		{
 			label: 'Maven/Ivy repositories',
 			description: 'Add private Maven/Ivy repositories',
 			key: 'maven_repos',
@@ -347,6 +338,24 @@ export const settings: Record<string, Setting[]> = {
 			key: 'ruby_repos',
 			fieldType: 'text',
 			placeholder: 'https://user:password@gems.foo.com/',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'PowerShell Repository URL',
+			description: 'Add private PowerShell repository URL',
+			key: 'powershell_repo_url',
+			placeholder:
+				'https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json',
+			fieldType: 'text',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'PowerShell Repository PAT',
+			description: 'Add private PowerShell repository Personal Access Token',
+			key: 'powershell_repo_pat',
+			fieldType: 'text',
 			storage: 'setting',
 			ee_only: ''
 		}

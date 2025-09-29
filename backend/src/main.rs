@@ -10,10 +10,10 @@ use monitor::{
     load_base_url, load_otel, reload_critical_alerts_on_db_oversize,
     reload_delete_logs_periodically_setting, reload_indexer_config,
     reload_instance_python_version_setting, reload_maven_repos_setting,
-    reload_no_default_maven_setting, reload_nuget_config_setting, reload_powershell_repo_setting,
-    reload_ruby_repos_setting,
-    reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
-    send_logs_to_object_store, WORKERS_NAMES,
+    reload_no_default_maven_setting, reload_nuget_config_setting,
+    reload_powershell_repo_pat_setting, reload_powershell_repo_url_setting,
+    reload_ruby_repos_setting, reload_timeout_wait_result_setting,
+    send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::postgres::PgListener;
@@ -46,7 +46,8 @@ use windmill_common::{
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
         LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
         NO_DEFAULT_MAVEN_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING,
-        OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING,
@@ -1055,8 +1056,11 @@ Windmill Community Edition {GIT_VERSION}
                                                         NUGET_CONFIG_SETTING => {
                                                             reload_nuget_config_setting(&conn).await
                                                         },
-                                                        POWERSHELL_REPO_SETTING => {
-                                                            reload_powershell_repo_setting(&conn).await
+                                                        POWERSHELL_REPO_URL_SETTING => {
+                                                            reload_powershell_repo_url_setting(&conn).await
+                                                        },
+                                                        POWERSHELL_REPO_PAT_SETTING => {
+                                                            reload_powershell_repo_pat_setting(&conn).await
                                                         },
                                                         MAVEN_REPOS_SETTING => {
                                                             reload_maven_repos_setting(&conn).await
