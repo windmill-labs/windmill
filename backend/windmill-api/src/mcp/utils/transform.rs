@@ -5,22 +5,29 @@
 
 use super::models::SchemaType;
 
+// MCP clients do not allow names longer than 60 characters
+const MAX_PATH_LENGTH: usize = 60;
+
 /// Transform the path for workspace scripts/flows
-/// 
-/// This function takes a path and a type string and formats the transformed 
-/// path with the type prefix. This is used when listing, because we can't 
-/// have names with slashes. Because we replace slashes with underscores, 
+///
+/// This function takes a path and a type string and formats the transformed
+/// path with the type prefix. This is used when listing, because we can't
+/// have names with slashes. Because we replace slashes with underscores,
 /// we also need to escape underscores.
 pub fn transform_path(path: &str, type_str: &str) -> String {
     let escaped_path = path.replace('_', "__").replace('/', "_");
     // first letter of type_str is used as prefix, only one letter to avoid reaching 60 char name limit
-    format!("{}-{}", &type_str[..1], escaped_path)
+    let transformed_path = format!("{}-{}", &type_str[..1], escaped_path);
+    if transformed_path.len() > MAX_PATH_LENGTH {
+        return format!("{}{}", &transformed_path[..54], "_TRUNC");
+    }
+    transformed_path
 }
 
 /// Reverse the transformation of a path
 ///
-/// This function takes a transformed path and reverses the transformation 
-/// applied by `transform_path`. It checks if the path starts with "h" 
+/// This function takes a transformed path and reverses the transformation
+/// applied by `transform_path`. It checks if the path starts with "h"
 /// (indicating a Hub script) and removes the prefix if present.
 /// It then determines the type of the item (script or flow) based on the prefix.
 /// This is used in call_tool to get the original path, and the type of the item.
@@ -54,7 +61,10 @@ pub fn reverse_transform(transformed_path: &str) -> Result<(&str, String, bool),
         parts[0].to_string()
     } else {
         const TEMP_PLACEHOLDER: &str = "@@UNDERSCORE@@";
-        mangled_path.replace("__", TEMP_PLACEHOLDER).replace('_', "/").replace(TEMP_PLACEHOLDER, "_")
+        mangled_path
+            .replace("__", TEMP_PLACEHOLDER)
+            .replace('_', "/")
+            .replace(TEMP_PLACEHOLDER, "_")
     };
 
     Ok((type_str, original_path, is_hub))
@@ -64,7 +74,7 @@ pub fn reverse_transform(transformed_path: &str) -> Result<(&str, String, bool),
 ///
 /// This function takes a key and replaces spaces with underscores.
 /// It also removes any characters that are not alphanumeric or underscores.
-/// This is used when listing, because we can't have names with spaces 
+/// This is used when listing, because we can't have names with spaces
 /// or special characters in the schema properties.
 pub fn apply_key_transformation(key: &str) -> String {
     key.replace(' ', "_")
@@ -75,8 +85,8 @@ pub fn apply_key_transformation(key: &str) -> String {
 
 /// Reverse the transformation of a key
 ///
-/// This function takes a transformed key and a schema object and reverses 
-/// the transformation applied by `apply_key_transformation`. This can be 
+/// This function takes a transformed key and a schema object and reverses
+/// the transformation applied by `apply_key_transformation`. This can be
 /// subject to collisions, but it's unlikely and is ok for our use case.
 pub fn reverse_transform_key(transformed_key: &str, schema_obj: &Option<SchemaType>) -> String {
     let schema_obj = match schema_obj {
