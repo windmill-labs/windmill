@@ -8,7 +8,11 @@
 	import type { EditorBarUi } from './custom_ui'
 	import Popover from './meltComponents/Popover.svelte'
 
-	export let customUi: EditorBarUi = {}
+	interface Props {
+		customUi?: EditorBarUi
+	}
+
+	let { customUi = {} }: Props = $props()
 </script>
 
 {#if customUi?.autoformatting != false || customUi?.vimMode != false || customUi?.aiCompletion != false}
@@ -17,7 +21,7 @@
 		usePointerDownOutside
 		contentClasses="flex flex-col gap-y-2 p-4"
 	>
-		<svelte:fragment slot="trigger">
+		{#snippet trigger()}
 			{#if customUi.editorSettings != false}
 				<Button
 					btnClasses="text-tertiary"
@@ -29,9 +33,9 @@
 					title="Editor settings"
 				/>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 
-		<svelte:fragment slot="content">
+		{#snippet content()}
 			{#if customUi?.autoformatting != false}
 				<div>
 					<FormatOnSave />
@@ -52,6 +56,6 @@
 					<CodeCompletionStatus />
 				</div>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 	</Popover>
 {/if}

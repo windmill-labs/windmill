@@ -867,6 +867,16 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting audit log on CE: {:?}", e);
     }
 
+    if let Err(e) = sqlx::query_scalar!(
+        "DELETE FROM autoscaling_event WHERE applied_at <= now() - ($1::bigint::text || ' s')::interval",
+        30 * 24 * 60 * 60, // 30 days
+    )
+    .fetch_all(db)
+    .await
+    {
+        tracing::error!("Error deleting autoscaling event on CE: {:?}", e);
+    }
+
     match sqlx::query_scalar!(
         "DELETE FROM agent_token_blacklist WHERE expires_at <= now() RETURNING token",
     )
