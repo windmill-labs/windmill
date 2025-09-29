@@ -5,13 +5,16 @@
 	import { twMerge } from 'tailwind-merge'
 	import TimeAgo from './TimeAgo.svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import { untrack } from 'svelte'
 
-	export let worker_group: string
+	interface Props {
+		worker_group: string
+	}
 
-	let loading = true
-	let events: AutoscalingEvent[] | undefined = undefined
+	let { worker_group }: Props = $props()
 
-	$: worker_group && loadEvents()
+	let loading = $state(true)
+	let events: AutoscalingEvent[] | undefined = $state(undefined)
 
 	async function loadEvents() {
 		loading = true
@@ -24,6 +27,9 @@
 			loading = false
 		}
 	}
+	$effect(() => {
+		worker_group && untrack(() => loadEvents())
+	})
 </script>
 
 <div>

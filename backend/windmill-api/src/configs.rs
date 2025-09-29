@@ -7,7 +7,7 @@
  */
 
 use axum::{
-    extract::{Extension, Path},
+    extract::{Extension, Path, Query},
     routing::{get, post},
     Json, Router,
 };
@@ -18,6 +18,7 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     error::{self},
+    utils::Pagination,
     worker::MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS,
     DB,
 };
@@ -239,6 +240,7 @@ struct AutoscalingEvent {
 async fn list_autoscaling_events(
     Extension(db): Extension<DB>,
     Path(worker_group): Path<String>,
+    Query(pagination): Query<Pagination>,
 ) -> error::JsonResult<Vec<AutoscalingEvent>> {
     let events = sqlx::query_as!(
         AutoscalingEvent,
@@ -263,8 +265,7 @@ async fn native_kubernetes_autoscaling_healthcheck(
 }
 
 #[cfg(not(all(feature = "enterprise", feature = "private")))]
-async fn native_kubernetes_autoscaling_healthcheck(
-) -> Result<(), error::Error> {
+async fn native_kubernetes_autoscaling_healthcheck() -> Result<(), error::Error> {
     Err(error::Error::BadRequest(
         "Native Kubernetes autoscaling available only in the enterprise version".to_string(),
     ))
