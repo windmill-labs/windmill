@@ -2596,6 +2596,7 @@ pub async fn handle_queued_job(
                         worker_name,
                         hostname,
                         killpill_rx,
+                        &mut has_stream,
                     )
                     .await
                 }

@@ -9,6 +9,8 @@
 use crate::push;
 use crate::PushIsolationLevel;
 use anyhow::Context;
+use chrono::DateTime;
+use chrono::Utc;
 use sqlx::{PgExecutor, Postgres, Transaction};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -34,6 +36,7 @@ pub async fn push_scheduled_job<'c>(
     mut tx: Transaction<'c, Postgres>,
     schedule: &Schedule,
     authed: Option<&Authed>,
+    now_cutoff: Option<DateTime<Utc>>,
 ) -> Result<Transaction<'c, Postgres>> {
     if !*LICENSE_KEY_VALID.read().await {
         return Err(error::Error::BadRequest(
@@ -49,6 +52,19 @@ pub async fn push_scheduled_job<'c>(
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
     let now = now_from_db(&mut *tx).await?;
+
+    let now = match now_cutoff {
+        Some(now_cutoff) if now_cutoff >= now => {
+            tracing::error!(
+                "now_cutoff ({:?}) is after now ({:?}) for schedule {}. Using now_cutoff + 1s. This likely means the pg clock was shifted backwards.",
+                now_cutoff,
+                now,
+                &schedule.path
+            );
+            now_cutoff + chrono::Duration::seconds(1)
+        }
+        _ => now,
+    };
 
     let starting_from = match schedule.paused_until {
         Some(paused_until) if paused_until > now => paused_until.with_timezone(&tz),

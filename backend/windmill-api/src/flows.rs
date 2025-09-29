@@ -937,7 +937,7 @@ async fn update_flow(
         clear_schedule(&mut tx, &schedule.path, &w_id).await?;
 
         if schedule.enabled {
-            tx = push_scheduled_job(&db, tx, &schedule, None).await?;
+            tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
         }
     }
 

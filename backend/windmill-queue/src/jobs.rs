@@ -10,7 +10,7 @@ use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
 use async_recursion::async_recursion;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use futures::future::TryFutureExt;
 use itertools::Itertools;
 #[cfg(feature = "prometheus")]
@@ -36,8 +36,7 @@ use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
-#[cfg(feature = "enterprise")]
-use windmill_common::BASE_URL;
+
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
     cache::{self, FlowData},
@@ -67,7 +66,6 @@ use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
 
 use crate::flow_status::{update_flow_status_in_progress, update_workflow_as_code_status};
-use crate::jobs_oss::update_concurrency_counter;
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
 use crate::tags::per_workspace_tag;
 #[cfg(feature = "cloud")]
@@ -89,7 +87,7 @@ lazy_static::lazy_static! {
     )
     .unwrap();
 
-    static ref QUEUE_PULL_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
+    pub static ref QUEUE_PULL_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
         "queue_pull_count",
         "Total number of jobs pulled from the queue."
     )
@@ -121,13 +119,10 @@ const MAX_FREE_CONCURRENT_RUNS: i32 = 30;
 const ERROR_HANDLER_USERNAME: &str = "error_handler";
 const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
 const GLOBAL_ERROR_HANDLER_USERNAME: &str = "global";
-#[cfg(feature = "enterprise")]
-const SCHEDULE_RECOVERY_HANDLER_USERNAME: &str = "schedule_recovery_handler";
-const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
-const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
-const SCHEDULE_ERROR_HANDLER_USER_EMAIL: &str = "schedule_error_handler@windmill.dev";
-#[cfg(any(feature = "enterprise", feature = "cloud"))]
-const SCHEDULE_RECOVERY_HANDLER_USER_EMAIL: &str = "schedule_recovery_handler@windmill.dev";
+
+pub const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
+pub const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
+pub const SCHEDULE_ERROR_HANDLER_USER_EMAIL: &str = "schedule_error_handler@windmill.dev";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CanceledBy {
@@ -794,7 +789,11 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             .with_max_times(5)
             .build(),
     )
-    .when(|err| !matches!(err, Error::QuotaExceeded(_)) && !matches!(err, Error::ResultTooLarge(_)))
+    .when(|err| {
+        !matches!(err, Error::QuotaExceeded(_))
+            && !matches!(err, Error::ResultTooLarge(_))
+            && !matches!(err, Error::AlreadyCompleted(_))
+    })
     .notify(|err, dur| {
         tracing::error!("Could not insert completed job, retrying in {dur:#?}, err: {err:#?}");
     })
@@ -809,8 +808,8 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     #[cfg(feature = "cloud")]
     apply_completed_job_cloud_usage(db, queued_job, duration);
 
-    #[cfg(feature = "enterprise")]
-    apply_completed_job_error_handlers(
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    crate::jobs_ee::apply_completed_job_error_handlers(
         db,
         queued_job,
         success,
@@ -860,7 +859,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         return value;
     }
 
-    let _duration =  sqlx::query_scalar!(
+    let duration =  sqlx::query_scalar!(
             "INSERT INTO v2_job_completed AS cj
                     ( workspace_id
                     , id
@@ -896,9 +895,32 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             /* $9 */ duration,
             /* $10 */ result_columns as Option<&Vec<String>>,
         )
-        .fetch_one(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?;
+
+    let duration = if let Some(duration) = duration {
+        duration
+    } else {
+        let already_inserted = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM v2_job_completed WHERE id = $1)",
+            job_id
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?
+        .unwrap_or(false);
+
+        if already_inserted {
+            return Err(Error::AlreadyCompleted(format!(
+                "The queued job {job_id} is already completed."
+            )));
+        } else {
+            return Err(Error::AlreadyCompleted(format!(
+                "There is no queued job anymore for {job_id} but there is no completed job either."
+            )));
+        }
+    };
 
     if let Some(labels) = result.wm_labels() {
         sqlx::query!(
@@ -929,7 +951,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         )
                     WHERE id = $3",
                 &queued_job.id.to_string(),
-                _duration,
+                duration,
                 parent_job
             )
             .execute(&mut *tx)
@@ -1039,8 +1061,8 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     };
                 }
 
-                #[cfg(feature = "enterprise")]
-                if let Err(err) = apply_schedule_handlers(
+                #[cfg(all(feature = "enterprise", feature = "private"))]
+                if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
                     db,
                     &schedule,
                     &script_path,
@@ -1055,7 +1077,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 {
                     if !success {
                         tracing::error!("Could not apply schedule error handler: {}", err);
-                        let base_url = BASE_URL.read().await;
+                        let base_url = windmill_common::BASE_URL.read().await;
                         let w_id: &String = &queued_job.workspace_id;
                         if !matches!(err, Error::QuotaExceeded(_)) {
                             report_error_to_workspace_handler_or_critical_side_channel(
@@ -1135,7 +1157,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         path = &queued_job.runnable_path(),
         job_kind = ?queued_job.kind,
         started_at = ?queued_job.started_at.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
-        duration = ?_duration,
+        duration = ?duration,
         permissioned_as = ?queued_job.permissioned_as,
         email = ?queued_job.permissioned_as_email,
         created_by = queued_job.created_by,
@@ -1148,7 +1170,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         queued_job.id
     );
     // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
-    Ok((None, _duration, _skip_downstream_error_handlers))
+    Ok((None, duration, _skip_downstream_error_handlers))
 }
 
 async fn check_result_size<T: ValidableJson>(
@@ -1296,127 +1318,6 @@ async fn restart_job_if_perpetual_inner(
         tx.commit().await?;
     }
     Ok(())
-}
-
-#[cfg(feature = "enterprise")]
-async fn has_failure_module(db: &Pool<Postgres>, job: &MiniPulledJob) -> bool {
-    if let Ok(flow) = cache::job::fetch_flow(db, &job.kind, job.runnable_id).await {
-        return flow.value().failure_module.is_some();
-    }
-    sqlx::query_scalar!(
-        "SELECT raw_flow->'failure_module' != 'null'::jsonb FROM v2_job WHERE id = $1",
-        job.id
-    )
-    .fetch_one(db)
-    .await
-    .unwrap_or(Some(false))
-    .unwrap_or(false)
-}
-
-#[cfg(feature = "enterprise")]
-async fn apply_completed_job_error_handlers<T: Serialize + Send + Sync + ValidableJson>(
-    db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
-    success: bool,
-    result: Json<&T>,
-    canceled_by: &Option<CanceledBy>,
-    _skip_downstream_error_handlers: bool,
-) {
-    if !success {
-        if queued_job.permissioned_as_email == ERROR_HANDLER_USER_EMAIL {
-            let base_url = BASE_URL.read().await;
-            let w_id = &queued_job.workspace_id;
-            report_critical_error(
-                format!(
-                    "Workspace error handler job failed ({base_url}/run/{}?workspace={w_id}){}",
-                    queued_job.id,
-                    queued_job
-                        .parent_job
-                        .map(|id| format!(
-                            " trying to handle failed job ({base_url}/run/{id}?workspace={w_id})"
-                        ))
-                        .unwrap_or("".to_string()),
-                ),
-                db.clone(),
-                Some(&w_id),
-                None,
-            )
-            .await;
-        } else if queued_job.permissioned_as_email == SCHEDULE_ERROR_HANDLER_USER_EMAIL {
-            let base_url = BASE_URL.read().await;
-            let w_id = &queued_job.workspace_id;
-            report_error_to_workspace_handler_or_critical_side_channel(
-                &queued_job,
-                db,
-                format!(
-                    "Schedule error handler job failed ({base_url}/run/{}?workspace={w_id}){}",
-                    queued_job.id,
-                    queued_job
-                        .parent_job
-                        .map(|id| format!(
-                            " trying to handle failed job: {base_url}/run/{id}?workspace={w_id}"
-                        ))
-                        .unwrap_or("".to_string()),
-                ),
-            )
-            .await;
-        } else if !_skip_downstream_error_handlers
-            && (matches!(queued_job.kind, JobKind::Script)
-                || matches!(queued_job.kind, JobKind::Flow)
-                    && !has_failure_module(db, queued_job).await)
-            && queued_job.parent_job.is_none()
-        {
-            let result = serde_json::from_str(
-                &serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string()),
-            )
-            .unwrap_or_else(|_| json!({}));
-            let result = if result.is_object() || result.is_null() {
-                result
-            } else {
-                json!({ "error": result })
-            };
-            tracing::info!(
-                "Sending error of job {} to error handlers (if any)",
-                queued_job.id
-            );
-
-            if let Err(e) = send_error_to_global_handler(&queued_job, db, Json(&result)).await {
-                tracing::error!(
-                    "Could not run global error handler for job {}: {}",
-                    &queued_job.id,
-                    e
-                );
-            }
-
-            if let Err(err) = send_error_to_workspace_handler(
-                &queued_job,
-                canceled_by.is_some(),
-                db,
-                Json(&result),
-            )
-            .await
-            {
-                match err {
-                    Error::QuotaExceeded(_) => {}
-                    err => {
-                        tracing::error!(
-                            "Could not run workspace error handler for job {}: {}",
-                            &queued_job.id,
-                            err
-                        );
-                        let base_url = BASE_URL.read().await;
-                        let w_id: &String = &queued_job.workspace_id;
-                        report_critical_error(format!(
-                            "Failed to push workspace error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
-                            queued_job.id,
-                            err
-                        ), db.clone(), Some(&w_id), None)
-                        .await;
-                    }
-                }
-            }
-        }
-    }
 }
 
 #[cfg(feature = "cloud")]
@@ -1666,7 +1567,7 @@ pub async fn handle_maybe_scheduled_job<'c>(
         let push_next_job_future = (|| {
             tokio::time::timeout(std::time::Duration::from_secs(5), async {
                 let mut tx = db.begin().await?;
-                tx = push_scheduled_job(db, tx, &schedule, None).await?;
+                tx = push_scheduled_job(db, tx, &schedule, None, Some(job.scheduled_for)).await?;
                 tx.commit().await?;
                 Ok::<(), Error>(())
             })
@@ -1734,163 +1635,6 @@ pub async fn handle_maybe_scheduled_job<'c>(
         }
         Ok(())
     }
-}
-
-#[cfg(feature = "enterprise")]
-async fn apply_schedule_handlers<'a, 'c, T: Serialize + Send + Sync>(
-    db: &Pool<Postgres>,
-    schedule: &Schedule,
-    script_path: &str,
-    w_id: &str,
-    success: bool,
-    result: Json<&'a T>,
-    job_id: Uuid,
-    started_at: DateTime<Utc>,
-    job_priority: Option<i16>,
-) -> windmill_common::error::Result<()> {
-    if !success {
-        if let Some(on_failure_path) = schedule.on_failure.clone() {
-            let times = schedule.on_failure_times.unwrap_or(1).max(1);
-            let exact = schedule.on_failure_exact.unwrap_or(false);
-            if times > 1 || exact {
-                let past_jobs = sqlx::query!(
-                    // Query plan:
-                    // - use of the  `ix_v2_job_root_by_path` index;
-                    //   hence the `parent_job IS NULL` clause.
-                    // - select from `v2_job` first, then join with `v2_job_completed` to avoid a full
-                    //   table scan.
-                    "SELECT status = 'success' AS \"success!\"
-                    FROM v2_job j JOIN v2_job_completed USING (id)
-                    WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
-                        AND parent_job IS NULL
-                        AND runnable_path = $3
-                        AND j.id != $4
-                    ORDER BY created_at DESC
-                    LIMIT $5",
-                    &schedule.workspace_id,
-                    &schedule.path,
-                    script_path,
-                    job_id,
-                    if exact { times } else { times - 1 } as i64
-                )
-                .fetch_all(db)
-                .await?;
-
-                let match_times = if exact {
-                    past_jobs.len() == times as usize
-                        && past_jobs[..(times - 1) as usize].iter().all(|j| !j.success)
-                        && past_jobs[(times - 1) as usize].success
-                } else {
-                    past_jobs.len() == ((times - 1) as usize)
-                        && past_jobs.iter().all(|j| !j.success)
-                };
-
-                if !match_times {
-                    return Ok(());
-                }
-            }
-
-            push_error_handler(
-                db,
-                job_id,
-                Some(schedule.path.to_string()),
-                Some(script_path.to_string()),
-                schedule.is_flow,
-                w_id,
-                &on_failure_path,
-                result,
-                Some(times),
-                Some(started_at),
-                schedule.on_failure_extra_args.clone(),
-                &schedule.email,
-                true,
-                false,
-                job_priority,
-            )
-            .await?;
-        }
-    } else {
-        if let Some(ref on_success_path) = schedule.on_success {
-            handle_successful_schedule(
-                db,
-                job_id,
-                &schedule.path,
-                script_path,
-                schedule.is_flow,
-                w_id,
-                on_success_path,
-                result,
-                started_at,
-                schedule.on_success_extra_args.clone(),
-            )
-            .await?;
-        }
-
-        if let Some(ref on_recovery_path) = schedule.on_recovery.clone() {
-            let tx = db.begin().await?;
-            let times = schedule.on_recovery_times.unwrap_or(1).max(1);
-            let past_jobs = sqlx::query!(
-                // Query plan:
-                // - use of the  `ix_v2_job_root_by_path` index;
-                //   hence the `parent_job IS NULL` clause.
-                // - select from `v2_job` first, then join with `v2_job_completed` to avoid a full
-                //   table scan.
-                "SELECT status = 'success' AS \"success!\",
-                    result AS \"result: Json<Box<RawValue>>\",
-                    started_at AS \"started_at!\"\
-                FROM v2_job j JOIN v2_job_completed USING (id)
-                WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
-                    AND parent_job IS NULL
-                    AND runnable_path = $3
-                    AND j.id != $4
-                ORDER BY created_at DESC
-                LIMIT $5",
-                &schedule.workspace_id,
-                &schedule.path,
-                script_path,
-                job_id,
-                times as i64
-            )
-            .fetch_all(db)
-            .await?;
-
-            if past_jobs.len() < times as usize {
-                return Ok(());
-            }
-
-            let n_times_successful = past_jobs[..(times - 1) as usize].iter().all(|j| j.success);
-
-            if !n_times_successful {
-                return Ok(());
-            }
-
-            let failed_job = &past_jobs[past_jobs.len() - 1];
-
-            if !failed_job.success {
-                handle_recovered_schedule(
-                    db,
-                    tx,
-                    job_id,
-                    &schedule.path,
-                    script_path,
-                    schedule.is_flow,
-                    w_id,
-                    &on_recovery_path,
-                    failed_job.result.as_ref().map(AsRef::as_ref),
-                    failed_job.started_at,
-                    result,
-                    times,
-                    started_at,
-                    schedule.on_recovery_extra_args.clone(),
-                )
-                .await?;
-            } else {
-                tx.commit().await?;
-            }
-        }
-    }
-
-    Ok(())
 }
 
 pub const ERROR_HANDLER_PATH_TEAMS: &str = "/workspace-or-schedule-error-handler-teams";
@@ -2076,197 +1820,6 @@ fn sanitize_result<T: Serialize + Send + Sync>(result: Json<&T>) -> HashMap<Stri
 //     is_flow: boolean,
 //     extra_args: serde_json::Value
 // }
-#[cfg(feature = "enterprise")]
-async fn handle_recovered_schedule<'a, 'c, T: Serialize + Send + Sync>(
-    db: &Pool<Postgres>,
-    tx: Transaction<'c, Postgres>,
-    job_id: Uuid,
-    schedule_path: &str,
-    script_path: &str,
-    is_flow: bool,
-    w_id: &str,
-    on_recovery_path: &str,
-    result: Option<&Box<RawValue>>,
-    started_at: DateTime<Utc>,
-    successful_job_result: Json<&'a T>,
-    successful_times: i32,
-    successful_job_started_at: DateTime<Utc>,
-    extra_args: Option<Json<Box<RawValue>>>,
-) -> windmill_common::error::Result<()> {
-    let (payload, tag, on_behalf_of) =
-        get_payload_tag_from_prefixed_path(on_recovery_path, db, w_id).await?;
-
-    let mut extra = HashMap::new();
-    extra.insert("error_started_at".to_string(), to_raw_value(&started_at));
-    extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
-    extra.insert("path".to_string(), to_raw_value(&script_path));
-    extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
-    extra.insert(
-        "success_result".to_string(),
-        serde_json::from_str::<Box<RawValue>>(
-            &serde_json::to_string(&successful_job_result).unwrap(),
-        )
-        .unwrap_or_else(|_| serde_json::value::RawValue::from_string("{}".to_string()).unwrap()),
-    );
-    extra.insert("success_times".to_string(), to_raw_value(&successful_times));
-    extra.insert(
-        "success_started_at".to_string(),
-        to_raw_value(&successful_job_started_at),
-    );
-    if let Some(args_v) = extra_args {
-        if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
-            extra.extend(args_m);
-        } else {
-            return Err(error::Error::ExecutionErr(
-                "args of scripts needs to be dict".to_string(),
-            ));
-        }
-    }
-
-    let args = result
-        .and_then(|x| serde_json::from_str::<HashMap<String, Box<RawValue>>>(x.get()).ok())
-        .unwrap_or_else(HashMap::new);
-
-    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
-        (
-            on_behalf_of.email.as_str(),
-            on_behalf_of.permissioned_as.clone(),
-        )
-    } else {
-        (
-            SCHEDULE_RECOVERY_HANDLER_USER_EMAIL,
-            ERROR_HANDLER_USER_GROUP.to_string(),
-        )
-    };
-
-    let tx = PushIsolationLevel::Transaction(tx);
-    let (uuid, tx) = push(
-        &db,
-        tx,
-        w_id,
-        payload,
-        PushArgs { extra: Some(extra), args: &args },
-        SCHEDULE_RECOVERY_HANDLER_USERNAME,
-        email,
-        permissioned_as,
-        Some(&format!("recovered.schedule.{job_id}")),
-        None,
-        None,
-        Some(job_id),
-        None,
-        Some(job_id),
-        None,
-        false,
-        false,
-        None,
-        true,
-        tag,
-        None,
-        None,
-        None,
-        None,
-        false,
-    )
-    .await?;
-    tracing::info!(
-        "Pushed on_recovery job {} for {} to queue",
-        uuid,
-        schedule_path
-    );
-    tx.commit().await?;
-    Ok(())
-}
-
-#[cfg(feature = "enterprise")]
-async fn handle_successful_schedule<'a, 'c, T: Serialize + Send + Sync>(
-    db: &Pool<Postgres>,
-    job_id: Uuid,
-    schedule_path: &str,
-    script_path: &str,
-    is_flow: bool,
-    w_id: &str,
-    on_success_path: &str,
-    successful_job_result: Json<&'a T>,
-    successful_job_started_at: DateTime<Utc>,
-    extra_args: Option<Json<Box<RawValue>>>,
-) -> windmill_common::error::Result<()> {
-    let (payload, tag, on_behalf_of) =
-        get_payload_tag_from_prefixed_path(on_success_path, db, w_id).await?;
-
-    let mut extra = HashMap::new();
-    extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
-    extra.insert("path".to_string(), to_raw_value(&script_path));
-    extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
-    extra.insert(
-        "success_result".to_string(),
-        serde_json::from_str::<Box<RawValue>>(
-            &serde_json::to_string(&successful_job_result).unwrap(),
-        )
-        .unwrap_or_else(|_| serde_json::value::RawValue::from_string("{}".to_string()).unwrap()),
-    );
-    extra.insert(
-        "success_started_at".to_string(),
-        to_raw_value(&successful_job_started_at),
-    );
-    if let Some(args_v) = extra_args {
-        if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
-            extra.extend(args_m);
-        } else {
-            return Err(error::Error::ExecutionErr(
-                "args of scripts needs to be dict".to_string(),
-            ));
-        }
-    }
-
-    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
-        (
-            on_behalf_of.email.as_str(),
-            on_behalf_of.permissioned_as.clone(),
-        )
-    } else {
-        (
-            SCHEDULE_RECOVERY_HANDLER_USER_EMAIL,
-            ERROR_HANDLER_USER_GROUP.to_string(),
-        )
-    };
-
-    let tx = PushIsolationLevel::IsolatedRoot(db.clone());
-    let (uuid, tx) = push(
-        &db,
-        tx,
-        w_id,
-        payload,
-        PushArgs { extra: Some(extra), args: &HashMap::new() },
-        SCHEDULE_RECOVERY_HANDLER_USERNAME,
-        email,
-        permissioned_as,
-        Some(&format!("successful.schedule.recovery{job_id}")),
-        None,
-        None,
-        Some(job_id),
-        None,
-        Some(job_id),
-        None,
-        false,
-        false,
-        None,
-        true,
-        tag,
-        None,
-        None,
-        None,
-        None,
-        false,
-    )
-    .await?;
-    tracing::info!(
-        "Pushed on_success job {} for {} to queue",
-        uuid,
-        schedule_path
-    );
-    tx.commit().await?;
-    Ok(())
-}
 
 #[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
 pub struct MiniPulledJob {
@@ -2525,7 +2078,7 @@ impl std::ops::Deref for PulledJob {
 }
 
 lazy_static::lazy_static! {
-    static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
+    pub static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
 }
 
 pub async fn get_mini_pulled_job<'c>(
@@ -2680,174 +2233,13 @@ pub async fn pull(
             return Ok(PulledJobResult { job: Some(pulled_job), suspended });
         }
 
-        let job_concurrency_key = concurrency_key(db, &pulled_job.id).await?;
-        if job_concurrency_key.is_none() {
-            tracing::warn!("No concurrency key found for job {}", pulled_job.id);
-            return Ok(PulledJobResult { job: None, suspended });
-        }
-        let job_concurrency_key = job_concurrency_key.unwrap();
-        tracing::debug!("Concurrency key is '{}'", job_concurrency_key);
-        let job_custom_concurrent_limit = pulled_job.concurrent_limit.unwrap();
-        // setting concurrency_time_window to 0 will count only the currently running jobs
-        let job_custom_concurrency_time_window_s =
-            pulled_job.concurrency_time_window_s.unwrap_or(0);
-        tracing::debug!(
-            "Job concurrency limit is {} per {}s",
-            job_custom_concurrent_limit,
-            job_custom_concurrency_time_window_s
-        );
-
-        let jobs_uuids_init_json_value = serde_json::from_str::<serde_json::Value>(
-            format!("{{\"{}\": {{}}}}", pulled_job.id.hyphenated().to_string()).as_str(),
-        )
-        .expect("Unable to serialize job_uuids column to proper JSON");
-
-        let (within_limit, max_ended_at) =
-            if *DISABLE_CONCURRENCY_LIMIT || job_concurrency_key.is_empty() {
-                tracing::warn!("Concurrency limit is disabled, skipping");
-                (true, None)
-            } else {
-                update_concurrency_counter(
-                    db,
-                    &pulled_job.id,
-                    job_concurrency_key.clone(),
-                    jobs_uuids_init_json_value,
-                    pulled_job.id.hyphenated().to_string(),
-                    job_custom_concurrency_time_window_s,
-                    job_custom_concurrent_limit,
-                )
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if let Some(pulled_job) =
+            crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, pulled_job)
                 .await?
-            };
-        if within_limit {
-            #[cfg(feature = "prometheus")]
-            if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-                QUEUE_PULL_COUNT.inc();
-            }
-            return Ok(PulledJobResult { job: Some(pulled_job), suspended });
+        {
+            return Ok(pulled_job);
         }
-
-        let job_script_path = pulled_job.runnable_path.clone().unwrap_or_default();
-
-        let min_started_at = sqlx::query!(
-            "SELECT COALESCE((SELECT MIN(started_at) as min_started_at
-            FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
-            WHERE v2_job.runnable_path = $1 AND v2_job.kind != 'dependencies'  AND v2_job_queue.running = true AND v2_job_queue.workspace_id = $2 AND v2_job_queue.canceled_by IS NULL AND v2_job.concurrent_limit > 0), $3) as min_started_at, now() AS now",
-            job_script_path,
-            &pulled_job.workspace_id,
-            max_ended_at
-        )
-        .fetch_one(db)
-        .await
-        .map_err(|e| {
-            Error::internal_err(format!(
-                "Error getting min started at for script path {job_script_path}: {e:#}"
-            ))
-        })?;
-
-        let job_uuid: Uuid = pulled_job.id;
-        let avg_script_duration: Option<i64> = sqlx::query_scalar!(
-            "SELECT CAST(ROUND(AVG(duration_ms), 0) AS BIGINT) AS avg_duration_s FROM
-                (SELECT duration_ms FROM concurrency_key LEFT JOIN v2_job_completed ON v2_job_completed.id = concurrency_key.job_id WHERE key = $1 AND ended_at IS NOT NULL
-                ORDER BY ended_at
-                DESC LIMIT 10) AS t",
-            job_concurrency_key
-        )
-        .fetch_one(db)
-        .await?;
-        tracing::debug!(
-            "avg script duration computed: {}",
-            avg_script_duration.unwrap_or(0)
-        );
-
-        // optimal scheduling is: 'older_job_in_concurrency_time_window_started_timestamp + script_avg_duration + concurrency_time_window_s'
-        let inc = Duration::try_milliseconds(
-            avg_script_duration.map(|x| i64::from(x + 100)).unwrap_or(0),
-        )
-        .unwrap_or_default()
-        .max(Duration::try_seconds(1).unwrap_or_default())
-            + Duration::try_seconds(i64::from(job_custom_concurrency_time_window_s))
-                .unwrap_or_default();
-
-        let now = min_started_at.now.unwrap();
-        let min_started_at_or_now = min_started_at.min_started_at.unwrap_or(now);
-        let min_started_p_inc =
-            (min_started_at_or_now + inc).max(now + Duration::try_seconds(3).unwrap_or_default());
-
-        let mut estimated_next_schedule_timestamp = min_started_p_inc;
-        let all_jobs = sqlx::query_scalar!(
-            "SELECT scheduled_for FROM v2_job_queue  INNER JOIN concurrency_key ON concurrency_key.job_id = v2_job_queue.id
-             WHERE key = $1 AND running = false AND canceled_by IS NULL AND scheduled_for >= $2",
-            job_concurrency_key,
-            estimated_next_schedule_timestamp - inc
-        ).fetch_all(db).await?;
-
-        tracing::debug!(
-            "all_jobs: {:?}, estimated_next_schedule_timestamp: {:?}, inc: {:?}",
-            all_jobs,
-            estimated_next_schedule_timestamp,
-            inc
-        );
-        let mut i = 0;
-        loop {
-            let jobs_in_window = all_jobs
-                .iter()
-                .filter(|&scheduled_for| scheduled_for <= &estimated_next_schedule_timestamp)
-                .count() as i32
-                - (job_custom_concurrent_limit * i);
-
-            tracing::debug!("estimated_next_schedule_timestamp: {:?}, jobs_in_window: {jobs_in_window}, inc: {inc}", estimated_next_schedule_timestamp);
-
-            if jobs_in_window < job_custom_concurrent_limit || *DISABLE_CONCURRENCY_LIMIT {
-                break;
-            } else {
-                i += 1;
-                estimated_next_schedule_timestamp = estimated_next_schedule_timestamp + inc;
-            }
-            if i % 50 == 0 {
-                tracing::warn!(
-                    "Window finding for job {} loop count: {}",
-                    job_uuid,
-                    pull_loop_count
-                );
-                tokio::task::yield_now().await;
-            }
-            if i > 1000000000 {
-                tracing::error!("Window finding job loop count exceeded 1000000000, breaking");
-                break;
-            }
-        }
-
-        tracing::info!("Job '{}' from path '{}' with concurrency key '{}' has reached its concurrency limit of {} jobs run in the last {} seconds. This job will be re-queued for next execution at {} (min_started_at: {min_started_at_or_now}, avg script duration: {:?}, number of time windows full: {})", 
-            job_uuid, job_script_path,  job_concurrency_key, job_custom_concurrent_limit, job_custom_concurrency_time_window_s, estimated_next_schedule_timestamp, avg_script_duration, i);
-
-        let job_log_event = format!(
-            "\nRe-scheduled job to {estimated_next_schedule_timestamp} due to concurrency limits with key {job_concurrency_key} and limit {job_custom_concurrent_limit} in the last {job_custom_concurrency_time_window_s} seconds (min_started_at: {min_started_at_or_now}, avg script duration: {:?}, number of time windows full: {})\n",
-            avg_script_duration, i
-        );
-        let _ = append_logs(
-            &job_uuid,
-            &pulled_job.workspace_id,
-            job_log_event,
-            &Connection::from(db.clone()),
-        )
-        .await;
-
-        sqlx::query!(
-            "
-            WITH ping AS (
-                UPDATE v2_job_runtime SET ping = null WHERE id = $2
-            )
-            UPDATE v2_job_queue SET
-                running = false,
-                started_at = null,
-                scheduled_for = $1
-            WHERE id = $2",
-            estimated_next_schedule_timestamp,
-            job_uuid,
-        )
-        .execute(db)
-        .await
-        .map_err(|e| Error::internal_err(format!("Could not update and re-queue job {job_uuid}. The job will be marked as running but it is not running: {e:#}")))?;
     }
 }
 
@@ -2951,7 +2343,7 @@ pub async fn custom_concurrency_key(
     .await
 }
 
-async fn concurrency_key(
+pub async fn concurrency_key(
     db: &Pool<Postgres>,
     id: &Uuid,
 ) -> windmill_common::error::Result<Option<String>> {
@@ -3671,11 +3063,16 @@ pub async fn push<'c, 'd>(
                     .await?
                     .unwrap_or(false);
 
+            #[cfg(feature = "private")]
+            let recovery_email = crate::jobs_ee::SCHEDULE_RECOVERY_HANDLER_USER_EMAIL;
+            #[cfg(not(feature = "private"))]
+            let recovery_email = "recovery@windmill.dev";
+
             if !is_super_admin {
                 if !team_plan_status.premium
                     && email != ERROR_HANDLER_USER_EMAIL
                     && email != SCHEDULE_ERROR_HANDLER_USER_EMAIL
-                    && email != SCHEDULE_RECOVERY_HANDLER_USER_EMAIL
+                    && email != recovery_email
                     && email != "worker@windmill.dev"
                     && email != SUPERADMIN_SECRET_EMAIL
                     && permissioned_as != SUPERADMIN_SYNC_EMAIL

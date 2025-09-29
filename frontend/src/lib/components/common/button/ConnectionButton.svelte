@@ -5,10 +5,12 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '$lib/components/apps/types'
+	import { twMerge } from 'tailwind-merge'
 
 	export let isOpen = false
 	export let openConnection: () => void
 	export let closeConnection: () => void
+	export let btnWrapperClasses = ''
 
 	let selected = false
 
@@ -82,6 +84,8 @@
 			title="Connect"
 			on:click={() => handleConnect(true)}
 			id="schema-plug"
+			wrapperClasses={twMerge(btnWrapperClasses, selected ? 'opacity-100' : '')}
+			btnClasses="p-0"
 		>
 			<Plug size={14} />
 		</Button>

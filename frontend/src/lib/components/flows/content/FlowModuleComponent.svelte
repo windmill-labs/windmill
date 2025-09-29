@@ -11,7 +11,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils.svelte'
 
-	import type { FlowModule, RawScript, ScriptLang } from '$lib/gen'
+	import type { FlowModule, FlowModuleValue, RawScript, ScriptLang } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
@@ -56,6 +56,7 @@
 	import AssetsDropdownButton from '$lib/components/assets/AssetsDropdownButton.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 	import { editor as meditor } from 'monaco-editor'
+	import { DynamicInput } from '$lib/utils'
 
 	const {
 		selectedId,
@@ -167,7 +168,6 @@
 		reloadError = undefined
 		try {
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
-			console.log('reload', schema)
 			validCode = true
 
 			if (inputTransformSchemaForm) {
@@ -307,6 +307,30 @@
 	)
 
 	let modulePreviewResultViewer: ModulePreviewResultViewer | undefined = $state(undefined)
+
+	function retrieveDynCodeAndLang(value: FlowModuleValue): DynamicInput.HelperScript | undefined {
+		let helperScript: DynamicInput.HelperScript | undefined
+		switch (value.type) {
+			case 'script':
+				helperScript = {
+					source: 'deployed',
+					path: value.path,
+					runnable_kind: 'script'
+				}
+				break
+			case 'rawscript':
+				helperScript = {
+					source: 'inline',
+					code: value.content,
+					lang: value.language
+				}
+				break
+			default:
+				helperScript = undefined
+		}
+
+		return helperScript
+	}
 
 	function onJobDone() {
 		modulePreviewResultViewer?.getOutputPickerInner()?.setJobPreview()
@@ -548,7 +572,7 @@
 														></div>
 													{/if}
 													<InputTransformSchemaForm
-														class="px-1 xl:px-2"
+														class="px-2 xl:px-4"
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
 														schema={flowStateStore.val[$selectedId]?.schema ?? {}}
@@ -570,14 +594,7 @@
 														}
 														extraLib={stepPropPicker.extraLib}
 														{enableAi}
-														helperScript={(flowModule?.value as RawScript).content &&
-														(flowModule?.value as RawScript).language
-															? {
-																	source: 'inline',
-																	code: (flowModule?.value as RawScript).content ?? '',
-																	lang: (flowModule?.value as RawScript).language ?? 'deno'
-																}
-															: undefined}
+														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 													/>
 												</PropPickerWrapper>
 											</div>
@@ -835,19 +852,14 @@
 																	{#if flowModule.value['language'] === 'deno'}
 																		<ToggleButton
 																			value="s3_client"
-																			size="sm"
+																			small
 																			label="S3 lite client"
 																			{item}
 																		/>
 																	{:else}
-																		<ToggleButton
-																			value="s3_client"
-																			size="sm"
-																			label="Boto3"
-																			{item}
-																		/>
-																		<ToggleButton value="polars" size="sm" label="Polars" {item} />
-																		<ToggleButton value="duckdb" size="sm" label="DuckDB" {item} />
+																		<ToggleButton value="s3_client" small label="Boto3" {item} />
+																		<ToggleButton value="polars" small label="Polars" {item} />
+																		<ToggleButton value="duckdb" small label="DuckDB" {item} />
 																	{/if}
 																{/snippet}
 															</ToggleButtonGroup>

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.549.1
+  version: 1.551.4
   title: Windmill API
 
   contact:
@@ -15374,6 +15374,8 @@ components:
     AuditLog:
       type: object
       properties:
+        workspace_id:
+          type: string
         id:
           type: integer
         timestamp:
@@ -15479,6 +15481,7 @@ components:
         span:
           type: string
       required:
+        - workspace_id
         - id
         - timestamp
         - username

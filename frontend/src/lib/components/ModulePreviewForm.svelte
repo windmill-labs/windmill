@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-
+	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 	import { allTrue } from '$lib/utils'
 	import { RefreshCw } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
@@ -115,12 +115,14 @@
 		{#if keys.length > 0}
 			{#each keys as argName, i (argName)}
 				{#if Object.keys(schema.properties ?? {}).includes(argName)}
-					<div
+					<ResizeTransitionWrapper
+						vertical
 						class={twMerge(
-							'flex gap-2',
+							'flex gap-2 relative',
 							animateArg === argName && 'animate-pulse ring-2 ring-offset-2 ring-blue-500 rounded'
 						)}
-						data-arg={argName}
+						innerClass="w-full"
+						outerDivProps={{ 'data-arg': argName }}
 					>
 						{#if schema?.properties?.[argName]}
 							<ArgInput
@@ -150,22 +152,23 @@
 								nullable={schema.properties[argName].nullable}
 								title={schema.properties[argName].title}
 								placeholder={schema.properties[argName].placeholder}
-							/>
+							>
+								{#snippet fieldHeaderActions()}
+									{#if stepsInputArgs?.isArgManuallySet(mod.id, argName)}
+										<Button
+											on:click={() => {
+												plugIt(argName)
+											}}
+											size="xs2"
+											variant="contained"
+											color="light"
+											title="Re-evaluate input step"><RefreshCw size={12} /></Button
+										>
+									{/if}
+								{/snippet}
+							</ArgInput>
 						{/if}
-						{#if stepsInputArgs?.isArgManuallySet(mod.id, argName)}
-							<div class="pt-6 mt-0.5">
-								<Button
-									on:click={() => {
-										plugIt(argName)
-									}}
-									size="sm"
-									variant="border"
-									color="light"
-									title="Re-evaluate input step"><RefreshCw size={14} /></Button
-								>
-							</div>
-						{/if}
-					</div>
+					</ResizeTransitionWrapper>
 				{/if}
 			{/each}
 		{/if}

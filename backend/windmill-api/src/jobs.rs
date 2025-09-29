@@ -175,6 +175,7 @@ pub fn workspaced_service() -> Router {
         .route(
             "/run_and_stream/f/*script_path",
             get(stream_flow_by_path)
+                .post(stream_flow_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
@@ -182,6 +183,7 @@ pub fn workspaced_service() -> Router {
         .route(
             "/run_and_stream/p/*script_path",
             get(stream_script_by_path)
+                .post(stream_script_by_path)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
@@ -189,6 +191,7 @@ pub fn workspaced_service() -> Router {
         .route(
             "/run_and_stream/h/:hash",
             get(stream_script_by_hash)
+                .post(stream_script_by_hash)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
@@ -3552,7 +3555,7 @@ pub enum DynamicSelectRunnableRef {
     #[serde(rename = "deployed")]
     Deployed { path: String, runnable_kind: RunnableKind },
     #[serde(rename = "inline")]
-    Inline { code: String, language: Option<ScriptLang> },
+    Inline { code: String, lang: Option<ScriptLang> },
 }
 
 pub struct QueryOrBody<D>(pub Option<D>);
@@ -5220,6 +5223,7 @@ pub async fn stream_flow_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
+    method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
     stream_job(
@@ -5230,6 +5234,7 @@ pub async fn stream_flow_by_path(
         RunnableId::from_flow_path(flow_path.to_path()),
         args,
         run_query,
+        method == http::Method::GET,
     )
     .await
 }
@@ -5240,6 +5245,7 @@ pub async fn stream_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
+    method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
     stream_job(
@@ -5250,6 +5256,7 @@ pub async fn stream_script_by_path(
         RunnableId::from_script_path(script_path.to_path()),
         args,
         run_query,
+        method == http::Method::GET,
     )
     .await
 }
@@ -5260,6 +5267,7 @@ pub async fn stream_script_by_hash(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
+    method: hyper::http::Method,
     args: RawWebhookArgs,
 ) -> error::Result<Response> {
     stream_job(
@@ -5270,6 +5278,7 @@ pub async fn stream_script_by_hash(
         RunnableId::from_script_hash(script_hash),
         args,
         run_query,
+        method == http::Method::GET,
     )
     .await
 }
@@ -5282,23 +5291,38 @@ pub async fn stream_job(
     runnable_id: RunnableId,
     args: RawWebhookArgs,
     run_query: RunJobQuery,
+    is_get: bool,
 ) -> error::Result<Response> {
-    let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
-        x.map_err(|e| Error::internal_err(format!("Impossible to decode query payload: {e:#?}")))
-    });
+    let args = if is_get {
+        let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
+            x.map_err(|e| {
+                Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
+            })
+        });
 
-    let payload_args = if let Some(payload) = payload_r {
-        payload?
+        let payload_args = if let Some(payload) = payload_r {
+            payload?
+        } else {
+            HashMap::new()
+        };
+
+        let mut args = args.process_args(&authed, &db, &w_id, None).await?;
+        args.body = args::Body::HashMap(payload_args);
+
+        let args = args
+            .to_args_from_runnable(&db, &w_id, runnable_id.clone(), run_query.skip_preprocessor)
+            .await?;
+        args
     } else {
-        HashMap::new()
+        args.to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            runnable_id.clone(),
+            run_query.skip_preprocessor,
+        )
+        .await?
     };
-
-    let mut args = args.process_args(&authed, &db, &w_id, None).await?;
-    args.body = args::Body::HashMap(payload_args);
-
-    let args = args
-        .to_args_from_runnable(&db, &w_id, runnable_id.clone(), run_query.skip_preprocessor)
-        .await?;
 
     let poll_delay_ms = run_query.poll_delay_ms;
     let uuid = match runnable_id {
@@ -6351,7 +6375,7 @@ async fn run_dynamic_select(
                 dynamic_input = dynamic_input_res;
             }
         },
-        DynamicSelectRunnableRef::Inline { code, language } => {
+        DynamicSelectRunnableRef::Inline { code, lang: language } => {
             dynamic_input = DynamicInput {
                 x_windmill_dyn_select_code: code,
                 x_windmill_dyn_select_lang: language.unwrap_or_default(),
@@ -6678,7 +6702,7 @@ async fn get_job_update(
             &job_id,
             log_offset,
             stream_offset,
-            get_progress,
+            get_progress.unwrap_or(false),
             running,
             true,
             false,
@@ -6782,6 +6806,7 @@ fn start_job_update_sse_stream(
         // Send initial update immediately
         let mut running = running;
         let mut mem_peak = 0;
+
         match get_job_update_data(
             &opt_authed,
             &opt_tokened,
@@ -6790,7 +6815,7 @@ fn start_job_update_sse_stream(
             &job_id,
             log_offset,
             stream_offset,
-            get_progress,
+            false,
             running,
             true,
             true,
@@ -6847,11 +6872,12 @@ fn start_job_update_sse_stream(
             }
         }
 
+        let mut get_progress_m: bool = false;
         // Poll for updates every 1 second
         let mut i = 0;
         let start = Instant::now();
         let mut last_ping = Instant::now();
-
+        let mut last_progress_check = Instant::now();
         loop {
             i += 1;
 
@@ -6894,6 +6920,10 @@ fn start_job_update_sse_stream(
             }
             tokio::time::sleep(std::time::Duration::from_millis(ms_duration)).await;
 
+            // Check progress if the user requested it, and check periodically if the job has progress
+            // Once it has progress, we always check progress
+            let check_progress = get_progress.unwrap_or(false)
+                && (get_progress_m || last_progress_check.elapsed().as_secs() > 5);
             match get_job_update_data(
                 &opt_authed,
                 &opt_tokened,
@@ -6902,7 +6932,7 @@ fn start_job_update_sse_stream(
                 &job_id,
                 log_offset,
                 stream_offset,
-                get_progress,
+                check_progress,
                 running,
                 false,
                 true,
@@ -6922,6 +6952,13 @@ fn start_job_update_sse_stream(
                     }
                     if update.new_logs.as_ref().is_some_and(|x| x.is_empty()) {
                         update.new_logs = None;
+                    }
+                    if check_progress {
+                        if update.progress.is_some() {
+                            get_progress_m = true;
+                        } else {
+                            last_progress_check = Instant::now();
+                        }
                     }
 
                     // if !only_result.unwrap_or(false) {
@@ -7020,7 +7057,7 @@ async fn get_job_update_data(
     job_id: &Uuid,
     log_offset: Option<i32>,
     stream_offset: Option<i32>,
-    get_progress: Option<bool>,
+    get_progress: bool,
     running: Option<bool>,
     log_view: bool,
     get_full_job_on_completion: bool,
@@ -7257,7 +7294,7 @@ async fn get_job_update_data(
             log_offset,
             w_id,
             job_id,
-            get_progress.unwrap_or(false),
+            get_progress,
             running,
             tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
             no_logs.unwrap_or(false),

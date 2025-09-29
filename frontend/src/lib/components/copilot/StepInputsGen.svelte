@@ -18,6 +18,7 @@
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import type { Flow } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
+	import { stepInputGenButtonClasses } from './StepInputGen.svelte'
 
 	let loading = false
 	export let pickableProperties: PickableProperties | undefined = undefined
@@ -178,11 +179,9 @@ input_name2: expression2
 		<Button
 			size="xs"
 			color="light"
+			wrapperClasses="flex-1"
 			btnClasses={twMerge(
-				'text-violet-800 dark:text-violet-400',
-				!loading && Object.keys($generatedExprs || {}).length > 0
-					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
-					: ''
+				stepInputGenButtonClasses(!loading && Object.keys($generatedExprs || {}).length > 0)
 			)}
 			on:mouseenter={(ev) => {
 				if (out) {
@@ -219,12 +218,13 @@ input_name2: expression2
 			floatingConfig={{
 				placement: 'top-end'
 			}}
+			class="w-full"
 		>
 			<svelte:fragment slot="trigger">
 				<Button
 					size="xs"
 					color="light"
-					btnClasses="text-violet-800 dark:text-violet-400"
+					btnClasses="text-violet-800 dark:text-violet-400 border border-violet-200 hover:bg-violet-50"
 					nonCaptureEvent
 					startIcon={{
 						icon: Wand2
