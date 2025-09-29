@@ -6,9 +6,8 @@
 use crate::db::ApiAuthed;
 use rmcp::{model::Tool, ErrorData};
 use std::sync::Arc;
-use windmill_common::auth::create_jwt_token;
 use windmill_common::db::Authed;
-use windmill_common::BASE_URL;
+use windmill_common::{auth::create_jwt_token, BASE_INTERNAL_URL};
 
 // Import the auto-generated tools
 use super::auto_generated_endpoints;
@@ -130,7 +129,7 @@ pub async fn call_endpoint_tool(
     let query_string = build_query_string(args_map, &tool.query_params_schema);
     let full_url = format!(
         "{}/api{}{}",
-        BASE_URL.read().await,
+        BASE_INTERNAL_URL.as_str(),
         path_template,
         query_string
     );
