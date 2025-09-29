@@ -44,8 +44,8 @@ mount {
 }
 
 mount {
-    src: "/opt/dotnet-sdk/bin"
-    dst: "/opt/dotnet-sdk/bin"
+    src: "/usr/share/dotnet"
+    dst: "/usr/share/dotnet"
     is_bind: true
 }
 
