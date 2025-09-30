@@ -48,6 +48,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
 	import { nextId } from '../flowModuleNextId'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
 	interface Props {
 		noEditor: boolean
@@ -68,6 +69,7 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let chatInputEnabled = $derived(Boolean(flowStore.val.value?.chat_input_enabled))
+	let showChatModeWarning = $state(false)
 
 	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
 	let previewSchema: Record<string, any> | undefined = $state(undefined)
@@ -373,77 +375,19 @@
 		return jobId
 	}
 
-	function toggleChatMode() {
+	function hasExistingInputs(): boolean {
+		return Boolean(
+			flowStore.val.schema?.properties && Object.keys(flowStore.val.schema.properties).length > 0
+		)
+	}
+
+	function handleToggleChatMode() {
 		if (!chatInputEnabled) {
-			// Enable chat input - set in flow.value
-			flowStore.val.value.chat_input_enabled = true
-
-			// Set up the schema for chat input
-			flowStore.val.schema = {
-				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				type: 'object',
-				properties: {
-					user_message: {
-						type: 'string',
-						description: 'Message from user'
-					}
-				},
-				required: ['user_message']
-			}
-			const hasAiAgent = flowStore.val.value.modules.some((m) => m.value.type === 'aiagent')
-			if (!hasAiAgent) {
-				const aiAgentId = nextId(flowStateStore.val, flowStore.val)
-				flowStore.val.value.modules = [
-					...flowStore.val.value.modules,
-					{
-						id: aiAgentId,
-						value: {
-							type: 'aiagent',
-							tools: [],
-							input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce(
-								(accu, key) => {
-									if (key === 'user_message') {
-										accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
-									} else {
-										accu[key] = {
-											type: 'static',
-											value: undefined
-										}
-									}
-									return accu
-								},
-								{}
-							)
-						}
-					}
-				]
-				const scriptId = nextId(flowStateStore.val, flowStore.val)
-				flowStore.val.value.modules = [
-					...flowStore.val.value.modules,
-					{
-						id: scriptId,
-						value: {
-							type: 'rawscript',
-							content: `// import * as wmill from "windmill-client"
-
-export async function main(x: string) {
-  return x
-}`,
-							language: 'bun',
-							lock: `{
-  "dependencies": {}
-}
-//bun.lock
-<empty>`,
-							input_transforms: {
-								x: {
-									type: 'javascript',
-									expr: `results.${aiAgentId}.output`
-								}
-							}
-						}
-					}
-				]
+			// Check if there are existing inputs
+			if (hasExistingInputs()) {
+				showChatModeWarning = true
+			} else {
+				enableChatMode()
 			}
 		} else {
 			// Disable chat input - remove from flow.value
@@ -452,10 +396,98 @@ export async function main(x: string) {
 			}
 		}
 	}
+
+	function enableChatMode() {
+		// Enable chat input - set in flow.value
+		flowStore.val.value.chat_input_enabled = true
+
+		// Set up the schema for chat input
+		flowStore.val.schema = {
+			$schema: 'https://json-schema.org/draft/2020-12/schema',
+			type: 'object',
+			properties: {
+				user_message: {
+					type: 'string',
+					description: 'Message from user'
+				}
+			},
+			required: ['user_message']
+		}
+		const hasAiAgent = flowStore.val.value.modules.some((m) => m.value.type === 'aiagent')
+		if (!hasAiAgent) {
+			const aiAgentId = nextId(flowStateStore.val, flowStore.val)
+			flowStore.val.value.modules = [
+				...flowStore.val.value.modules,
+				{
+					id: aiAgentId,
+					value: {
+						type: 'aiagent',
+						tools: [],
+						input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce((accu, key) => {
+							if (key === 'user_message') {
+								accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
+							} else {
+								accu[key] = {
+									type: 'static',
+									value: undefined
+								}
+							}
+							return accu
+						}, {})
+					}
+				}
+			]
+			const scriptId = nextId(flowStateStore.val, flowStore.val)
+			flowStore.val.value.modules = [
+				...flowStore.val.value.modules,
+				{
+					id: scriptId,
+					value: {
+						type: 'rawscript',
+						content: `// import * as wmill from "windmill-client"
+
+export async function main(x: string) {
+  return x
+}`,
+						language: 'bun',
+						lock: `{
+  "dependencies": {}
+}
+//bun.lock
+<empty>`,
+						input_transforms: {
+							x: {
+								type: 'javascript',
+								expr: `results.${aiAgentId}.output`
+							}
+						}
+					}
+				}
+			]
+		}
+		showChatModeWarning = false
+	}
 </script>
 
 <!-- Add svelte:window to listen for keyboard events -->
 <svelte:window onkeydown={handleKeydown} />
+
+<ConfirmationModal
+	open={showChatModeWarning}
+	title="Enable Chat Input Mode?"
+	confirmationText="Continue"
+	onConfirmed={enableChatMode}
+	onCanceled={() => (showChatModeWarning = false)}
+>
+	<p class="text-sm text-secondary">
+		Enabling Chat Input Mode will replace all existing flow inputs with a single
+		<span class="font-mono text-xs bg-surface-secondary px-1 rounded">user_message</span>
+		parameter.
+	</p>
+	<p class="text-sm text-secondary mt-2">
+		Your current input configuration will be lost. Are you sure you want to continue?
+	</p>
+</ConfirmationModal>
 
 <FlowCard {noEditor} title="Flow Input">
 	{#if !disabled}
@@ -464,7 +496,7 @@ export async function main(x: string) {
 				textClass="font-normal text-sm"
 				size="sm"
 				checked={chatInputEnabled}
-				on:change={toggleChatMode}
+				on:change={handleToggleChatMode}
 				options={{
 					right: 'Chat Input Mode',
 					rightTooltip:
