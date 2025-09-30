@@ -41,11 +41,7 @@ use windmill_audit::ActionKind;
 use windmill_worker::process_relative_imports;
 
 use windmill_common::{
-    assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
-    error::to_anyhow,
-    scripts::hash_script,
-    utils::WarnAfterExt,
-    worker::CLOUD_HOSTED,
+    assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType}, error::to_anyhow, s3_helpers::upload_artifact_to_store, scripts::hash_script, utils::WarnAfterExt, worker::CLOUD_HOSTED
 };
 
 use windmill_common::{
@@ -421,45 +417,8 @@ async fn create_snapshot_script(
 
             uploaded = true;
 
-            #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            let object_store = windmill_common::s3_helpers::get_object_store().await;
-
-            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-            let object_store: Option<()> = None;
-
-            if &windmill_common::utils::MODE_AND_ADDONS.mode
-                == &windmill_common::utils::Mode::Standalone
-                && object_store.is_none()
-            {
-                std::fs::create_dir_all(
-                    windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
-                )?;
-                windmill_common::worker::write_file_bytes(
-                    &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
-                    &hash,
-                    &data,
-                )?;
-            } else {
-                #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-                {
-                    return Err(Error::ExecutionErr("codebase is an EE feature".to_string()));
-                }
-
-                #[cfg(all(feature = "enterprise", feature = "parquet"))]
-                if let Some(os) = object_store {
-                    let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
-
-                    if let Err(e) = os
-                        .put(&object_store::path::Path::from(path.clone()), data.into())
-                        .await
-                    {
-                        tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
-                        return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
-                    }
-                } else {
-                    return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
-                }
-            }
+            let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
+            upload_artifact_to_store(&path, data, &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR).await?;
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
     }
@@ -478,6 +437,7 @@ async fn create_snapshot_script(
     }
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
 }
+
 
 async fn list_paths_from_workspace_runnable(
     authed: ApiAuthed,
@@ -900,7 +860,7 @@ async fn create_script_internal<'c>(
             clear_schedule(&mut tx, &schedule.path, &w_id).await?;
 
             if schedule.enabled {
-                tx = push_scheduled_job(&db, tx, &schedule, None).await?;
+                tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
             }
         }
     } else {
@@ -1036,6 +996,9 @@ async fn create_script_internal<'c>(
             let content = ns.content.clone();
             let language = ns.language.clone();
             tokio::spawn(async move {
+                // TODO: I don't think we want this. We might want to send dependency job. But skip any calculations if lock is already present.
+                // It will allow us to make code more consistent and predictable.
+
                 // wait for 10 seconds to make sure the script is deployed and that the CLI sync that pushed it (f one) is complete
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                 if let Err(e) = process_relative_imports(

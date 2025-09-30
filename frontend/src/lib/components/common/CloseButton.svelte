@@ -9,15 +9,16 @@
 		small?: boolean
 		Icon?: any | undefined
 		class?: string
+		onClick?: () => void | undefined | any
 	}
 
-	let { noBg = false, small = false, Icon, class: className }: Props = $props()
+	let { noBg = false, small = false, Icon, class: className, onClick }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 </script>
 
 <Button
-	on:click={() => dispatch('close')}
+	on:click={() => (dispatch('close'), onClick?.())}
 	on:pointerdown={(e) => e.stopPropagation()}
 	startIcon={{ icon: Icon ?? X }}
 	iconOnly

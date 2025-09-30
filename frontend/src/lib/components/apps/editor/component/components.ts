@@ -239,6 +239,7 @@ export type FileInputComponent = BaseComponent<'fileinputcomponent'> & {
 export type TabsComponent = BaseComponent<'tabscomponent'> & {
 	tabs: string[]
 	disabledTabs: RichConfiguration[]
+	hiddenTabs: RichConfiguration[]
 	onTabChange?: string[]
 }
 
@@ -1379,10 +1380,22 @@ export const components = {
 					value: undefined,
 					fieldType: 'icon-select'
 				},
+				tooltip: {
+					type: 'static',
+					value: '',
+					fieldType: 'text',
+					tooltip: 'Tooltip text to show on hover'
+				},
 				triggerOnAppLoad: {
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
+				},
+				runInBackground: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip: 'Run the job in the background without blocking the button. Multiple clicks will trigger multiple jobs.'
 				},
 
 				onSuccess: onSuccessClick,
@@ -3006,7 +3019,15 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 			},
 			componentInput: undefined,
 			numberOfSubgrids: 2,
-			tabs: ['First tab', 'Second tab'] as string[]
+			tabs: ['First tab', 'Second tab'] as string[],
+			disabledTabs: [
+				{ type: 'static', value: false, fieldType: 'boolean' },
+				{ type: 'static', value: false, fieldType: 'boolean' }
+			] as RichConfiguration[],
+			hiddenTabs: [
+				{ type: 'static', value: false, fieldType: 'boolean' },
+				{ type: 'static', value: false, fieldType: 'boolean' }
+			] as RichConfiguration[]
 		}
 	},
 	steppercomponent: {
@@ -3567,7 +3588,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'object',
 					value: {},
 					tooltip:
-						'This enables setting form enum values dynamically using an object: keys are field names, and values are arrays of strings.'
+						'This enables setting form enum values dynamically using an object: keys are field names, and values are arrays of strings or { "label": "myLabel", "value": "myValue" }.'
 				},
 
 				displayType: {

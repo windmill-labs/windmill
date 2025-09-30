@@ -121,7 +121,7 @@ use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
 use crate::{
     common::{
         create_args_and_out_file, get_reserved_variables, read_file, read_result,
-        start_child_process, OccupancyMetrics,
+        start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
     worker_utils::ping_job_status,
@@ -386,6 +386,7 @@ pub async fn uv_pip_compile(
             false,
             occupancy_metrics,
             None,
+            None,
         )
         .await
         .map_err(|e| {
@@ -543,6 +544,7 @@ pub async fn handle_python_job(
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    has_stream: &mut bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
@@ -864,6 +866,8 @@ mount {{
         start_child_process(python_cmd, &python_path, false).await?
     };
 
+    let stream_notifier = StreamNotifier::new(conn, job);
+
     let handle_result = handle_child(
         &job.id,
         conn,
@@ -878,8 +882,11 @@ mount {{
         false,
         &mut Some(occupancy_metrics),
         None,
+        stream_notifier,
     )
     .await?;
+
+    *has_stream = handle_result.result_stream.is_some();
 
     if apply_preprocessor {
         let args = read_file(&format!("{job_dir}/args.json"))
@@ -1920,12 +1927,21 @@ pub async fn handle_python_reqs(
                 }
             };
 
-            let mut stderr_buf = String::new();
-            let mut stderr_pipe = uv_install_proccess
-                .stderr()
-                .take()
-                .ok_or(anyhow!("Cannot take stderr from uv_install_proccess"))?;
-            let stderr_future = stderr_pipe.read_to_string(&mut stderr_buf);
+            let (mut stderr_buf, mut stdout_buf) = Default::default();
+            let (mut stderr_pipe, mut stdout_pipe) = (
+                uv_install_proccess
+                    .stderr()
+                    .take()
+                    .ok_or(anyhow!("Cannot take stderr from uv_install_proccess"))?,
+                uv_install_proccess
+                    .stdout()
+                    .take()
+                    .ok_or(anyhow!("Cannot take stdout from uv_install_proccess"))?
+            );
+            let (stderr_future, stdout_future) = (
+                stderr_pipe.read_to_string(&mut stderr_buf),
+                stdout_pipe.read_to_string(&mut stdout_buf)
+            );
 
             if let Some(pid) = pids.lock().await.get_mut(i) {
                 *pid = uv_install_proccess.id();
@@ -1943,10 +1959,10 @@ pub async fn handle_python_reqs(
                     pids.lock().await.get_mut(i).and_then(|e| e.take());
                     return Err(anyhow::anyhow!("uv pip install was canceled"));
                 },
-                (_, exitstatus) = async {
+                (_, _, exitstatus) = async {
                     // See tokio::process::Child::wait_with_output() for more context
                     // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited before it :/
-                    (stderr_future.await, Box::into_pin(uv_install_proccess.wait()).await)
+                    (stderr_future.await, stdout_future.await, Box::into_pin(uv_install_proccess.wait()).await)
                 } => match exitstatus {
                     Ok(status) => if !status.success() {
                         tracing::warn!(
@@ -1960,7 +1976,7 @@ pub async fn handle_python_reqs(
                             &job_id,
                             w_id,
                             format!(
-                                "\nError while installing {}:\n{stderr_buf}",
+                                "\nError while installing {}: \nStderr:\n{stderr_buf}\nStdout:\n{stdout_buf}",
                                 &req
                             ),
                             &conn,
@@ -2050,6 +2066,13 @@ pub async fn handle_python_reqs(
             .unwrap_or(Err(anyhow!("Problem by joining handle")))
         {
             failed = true;
+            append_logs(
+                &job_id,
+                w_id,
+                format!("\nEnv installation failed: {:?}", e),
+                conn,
+            )
+            .await;
             tracing::warn!(
                 workspace_id = %w_id,
                 "Env installation failed: {:?}",

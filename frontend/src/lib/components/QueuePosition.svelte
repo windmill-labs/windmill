@@ -27,9 +27,13 @@
 					JobService.getScheduledFor({
 						workspace: workspace,
 						id: jobId
-					}).then((response) => {
-						scheduledFor = response
 					})
+						.then((response) => {
+							scheduledFor = response
+						})
+						.catch((error) => {
+							console.error('Failed to fetch scheduled for:', error)
+						})
 				} catch (error) {
 					console.error('Failed to fetch scheduled for:', error)
 				}
@@ -57,8 +61,8 @@
 		}
 
 		return () => {
+			scheduledForTimeout && clearTimeout(scheduledForTimeout)
 			if (queuePositionInterval) {
-				scheduledForTimeout && clearTimeout(scheduledForTimeout)
 				clearInterval(queuePositionInterval)
 			}
 		}

@@ -85,10 +85,13 @@
 		allowVim = false,
 		tailwindClasses = [],
 		class: className = '',
+		fakeMonacoPlaceholderClass = '',
 		loadAsync = false,
 		key,
 		disabled = false,
-		minHeight = 1000
+		minHeight = 1000,
+		renderLineHighlight = 'none',
+		yPadding
 	}: {
 		lang: string
 		code?: string
@@ -110,11 +113,14 @@
 		allowVim?: boolean
 		tailwindClasses?: string[]
 		class?: string
+		fakeMonacoPlaceholderClass?: string
 		loadAsync?: boolean
 		initialCursorPos?: IPosition
 		key?: string
 		disabled?: boolean
 		minHeight?: number
+		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
+		yPadding?: number
 	} = $props()
 
 	const dispatch = createEventDispatcher()
@@ -332,6 +338,8 @@
 					$relativeLineNumbers
 				),
 				model,
+				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {}),
+				renderLineHighlight,
 				lineDecorationsWidth: 6,
 				lineNumbersMinChars: 2,
 				fontSize: fontSize,
@@ -602,9 +610,11 @@
 	<FakeMonacoPlaceHolder
 		{code}
 		autoheight
-		lineNumbersWidth={(23 * fontSize) / 14}
+		lineNumbersWidth={hideLineNumbers ? 0 : (23 * fontSize) / 14}
 		lineNumbersOffset={fontSize == 14 ? -8 : -11}
 		{fontSize}
+		showNumbers={!hideLineNumbers}
+		class={fakeMonacoPlaceholderClass}
 	/>
 {/if}
 

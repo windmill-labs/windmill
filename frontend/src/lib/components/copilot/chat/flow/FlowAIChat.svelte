@@ -99,8 +99,10 @@
 			}
 		},
 		rejectAllModuleActions() {
-			for (const id of Object.keys(affectedModules)) {
-				this.revertModuleAction(id)
+			// Do it in reverse to revert nested modules first then parents
+			const ids = Object.keys(affectedModules)
+			for (let i = ids.length - 1; i >= 0; i--) {
+				this.revertModuleAction(ids[i])
 			}
 			affectedModules = {}
 		},

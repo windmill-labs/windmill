@@ -2,13 +2,14 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { clickOutside } from '$lib/utils'
 	import { createFloatingActions, type ComputeConfig } from 'svelte-floating-ui'
+	import { fly } from 'svelte/transition'
 
 	interface Props {
 		floatingConfig?: ComputeConfig
 		open?: boolean
 		target?: string | undefined
-		button?: import('svelte').Snippet<[any]>
-		children?: import('svelte').Snippet<[any]>
+		button?: import('svelte').Snippet
+		children?: import('svelte').Snippet<[{ close: () => void }]>
 	}
 
 	let {
@@ -27,29 +28,13 @@
 	// export let floatingClasses: string = ''
 	const [floatingRef, floatingContent] = createFloatingActions(floatingConfig)
 
-	function close(div: Element | null) {
+	function close() {
 		open = false
-	}
-
-	let acceptClickoutside = $state(false)
-	function pointerup() {
-		setTimeout(() => {
-			acceptClickoutside = true
-		}, 100)
-	}
-
-	function pointerdown() {
-		if (acceptClickoutside && open) {
-			open = false
-		} else {
-			acceptClickoutside = false
-			open = true
-		}
 	}
 </script>
 
 <div use:floatingRef>
-	{@render button?.({ pointerup, pointerdown })}
+	{@render button?.()}
 </div>
 
 <Portal name="popup-v2" {target}>
@@ -58,18 +43,16 @@
 			class="border rounded-lg shadow-lg bg-surface z5000"
 			style="position:absolute"
 			use:floatingContent
+			transition:fly={{ duration: 100, y: -16 }}
 		>
-			<!-- svelte-ignore event_directive_deprecated -->
 			<div
-				use:clickOutside
-				on:click_outside={() => {
-					if (acceptClickoutside) {
-						acceptClickoutside = false
-						open = false
-					}
+				use:clickOutside={{
+					eventToListenName: 'pointerdown',
+					stopPropagation: true,
+					onClickOutside: () => (open = false)
 				}}
 			>
-				{@render children?.({ close })}
+				{@render children?.({ close: () => close() })}
 			</div>
 		</div>
 	{/if}

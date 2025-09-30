@@ -70,7 +70,7 @@
 		jobKindsCat = undefined,
 		minTs = $bindable(undefined),
 		maxTs = $bindable(undefined),
-		jobKinds = $bindable(''),
+		jobKinds = $bindable(undefined),
 		queue_count = $bindable(undefined),
 		suspended_count = $bindable(undefined),
 		autoRefresh = true,

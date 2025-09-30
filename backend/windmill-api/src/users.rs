@@ -71,6 +71,7 @@ pub fn workspaced_service() -> Router {
         .route("/get/:user", get(get_workspace_user))
         .route("/update/:user", post(update_workspace_user))
         .route("/delete/:user", delete(delete_workspace_user))
+        .route("/convert_to_group/:user", post(convert_user_to_group))
         .route("/is_owner/*path", get(is_owner_of_path))
         .route("/whois/:username", get(whois))
         .route("/whoami", get(whoami))
@@ -1362,6 +1363,138 @@ async fn update_workspace_user(
     Ok(format!("user {} updated", user_email))
 }
 
+async fn convert_user_to_group(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, username_to_convert)): Path<(String, String)>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let mut tx = db.begin().await?;
+
+    // Get user email and current status
+    let user_info = sqlx::query!(
+        "SELECT email, is_admin, operator, added_via FROM usr WHERE username = $1 AND workspace_id = $2",
+        username_to_convert,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let user_info = not_found_if_none(user_info, "User", &username_to_convert)?;
+
+    // Check if user is already a group user
+    if let Some(added_via) = &user_info.added_via {
+        if added_via.get("source").and_then(|v| v.as_str()) == Some("instance_group") {
+            return Err(Error::BadRequest("User is already a group user".to_string()));
+        }
+    }
+
+    // Find which instance groups this user belongs to that are configured for auto-add in this workspace
+    let eligible_groups = sqlx::query!(
+        r#"
+        SELECT
+            eig.igroup as group_name,
+            ws.auto_add_instance_groups_roles
+        FROM email_to_igroup eig
+        INNER JOIN workspace_settings ws ON ws.workspace_id = $1
+        WHERE eig.email = $2
+        AND eig.igroup = ANY(ws.auto_add_instance_groups)
+        "#,
+        &w_id,
+        &user_info.email
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    if eligible_groups.is_empty() {
+        return Err(Error::BadRequest(
+            "User is not a member of any instance groups configured for auto-add in this workspace".to_string()
+        ));
+    }
+
+    // Determine the group with highest precedence (same logic as process_instance_group_auto_adds)
+    let roles: std::collections::HashMap<String, String> = if let Some(roles_json) = &eligible_groups[0].auto_add_instance_groups_roles {
+        serde_json::from_value(roles_json.clone()).unwrap_or_default()
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    let mut best_group = &eligible_groups[0].group_name;
+    let mut best_precedence = 0u8;
+
+    for group in &eligible_groups {
+        let default_role = "developer".to_string();
+        let role = roles.get(&group.group_name).unwrap_or(&default_role);
+
+        let precedence = match role.as_str() {
+            "admin" => 3,
+            "developer" => 2,
+            "operator" => 1,
+            _ => 2,
+        };
+
+        if precedence > best_precedence {
+            best_precedence = precedence;
+            best_group = &group.group_name;
+        }
+    }
+
+    let primary_group_name = best_group;
+
+    // Determine role from group configuration using the selected primary group
+    let default_role = "developer".to_string();
+    let role = roles.get(primary_group_name).unwrap_or(&default_role).as_str();
+
+    let (is_admin, is_operator) = match role {
+        "admin" => (true, false),
+        "operator" => (false, true),
+        _ => (false, false),
+    };
+
+    // Update user with instance group information
+    let instance_group_source = serde_json::json!({
+        "source": "instance_group",
+        "group": primary_group_name
+    });
+
+    sqlx::query!(
+        "UPDATE usr SET added_via = $1, is_admin = $2, operator = $3 WHERE username = $4 AND workspace_id = $5",
+        instance_group_source,
+        is_admin,
+        is_operator,
+        username_to_convert,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.convert_to_group",
+        ActionKind::Update,
+        &w_id,
+        Some(&username_to_convert),
+        Some([("group", primary_group_name.as_str()), ("role", role)].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::User { email: user_info.email.clone() },
+        Some(format!("Converted user '{}' to group user (group: {}, role: {})", &user_info.email, primary_group_name, role)),
+        true,
+    )
+    .await?;
+
+    Ok(format!("User {} converted to group user (group: {}, role: {})", username_to_convert, primary_group_name, role))
+}
+
 async fn update_user(
     authed: ApiAuthed,
     Path(email_to_update): Path<String>,
@@ -1459,6 +1592,12 @@ async fn delete_user(
         .execute(&mut *tx)
         .await?;
     }
+
+    // Remove user from all instance groups email_to_igroup
+    sqlx::query!("DELETE FROM email_to_igroup WHERE email = $1", &email_to_delete)
+        .execute(&mut *tx)
+        .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -2131,7 +2270,6 @@ struct Runnable {
     workspace: String,
     endpoint_async: String,
     endpoint_sync: String,
-    endpoint_openai_sync: String,
     summary: String,
     description: String,
     schema: Option<serde_json::Value>,
@@ -2183,10 +2321,6 @@ async fn get_all_runnables(
                         "/w/{}/jobs/run_wait_result/f/{}",
                         &f.workspace, &f.path
                     ),
-                    endpoint_openai_sync: format!(
-                        "/w/{}/jobs/openai_sync/f/{}",
-                        &f.workspace, &f.path
-                    ),
                     summary: f.summary,
                     description: f.description,
                     schema: f.schema,
@@ -2196,8 +2330,8 @@ async fn get_all_runnables(
                 .collect::<Vec<_>>(),
         );
         let scripts = sqlx::query!(
-        "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o 
-         WHERE created_at = (select max(created_at) from script where o.path = path and workspace_id = $1 AND archived = false) 
+        "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o
+         WHERE created_at = (select max(created_at) from script where o.path = path and workspace_id = $1 AND archived = false)
          AND workspace_id = $1 and archived = false", workspace
     )
     .fetch_all(&mut *tx)
@@ -2210,10 +2344,6 @@ async fn get_all_runnables(
                     endpoint_async: format!("/w/{}/jobs/run/p/{}", &s.workspace, &s.path),
                     endpoint_sync: format!(
                         "/w/{}/jobs/run_wait_result/p/{}",
-                        &s.workspace, &s.path
-                    ),
-                    endpoint_openai_sync: format!(
-                        "/w/{}/jobs/openai_sync/p/{}",
                         &s.workspace, &s.path
                     ),
                     summary: s.summary,

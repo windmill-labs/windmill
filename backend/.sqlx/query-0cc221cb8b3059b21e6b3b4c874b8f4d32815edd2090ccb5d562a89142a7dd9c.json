@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "VACUUM (SKIP_LOCKED) v2_job_queue, v2_job_runtime, v2_job_status, job_perms",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "0cc221cb8b3059b21e6b3b4c874b8f4d32815edd2090ccb5d562a89142a7dd9c"
+}

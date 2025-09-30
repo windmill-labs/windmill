@@ -32,6 +32,7 @@ use windmill_common::{
 pub trait Listener: TriggerCrud + TriggerJobArgs {
     type Consumer: Send;
     type Extra: Send + Sync;
+    type ExtraState: Send + Sync;
 
     //to use in next PR to add job trigger kind to eow
     #[allow(unused)]
@@ -53,6 +54,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
         err_message: Arc<RwLock<Option<String>>>,
         killpill_rx: tokio::sync::broadcast::Receiver<()>,
+        extra: Option<&Self::ExtraState>,
     );
     async fn fetch_enabled_unlistened_triggers(
         &self,
@@ -159,10 +161,15 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
         Ok(captures)
     }
 
+    async fn get_extra_state(&self) -> Option<Self::ExtraState> {
+        None
+    }
+
     async fn cleanup(
         &self,
         _db: &DB,
         _listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
+        _extra: Option<&Self::ExtraState>,
     ) -> Result<()> {
         Ok(())
     }
@@ -488,6 +495,13 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 None => (None, None, None),
             };
 
+        tracing::debug!(
+            "Triggering job from {} event {} with args {:?}",
+            Self::TRIGGER_KIND,
+            listening_trigger.path,
+            args
+        );
+
         trigger_runnable(
             db,
             None,
@@ -568,14 +582,14 @@ async fn listening<T: Listener>(
     let killpill_rx_get_consumer = killpill_rx.resubscribe();
 
     let loop_ping_status = Arc::new(RwLock::new(None));
-
+    let extra_state = listener.get_extra_state().await;
     tokio::select! {
         biased;
         _ = killpill_rx.recv() => {
-            let _ = listener.cleanup(&db, &listening_trigger).await;
+            let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
         }
         _ = listener.loop_ping(&db, &listening_trigger, loop_ping_status.clone(), Some("Connecting...".to_string())) => {
-            let _ = listener.cleanup(&db, &listening_trigger).await;
+            let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
         }
         consumer = {
             listener.get_consumer(&db, &listening_trigger, loop_ping_status.clone(), killpill_rx_get_consumer)
@@ -583,18 +597,18 @@ async fn listening<T: Listener>(
             tokio::select! {
                 biased;
                 _ = killpill_rx.recv() => {
-                    let _ = listener.cleanup(&db, &listening_trigger).await;
+                    let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
                     return;
                 }
                 _ = listener.loop_ping(&db, &listening_trigger, loop_ping_status.clone(), None) => {
-                    let _ = listener.cleanup(&db, &listening_trigger).await;
+                    let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
                     return;
                 }
                 _ = async {
                     match consumer {
                         Ok(Some(consumer)) => {
                             listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), None).await;
-                            let _ = listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer).await;
+                            let _ = listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer, extra_state.as_ref()).await;
                             tracing::debug!("Stopping consumer for trigger");
                         }
                         Err(error) => {
@@ -604,7 +618,7 @@ async fn listening<T: Listener>(
                         _ => {}
                     }
                 } => {
-                    let _ = listener.cleanup(&db, &listening_trigger).await;
+                    let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
                     return;
                 }
             }

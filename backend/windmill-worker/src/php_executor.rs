@@ -106,6 +106,7 @@ pub async fn composer_install(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
 
@@ -342,6 +343,7 @@ try {{
         job.timeout,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;

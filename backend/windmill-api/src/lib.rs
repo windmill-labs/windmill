@@ -87,7 +87,7 @@ pub mod ee;
 pub mod ee_oss;
 pub mod embeddings;
 mod favorite;
-mod flows;
+pub mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
@@ -100,10 +100,10 @@ mod inkeep_oss;
 mod inputs;
 mod integration;
 mod live_migrations;
+pub mod openapi;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
-pub mod openapi;
 
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -155,6 +155,9 @@ pub mod stripe_ee;
 #[cfg(all(feature = "stripe", feature = "enterprise"))]
 mod stripe_oss;
 #[cfg(feature = "private")]
+pub mod teams_cache_ee;
+mod teams_cache_oss;
+#[cfg(feature = "private")]
 pub mod teams_ee;
 mod teams_oss;
 mod token;
@@ -179,6 +182,7 @@ mod workspaces_oss;
 #[cfg(feature = "mcp")]
 mod mcp;
 
+pub use apps::EditApp;
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
 lazy_static::lazy_static! {
@@ -693,9 +697,10 @@ pub async fn run_server(
         name.map(|x| format!("name={x}")).unwrap_or_default()
     );
 
-    port_tx
-        .send(format!("http://localhost:{}", port))
-        .expect("Failed to send port");
+    if let Err(e) = port_tx.send(format!("http://localhost:{}", port)) {
+        tracing::error!("Failed to send port: {e:#}");
+        return Err(anyhow::anyhow!("Failed to send port, exiting early: {e:#}"));
+    }
 
     let server = server.with_graceful_shutdown(async move {
         killpill_rx.recv().await.ok();
@@ -791,8 +796,11 @@ async fn openapi_json() -> Response {
         .unwrap()
 }
 
-pub async fn migrate_db(db: &DB) -> anyhow::Result<Option<JoinHandle<()>>> {
-    db::migrate(db)
+pub async fn migrate_db(
+    db: &DB,
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> anyhow::Result<Option<JoinHandle<()>>> {
+    db::migrate(db, killpill_rx)
         .await
         .map_err(|e| anyhow::anyhow!("Error migrating db: {e:#}"))
 }

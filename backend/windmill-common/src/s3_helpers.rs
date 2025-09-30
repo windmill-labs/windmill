@@ -1,4 +1,3 @@
-use crate::db::Authed;
 use crate::error::{self};
 #[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
@@ -17,7 +16,9 @@ use object_store::ObjectStore;
 use object_store::{aws::AmazonS3Builder, ClientOptions};
 #[cfg(feature = "parquet")]
 use reqwest::header::HeaderMap;
-use serde::{Deserialize, Serialize};
+use serde::de::Visitor;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt;
 #[cfg(feature = "parquet")]
 use std::sync::{Arc, Mutex};
 
@@ -216,7 +217,7 @@ pub async fn reload_object_store_setting(db: &crate::DB) -> ObjectStoreReload {
     return ObjectStoreReload::Never;
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum LargeFileStorage {
     S3Storage(S3Storage),
@@ -247,27 +248,106 @@ impl LargeFileStorage {
         }
         .unwrap_or(false)
     }
+    pub fn get_advanced_permissions(&self) -> Option<&Vec<S3PermissionRule>> {
+        match self {
+            LargeFileStorage::S3Storage(lfs) => lfs.advanced_permissions.as_ref(),
+            LargeFileStorage::S3AwsOidc(lfs) => lfs.advanced_permissions.as_ref(),
+            LargeFileStorage::AzureBlobStorage(lfs) => lfs.advanced_permissions.as_ref(),
+            LargeFileStorage::AzureWorkloadIdentity(lfs) => lfs.advanced_permissions.as_ref(),
+            LargeFileStorage::GoogleCloudStorage(glfs) => glfs.advanced_permissions.as_ref(),
+        }
+    }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct S3Storage {
     pub s3_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
+    pub advanced_permissions: Option<Vec<S3PermissionRule>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AzureBlobStorage {
     pub azure_blob_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
+    pub advanced_permissions: Option<Vec<S3PermissionRule>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GoogleCloudStorage {
     pub gcs_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
+    pub advanced_permissions: Option<Vec<S3PermissionRule>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct S3PermissionRule {
+    pub pattern: String,
+    pub allow: S3Permission, // read, write, delete, list
+}
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct S3Permission: u8 {
+        const READ   = 0b0001;
+        const WRITE  = 0b0010;
+        const DELETE = 0b0100;
+        const LIST   = 0b1000;
+    }
+}
+
+impl Serialize for S3Permission {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut perms = Vec::new();
+        if self.contains(S3Permission::READ) {
+            perms.push("read");
+        }
+        if self.contains(S3Permission::WRITE) {
+            perms.push("write");
+        }
+        if self.contains(S3Permission::DELETE) {
+            perms.push("delete");
+        }
+        if self.contains(S3Permission::LIST) {
+            perms.push("list");
+        }
+        let perms = perms.join(",");
+        perms.serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for S3Permission {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct PermVisitor;
+        impl<'de> Visitor<'de> for PermVisitor {
+            type Value = S3Permission;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("comma separated list of permissions: read, write, delete, list")
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                let mut perms = S3Permission::empty();
+                for value in v.split(',') {
+                    perms |= match value {
+                        "read" => S3Permission::READ,
+                        "write" => S3Permission::WRITE,
+                        "delete" => S3Permission::DELETE,
+                        "list" => S3Permission::LIST,
+                        _ => S3Permission::empty(), // ignore unknown permissions
+                    };
+                }
+                Ok(perms)
+            }
+        }
+
+        deserializer.deserialize_str(PermVisitor)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -445,6 +525,67 @@ pub async fn build_object_store_client(
         ObjectStoreResource::Gcs(gcs_resource_ref) => build_gcs_client(&gcs_resource_ref).await,
     }
 }
+
+
+#[derive(PartialEq)]
+pub enum BundleFormat {
+    Esm,
+    Cjs,
+}
+
+impl BundleFormat {
+   pub fn from_string(s: &str) -> Option<Self> {
+        match s {
+            "esm" => Some(Self::Esm),
+            "cjs" => Some(Self::Cjs),
+            _ => None,
+        }
+    }
+}
+
+pub async fn upload_artifact_to_store(path: &str, data: bytes::Bytes, standalone_dir: &str) -> error::Result<()> {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    let object_store = crate::s3_helpers::get_object_store().await;
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+    let object_store: Option<()> = None;
+    Ok(if &crate::utils::MODE_AND_ADDONS.mode
+        == &crate::utils::Mode::Standalone
+        && object_store.is_none()
+    {
+        let path = format!("{}/{}", standalone_dir, path);
+        tracing::info!("Writing file to path {path}");
+
+        let split_path = path.split("/").collect::<Vec<&str>>();
+        std::fs::create_dir_all(
+            split_path[..split_path.len() - 1].join("/"),
+        )?;
+
+        crate::worker::write_file_bytes(
+            &path,
+            &data,
+        )?;
+    } else {
+        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+        {
+            return Err(error::Error::ExecutionErr("codebase is an EE feature".to_string()));
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "parquet"))]
+        if let Some(os) = object_store {
+
+            if let Err(e) = os
+                .put(&object_store::path::Path::from(path), data.into())
+                .await
+            {
+                tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                return Err(error::Error::ExecutionErr(format!("Failed to put {path} to s3")));
+            }
+        } else {
+            return Err(error::Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+        }
+    })
+}
+
 
 #[cfg(feature = "parquet")]
 pub async fn attempt_fetch_bytes(
@@ -1122,26 +1263,4 @@ impl ObjectStoreResource {
             ObjectStoreResource::Azure(az_resource) => az_resource.get_endpoint_url(),
         }
     }
-}
-
-pub fn check_lfs_object_path_permissions(
-    lfs: &LargeFileStorage,
-    _object_path: &str,
-    authed: &Authed,
-) -> error::Result<()> {
-    if authed.is_admin || lfs.is_public_resource() {
-        return Ok(());
-    }
-    let _username = authed.username.as_str();
-
-    // TODO : Extend permission possibilities
-
-    // if lfs.restrict_to_user_paths() {
-    //     if !object_path.starts_with(&format!("u/{username}/")) {
-    //         return Err(error::Error::NotAuthorized(format!(
-    //             "Can only access paths u/{username}/**"
-    //         )));
-    //     }
-    // }
-    return Ok(());
 }

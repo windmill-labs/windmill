@@ -55,6 +55,7 @@
 	let deploymentLoading = $state(false)
 	let base_endpoint = $derived(`${window.location.origin}${base}`)
 	let auto_acknowledge_msg = $state(true)
+	let ack_deadline: number | undefined = $state()
 	let optionTabSelected: 'settings' | 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
 	let error_handler_path: string | undefined = $state()
@@ -151,6 +152,7 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			auto_acknowledge_msg = defaultValues?.auto_acknowledge_msg ?? true
+			ack_deadline = defaultValues?.ack_deadline
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		} finally {
 			drawerLoading = false
@@ -191,6 +193,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		auto_acknowledge_msg = cfg?.auto_acknowledge_msg ?? true
+		ack_deadline = cfg?.ack_deadline
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 	}
 
@@ -230,7 +233,8 @@
 			error_handler_path,
 			error_handler_args,
 			retry,
-			auto_acknowledge_msg
+			auto_acknowledge_msg,
+			ack_deadline
 		}
 	}
 
@@ -243,6 +247,7 @@
 			delivery_config,
 			base_endpoint,
 			auto_acknowledge_msg,
+			ack_deadline,
 			topic_id,
 			path
 		}
@@ -400,6 +405,7 @@
 				bind:topic_id
 				bind:subscription_mode
 				bind:auto_acknowledge_msg
+				bind:ack_deadline
 				{path}
 				cloud_subscription_id={subscription_id}
 				create_update_subscription_id={subscription_id}
@@ -439,11 +445,28 @@
 												</div>
 											{/if}
 										</Subsection>
-									{:else}
-										<div class="flex items-center justify-center h-32 text-tertiary">
-											No settings available for push delivery type
-										</div>
 									{/if}
+									<Subsection
+										label="Acknowledgment deadline"
+										tooltip="Time in seconds within which the message must be acknowledged. If not provided, defaults to the subscription's acknowledgment deadline (600 seconds). Range: 10-600 seconds."
+									>
+										<div class="mt-2">
+											<input
+												type="number"
+												bind:value={ack_deadline}
+												disabled={!can_write}
+												min="10"
+												max="600"
+												step="1"
+												placeholder="600"
+												class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+											/>
+										</div>
+										<div class="mt-2 text-xs text-secondary">
+											Leave empty to use subscription default (600 seconds). This affects how long
+											messages remain in flight before being redelivered.
+										</div>
+									</Subsection>
 								</div>
 							{:else}
 								<TriggerRetriesAndErrorHandler

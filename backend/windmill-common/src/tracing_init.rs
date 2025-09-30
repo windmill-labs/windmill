@@ -52,6 +52,8 @@ pub fn initialize_tracing(
     let style = std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into());
 
     let rust_log_env = std::env::var("RUST_LOG");
+    let rust_log_stdout_env = std::env::var("RUST_LOG_STDOUT");
+
     if rust_log_env
         .as_ref()
         .is_ok_and(|x| x == "debug" || x == "info")
@@ -95,59 +97,102 @@ pub fn initialize_tracing(
     let (log_file_writer, _guard) = NonBlockingBuilder::default()
         .lossy(false)
         .finish(file_appender);
-    let stdout_and_log_file_writer = std::io::stdout.and(log_file_writer);
 
     // let job_logs_filter = tracing_subscriber::filter::Targets::new()
     //     .with_target("windmill:job_log", tracing::Level::TRACE);
 
-    let env_filter = EnvFilter::builder()
+    // Create the base filter for file writer (always uses RUST_LOG)
+    let file_env_filter = EnvFilter::builder()
         .with_default_directive(tracing::level_filters::LevelFilter::ERROR.into())
         .from_env_lossy();
 
-    let ts_base = tracing_subscriber::registry().with(env_filter);
+    // Create the filter for stdout (uses RUST_LOG_STDOUT if available, otherwise RUST_LOG)
+    let stdout_env_filter = if rust_log_stdout_env.is_ok() {
+        // Temporarily set RUST_LOG to RUST_LOG_STDOUT value to parse it
+        let original_rust_log = std::env::var("RUST_LOG").ok();
+        std::env::set_var("RUST_LOG", rust_log_stdout_env.unwrap());
+        let filter = EnvFilter::builder()
+            .with_default_directive(tracing::level_filters::LevelFilter::ERROR.into())
+            .from_env_lossy();
+        // Restore original RUST_LOG
+        match original_rust_log {
+            Some(val) => std::env::set_var("RUST_LOG", val),
+            None => std::env::remove_var("RUST_LOG"),
+        }
+        filter
+    } else {
+        file_env_filter.clone()
+    };
+
+    let base_layer = tracing_subscriber::registry()
+        .with(logs_bridge)
+        .with(opentelemetry);
 
     match *JSON_FMT {
-        true => ts_base
-            .with(logs_bridge)
-            .with(opentelemetry)
-            // .with(env_filter2.add_directive("windmill:job_log=off".parse().unwrap()))
-            .with(
-                json_layer()
-                    .with_writer(stdout_and_log_file_writer)
-                    .flatten_event(true)
-                    .with_filter(
-                        Targets::new()
-                            .with_target(
-                                "windmill:job_log",
-                                tracing::level_filters::LevelFilter::OFF,
-                            )
-                            .with_default(default_env_filter),
-                    ),
-            )
-            .with(CountingLayer::new())
-            .init(),
-        false => ts_base
-            .with(logs_bridge)
-            .with(opentelemetry)
-            // .with(env_filter2.add_directive("windmill:job_log=off".parse().unwrap()))
-            .with(
-                compact_layer()
-                    .with_writer(stdout_and_log_file_writer)
-                    .with_ansi(style.to_lowercase() != "never")
-                    .with_file(true)
-                    .with_line_number(true)
-                    .with_target(false)
-                    .with_filter(
-                        Targets::new()
-                            .with_target(
-                                "windmill:job_log",
-                                tracing::level_filters::LevelFilter::OFF,
-                            )
-                            .with_default(default_env_filter),
-                    ),
-            )
-            .with(CountingLayer::new())
-            .init(),
+        true => {
+            // Stdout layer with its own filter
+            let stdout_layer = json_layer()
+                .with_writer(std::io::stdout)
+                .flatten_event(true)
+                .with_filter(stdout_env_filter)
+                .with_filter(
+                    Targets::new()
+                        .with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF)
+                        .with_default(default_env_filter),
+                );
+
+            // File layer with its own filter
+            let file_layer = json_layer()
+                .with_writer(log_file_writer)
+                .flatten_event(true)
+                .with_filter(file_env_filter)
+                .with_filter(
+                    Targets::new()
+                        .with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF)
+                        .with_default(default_env_filter),
+                );
+
+            base_layer
+                .with(stdout_layer)
+                .with(file_layer)
+                .with(CountingLayer::new())
+                .init()
+        }
+        false => {
+            // Stdout layer with its own filter
+            let stdout_layer = compact_layer()
+                .with_writer(std::io::stdout)
+                .with_ansi(style.to_lowercase() != "never")
+                .with_file(true)
+                .with_line_number(true)
+                .with_target(false)
+                .with_filter(stdout_env_filter)
+                .with_filter(
+                    Targets::new()
+                        .with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF)
+                        .with_default(default_env_filter),
+                );
+
+            // File layer with its own filter
+            let file_layer = compact_layer()
+                .with_writer(log_file_writer)
+                .with_ansi(false) // No ANSI codes in log files
+                .with_file(true)
+                .with_line_number(true)
+                .with_target(false)
+                .with_filter(file_env_filter)
+                .with_filter(
+                    Targets::new()
+                        .with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF)
+                        .with_default(default_env_filter),
+                );
+
+            base_layer
+                .with(stdout_layer)
+                .with(file_layer)
+                .with(CountingLayer::new())
+                .init()
+        }
     }
     (_guard, meter_provider)
 }

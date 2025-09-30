@@ -36,7 +36,6 @@ use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::variables::ExportableListableVariable;
 use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 #[cfg(feature = "enterprise")]
@@ -52,6 +51,7 @@ use windmill_common::{
     utils::{paginate, rd_string, require_admin, Pagination},
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_worker::scoped_dependency_map::{DependencyMap, ScopedDependencyMap};
 
 #[cfg(feature = "enterprise")]
 use windmill_common::utils::require_admin_or_devops;
@@ -79,6 +79,8 @@ pub fn workspaced_service() -> Router {
         .route("/invite_user", post(invite_user))
         .route("/add_user", post(add_user))
         .route("/delete_invite", post(delete_invite))
+        .route("/rebuild_dependency_map", post(rebuild_dependency_map))
+        .route("/get_dependency_map", get(get_dependency_map))
         .route("/get_settings", get(get_settings))
         .route("/get_deploy_to", get(get_deploy_to))
         .route("/edit_slack_command", post(edit_slack_command))
@@ -262,11 +264,11 @@ pub struct WorkspaceSettings {
     pub auto_add_instance_groups_roles: Option<serde_json::Value>,
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug)]
-#[sqlx(type_name = "WORKSPACE_KEY_KIND", rename_all = "lowercase")]
-pub enum WorkspaceKeyKind {
-    Cloud,
-}
+// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
+// #[sqlx(type_name = "WORKSPACE_KEY_KIND", rename_all = "lowercase")]
+// pub enum WorkspaceKeyKind {
+//     Cloud,
+// }
 
 #[derive(Deserialize)]
 struct EditCommandScript {
@@ -924,6 +926,7 @@ async fn get_copilot_info(
             default_model: None,
             code_completion_model: None,
             custom_prompts: None,
+            max_tokens_per_model: None,
         }))
     }
 }
@@ -1488,9 +1491,9 @@ async fn delete_git_sync_repository(
     ))
 }
 
+#[cfg(feature = "enterprise")]
 #[derive(Debug, Deserialize)]
 struct EditDeployUIConfig {
-    #[cfg(feature = "enterprise")]
     deploy_ui_settings: Option<WorkspaceDeploymentUISettings>,
 }
 
@@ -1808,7 +1811,7 @@ async fn edit_error_handler(
             SET
                 error_handler = NULL,
                 error_handler_extra_args = NULL,
-                error_handler_muted_on_cancel = NULL
+                error_handler_muted_on_cancel = false
             WHERE
                 workspace_id = $1
         "#,
@@ -2342,7 +2345,6 @@ async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    db: &DB,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
@@ -2363,7 +2365,7 @@ async fn clone_workspace_data(
     clone_resources(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone variables with re-encryption
-    clone_variables(tx, source_workspace_id, target_workspace_id, db).await?;
+    clone_variables(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
@@ -2391,6 +2393,15 @@ async fn update_workspace_settings(
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO workspace_key (workspace_id, kind, key)
+        SELECT $2, kind, key FROM workspace_key WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
     sqlx::query!(
         r#"
         UPDATE workspace_settings
@@ -2544,80 +2555,17 @@ async fn clone_variables(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    db: &DB,
 ) -> Result<()> {
-    // Get all variables from source workspace
-    let variables = sqlx::query_as!(
-        ExportableListableVariable,
-        "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at
-         FROM variable 
+    sqlx::query!(
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at)
+         SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at
+         FROM variable
          WHERE workspace_id = $1",
-        source_workspace_id
+        source_workspace_id,
+        target_workspace_id,
     )
-    .fetch_all(&mut **tx)
+    .execute(&mut **tx)
     .await?;
-
-    if variables.is_empty() {
-        return Ok(());
-    }
-
-    // Get workspace keys from within the transaction
-    let source_key = sqlx::query_scalar!(
-        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
-        source_workspace_id
-    )
-    .fetch_one(db)
-    .await?;
-
-    let target_key = sqlx::query_scalar!(
-        "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud'",
-        target_workspace_id
-    )
-    .fetch_one(&mut **tx)
-    .await?;
-
-    // Build encryption keys manually
-    use windmill_common::variables::SECRET_SALT;
-    let source_crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
-        format!("{}{}", source_key, salt)
-    } else {
-        source_key
-    };
-    let target_crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
-        format!("{}{}", target_key, salt)
-    } else {
-        target_key
-    };
-
-    let source_mc = magic_crypt::new_magic_crypt!(source_crypt_key, 256);
-    let target_mc = magic_crypt::new_magic_crypt!(target_crypt_key, 256);
-
-    // Process each variable
-    for var in variables {
-        let final_value = if var.is_secret && var.value.is_some() {
-            // Decrypt with source key and re-encrypt with target key
-            let decrypted_value = decrypt(&source_mc, var.value.unwrap())?;
-            Some(encrypt(&target_mc, &decrypted_value))
-        } else {
-            var.value
-        };
-
-        sqlx::query!(
-            "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            target_workspace_id,
-            var.path,
-            final_value,
-            var.is_secret,
-            var.description,
-            var.extra_perms,
-            var.account,
-            var.is_oauth,
-            var.expires_at,
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
 
     Ok(())
 }
@@ -2984,16 +2932,6 @@ async fn create_workspace_fork(
     )
     .execute(&mut *tx)
     .await?;
-    let key = rd_string(64);
-    sqlx::query!(
-        "INSERT INTO workspace_key
-            (workspace_id, kind, key)
-            VALUES ($1, 'cloud', $2)",
-        forked_id,
-        &key
-    )
-    .execute(&mut *tx)
-    .await?;
 
     sqlx::query!(
         "INSERT INTO usr
@@ -3008,7 +2946,7 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(&mut tx, &nw.parent_workspace_id, &forked_id, &db).await?;
+    clone_workspace_data(&mut tx, &nw.parent_workspace_id, &forked_id).await?;
 
     sqlx::query!(
         "INSERT INTO workspace_invite (workspace_id, email, is_admin, operator)
@@ -3414,6 +3352,42 @@ async fn get_workspace_name(
     tx.commit().await?;
 
     Ok(workspace)
+}
+
+async fn get_dependency_map(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<DependencyMap>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = user_db.begin(&authed).await?;
+    let dmap = sqlx::query_as!(
+        DependencyMap,
+        "
+        SELECT workspace_id, importer_path, importer_kind::text, imported_path, importer_node_id
+        FROM dependency_map WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(dmap))
+}
+
+#[axum::debug_handler]
+async fn rebuild_dependency_map(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    if *CLOUD_HOSTED {
+        return Err(Error::BadRequest("Disabled on Cloud".into()));
+    }
+    ScopedDependencyMap::rebuild_map(&w_id, &db).await
 }
 
 #[derive(Deserialize)]

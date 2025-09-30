@@ -51,7 +51,22 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
-          toolchain: 1.85.0
+          toolchain: 1.90.0
+      - name: Read EE repo commit hash
+        run: |
+          echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ env.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: 0
+
+      - name: Substitute EE code (EE logic is behind feature flag)
+        run: |
+          ./substitute_ee_code.sh --copy --dir ./windmill-ee-private
       - name: cargo test
         timeout-minutes: 16
         run:
@@ -61,5 +76,5 @@ jobs:
           DISABLE_EMBEDDING=true RUST_LOG=info
           DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go)
           UV_PATH=$(which uv) cargo test --features
-          enterprise,deno_core,license,python,rust,scoped_cache --all --
+          enterprise,deno_core,license,python,rust,scoped_cache,private --all --
           --nocapture

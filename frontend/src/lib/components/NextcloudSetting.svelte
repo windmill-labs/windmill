@@ -33,8 +33,14 @@
 		}
 	}
 	let enabled = $derived(value != undefined)
+	let lastDomain = $state(value?.['domain'])
+
 	$effect(() => {
-		changeDomain(value?.['domain'])
+		const currentDomain = value?.['domain']
+		if (currentDomain && currentDomain !== lastDomain) {
+			lastDomain = currentDomain
+			changeDomain(currentDomain)
+		}
 	})
 </script>
 

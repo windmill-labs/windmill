@@ -10,6 +10,7 @@
 	import type { SchemaProperty } from '$lib/common'
 	import Toggle from './Toggle.svelte'
 	import { tick } from 'svelte'
+	import Select from './select/Select.svelte'
 
 	interface Props {
 		canEditResourceType?: boolean
@@ -54,39 +55,44 @@
 
 {#if canEditResourceType || originalType == 'string[]' || originalType == 'object[]'}
 	<Label label="Items type">
-		<select
-			bind:value={selected}
-			onchange={() => {
-				if (selected == 'enum') {
-					itemsType = { type: 'string', enum: [] }
-				} else if (selected == 'string') {
-					itemsType = { type: 'string' }
-				} else if (selected == 'number') {
-					itemsType = { type: 'number' }
-				} else if (selected == 'object') {
-					itemsType = { ...itemsType, type: 'object' }
-				} else if (selected == 'bytes') {
-					itemsType = { type: 'string', contentEncoding: 'base64' }
-				} else if (selected == 'resource') {
-					itemsType = { type: 'resource', resourceType: itemsType?.resourceType }
-				} else if (selected == 's3object') {
-					itemsType = { type: 'object', resourceType: 's3object' }
-				} else {
-					itemsType = undefined
+		<Select
+			bind:value={
+				() => selected,
+				(v) => {
+					selected = v
+					if (selected == 'enum') {
+						itemsType = { type: 'string', enum: [] }
+					} else if (selected == 'string') {
+						itemsType = { type: 'string' }
+					} else if (selected == 'number') {
+						itemsType = { type: 'number' }
+					} else if (selected == 'object') {
+						itemsType = { ...itemsType, type: 'object' }
+					} else if (selected == 'bytes') {
+						itemsType = { type: 'string', contentEncoding: 'base64' }
+					} else if (selected == 'resource') {
+						itemsType = { type: 'resource', resourceType: itemsType?.resourceType }
+					} else if (selected == 's3object') {
+						itemsType = { type: 'object', resourceType: 's3object' }
+					} else {
+						itemsType = undefined
+					}
 				}
-			}}
-			id="array-type-narrowing"
-		>
-			<option value="string"> Items are strings</option>
-			<option value="enum">Items are strings from an enum</option>
-			{#if originalType != 'string[]'}
-				<option value="s3object">Items are S3 objects</option>
-				<option value="object"> Items are objects (JSON)</option>
-				<option value="resource"> Items are resources</option>
-				<option value="number">Items are numbers</option>
-				<option value="bytes">Items are bytes</option>
-			{/if}
-		</select>
+			}
+			items={[
+				{ value: 'string', label: "Items are strings or objects with a 'label/value' field" },
+				{ value: 'enum', label: 'Items are strings from an enum' },
+				...(originalType != 'string[]'
+					? [
+							{ value: 's3object', label: 'Items are S3 objects' },
+							{ value: 'object', label: 'Items are objects (JSON)' },
+							{ value: 'resource', label: 'Items are resources' },
+							{ value: 'number', label: 'Items are numbers' },
+							{ value: 'bytes', label: 'Items are bytes' }
+						]
+					: [])
+			] as { value: string; label: string }[]}
+		/>
 	</Label>
 {:else if itemsType?.resourceType}
 	<Label label="Resource type">

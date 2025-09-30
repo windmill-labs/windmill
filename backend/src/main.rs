@@ -10,9 +10,10 @@ use monitor::{
     load_base_url, load_otel, reload_critical_alerts_on_db_oversize,
     reload_delete_logs_periodically_setting, reload_indexer_config,
     reload_instance_python_version_setting, reload_maven_repos_setting,
-    reload_no_default_maven_setting, reload_nuget_config_setting, reload_ruby_repos_setting,
-    reload_timeout_wait_result_setting, send_current_log_file_to_object_store,
-    send_logs_to_object_store, WORKERS_NAMES,
+    reload_no_default_maven_setting, reload_nuget_config_setting,
+    reload_powershell_repo_pat_setting, reload_powershell_repo_url_setting,
+    reload_ruby_repos_setting, reload_timeout_wait_result_setting,
+    send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::postgres::PgListener;
@@ -45,7 +46,8 @@ use windmill_common::{
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
         LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
         NO_DEFAULT_MAVEN_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING,
-        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
         TIMEOUT_WAIT_RESULT_SETTING,
@@ -300,6 +302,19 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 }
 
 async fn windmill_main() -> anyhow::Result<()> {
+    let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
+    let mut monitor_killpill_rx = killpill_tx.subscribe();
+    let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
+    let server_killpill_rx = killpill_phase2_tx.subscribe();
+
+    let shutdown_tx = killpill_tx.clone();
+    let shutdown_rx = killpill_tx.subscribe();
+    tokio::spawn(async move {
+        if let Err(e) = windmill_common::shutdown_signal(shutdown_tx, shutdown_rx).await {
+            tracing::error!("Error in shutdown signal: {e:#}");
+        }
+    });
+
     dotenv::dotenv().ok();
 
     update_ca_certificates_if_requested();
@@ -435,16 +450,15 @@ async fn windmill_main() -> anyhow::Result<()> {
         environment
     } else {
         load_base_url(&conn)
-        .await
-        .unwrap_or_else(|_| "local".to_string())
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .split(".")
-        .next()
-        .unwrap_or_else(|| "local")
-        .to_string()
+            .await
+            .unwrap_or_else(|_| "local".to_string())
+            .trim_start_matches("https://")
+            .trim_start_matches("http://")
+            .split(".")
+            .next()
+            .unwrap_or_else(|| "local")
+            .to_string()
     };
-
 
     let _guard = windmill_common::tracing_init::initialize_tracing(&hostname, &mode, &environment);
 
@@ -464,11 +478,16 @@ async fn windmill_main() -> anyhow::Result<()> {
 
             if !skip_migration {
                 // migration code to avoid break
-                migration_handle = windmill_api::migrate_db(&db).await?;
+                migration_handle = windmill_api::migrate_db(&db, killpill_rx.resubscribe()).await?;
             } else {
                 tracing::info!("SKIP_MIGRATION set, skipping db migration...")
             }
         }
+    }
+
+    if killpill_rx.try_recv().is_ok() {
+        tracing::info!("Received early killpill, aborting startup");
+        return Ok(());
     }
 
     let worker_mode = num_workers > 0;
@@ -483,14 +502,6 @@ async fn windmill_main() -> anyhow::Result<()> {
 
         Connection::Sql(db)
     };
-
-    let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
-    let mut monitor_killpill_rx = killpill_tx.subscribe();
-    let (killpill_phase2_tx, _killpill_phase2_rx) = tokio::sync::broadcast::channel::<()>(2);
-    let server_killpill_rx = killpill_phase2_tx.subscribe();
-
-    let shutdown_signal =
-        windmill_common::shutdown_signal(killpill_tx.clone(), killpill_tx.subscribe());
 
     #[cfg(feature = "enterprise")]
     tracing::info!(
@@ -910,6 +921,8 @@ Windmill Community Edition {GIT_VERSION}
                                                                     }
                                                                 }
                                                                 &"flow" => {
+                                                                    let dynamic_input_key = windmill_common::jobs::generate_dynamic_input_key(workspace_id, path);
+                                                                    windmill_common::DYNAMIC_INPUT_CACHE.remove(&dynamic_input_key);
                                                                     windmill_common::FLOW_VERSION_CACHE.remove(&key);
                                                                 },
                                                                 _ => {
@@ -1042,6 +1055,12 @@ Windmill Community Edition {GIT_VERSION}
                                                         },
                                                         NUGET_CONFIG_SETTING => {
                                                             reload_nuget_config_setting(&conn).await
+                                                        },
+                                                        POWERSHELL_REPO_URL_SETTING => {
+                                                            reload_powershell_repo_url_setting(&conn).await
+                                                        },
+                                                        POWERSHELL_REPO_PAT_SETTING => {
+                                                            reload_powershell_repo_pat_setting(&conn).await
                                                         },
                                                         MAVEN_REPOS_SETTING => {
                                                             reload_maven_repos_setting(&conn).await
@@ -1256,10 +1275,9 @@ Windmill Community Edition {GIT_VERSION}
         }
 
         if mcp_mode {
-            futures::try_join!(shutdown_signal, workers_f, server_f)?;
+            futures::try_join!(workers_f, server_f)?;
         } else {
             futures::try_join!(
-                shutdown_signal,
                 workers_f,
                 monitor_f,
                 server_f,
@@ -1284,7 +1302,7 @@ Windmill Community Edition {GIT_VERSION}
             }
         }
     }
-    Ok(())
+    std::process::exit(0);
 }
 
 async fn listen_pg(url: &str) -> Option<PgListener> {

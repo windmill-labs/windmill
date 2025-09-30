@@ -16,6 +16,7 @@ mod java_executor;
 #[cfg(feature = "ruby")]
 mod ruby_executor;
 
+mod ai;
 mod ai_executor;
 mod bun_executor;
 pub mod common;
@@ -56,6 +57,7 @@ pub mod result_processor;
 mod rust_executor;
 mod sanitized_sql_params;
 mod schema;
+pub mod scoped_dependency_map;
 mod universal_pkg_installer;
 mod worker;
 mod worker_flow;

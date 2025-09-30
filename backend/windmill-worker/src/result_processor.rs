@@ -19,6 +19,7 @@ use uuid::Uuid;
 use windmill_common::{
     add_time,
     error::{self, Error},
+    flow_status::FlowJobDuration,
     jobs::JobKind,
     utils::WarnAfterExt,
     worker::{to_raw_value, Connection, WORKER_GROUP},
@@ -342,6 +343,7 @@ pub fn start_background_processor(
                         &w_id,
                         success,
                         Arc::new(result),
+                        None,
                         true,
                         &same_worker_tx,
                         &worker_dir,
@@ -410,6 +412,7 @@ pub async fn process_result(
     preprocessed_args: Option<HashMap<String, Box<RawValue>>>,
     conn: &Connection,
     duration: Option<i64>,
+    has_stream: bool,
 ) -> error::Result<bool> {
     match result {
         Ok(result) => {
@@ -426,6 +429,7 @@ pub async fn process_result(
                     cached_res_path,
                     token: token.to_string(),
                     duration,
+                    has_stream: Some(has_stream),
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -488,6 +492,7 @@ pub async fn process_result(
                     cached_res_path,
                     token: token.to_string(),
                     duration,
+                    has_stream: Some(has_stream),
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -562,6 +567,7 @@ pub async fn process_completed_job(
         duration,
         result_columns,
         preprocessed_args,
+        has_stream,
         ..
     }: JobCompleted,
     client: &AuthedClient,
@@ -582,6 +588,7 @@ pub async fn process_completed_job(
         let parent_job = job.parent_job.clone();
         let job_id = job.id.clone();
         let workspace_id = job.workspace_id.clone();
+        let started_at = job.started_at.clone();
 
         if job.flow_step_id.as_deref() == Some("preprocessor") {
             // Do this before inserting to `v2_job_completed` for backwards compatibility
@@ -614,7 +621,7 @@ pub async fn process_completed_job(
 
         add_time!(bench, "pre add_completed_job");
 
-        add_completed_job(
+        let (_, duration) = add_completed_job(
             db,
             &job,
             true,
@@ -625,6 +632,7 @@ pub async fn process_completed_job(
             canceled_by,
             false,
             duration,
+            has_stream.unwrap_or(false),
         )
         .await?;
         drop(job);
@@ -642,6 +650,7 @@ pub async fn process_completed_job(
                     &workspace_id,
                     true,
                     result,
+                    started_at.map(|x| FlowJobDuration { started_at: x, duration_ms: duration }),
                     false,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
@@ -682,6 +691,10 @@ pub async fn process_completed_job(
                     &job.workspace_id,
                     false,
                     Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
+                    duration.map(|x| FlowJobDuration {
+                        started_at: job.started_at.unwrap(),
+                        duration_ms: x,
+                    }),
                     false,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
@@ -783,6 +796,7 @@ pub async fn handle_job_error(
             &job.workspace_id,
             false,
             Arc::new(serde_json::value::to_raw_value(&wrapped_error).unwrap()),
+            None,
             unrecoverable,
             &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).clone(),
             worker_dir,

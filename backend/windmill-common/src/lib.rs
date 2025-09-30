@@ -18,7 +18,7 @@ use std::{
     },
 };
 
-use tokio::sync::broadcast;
+use tokio::{spawn, sync::broadcast};
 
 use ee_oss::CriticalErrorChannel;
 use error::Error;
@@ -152,6 +152,7 @@ lazy_static::lazy_static! {
 
     pub static ref DEPLOYED_SCRIPT_HASH_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
     pub static ref FLOW_VERSION_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
+    pub static ref DYNAMIC_INPUT_CACHE: Cache<String, Arc<jobs::DynamicInput>> = Cache::new(1000);
     pub static ref DEPLOYED_SCRIPT_INFO_CACHE: Cache<(String, i64), ScriptHashInfo> = Cache::new(1000);
     pub static ref FLOW_INFO_CACHE: Cache<(String, i64), FlowVersionInfo> = Cache::new(1000);
 
@@ -197,8 +198,47 @@ pub async fn shutdown_signal(
         },
     }
 
+    spawn(async move {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        tokio::select! {
+            _ = terminate() => {
+                tracing::info!("2nd shutdown monitor received terminate");
+            },
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("2nd shutdown monitor received ctrl-c");
+            },
+        }
+
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = rx.recv() => {
+                tracing::info!("2nd shutdown monitor received killpill");
+            },
+        }
+
+        tracing::info!("Second terminate signal received, forcefully exiting");
+
+        let handle = tokio::runtime::Handle::current();
+        let metrics = handle.metrics();
+        tracing::info!(
+            "Alive tasks: {}, global queue depth: {}",
+            metrics.num_alive_tasks(),
+            metrics.global_queue_depth()
+        );
+
+        std::process::exit(1);
+    });
+
     tracing::info!("signal received, starting graceful shutdown");
     let _ = tx.send();
+
+    spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(24 * 7 * 60 * 60)).await;
+        tracing::info!("Forcefully exiting after 7 days");
+        std::process::exit(1);
+    });
+
     Ok(())
 }
 
