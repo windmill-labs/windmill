@@ -58,6 +58,14 @@ lazy_static::lazy_static! {
     pub static ref ANSI_ESCAPE_RE: Regex = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
 }
 
+fn raw_to_string(x: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(x) {
+        Ok(serde_json::Value::String(x)) => x,
+        Ok(x) => serde_json::to_string(&x).unwrap_or_else(|_| String::new()),
+        _ => String::new(),
+    }
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bash_job(
     mem_peak: &mut i32,
@@ -512,12 +520,12 @@ async fn container_is_alive(client: &bollard::Docker, container_id: &str) -> boo
     }
 }
 
-fn val_to_string(v: serde_json::Value) -> String {
+fn val_to_pwsh_param(v: serde_json::Value) -> String {
     match v {
         serde_json::Value::Array(x) => format!(
             "@({})",
             x.into_iter()
-                .map(|v| val_to_string(v))
+                .map(|v| val_to_pwsh_param(v))
                 .collect::<Vec<_>>()
                 .join(",")
         ),
@@ -536,9 +544,9 @@ fn val_to_string(v: serde_json::Value) -> String {
     }
 }
 
-fn raw_to_string(x: &str) -> String {
+fn raw_to_pwsh_param(x: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(x) {
-        Ok(v) => val_to_string(v),
+        Ok(v) => val_to_pwsh_param(v),
         Err(e) => {
             tracing::error!("Error converting JSON to string: {:?}", e);
             "$null".to_string()
@@ -648,7 +656,7 @@ pub async fn handle_powershell_job(
             .map(|arg| {
                 (
                     arg.name.clone(),
-                    job_args.and_then(|x| x.get(&arg.name).map(|x| raw_to_string(x.get()))),
+                    job_args.and_then(|x| x.get(&arg.name).map(|x| raw_to_pwsh_param(x.get()))),
                 )
             })
             .collect::<Vec<(String, Option<String>)>>();
