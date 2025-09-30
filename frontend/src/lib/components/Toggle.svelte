@@ -110,11 +110,7 @@
 		<span
 			class={twMerge(
 				'ml-2 font-normal duration-50 select-none',
-				bothOptions || textDisabled
-					? checked
-						? 'text-tertiary'
-						: 'text-disabled'
-					: 'text-tertiary',
+				bothOptions || textDisabled ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
 				size === 'xs' || size === '2sm' ? 'text-xs' : size === '2xs' ? 'text-xs' : 'text-sm',
 				textClass
 			)}
