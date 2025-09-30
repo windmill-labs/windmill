@@ -501,6 +501,7 @@
 <DetailPageLayout
 	bind:selected={rightPaneSelected}
 	isOperator={$userStore?.operator}
+	forceSmallScreen={chatInputEnabled}
 	flow_json={{
 		value: flow?.value,
 		summary: flow?.summary,
@@ -577,7 +578,7 @@
 			<div class="flex flex-col h-full">
 				{#if chatInputEnabled}
 					<!-- Chat Mode: Scrollable layout like normal mode -->
-					<div class="w-full max-w-7xl p-4 mx-auto gap-2 bg-surface">
+					<div class="w-full p-4 mx-auto gap-2 bg-surface mt-8">
 						{#if flow?.archived}
 							<Alert type="error" title="Archived">This flow was archived</Alert>
 						{/if}
