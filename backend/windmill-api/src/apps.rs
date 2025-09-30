@@ -803,6 +803,37 @@ async fn get_secret_id(
     Ok(hx)
 }
 
+use windmill_common::error;
+
+
+async fn store_raw_app_file(
+    w_id: &str,
+    id: &i64,
+    data: bytes::Bytes,
+) -> Result<()> {
+
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    let object_store = windmill_common::s3_helpers::get_object_store().await;
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+    let object_store: Option<()> = None;
+    
+    let path = format!("{}/{}", w_id, id);
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if let Some(os) = object_store {
+
+        if let Err(e) = os
+            .put(&object_store::path::Path::from(path), data.into())
+            .await
+        {
+
+            tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
+            return Err(error::Error::ExecutionErr(format!("Failed to put {path} to s3")));
+        }
+    } else {
+        return Err(error::Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+    }
+    Ok(())
+}
 macro_rules! process_app_multipart {
     ($authed:expr, $user_db:expr, $db:expr, $w_id:expr, $path:expr, $multipart:expr, $internal_fn:expr) => {
         async {
@@ -831,9 +862,8 @@ macro_rules! process_app_multipart {
                     .await?;
                     saved_app = Some((npath, nid, ntx));
                 } else if name == "js" {
-                    if let Some((_npath, id, _tx)) = saved_app.as_ref() {
-                        let file_path = format!("{}/{}.js", file_path, id);
-                        std::fs::write(file_path, data).unwrap();
+                    if let Some((npath, id, tx)) = saved_app.as_ref() {
+                        store_raw_app_file($w_id, id, data, tx).await?;
                         uploaded_js = true;
                     } else {
                         return Err(Error::BadRequest(
@@ -841,7 +871,7 @@ macro_rules! process_app_multipart {
                         ));
                     }
                 } else if name == "css" {
-                    if let Some((_npath, id, _tx)) = saved_app.as_ref() {
+                    if let Some((_npath, id, tx)) = saved_app.as_ref() {
                         let file_path = format!("{}/{}.css", file_path, id);
                         std::fs::write(file_path, data).unwrap();
                     } else {
