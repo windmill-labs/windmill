@@ -18,7 +18,6 @@ use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use serde_json::Value;
 use sqlx::Pool;
-use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::{Deref, DerefMut};
@@ -36,6 +35,7 @@ use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
     DynamicInput, ENTRYPOINT_OVERRIDE,
 };
+use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 use windmill_common::DYNAMIC_INPUT_CACHE;
@@ -102,7 +102,7 @@ use windmill_queue::{
     PushArgsOwned, PushIsolationLevel,
 };
 
-use crate::flow_conversations;
+use crate::flow_conversations::{self, MessageType};
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -3529,7 +3529,7 @@ struct Preview {
     tag: Option<String>,
     dedicated_worker: Option<bool>,
     lock: Option<String>,
-    format: Option<String>
+    format: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -4052,7 +4052,7 @@ pub async fn run_flow_by_path_inner(
                 flow_conversations::create_message(
                     &mut tx,
                     conversation_id,
-                    "user",
+                    MessageType::User,
                     &user_msg,
                     None, // No job_id for user message
                     &authed.username,
@@ -4064,7 +4064,7 @@ pub async fn run_flow_by_path_inner(
                 flow_conversations::create_message(
                     &mut tx,
                     conversation_id,
-                    "assistant",
+                    MessageType::Assistant,
                     "",         // Empty content, will be updated when job completes
                     Some(uuid), // Associate with the job
                     &authed.username,
@@ -5647,7 +5647,6 @@ async fn run_wait_result_preview_script(
     return result;
 }
 
-
 async fn run_bundle_preview_script(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -5656,7 +5655,6 @@ async fn run_bundle_preview_script(
     Query(run_query): Query<RunJobQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> error::Result<(StatusCode, String)> {
-
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
@@ -5675,7 +5673,10 @@ async fn run_bundle_preview_script(
         let data = data.map_err(to_anyhow)?;
         if name == "preview" {
             let preview: Preview = serde_json::from_slice(&data).map_err(to_anyhow)?;
-            format = preview.format.and_then(|s| BundleFormat::from_string(&s)).unwrap_or(BundleFormat::Cjs);
+            format = preview
+                .format
+                .and_then(|s| BundleFormat::from_string(&s))
+                .unwrap_or(BundleFormat::Cjs);
 
             let scheduled_for = run_query.get_scheduled_for(&db).await?;
             let tag = run_query.tag.clone().or(preview.tag.clone());
@@ -5696,7 +5697,10 @@ async fn run_bundle_preview_script(
                 ltx,
                 &w_id,
                 JobPayload::Code(RawCode {
-                    hash: Some(windmill_common::scripts::codebase_to_hash(is_tar, format == BundleFormat::Esm)),
+                    hash: Some(windmill_common::scripts::codebase_to_hash(
+                        is_tar,
+                        format == BundleFormat::Esm,
+                    )),
                     content: preview.content.unwrap_or_default(),
                     path: preview.path,
                     language: preview.language.unwrap_or(ScriptLang::Deno),
@@ -5755,7 +5759,12 @@ async fn run_bundle_preview_script(
             uploaded = true;
 
             let path = windmill_common::s3_helpers::bundle(&w_id, &id);
-            upload_artifact_to_store(&path, data, &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR).await?;
+            upload_artifact_to_store(
+                &path,
+                data,
+                &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+            )
+            .await?;
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
     }

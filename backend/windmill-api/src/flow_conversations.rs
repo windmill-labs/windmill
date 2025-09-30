@@ -9,12 +9,20 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres};
 use uuid::Uuid;
 
-use crate::db::{ApiAuthed, DB};
+use crate::db::ApiAuthed;
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
     utils::{not_found_if_none, paginate, Pagination},
 };
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "MESSAGE_TYPE", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum MessageType {
+    User,
+    Assistant,
+}
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -38,7 +46,7 @@ pub struct FlowConversation {
 pub struct FlowConversationMessage {
     pub id: Uuid,
     pub conversation_id: Uuid,
-    pub message_type: String,
+    pub message_type: MessageType,
     pub content: String,
     pub job_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
@@ -227,7 +235,7 @@ async fn list_messages(
 pub async fn create_message(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     conversation_id: Uuid,
-    message_type: &str,
+    message_type: MessageType,
     content: &str,
     job_id: Option<Uuid>,
     username: &str,
@@ -256,7 +264,7 @@ pub async fn create_message(
         "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id)
          VALUES ($1, $2, $3, $4)",
         conversation_id,
-        message_type,
+        message_type as MessageType,
         content,
         job_id
     )

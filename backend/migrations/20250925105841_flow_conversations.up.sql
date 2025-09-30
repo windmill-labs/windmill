@@ -1,5 +1,8 @@
 -- Add up migration script here
 
+-- Create message_type enum
+CREATE TYPE MESSAGE_TYPE AS ENUM ('user', 'assistant');
+
 -- Create flow_conversation table
 CREATE TABLE flow_conversation (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -15,7 +18,7 @@ CREATE TABLE flow_conversation (
 CREATE TABLE flow_conversation_message (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     conversation_id UUID NOT NULL REFERENCES flow_conversation(id) ON DELETE CASCADE,
-    message_type VARCHAR(20) NOT NULL CHECK (message_type IN ('user', 'assistant', 'system')),
+    message_type MESSAGE_TYPE NOT NULL,
     content TEXT NOT NULL,
     job_id UUID REFERENCES v2_job(id),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
