@@ -628,6 +628,7 @@
 									onRunFlow={runFlowForChat}
 									{refreshConversations}
 									conversationId={selectedConversationId}
+									{deploymentInProgress}
 								/>
 							</div>
 						</div>

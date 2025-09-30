@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Button, Alert } from '$lib/components/common'
 	import { MessageCircle, Send, Loader2 } from 'lucide-svelte'
 	import { JobService, FlowConversationService, type FlowConversationMessage } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -10,13 +10,19 @@
 		onRunFlow: (args: Record<string, any>, conversationId?: string) => Promise<string | undefined>
 		refreshConversations?: () => Promise<void>
 		conversationId?: string
+		deploymentInProgress?: boolean
 	}
 
 	interface ChatMessage extends FlowConversationMessage {
 		loading?: boolean
 	}
 
-	let { onRunFlow, conversationId, refreshConversations }: Props = $props()
+	let {
+		onRunFlow,
+		conversationId,
+		refreshConversations,
+		deploymentInProgress = false
+	}: Props = $props()
 
 	let messages = $state<ChatMessage[]>([])
 	let inputMessage = $state('')
@@ -277,6 +283,9 @@
 			class="flex-1 overflow-y-auto p-4 space-y-4 bg-background"
 			onscroll={handleScroll}
 		>
+			{#if deploymentInProgress}
+				<Alert type="warning" title="Deployment in progress" size="xs" />
+			{/if}
 			{#if isLoadingMessages}
 				<div class="flex items-center justify-center">
 					<Loader2 size={24} class="animate-spin" />
@@ -330,17 +339,21 @@
 					bind:value={inputMessage}
 					use:autosize
 					onkeydown={handleKeyDown}
-					placeholder="Type your message here..."
-					class="flex-1 min-h-[40px] max-h-32 resize-none rounded-md border border-gray-200 dark:border-gray-600 bg-surface px-3 py-2 text-sm placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-					disabled={isLoading}
+					placeholder={deploymentInProgress
+						? 'Chat is disabled during deployment...'
+						: 'Type your message here...'}
+					class="flex-1 min-h-[40px] max-h-32 resize-none rounded-md border border-gray-200 dark:border-gray-600 bg-surface px-3 py-2 text-sm placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-opacity"
+					class:opacity-50={deploymentInProgress}
+					class:cursor-not-allowed={deploymentInProgress}
+					disabled={isLoading || deploymentInProgress}
 				></textarea>
 				<Button
 					size="md"
 					startIcon={{ icon: isLoading ? Loader2 : Send }}
-					disabled={!inputMessage?.trim() || isLoading}
+					disabled={!inputMessage?.trim() || isLoading || deploymentInProgress}
 					on:click={sendMessage}
 					iconOnly
-					title="Send message (Enter)"
+					title={deploymentInProgress ? 'Deployment in progress' : 'Send message (Enter)'}
 				/>
 			</div>
 		</div>
