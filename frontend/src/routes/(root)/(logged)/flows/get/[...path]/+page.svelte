@@ -576,35 +576,34 @@
 	{#snippet form()}
 		{#if flow}
 			<div class="flex flex-col h-full">
-				{#if chatInputEnabled}
-					<!-- Chat Mode: Scrollable layout like normal mode -->
-					<div class="w-full p-4 mx-auto gap-2 bg-surface mt-8">
-						{#if flow?.archived}
-							<Alert type="error" title="Archived">This flow was archived</Alert>
-						{/if}
+				<div
+					class="w-full {chatInputEnabled ? 'p-4 mt-8' : 'max-w-3xl p-8'} mx-auto gap-2 bg-surface"
+				>
+					{#if flow?.archived}
+						<Alert type="error" title="Archived">This flow was archived</Alert>
+					{/if}
 
+					<div class="mb-1">
 						{#if !emptyString(flow?.description)}
-							<div class="mb-1">
-								<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
-							</div>
+							<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
 						{/if}
+					</div>
 
-						{#if deploymentInProgress}
-							<HeaderBadge color="yellow">
-								<Loader2 size={12} class="inline animate-spin mr-1" />
-								Deployment in progress
-							</HeaderBadge>
-						{/if}
-						{#if flow.lock_error_logs && flow.lock_error_logs != ''}
-							<div class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4" role="alert">
-								<p class="font-bold">Error deploying this flow</p>
-								<p>
-									This flow has not been deployed successfully because of the following errors:
-								</p>
-								<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
-							</div>
-						{/if}
+					{#if deploymentInProgress}
+						<HeaderBadge color="yellow">
+							<Loader2 size={12} class="inline animate-spin mr-1" />
+							Deployment in progress
+						</HeaderBadge>
+					{/if}
+					{#if flow.lock_error_logs && flow.lock_error_logs != ''}
+						<div class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4" role="alert">
+							<p class="font-bold">Error deploying this flow</p>
+							<p> This flow has not been deployed successfully because of the following errors: </p>
+							<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
+						</div>
+					{/if}
 
+					{#if chatInputEnabled}
 						<!-- Chat Layout with Sidebar -->
 						<div
 							class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
@@ -631,36 +630,8 @@
 								/>
 							</div>
 						</div>
-					</div>
-				{:else}
-					<!-- Normal Mode: Scrollable layout -->
-					<div class="w-full max-w-3xl p-8 mx-auto gap-2 bg-surface">
-						{#if flow?.archived}
-							<Alert type="error" title="Archived">This flow was archived</Alert>
-						{/if}
-
-						<div class="mb-1">
-							{#if !emptyString(flow?.description)}
-								<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
-							{/if}
-						</div>
-
-						{#if deploymentInProgress}
-							<HeaderBadge color="yellow">
-								<Loader2 size={12} class="inline animate-spin mr-1" />
-								Deployment in progress
-							</HeaderBadge>
-						{/if}
-						{#if flow.lock_error_logs && flow.lock_error_logs != ''}
-							<div class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4" role="alert">
-								<p class="font-bold">Error deploying this flow</p>
-								<p>
-									This flow has not been deployed successfully because of the following errors:
-								</p>
-								<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
-							</div>
-						{/if}
-
+					{:else}
+						<!-- Normal Mode: Form Layout -->
 						<div class="flex flex-col align-left h-full">
 							<div class="flex flex-row justify-between">
 								<InputSelectedBadge
@@ -723,8 +694,8 @@
 								Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
 							</span>
 						</div>
-					</div>
-				{/if}
+					{/if}
+				</div>
 				<div class="mt-8">
 					<FlowGraphViewer
 						triggerNode={true}
