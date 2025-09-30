@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
