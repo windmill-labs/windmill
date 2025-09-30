@@ -2249,7 +2249,7 @@ async fn list_filtered_uuids(
     Ok(Json(jobs))
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct QueueStats {
     database_length: i64,
     suspended: Option<i64>,
@@ -6005,6 +6005,7 @@ struct BatchInfo {
     path: Option<String>,
     rawscript: Option<BatchRawScript>,
     tag: Option<String>,
+    number_of_shards: Option<usize>,
 }
 
 async fn insert_batch_jobs_to_db<'c, E: sqlx::Executor<'c, Database = Postgres>>(
@@ -6298,10 +6299,28 @@ async fn add_batch_jobs(
             ));
         }
 
+        let total_available_shards = shard_db_store.len();
+        let num_shards_to_use = if let Some(requested_shards) = batch_info.number_of_shards {
+            if requested_shards > total_available_shards {
+                return Err(Error::BadRequest(format!(
+                    "Requested {} shards but only {} shards are available",
+                    requested_shards, total_available_shards
+                )));
+            }
+            if requested_shards == 0 {
+                return Err(Error::BadRequest(
+                    "Number of shards must be greater than 0".to_string(),
+                ));
+            }
+            requested_shards
+        } else {
+            total_available_shards
+        };
+
         let mut uuid_per_db = {
-            let mut store = HashMap::with_capacity(shard_db_store.len());
-            for (shard_id, _) in shard_db_store {
-                store.insert(*shard_id, Vec::new());
+            let mut store = HashMap::with_capacity(num_shards_to_use);
+            for shard_id in 0..num_shards_to_use {
+                store.insert(shard_id, Vec::new());
             }
             store
         };
@@ -6309,7 +6328,7 @@ async fn add_batch_jobs(
         for uuid in &uuids {
             let mut hasher = DefaultHasher::new();
             uuid.hash(&mut hasher);
-            let shard_id = (hasher.finish() as usize) % shard_db_store.len();
+            let shard_id = (hasher.finish() as usize) % num_shards_to_use;
             uuid_per_db.get_mut(&shard_id).unwrap().push(*uuid);
         }
 
