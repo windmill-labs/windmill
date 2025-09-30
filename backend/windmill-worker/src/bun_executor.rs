@@ -1624,6 +1624,8 @@ pub async fn start_worker(
     )
     .await;
     let context_envs = build_envs_map(context.to_vec()).await;
+
+
     let mut format = BundleFormat::Cjs;
     if let Some(codebase) = codebase.as_ref() {
         let pulled_codebase = pull_codebase(w_id, codebase, job_dir).await?;
@@ -1756,7 +1758,11 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
         write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
     }
 
-    if !codebase.is_some() {
+    if format == BundleFormat::Esm {
+        annotation.nodejs = false;
+    }
+
+    if !codebase.is_some() || format == BundleFormat::Esm {
         build_loader(
             job_dir,
             base_internal_url,
