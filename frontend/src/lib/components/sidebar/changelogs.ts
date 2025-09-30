@@ -6,6 +6,17 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Flow Streaming & SSE Endpoints',
+		href: 'https://www.windmill.dev/changelog/flow-streaming-sse',
+		date: '2025-09-29'
+	},
+	{
+		label: 'AI Agents',
+		href: 'https://www.windmill.dev/changelog/ai-agents',
+		date: '2025-09-30'
+	},
+
+	{
 		label: 'Dynamic select for flows',
 		href: 'https://www.windmill.dev/changelog/dynamic-select-flows',
 		date: '2025-08-08'
