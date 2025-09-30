@@ -5,15 +5,15 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres};
 use uuid::Uuid;
 
 use crate::db::{ApiAuthed, DB};
-use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
-    utils::{paginate, Pagination},
+    utils::{not_found_if_none, paginate, Pagination},
 };
 
 pub fn workspaced_service() -> Router {
@@ -59,36 +59,34 @@ async fn list_conversations(
     let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.clone().begin(&authed).await?;
 
-    let conversations = if let Some(flow_path) = &query.flow_path {
-        sqlx::query_as::<Postgres, FlowConversation>(
-            "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
-             FROM flow_conversation
-             WHERE workspace_id = $1 AND created_by = $2 AND flow_path = $3
-             ORDER BY updated_at DESC
-             LIMIT $4 OFFSET $5",
-        )
-        .bind(&w_id)
-        .bind(&authed.username)
-        .bind(flow_path)
-        .bind(per_page as i64)
-        .bind(offset as i64)
+    let mut sqlb = SqlBuilder::select_from("flow_conversation");
+    sqlb.fields(&[
+        "id",
+        "workspace_id",
+        "flow_path",
+        "title",
+        "created_at",
+        "updated_at",
+        "created_by",
+    ])
+    .and_where_eq("workspace_id", "?".bind(&w_id))
+    .and_where_eq("created_by", "?".bind(&authed.username));
+
+    if let Some(flow_path) = &query.flow_path {
+        sqlb.and_where_eq("flow_path", "?".bind(flow_path));
+    }
+
+    sqlb.order_by("updated_at", true)
+        .limit(per_page as i64)
+        .offset(offset as i64);
+
+    let sql = sqlb.sql().map_err(|e| {
+        windmill_common::error::Error::InternalErr(format!("Failed to build SQL: {}", e))
+    })?;
+
+    let conversations = sqlx::query_as::<Postgres, FlowConversation>(&sql)
         .fetch_all(&mut *tx)
-        .await?
-    } else {
-        sqlx::query_as::<Postgres, FlowConversation>(
-            "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
-             FROM flow_conversation
-             WHERE workspace_id = $1 AND created_by = $2
-             ORDER BY updated_at DESC
-             LIMIT $3 OFFSET $4",
-        )
-        .bind(&w_id)
-        .bind(&authed.username)
-        .bind(per_page as i64)
-        .bind(offset as i64)
-        .fetch_all(&mut *tx)
-        .await?
-    };
+        .await?;
 
     tx.commit().await?;
     Ok(Json(conversations))
@@ -141,7 +139,6 @@ pub async fn get_or_create_conversation_with_id(
 
 async fn delete_conversation(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, conversation_id)): Path<(String, Uuid)>,
 ) -> Result<String> {
@@ -159,12 +156,7 @@ async fn delete_conversation(
     .fetch_optional(&mut *tx)
     .await?;
 
-    let conversation = conversation.ok_or_else(|| {
-        windmill_common::error::Error::NotFound(format!(
-            "Conversation not found or access denied: {}",
-            conversation_id
-        ))
-    })?;
+    not_found_if_none(conversation, "Conversation", conversation_id.to_string())?;
 
     // Delete the conversation (messages will be cascade deleted)
     sqlx::query!(
@@ -177,17 +169,6 @@ async fn delete_conversation(
     .await?;
 
     tx.commit().await?;
-
-    audit_log(
-        &db,
-        &authed,
-        "flow_conversation.delete",
-        ActionKind::Delete,
-        &w_id,
-        Some(&format!("{}/{}", conversation.flow_path, conversation_id)),
-        None,
-    )
-    .await?;
 
     Ok(format!("Conversation {} deleted", conversation_id))
 }

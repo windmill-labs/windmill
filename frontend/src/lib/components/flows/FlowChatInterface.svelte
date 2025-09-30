@@ -6,6 +6,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import autosize from '$lib/autosize'
 	import { waitJob } from '$lib/components/waitJob'
+	import { tick } from 'svelte'
 
 	interface Props {
 		onRunFlow: (args: Record<string, any>, conversationId?: string) => Promise<string | undefined>
@@ -38,6 +39,17 @@
 	let currentConversationId: string | undefined = $state(undefined)
 
 	const conversationsCache = $state<Record<string, ChatMessage[]>>({})
+
+	// Auto-scroll to bottom when messages change
+	$effect(() => {
+		const scroll = async () => {
+			if (messages.length > 0) {
+				await tick()
+				scrollToBottom()
+			}
+		}
+		scroll()
+	})
 
 	export function fillInputMessage(message: string) {
 		inputMessage = message
@@ -268,14 +280,6 @@
 					<p class="text-sm">Send a message to run the flow and see the results</p>
 				</div>
 			{:else}
-				<!-- Loading older messages indicator -->
-				{#if loadingMoreMessages}
-					<div class="flex items-center justify-center py-2">
-						<Loader2 size={16} class="animate-spin text-tertiary" />
-						<span class="text-xs text-tertiary ml-2">Loading older messages...</span>
-					</div>
-				{/if}
-
 				{#each messages as message (message.id)}
 					<div class="flex {message.message_type === 'user' ? 'justify-end' : 'justify-start'}">
 						<div
@@ -337,20 +341,3 @@
 		</div>
 	</div>
 </div>
-
-<style>
-	/* Custom scrollbar for messages container */
-	.overflow-y-auto::-webkit-scrollbar {
-		width: 6px;
-	}
-	.overflow-y-auto::-webkit-scrollbar-track {
-		background: transparent;
-	}
-	.overflow-y-auto::-webkit-scrollbar-thumb {
-		background: rgba(156, 163, 175, 0.5);
-		border-radius: 3px;
-	}
-	.overflow-y-auto::-webkit-scrollbar-thumb:hover {
-		background: rgba(156, 163, 175, 0.7);
-	}
-</style>
