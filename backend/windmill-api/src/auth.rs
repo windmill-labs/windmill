@@ -121,11 +121,10 @@ impl AuthCache {
 
                 match jwt_result {
                     Ok(claims) => {
-                        if w_id.is_some_and(|w_id| w_id != claims.workspace_id) {
+                        if w_id.is_some_and(|w_id| !claims.allowed_in_workspace(&w_id)) {
                             tracing::error!("JWT auth error: workspace_id mismatch");
                             return None;
                         }
-
                         let username_override = username_override_from_label(claims.label);
                         let authed = crate::db::ApiAuthed {
                             email: claims.email,
