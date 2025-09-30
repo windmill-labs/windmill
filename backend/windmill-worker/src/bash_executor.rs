@@ -521,12 +521,18 @@ fn val_to_string(v: serde_json::Value) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
-        serde_json::Value::Object(x) => format!(
-            "(ConvertFrom-Json '{}')",
-            serde_json::to_string(&x).unwrap_or_else(|_| "{}".to_string())
-        ),
+        serde_json::Value::Object(x) => {
+            let str = serde_json::to_string(&x).unwrap_or_else(|_| "{}".to_string());
+            let escaped = str.replace("'", "''");
+            format!("(ConvertFrom-Json '{escaped}')")
+        }
         serde_json::Value::Null => "$null".to_string(),
-        v => serde_json::to_string(&v).unwrap_or("$null".to_string()),
+        serde_json::Value::Bool(x) => format!("${x}"),
+        serde_json::Value::String(x) => {
+            let escaped = x.replace("'", "''");
+            format!("'{escaped}'")
+        }
+        serde_json::Value::Number(x) => x.to_string(),
     }
 }
 

@@ -129,7 +129,8 @@ fn parse_powershell_single_typ(typ: &str) -> Typ {
         "string" => Typ::Str(None),
         "int" | "long" => Typ::Int,
         "decimal" | "double" | "single" => Typ::Float,
-        "datetime" | "DateTime" => Typ::Datetime,
+        "datetime" => Typ::Datetime,
+        "bool" => Typ::Bool,
         "pscustomobject" => Typ::Object(ObjectType::new(None, None)),
         _ => Typ::Str(None),
     }
