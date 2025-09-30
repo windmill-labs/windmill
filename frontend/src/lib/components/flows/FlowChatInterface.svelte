@@ -13,6 +13,7 @@
 		refreshConversations?: () => Promise<void>
 		conversationId?: string
 		deploymentInProgress?: boolean
+		createConversation?: (options: { clearMessages?: boolean }) => Promise<string>
 	}
 
 	interface ChatMessage extends FlowConversationMessage {
@@ -23,7 +24,8 @@
 		onRunFlow,
 		conversationId,
 		refreshConversations,
-		deploymentInProgress = false
+		deploymentInProgress = false,
+		createConversation
 	}: Props = $props()
 
 	let messages = $state<ChatMessage[]>([])
@@ -36,7 +38,6 @@
 	let hasMoreMessages = $state(true)
 	let loadingMoreMessages = $state(false)
 	let scrollTimeout: ReturnType<typeof setTimeout> | undefined = undefined
-	let currentConversationId: string | undefined = $state(undefined)
 
 	const conversationsCache = $state<Record<string, ChatMessage[]>>({})
 
@@ -63,18 +64,17 @@
 	}
 
 	export async function loadConversationMessages(convId: string) {
-		currentConversationId = convId
 		page = 1
 		hasMoreMessages = true
 		await loadMessages(true)
 	}
 
 	async function loadMessages(reset: boolean) {
-		if (!$workspaceStore || !currentConversationId) return
+		if (!$workspaceStore || !conversationId) return
 
 		if (reset) {
-			if (conversationsCache[currentConversationId]) {
-				messages = conversationsCache[currentConversationId]
+			if (conversationsCache[conversationId]) {
+				messages = conversationsCache[conversationId]
 				return
 			}
 			isLoadingMessages = true
@@ -89,13 +89,13 @@
 
 			const response = await FlowConversationService.listConversationMessages({
 				workspace: $workspaceStore,
-				conversationId: currentConversationId,
+				conversationId: conversationId,
 				page: pageToFetch,
 				perPage: perPage
 			})
 
 			if (reset) {
-				conversationsCache[currentConversationId] = response
+				conversationsCache[conversationId] = response
 				messages = response
 				isLoadingMessages = false
 				await new Promise((resolve) => setTimeout(resolve, 100))
@@ -191,8 +191,14 @@
 
 		// Generate a new conversation ID if we don't have one
 		let currentConversationId = conversationId
+		if (!conversationId) {
+			const newConversationId = await createConversation?.({ clearMessages: false })
+			currentConversationId = newConversationId
+		}
+
 		if (!currentConversationId) {
-			currentConversationId = crypto.randomUUID()
+			console.error('No conversation ID found')
+			return
 		}
 
 		// Invalidate the conversation cache

@@ -12,7 +12,7 @@
 	interface Props {
 		flowPath: string
 		selectedConversationId?: string
-		onNewConversation: () => void
+		onNewConversation: (options: { clearMessages?: boolean }) => void
 		onSelectConversation: (conversationId: string, isDraft?: boolean) => void
 		onDeleteConversation: (conversationId: string) => void
 	}
@@ -138,7 +138,7 @@
 				size="sm"
 				color="light"
 				startIcon={{ icon: Plus }}
-				onclick={onNewConversation}
+				onclick={() => onNewConversation({ clearMessages: true })}
 				title="Start new conversation"
 				iconOnly={!isExpanded}
 				btnClasses="!justify-start"

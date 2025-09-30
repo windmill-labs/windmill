@@ -408,7 +408,7 @@
 	let selectedConversationId: string | undefined = $state(undefined)
 	let path = $derived(page.params.path ?? '')
 
-	async function handleNewConversation() {
+	async function handleNewConversation({ clearMessages = true }: { clearMessages?: boolean }) {
 		const newConversationId = crypto.randomUUID()
 
 		// Add the new conversation to the sidebar (returns id of draft or new conversation)
@@ -423,9 +423,11 @@
 		}
 
 		// Clear messages in the chat interface
-		if (flowChatInterface) {
+		if (flowChatInterface && clearMessages) {
 			flowChatInterface.clearMessages()
 		}
+
+		return newConversationId
 	}
 
 	async function handleSelectConversation(conversationId: string, isDraft?: boolean) {
@@ -624,6 +626,7 @@
 									{refreshConversations}
 									conversationId={selectedConversationId}
 									{deploymentInProgress}
+									createConversation={handleNewConversation}
 								/>
 							</div>
 						</div>
