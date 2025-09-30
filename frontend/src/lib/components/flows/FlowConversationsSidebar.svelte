@@ -127,7 +127,7 @@
 				startIcon={{ icon: Menu }}
 				onclick={() => (isExpanded = !isExpanded)}
 				iconOnly={!isExpanded}
-				btnClasses="!w-auto"
+				btnClasses="!justify-start"
 			>
 				{#if isExpanded}Conversations{/if}
 			</Button>
@@ -138,7 +138,7 @@
 				onclick={onNewConversation}
 				title="Start new conversation"
 				iconOnly={!isExpanded}
-				btnClasses="!w-auto"
+				btnClasses="!justify-start"
 			>
 				{#if isExpanded}New chat{/if}
 			</Button>
