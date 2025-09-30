@@ -1436,7 +1436,8 @@ pub async fn update_flow_status_after_job_completion_internal(
 
             // Persist AI agent step memory for chat-enabled flows
             // This happens only when the root flow completes
-            persist_ai_agent_memory(db, flow_job.id, w_id).await;
+            // Memory is now persisted incrementally during AI agent execution
+            // No need to persist at flow completion
         }
 
         if flow_job.is_canceled() {
@@ -4649,88 +4650,6 @@ async fn get_previous_job_result(
     }
 }
 
-/// Persist AI agent step memory for chat-enabled flows
-/// This function looks for conversation_id associated with the flow and saves
-/// messages from all AI agent steps to memory files
-async fn persist_ai_agent_memory(db: &sqlx::Pool<sqlx::Postgres>, flow_id: uuid::Uuid, w_id: &str) {
-    // Look for a conversation associated with this flow
-    let conversation_id = match sqlx::query_scalar!(
-        "SELECT conversation_id FROM flow_conversation_message WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
-        flow_id
-    )
-    .fetch_optional(db)
-    .await
-    {
-        Ok(Some(id)) => id,
-        Ok(None) => {
-            tracing::debug!("No conversation found for flow {}, skipping memory persistence", flow_id);
-            return;
-        }
-        Err(e) => {
-            tracing::error!("Failed to lookup conversation for flow {}: {}", flow_id, e);
-            return;
-        }
-    };
-
-    tracing::info!(
-        "Found conversation {} for flow {}, persisting AI agent memory",
-        conversation_id,
-        flow_id
-    );
-
-    // Find all AI agent step jobs for this flow and their results
-    let rows = match sqlx::query!(
-        r#"
-        SELECT j.flow_step_id, c.result AS "result!: Json<Box<RawValue>>"
-        FROM v2_job j
-        JOIN v2_job_completed c ON c.id = j.id
-        WHERE j.parent_job = $1 AND j.kind = 'aiagent'
-        "#,
-        flow_id
-    )
-    .fetch_all(db)
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::error!("Failed to fetch AI agent jobs for flow {}: {}", flow_id, e);
-            return;
-        }
-    };
-
-    if rows.is_empty() {
-        tracing::debug!("No AI agent steps found for flow {}", flow_id);
-        return;
-    }
-
-    tracing::info!("Found {} AI agent steps for flow {}", rows.len(), flow_id);
-
-    // Process each AI agent step result
-    for row in rows {
-        if let Some(step_id) = row.flow_step_id.as_deref() {
-            // Parse the result JSON and extract messages
-            let result_value: serde_json::Value = match serde_json::from_str(row.result.0.get()) {
-                Ok(v) => v,
-                Err(e) => {
-                    tracing::warn!("Failed to parse result JSON for step {}: {}", step_id, e);
-                    continue;
-                }
-            };
-
-            if let Some(messages) = result_value.get("messages") {
-                // Persist the messages to memory
-                if let Err(e) =
-                    crate::memory::append_messages(w_id, conversation_id, step_id, messages).await
-                {
-                    tracing::error!("Failed to persist memory for step {}: {}", step_id, e);
-                } else {
-                    tracing::info!("Successfully persisted memory for step {}", step_id);
-                }
-            } else {
-                tracing::info!("No messages found in result for step {}", step_id);
-            }
-        } else {
-            tracing::warn!("AI agent job missing flow_step_id, skipping memory persistence");
-        }
-    }
-}
+// Removed: persist_ai_agent_memory function
+// Memory is now persisted incrementally during AI agent execution in ai_executor.rs
+// This provides better resilience and immediate persistence after each step

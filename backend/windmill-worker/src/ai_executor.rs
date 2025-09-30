@@ -402,6 +402,71 @@ fn is_anthropic_provider(provider: &ProviderWithResource) -> bool {
     provider_is_anthropic || is_openrouter_anthropic
 }
 
+/// Persist new messages to memory immediately after they are added
+async fn persist_messages_to_memory(
+    db: &DB,
+    workspace_id: &str,
+    parent_job: &Uuid,
+    step_id: &str,
+    new_messages: &[OpenAIMessage],
+) -> Result<(), Error> {
+    if new_messages.is_empty() {
+        return Ok(());
+    }
+
+    // Look up conversation_id for this flow
+    let conversation_id = match sqlx::query_scalar!(
+        "SELECT conversation_id FROM flow_conversation_message
+         WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
+        parent_job
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+            tracing::debug!(
+                "No conversation found for parent job {}, skipping memory persistence",
+                parent_job
+            );
+            return Ok(());
+        }
+        Err(e) => {
+            tracing::error!(
+                "Failed to lookup conversation for parent job {}: {}",
+                parent_job,
+                e
+            );
+            return Ok(());
+        }
+    };
+
+    // Convert messages to JSON array
+    let messages_json = serde_json::to_value(new_messages)
+        .map_err(|e| Error::internal_err(format!("Failed to serialize messages: {}", e)))?;
+
+    // Persist to memory
+    if let Err(e) =
+        crate::memory::append_messages(db, workspace_id, conversation_id, step_id, &messages_json)
+            .await
+    {
+        tracing::error!(
+            "Failed to persist {} messages to memory for step {}: {}",
+            new_messages.len(),
+            step_id,
+            e
+        );
+    } else {
+        tracing::debug!(
+            "Persisted {} messages to memory for step {}",
+            new_messages.len(),
+            step_id
+        );
+    }
+
+    Ok(())
+}
+
 #[async_recursion]
 pub async fn run_agent(
     // connection
@@ -673,17 +738,30 @@ pub async fn run_agent(
 
                         if let Some(ref response_content) = response_content {
                             actions.push(AgentAction::Message {});
-                            messages.push(OpenAIMessage {
+                            let assistant_msg = OpenAIMessage {
                                 role: "assistant".to_string(),
                                 content: Some(OpenAIContent::Text(response_content.clone())),
                                 agent_action: Some(AgentAction::Message {}),
                                 ..Default::default()
-                            });
+                            };
+                            messages.push(assistant_msg.clone());
 
                             update_flow_status_module_with_actions(db, parent_job, &actions)
                                 .await?;
                             update_flow_status_module_with_actions_success(db, parent_job, true)
                                 .await?;
+
+                            // Persist assistant message to memory immediately
+                            if let Some(step_id) = job.flow_step_id.as_deref() {
+                                persist_messages_to_memory(
+                                    db,
+                                    &job.workspace_id,
+                                    parent_job,
+                                    step_id,
+                                    &[assistant_msg],
+                                )
+                                .await?;
+                            }
 
                             content = Some(OpenAIContent::Text(response_content.clone()));
                         }
@@ -947,7 +1025,7 @@ pub async fn run_agent(
                                         .await;
                                         let error_message =
                                             format!("Error running tool: {}", err_string);
-                                        messages.push(OpenAIMessage {
+                                        let tool_error_msg = OpenAIMessage {
                                             role: "tool".to_string(),
                                             content: Some(OpenAIContent::Text(
                                                 error_message.clone(),
@@ -959,7 +1037,8 @@ pub async fn run_agent(
                                                 module_id: tool.module.id.clone(),
                                             }),
                                             ..Default::default()
-                                        });
+                                        };
+                                        messages.push(tool_error_msg.clone());
                                         // Stream tool result (error case)
                                         if let Some(ref stream_event_processor) =
                                             stream_event_processor
@@ -979,6 +1058,18 @@ pub async fn run_agent(
                                             db, parent_job, false,
                                         )
                                         .await?;
+
+                                        // Persist tool error to memory immediately
+                                        if let Some(step_id) = job.flow_step_id.as_deref() {
+                                            persist_messages_to_memory(
+                                                db,
+                                                &job.workspace_id,
+                                                parent_job,
+                                                step_id,
+                                                &[tool_error_msg],
+                                            )
+                                            .await?;
+                                        }
                                     }
                                     Ok(success) => {
                                         let send_result =
@@ -1012,7 +1103,7 @@ pub async fn run_agent(
                                                 "Tool job completed but no result".to_string(),
                                             ));
                                         };
-                                        messages.push(OpenAIMessage {
+                                        let tool_result_msg = OpenAIMessage {
                                             role: "tool".to_string(),
                                             content: Some(OpenAIContent::Text(
                                                 result.get().to_string(),
@@ -1024,7 +1115,8 @@ pub async fn run_agent(
                                                 module_id: tool.module.id.clone(),
                                             }),
                                             ..Default::default()
-                                        });
+                                        };
+                                        messages.push(tool_result_msg.clone());
 
                                         // Stream tool result (success case)
                                         if let Some(ref stream_event_processor) =
@@ -1045,6 +1137,18 @@ pub async fn run_agent(
                                             db, parent_job, success,
                                         )
                                         .await?;
+
+                                        // Persist tool result to memory immediately
+                                        if let Some(step_id) = job.flow_step_id.as_deref() {
+                                            persist_messages_to_memory(
+                                                db,
+                                                &job.workspace_id,
+                                                parent_job,
+                                                step_id,
+                                                &[tool_result_msg],
+                                            )
+                                            .await?;
+                                        }
                                     }
                                 }
                             } else {
