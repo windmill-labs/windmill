@@ -22,8 +22,6 @@
 	import Badge from '$lib/components/Badge.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
-	import { AI_AGENT_SCHEMA } from '../flowInfers'
-	import { nextId } from '../flowModuleNextId'
 
 	interface Props {
 		noEditor: boolean
@@ -42,7 +40,6 @@
 	let dirtyPath = $state(false)
 
 	let displayWorkerTagPicker = $state(false)
-	let chatInputEnabled = $derived(Boolean(flowStore.val.value?.chat_input_enabled))
 
 	run(() => {
 		flowStore.val.tag ? (displayWorkerTagPicker = true) : null
@@ -130,103 +127,7 @@
 					/>
 				</Label>
 
-				<!-- Chat Input Section -->
-				<div>
-					<Toggle
-						textClass="font-normal text-sm"
-						size="sm"
-						checked={chatInputEnabled}
-						on:change={() => {
-							if (!chatInputEnabled) {
-								// Enable chat input - set in flow.value
-								flowStore.val.value.chat_input_enabled = true
-
-								// Set up the schema for chat input (without chat_input_enabled flag)
-								flowStore.val.schema = {
-									$schema: 'https://json-schema.org/draft/2020-12/schema',
-									type: 'object',
-									properties: {
-										user_message: {
-											type: 'string',
-											description: 'Message from user'
-										}
-									},
-									required: ['user_message']
-								}
-								const hasAiAgent = flowStore.val.value.modules.some(
-									(m) => m.value.type === 'aiagent'
-								)
-								if (!hasAiAgent) {
-									const aiAgentId = nextId(flowStateStore.val, flowStore.val)
-									flowStore.val.value.modules = [
-										...flowStore.val.value.modules,
-										{
-											id: aiAgentId,
-											value: {
-												type: 'aiagent',
-												tools: [],
-												input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce(
-													(accu, key) => {
-														if (key === 'user_message') {
-															accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
-														} else {
-															accu[key] = {
-																type: 'static',
-																value: undefined
-															}
-														}
-														return accu
-													},
-													{}
-												)
-											}
-										}
-									]
-									const scriptId = nextId(flowStateStore.val, flowStore.val)
-									flowStore.val.value.modules = [
-										...flowStore.val.value.modules,
-										{
-											id: scriptId,
-											value: {
-												type: 'rawscript',
-												content: `// import * as wmill from "windmill-client"
-
-export async function main(x: string) {
-  return x
-}`,
-												language: 'bun',
-												lock: `{
-  "dependencies": {}
-}
-//bun.lock
-<empty>`,
-												input_transforms: {
-													x: {
-														type: 'javascript',
-														expr: `results.${aiAgentId}.output`
-													}
-												}
-											}
-										}
-									]
-								}
-							} else {
-								// Disable chat input - remove from flow.value
-								if (flowStore.val.value) {
-									flowStore.val.value.chat_input_enabled = false
-								}
-							}
-						}}
-						options={{
-							right: 'Chat Input Mode',
-							rightTooltip:
-								'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter. The flow schema will be automatically set to accept only a user_message string input.'
-						}}
-						class="py-1"
-					/>
-				</div>
-
-				{#if flowStore.val.schema && enableAi && !flowStore.val.value?.chat_input_enabled}
+				{#if flowStore.val.schema && enableAi}
 					<AIFormSettings
 						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
 						type="flow"
