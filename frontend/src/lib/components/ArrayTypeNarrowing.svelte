@@ -80,7 +80,7 @@
 				}
 			}
 			items={[
-				{ value: 'string', label: 'Items are strings' },
+				{ value: 'string', label: "Items are strings or objects with a 'label/value' field" },
 				{ value: 'enum', label: 'Items are strings from an enum' },
 				...(originalType != 'string[]'
 					? [
