@@ -20,7 +20,8 @@ export const AI_AGENT_SCHEMA = {
 		},
 		user_message: {
 			type: 'string',
-			description: 'The message to give as input to the AI agent.'
+			description:
+				'The message to give as input to the AI agent. You can turn on chat input mode on the input interface to link this field to the message sent by the user.'
 		},
 		system_prompt: {
 			type: 'string',

@@ -700,7 +700,9 @@
 							{/if}
 							{#if argName && schema?.properties?.[argName]?.description}
 								<div class="text-xs italic py-1 text-hint">
-									<pre class="font-main">{schema.properties[argName].description}</pre>
+									<pre class="font-main whitespace-normal"
+										>{schema.properties[argName].description}</pre
+									>
 								</div>
 							{/if}
 						</div>
