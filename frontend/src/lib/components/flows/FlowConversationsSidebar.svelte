@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { MessageCircle, Plus, Trash2, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-svelte'
+	import { MessageCircle, Plus, Trash2, PanelLeftClose, PanelLeftOpen } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { FlowConversationService, type FlowConversation } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -104,19 +104,12 @@
 
 	// Initialize InfiniteList when component mounts or flowPath changes
 	$effect(() => {
-		async function init() {
-			// load one time to have the count
-			const response = await loadConversations(1, 20)
-			conversations = response
-		}
 		if ($workspaceStore && flowPath) {
 			if (infiniteList) {
-				untrack(async () => {
+				untrack(() => {
 					infiniteList?.setLoader(loadConversations)
 					infiniteList?.setDeleteItemFn(deleteConversation)
 				})
-			} else {
-				init()
 			}
 		}
 	})
@@ -169,56 +162,59 @@
 				<CountBadge count={conversations.length} small={true} alwaysVisible={true} />
 			</button>
 		</div>
-	{:else}
-		<div class="flex-1 overflow-hidden">
-			<InfiniteList
-				bind:this={infiniteList}
-				bind:items={conversations}
-				selectedItemId={selectedConversationId}
-				noBorder={true}
-				rounded={false}
-			>
-				{#snippet children({ item: conversation, hover })}
-					<div
-						class={twMerge(
-							'w-full p-1',
-							selectedConversationId === conversation.id
-								? 'bg-blue-200/30 text-blue-500 dark:bg-blue-600/30 text-blue-400'
-								: ''
-						)}
+	{/if}
+
+	<!-- Always mount InfiniteList, but hide it when collapsed -->
+	<div class="flex-1 overflow-hidden" class:hidden={!isExpanded}>
+		<InfiniteList
+			bind:this={infiniteList}
+			bind:items={conversations}
+			selectedItemId={selectedConversationId}
+			noBorder={true}
+			rounded={false}
+		>
+			{#snippet children({ item: conversation, hover })}
+				<div
+					class={twMerge(
+						'w-full p-1',
+						selectedConversationId === conversation.id
+							? 'bg-blue-200/30 text-blue-500 dark:bg-blue-600/30 text-blue-400'
+							: ''
+					)}
+				>
+					<Button
+						color="transparent"
+						size="xs"
+						onclick={() => onSelectConversation(conversation.id, conversation.isDraft)}
 					>
-						<Button
-							color="transparent"
-							size="xs"
-							onclick={() => onSelectConversation(conversation.id, conversation.isDraft)}
+						<span class="flex-1 text-left text-sm font-medium text-primary truncate">
+							{getConversationTitle(conversation)}
+						</span>
+						<button
+							class="ml-2 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-all {hover
+								? 'opacity-100'
+								: 'opacity-0'}"
+							onclick={(e) => {
+								e.stopPropagation()
+								infiniteList?.deleteItem(conversation.id)
+							}}
+							title="Delete conversation"
 						>
-							<span class="flex-1 text-left text-sm font-medium text-primary truncate">
-								{getConversationTitle(conversation)}
-							</span>
-							<button
-								class="ml-2 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-all {hover
-									? 'opacity-100'
-									: 'opacity-0'}"
-								onclick={(e) => {
-									e.stopPropagation()
-									infiniteList?.deleteItem(conversation.id)
-								}}
-								title="Delete conversation"
-							>
-								<Trash2 size={14} />
-							</button>
-						</Button>
-					</div>
-				{/snippet}
+							<Trash2 size={14} />
+						</button>
+					</Button>
+				</div>
+			{/snippet}
 
-				{#snippet empty()}
-					<div class="p-4 text-center">
-						<p class="text-sm text-secondary mb-2">No conversations yet</p>
-					</div>
-				{/snippet}
-			</InfiniteList>
-		</div>
+			{#snippet empty()}
+				<div class="p-4 text-center">
+					<p class="text-sm text-secondary mb-2">No conversations yet</p>
+				</div>
+			{/snippet}
+		</InfiniteList>
+	</div>
 
+	{#if isExpanded}
 		<!-- Footer -->
 		<div class="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
 			<p class="text-xs text-tertiary">
