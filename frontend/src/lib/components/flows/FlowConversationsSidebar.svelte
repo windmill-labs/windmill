@@ -4,6 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { FlowConversationService, type FlowConversation } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
 
 	interface Props {
 		flowPath: string
@@ -195,20 +196,16 @@
 	<!-- Conversations List -->
 	<div bind:this={conversationsContainer} class="flex-1 overflow-y-auto" onscroll={handleScroll}>
 		{#if !isExpanded}
-			<!-- Collapsed state - show chat icons -->
-			<div class="p-2 flex flex-col gap-2 items-center">
-				{#each conversations as conversation (conversation.id)}
-					<Button
-						color="light"
-						btnClasses={selectedConversationId === conversation.id
-							? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700'
-							: ''}
-						onclick={() => onSelectConversation(conversation.id, conversation.isDraft)}
-						title={getConversationTitle(conversation)}
-						startIcon={{ icon: MessageCircle }}
-						iconOnly
-					/>
-				{/each}
+			<!-- Collapsed state - show single chat icon with badge -->
+			<div class="p-2 flex flex-col items-center mt-2">
+				<button
+					class="relative w-[23px] h-[23px] rounded-md center-center hover:bg-surface-hover transition-all duration-100 text-secondary hover:text-primary group"
+					onclick={() => (isExpanded = true)}
+					title="{conversations.length} conversation{conversations.length !== 1 ? 's' : ''}"
+				>
+					<MessageCircle size={16} />
+					<CountBadge count={conversations.length} small={true} alwaysVisible={true} />
+				</button>
 			</div>
 		{:else if loading}
 			<div class="p-4 text-center">
