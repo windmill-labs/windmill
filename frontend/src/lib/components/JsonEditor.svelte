@@ -1,10 +1,8 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import Button from './common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -55,8 +53,8 @@
 			error = e.message
 		}
 	}
-	run(() => {
-		code != undefined && parseJson()
+	$effect(() => {
+		code != undefined && untrack(() => parseJson())
 	})
 </script>
 
