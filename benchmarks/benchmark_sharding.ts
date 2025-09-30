@@ -306,7 +306,7 @@ async function runShardingBenchmark(
   let completedJobs = 0;
   let lastElapsed = 0;
   let lastCompletedJobs = 0;
-  let totalMonitoringOverhead = 0; // Track cumulative monitoring time
+  let totalMonitoringOverhead = 0;
 
   let didStart = false;
   while (completedJobs < jobsSent) {
@@ -317,16 +317,16 @@ async function runShardingBenchmark(
 
       if (actual_queue < jobsSent) {
         start = Date.now();
+        totalMonitoringOverhead = 0;
         didStart = true;
       }
     } else {
-      await sleep(500);
+      await sleep(1);
       const monitoringStart = Date.now();
       completedJobs = await getCompletedJobsCount(NON_TEST_TAGS, pastJobs);
       totalMonitoringOverhead += Date.now() - monitoringStart;
 
-      const elapsed = start ? Date.now() - start - totalMonitoringOverhead : 0;
-      console.log({ totalMonitoringOverhead });
+      const elapsed = start ? Math.max(0, Date.now() - start - totalMonitoringOverhead) : 0;
       if (nStepsFlow > 0) {
         completedJobs = Math.floor(completedJobs / (nStepsFlow + 1));
       }
