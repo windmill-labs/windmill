@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { Button, Alert } from '$lib/components/common'
 	import { MessageCircle, Loader2, ArrowUp } from 'lucide-svelte'
-	import { JobService, FlowConversationService, type FlowConversationMessage } from '$lib/gen'
+	import { FlowConversationService, type FlowConversationMessage } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import autosize from '$lib/autosize'
+	import { waitJob } from '$lib/components/waitJob'
 
 	interface Props {
 		onRunFlow: (args: Record<string, any>, conversationId?: string) => Promise<string | undefined>
@@ -127,58 +128,28 @@
 
 	async function pollJobResult(jobId: string, messageId: string) {
 		try {
-			// Poll for job completion
-			const maxAttempts = 30 // 30 seconds max
-			let attempts = 0
+			const result = await waitJob(jobId)
 
-			while (attempts < maxAttempts) {
-				await new Promise((resolve) => setTimeout(resolve, 1000)) // Wait 1 second
-				attempts++
-
-				try {
-					const completedJob = await JobService.getCompletedJob({
-						workspace: $workspaceStore!,
-						id: jobId
-					})
-
-					if (completedJob) {
-						console.log('completedJob', completedJob)
-						// Job completed, update the message with the result
-						messages = messages.map((msg) =>
-							msg.id === messageId
-								? {
-										...msg,
-										loading: false,
-										content: formatJobResult(completedJob.result)
-									}
-								: msg
-						)
-						return
-					}
-				} catch (error) {
-					// Job not completed yet, continue polling
-					continue
-				}
-			}
-
-			// Timeout - mark as failed
+			// Job completed successfully, update the message with the result
 			messages = messages.map((msg) =>
 				msg.id === messageId
 					? {
 							...msg,
 							loading: false,
-							content: 'Job timed out or failed to complete'
+							content: formatJobResult(result)
 						}
 					: msg
 			)
 		} catch (error) {
 			console.error('Error polling job result:', error)
+
+			// Job failed, update the message with error
 			messages = messages.map((msg) =>
 				msg.id === messageId
 					? {
 							...msg,
 							loading: false,
-							content: 'Error retrieving job result'
+							content: 'Error: ' + (error?.message || String(error))
 						}
 					: msg
 			)
