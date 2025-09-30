@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { MessageCircle, Plus, Trash2, Menu } from 'lucide-svelte'
+	import { MessageCircle, Plus, Trash2, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { FlowConversationService, type FlowConversation } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -29,7 +29,7 @@
 		onDeleteConversation
 	}: Props = $props()
 
-	let isExpanded = $state(true)
+	let isExpanded = $state(false)
 	let infiniteList: InfiniteList | undefined = $state()
 	let conversations = $state<ConversationWithDraft[]>([])
 
@@ -124,12 +124,13 @@
 			<Button
 				size="sm"
 				color="light"
-				startIcon={{ icon: Menu }}
+				startIcon={{ icon: isExpanded ? PanelLeftClose : PanelLeftOpen }}
 				onclick={() => (isExpanded = !isExpanded)}
 				iconOnly={!isExpanded}
 				btnClasses="!justify-start"
+				label="Conversations"
 			>
-				{#if isExpanded}Conversations{/if}
+				Conversations
 			</Button>
 			<Button
 				size="sm"
@@ -139,8 +140,9 @@
 				title="Start new conversation"
 				iconOnly={!isExpanded}
 				btnClasses="!justify-start"
+				label="New chat"
 			>
-				{#if isExpanded}New chat{/if}
+				New chat
 			</Button>
 		</div>
 	</div>
