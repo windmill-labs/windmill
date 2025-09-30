@@ -224,7 +224,7 @@
 	<div class="w-full h-full relative">
 		<div
 			bind:this={div}
-			class="w-full h-full overflow-auto bg-surface-secondary pt-4 {noMaxH ? '' : 'max-h-screen'}"
+			class="w-full h-full overflow-auto bg-surface-tertiary pt-4 {noMaxH ? '' : 'max-h-screen'}"
 			data-nav-id={navigationId}
 		>
 			<div class="absolute z-10 top-0 right-0 flex flex-row-reverse justify-between text-sm">

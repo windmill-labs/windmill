@@ -5,8 +5,9 @@ const {
 const { zIndexes } = require('./src/lib/zIndexes')
 
 const lightTheme = {
-	surface: '#ffffff',
-	surfaceSecondary: '#f3f4f6',
+	surface: '#FBFBFD',
+	surfaceSecondary: '#ffffff',
+	surfaceTertiary: '#EFEFF4',
 	surfaceHover: '#e5e7eb',
 	surfaceDisabled: '#f9fafb',
 	surfaceSelected: '#d1d5db',
@@ -17,15 +18,16 @@ const lightTheme = {
 	textHint: '#757E8F',
 	textDisabled: '#a0aec0',
 
-	border: '#dddddd',
+	border: '#E5E7EB',
 	borderHover: '#cccccc'
 }
 
 const lightThemeRgb = makeRgb(lightTheme)
 
 const darkTheme = {
-	surface: '#2e3440',
-	surfaceSecondary: '#3b4252',
+	surface: '#262B35',
+	surfaceSecondary: '#2e3440',
+	surfaceTertiary: '#434c5e',
 	surfaceHover: '#454F64',
 	surfaceDisabled: '#212732',
 	surfaceSelected: '#434c5e',
@@ -408,6 +410,7 @@ const config = {
 
 			surface: 'rgb(var(--color-surface) / <alpha-value>)',
 			'surface-secondary': 'rgb(var(--color-surface-secondary) / <alpha-value>)',
+			'surface-tertiary': 'rgb(var(--color-surface-tertiary) / <alpha-value>)',
 			'surface-hover': 'rgb(var(--color-surface-hover) / <alpha-value>)',
 			'surface-disabled': 'rgb(var(--color-surface-disabled) / <alpha-value>)',
 			'surface-selected': 'rgb(var(--color-surface-selected) / <alpha-value>)',
@@ -420,6 +423,7 @@ const config = {
 
 			'surface-inverse': 'rgb(var(--color-surface-inverse) / <alpha-value>)',
 			'surface-secondary-inverse': 'rgb(var(--color-surface-secondary-inverse) / <alpha-value>)',
+			'surface-tertiary-inverse': 'rgb(var(--color-surface-tertiary-inverse) / <alpha-value>)',
 			'surface-hover-inverse': 'rgb(var(--color-surface-hover-inverse) / <alpha-value>)',
 			'surface-disabled-inverse': 'rgb(var(--color-surface-disabled-inverse) / <alpha-value>)',
 			'surface-selected-inverse': 'rgb(var(--color-surface-selected-inverse) / <alpha-value>)',
@@ -516,6 +520,7 @@ const config = {
 					color: lightTheme.textPrimary,
 					'--color-surface': lightThemeRgb.surface,
 					'--color-surface-secondary': lightThemeRgb.surfaceSecondary,
+					'--color-surface-tertiary': lightThemeRgb.surfaceTertiary,
 					'--color-surface-hover': lightThemeRgb.surfaceHover,
 					'--color-surface-disabled': lightThemeRgb.surfaceDisabled,
 					'--color-surface-selected': lightThemeRgb.surfaceSelected,
@@ -528,6 +533,7 @@ const config = {
 
 					'--color-surface-inverse': darkThemeRgb.surface,
 					'--color-surface-secondary-inverse': darkThemeRgb.surfaceSecondary,
+					'--color-surface-tertiary-inverse': darkThemeRgb.surfaceTertiary,
 					'--color-surface-hover-inverse': darkThemeRgb.surfaceHover,
 					'--color-surface-disabled-inverse': darkThemeRgb.surfaceDisabled,
 					'--color-surface-selected-inverse': darkThemeRgb.surfaceSelected,
@@ -559,6 +565,7 @@ const config = {
 
 						'--color-surface': darkThemeRgb.surface,
 						'--color-surface-secondary': darkThemeRgb.surfaceSecondary,
+						'--color-surface-tertiary': darkThemeRgb.surfaceTertiary,
 						'--color-surface-hover': darkThemeRgb.surfaceHover,
 						'--color-surface-disabled': darkThemeRgb.surfaceDisabled,
 						'--color-surface-selected': darkThemeRgb.surfaceSelected,
@@ -571,6 +578,7 @@ const config = {
 
 						'--color-surface-inverse': lightThemeRgb.surface,
 						'--color-surface-secondary-inverse': lightThemeRgb.surfaceSecondary,
+						'--color-surface-tertiary-inverse': lightThemeRgb.surfaceTertiary,
 						'--color-surface-hover-inverse': lightThemeRgb.surfaceHover,
 						'--color-surface-disabled-inverse': lightThemeRgb.surfaceDisabled,
 						'--color-surface-selected-inverse': lightThemeRgb.surfaceSelected,

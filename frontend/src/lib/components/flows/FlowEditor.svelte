@@ -139,7 +139,7 @@
 >
 	<Splitpanes>
 		<Pane size={50} minSize={15} class="h-full relative z-0">
-			<div class="grow overflow-hidden bg-gray h-full bg-surface-secondary relative">
+			<div class="grow overflow-hidden h-full bg-surface-tertiary relative">
 				{#if loading}
 					<div class="p-2 pt-10">
 						{#each new Array(6) as _}

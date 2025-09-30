@@ -585,7 +585,7 @@
 				nodesDraggable={false}
 				--background-color={false}
 			>
-				<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
+				<div class="absolute inset-0 !bg-surface-tertiary h-full"></div>
 				<Controls position="top-right" orientation="horizontal" showLock={false}>
 					{#if download}
 						<ControlButton

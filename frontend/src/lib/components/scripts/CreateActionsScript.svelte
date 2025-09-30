@@ -13,7 +13,7 @@
 		{aiDescription}
 		size="sm"
 		spacingSize="xl"
-		color="marine"
+		color="blue"
 		startIcon={{ icon: Plus }}
 		href="{base}/scripts/add"
 	>

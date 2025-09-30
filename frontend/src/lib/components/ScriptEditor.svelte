@@ -537,7 +537,7 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
-			<div class="h-full !overflow-visible bg-surface dark:bg-[#272D38] relative">
+			<div class="h-full !overflow-visible bg-surface-secondary dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
 					{#if assets?.length}
 						<AssetsDropdownButton {assets} />

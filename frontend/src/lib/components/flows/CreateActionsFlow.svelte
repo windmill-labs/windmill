@@ -32,7 +32,7 @@
 		startIcon={{ icon: Plus }}
 		endIcon={{ icon: BarsStaggered }}
 		href="{base}/flows/add?nodraft=true"
-		color="marine"
+		color="blue"
 		dropdownItems={[
 			{
 				label: 'Import from YAML',

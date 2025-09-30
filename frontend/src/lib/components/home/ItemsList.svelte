@@ -553,7 +553,7 @@
 				{showCode}
 			/>
 		{:else}
-			<div class="border rounded-md">
+			<div class="border rounded-md bg-surface-secondary">
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}

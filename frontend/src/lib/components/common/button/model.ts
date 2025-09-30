@@ -86,7 +86,7 @@ export namespace ButtonType {
 			border:
 				'border-frost-500 dark:border-frost-300 hover:border-frost-700 dark:hover:border-frost-400 focus-visible:border-frost-700 bg-surface hover:bg-frost-100 dark:hover:bg-frost-900 focus-visible:bg-frost-100 focus-visible:dark:text-frost-100 dark:focus-visible:bg-frost-900 text-frost-500 dark:text-frost-300 dark:hover:text-frost-400 hover:text-frost-700 focus-visible:text-frost-700 focus-visible:ring-frost-300',
 			contained:
-				'bg-frost-500 hover:bg-frost-700 focus-visible:bg-frost-700 text-white focus-visible:ring-frost-300 dark:bg-frost-500/90 dark:hover:bg-frost-600/90',
+				'bg-[#6E86FF] hover:bg-[#5469E3] focus-visible:bg-[#5469E3] text-white focus-visible:ring-frost-300',
 			divider: 'divide-x divide-frost-600'
 		},
 		marine: {
@@ -114,7 +114,7 @@ export namespace ButtonType {
 			border:
 				'border-marine-300 bg-surface hover:bg-surface-hover focus-visible:bg-surface-hover text-primary hover:text-secondary focus-visible:text-secondary focus-visible:ring-surface-selected-inverse dark:border-marine-200',
 			contained:
-				'bg-marine-400 hover:bg-marine-200 focus-visible:bg-surface-hover-inverse text-primary-inverse focus-visible:ring-surface-selected-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70 dark:text-primary-inverse',
+				'bg-[#2A356E] hover:bg-[#1F2953] focus-visible:bg-surface-hover-inverse text-primary-inverse focus-visible:ring-surface-selected-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70 dark:text-primary-inverse',
 			divider: 'divide-x divide-gray-800 dark:divide-gray-200'
 		},
 		gray: {
