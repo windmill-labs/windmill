@@ -22,6 +22,8 @@
 	import Badge from '$lib/components/Badge.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
+	import { AI_AGENT_SCHEMA } from '../flowInfers'
+	import { nextId } from '../flowModuleNextId'
 
 	interface Props {
 		noEditor: boolean
@@ -30,7 +32,7 @@
 
 	let { noEditor, enableAi }: Props = $props()
 
-	const { flowStore, initialPathStore, previewArgs, pathStore, customUi } =
+	const { flowStore, flowStateStore, initialPathStore, previewArgs, pathStore, customUi } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	function asSchema(x: any) {
@@ -137,9 +139,6 @@
 						on:change={() => {
 							if (!chatInputEnabled) {
 								// Enable chat input - set in flow.value
-								if (!flowStore.val.value) {
-									flowStore.val.value = { modules: [] }
-								}
 								flowStore.val.value.chat_input_enabled = true
 
 								// Set up the schema for chat input (without chat_input_enabled flag)
@@ -154,18 +153,63 @@
 									},
 									required: ['user_message']
 								}
-								flowStore.val.value.modules = [
-									{
-										id: 'a',
-										value: {
-											type: 'aiagent',
-											tools: [],
-											input_transforms: {
-												user_message: { type: 'javascript', expr: 'flow_input.user_message' }
+								const hasAiAgent = flowStore.val.value.modules.some(
+									(m) => m.value.type === 'aiagent'
+								)
+								if (!hasAiAgent) {
+									const aiAgentId = nextId(flowStateStore.val, flowStore.val)
+									flowStore.val.value.modules = [
+										...flowStore.val.value.modules,
+										{
+											id: aiAgentId,
+											value: {
+												type: 'aiagent',
+												tools: [],
+												input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce(
+													(accu, key) => {
+														if (key === 'user_message') {
+															accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
+														} else {
+															accu[key] = {
+																type: 'static',
+																value: undefined
+															}
+														}
+														return accu
+													},
+													{}
+												)
 											}
 										}
-									}
-								]
+									]
+									const scriptId = nextId(flowStateStore.val, flowStore.val)
+									flowStore.val.value.modules = [
+										...flowStore.val.value.modules,
+										{
+											id: scriptId,
+											value: {
+												type: 'rawscript',
+												content: `// import * as wmill from "windmill-client"
+
+export async function main(x: string) {
+  return x
+}`,
+												language: 'bun',
+												lock: `{
+  "dependencies": {}
+}
+//bun.lock
+<empty>`,
+												input_transforms: {
+													x: {
+														type: 'javascript',
+														expr: `results.${aiAgentId}.output`
+													}
+												}
+											}
+										}
+									]
+								}
 							} else {
 								// Disable chat input - remove from flow.value
 								if (flowStore.val.value) {

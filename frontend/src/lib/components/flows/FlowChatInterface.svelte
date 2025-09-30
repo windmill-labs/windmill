@@ -30,6 +30,8 @@
 	let scrollTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 	let currentConversationId: string | undefined = $state(undefined)
 
+	const conversationsCache = $state<Record<string, ChatMessage[]>>({})
+
 	export function fillInputMessage(message: string) {
 		inputMessage = message
 	}
@@ -52,6 +54,10 @@
 		if (!$workspaceStore || !currentConversationId) return
 
 		if (reset) {
+			if (conversationsCache[currentConversationId]) {
+				messages = conversationsCache[currentConversationId]
+				return
+			}
 			isLoadingMessages = true
 		} else {
 			loadingMoreMessages = true
@@ -70,6 +76,7 @@
 			})
 
 			if (reset) {
+				conversationsCache[currentConversationId] = response
 				messages = response
 				isLoadingMessages = false
 				await new Promise((resolve) => setTimeout(resolve, 100))
@@ -198,6 +205,9 @@
 		if (!currentConversationId) {
 			currentConversationId = crypto.randomUUID()
 		}
+
+		// Invalidate the conversation cache
+		delete conversationsCache[currentConversationId]
 
 		const userMessage: ChatMessage = {
 			id: crypto.randomUUID(),
