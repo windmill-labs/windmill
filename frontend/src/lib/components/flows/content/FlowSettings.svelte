@@ -30,7 +30,7 @@
 
 	let { noEditor, enableAi }: Props = $props()
 
-	const { flowStore, flowStateStore, initialPathStore, previewArgs, pathStore, customUi } =
+	const { flowStore, initialPathStore, previewArgs, pathStore, customUi } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
 	function asSchema(x: any) {

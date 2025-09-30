@@ -196,7 +196,13 @@
 								: 'opacity-0'}"
 							onclick={(e) => {
 								e.stopPropagation()
-								infiniteList?.deleteItem(conversation.id)
+								if (conversation.isDraft) {
+									// just remove first conversation as it is the draft
+									conversations = [...conversations.slice(1)]
+									onDeleteConversation(conversation.id)
+								} else {
+									infiniteList?.deleteItem(conversation.id)
+								}
 							}}
 							title="Delete conversation"
 						>

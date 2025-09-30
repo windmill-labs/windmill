@@ -444,12 +444,7 @@
 
 	async function refreshConversations() {
 		if (flowConversationsSidebar) {
-			const newConversations = await flowConversationsSidebar.refreshConversations()
-			console.log('newConversations', newConversations)
-			if (newConversations) {
-				console.log('newConversations[0]', newConversations[0])
-				selectedConversationId = newConversations[0]?.id
-			}
+			await flowConversationsSidebar.refreshConversations()
 		}
 	}
 
