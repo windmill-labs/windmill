@@ -59,6 +59,7 @@ export function safeSelectItems<T>(
 	list: (T | { value: T; label?: string } | undefined | null)[] | undefined | null
 ): { value: T; label?: string }[] {
 	if (!list) return []
+	if (!Array.isArray(list)) return []
 	return list
 		.filter((item) => item !== undefined && item !== null)
 		.map((item) => {
