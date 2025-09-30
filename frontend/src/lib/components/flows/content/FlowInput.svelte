@@ -45,12 +45,11 @@
 	import type { ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
 	import FlowChatInterface from '../FlowChatInterface.svelte'
-	import { runFlowPreview } from '../utils'
 
 	interface Props {
 		noEditor: boolean
 		disabled: boolean
-		onTestFlow?: () => void
+		onTestFlow?: () => Promise<string | undefined>
 		previewOpen: boolean
 	}
 
@@ -209,8 +208,8 @@
 		}
 	}
 
-	function runPreview() {
-		onTestFlow?.()
+	async function runPreview() {
+		await onTestFlow?.()
 	}
 
 	function updatePreviewSchemaAndArgs(payload: any) {
@@ -363,12 +362,9 @@
 		firstStepInputs?.resetSelected(true)
 	}
 
-	async function runFlowWithMessage(args: Record<string, any>): Promise<string> {
-		const flow = {
-			value: flowStore.val.value,
-			summary: flowStore.val.summary || ''
-		}
-		return await runFlowPreview(args, flow, $pathStore || '', undefined)
+	async function runFlowWithMessage(args: Record<string, any>): Promise<string | undefined> {
+		const jobId = await onTestFlow?.()
+		return jobId
 	}
 </script>
 

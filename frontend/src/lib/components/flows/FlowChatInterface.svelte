@@ -7,7 +7,7 @@
 	import autosize from '$lib/autosize'
 
 	interface Props {
-		onRunFlow: (args: Record<string, any>, conversationId?: string) => Promise<string>
+		onRunFlow: (args: Record<string, any>, conversationId?: string) => Promise<string | undefined>
 		refreshConversations?: () => Promise<void>
 		conversationId?: string
 	}
@@ -227,6 +227,11 @@
 			// The backend will automatically store messages when the flow runs
 			const jobId = await onRunFlow({ user_message: messageContent }, currentConversationId)
 
+			if (!jobId) {
+				console.error('No jobId returned from onRunFlow')
+				return
+			}
+
 			// Add assistant message placeholder
 			const assistantMessageId = crypto.randomUUID()
 			const assistantMessage: ChatMessage = {
@@ -295,7 +300,7 @@
 					<div class="flex {message.message_type === 'user' ? 'justify-end' : 'justify-start'}">
 						<div
 							class="max-w-[80%] rounded-lg p-3 {message.message_type === 'user'
-								? 'bg-blue-500 text-white'
+								? 'bg-surface-secondary text-white'
 								: 'bg-surface border border-gray-200 dark:border-gray-600'}"
 						>
 							{#if message.message_type === 'user'}

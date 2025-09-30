@@ -94,9 +94,9 @@
 	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
 
-	export function test() {
+	export async function test(): Promise<string | undefined> {
 		renderCount++
-		runPreview(previewArgs.val, undefined)
+		return await runPreview(previewArgs.val, undefined)
 	}
 
 	const {
@@ -140,6 +140,7 @@
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
 	) {
+		let newJobId: string | undefined = undefined
 		if (stepHistoryLoader?.flowJobInitial !== false) {
 			stepHistoryLoader?.setFlowJobInitial(false)
 		}
@@ -147,7 +148,8 @@
 			lastPreviewFlow = JSON.stringify(flowStore.val)
 			flowProgressBar?.reset()
 			const newFlow = extractFlow(previewMode)
-			jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
+			newJobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
+			jobId = newJobId
 			isRunning = true
 			if (inputSelected) {
 				savedArgs = $state.snapshot(previewArgs.val)
@@ -160,6 +162,7 @@
 			jobId = undefined
 		}
 		schemaFormWithArgPicker?.refreshHistory()
+		return newJobId
 	}
 
 	function onKeyDown(event: KeyboardEvent) {

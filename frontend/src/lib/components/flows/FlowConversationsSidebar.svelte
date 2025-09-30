@@ -169,6 +169,7 @@
 	<div class="flex-shrink-0 p-2 border-b border-gray-200 dark:border-gray-700">
 		<div class="flex flex-col gap-2">
 			<Button
+				size="sm"
 				color="light"
 				startIcon={{ icon: Menu }}
 				onclick={() => (isExpanded = !isExpanded)}
@@ -178,6 +179,7 @@
 				{#if isExpanded}Conversations{/if}
 			</Button>
 			<Button
+				size="sm"
 				color="light"
 				startIcon={{ icon: Plus }}
 				onclick={onNewConversation}
