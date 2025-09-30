@@ -13,6 +13,8 @@ use anyhow::anyhow;
 use futures::TryFutureExt;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
+use windmill_common::scripts::hash_to_codebase_id;
+use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
 use windmill_common::{
@@ -20,7 +22,6 @@ use windmill_common::{
     apps::AppScriptId,
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
     schema::{should_validate_schema, SchemaValidator},
-    scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::{create_directory_async, WarnAfterExt},
     worker::{
         make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT,
@@ -64,7 +65,7 @@ use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::FlowNodeId,
     jobs::JobKind,
-    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang, PREVIEW_IS_CODEBASE_HASH},
+    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     utils::StripPath,
     worker::{CLOUD_HOSTED, NO_LOGS, WORKER_CONFIG, WORKER_GROUP},
     DB, IS_READY,
@@ -262,6 +263,12 @@ const DOTNET_DEFAULT_PATH: &str = "/usr/bin/dotnet";
 pub const SAME_WORKER_REQUIREMENTS: &'static str =
     "SameWorkerSender is required because this job may be part of a flow";
 
+#[derive(Deserialize, Clone)]
+pub struct PowershellRepo {
+    pub url: String,
+    pub pat: String,
+}
+
 lazy_static::lazy_static! {
 
     pub static ref SLEEP_QUEUE: u64 = std::env::var("SLEEP_QUEUE")
@@ -343,6 +350,8 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
     pub static ref NUGET_CONFIG: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref POWERSHELL_REPO_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref POWERSHELL_REPO_PAT: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref MAVEN_REPOS: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref NO_DEFAULT_MAVEN: AtomicBool = AtomicBool::new(std::env::var("NO_DEFAULT_MAVEN")
         .ok()
@@ -2361,12 +2370,13 @@ pub async fn handle_queued_job(
             | JobKind::Flow
             | JobKind::FlowDependencies,
             x,
-        ) => match x.map(|x| x.0) {
-            None | Some(PREVIEW_IS_CODEBASE_HASH) | Some(PREVIEW_IS_TAR_CODEBASE_HASH) => Some(
+        ) => if x.map(|x| x.0).is_none_or(|x| is_special_codebase_hash(x)) {
+            Some(
                 cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow.clone())
                     .await?,
-            ),
-            _ => None,
+            ) 
+        } else {
+                None
         },
         _ => None,
     };
@@ -2859,12 +2869,7 @@ async fn handle_code_execution_job(
         ScriptMetadata { language, envs, codebase, schema_validator, schema },
     ) = match job.kind {
         JobKind::Preview => {
-            let codebase = match job.runnable_id.map(|x| x.0) {
-                Some(PREVIEW_IS_CODEBASE_HASH) => Some(job.id.to_string()),
-                Some(PREVIEW_IS_TAR_CODEBASE_HASH) => Some(format!("{}.tar", job.id)),
-                _ => None,
-            };
-
+            let codebase = job.runnable_id.and_then(|x| hash_to_codebase_id(&job.id.to_string(), x.0));
             if codebase.is_none() && job.runnable_id.is_some() {
                 (arc_data, arc_metadata) =
                     cache::script::fetch(conn, job.runnable_id.unwrap()).await?;

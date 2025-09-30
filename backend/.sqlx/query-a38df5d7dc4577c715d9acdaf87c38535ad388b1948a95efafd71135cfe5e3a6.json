@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, worker_group, event_type::text, desired_workers, reason, applied_at FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT 5",
+  "query": "SELECT id, worker_group, event_type::text, desired_workers, reason, applied_at FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -36,7 +36,9 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Text",
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -48,5 +50,5 @@
       false
     ]
   },
-  "hash": "6d134b137ae81534e145fc5b6474cf963ee26a3ad3a0a3d8dc064cb14c8fd9a6"
+  "hash": "a38df5d7dc4577c715d9acdaf87c38535ad388b1948a95efafd71135cfe5e3a6"
 }
