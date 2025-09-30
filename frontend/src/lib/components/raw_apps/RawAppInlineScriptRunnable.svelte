@@ -44,7 +44,6 @@
 
 	function getSchema(runnable: RunnableWithFields) {
 		if (runnable?.type == 'runnableByPath') {
-			console.log('runnable.schema', runnable.schema)
 			return runnable.schema
 		} else if (runnable?.type == 'runnableByName' && runnable.inlineScript) {
 			return runnable.inlineScript.schema

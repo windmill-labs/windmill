@@ -180,7 +180,7 @@
 			replaceScript(event.data)
 		} else if (event.data.type == 'testBundle') {
 			if (event.data.id == lastCommandId) {
-				testBundle(event.data.file, event.data.isTar)
+				testBundle(event.data.file, event.data.isTar, event.data.format)
 			} else {
 				sendUserToast(`Bundle received ${lastCommandId} was obsolete, ignoring`, true)
 			}
@@ -252,7 +252,7 @@
 		window.parent?.postMessage({ type: 'refresh' }, '*')
 	})
 
-	async function testBundle(file: string, isTar: boolean) {
+	async function testBundle(file: string, isTar: boolean, format: 'cjs' | 'esm' | undefined) {
 		jobLoader?.abstractRun(
 			async () => {
 				try {
@@ -265,7 +265,8 @@
 							path: currentScript?.path,
 							args,
 							language: currentScript?.language,
-							tag: currentScript?.tag
+							tag: currentScript?.tag,
+							format
 						})
 					)
 					// sendUserToast(JSON.stringify(file))

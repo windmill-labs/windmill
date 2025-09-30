@@ -211,9 +211,53 @@ impl Display for ScriptKind {
     }
 }
 
-pub const PREVIEW_IS_CODEBASE_HASH: i64 = -42;
-pub const PREVIEW_IS_TAR_CODEBASE_HASH: i64 = -43;
+const PREVIEW_IS_CODEBASE_HASH: i64 = -42;
+const PREVIEW_IS_TAR_CODEBASE_HASH: i64 = -43;
+const PREVIEW_IS_ESM_CODEBASE_HASH: i64 = -44;
+const PREVIEW_IS_TAR_ESM_CODEBASE_HASH: i64 = -45;
 
+pub fn is_special_codebase_hash(hash: i64) -> bool {
+    hash == PREVIEW_IS_CODEBASE_HASH || hash == PREVIEW_IS_TAR_CODEBASE_HASH || hash == PREVIEW_IS_ESM_CODEBASE_HASH || hash == PREVIEW_IS_TAR_ESM_CODEBASE_HASH
+}
+
+pub fn codebase_to_hash(is_tar: bool, is_esm: bool) -> i64 {
+    if is_tar {
+        if is_esm {
+            PREVIEW_IS_TAR_ESM_CODEBASE_HASH
+        } else {
+            PREVIEW_IS_TAR_CODEBASE_HASH
+        }
+    } else {
+        if is_esm {
+            PREVIEW_IS_ESM_CODEBASE_HASH
+        } else {
+            PREVIEW_IS_CODEBASE_HASH
+        }
+    }
+}
+
+
+pub fn hash_to_codebase_id(job_id: &str, hash: i64) -> Option<String> {
+    match hash {
+        PREVIEW_IS_CODEBASE_HASH => Some(job_id.to_string()),
+        PREVIEW_IS_TAR_CODEBASE_HASH => Some(format!("{}.tar", job_id)),
+        PREVIEW_IS_ESM_CODEBASE_HASH => Some(format!("{}.esm", job_id)),
+        PREVIEW_IS_TAR_ESM_CODEBASE_HASH => Some(format!("{}.esm.tar", job_id)),
+        _ => None,
+    }
+}
+
+
+pub struct CodebaseInfo {
+    pub is_tar: bool,
+    pub is_esm: bool,
+}
+
+pub fn id_to_codebase_info(id: &str) -> CodebaseInfo {
+    let is_tar = id.ends_with(".tar");
+    let is_esm = id.contains(".esm");
+    CodebaseInfo { is_tar, is_esm }
+}
 #[derive(Serialize, sqlx::FromRow)]
 pub struct Script {
     pub workspace_id: String,

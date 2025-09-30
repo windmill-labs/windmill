@@ -290,12 +290,20 @@
 				on:click={handleClick}
 				size={resolvedConfig.size}
 				color={resolvedConfig.color}
-				title={resolvedConfig.tooltip && String(resolvedConfig.tooltip).length > 0 ? String(resolvedConfig.tooltip) : undefined}
+				title={resolvedConfig.tooltip && String(resolvedConfig.tooltip).length > 0
+					? String(resolvedConfig.tooltip)
+					: undefined}
 				loading={resolvedConfig.runInBackground ? backgroundClickFeedback : loading}
 			>
 				{#if resolvedConfig.beforeIcon}
 					{#key resolvedConfig.beforeIcon}
-						<div class={resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0 ? "min-w-4" : ""} bind:this={beforeIconComponent}></div>
+						<div
+							class={resolvedConfig.label?.toString() &&
+							resolvedConfig.label?.toString()?.length > 0
+								? 'min-w-4'
+								: ''}
+							bind:this={beforeIconComponent}
+						></div>
 					{/key}
 				{/if}
 				{#if resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0}
@@ -303,7 +311,13 @@
 				{/if}
 				{#if resolvedConfig.afterIcon}
 					{#key resolvedConfig.afterIcon}
-						<div class={resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0 ? "min-w-4" : ""} bind:this={afterIconComponent}></div>
+						<div
+							class={resolvedConfig.label?.toString() &&
+							resolvedConfig.label?.toString()?.length > 0
+								? 'min-w-4'
+								: ''}
+							bind:this={afterIconComponent}
+						></div>
 					{/key}
 				{/if}
 			</Button>
