@@ -375,16 +375,19 @@
 		return jobId
 	}
 
-	function hasExistingInputs(): boolean {
+	function hasOtherInputs(): boolean {
+		const properties = flowStore.val.schema?.properties
 		return Boolean(
-			flowStore.val.schema?.properties && Object.keys(flowStore.val.schema.properties).length > 0
+			properties &&
+				Object.keys(properties).length > 0 &&
+				!(Object.keys(properties).length === 1 && Object.keys(properties).includes('user_message'))
 		)
 	}
 
 	function handleToggleChatMode() {
 		if (!chatInputEnabled) {
 			// Check if there are existing inputs
-			if (hasExistingInputs()) {
+			if (hasOtherInputs()) {
 				showChatModeWarning = true
 			} else {
 				enableChatMode()
@@ -442,9 +445,13 @@
 				...flowStore.val.value.modules,
 				{
 					id: scriptId,
+					summary: 'Extract AI agent output',
 					value: {
 						type: 'rawscript',
-						content: `// import * as wmill from "windmill-client"
+						content: `// This script extracts only the AI agent's output text response
+// It filters out metadata and tool calls, returning just the final message
+// The x input is the AI agent's output (results.aiagent_id.output)
+// import * as wmill from "windmill-client"
 
 export async function main(x: string) {
   return x
