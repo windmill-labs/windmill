@@ -10,7 +10,7 @@ use regex_lite::Regex;
 use serde_json::json;
 
 use std::{collections::HashMap, str::FromStr};
-use windmill_parser::{Arg, MainArgSignature, Typ};
+use windmill_parser::{Arg, MainArgSignature, ObjectType, Typ};
 
 pub fn parse_bash_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_bash_file(&code)?;
@@ -48,7 +48,7 @@ lazy_static::lazy_static! {
     static ref RE_BASH: Regex = Regex::new(r#"(?m)^(\w+)="\$(?:(\d+)|\{(\d+)\}|\{(\d+):-(.*)\})"(?:[\t ]*)?(?:#.*)?$"#).unwrap();
 
     pub static ref RE_POWERSHELL_PARAM: Regex = Regex::new(r#"(?m)param[\t ]*\(([^)]*)\)"#).unwrap();
-    static ref RE_POWERSHELL_ARGS: Regex = Regex::new(r#"(?:\[(\w+)\])?\$(\w+)[\t ]*(?:=[\t ]*(?:(?:(?:"|')([^"\n\r\$]*)(?:"|'))|([\d.]+)))?"#).unwrap();
+    static ref RE_POWERSHELL_ARGS: Regex = Regex::new(r#"(?:\[([\w\[\]]+)\])?\$(\w+)[\t ]*(?:=[\t ]*(?:(?:(?:"|')([^"\n\r\$]*)(?:"|'))|([\d.]+)))?"#).unwrap();
 }
 
 fn parse_bash_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
@@ -124,6 +124,18 @@ fn split_pwsh_args(code: &str) -> Vec<&str> {
     splits
 }
 
+fn parse_powershell_single_typ(typ: &str) -> Typ {
+    match typ.to_lowercase().as_str() {
+        "string" => Typ::Str(None),
+        "int" | "long" => Typ::Int,
+        "decimal" | "double" | "single" => Typ::Float,
+        "datetime" => Typ::Datetime,
+        "bool" => Typ::Bool,
+        "pscustomobject" => Typ::Object(ObjectType::new(None, None)),
+        _ => Typ::Str(None),
+    }
+}
+
 fn parse_powershell_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     let param_wrapper = RE_POWERSHELL_PARAM.captures(code);
     let mut args = vec![];
@@ -136,12 +148,12 @@ fn parse_powershell_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
                 let name = cap.get(2).unwrap().as_str().to_string();
 
                 let mut parsed_typ = if let Some(typ) = typ {
-                    match typ.as_str() {
-                        "string" => Some(Typ::Str(None)),
-                        "int" | "long" => Some(Typ::Int),
-                        "decimal" | "double" | "single" => Some(Typ::Float),
-                        "datetime" | "DateTime" => Some(Typ::Datetime),
-                        _ => None,
+                    if typ.as_str().ends_with("[]") {
+                        Some(Typ::List(Box::new(parse_powershell_single_typ(
+                            typ.as_str().strip_suffix("[]").unwrap(),
+                        ))))
+                    } else {
+                        Some(parse_powershell_single_typ(typ.as_str()))
                     }
                 } else {
                     None
@@ -254,7 +266,7 @@ non_required="${5:-}"
 
     #[test]
     fn test_parse_powershell_sig() -> anyhow::Result<()> {
-        let code = r#"param($Msg, [string]$Msg2, $Dflt = "default value, with comma", [int]$Nb = 3 , $Nb2 = 5.0, $Nb3 = 5, $Wahoo = $env:WAHOO)"#;
+        let code = r#"param($Msg, [string]$Msg2, $Dflt = "default value, with comma", [int]$Nb = 3 , $Nb2 = 5.0, $Nb3 = 5, $Wahoo = $env:WAHOO, [PSCustomObject]$Obj, [string[]]$Arr)"#;
         assert_eq!(
             parse_powershell_sig(code)?,
             MainArgSignature {
@@ -313,6 +325,22 @@ non_required="${5:-}"
                         otyp: None,
                         name: "Wahoo".to_string(),
                         typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "Obj".to_string(),
+                        typ: Typ::Object(ObjectType::new(None, None)),
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "Arr".to_string(),
+                        typ: Typ::List(Box::new(Typ::Str(None))),
                         default: None,
                         has_default: false,
                         oidx: None

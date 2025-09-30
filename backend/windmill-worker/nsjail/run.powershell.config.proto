@@ -78,8 +78,8 @@ mount {
 }
 
 mount {
-    src: "{JOB_DIR}/wrapper.sh"
-    dst: "/tmp/wrapper.sh"
+    src: "{JOB_DIR}/wrapper.ps1"
+    dst: "/tmp/wrapper.ps1"
     is_bind: true
     mandatory: false
 }

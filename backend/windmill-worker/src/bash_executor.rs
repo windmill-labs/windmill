@@ -58,6 +58,14 @@ lazy_static::lazy_static! {
     pub static ref ANSI_ESCAPE_RE: Regex = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
 }
 
+fn raw_to_string(x: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(x) {
+        Ok(serde_json::Value::String(x)) => x,
+        Ok(x) => serde_json::to_string(&x).unwrap_or_else(|_| String::new()),
+        _ => String::new(),
+    }
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_bash_job(
     mem_peak: &mut i32,
@@ -512,11 +520,37 @@ async fn container_is_alive(client: &bollard::Docker, container_id: &str) -> boo
     }
 }
 
-fn raw_to_string(x: &str) -> String {
+fn val_to_pwsh_param(v: serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Array(x) => format!(
+            "@({})",
+            x.into_iter()
+                .map(|v| val_to_pwsh_param(v))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        serde_json::Value::Object(x) => {
+            let str = serde_json::to_string(&x).unwrap_or_else(|_| "{}".to_string());
+            let escaped = str.replace("'", "''");
+            format!("(ConvertFrom-Json '{escaped}')")
+        }
+        serde_json::Value::Null => "$null".to_string(),
+        serde_json::Value::Bool(x) => format!("${x}"),
+        serde_json::Value::String(x) => {
+            let escaped = x.replace("'", "''");
+            format!("'{escaped}'")
+        }
+        serde_json::Value::Number(x) => x.to_string(),
+    }
+}
+
+fn raw_to_pwsh_param(x: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(x) {
-        Ok(serde_json::Value::String(x)) => x,
-        Ok(x) => serde_json::to_string(&x).unwrap_or_else(|_| String::new()),
-        _ => String::new(),
+        Ok(v) => val_to_pwsh_param(v),
+        Err(e) => {
+            tracing::error!("Error converting JSON to string: {:?}", e);
+            "$null".to_string()
+        }
     }
 }
 
@@ -622,17 +656,16 @@ pub async fn handle_powershell_job(
             .map(|arg| {
                 (
                     arg.name.clone(),
-                    job_args
-                        .and_then(|x| x.get(&arg.name).map(|x| raw_to_string(x.get())))
-                        .unwrap_or_else(String::new),
+                    job_args.and_then(|x| x.get(&arg.name).map(|x| raw_to_pwsh_param(x.get()))),
                 )
             })
-            .collect::<Vec<(String, String)>>();
+            .collect::<Vec<(String, Option<String>)>>();
+
         args_owned
-            .iter()
-            .map(|(n, v)| vec![format!("--{n}"), format!("{v}")])
-            .flatten()
+            .into_iter()
+            .filter_map(|(n, v)| v.map(|v| format!("-{n} {v}")))
             .collect::<Vec<_>>()
+            .join(" ")
     };
 
     #[cfg(windows)]
@@ -785,26 +818,16 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     write_file(job_dir, "main.ps1", content.as_str())?;
 
-    #[cfg(unix)]
-    write_file(
-        job_dir,
-        "wrapper.sh",
-        &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n{} -F ./main.ps1 \"$@\" 2>&1 | tee bp\nwait $!", POWERSHELL_PATH.as_str()),
-    )?;
-
-    #[cfg(windows)]
     write_file(
         job_dir,
         "wrapper.ps1",
         &format!(
-            "param([string[]]$args)\n\
-    $ErrorActionPreference = 'Stop'\n\
+            "$ErrorActionPreference = 'Stop'\n\
     $pipe = New-TemporaryFile\n\
-    & \"{}\" -File ./main.ps1 @args 2>&1 | Tee-Object -FilePath $pipe\n\
+    ./main.ps1 {pwsh_args} 2>&1 | Tee-Object -FilePath $pipe\n\
     Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
     Remove-Item $pipe\n\
-    exit $LASTEXITCODE\n",
-            POWERSHELL_PATH.as_str()
+    exit $LASTEXITCODE\n"
         ),
     )?;
 
@@ -835,14 +858,13 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{CACHE_DIR}", POWERSHELL_CACHE_DIR),
         )?;
-        let mut cmd_args = vec![
+        let cmd_args = vec![
             "--config",
             "run.config.proto",
             "--",
-            BIN_BASH.as_str(),
-            "wrapper.sh",
+            POWERSHELL_PATH.as_str(),
+            "wrapper.ps1",
         ];
-        cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
         cmd.current_dir(job_dir)
             .env_clear()
@@ -857,21 +879,17 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
         start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let mut cmd;
-        let mut cmd_args;
+        let mut cmd = Command::new(POWERSHELL_PATH.as_str());
+        let cmd_args;
 
         #[cfg(unix)]
         {
-            cmd_args = vec!["wrapper.sh"];
-            cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
-            cmd = Command::new(BIN_BASH.as_str());
+            cmd_args = vec!["wrapper.ps1"];
         }
 
         #[cfg(windows)]
         {
-            cmd_args = vec![r".\wrapper.ps1".to_string()];
-            cmd_args.extend(pwsh_args.iter().map(|x| x.replace("--", "-")));
-            cmd = Command::new(POWERSHELL_PATH.as_str());
+            cmd_args = vec![r".\wrapper.ps1"];
         }
 
         cmd.current_dir(job_dir)
