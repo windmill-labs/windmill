@@ -104,11 +104,20 @@
 
 	// Initialize InfiniteList when component mounts or flowPath changes
 	$effect(() => {
-		if ($workspaceStore && flowPath && infiniteList) {
-			untrack(() => {
-				infiniteList?.setLoader(loadConversations)
-				infiniteList?.setDeleteItemFn(deleteConversation)
-			})
+		async function init() {
+			// load one time to have the count
+			const response = await loadConversations(1, 20)
+			conversations = response
+		}
+		if ($workspaceStore && flowPath) {
+			if (infiniteList) {
+				untrack(async () => {
+					infiniteList?.setLoader(loadConversations)
+					infiniteList?.setDeleteItemFn(deleteConversation)
+				})
+			} else {
+				init()
+			}
 		}
 	})
 </script>

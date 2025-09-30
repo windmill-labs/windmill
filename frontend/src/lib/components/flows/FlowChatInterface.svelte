@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, Alert } from '$lib/components/common'
-	import { MessageCircle, Send, Loader2 } from 'lucide-svelte'
+	import { MessageCircle, Loader2, ArrowUp } from 'lucide-svelte'
 	import { JobService, FlowConversationService, type FlowConversationMessage } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -309,7 +309,7 @@
 					<div class="flex {message.message_type === 'user' ? 'justify-end' : 'justify-start'}">
 						<div
 							class="max-w-[80%] rounded-lg p-3 {message.message_type === 'user'
-								? 'bg-surface-secondary text-white'
+								? 'bg-surface-secondary'
 								: 'bg-surface border border-gray-200 dark:border-gray-600'}"
 						>
 							{#if message.message_type === 'user'}
@@ -333,8 +333,11 @@
 		</div>
 
 		<!-- Chat Input -->
-		<div class="p-4 border-t border-gray-200 dark:border-gray-700 bg-surface">
-			<div class="flex gap-2">
+		<div class="p-2 bg-surface">
+			<div
+				class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-surface"
+				class:opacity-50={deploymentInProgress}
+			>
 				<textarea
 					bind:value={inputMessage}
 					use:autosize
@@ -342,19 +345,23 @@
 					placeholder={deploymentInProgress
 						? 'Chat is disabled during deployment...'
 						: 'Type your message here...'}
-					class="flex-1 min-h-[40px] max-h-32 resize-none rounded-md border border-gray-200 dark:border-gray-600 bg-surface px-3 py-2 text-sm placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-opacity"
-					class:opacity-50={deploymentInProgress}
+					class="flex-1 min-h-[24px] max-h-32 resize-none !border-0 !bg-transparent text-sm placeholder-gray-400 !outline-none !ring-0 p-0 !shadow-none focus:!border-0 focus:!outline-none focus:!ring-0 focus:!shadow-none"
 					class:cursor-not-allowed={deploymentInProgress}
 					disabled={isLoading || deploymentInProgress}
+					rows={3}
 				></textarea>
-				<Button
-					size="md"
-					startIcon={{ icon: isLoading ? Loader2 : Send }}
-					disabled={!inputMessage?.trim() || isLoading || deploymentInProgress}
-					on:click={sendMessage}
-					iconOnly
-					title={deploymentInProgress ? 'Deployment in progress' : 'Send message (Enter)'}
-				/>
+				<div class="flex-shrink-0 pr-2">
+					<Button
+						color="blue"
+						size="xs2"
+						btnClasses="!rounded-full !p-1.5"
+						startIcon={{ icon: isLoading ? Loader2 : ArrowUp }}
+						disabled={!inputMessage?.trim() || isLoading || deploymentInProgress}
+						on:click={sendMessage}
+						iconOnly
+						title={deploymentInProgress ? 'Deployment in progress' : 'Send message (Enter)'}
+					/>
+				</div>
 			</div>
 		</div>
 	</div>
