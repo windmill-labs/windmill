@@ -5,6 +5,9 @@
 	import { FlowConversationService, type FlowConversation } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
+	import InfiniteList from '$lib/components/InfiniteList.svelte'
+	import { untrack } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		flowPath: string
@@ -26,19 +29,12 @@
 		onDeleteConversation
 	}: Props = $props()
 
+	let isExpanded = $state(true)
+	let infiniteList: InfiniteList | undefined = $state()
 	let conversations = $state<ConversationWithDraft[]>([])
-	let loading = $state(false)
-	let isExpanded = $state(false)
-	let page = $state(1)
-	let perPage = 20
-	let hasMore = $state(true)
-	let loadingMore = $state(false)
-	let conversationsContainer: HTMLDivElement | undefined = $state()
-	let scrollTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	export async function refreshConversations() {
-		page = 1
-		return await loadConversations(true)
+		return await infiniteList?.loadData('forceRefresh')
 	}
 
 	export async function addNewConversation(conversationId: string, username: string) {
@@ -67,83 +63,38 @@
 		return conversationId
 	}
 
-	async function loadConversations(reset: boolean = false, pageToFetch: number = 1) {
-		if (!$workspaceStore || !flowPath) return
-
-		if (reset) {
-			loading = true
-			page = 1
-		} else {
-			loadingMore = true
-			page = pageToFetch
-		}
+	async function loadConversations(page: number, perPage: number) {
+		if (!$workspaceStore || !flowPath) return []
 
 		try {
 			const response = await FlowConversationService.listFlowConversations({
 				workspace: $workspaceStore,
 				flowPath: flowPath,
-				page: pageToFetch,
+				page: page,
 				perPage: perPage
 			})
 
-			if (reset) {
-				conversations = response
-			} else {
-				conversations = [...conversations, ...response]
-			}
-
-			// If we got fewer items than perPage, we've reached the end
-			hasMore = response.length === perPage
-
-			loading = false
-			loadingMore = false
-			return conversations
+			return response
 		} catch (error) {
 			console.error('Failed to load conversations:', error)
 			sendUserToast('Failed to load conversations', true)
-			if (reset) {
-				conversations = []
-			}
-			loading = false
-			loadingMore = false
-			hasMore = false
 			return []
 		}
 	}
 
-	function handleScroll() {
-		// Clear existing timeout
-		if (scrollTimeout) {
-			clearTimeout(scrollTimeout)
-		}
-
-		// Debounce scroll events
-		scrollTimeout = setTimeout(() => {
-			if (!conversationsContainer || !hasMore || loadingMore) return
-
-			const { scrollTop, scrollHeight, clientHeight } = conversationsContainer
-			// Load more when user scrolls to within 100px of the bottom
-			if (scrollTop + clientHeight >= scrollHeight - 10) {
-				loadConversations(false, page + 1)
-			}
-		}, 200)
-	}
-
-	async function deleteConversation(conversationId: string, event: Event) {
-		event.stopPropagation()
-
+	async function deleteConversation(conversationId: string) {
 		try {
 			await FlowConversationService.deleteFlowConversation({
 				workspace: $workspaceStore!,
 				conversationId
 			})
 
-			conversations = conversations.filter((c) => c.id !== conversationId)
 			onDeleteConversation(conversationId)
 			sendUserToast('Conversation deleted successfully')
 		} catch (error) {
 			console.error('Failed to delete conversation:', error)
 			sendUserToast('Failed to delete conversation', true)
+			throw error
 		}
 	}
 
@@ -151,12 +102,13 @@
 		return conversation.title || `Conversation ${conversation.created_at.slice(0, 10)}`
 	}
 
-	// Load conversations when component mounts or flowPath changes
+	// Initialize InfiniteList when component mounts or flowPath changes
 	$effect(() => {
-		if ($workspaceStore && flowPath) {
-			page = 1
-			hasMore = true
-			loadConversations(true)
+		if ($workspaceStore && flowPath && infiniteList) {
+			untrack(() => {
+				infiniteList?.setLoader(loadConversations)
+				infiniteList?.setDeleteItemFn(deleteConversation)
+			})
 		}
 	})
 </script>
@@ -194,84 +146,69 @@
 	</div>
 
 	<!-- Conversations List -->
-	<div bind:this={conversationsContainer} class="flex-1 overflow-y-auto" onscroll={handleScroll}>
-		{#if !isExpanded}
-			<!-- Collapsed state - show single chat icon with badge -->
-			<div class="p-2 flex flex-col items-center mt-2">
-				<button
-					class="relative w-[23px] h-[23px] rounded-md center-center hover:bg-surface-hover transition-all duration-100 text-secondary hover:text-primary group"
-					onclick={() => (isExpanded = true)}
-					title="{conversations.length} conversation{conversations.length !== 1 ? 's' : ''}"
-				>
-					<MessageCircle size={16} />
-					<CountBadge count={conversations.length} small={true} alwaysVisible={true} />
-				</button>
-			</div>
-		{:else if loading}
-			<div class="p-4 text-center">
-				<div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto"></div>
-				<p class="text-sm text-tertiary mt-2">Loading conversations...</p>
-			</div>
-		{:else if conversations.length === 0}
-			<div class="p-4 text-center">
-				<MessageCircle size={48} class="mx-auto mb-4 opacity-30 text-tertiary" />
-				<p class="text-sm text-secondary mb-2">No conversations yet</p>
-				<p class="text-xs text-tertiary">Start a new conversation to get started</p>
-			</div>
-		{:else}
-			<div class="p-2">
-				{#each conversations as conversation (conversation.id)}
+	{#if !isExpanded}
+		<!-- Collapsed state - show single chat icon with badge -->
+		<div class="p-2 flex flex-col items-center mt-2">
+			<button
+				class="relative w-[23px] h-[23px] rounded-md center-center hover:bg-surface-hover transition-all duration-100 text-secondary hover:text-primary group"
+				onclick={() => (isExpanded = true)}
+				title="{conversations.length} conversation{conversations.length !== 1 ? 's' : ''}"
+			>
+				<MessageCircle size={16} />
+				<CountBadge count={conversations.length} small={true} alwaysVisible={true} />
+			</button>
+		</div>
+	{:else}
+		<div class="flex-1 overflow-hidden">
+			<InfiniteList
+				bind:this={infiniteList}
+				bind:items={conversations}
+				selectedItemId={selectedConversationId}
+				noBorder={true}
+				rounded={false}
+			>
+				{#snippet children({ item: conversation, hover })}
 					<div
-						class="w-full p-3 rounded-md text-left hover:bg-surface-hover transition-colors mb-2 group
-							{selectedConversationId === conversation.id
-							? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700'
-							: 'border border-transparent'}"
-						onclick={() => onSelectConversation(conversation.id, conversation.isDraft)}
-						role="button"
-						tabindex="0"
-						onkeydown={(e) => {
-							if (e.key === 'Enter' || e.key === ' ') {
-								onSelectConversation(conversation.id)
-							}
-						}}
+						class={twMerge(
+							'w-full p-1',
+							selectedConversationId === conversation.id
+								? 'bg-blue-200/30 text-blue-500 dark:bg-blue-600/30 text-blue-400'
+								: ''
+						)}
 					>
-						<div class="flex items-start justify-between">
-							<div class="flex-1 min-w-0">
-								<p class="text-sm font-medium text-primary truncate">
-									{getConversationTitle(conversation)}
-								</p>
-							</div>
+						<Button
+							color="transparent"
+							size="xs"
+							onclick={() => onSelectConversation(conversation.id, conversation.isDraft)}
+						>
+							<span class="flex-1 text-left text-sm font-medium text-primary truncate">
+								{getConversationTitle(conversation)}
+							</span>
 							<button
-								class="opacity-0 group-hover:opacity-100 ml-2 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-all"
-								onclick={(e) => deleteConversation(conversation.id, e)}
+								class="ml-2 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-all {hover
+									? 'opacity-100'
+									: 'opacity-0'}"
+								onclick={(e) => {
+									e.stopPropagation()
+									infiniteList?.deleteItem(conversation.id)
+								}}
 								title="Delete conversation"
 							>
 								<Trash2 size={14} />
 							</button>
-						</div>
+						</Button>
 					</div>
-				{/each}
+				{/snippet}
 
-				<!-- Loading more indicator -->
-				{#if loadingMore}
+				{#snippet empty()}
 					<div class="p-4 text-center">
-						<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mx-auto"></div>
-						<p class="text-xs text-tertiary mt-1">Loading more...</p>
+						<p class="text-sm text-secondary mb-2">No conversations yet</p>
 					</div>
-				{/if}
+				{/snippet}
+			</InfiniteList>
+		</div>
 
-				<!-- End of list indicator -->
-				{#if !hasMore && conversations.length > 0}
-					<div class="p-4 text-center">
-						<p class="text-xs text-tertiary">No more conversations</p>
-					</div>
-				{/if}
-			</div>
-		{/if}
-	</div>
-
-	<!-- Footer -->
-	{#if isExpanded}
+		<!-- Footer -->
 		<div class="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
 			<p class="text-xs text-tertiary">
 				{conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
@@ -279,20 +216,3 @@
 		</div>
 	{/if}
 </div>
-
-<style>
-	/* Custom scrollbar for conversations list */
-	.overflow-y-auto::-webkit-scrollbar {
-		width: 6px;
-	}
-	.overflow-y-auto::-webkit-scrollbar-track {
-		background: transparent;
-	}
-	.overflow-y-auto::-webkit-scrollbar-thumb {
-		background: rgba(156, 163, 175, 0.5);
-		border-radius: 3px;
-	}
-	.overflow-y-auto::-webkit-scrollbar-thumb:hover {
-		background: rgba(156, 163, 175, 0.7);
-	}
-</style>
