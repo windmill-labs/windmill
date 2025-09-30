@@ -497,22 +497,23 @@ export async function main(x: string) {
 </ConfirmationModal>
 
 <FlowCard {noEditor} title="Flow Input">
+	{#snippet action()}
+		{#if !disabled}
+			<Toggle
+				textClass="font-normal text-sm"
+				size="sm"
+				checked={chatInputEnabled}
+				on:change={handleToggleChatMode}
+				options={{
+					right: 'Chat Mode',
+					rightTooltip:
+						'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter. The flow schema will be automatically set to accept only a user_message string input.'
+				}}
+			/>
+		{/if}
+	{/snippet}
 	{#if !disabled}
 		<div class="flex flex-col h-full">
-			<div class="flex flex-row justify-end p-4">
-				<Toggle
-					textClass="font-normal text-sm"
-					size="sm"
-					checked={chatInputEnabled}
-					on:change={handleToggleChatMode}
-					options={{
-						right: 'Chat Mode',
-						rightTooltip:
-							'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter. The flow schema will be automatically set to accept only a user_message string input.'
-					}}
-					class="py-1"
-				/>
-			</div>
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex-1 min-h-0">
 					<FlowChatInterface onRunFlow={runFlowWithMessage} />
