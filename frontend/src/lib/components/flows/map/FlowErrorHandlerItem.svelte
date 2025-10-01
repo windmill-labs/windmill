@@ -109,8 +109,9 @@
 		{/if}
 	</div>
 {:else}
+	<!-- Index 0 is used by the tutorial to identify the first "Add step" -->
 	<InsertModuleButton
-		index={0}
+		index="error-handler-button"
 		placement={'bottom-center'}
 		on:new={(e) => {
 			insertFailureModule(e.detail.inlineScript)

@@ -24,6 +24,11 @@
 
 	// Render controls needs to be exposed so steps that have a custom render can call it
 	export function renderControls({ config, state }) {
+		const popoverContent = document.querySelector('#driver-popover-content')
+		popoverContent?.addEventListener('pointerdown', (event) => {
+			event.stopPropagation()
+		})
+
 		const popoverDescription = document.querySelector('#driver-popover-description')
 
 		if (!tutorial) {
