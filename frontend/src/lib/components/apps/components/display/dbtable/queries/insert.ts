@@ -98,6 +98,7 @@ export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbT
 
 	query += `INSERT INTO ${table} (${columnNames}) VALUES (${insertValues}${commaOrEmpty}${defaultValues})`
 
+	console.log(query)
 	return query
 }
 
