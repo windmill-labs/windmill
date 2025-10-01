@@ -3914,6 +3914,69 @@ async fn batch_rerun_handle_job(
     ))
 }
 
+async fn handle_chat_conversation_messages(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    w_id: &str,
+    flow_path: &str,
+    run_query: &RunJobQuery,
+    args: &PushArgsOwned,
+    uuid: Uuid,
+) -> error::Result<()> {
+    let conversation_id = run_query.conversation_id.ok_or_else(|| {
+        windmill_common::error::Error::BadRequest(
+            "conversation_id is required for chat-enabled flows".to_string(),
+        )
+    })?;
+
+    let user_msg_raw = args.args.get("user_message").ok_or_else(|| {
+        windmill_common::error::Error::BadRequest(
+            "user_message argument is required for chat-enabled flows".to_string(),
+        )
+    })?;
+
+    let user_msg = serde_json::from_str::<String>(user_msg_raw.get())?;
+
+    // Create conversation with provided ID (or get existing one)
+    flow_conversations::get_or_create_conversation_with_id(
+        authed,
+        user_db,
+        w_id,
+        flow_path,
+        &authed.username,
+        &user_msg,
+        conversation_id,
+    )
+    .await?;
+
+    // Create user message
+    flow_conversations::create_message(
+        tx,
+        conversation_id,
+        MessageType::User,
+        &user_msg,
+        None, // No job_id for user message
+        &authed.username,
+        w_id,
+    )
+    .await?;
+
+    // Create placeholder assistant message in the same transaction as the job
+    flow_conversations::create_message(
+        tx,
+        conversation_id,
+        MessageType::Assistant,
+        "",         // Empty content, will be updated when job completes
+        Some(uuid), // Associate with the job
+        &authed.username,
+        w_id,
+    )
+    .await?;
+
+    Ok(())
+}
+
 pub async fn run_flow_by_path(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -4001,7 +4064,7 @@ pub async fn run_flow_by_path_inner(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        PushArgs { args: &args.args, extra: args.extra.clone() },
         authed.display_username(),
         email,
         permissioned_as,
@@ -4027,53 +4090,15 @@ pub async fn run_flow_by_path_inner(
 
     // Handle conversation messages for chat-enabled flows
     if chat_input_enabled.unwrap_or(false) {
-        let conversation_id = run_query.conversation_id.ok_or_else(|| {
-            windmill_common::error::Error::BadRequest(
-                "conversation_id is required for chat-enabled flows".to_string(),
-            )
-        })?;
-
-        let user_msg_raw = args.args.get("user_message").ok_or_else(|| {
-            windmill_common::error::Error::BadRequest(
-                "user_message argument is required for chat-enabled flows".to_string(),
-            )
-        })?;
-
-        let user_msg = serde_json::from_str::<String>(user_msg_raw.get())?;
-
-        // Create conversation with provided ID (or get existing one)
-        flow_conversations::get_or_create_conversation_with_id(
+        handle_chat_conversation_messages(
+            &mut tx,
             &authed,
             &user_db,
             &w_id,
             &flow_path.to_string(),
-            &authed.username,
-            &user_msg,
-            conversation_id,
-        )
-        .await?;
-
-        // Create user message
-        flow_conversations::create_message(
-            &mut tx,
-            conversation_id,
-            MessageType::User,
-            &user_msg,
-            None, // No job_id for user message
-            &authed.username,
-            &w_id,
-        )
-        .await?;
-
-        // Create placeholder assistant message in the same transaction as the job
-        flow_conversations::create_message(
-            &mut tx,
-            conversation_id,
-            MessageType::Assistant,
-            "",         // Empty content, will be updated when job completes
-            Some(uuid), // Associate with the job
-            &authed.username,
-            &w_id,
+            &run_query,
+            &args,
+            uuid,
         )
         .await?;
     }
@@ -5489,7 +5514,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         dedicated_worker,
         early_return,
         has_preprocessor,
-        chat_input_enabled: _,
+        chat_input_enabled,
         on_behalf_of_email,
         edited_by,
         version,
@@ -5512,11 +5537,11 @@ pub async fn run_wait_result_flow_by_path_internal(
                 &authed.email,
                 username_to_permissioned_as(&authed.username),
                 Some(authed.clone().into()),
-                PushIsolationLevel::Isolated(user_db, authed.clone().into()),
+                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
             )
         };
 
-    let (uuid, tx) = push(
+    let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
@@ -5527,7 +5552,7 @@ pub async fn run_wait_result_flow_by_path_internal(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        PushArgs { args: &args.args, extra: args.extra.clone() },
         authed.display_username(),
         email,
         permissioned_as,
@@ -5550,6 +5575,22 @@ pub async fn run_wait_result_flow_by_path_internal(
         false,
     )
     .await?;
+
+    // Handle conversation messages for chat-enabled flows
+    if chat_input_enabled.unwrap_or(false) {
+        handle_chat_conversation_messages(
+            &mut tx,
+            &authed,
+            &user_db,
+            &w_id,
+            &flow_path.to_string(),
+            &run_query,
+            &args,
+            uuid,
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
