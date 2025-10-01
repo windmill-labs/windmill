@@ -59,6 +59,12 @@ export const AI_AGENT_SCHEMA = {
 				'JSON schema that the AI agent will follow for its response format (only used if output_type is text).',
 			format: 'json-schema',
 			showExpr: "fields.output_type === 'text'"
+		},
+		messages_context_length: {
+			type: 'number',
+			description:
+				'Maximum number of conversation messages to store and retrieve from memory (only used when chat input mode is enabled). Limits the conversation history to the last N messages to manage memory usage and API context limits. If not set or 0, memory operations are disabled and no messages will be stored or retrieved.',
+			showExpr: "fields.output_type === 'text'"
 		}
 	},
 	required: ['provider', 'user_message', 'output_type'],
@@ -71,7 +77,8 @@ export const AI_AGENT_SCHEMA = {
 		'user_images',
 		'max_completion_tokens',
 		'temperature',
-		'output_schema'
+		'output_schema',
+		'messages_context_length'
 	]
 }
 

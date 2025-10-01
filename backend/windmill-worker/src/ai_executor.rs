@@ -450,26 +450,31 @@ pub async fn run_agent(
             vec![]
         };
 
-    // Load previous messages from memory for text output mode (only if chat input is enabled)
+    // Load previous messages from memory for text output mode (only if chat input is enabled and context length is set)
     if matches!(output_type, OutputType::Text) && chat_input_enabled {
-        if let Some(step_id) = job.flow_step_id.as_deref() {
-            // Look up conversation_id for this flow
-            if let Ok(Some(conversation_id)) = sqlx::query_scalar!(
-                "SELECT conversation_id FROM flow_conversation_message 
-                 WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
-                parent_job
-            )
-            .fetch_optional(db)
-            .await
-            {
-                // Read messages from memory
-                match read_from_memory(&job.workspace_id, conversation_id, step_id).await {
-                    Ok(Some(loaded_messages)) => {
-                        messages.extend(loaded_messages);
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        tracing::error!("Failed to read memory for step {}: {}", step_id, e);
+        if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
+            if let Some(step_id) = job.flow_step_id.as_deref() {
+                // Look up conversation_id for this flow
+                if let Ok(Some(conversation_id)) = sqlx::query_scalar!(
+                    "SELECT conversation_id FROM flow_conversation_message 
+                     WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
+                    parent_job
+                )
+                .fetch_optional(db)
+                .await
+                {
+                    // Read messages from memory
+                    match read_from_memory(&job.workspace_id, conversation_id, step_id).await {
+                        Ok(Some(loaded_messages)) => {
+                            // Take the last n messages
+                            let start_idx = loaded_messages.len().saturating_sub(context_length);
+                            let messages_to_load = loaded_messages[start_idx..].to_vec();
+                            messages.extend(messages_to_load);
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            tracing::error!("Failed to read memory for step {}: {}", step_id, e);
+                        }
                     }
                 }
             }
@@ -1108,39 +1113,45 @@ pub async fn run_agent(
         }
     }
 
-    // Persist complete conversation to memory at the end (only if chat input is enabled)
+    // Persist complete conversation to memory at the end (only if chat input is enabled and context length is set)
     // final_messages contains the complete history (old messages + new ones)
     if matches!(output_type, OutputType::Text) && chat_input_enabled {
-        if let Some(step_id) = job.flow_step_id.as_deref() {
-            // Extract OpenAIMessages from final_messages
-            let messages_to_persist: Vec<OpenAIMessage> =
-                final_messages.iter().map(|m| m.message.clone()).collect();
+        if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
+            if let Some(step_id) = job.flow_step_id.as_deref() {
+                // Extract OpenAIMessages from final_messages
+                let all_messages: Vec<OpenAIMessage> =
+                    final_messages.iter().map(|m| m.message.clone()).collect();
 
-            if !messages_to_persist.is_empty() {
-                // Look up conversation_id
-                if let Ok(Some(conversation_id)) = sqlx::query_scalar!(
-                    "SELECT conversation_id FROM flow_conversation_message 
-                     WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
-                    parent_job
-                )
-                .fetch_optional(db)
-                .await
-                {
-                    // Use write_to_memory to replace entire conversation
-                    if let Err(e) = write_to_memory(
-                        &job.workspace_id,
-                        conversation_id,
-                        step_id,
-                        &messages_to_persist,
+                if !all_messages.is_empty() {
+                    // Keep only the last n messages
+                    let start_idx = all_messages.len().saturating_sub(context_length);
+                    let messages_to_persist = all_messages[start_idx..].to_vec();
+
+                    // Look up conversation_id
+                    if let Ok(Some(conversation_id)) = sqlx::query_scalar!(
+                        "SELECT conversation_id FROM flow_conversation_message 
+                         WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
+                        parent_job
                     )
+                    .fetch_optional(db)
                     .await
                     {
-                        tracing::error!(
-                            "Failed to persist {} messages to memory for step {}: {}",
-                            messages_to_persist.len(),
+                        // Use write_to_memory to replace entire conversation
+                        if let Err(e) = write_to_memory(
+                            &job.workspace_id,
+                            conversation_id,
                             step_id,
-                            e
-                        );
+                            &messages_to_persist,
+                        )
+                        .await
+                        {
+                            tracing::error!(
+                                "Failed to persist {} messages to memory for step {}: {}",
+                                messages_to_persist.len(),
+                                step_id,
+                                e
+                            );
+                        }
                     }
                 }
             }
