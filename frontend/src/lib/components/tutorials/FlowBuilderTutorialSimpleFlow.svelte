@@ -47,7 +47,7 @@
 					await wait(20)
 					clickButtonBySelector('#add-flow-input-btn')
 					await wait(0)
-					await setInputBySelector('input[placeholder="Field name"]', 'firstname')
+					setInputBySelector('input[placeholder="Field name"]', 'firstname')
 					setTimeout(() => driver.moveNext())
 				}
 			},
@@ -89,16 +89,24 @@
 				description: 'Click here to add a step to your flow',
 				onNextClick: () => {
 					triggerPointerDown(`#flow-editor-add-step-0`)
-					setTimeout(() => {
-						driver.moveNext()
-					})
+					setTimeout(() => driver.moveNext())
+				},
+				onPrevClick: async () => {
+					clickButtonBySelector('#add-flow-input-btn')
+					await wait(0)
+					setInputBySelector('input[placeholder="Field name"]', 'firstname')
+					setTimeout(() => driver.movePrevious())
 				}
 			}
 		},
 		{
 			popover: {
 				title: 'Steps kind',
-				description: "Choose the kind of step you want to add. Let's start with a simple action"
+				description: "Choose the kind of step you want to add. Let's start with a simple action",
+				onPrevClick: () => {
+					triggerPointerDown(`#flow-editor-add-step-0`)
+					setTimeout(() => driver.movePrevious())
+				}
 			},
 			element: '#flow-editor-insert-module'
 		},
@@ -151,6 +159,7 @@
 				title: 'Action editor',
 				description: 'Windmill provides a full code editor to write your actions',
 				onPrevClick: () => {
+					triggerPointerDown(`#flow-editor-virtual-Input`)
 					triggerPointerDown(`#flow-editor-add-step-0`)
 					setTimeout(() => {
 						driver.movePrevious()
@@ -170,6 +179,9 @@
 		},
 		{
 			element: '#flow-editor-plug',
+			onHighlighted: () => {
+				document.querySelector('#flow-editor-plug')?.parentElement?.classList.remove('opacity-0')
+			},
 			popover: {
 				title: 'Connect',
 				description:
@@ -206,7 +218,7 @@
 					})
 				},
 				onPrevClick: () => {
-					clickButtonBySelector('#flow-editor-plug') // Close the connection drawer
+					clickButtonBySelector('#flow-editor-plug')
 					setTimeout(() => driver.movePrevious())
 				}
 			}
@@ -216,7 +228,11 @@
 			element: '#flow-editor-step-input',
 			popover: {
 				title: 'Input connected!',
-				description: 'The input is now connected to the firstname input'
+				description: 'The input is now connected to the firstname input',
+				onPrevClick: () => {
+					clickButtonBySelector('#flow-editor-plug')
+					setTimeout(() => driver.movePrevious())
+				}
 			}
 		},
 
@@ -246,6 +262,10 @@
 					setTimeout(() => {
 						driver.moveNext()
 					})
+				},
+				onPrevClick: () => {
+					clickButtonBySelector('#flow-editor-test-flow') // Close the test drawer
+					setTimeout(() => driver.movePrevious())
 				}
 			}
 		},
