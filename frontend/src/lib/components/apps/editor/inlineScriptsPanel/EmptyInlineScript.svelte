@@ -132,11 +132,7 @@
 	</DrawerContent>
 </Drawer>
 
-<div
-	class="flex flex-col px-4 gap-2 text-sm"
-	in:fly={{ duration: 50 }}
-	id="app-editor-empty-runnable"
->
+<div class="flex flex-col px-4 gap-2 text-sm" id="app-editor-empty-runnable">
 	<div class="mt-2 flex justify-between gap-4" id="app-editor-runnable-header">
 		<div class="font-bold items-baseline truncate">Choose a language</div>
 		<div class="flex gap-2">

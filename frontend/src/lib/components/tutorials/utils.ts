@@ -98,8 +98,6 @@ export function updateFlowModuleById(
 	}
 
 	dfs(flow.value.modules)
-
-	flow = flow
 }
 
 export function updateBackgroundRunnableCode(app: App, index: number, newCode: string) {
@@ -107,13 +105,10 @@ export function updateBackgroundRunnableCode(app: App, index: number, newCode: s
 	if (script.type === 'runnableByName' && script.inlineScript) {
 		script.inlineScript.content = newCode
 	}
-
-	app = app
 }
 
 export function updateInlineRunnableCode(app: App, componentId: string, newCode: string) {
 	const gridItem = findGridItem(app, componentId)
-
 	if (gridItem?.data.componentInput?.type === 'runnable') {
 		if (
 			gridItem.data.componentInput.runnable?.type === 'runnableByName' &&
@@ -122,8 +117,6 @@ export function updateInlineRunnableCode(app: App, componentId: string, newCode:
 			gridItem.data.componentInput.runnable.inlineScript.content = newCode
 		}
 	}
-
-	app = app
 }
 
 export function connectComponentSourceToOutput(app: App, componentId: string, targetId: string) {
@@ -143,8 +136,6 @@ export function connectComponentSourceToOutput(app: App, componentId: string, ta
 			]
 		}
 	}
-
-	app = app
 }
 
 export function connectInlineRunnableInputToComponentOutput(
