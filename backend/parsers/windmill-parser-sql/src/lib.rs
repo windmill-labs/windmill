@@ -491,13 +491,15 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     let mut args = vec![];
     let mut hm: HashMap<i32, String> = HashMap::new();
     for cap in RE_CODE_PGSQL.captures_iter(code) {
+        let typ = cap
+            .get(2)
+            .map(|cap| transform_types_with_spaces(cap.as_str(), &cap, &code))
+            .unwrap_or("text");
         hm.insert(
             cap.get(1)
                 .and_then(|x| x.as_str().parse::<i32>().ok())
                 .ok_or_else(|| anyhow!("Impossible to parse arg digit"))?,
-            cap.get(2)
-                .map(|x| x.as_str().to_string())
-                .unwrap_or_else(|| "text".to_string()),
+            typ.to_string(),
         );
     }
     for (i, v) in hm.iter() {
@@ -541,6 +543,30 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
 
     args.append(&mut parse_sql_sanitized_interpolation(code));
     Ok(Some(args))
+}
+
+// The regex doesn't parse types with space such as "character varying"
+// So we look for them manually and replace them with their shorter counterpart
+fn transform_types_with_spaces<'a>(typ: &'a str, cap: &regex::Match<'_>, code: &str) -> &'a str {
+    // TODO :
+    // time with time zone
+    // time without time zone
+    // timestamp with time zone
+    // timestamp without time zone
+
+    static TYPES: [(&str, &str, &str); 2] = [
+        ("character", "varying", "varchar"),
+        ("double", "precision", "double"),
+    ];
+    for (prefix, suffix, alias) in TYPES {
+        if typ.eq_ignore_ascii_case(prefix) {
+            let remaining = code[cap.end()..].trim_start();
+            if remaining.len() >= 7 && remaining[..7].eq_ignore_ascii_case(suffix) {
+                return alias;
+            }
+        }
+    }
+    typ
 }
 
 pub fn parse_sql_statement_named_params(code: &str, prefix: char) -> HashSet<String> {
