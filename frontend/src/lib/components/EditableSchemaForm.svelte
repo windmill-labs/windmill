@@ -643,7 +643,8 @@
 
 											{#if !uiOnly}
 												<button
-													class="rounded-full p-1 text-gray-500 bg-white
+													class="delete-schema-field-button
+													rounded-full p-1 text-gray-500 bg-white
 				duration-200 hover:bg-gray-600 focus:bg-gray-600 hover:text-white dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800"
 													aria-label="Clear"
 													onclick={() => {
