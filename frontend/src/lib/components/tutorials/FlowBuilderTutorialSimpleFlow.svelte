@@ -92,6 +92,8 @@
 					setTimeout(() => driver.moveNext())
 				},
 				onPrevClick: async () => {
+					clickButtonBySelector('.delete-schema-field-button')
+					await wait(0)
 					clickButtonBySelector('#add-flow-input-btn')
 					await wait(0)
 					setInputBySelector('input[placeholder="Field name"]', 'firstname')
