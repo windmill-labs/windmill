@@ -1433,11 +1433,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                     Error::internal_err(format!("error while cleaning up completed job: {e:#}"))
                 })?;
             }
-
-            // Persist AI agent step memory for chat-enabled flows
-            // This happens only when the root flow completes
-            // Memory is now persisted incrementally during AI agent execution
-            // No need to persist at flow completion
         }
 
         if flow_job.is_canceled() {
@@ -4649,7 +4644,3 @@ async fn get_previous_job_result(
         _ => Ok(None),
     }
 }
-
-// Removed: persist_ai_agent_memory function
-// Memory is now persisted incrementally during AI agent execution in ai_executor.rs
-// This provides better resilience and immediate persistence after each step
