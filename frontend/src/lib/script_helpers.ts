@@ -522,7 +522,7 @@ const FETCH_INIT_CODE = `export async function main(
 	return await fetch(url, requestOptions)
 		.then((res) => res.json())
 		.catch(() => {
-			throw new Error('An error occured')
+			throw new Error('An error occurred')
 		})
 }`
 

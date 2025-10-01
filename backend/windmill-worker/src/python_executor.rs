@@ -1867,7 +1867,7 @@ pub async fn handle_python_reqs(
                             if let Err(e) = pull {
                                 tracing::info!(
                                     workspace_id = %w_id,
-                                    "No tarball was found for {venv_p} on S3 or different problem occured {job_id}:\n{e}",
+                                    "No tarball was found for {venv_p} on S3 or different problem occurred {job_id}:\n{e}",
                                 );
                             } else {
                                 print_success(
