@@ -266,9 +266,9 @@
 									resourceType={ducklake.catalog.resource_type}
 								/>
 							{:else}
-								<input
+								<TextInput
 									bind:value={ducklake.catalog.resource_path}
-									placeholder="PostgreSQL database name"
+									inputProps={{ placeholder: 'PostgreSQL database name' }}
 								/>
 							{/if}
 						</div>
@@ -307,6 +307,7 @@
 						>
 							<svelte:fragment slot="trigger">
 								<ExploreAssetButton
+									class="h-9"
 									asset={{ kind: 'ducklake', path: ducklake.name }}
 									{dbManagerDrawer}
 									disabled
