@@ -3,7 +3,6 @@
 	import { type DriveStep } from 'driver.js'
 	import Tutorial from '../Tutorial.svelte'
 	import { clickButtonBySelector } from '../utils'
-	import { wait } from '$lib/utils'
 
 	export let name: string
 	export let index: number
