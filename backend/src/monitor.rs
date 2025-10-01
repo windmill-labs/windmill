@@ -2431,13 +2431,16 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
     let flows = sqlx::query!(
         r#"
         SELECT
-            id AS "id!", workspace_id AS "workspace_id!", parent_job, is_flow_step,
-            flow_status AS "flow_status: Box<str>", last_ping, same_worker
-        FROM v2_as_queue
-        WHERE running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now()
-            AND (job_kind = 'flow' OR job_kind = 'flowpreview' OR job_kind = 'flownode')
-            AND last_ping IS NOT NULL AND last_ping < NOW() - ($1 || ' seconds')::interval
-            AND canceled = false
+            v2_job_queue.id AS "id!", v2_job_queue.workspace_id AS "workspace_id!", parent_job, flow_step_id,
+            flow_status AS "flow_status: Box<str>", ping, same_worker, worker
+        FROM v2_job_runtime
+        JOIN v2_job ON v2_job_runtime.id = v2_job.id
+        JOIN v2_job_status ON v2_job_runtime.id = v2_job_status.id
+        JOIN v2_job_queue ON v2_job_runtime.id = v2_job_queue.id
+        WHERE ping IS NOT NULL AND ping < NOW() - ($1 || ' seconds')::interval 
+            AND running = true AND suspend = 0 AND suspend_until IS null AND scheduled_for <= now()
+            AND (kind = 'flow' OR kind = 'flowpreview' OR kind = 'flownode')
+            AND canceled_by IS NULL
             
         "#,
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
@@ -2450,7 +2453,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             .flow_status
             .as_deref()
             .and_then(|x| serde_json::from_str::<FlowStatus>(x).ok());
-        if !flow.same_worker.unwrap_or(false)
+        if !flow.same_worker
             && status.is_some_and(|s| {
                 s.modules
                     .get(0)
@@ -2496,13 +2499,14 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             tx.commit().await?;
         } else {
             let id = flow.id.clone();
-            let last_ping = flow.last_ping.clone();
+            let last_ping = flow.ping.clone();
             let now = now_from_db(db).await?;
             let base_url = BASE_URL.read().await;
             let workspace_id = flow.workspace_id.clone();
+            let worker = flow.worker.unwrap_or_default();
             let reason = format!(
-                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now})",
-                if flow.is_flow_step.unwrap_or(false) && flow.parent_job.is_some() {
+                "{} was hanging in between 2 steps. Last ping: {last_ping:?} (now: {now}) on worker {worker}. ",
+                if flow.flow_step_id.is_some() && flow.parent_job.is_some() {
                     format!("Flow was cancelled because subflow {id} ({base_url}/run/{id}?workspace={workspace_id})")
                 } else {
                     format!("Flow {id} ({base_url}/run/{id}?workspace={workspace_id}) was cancelled because it")
