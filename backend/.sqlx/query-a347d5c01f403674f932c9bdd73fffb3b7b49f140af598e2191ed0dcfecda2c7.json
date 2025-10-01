@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM flow_conversation WHERE id = $1 AND workspace_id = $2 AND created_by = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a347d5c01f403674f932c9bdd73fffb3b7b49f140af598e2191ed0dcfecda2c7"
+}
