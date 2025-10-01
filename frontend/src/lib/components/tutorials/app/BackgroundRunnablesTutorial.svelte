@@ -21,18 +21,9 @@
 	{name}
 	on:error
 	on:skipAll
-	onDestroyed={() => {
-		document.getElementById('app-editor-empty-runnable')?.classList.remove?.('h-full')
-		document.getElementById('app-editor-empty-runnable')?.classList.remove?.('overflow-y-clip')
-	}}
 	getSteps={(driver, options) => {
 		const steps: DriveStep[] = [
 			{
-				onHighlighted: async () => {
-					wait(50)
-					document.getElementById('app-editor-empty-runnable')?.classList.add('h-full')
-					document.getElementById('app-editor-empty-runnable')?.classList.add('overflow-y-clip')
-				},
 				element: '#app-editor-runnable-panel',
 				popover: {
 					title: 'Runnable panel',
@@ -48,12 +39,7 @@
 						'Click here to create a runnable. Runnables are scripts that can be executed in the background. You can add as many runnables as you want.',
 					onNextClick: () => {
 						clickButtonBySelector('#create-background-runnable')
-
-						setTimeout(() => {
-							document.getElementById('app-editor-empty-runnable')?.classList.add('h-full')
-							document.getElementById('app-editor-empty-runnable')?.classList.add('overflow-y-clip')
-							driver.moveNext()
-						})
+						setTimeout(() => driver.moveNext())
 					}
 				}
 			},

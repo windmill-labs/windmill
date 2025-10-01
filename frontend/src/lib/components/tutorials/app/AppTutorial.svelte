@@ -49,10 +49,6 @@
 	on:error
 	on:skipAll
 	tainted={isAppTainted($app)}
-	onDestroyed={() => {
-		document.getElementById('app-editor-empty-runnable')?.classList.remove?.('h-full')
-		document.getElementById('app-editor-empty-runnable')?.classList.remove?.('overflow-y-clip')
-	}}
 	getSteps={(driver) => {
 		const steps: DriveStep[] = [
 			{
@@ -148,11 +144,7 @@
 					description: "Let's create an inline script.",
 					onNextClick: () => {
 						clickButtonBySelector('#app-editor-create-inline-script')
-						setTimeout(() => {
-							driver.moveNext()
-							document.getElementById('app-editor-empty-runnable')?.classList.add('h-full')
-							document.getElementById('app-editor-empty-runnable')?.classList.add('overflow-y-clip')
-						})
+						setTimeout(() => driver.moveNext())
 					}
 				}
 			},

@@ -6,6 +6,7 @@
 	import SkipTutorials from './SkipTutorials.svelte'
 	import TutorialControls from './TutorialControls.svelte'
 	import TutorialInner from './TutorialInner.svelte'
+	import { isCurrentlyInTutorial } from '$lib/stores'
 
 	export let index: number = 0
 	export let name: string = 'action'
@@ -112,6 +113,7 @@
 			dispatch('error', { detail: name })
 			return
 		}
+		isCurrentlyInTutorial.val = true
 
 		tutorial = driver({
 			allowClose: true,
@@ -127,6 +129,7 @@
 				if (!tutorial?.hasNextStep()) {
 					$ignoredTutorials = Array.from(new Set([...$ignoredTutorials, index]))
 				}
+				isCurrentlyInTutorial.val = false
 			}
 		})
 
