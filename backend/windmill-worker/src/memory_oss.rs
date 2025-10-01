@@ -4,6 +4,7 @@ pub use crate::memory_ee::*;
 
 #[cfg(not(feature = "private"))]
 use {
+    crate::ai::types::OpenAIMessage,
     std::path::PathBuf,
     tokio::{fs, io::AsyncWriteExt},
     uuid::Uuid,
@@ -27,15 +28,15 @@ pub async fn read_from_memory(
     workspace_id: &str,
     conversation_id: Uuid,
     step_id: &str,
-) -> anyhow::Result<Option<serde_json::Value>> {
+) -> anyhow::Result<Option<Vec<OpenAIMessage>>> {
     let path = path_for(workspace_id, conversation_id, step_id);
     if !path.exists() {
         return Ok(None);
     }
 
     let bytes = fs::read(&path).await?;
-    let v: serde_json::Value = serde_json::from_slice(&bytes)?;
-    Ok(Some(v))
+    let messages: Vec<OpenAIMessage> = serde_json::from_slice(&bytes)?;
+    Ok(Some(messages))
 }
 
 /// Write AI agent memory to storage
@@ -45,18 +46,9 @@ pub async fn write_to_memory(
     workspace_id: &str,
     conversation_id: Uuid,
     step_id: &str,
-    messages: &serde_json::Value,
+    messages: &[OpenAIMessage],
 ) -> anyhow::Result<()> {
-    // Expect messages to be an array
-    if !messages.is_array() {
-        tracing::warn!(
-            "Expected messages array for memory persistence, got: {:?}",
-            messages
-        );
-        return Ok(());
-    }
-
-    if messages.as_array().map_or(true, |arr| arr.is_empty()) {
+    if messages.is_empty() {
         return Ok(());
     }
 
@@ -77,14 +69,5 @@ pub async fn write_to_memory(
 
     // Atomic rename
     fs::rename(tmp, &path).await?;
-
-    tracing::info!(
-        "Persisted {} messages to disk memory for workspace={}, conversation={}, step={}",
-        messages.as_array().map(|a| a.len()).unwrap_or(0),
-        workspace_id,
-        conversation_id,
-        step_id
-    );
-
     Ok(())
 }

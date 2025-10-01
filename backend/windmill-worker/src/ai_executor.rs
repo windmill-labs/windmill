@@ -454,7 +454,7 @@ pub async fn run_agent(
     if matches!(output_type, OutputType::Text) && chat_input_enabled {
         if let Some(step_id) = job.flow_step_id.as_deref() {
             // Look up conversation_id for this flow
-            match sqlx::query_scalar!(
+            if let Ok(Some(conversation_id)) = sqlx::query_scalar!(
                 "SELECT conversation_id FROM flow_conversation_message 
                  WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
                 parent_job
@@ -462,63 +462,17 @@ pub async fn run_agent(
             .fetch_optional(db)
             .await
             {
-                Ok(Some(conversation_id)) => {
-                    tracing::info!(
-                        "Loading memory for conversation {} step {} in workspace {}",
-                        conversation_id,
-                        step_id,
-                        job.workspace_id
-                    );
-
-                    // Read messages from memory
-                    match read_from_memory(&job.workspace_id, conversation_id, step_id).await {
-                        Ok(Some(mem_json)) => {
-                            if let Some(arr) = mem_json.as_array() {
-                                let mut loaded_count = 0;
-                                for v in arr {
-                                    if let Ok(msg) =
-                                        serde_json::from_value::<OpenAIMessage>(v.clone())
-                                    {
-                                        messages.push(msg);
-                                        loaded_count += 1;
-                                    }
-                                }
-                                tracing::info!(
-                                    "Loaded {} messages from memory for step {}",
-                                    loaded_count,
-                                    step_id
-                                );
-                            } else {
-                                tracing::warn!(
-                                    "Memory file exists but is not a JSON array for step {}",
-                                    step_id
-                                );
-                            }
-                        }
-                        Ok(None) => {
-                            tracing::info!("No memory file found for step {}", step_id);
-                        }
-                        Err(e) => {
-                            tracing::error!("Failed to read memory for step {}: {}", step_id, e);
-                        }
+                // Read messages from memory
+                match read_from_memory(&job.workspace_id, conversation_id, step_id).await {
+                    Ok(Some(loaded_messages)) => {
+                        messages.extend(loaded_messages);
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        tracing::error!("Failed to read memory for step {}: {}", step_id, e);
                     }
                 }
-                Ok(None) => {
-                    tracing::info!(
-                        "No conversation found for parent job {}, skipping memory load",
-                        parent_job
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(
-                        "Failed to lookup conversation for parent job {}: {}",
-                        parent_job,
-                        e
-                    );
-                }
             }
-        } else {
-            tracing::info!("No flow_step_id found, skipping memory load");
         }
     }
 
@@ -1159,14 +1113,10 @@ pub async fn run_agent(
     if matches!(output_type, OutputType::Text) && chat_input_enabled {
         if let Some(step_id) = job.flow_step_id.as_deref() {
             // Extract OpenAIMessages from final_messages
-            let messages_to_persist: Vec<&OpenAIMessage> =
-                final_messages.iter().map(|m| m.message).collect();
+            let messages_to_persist: Vec<OpenAIMessage> =
+                final_messages.iter().map(|m| m.message.clone()).collect();
 
             if !messages_to_persist.is_empty() {
-                let messages_json = serde_json::to_value(&messages_to_persist).map_err(|e| {
-                    Error::internal_err(format!("Failed to serialize messages: {}", e))
-                })?;
-
                 // Look up conversation_id
                 if let Ok(Some(conversation_id)) = sqlx::query_scalar!(
                     "SELECT conversation_id FROM flow_conversation_message 
@@ -1177,21 +1127,19 @@ pub async fn run_agent(
                 .await
                 {
                     // Use write_to_memory to replace entire conversation
-                    if let Err(e) =
-                        write_to_memory(&job.workspace_id, conversation_id, step_id, &messages_json)
-                            .await
+                    if let Err(e) = write_to_memory(
+                        &job.workspace_id,
+                        conversation_id,
+                        step_id,
+                        &messages_to_persist,
+                    )
+                    .await
                     {
                         tracing::error!(
                             "Failed to persist {} messages to memory for step {}: {}",
                             messages_to_persist.len(),
                             step_id,
                             e
-                        );
-                    } else {
-                        tracing::debug!(
-                            "Persisted {} messages to memory for step {}",
-                            messages_to_persist.len(),
-                            step_id
                         );
                     }
                 }
