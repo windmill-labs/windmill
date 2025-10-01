@@ -70,7 +70,7 @@
 			}
 		},
 		{
-			element: '#flow-editor-add-property',
+			element: '*:has(> #flow-editor-add-property)',
 			popover: {
 				title: 'Add your property',
 				description: 'Click here to save your property',
