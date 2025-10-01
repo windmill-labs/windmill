@@ -20,7 +20,7 @@ CREATE TABLE flow_conversation_message (
     conversation_id UUID NOT NULL REFERENCES flow_conversation(id) ON DELETE CASCADE,
     message_type MESSAGE_TYPE NOT NULL,
     content TEXT NOT NULL,
-    job_id UUID REFERENCES v2_job(id),
+    job_id UUID REFERENCES v2_job(id) ON DELETE CASCADE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
