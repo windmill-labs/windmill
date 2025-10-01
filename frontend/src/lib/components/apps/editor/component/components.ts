@@ -673,7 +673,7 @@ const onErrorClick = {
 				tooltip: 'The message of the toast to display',
 				fieldType: 'text',
 				type: 'static',
-				value: 'An error occured',
+				value: 'An error occurred',
 				placeholder: 'Hello there',
 				onDemandOnly: true
 			},

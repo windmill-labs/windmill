@@ -360,7 +360,7 @@
 			return templateScript
 		} catch (error) {
 			sendUserToast(
-				'An error occured when trying to load your template script, please try again later',
+				'An error occurred when trying to load your template script, please try again later',
 				true
 			)
 		}

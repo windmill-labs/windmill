@@ -746,7 +746,7 @@
 										The max amount of documents (here jobs) per commit. To optimize indexing
 										throughput, it is best to keep this as high as possible. However, especially
 										when reindexing the whole instance, it can be useful to have a limit on how many
-										jobs can be written without being commited. A commit will make the jobs
+										jobs can be written without being committed. A commit will make the jobs
 										available for search, constitute a "checkpoint" state in the indexing and will
 										be logged.
 									</Tooltip>
@@ -805,7 +805,7 @@
 										representing all logs during 1 minute for a specific host. To optimize indexing
 										throughput, it is best to keep this as high as possible. However, especially
 										when reindexing the whole instance, it can be useful to have a limit on how many
-										logs can be written without being commited. A commit will make the logs
+										logs can be written without being committed. A commit will make the logs
 										available for search, appear as a log line, and be a "checkpoint" of the
 										indexing progress.
 									</Tooltip>

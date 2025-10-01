@@ -47,6 +47,6 @@ export function convertJsonToCsv(arr: Array<Record<string, any>>): string {
 		const csv = parser.parse(arr)
 		return csv
 	} catch (err) {
-		throw new Error('An error occured when generating CSV:' + err)
+		throw new Error('An error occurred when generating CSV:' + err)
 	}
 }
