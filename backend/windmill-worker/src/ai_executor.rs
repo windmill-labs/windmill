@@ -912,29 +912,68 @@ pub async fn run_agent(
                                 #[cfg(feature = "benchmark")]
                                 let mut bench = windmill_common::bench::BenchmarkIter::new();
 
-                                match handle_queued_job(
-                                    tool_job.clone(),
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    conn,
-                                    client,
-                                    hostname,
-                                    worker_name,
-                                    worker_dir,
-                                    &job_dir,
-                                    None,
-                                    base_internal_url,
-                                    inner_job_completed_tx,
-                                    occupancy_metrics,
-                                    killpill_rx,
-                                    None,
+                                // Spawn handle_queued_job on separate task to prevent tokio stack overflow
+                                // Clone everything needed for the spawned task
+                                let tool_job_spawn = tool_job.clone();
+                                let conn_spawn = conn.clone();
+                                let client_spawn = client.clone();
+                                let hostname_spawn = hostname.to_string();
+                                let worker_name_spawn = worker_name.to_string();
+                                let worker_dir_spawn = worker_dir.to_string();
+                                let job_dir_spawn = job_dir.clone();
+                                let base_internal_url_spawn = base_internal_url.to_string();
+                                let inner_job_completed_tx_spawn = inner_job_completed_tx.clone();
+                                let mut occupancy_metrics_spawn = occupancy_metrics.clone();
+                                let mut killpill_rx_spawn = killpill_rx.resubscribe();
+
+                                // Spawn on separate tokio task with fresh stack
+                                let join_handle = tokio::task::spawn(async move {
                                     #[cfg(feature = "benchmark")]
-                                    &mut bench,
-                                )
-                                .await
-                                {
+                                    let mut bench_spawn =
+                                        windmill_common::bench::BenchmarkIter::new();
+
+                                    let result = handle_queued_job(
+                                        tool_job_spawn,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        &conn_spawn,
+                                        &client_spawn,
+                                        &hostname_spawn,
+                                        &worker_name_spawn,
+                                        &worker_dir_spawn,
+                                        &job_dir_spawn,
+                                        None,
+                                        &base_internal_url_spawn,
+                                        inner_job_completed_tx_spawn,
+                                        &mut occupancy_metrics_spawn,
+                                        &mut killpill_rx_spawn,
+                                        None,
+                                        #[cfg(feature = "benchmark")]
+                                        &mut bench_spawn,
+                                    )
+                                    .await;
+
+                                    // Return both result and updated metrics
+                                    (result, occupancy_metrics_spawn)
+                                });
+
+                                // Await the spawned task
+                                let (handle_result, updated_occupancy) =
+                                    join_handle.await.map_err(|e| {
+                                        Error::internal_err(format!(
+                                            "Tool execution task panicked: {}",
+                                            e
+                                        ))
+                                    })?;
+
+                                // Merge occupancy metrics back
+                                occupancy_metrics.total_duration_of_running_jobs =
+                                    updated_occupancy.total_duration_of_running_jobs;
+
+                                // Continue with match on handle_result
+                                match handle_result {
                                     Err(err) => {
                                         let err_string =
                                             format!("{}: {}", err.name(), err.to_string());
