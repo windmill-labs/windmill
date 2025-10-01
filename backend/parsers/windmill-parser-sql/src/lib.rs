@@ -561,7 +561,9 @@ fn transform_types_with_spaces<'a>(typ: &'a str, cap: &regex::Match<'_>, code: &
     for (prefix, suffix, alias) in TYPES {
         if typ.eq_ignore_ascii_case(prefix) {
             let remaining = code[cap.end()..].trim_start();
-            if remaining.len() >= 7 && remaining[..7].eq_ignore_ascii_case(suffix) {
+            if remaining.len() >= suffix.len()
+                && remaining[..suffix.len()].eq_ignore_ascii_case(suffix)
+            {
                 return alias;
             }
         }
