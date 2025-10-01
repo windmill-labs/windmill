@@ -140,11 +140,24 @@ pub struct JWTAuthClaims {
     pub groups: Vec<String>,
     pub folders: Vec<(String, bool, bool)>,
     pub label: Option<String>,
-    pub workspace_id: String,
+    pub workspace_id: Option<String>,
+    pub workspace_ids: Option<Vec<String>>,
     pub exp: usize,
     pub job_id: Option<String>,
     pub scopes: Option<Vec<String>>,
     pub audit_span: Option<String>,
+}
+
+impl JWTAuthClaims {
+    pub fn allowed_in_workspace(&self, w_id: &str) -> bool {
+        self.workspace_id
+            .as_ref()
+            .is_some_and(|token_w_id| w_id == token_w_id)
+            || self
+                .workspace_ids
+                .as_ref()
+                .is_some_and(|token_w_ids| token_w_ids.iter().any(|token_w_id| w_id == token_w_id))
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -411,7 +424,8 @@ pub async fn create_jwt_token(
         groups: authed.groups.clone(),
         folders: authed.folders.clone(),
         label,
-        workspace_id: workspace_id.to_string(),
+        workspace_id: Some(workspace_id.to_string()),
+        workspace_ids: None,
         exp: (chrono::Utc::now() + chrono::Duration::seconds(expires_in_seconds as i64)).timestamp()
             as usize,
         job_id: job_id.map(|id| id.to_string()),
