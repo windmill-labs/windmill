@@ -614,7 +614,7 @@
 				return {
 					error: {
 						name: 'TransformerError',
-						message: 'An error occured in the transformer',
+						message: 'An error occurred in the transformer',
 						stack: err.message
 					}
 				}
@@ -894,7 +894,7 @@
 							<div class="bg-surface">
 								<Alert type="error" title="Error during execution">
 									<div class="flex flex-col gap-2 overflow-auto">
-										An error occured, please contact the app author.
+										An error occurred, please contact the app author.
 
 										{#if $errorByComponent?.[id]?.error}
 											<div class="font-bold">{$errorByComponent[id].error}</div>

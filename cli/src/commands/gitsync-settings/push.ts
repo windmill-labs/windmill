@@ -30,7 +30,7 @@ export async function pushGitSyncSettings(
 ) {
   // Validate branch configuration like sync commands
   try {
-    await validateBranchConfiguration();
+    await validateBranchConfiguration({ yes: opts.yes });
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
