@@ -168,7 +168,10 @@
 					Hide bar on view
 					<Toggle
 						size="xs"
-						bind:checked={() => $app.norefreshbar, (v) => v && ($app.norefreshbar = v)}
+						bind:checked={
+							() => $app.norefreshbar ?? false,
+							(v) => ($app.norefreshbar !== undefined || v) && ($app.norefreshbar = v)
+						}
 					/>
 				</div>
 				<div>
