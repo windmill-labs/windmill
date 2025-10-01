@@ -672,13 +672,12 @@ pub async fn run_agent(
 
                         if let Some(ref response_content) = response_content {
                             actions.push(AgentAction::Message {});
-                            let assistant_msg = OpenAIMessage {
+                            messages.push(OpenAIMessage {
                                 role: "assistant".to_string(),
                                 content: Some(OpenAIContent::Text(response_content.clone())),
                                 agent_action: Some(AgentAction::Message {}),
                                 ..Default::default()
-                            };
-                            messages.push(assistant_msg.clone());
+                            });
 
                             update_flow_status_module_with_actions(db, parent_job, &actions)
                                 .await?;
@@ -947,7 +946,7 @@ pub async fn run_agent(
                                         .await;
                                         let error_message =
                                             format!("Error running tool: {}", err_string);
-                                        let tool_error_msg = OpenAIMessage {
+                                        messages.push(OpenAIMessage {
                                             role: "tool".to_string(),
                                             content: Some(OpenAIContent::Text(
                                                 error_message.clone(),
@@ -959,8 +958,7 @@ pub async fn run_agent(
                                                 module_id: tool.module.id.clone(),
                                             }),
                                             ..Default::default()
-                                        };
-                                        messages.push(tool_error_msg.clone());
+                                        });
                                         // Stream tool result (error case)
                                         if let Some(ref stream_event_processor) =
                                             stream_event_processor
@@ -1013,7 +1011,7 @@ pub async fn run_agent(
                                                 "Tool job completed but no result".to_string(),
                                             ));
                                         };
-                                        let tool_result_msg = OpenAIMessage {
+                                        messages.push(OpenAIMessage {
                                             role: "tool".to_string(),
                                             content: Some(OpenAIContent::Text(
                                                 result.get().to_string(),
@@ -1025,8 +1023,7 @@ pub async fn run_agent(
                                                 module_id: tool.module.id.clone(),
                                             }),
                                             ..Default::default()
-                                        };
-                                        messages.push(tool_result_msg.clone());
+                                        });
 
                                         // Stream tool result (success case)
                                         if let Some(ref stream_event_processor) =
