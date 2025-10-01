@@ -154,6 +154,9 @@ pub async fn handle_ai_agent_job(
 
     let value = flow_data.value();
 
+    // Check if chat input is enabled at the flow level
+    let chat_input_enabled = value.chat_input_enabled.unwrap_or(false);
+
     let module = value.modules.iter().find(|m| m.id == *flow_step_id);
 
     let Some(module) = module else {
@@ -291,6 +294,7 @@ pub async fn handle_ai_agent_job(
         hostname,
         killpill_rx,
         has_stream,
+        chat_input_enabled,
     );
 
     let result = run_future_with_polling_update_job_poller(
@@ -425,6 +429,7 @@ pub async fn run_agent(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
+    chat_input_enabled: bool,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;
@@ -445,8 +450,8 @@ pub async fn run_agent(
             vec![]
         };
 
-    // Load previous messages from memory for text output mode
-    if matches!(output_type, OutputType::Text) {
+    // Load previous messages from memory for text output mode (only if chat input is enabled)
+    if matches!(output_type, OutputType::Text) && chat_input_enabled {
         if let Some(step_id) = job.flow_step_id.as_deref() {
             // Look up conversation_id for this flow
             match sqlx::query_scalar!(
@@ -1110,9 +1115,9 @@ pub async fn run_agent(
         }
     }
 
-    // Persist complete conversation to memory at the end
+    // Persist complete conversation to memory at the end (only if chat input is enabled)
     // final_messages contains the complete history (old messages + new ones)
-    if matches!(output_type, OutputType::Text) {
+    if matches!(output_type, OutputType::Text) && chat_input_enabled {
         if let Some(step_id) = job.flow_step_id.as_deref() {
             // Extract OpenAIMessages from final_messages
             let messages_to_persist: Vec<&OpenAIMessage> =
