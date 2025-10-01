@@ -130,6 +130,7 @@
 					/>
 					<Select
 						class="max-w-[125px]"
+						inputClass="h-full"
 						bind:value={
 							() => s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourceType || 's3',
 							(v) => {

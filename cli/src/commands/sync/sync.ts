@@ -1265,7 +1265,7 @@ export async function pull(
 
   // Validate branch configuration early
   try {
-    await validateBranchConfiguration(false, opts.yes);
+    await validateBranchConfiguration(opts);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -1690,7 +1690,7 @@ export async function push(
 
   // Validate branch configuration early
   try {
-    await validateBranchConfiguration(false, opts.yes);
+    await validateBranchConfiguration(opts);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2358,6 +2358,7 @@ const command = new Command()
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
   .option("--include-key", "Include workspace encryption key")
+  .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
   .option(
     "-i --includes <patterns:file[]>",
@@ -2405,6 +2406,7 @@ const command = new Command()
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
   .option("--include-key", "Include workspace encryption key")
+  .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
   .option(
     "-i --includes <patterns:file[]>",

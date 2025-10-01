@@ -705,10 +705,10 @@ pub async fn process_completed_job(
                     &job.workspace_id,
                     false,
                     Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
-                    duration.map(|x| FlowJobDuration {
-                        started_at: job.started_at.unwrap(),
-                        duration_ms: x,
-                    }),
+                    duration.and_then(|d| job.started_at.map(|started_at| FlowJobDuration {
+                        started_at: started_at,
+                        duration_ms: d,
+                    })),
                     false,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,

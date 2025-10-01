@@ -51,7 +51,7 @@
 		{id}
 		{disabled}
 		class={twMerge(
-			'group rounded-md transition-all font-normal data-[state=on]:font-medium hover:font-medium  flex gap-1 flex-row items-center border',
+			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center border',
 			small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-1 text-sm',
 			light
 				? 'hover:text-secondary data-[state=on]:text-secondary text-tertiary'
