@@ -174,27 +174,30 @@
 {#if schema}
 	<SchemaForm onlyMaskPassword {schema} bind:args>
 		{#snippet actions({ item })}
-			<Toggle
-				options={{ right: 'NULL' }}
-				class="pl-2"
-				textClass="text-tertiary"
-				disabled={fields?.[fields?.findIndex((f) => f.name === item.id)]?.nullable != 'YES'}
-				bind:checked={
-					() => args[item.id] === null,
-					(v) => {
-						if (!schema?.properties[item.id]) return
-						if (v) {
-							schema.properties[item.id].nullable = true
-							schema.properties[item.id].disabled = true
-							args[item.id] = null
-						} else {
-							delete schema.properties[item.id].disabled
-							delete schema.properties[item.id].nullable
-							args[item.id] = ''
+			{@const disabled = fields?.[fields?.findIndex((f) => f.name === item.id)]?.nullable != 'YES'}
+			{#if !disabled}
+				<Toggle
+					options={{ right: 'NULL' }}
+					class="pl-2"
+					textClass="text-tertiary"
+					size="2sm"
+					bind:checked={
+						() => args[item.id] === null,
+						(v) => {
+							if (!schema?.properties[item.id]) return
+							if (v) {
+								schema.properties[item.id].nullable = true
+								schema.properties[item.id].disabled = true
+								args[item.id] = null
+							} else {
+								delete schema.properties[item.id].disabled
+								delete schema.properties[item.id].nullable
+								args[item.id] = ''
+							}
 						}
 					}
-				}
-			/>
+				/>
+			{/if}
 		{/snippet}
 	</SchemaForm>
 {/if}
