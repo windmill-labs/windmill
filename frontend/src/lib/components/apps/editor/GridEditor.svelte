@@ -166,7 +166,10 @@
 			<div class="flex text-2xs gap-8 items-center">
 				<div class="py-2 pr-2 text-secondary flex gap-1 items-center">
 					Hide bar on view
-					<Toggle size="xs" bind:checked={$app.norefreshbar} />
+					<Toggle
+						size="xs"
+						bind:checked={() => $app.norefreshbar, (v) => v && ($app.norefreshbar = v)}
+					/>
 				</div>
 				<div>
 					{policy.on_behalf_of ? `Author ${policy.on_behalf_of_email}` : ''}

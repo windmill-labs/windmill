@@ -1438,6 +1438,5 @@ export function emptyApp(): App {
 
 	value.hideLegacyTopBar = true
 	value.mobileViewOnSmallerScreens = false
-	console.log('Empty app created', value)
 	return value
 }
