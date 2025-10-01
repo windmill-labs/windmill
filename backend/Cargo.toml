@@ -135,6 +135,7 @@ lazy_static.workspace = true
 once_cell.workspace = true
 prometheus = { workspace = true, optional = true }
 uuid.workspace = true
+indexmap.workspace = true
 gethostname.workspace = true
 serde_json.workspace = true
 serde_yml.workspace = true

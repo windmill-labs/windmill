@@ -15135,6 +15135,7 @@ dependencies = [
  "gethostname",
  "git-version",
  "globset",
+ "indexmap 2.11.1",
  "k8s-openapi",
  "kube",
  "lazy_static",

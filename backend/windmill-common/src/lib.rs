@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use indexmap::IndexMap;
 use itertools::Itertools as _;
 use once_cell::sync::OnceCell;
 use quick_cache::sync::Cache;
@@ -172,7 +173,7 @@ lazy_static::lazy_static! {
 }
 
 pub static SHARD_DB_INSTANCE: OnceCell<Pool<Postgres>> = OnceCell::new();
-pub static SHARD_ID_TO_DB_INSTANCE: OnceCell<HashMap<usize, Pool<Postgres>>> = OnceCell::new();
+pub static SHARD_ID_TO_DB_INSTANCE: OnceCell<IndexMap<usize, Pool<Postgres>>> = OnceCell::new();
 
 const LATEST_VERSION_ID_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 

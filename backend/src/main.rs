@@ -27,7 +27,7 @@ use strum::IntoEnumIterator;
 use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
 use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
-
+use indexmap::map::IndexMap;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{
     maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICENSE_KEY_VALID,
@@ -320,10 +320,10 @@ async fn initialize_server_shard_instances() -> anyhow::Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow!("SHARD_URLS environment variable is required for server shard mode. Please set it as: SHARD_URLS=dburl1,dburl2,..."))?;
 
-    let mut shard_to_db = HashMap::new();
+    let mut shard_to_db = IndexMap::new();
     for (i, shard_url) in shard_urls.iter().enumerate() {
-        println!("Url: {}", &shard_url);
-        let shard = connect_db(Some(&shard_url), true, false, false).await?;
+        tracing::info!("Connecting to shard {}: {}", i, &shard_url);
+        let shard = connect_db(Some(&shard_url), true, false, false).await.with_context(|| format!("Failed to connect to shard {}", i))?;
         shard_to_db.insert(i, shard);
     }
 

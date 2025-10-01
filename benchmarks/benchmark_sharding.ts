@@ -51,10 +51,11 @@ interface BenchmarkContext {
   };
   nStepsFlow: number;
   bodyTemplate: any;
-  getQueueCount: (tags?: string[]) => Promise<number>;
+  getQueueCount: (tags?: string[], num_shards?: number) => Promise<number>;
   getCompletedJobsCount: (
     tags?: string[],
-    baseline?: number
+    baseline?: number,
+    num_shards?: number
   ) => Promise<number>;
 }
 
@@ -112,7 +113,15 @@ async function initializeBenchmarkContext(
   config.token = final_token;
   windmill.setClient(final_token, host);
 
-  async function getQueueCount(tags?: string[]) {
+  async function getQueueCount(tags?: string[], numShards?: number) {
+    const params = new URLSearchParams();
+    if (tags && tags.length > 0) {
+      params.set("tags", tags.join(","));
+    }
+    if (numShards !== undefined) {
+      params.set("num_shards", numShards.toString());
+    }
+    const queryString = params.toString();
     return (
       await (
         await fetch(
@@ -120,7 +129,7 @@ async function initializeBenchmarkContext(
             "/api/w/" +
             config.workspace_id +
             "/jobs/queue/count" +
-            (tags && tags.length > 0 ? "?tags=" + tags.join(",") : ""),
+            (queryString ? "?" + queryString : ""),
           { headers: { ["Authorization"]: "Bearer " + config.token } }
         )
       ).json()
@@ -153,8 +162,17 @@ async function initializeBenchmarkContext(
 
   async function getCompletedJobsCount(
     tags?: string[],
-    baseline: number = 0
+    baseline: number = 0,
+    numShards?: number
   ): Promise<number> {
+    const params = new URLSearchParams();
+    if (tags && tags.length > 0) {
+      params.set("tags", tags.join(","));
+    }
+    if (numShards !== undefined) {
+      params.set("num_shards", numShards.toString());
+    }
+    const queryString = params.toString();
     const completedJobs = (
       await (
         await fetch(
@@ -162,7 +180,7 @@ async function initializeBenchmarkContext(
             "/api/w/" +
             config.workspace_id +
             "/jobs/completed/count" +
-            (tags && tags.length > 0 ? "?tags=" + tags.join(",") : ""),
+            (queryString ? "?" + queryString : ""),
           { headers: { ["Authorization"]: "Bearer " + config.token } }
         )
       ).json()
@@ -255,7 +273,7 @@ async function runShardingBenchmark(
   } = context;
   console.log(`\n=== Running benchmark with ${numShards} shard(s) ===`);
 
-  const pastJobs = await getCompletedJobsCount(NON_TEST_TAGS, 0);
+  const pastJobs = await getCompletedJobsCount(NON_TEST_TAGS, 0, numShards);
 
   const enc = (s: string) => new TextEncoder().encode(s);
   const jobsSent = jobs;
@@ -312,7 +330,7 @@ async function runShardingBenchmark(
   while (completedJobs < jobsSent) {
     if (!didStart) {
       const queueCheckStart = Date.now();
-      const actual_queue = await getQueueCount(NON_TEST_TAGS);
+      const actual_queue = await getQueueCount(NON_TEST_TAGS, numShards);
       totalMonitoringOverhead += Date.now() - queueCheckStart;
 
       if (actual_queue < jobsSent) {
@@ -323,10 +341,16 @@ async function runShardingBenchmark(
     } else {
       await sleep(1);
       const monitoringStart = Date.now();
-      completedJobs = await getCompletedJobsCount(NON_TEST_TAGS, pastJobs);
+      completedJobs = await getCompletedJobsCount(
+        NON_TEST_TAGS,
+        pastJobs,
+        numShards
+      );
       totalMonitoringOverhead += Date.now() - monitoringStart;
 
-      const elapsed = start ? Math.max(0, Date.now() - start - totalMonitoringOverhead) : 0;
+      const elapsed = start
+        ? Math.max(0, Date.now() - start - totalMonitoringOverhead)
+        : 0;
       if (nStepsFlow > 0) {
         completedJobs = Math.floor(completedJobs / (nStepsFlow + 1));
       }

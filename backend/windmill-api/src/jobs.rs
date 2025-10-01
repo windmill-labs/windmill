@@ -2259,6 +2259,7 @@ struct QueueStats {
 pub struct CountQueueJobsQuery {
     all_workspaces: Option<bool>,
     tags: Option<String>,
+    num_shards: Option<usize>,
 }
 
 async fn count_queue_jobs(
@@ -2274,13 +2275,13 @@ async fn count_queue_jobs(
         sqlx::query_as!(
             QueueStats,
             "
-            SELECT 
-                coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", 
-                coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" 
-            FROM 
-                v2_as_queue 
-            WHERE 
-                (workspace_id = $1 OR $2) AND 
+            SELECT
+                coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\",
+                coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\"
+            FROM
+                v2_as_queue
+            WHERE
+                (workspace_id = $1 OR $2) AND
                 scheduled_for <= now() AND ($3::text[] IS NULL OR tag = ANY($3))
             ",
             w_id,
@@ -2292,11 +2293,13 @@ async fn count_queue_jobs(
     };
 
     let count_queue_jobs = if *SHARD_MODE {
-        let count_futures = SHARD_ID_TO_DB_INSTANCE
-            .get()
-            .unwrap()
-            .iter()
-            .map(|(_, db)| count_queue_jobs(db))
+        let shard_db_store = SHARD_ID_TO_DB_INSTANCE.get().unwrap();
+        println!("{:#?}", &cq.num_shards);
+        let num_shards_to_query = cq.num_shards.unwrap_or(shard_db_store.len());
+
+        let count_futures = (0..num_shards_to_query)
+            .filter_map(|shard_id| shard_db_store.get(&shard_id))
+            .map(|db| count_queue_jobs(db))
             .collect_vec();
 
         let completed_futures = futures::future::try_join_all(count_futures).await?;
@@ -2373,20 +2376,26 @@ async fn count_completed_jobs_detail(
     Ok(Json(stats))
 }
 
+#[derive(Deserialize)]
+pub struct CountCompletedJobsSimpleQuery {
+    num_shards: Option<usize>,
+}
+
 async fn count_completed_jobs(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(cq): Query<CountCompletedJobsSimpleQuery>,
 ) -> error::JsonResult<QueueStats> {
     let count_completed_jobs = async |db: &DB| {
         sqlx::query_as!(
             QueueStats,
             "
-            SELECT 
-                coalesce(COUNT(*), 0) as \"database_length!\", 
-                null::bigint as suspended 
-            FROM 
-                v2_job_completed 
-            WHERE 
+            SELECT
+                coalesce(COUNT(*), 0) as \"database_length!\",
+                null::bigint as suspended
+            FROM
+                v2_job_completed
+            WHERE
                 workspace_id = $1
             ",
             w_id
@@ -2396,11 +2405,15 @@ async fn count_completed_jobs(
     };
 
     let count_completed_jobs = if *SHARD_MODE {
-        let count_futures = SHARD_ID_TO_DB_INSTANCE
-            .get()
-            .unwrap()
-            .iter()
-            .map(|(_, db)| count_completed_jobs(db))
+        let shard_db_store = SHARD_ID_TO_DB_INSTANCE.get().unwrap();
+
+        println!("{:#?}", &cq.num_shards);
+
+        let num_shards_to_query = cq.num_shards.unwrap_or(shard_db_store.len());
+
+        let count_futures = (0..num_shards_to_query)
+            .filter_map(|shard_id| shard_db_store.get(&shard_id))
+            .map(|db| count_completed_jobs(db))
             .collect_vec();
 
         let completed_futures = futures::future::try_join_all(count_futures).await?;
