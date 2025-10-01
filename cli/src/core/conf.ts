@@ -36,6 +36,7 @@ export interface SyncOptions {
   includeGroups?: boolean;
   includeSettings?: boolean;
   includeKey?: boolean;
+  skipBranchValidation?: boolean;
   message?: string;
   includes?: string[];
   extraIncludes?: string[];
@@ -355,10 +356,9 @@ export async function mergeConfigWithConfigFile<T>(
 
 // Validate branch configuration early in the process
 export async function validateBranchConfiguration(
-  skipValidation?: boolean,
-  autoAccept?: boolean
+  opts: Pick<SyncOptions, "skipBranchValidation" | "yes">
 ): Promise<void> {
-  if (skipValidation || !isGitRepository()) {
+  if (opts.skipBranchValidation || !isGitRepository()) {
     return;
   }
 
@@ -400,7 +400,7 @@ export async function validateBranchConfiguration(
       );
 
       const shouldCreate =
-        autoAccept ||
+        opts.yes ||
         (await Confirm.prompt({
           message: `Create empty branch configuration for '${currentBranch}'?`,
           default: true,
