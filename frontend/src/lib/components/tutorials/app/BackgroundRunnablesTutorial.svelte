@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { updateProgress } from '$lib/tutorialUtils'
+	import { type DriveStep } from 'driver.js'
 	import Tutorial from '../Tutorial.svelte'
 	import { clickButtonBySelector } from '../utils'
+	import { wait } from '$lib/utils'
 
 	export let name: string
 	export let index: number
@@ -19,9 +21,18 @@
 	{name}
 	on:error
 	on:skipAll
+	onDestroyed={() => {
+		document.getElementById('app-editor-empty-runnable')?.classList.remove?.('h-full')
+		document.getElementById('app-editor-empty-runnable')?.classList.remove?.('overflow-y-clip')
+	}}
 	getSteps={(driver, options) => {
-		const steps = [
+		const steps: DriveStep[] = [
 			{
+				onHighlighted: async () => {
+					wait(50)
+					document.getElementById('app-editor-empty-runnable')?.classList.add('h-full')
+					document.getElementById('app-editor-empty-runnable')?.classList.add('overflow-y-clip')
+				},
 				element: '#app-editor-runnable-panel',
 				popover: {
 					title: 'Runnable panel',
@@ -39,6 +50,8 @@
 						clickButtonBySelector('#create-background-runnable')
 
 						setTimeout(() => {
+							document.getElementById('app-editor-empty-runnable')?.classList.add('h-full')
+							document.getElementById('app-editor-empty-runnable')?.classList.add('overflow-y-clip')
 							driver.moveNext()
 						})
 					}

@@ -11,7 +11,6 @@
 
 	import { Building, GitFork, Globe2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { fly } from 'svelte/transition'
 	import { defaultCode } from '../component'
 	import WorkspaceScriptList from '../settingsPanel/mainInput/WorkspaceScriptList.svelte'
 	import RunnableSelector from '../settingsPanel/mainInput/RunnableSelector.svelte'

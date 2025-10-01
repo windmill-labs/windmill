@@ -49,6 +49,10 @@
 	on:error
 	on:skipAll
 	tainted={isAppTainted($app)}
+	onDestroyed={() => {
+		document.getElementById('app-editor-empty-runnable')?.classList.remove?.('h-full')
+		document.getElementById('app-editor-empty-runnable')?.classList.remove?.('overflow-y-clip')
+	}}
 	getSteps={(driver) => {
 		const steps: DriveStep[] = [
 			{
