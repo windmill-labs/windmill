@@ -1,3 +1,4 @@
+use crate::memory_oss::{read_from_memory, write_to_memory};
 use anyhow::Context;
 use async_recursion::async_recursion;
 use regex::Regex;
@@ -402,71 +403,6 @@ fn is_anthropic_provider(provider: &ProviderWithResource) -> bool {
     provider_is_anthropic || is_openrouter_anthropic
 }
 
-/// Persist new messages to memory immediately after they are added
-async fn persist_messages_to_memory(
-    db: &DB,
-    workspace_id: &str,
-    parent_job: &Uuid,
-    step_id: &str,
-    new_messages: &[OpenAIMessage],
-) -> Result<(), Error> {
-    if new_messages.is_empty() {
-        return Ok(());
-    }
-
-    // Look up conversation_id for this flow
-    let conversation_id = match sqlx::query_scalar!(
-        "SELECT conversation_id FROM flow_conversation_message
-         WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
-        parent_job
-    )
-    .fetch_optional(db)
-    .await
-    {
-        Ok(Some(id)) => id,
-        Ok(None) => {
-            tracing::debug!(
-                "No conversation found for parent job {}, skipping memory persistence",
-                parent_job
-            );
-            return Ok(());
-        }
-        Err(e) => {
-            tracing::error!(
-                "Failed to lookup conversation for parent job {}: {}",
-                parent_job,
-                e
-            );
-            return Ok(());
-        }
-    };
-
-    // Convert messages to JSON array
-    let messages_json = serde_json::to_value(new_messages)
-        .map_err(|e| Error::internal_err(format!("Failed to serialize messages: {}", e)))?;
-
-    // Persist to memory
-    if let Err(e) =
-        crate::memory::append_messages(db, workspace_id, conversation_id, step_id, &messages_json)
-            .await
-    {
-        tracing::error!(
-            "Failed to persist {} messages to memory for step {}: {}",
-            new_messages.len(),
-            step_id,
-            e
-        );
-    } else {
-        tracing::debug!(
-            "Persisted {} messages to memory for step {}",
-            new_messages.len(),
-            step_id
-        );
-    }
-
-    Ok(())
-}
-
 #[async_recursion]
 pub async fn run_agent(
     // connection
@@ -530,9 +466,7 @@ pub async fn run_agent(
                     );
 
                     // Read messages from memory
-                    match crate::memory::read_messages(&job.workspace_id, conversation_id, step_id)
-                        .await
-                    {
+                    match read_from_memory(&job.workspace_id, conversation_id, step_id).await {
                         Ok(Some(mem_json)) => {
                             if let Some(arr) = mem_json.as_array() {
                                 let mut loaded_count = 0;
@@ -750,18 +684,6 @@ pub async fn run_agent(
                                 .await?;
                             update_flow_status_module_with_actions_success(db, parent_job, true)
                                 .await?;
-
-                            // Persist assistant message to memory immediately
-                            if let Some(step_id) = job.flow_step_id.as_deref() {
-                                persist_messages_to_memory(
-                                    db,
-                                    &job.workspace_id,
-                                    parent_job,
-                                    step_id,
-                                    &[assistant_msg],
-                                )
-                                .await?;
-                            }
 
                             content = Some(OpenAIContent::Text(response_content.clone()));
                         }
@@ -1058,18 +980,6 @@ pub async fn run_agent(
                                             db, parent_job, false,
                                         )
                                         .await?;
-
-                                        // Persist tool error to memory immediately
-                                        if let Some(step_id) = job.flow_step_id.as_deref() {
-                                            persist_messages_to_memory(
-                                                db,
-                                                &job.workspace_id,
-                                                parent_job,
-                                                step_id,
-                                                &[tool_error_msg],
-                                            )
-                                            .await?;
-                                        }
                                     }
                                     Ok(success) => {
                                         let send_result =
@@ -1137,18 +1047,6 @@ pub async fn run_agent(
                                             db, parent_job, success,
                                         )
                                         .await?;
-
-                                        // Persist tool result to memory immediately
-                                        if let Some(step_id) = job.flow_step_id.as_deref() {
-                                            persist_messages_to_memory(
-                                                db,
-                                                &job.workspace_id,
-                                                parent_job,
-                                                step_id,
-                                                &[tool_result_msg],
-                                            )
-                                            .await?;
-                                        }
                                     }
                                 }
                             } else {
@@ -1211,6 +1109,51 @@ pub async fn run_agent(
                     "Error waiting for stream event processor: {}",
                     e
                 )));
+            }
+        }
+    }
+
+    // Persist complete conversation to memory at the end
+    // final_messages contains the complete history (old messages + new ones)
+    if matches!(output_type, OutputType::Text) {
+        if let Some(step_id) = job.flow_step_id.as_deref() {
+            // Extract OpenAIMessages from final_messages
+            let messages_to_persist: Vec<&OpenAIMessage> =
+                final_messages.iter().map(|m| m.message).collect();
+
+            if !messages_to_persist.is_empty() {
+                let messages_json = serde_json::to_value(&messages_to_persist).map_err(|e| {
+                    Error::internal_err(format!("Failed to serialize messages: {}", e))
+                })?;
+
+                // Look up conversation_id
+                if let Ok(Some(conversation_id)) = sqlx::query_scalar!(
+                    "SELECT conversation_id FROM flow_conversation_message 
+                     WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
+                    parent_job
+                )
+                .fetch_optional(db)
+                .await
+                {
+                    // Use write_to_memory to replace entire conversation
+                    if let Err(e) =
+                        write_to_memory(&job.workspace_id, conversation_id, step_id, &messages_json)
+                            .await
+                    {
+                        tracing::error!(
+                            "Failed to persist {} messages to memory for step {}: {}",
+                            messages_to_persist.len(),
+                            step_id,
+                            e
+                        );
+                    } else {
+                        tracing::debug!(
+                            "Persisted {} messages to memory for step {}",
+                            messages_to_persist.len(),
+                            step_id
+                        );
+                    }
+                }
             }
         }
     }
