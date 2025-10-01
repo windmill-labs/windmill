@@ -13060,6 +13060,128 @@ paths:
               schema:
                 $ref: "#/components/schemas/WindmillFilePreview"
 
+  /w/{workspace}/job_helpers/list_git_repo_files:
+    get:
+      summary: List the file keys available in instance object storage with resource-based access control
+      operationId: listGitRepoFiles
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: max_keys
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: marker
+          in: query
+          schema:
+            type: string
+        - name: prefix
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of file keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  next_marker:
+                    type: string
+                  windmill_large_files:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WindmillLargeFile"
+                  restricted_access:
+                    type: boolean
+                required:
+                  - windmill_large_files
+
+  /w/{workspace}/job_helpers/load_git_repo_file_preview:
+    get:
+      summary: Load a preview of a file from instance storage with resource-based access control
+      operationId: loadGitRepoFilePreview
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: file_size_in_bytes
+          in: query
+          schema:
+            type: integer
+        - name: file_mime_type
+          in: query
+          schema:
+            type: string
+        - name: csv_separator
+          in: query
+          schema:
+            type: string
+        - name: csv_has_header
+          in: query
+          schema:
+            type: boolean
+        - name: read_bytes_from
+          in: query
+          schema:
+            type: integer
+        - name: read_bytes_length
+          in: query
+          schema:
+            type: integer
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FilePreview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFilePreview"
+
+  /w/{workspace}/job_helpers/load_git_repo_file_metadata:
+    get:
+      summary: Load file meatadata from instance storage with resource-based access control
+      operationId: loadGitRepoFileMetadata
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FileMetadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFileMetadata"
+
   /w/{workspace}/job_helpers/load_parquet_preview/{path}:
     get:
       summary: Load a preview of a parquet file

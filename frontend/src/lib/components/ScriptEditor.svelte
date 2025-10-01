@@ -2,7 +2,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
+	import { type CompletedJob, HelpersService, type Job, JobService, type Preview, type ScriptLang, SettingService } from '$lib/gen'
 	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
@@ -14,7 +14,7 @@
 	import JobLoader from './JobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
-	import { Button } from './common'
+	import { Alert, Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import * as Y from 'yjs'
@@ -560,12 +560,40 @@
 								>
 									ohhohho
 								</button>
+								<button
+									class="text-secondary underline text-2xs whitespace-nowrap ml-1"
+									onclick={() => {
+										s3FilePicker?.close?.(undefined)
+									}}
+								>
+									ugugugugu
+								</button>
 								<S3FilePickerInner
 									bind:this={s3FilePicker}
 									readOnlyMode
 									hideS3SpecificDetails
-									rootPath={'git_repo_resources/u/admin/soulful_git_repository/95cabf1a3d6d9db7958f41bbd0ebf8e44e9e0b50/'}
-								/>
+									rootPath={`gitrepos/wwwww/${assets[0].path}/95cabf1a3d6d9db7958f41bbd0ebf8e44e9e0b50/`}
+									listStoredFilesRequest={HelpersService.listGitRepoFiles}
+									loadFilePreviewRequest={HelpersService.loadGitRepoFilePreview}
+									testConnectionRequest={(async (_d) => {
+										const bucketConfig: any = await SettingService.getGlobal({ key: "object_store_cache_config" })
+										return SettingService.testObjectStorageConfig({
+											requestBody: bucketConfig
+										})
+									}) as any}
+									loadFileMetadataRequest={HelpersService.loadGitRepoFileMetadata}
+								>
+									{#snippet replaceUnauthorizedWarning()}
+									<div class="mb-2">
+										<Alert type="error" title="Cannot view git repo">
+											<p>
+												The git repo resource you are trying to access either doesn't exist or you don't have access to it. Make sure the resource path is correct and that you have visibility over the resource.
+
+											</p>
+										</Alert>
+									</div>
+									{/snippet}
+								</S3FilePickerInner>
 
 							<!-- {assets[0].path} -->
 							<!-- S3 File Browser for Ansible assets will be integrated here -->

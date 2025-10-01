@@ -14,7 +14,7 @@
 		MoveRight
 	} from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { HelpersService, SettingService } from '$lib/gen'
+	import { CancelablePromise, HelpersService, SettingService, type DatasetStorageTestConnectionData, type DatasetStorageTestConnectionResponse, type DeleteS3FileData, type DeleteS3FileResponse, type ListStoredFilesData, type ListStoredFilesResponse, type LoadFileMetadataData, type LoadFileMetadataResponse, type LoadFilePreviewData, type LoadFilePreviewResponse, type MoveS3FileData, type MoveS3FileResponse } from '$lib/gen'
 	import { base } from '$lib/base'
 	import {
 		displayDate,
@@ -26,7 +26,7 @@
 	} from '$lib/utils'
 	import { Alert, Button } from './common'
 	import Section from './Section.svelte'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher, untrack, type Snippet } from 'svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import TableSimple from './TableSimple.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -58,6 +58,13 @@
 		regexFilter?: RegExp | undefined
 		hideS3SpecificDetails?: boolean
 		rootPath?: string
+		replaceUnauthorizedWarning?: Snippet
+		listStoredFilesRequest?: (d: ListStoredFilesData) => CancelablePromise<ListStoredFilesResponse>
+		loadFilePreviewRequest?: (d: LoadFilePreviewData) => CancelablePromise<LoadFilePreviewResponse>
+		loadFileMetadataRequest?: (d: LoadFileMetadataData) => CancelablePromise<LoadFileMetadataResponse>
+		deleteS3FileRequest?: (d: DeleteS3FileData) => CancelablePromise<DeleteS3FileResponse>
+		moveS3FileRequest?: (d: MoveS3FileData) => CancelablePromise<MoveS3FileResponse>
+		testConnectionRequest?: (d: DatasetStorageTestConnectionData) => CancelablePromise<DatasetStorageTestConnectionResponse>
 	}
 
 	let {
@@ -68,7 +75,14 @@
 		folderOnly = false,
 		regexFilter = undefined,
 		hideS3SpecificDetails = false,
-		rootPath = ""
+		rootPath = "",
+		replaceUnauthorizedWarning,
+		listStoredFilesRequest = HelpersService.listStoredFiles,
+		loadFilePreviewRequest = HelpersService.loadFilePreview,
+		loadFileMetadataRequest = HelpersService.loadFileMetadata,
+		deleteS3FileRequest = HelpersService.deleteS3File,
+		moveS3FileRequest = HelpersService.moveS3File,
+		testConnectionRequest = HelpersService.datasetStorageTestConnection,
 	}: Props = $props()
 
 	let rootPathNestingLevel = $derived(1 * (rootPath.split('/').length - 1))
@@ -155,7 +169,7 @@
 	let lastKeyFolders: string[] = $state([])
 	async function loadFiles() {
 		fileListLoading = true
-		let availableFiles = await HelpersService.listStoredFiles({
+		let availableFiles = await listStoredFilesRequest({
 			workspace: $workspaceStore!,
 			maxKeys: maxKeys, // fixed pages of 1000 files for now
 			marker: page == 0 ? undefined : listMarkers[page - 1],
@@ -252,7 +266,7 @@
 			return
 		}
 		fileInfoLoading = true
-		let fileMetadataRaw = await HelpersService.loadFileMetadata({
+		let fileMetadataRaw = await loadFileMetadataRequest({
 			workspace: $workspaceStore!,
 			fileKey: fileKey,
 			storage: storage
@@ -273,7 +287,7 @@
 
 	async function loadFilePreview(fileKey: string, fileSizeInBytes?: number, fileMimeType?: string) {
 		filePreviewLoading = true
-		let filePreviewRaw = await HelpersService.loadFilePreview({
+		let filePreviewRaw = await loadFilePreviewRequest({
 			workspace: $workspaceStore!,
 			fileKey: fileKey,
 			fileSizeInBytes: fileSizeInBytes,
@@ -323,7 +337,7 @@
 			return
 		}
 		try {
-			await HelpersService.deleteS3File({
+			await deleteS3FileRequest({
 				workspace: $workspaceStore!,
 				fileKey: fileKey,
 				storage: storage
@@ -383,7 +397,7 @@
 			return
 		}
 		try {
-			await HelpersService.moveS3File({
+			await moveS3FileRequest({
 				workspace: $workspaceStore!,
 				srcFileKey: srcFileKey,
 				destFileKey: destFileKey!,
@@ -426,7 +440,7 @@
 		}
 		fileListLoading = true
 		try {
-			await HelpersService.datasetStorageTestConnection({
+			await testConnectionRequest({
 				workspace: $workspaceStore!,
 				storage: storage
 			})
@@ -539,21 +553,25 @@
 	{/if}
 {:else}
 	{#if fileListUnavailable == true}
-		<div class="mb-2">
-			<Alert type="info" title="Access to S3 bucket restricted">
-				<p>
-					You don't have access to the S3 bucket resource and your administrator has restricted the
-					access to it. You are not authorized to browse the bucket content. If you think this is
-					incorrect, please contact your workspace administrator.
-				</p>
-				<p>
-					More info in <a
-						href="https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files"
-						target="_blank">Windmill's documentation</a
-					></p
-				></Alert
-			>
-		</div>
+		{#if replaceUnauthorizedWarning}
+			{@render replaceUnauthorizedWarning()}
+		{:else}
+			<div class="mb-2">
+				<Alert type="info" title="Access to S3 bucket restricted">
+					<p>
+						You don't have access to the S3 bucket resource and your administrator has restricted the
+						access to it. You are not authorized to browse the bucket content. If you think this is
+						incorrect, please contact your workspace administrator.
+					</p>
+					<p>
+						More info in <a
+							href="https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files"
+							target="_blank">Windmill's documentation</a
+						></p
+					></Alert
+				>
+			</div>
+		{/if}
 	{/if}
 	<div class="flex flex-row border rounded-md h-full min-h-0 overflow-hidden">
 		{#if !fileListUnavailable}
