@@ -57,6 +57,7 @@ use std::{
     time::Duration,
 };
 use windmill_parser::MainArgSignature;
+use windmill_queue::PulledJobResult;
 
 use uuid::Uuid;
 
@@ -424,15 +425,45 @@ lazy_static::lazy_static! {
 }
 
 #[derive(Debug)]
+enum SqlJob {
+    PulledJob(PulledJob),
+    MissingConcurrencyKey(PulledJob),
+}
+
+impl SqlJob {
+    pub async fn get_job_and_perms(self, db: &DB) -> JobAndPerms {
+        match self {
+            SqlJob::PulledJob(job) => job.get_job_and_perms(db).await,
+            SqlJob::MissingConcurrencyKey(job) => job.get_job_and_perms(db).await,
+        }
+    }
+
+    pub fn from_pull_job_result(pull_job_result: PulledJobResult) -> Option<Self> {
+        match pull_job_result {
+            PulledJobResult { job: Some(job), missing_concurrency_key: true, .. } => {
+                Some(SqlJob::MissingConcurrencyKey(job))
+            }
+            PulledJobResult { job: Some(job), missing_concurrency_key: false, .. } => {
+                Some(SqlJob::PulledJob(job))
+            }
+            PulledJobResult { job: None, .. } => None,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum NextJob {
-    Sql(PulledJob),
+    Sql(SqlJob),
     Http(JobAndPerms),
 }
 
 impl NextJob {
     pub fn job(self) -> MiniPulledJob {
         match self {
-            NextJob::Sql(job) => job.job,
+            NextJob::Sql(job) => match job {
+                SqlJob::PulledJob(job) => job.job,
+                SqlJob::MissingConcurrencyKey(job) => job.job,
+            },
             NextJob::Http(job) => job.job,
         }
     }
@@ -442,7 +473,10 @@ impl std::ops::Deref for NextJob {
     type Target = MiniPulledJob;
     fn deref(&self) -> &Self::Target {
         match self {
-            NextJob::Sql(job) => &job.job,
+            NextJob::Sql(job) => match job {
+                SqlJob::PulledJob(job) => &job.job,
+                SqlJob::MissingConcurrencyKey(job) => &job.job,
+            },
             NextJob::Http(job) => &job.job,
         }
     }
@@ -821,7 +855,7 @@ pub fn start_interactive_worker_shell(
                         )
                         .await;
 
-                        job.map(|x| x.job.map(NextJob::Sql))
+                        job.map(|j| SqlJob::from_pull_job_result(j).map(|x| NextJob::Sql(x)))
                     }
                     Connection::Http(client) => {
                         crate::agent_workers::pull_job(&client, None, Some(true))
@@ -1501,7 +1535,7 @@ pub async fn run_worker(
                                 .expect("send kill to job completed tx");
                             break;
                         } else {
-                            job.map(|x| x.map(NextJob::Sql))
+                            job.map(|x| x.map(|j| NextJob::Sql(SqlJob::PulledJob(j))))
                         }
                     }
                     Connection::Http(client) => client
@@ -1631,7 +1665,7 @@ pub async fn run_worker(
                                 }
                             }
                         }
-                        job.map(|x| x.job.map(NextJob::Sql))
+                        job.map(|j| SqlJob::from_pull_job_result(j).map(|x| NextJob::Sql(x)))
                     }
                     Connection::Http(client) => crate::agent_workers::pull_job(&client, None, None)
                         .await
@@ -1655,6 +1689,33 @@ pub async fn run_worker(
                 jobs_executed += 1;
 
                 tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
+
+                if let NextJob::Sql(SqlJob::MissingConcurrencyKey(job)) = job {
+                    job_completed_tx
+                        .send_job(
+                            JobCompleted {
+                                preprocessed_args: None,
+                                job: Arc::new(job.job),
+                                success: false,
+                                result: Arc::new(windmill_common::worker::to_raw_value(
+                                    &error_to_value(&Error::internal_err(
+                                        "Missing concurrency key".to_string(),
+                                    )),
+                                )),
+                                result_columns: None,
+                                mem_peak: 0,
+                                cached_res_path: None,
+                                token: "".to_string(),
+                                canceled_by: None,
+                                duration: None,
+                                has_stream: Some(false),
+                            },
+                            true,
+                        )
+                        .await
+                        .expect("send job completed END");
+                    continue;
+                }
 
                 if matches!(job.kind, JobKind::Script | JobKind::Preview) {
                     if !dedicated_workers.is_empty() {
@@ -2370,14 +2431,16 @@ pub async fn handle_queued_job(
             | JobKind::Flow
             | JobKind::FlowDependencies,
             x,
-        ) => if x.map(|x| x.0).is_none_or(|x| is_special_codebase_hash(x)) {
-            Some(
-                cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow.clone())
-                    .await?,
-            ) 
-        } else {
+        ) => {
+            if x.map(|x| x.0).is_none_or(|x| is_special_codebase_hash(x)) {
+                Some(
+                    cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow.clone())
+                        .await?,
+                )
+            } else {
                 None
-        },
+            }
+        }
         _ => None,
     };
 
@@ -2869,7 +2932,9 @@ async fn handle_code_execution_job(
         ScriptMetadata { language, envs, codebase, schema_validator, schema },
     ) = match job.kind {
         JobKind::Preview => {
-            let codebase = job.runnable_id.and_then(|x| hash_to_codebase_id(&job.id.to_string(), x.0));
+            let codebase = job
+                .runnable_id
+                .and_then(|x| hash_to_codebase_id(&job.id.to_string(), x.0));
             if codebase.is_none() && job.runnable_id.is_some() {
                 (arc_data, arc_metadata) =
                     cache::script::fetch(conn, job.runnable_id.unwrap()).await?;

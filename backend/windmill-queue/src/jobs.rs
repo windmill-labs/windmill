@@ -2132,6 +2132,7 @@ pub async fn get_mini_pulled_job<'c>(
 pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,
+    pub missing_concurrency_key: bool,
 }
 
 pub async fn pull(
@@ -2150,7 +2151,11 @@ pub async fn pull(
         }
         if pull_loop_count > 1000 {
             tracing::error!("Pull job loop count exceeded 1000, breaking");
-            return Ok(PulledJobResult { job: None, suspended: false });
+            return Ok(PulledJobResult {
+                job: None,
+                suspended: false,
+                missing_concurrency_key: false,
+            });
         }
         if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
@@ -2163,13 +2168,17 @@ pub async fn pull(
                         .await?
                 };
                 if let Some(job) = job {
-                    PulledJobResult { job: Some(job), suspended: true }
+                    PulledJobResult {
+                        job: Some(job),
+                        suspended: true,
+                        missing_concurrency_key: false,
+                    }
                 } else {
                     let job = sqlx::query_as::<_, PulledJob>(query_no_suspend)
                         .bind(worker_name)
                         .fetch_optional(db)
                         .await?;
-                    PulledJobResult { job, suspended: false }
+                    PulledJobResult { job, suspended: false, missing_concurrency_key: false }
                 }
             };
             if let Some(job) = njob.job.as_ref() {
@@ -2207,7 +2216,7 @@ pub async fn pull(
         .await?;
 
         let Some(job) = job else {
-            return Ok(PulledJobResult { job: None, suspended });
+            return Ok(PulledJobResult { job: None, suspended, missing_concurrency_key: false });
         };
 
         let has_concurent_limit = job.concurrent_limit.is_some();
@@ -2230,7 +2239,11 @@ pub async fn pull(
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
-            return Ok(PulledJobResult { job: Some(pulled_job), suspended });
+            return Ok(PulledJobResult {
+                job: Some(pulled_job),
+                suspended,
+                missing_concurrency_key: false,
+            });
         }
 
         #[cfg(all(feature = "enterprise", feature = "private"))]
