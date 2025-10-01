@@ -32,6 +32,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
+use datafusion::arrow::datatypes::ToByteSlice;
 use futures::future::{FutureExt, TryFutureExt};
 use hyper::StatusCode;
 #[cfg(feature = "parquet")]
@@ -806,10 +807,12 @@ async fn get_secret_id(
 use windmill_common::error;
 
 
-async fn store_raw_app_file(
+async fn store_raw_app_file<'a>(
     w_id: &str,
     id: &i64,
+    file_type: &str,
     data: bytes::Bytes,
+    mut tx: sqlx::Transaction<'a, sqlx::Postgres>,
 ) -> Result<()> {
 
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -817,21 +820,32 @@ async fn store_raw_app_file(
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     let object_store: Option<()> = None;
     
-    let path = format!("{}/{}", w_id, id);
+    let path = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = object_store {
 
         if let Err(e) = os
-            .put(&object_store::path::Path::from(path), data.into())
+            .put(&object_store::path::Path::from(path.clone()), data.into())
             .await
         {
 
             tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
             return Err(error::Error::ExecutionErr(format!("Failed to put {path} to s3")));
-        }
-    } else {
-        return Err(error::Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
-    }
+        } 
+        return Ok(());
+    } 
+
+    sqlx::query!(
+        "INSERT INTO raw_app_bundles (app_id, w_id, file_type, data) VALUES ($1, $2, $3, $4)",
+        id,
+        w_id,
+        file_type,
+        data.to_byte_slice()
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    
     Ok(())
 }
 macro_rules! process_app_multipart {
@@ -839,10 +853,6 @@ macro_rules! process_app_multipart {
         async {
             let mut saved_app = None;
             let mut uploaded_js = false;
-
-            //todo: use s3 instead
-            let file_path = format!("/tmp/wmill/{}", $w_id);
-            std::fs::create_dir_all(&file_path).unwrap();
 
             let mut multipart = $multipart;
             while let Some(field) = multipart.next_field().await.unwrap() {
@@ -862,8 +872,8 @@ macro_rules! process_app_multipart {
                     .await?;
                     saved_app = Some((npath, nid, ntx));
                 } else if name == "js" {
-                    if let Some((npath, id, tx)) = saved_app.as_ref() {
-                        store_raw_app_file($w_id, id, data, tx).await?;
+                    if let Some((_npath, id, tx)) = saved_app.clone() {
+                        store_raw_app_file($w_id, &id, "js", data, tx).await?;
                         uploaded_js = true;
                     } else {
                         return Err(Error::BadRequest(
@@ -871,9 +881,8 @@ macro_rules! process_app_multipart {
                         ));
                     }
                 } else if name == "css" {
-                    if let Some((_npath, id, tx)) = saved_app.as_ref() {
-                        let file_path = format!("{}/{}.css", file_path, id);
-                        std::fs::write(file_path, data).unwrap();
+                    if let Some((_npath, id, tx)) = saved_app {
+                        store_raw_app_file($w_id, &id, "css", data, tx).await?;
                     } else {
                         return Err(Error::BadRequest(
                             "App payload need to be created first".to_string(),
