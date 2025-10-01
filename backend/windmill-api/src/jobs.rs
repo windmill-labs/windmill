@@ -2294,7 +2294,6 @@ async fn count_queue_jobs(
 
     let count_queue_jobs = if *SHARD_MODE {
         let shard_db_store = SHARD_ID_TO_DB_INSTANCE.get().unwrap();
-        println!("{:#?}", &cq.num_shards);
         let num_shards_to_query = cq.num_shards.unwrap_or(shard_db_store.len());
 
         let count_futures = (0..num_shards_to_query)
@@ -2406,8 +2405,6 @@ async fn count_completed_jobs(
 
     let count_completed_jobs = if *SHARD_MODE {
         let shard_db_store = SHARD_ID_TO_DB_INSTANCE.get().unwrap();
-
-        println!("{:#?}", &cq.num_shards);
 
         let num_shards_to_query = cq.num_shards.unwrap_or(shard_db_store.len());
 
