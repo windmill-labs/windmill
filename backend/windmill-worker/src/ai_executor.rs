@@ -314,7 +314,7 @@ pub async fn handle_ai_agent_job(
     Ok(result)
 }
 
-/// Find a unique tool name to avoid collisions with user-provided tools
+/// Find a unique tool name for structured output tool to avoid collisions with user-provided tools
 fn find_unique_tool_name(base_name: &str, existing_tools: Option<&[ToolDef]>) -> String {
     let Some(tools) = existing_tools else {
         return base_name.to_string();
