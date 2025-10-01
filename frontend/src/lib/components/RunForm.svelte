@@ -237,10 +237,12 @@
 	{/if}
 	{#if runnable?.schema}
 		<div class="my-2"></div>
-		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
-			<div class="text-sm py-4 italic">No arguments</div>
-		{:else if jsonView}
-			<div class="py-2" style="height: {schemaHeight}px" data-schema-picker>
+		{#if jsonView}
+			<div
+				class="py-2"
+				style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
+				data-schema-picker
+			>
 				<JsonInputs
 					bind:this={jsonEditor}
 					on:select={(e) => {
@@ -252,6 +254,8 @@
 					placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 				/>
 			</div>
+		{:else if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
+			<div class="text-sm py-4 italic">No arguments</div>
 		{:else}
 			{#key reloadArgs}
 				<div bind:clientHeight={schemaHeight}>
