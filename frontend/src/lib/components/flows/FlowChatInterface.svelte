@@ -36,7 +36,7 @@
 	let messagesContainer: HTMLDivElement | undefined = $state()
 	let page = $state(1)
 	let perPage = 50
-	let hasMoreMessages = $state(true)
+	let hasMoreMessages = $state(false)
 	let loadingMoreMessages = $state(false)
 	let scrollTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 	let inputElement: HTMLTextAreaElement | undefined = $state()
@@ -66,12 +66,10 @@
 		messages = []
 		inputMessage = ''
 		page = 1
-		hasMoreMessages = true
 	}
 
 	export async function loadConversationMessages(convId: string) {
 		page = 1
-		hasMoreMessages = true
 		await loadMessages(true)
 	}
 
