@@ -266,9 +266,9 @@
 									resourceType={ducklake.catalog.resource_type}
 								/>
 							{:else}
-								<input
+								<TextInput
 									bind:value={ducklake.catalog.resource_path}
-									placeholder="PostgreSQL database name"
+									inputProps={{ placeholder: 'PostgreSQL database name' }}
 								/>
 							{/if}
 						</div>
@@ -307,6 +307,7 @@
 						>
 							<svelte:fragment slot="trigger">
 								<ExploreAssetButton
+									class="h-9"
 									asset={{ kind: 'ducklake', path: ducklake.name }}
 									{dbManagerDrawer}
 									disabled
@@ -340,8 +341,11 @@
 <Button
 	wrapperClasses="mt-4 mb-44 max-w-fit"
 	on:click={onSave}
-	disabled={Object.values(ducklakeIsDirty).every((v) => v === false)}>Save ducklake settings</Button
+	disabled={ducklakeSavedSettings.ducklakes.length === ducklakeSettings.ducklakes.length &&
+		Object.values(ducklakeIsDirty).every((v) => v === false)}
 >
+	Save ducklake settings
+</Button>
 <DbManagerDrawer bind:this={dbManagerDrawer} />
 
 <ConfirmationModal {...confirmationModal.props} />

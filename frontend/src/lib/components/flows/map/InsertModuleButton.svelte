@@ -15,7 +15,7 @@
 	type Placement = `${Side}-${Alignment}`
 
 	interface Props {
-		index?: number
+		index?: number | 'error-handler-button'
 		funcDesc?: string
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		iconSize?: number

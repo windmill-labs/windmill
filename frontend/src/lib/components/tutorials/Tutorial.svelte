@@ -6,10 +6,12 @@
 	import SkipTutorials from './SkipTutorials.svelte'
 	import TutorialControls from './TutorialControls.svelte'
 	import TutorialInner from './TutorialInner.svelte'
+	import { isCurrentlyInTutorial } from '$lib/stores'
 
 	export let index: number = 0
 	export let name: string = 'action'
 	export let tainted: boolean = false
+	export let onDestroyed: (() => void) | undefined = undefined
 
 	type Options = {
 		indexToInsertAt?: number
@@ -24,6 +26,11 @@
 
 	// Render controls needs to be exposed so steps that have a custom render can call it
 	export function renderControls({ config, state }) {
+		const popoverContent = document.querySelector('#driver-popover-content')
+		popoverContent?.addEventListener('pointerdown', (event) => {
+			event.stopPropagation()
+		})
+
 		const popoverDescription = document.querySelector('#driver-popover-description')
 
 		if (!tutorial) {
@@ -106,6 +113,7 @@
 			dispatch('error', { detail: name })
 			return
 		}
+		isCurrentlyInTutorial.val = true
 
 		tutorial = driver({
 			allowClose: true,
@@ -117,9 +125,11 @@
 				renderControls({ config, state })
 			},
 			onDestroyed: () => {
+				onDestroyed?.()
 				if (!tutorial?.hasNextStep()) {
 					$ignoredTutorials = Array.from(new Set([...$ignoredTutorials, index]))
 				}
+				isCurrentlyInTutorial.val = false
 			}
 		})
 
