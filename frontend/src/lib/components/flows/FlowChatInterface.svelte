@@ -177,6 +177,14 @@
 			return 'No result returned'
 		}
 
+		// If result is an object with an output field, use that
+		if (typeof result === 'object' && result.output !== undefined) {
+			if (typeof result.output === 'string') {
+				return result.output
+			}
+			return JSON.stringify(result.output, null, 2)
+		}
+
 		if (typeof result === 'string') {
 			return result
 		}

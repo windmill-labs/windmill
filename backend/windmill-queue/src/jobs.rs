@@ -744,6 +744,11 @@ lazy_static::lazy_static! {
     pub static ref MAX_RESULT_SIZE_MB: usize = std::env::var("MAX_RESULT_SIZE_MB").unwrap_or("500".to_string()).parse().unwrap_or(500);
 }
 
+#[derive(Deserialize)]
+struct OutputWrapper {
+    output: String,
+}
+
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
     queued_job: &MiniPulledJob,
@@ -821,23 +826,34 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     restart_job_if_perpetual(db, queued_job, &canceled_by).await?;
 
-    // Update conversation message if it's a flow and it's done
-    if success && !skipped && flow_is_done {
+    // Update conversation message if it's a flow and it's done (both success and error cases)
+    if !skipped && flow_is_done {
         let chat_input_enabled = queued_job.parse_chat_input_enabled();
         if chat_input_enabled.unwrap_or(false) {
-            // Format the result for the assistant message
-            let content = serde_json::to_value(result.0)
-                .ok()
-                .and_then(|v| {
-                    if let serde_json::Value::String(s) = v {
-                        // If result is a simple string, use it directly
-                        Some(s)
-                    } else {
-                        // Otherwise, pretty-print the JSON
-                        serde_json::to_string_pretty(&v).ok()
-                    }
-                })
-                .unwrap_or_else(|| "Job completed successfully".to_string());
+            let content = if let Ok(wrapper) = serde_json::from_value::<OutputWrapper>(
+                serde_json::to_value(result.0).unwrap_or(serde_json::Value::Null),
+            ) {
+                // Successfully deserialized to OutputWrapper, use the output field
+                wrapper.output
+            } else {
+                // No string output field, use the whole result
+                serde_json::to_value(result.0)
+                    .ok()
+                    .and_then(|v| {
+                        if let serde_json::Value::String(s) = v {
+                            Some(s)
+                        } else {
+                            serde_json::to_string_pretty(&v).ok()
+                        }
+                    })
+                    .unwrap_or_else(|| {
+                        if success {
+                            "Job completed successfully".to_string()
+                        } else {
+                            "Job failed".to_string()
+                        }
+                    })
+            };
 
             // check if flow_conversation_message exists
             let flow_conversation_message_exists = sqlx::query_scalar!(

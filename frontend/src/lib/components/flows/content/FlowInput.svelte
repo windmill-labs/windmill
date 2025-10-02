@@ -440,37 +440,6 @@
 					}
 				}
 			]
-			const scriptId = nextId(flowStateStore.val, flowStore.val)
-			flowStore.val.value.modules = [
-				...flowStore.val.value.modules,
-				{
-					id: scriptId,
-					summary: 'Extract AI agent output',
-					value: {
-						type: 'rawscript',
-						content: `// This script extracts only the AI agent's output text response
-// It filters out metadata and tool calls, returning just the final message
-// The x input is the AI agent's output (results.aiagent_id.output)
-// import * as wmill from "windmill-client"
-
-export async function main(x: string) {
-  return x
-}`,
-						language: 'bun',
-						lock: `{
-  "dependencies": {}
-}
-//bun.lock
-<empty>`,
-						input_transforms: {
-							x: {
-								type: 'javascript',
-								expr: `results.${aiAgentId}.output`
-							}
-						}
-					}
-				}
-			]
 		}
 		showChatModeWarning = false
 	}
