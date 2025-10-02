@@ -27,9 +27,7 @@
 				<span>Processing...</span>
 			</div>
 		{:else if message.content}
-			<div
-				class="prose prose-sm dark:prose-invert w-full max-w-full leading-snug prose-ul:!pl-6 prose-pre:max-w-full prose-pre:overflow-x-auto prose-table:overflow-x-auto prose-table:block overflow-x-auto"
-			>
+			<div class="prose prose-sm dark:prose-invert prose-ul:!pl-6">
 				<Markdown
 					md={message.content}
 					plugins={[
