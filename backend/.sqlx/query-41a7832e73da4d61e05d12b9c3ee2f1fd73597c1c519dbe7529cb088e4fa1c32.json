@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT conversation_id FROM flow_conversation_message \n                     WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "conversation_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "41a7832e73da4d61e05d12b9c3ee2f1fd73597c1c519dbe7529cb088e4fa1c32"
+}
