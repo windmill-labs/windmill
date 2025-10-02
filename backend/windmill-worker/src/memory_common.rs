@@ -46,8 +46,7 @@ pub async fn write_to_disk(
     // Write atomically using a temporary file
     let tmp = path.with_extension("json.tmp");
     let mut f = fs::File::create(&tmp).await?;
-    f.write_all(serde_json::to_string_pretty(messages)?.as_bytes())
-        .await?;
+    f.write_all(&serde_json::to_vec(messages)?).await?;
     f.flush().await?;
     drop(f);
 
