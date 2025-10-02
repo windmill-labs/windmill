@@ -411,7 +411,7 @@ pub async fn run_server(
     };
 
     #[cfg(feature = "agent_worker_server")]
-    let (agent_workers_router, agent_workers_bg_processor, agent_workers_killpill_tx) =
+    let (agent_workers_router, agent_workers_bg_processor, agent_workers_job_completed_tx) =
         if server_mode {
             agent_workers_oss::workspaced_service(db.clone(), _base_internal_url.clone())
         } else {
@@ -535,7 +535,14 @@ pub async fn run_server(
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
-                        agent_workers_oss::global_service().layer(Extension(agent_cache.clone()))
+                        if let Some(agent_workers_job_completed_tx) =
+                            agent_workers_job_completed_tx.clone()
+                        {
+                            agent_workers_oss::global_service(agent_workers_job_completed_tx)
+                                .layer(Extension(agent_cache.clone()))
+                        } else {
+                            Router::new()
+                        }
                     }
                     #[cfg(not(feature = "agent_worker_server"))]
                     {
@@ -705,8 +712,8 @@ pub async fn run_server(
     let server = server.with_graceful_shutdown(async move {
         killpill_rx.recv().await.ok();
         #[cfg(feature = "agent_worker_server")]
-        if let Some(agent_workers_killpill_tx) = agent_workers_killpill_tx {
-            if let Err(e) = agent_workers_killpill_tx.kill().await {
+        if let Some(agent_workers_job_completed_tx) = agent_workers_job_completed_tx {
+            if let Err(e) = agent_workers_job_completed_tx.kill().await {
                 tracing::error!("Error killing agent workers: {e:#}");
             }
         }
