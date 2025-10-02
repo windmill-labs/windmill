@@ -135,8 +135,10 @@
 	let fields = $derived(
 		columnDefs
 			?.filter((t) => {
-				const shouldFilter = t.isidentity === ColumnIdentity.Always || t?.hideInsert === true
-
+				const shouldFilter =
+					t.isidentity === ColumnIdentity.Always ||
+					t?.hideInsert === true ||
+					t.defaultvalue?.startsWith('nextval(') // exclude postgres serial/auto increment fields
 				return !shouldFilter
 			})
 			.map((column) => {
