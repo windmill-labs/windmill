@@ -4142,6 +4142,29 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/resources/git_commit_hash/{path}:
+    get:
+      summary: get git repository latest commit hash
+      operationId: getGitCommitHash
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: git commit hash
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  commit_hash:
+                    type: string
+                    description: Latest commit hash from git ls-remote
+                required:
+                  - commit_hash
+
   /w/{workspace}/resources/exists/{path}:
     get:
       summary: does resource exists
@@ -13182,6 +13205,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/WindmillFileMetadata"
 
+  /w/{workspace}/job_helpers/check_s3_folder_exists:
+    get:
+      summary: Check if S3 path exists and is a folder
+      operationId: checkS3FolderExists
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          description: S3 file key to check (e.g., gitrepos/{workspace_id}/u/user/resource/{commit_hash})
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: S3 folder existence check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exists:
+                    type: boolean
+                    description: Whether the path exists
+                  is_folder:
+                    type: boolean
+                    description: Whether the path is a folder (true) or file (false)
+                required:
+                  - exists
+                  - is_folder
+
   /w/{workspace}/job_helpers/load_parquet_preview/{path}:
     get:
       summary: Load a preview of a parquet file
@@ -13361,6 +13416,67 @@ paths:
     post:
       summary: Upload file to S3 bucket
       operationId: fileUpload
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: file_extension
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - name: content_type
+          in: query
+          schema:
+            type: string
+        - name: content_disposition
+          in: query
+          schema:
+            type: string
+      requestBody:
+        description: File content
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: File upload status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_key:
+                    type: string
+                required:
+                  - file_key
+
+  /w/{workspace}/job_helpers/upload_git_repo_file_to_instance_storage:
+    post:
+      summary: Upload a file to the instance storage gitrepos section for viewing
+      operationId: gitRepoViewerFileUpload
       tags:
         - helpers
       parameters:
