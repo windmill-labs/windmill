@@ -42,7 +42,6 @@ use windmill_common::{
     },
     parse_postgres_url,
     server::Smtp,
-    utils::build_arg_str,
 };
 
 pub fn global_service() -> Router {
@@ -617,19 +616,21 @@ async fn create_ducklake_database(
 
     // We have to connect to the newly created database as admin to grant permissions
     let pg_creds = parse_postgres_url(&get_database_url().await?)?;
-    let Some(wm_pg_pwd) = pg_creds.password else {
-        return Err(error::Error::BadRequest("Password not found".to_string()));
+
+    let ssl_mode = match pg_creds.ssl_mode.as_deref() {
+        Some("allow") => "prefer".to_string(),
+        Some("verify-ca") | Some("verify-full") => "require".to_string(),
+        Some(s) => s.to_string(),
+        None => "prefer".to_string(),
     };
-    let conn_str: String = build_arg_str(
-        &[
-            ("host", Some(&pg_creds.host)),
-            ("port", pg_creds.port.map(|p| p.to_string()).as_deref()),
-            ("password", Some(&wm_pg_pwd)),
-            ("user", pg_creds.username.as_deref()),
-            ("dbname", Some(&dbname)),
-        ],
-        " ",
-        "=",
+    let conn_str = format!(
+        "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
+        user = urlencoding::encode(&pg_creds.username.unwrap_or_else(|| "postgres".to_string())),
+        password = urlencoding::encode(&pg_creds.password.as_deref().unwrap_or("")),
+        host = urlencoding::encode(&pg_creds.host),
+        port = pg_creds.port.unwrap_or(5432),
+        dbname = dbname,
+        sslmode = ssl_mode
     );
     let (client, connection) = tokio::time::timeout(
         std::time::Duration::from_secs(20),
