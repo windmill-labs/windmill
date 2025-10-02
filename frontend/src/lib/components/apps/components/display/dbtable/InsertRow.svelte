@@ -192,7 +192,7 @@
 							} else {
 								delete schema.properties[item.id].disabled
 								delete schema.properties[item.id].nullable
-								args[item.id] = ''
+								args[item.id] = schema.properties[item.id].default ?? ''
 							}
 						}
 					}
