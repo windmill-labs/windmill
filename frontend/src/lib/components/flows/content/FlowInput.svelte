@@ -681,11 +681,9 @@ export async function main(x: string) {
 									title="Trigger captures"
 								>
 									{#snippet action()}
-										<svelete:fragment>
-											<div class="center-center">
-												<CaptureButton on:openTriggers small={true} />
-											</div>
-										</svelete:fragment>
+										<div class="center-center">
+											<CaptureButton on:openTriggers small={true} />
+										</div>
 									{/snippet}
 									<div class="h-full">
 										<CaptureTable
