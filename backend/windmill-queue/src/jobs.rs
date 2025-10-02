@@ -2198,20 +2198,43 @@ pub async fn pull(
                         .fetch_optional(db)
                         .await?
                 };
-                if let Some(job) = job {
-                    PulledJobResult {
-                        job: Some(job),
-                        suspended: true,
-                        missing_concurrency_key: false,
-                    }
+
+                let (job, suspended) = if let Some(job) = job {
+                    (Some(job), true)
                 } else {
                     let job = sqlx::query_as::<_, PulledJob>(query_no_suspend)
                         .bind(worker_name)
                         .fetch_optional(db)
                         .await?;
-                    PulledJobResult { job, suspended: false, missing_concurrency_key: false }
-                }
-            };
+                    (job, false)
+                };
+
+                #[cfg(all(feature = "enterprise", feature = "private"))]
+                let pulled_job_result = match job {
+                    Some(job) if job.concurrent_limit.is_some() => {
+                        let job = crate::jobs_ee::apply_concurrency_limit(
+                            db,
+                            pull_loop_count,
+                            suspended,
+                            job,
+                        )
+                        .await?;
+                        job.unwrap_or(PulledJobResult {
+                            job: None,
+                            suspended,
+                            missing_concurrency_key: false,
+                        })
+                    }
+                    _ => PulledJobResult { job, suspended, missing_concurrency_key: false },
+                };
+
+                #[cfg(not(all(feature = "enterprise", feature = "private")))]
+                let pulled_job_result =
+                    PulledJobResult { job, suspended, missing_concurrency_key: false };
+
+                Ok::<_, Error>(pulled_job_result)
+            }?;
+
             if let Some(job) = njob.job.as_ref() {
                 if job.is_flow() || job.is_dependency() {
                     let per_workspace = per_workspace_tag(&job.workspace_id).await;
