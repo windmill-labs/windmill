@@ -112,14 +112,15 @@ pub async fn get_or_create_conversation_with_id(
     let mut tx = user_db.clone().begin(authed).await?;
 
     // Check if conversation already exists
-    let existing_conversation = sqlx::query_as::<Postgres, FlowConversation>(
+    let existing_conversation = sqlx::query_as!(
+        FlowConversation,
         "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
          FROM flow_conversation
          WHERE id = $1 AND workspace_id = $2 AND created_by = $3",
+        conversation_id,
+        w_id,
+        username
     )
-    .bind(conversation_id)
-    .bind(w_id)
-    .bind(username)
     .fetch_optional(&mut *tx)
     .await?;
 
@@ -129,16 +130,17 @@ pub async fn get_or_create_conversation_with_id(
     }
 
     // Create new conversation with provided ID
-    let conversation = sqlx::query_as::<Postgres, FlowConversation>(
+    let conversation = sqlx::query_as!(
+        FlowConversation,
         "INSERT INTO flow_conversation (id, workspace_id, flow_path, created_by, title)
          VALUES ($1, $2, $3, $4, $5)
          RETURNING id, workspace_id, flow_path, title, created_at, updated_at, created_by",
+        conversation_id,
+        w_id,
+        flow_path,
+        username,
+        title
     )
-    .bind(conversation_id)
-    .bind(w_id)
-    .bind(flow_path)
-    .bind(username)
-    .bind(title)
     .fetch_one(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -153,14 +155,15 @@ async fn delete_conversation(
     let mut tx = user_db.clone().begin(&authed).await?;
 
     // Verify the conversation exists and belongs to the user
-    let conversation = sqlx::query_as::<Postgres, FlowConversation>(
+    let conversation = sqlx::query_as!(
+        FlowConversation,
         "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
          FROM flow_conversation
          WHERE id = $1 AND workspace_id = $2 AND created_by = $3",
+        conversation_id,
+        &w_id,
+        &authed.username
     )
-    .bind(conversation_id)
-    .bind(&w_id)
-    .bind(&authed.username)
     .fetch_optional(&mut *tx)
     .await?;
 
@@ -209,8 +212,9 @@ async fn list_messages(
     }
 
     // Fetch messages for this conversation, oldest first, but reverse the order of the messages for easy rendering on the frontend
-    let messages = sqlx::query_as::<Postgres, FlowConversationMessage>(
-        "SELECT id, conversation_id, message_type, content, job_id, created_at
+    let messages = sqlx::query_as!(
+        FlowConversationMessage,
+        r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at
          FROM (
             SELECT id, conversation_id, message_type, content, job_id, created_at
             FROM flow_conversation_message
@@ -219,11 +223,11 @@ async fn list_messages(
             LIMIT $2 OFFSET $3
          ) AS messages
          ORDER BY created_at ASC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
-         ",
+         "#,
+        conversation_id,
+        per_page as i64,
+        offset as i64
     )
-    .bind(conversation_id)
-    .bind(per_page as i64)
-    .bind(offset as i64)
     .fetch_all(&mut *tx)
     .await?;
 
