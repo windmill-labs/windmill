@@ -575,7 +575,7 @@
 	{/snippet}
 	{#snippet form()}
 		{#if flow}
-			<div class="flex flex-col h-full">
+			<div class="flex flex-col h-full justify-between">
 				<div
 					class="w-full {chatInputEnabled ? 'p-4 mt-8' : 'max-w-3xl p-8'} mx-auto gap-2 bg-surface"
 				>
@@ -632,7 +632,7 @@
 						</div>
 					{:else}
 						<!-- Normal Mode: Form Layout -->
-						<div class="flex flex-col align-left h-full">
+						<div class="flex flex-col align-left">
 							<div class="flex flex-row justify-between">
 								<InputSelectedBadge
 									onReject={() => {
