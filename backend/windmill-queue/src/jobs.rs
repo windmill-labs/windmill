@@ -2135,6 +2135,37 @@ pub struct PulledJobResult {
     pub missing_concurrency_key: bool,
 }
 
+pub enum PulledJobResultToJobErr {
+    MissingConcurrencyKey(JobCompleted),
+}
+
+impl PulledJobResult {
+    pub fn to_pulled_job(self) -> Result<Option<PulledJob>, PulledJobResultToJobErr> {
+        match self {
+            PulledJobResult { job: Some(job), missing_concurrency_key: true, .. } => Err(
+                PulledJobResultToJobErr::MissingConcurrencyKey(JobCompleted {
+                    preprocessed_args: None,
+                    job: Arc::new(job.job),
+                    success: false,
+                    result: Arc::new(windmill_common::worker::to_raw_value(&json!({
+                        "name": "InternalErr",
+                        "message": "The job has a concurrency limit but concurrency key couldn't be found. This is an unexpected behavior that should never happen. Please report this to support."}
+                    ))),
+                    result_columns: None,
+                    mem_peak: 0,
+                    cached_res_path: None,
+                    token: "".to_string(),
+                    canceled_by: None,
+                    duration: None,
+                    has_stream: Some(false),
+                }),
+            ),
+            PulledJobResult { job: Some(job), missing_concurrency_key: false, .. } => Ok(Some(job)),
+            _ => Ok(None),
+        }
+    }
+}
+
 pub async fn pull(
     db: &Pool<Postgres>,
     suspend_first: bool,
