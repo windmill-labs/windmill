@@ -7,6 +7,7 @@
 	import autosize from '$lib/autosize'
 	import { waitJob } from '$lib/components/waitJob'
 	import { tick } from 'svelte'
+	import FlowChatMessage from './FlowChatMessage.svelte'
 
 	interface Props {
 		onRunFlow: (args: Record<string, any>, conversationId?: string) => Promise<string | undefined>
@@ -295,28 +296,7 @@
 				</div>
 			{:else}
 				{#each messages as message (message.id)}
-					<div class="flex {message.message_type === 'user' ? 'justify-end' : 'justify-start'}">
-						<div
-							class="max-w-[80%] rounded-lg p-3 {message.message_type === 'user'
-								? 'bg-surface-secondary'
-								: 'bg-surface border border-gray-200 dark:border-gray-600'}"
-						>
-							{#if message.message_type === 'user'}
-								<p class="whitespace-pre-wrap">{message.content}</p>
-							{:else if message.loading}
-								<div class="flex items-center gap-2 text-tertiary">
-									<Loader2 size={16} class="animate-spin" />
-									<span>Processing...</span>
-								</div>
-							{:else if message.content}
-								<div class="whitespace-pre-wrap">
-									{message.content}
-								</div>
-							{:else}
-								<p class="text-tertiary">No result</p>
-							{/if}
-						</div>
-					</div>
+					<FlowChatMessage {message} />
 				{/each}
 			{/if}
 		</div>
