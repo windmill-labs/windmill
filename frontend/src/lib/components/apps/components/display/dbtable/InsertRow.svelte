@@ -17,6 +17,7 @@
 	import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { untrack } from 'svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	let schema: Schema | undefined = $state(undefined)
 
@@ -171,5 +172,32 @@
 </script>
 
 {#if schema}
-	<SchemaForm onlyMaskPassword {schema} bind:args />
+	<SchemaForm onlyMaskPassword {schema} bind:args>
+		{#snippet actions({ item })}
+			{@const disabled = fields?.[fields?.findIndex((f) => f.name === item.id)]?.nullable != 'YES'}
+			{#if !disabled}
+				<Toggle
+					options={{ right: 'NULL' }}
+					class="pl-2"
+					textClass="text-tertiary"
+					size="2sm"
+					bind:checked={
+						() => args[item.id] === null,
+						(v) => {
+							if (!schema?.properties[item.id]) return
+							if (v) {
+								schema.properties[item.id].nullable = true
+								schema.properties[item.id].disabled = true
+								args[item.id] = null
+							} else {
+								delete schema.properties[item.id].disabled
+								delete schema.properties[item.id].nullable
+								args[item.id] = schema.properties[item.id].default ?? ''
+							}
+						}
+					}
+				/>
+			{/if}
+		{/snippet}
+	</SchemaForm>
 {/if}

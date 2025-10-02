@@ -88,7 +88,7 @@ fn do_postgresql_inner<'a>(
             let arg_t = arg
                 .otyp
                 .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("Missing otzyp for pg arg"))?;
+                .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?;
             let typ = &arg.typ;
             let param = convert_val(value, arg_t, typ)?;
             query_params.push(param);
