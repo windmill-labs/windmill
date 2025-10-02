@@ -271,5 +271,13 @@ pub async fn create_message(
     .execute(&mut **tx)
     .await?;
 
+    // Update conversation updated_at timestamp
+    sqlx::query!(
+        "UPDATE flow_conversation SET updated_at = NOW() WHERE id = $1",
+        conversation_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     Ok(())
 }
