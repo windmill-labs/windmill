@@ -311,6 +311,8 @@
 								<ResourcePicker
 									bind:value={ducklake.catalog.resource_path}
 									resourceType={ducklake.catalog.resource_type}
+									selectInputClass="min-h-9"
+									class="min-h-9"
 								/>
 							{:else}
 								<TextInput
