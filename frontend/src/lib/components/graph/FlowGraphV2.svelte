@@ -55,6 +55,8 @@
 	import type { FlowGraphAssetContext } from '../flows/types'
 	import AiToolNode, { computeAIToolNodes } from './renderers/nodes/AIToolNode.svelte'
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
+	import NoteNode from './renderers/nodes/NoteNode.svelte'
+	import NoteTool from './NoteTool.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -102,6 +104,7 @@
 		flowJob?: Job | undefined
 		showJobStatus?: boolean
 		suspendStatus?: Record<string, { job: Job; nb: number }>
+		noteMode?: boolean
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -130,6 +133,7 @@
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
 		flowHasChanged?: boolean
+		exitNoteMode?: () => void
 	}
 
 	let {
@@ -180,7 +184,9 @@
 		flowJob = undefined,
 		showJobStatus = false,
 		suspendStatus = {},
-		flowHasChanged = false
+		flowHasChanged = false,
+		noteMode = false,
+		exitNoteMode = undefined
 	}: Props = $props()
 
 	setContext<{
@@ -367,6 +373,18 @@
 
 	let height = $state(0)
 
+	// Note feature state
+	type NoteData = {
+		id: string
+		text: string
+		position: { x: number; y: number }
+		size: { width: number; height: number }
+		color: string
+	}
+
+	let notes = $state<NoteData[]>([])
+	let nextNoteId = $state(1)
+
 	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
 		if (!modules || modules?.length !== 2) {
 			return false
@@ -377,6 +395,61 @@
 		}
 
 		return false
+	}
+
+	function onNoteAdded(newNoteFromTool: any) {
+		// Add the note to our separate notes array if a note was created
+		if (newNoteFromTool) {
+			const newNote: NoteData = {
+				id: `note-${nextNoteId}`,
+				text: '',
+				position: newNoteFromTool.position,
+				size: newNoteFromTool.size || { width: 200, height: 100 },
+				color: 'oklch(96.7% 0.067 122.328)'
+			}
+			notes = [...notes, newNote]
+			nextNoteId += 1
+		}
+		exitNoteMode?.()
+		updateStores()
+	}
+
+	function updateNoteText(noteId: string, text: string) {
+		notes = notes.map((note) => (note.id === noteId ? { ...note, text } : note))
+	}
+
+	function deleteNote(noteId: string) {
+		notes = notes.filter((note) => note.id !== noteId)
+		updateStores()
+	}
+
+	function updateNotePosition(noteId: string, position: { x: number; y: number }) {
+		notes = notes.map((note) => (note.id === noteId ? { ...note, position } : note))
+	}
+
+	function updateNoteSize(noteId: string, size: { width: number; height: number }) {
+		notes = notes.map((note) => (note.id === noteId ? { ...note, size } : note))
+	}
+
+	function convertNotesToNodes(): Node[] {
+		return notes.map((note) => ({
+			id: note.id,
+			type: 'note',
+			position: note.position,
+			data: {
+				text: note.text,
+				color: note.color,
+				onUpdate: (text: string) => updateNoteText(note.id, text),
+				onDelete: () => deleteNote(note.id),
+				onSizeChange: (size: { width: number; height: number }) => updateNoteSize(note.id, size)
+			},
+			style: `width: ${note.size.width}px; height: ${note.size.height}px;`,
+			width: note.size.width,
+			height: note.size.height,
+			zIndex: -2000,
+			draggable: true,
+			selectable: true
+		}))
 	}
 
 	async function updateStores() {
@@ -409,7 +482,8 @@
 		nodes = [
 			...newNodes.map((n) => ({ ...n, position: aiToolNodesResult.newNodePositions[n.id] })),
 			...assetNodesResult.newAssetNodes,
-			...aiToolNodesResult.toolNodes
+			...aiToolNodesResult.toolNodes,
+			...convertNotesToNodes()
 		]
 		edges = [...assetNodesResult.newAssetEdges, ...aiToolNodesResult.toolEdges, ...graph.edges]
 
@@ -435,7 +509,8 @@
 		asset: AssetNode,
 		assetsOverflowed: AssetsOverflowedNode,
 		aiTool: AiToolNode,
-		newAiTool: NewAiToolNode
+		newAiTool: NewAiToolNode,
+		note: NoteNode
 	} as any
 
 	const edgeTypes = {
@@ -565,8 +640,14 @@
 		<SvelteFlowProvider>
 			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
 			<SvelteFlow
-				onpaneclick={(e) => {
+				onpaneclick={() => {
 					document.dispatchEvent(new Event('focus'))
+				}}
+				onnodedragstop={(event) => {
+					const node = event.targetNode
+					if (node && node.type === 'note') {
+						updateNotePosition(node.id, node.position)
+					}
 				}}
 				{nodes}
 				{edges}
@@ -586,6 +667,10 @@
 				--background-color={false}
 			>
 				<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
+
+				{#if noteMode}
+					<NoteTool {onNoteAdded} />
+				{/if}
 				<Controls position="top-right" orientation="horizontal" showLock={false}>
 					{#if download}
 						<ControlButton
