@@ -339,7 +339,6 @@ async function runShardingBenchmark(
         didStart = true;
       }
     } else {
-      await sleep(1);
       const monitoringStart = Date.now();
       completedJobs = await getCompletedJobsCount(
         NON_TEST_TAGS,
@@ -349,19 +348,18 @@ async function runShardingBenchmark(
       totalMonitoringOverhead += Date.now() - monitoringStart;
 
       const elapsed = start
-        ? Math.max(0, Date.now() - start - totalMonitoringOverhead)
-        : 0;
+        ? Math.max(1, Date.now() - start - totalMonitoringOverhead)
+        : 1;
       if (nStepsFlow > 0) {
         completedJobs = Math.floor(completedJobs / (nStepsFlow + 1));
       }
-      const avgThr = ((completedJobs / elapsed) * 1000).toFixed(2);
+      const avgThr = elapsed > 0 ? ((completedJobs / elapsed) * 1000).toFixed(2) : "0.00";
+      const timeDiff = elapsed - lastElapsed;
+      const jobsDiff = completedJobs - lastCompletedJobs;
       const instThr =
-        lastElapsed > 0
-          ? (
-              ((completedJobs - lastCompletedJobs) / (elapsed - lastElapsed)) *
-              1000
-            ).toFixed(2)
-          : 0;
+        lastElapsed > 0 && timeDiff > 0 && jobsDiff > 0
+          ? ((jobsDiff / timeDiff) * 1000).toFixed(2)
+          : "0.00";
 
       lastElapsed = elapsed;
       lastCompletedJobs = completedJobs;
@@ -376,12 +374,14 @@ async function runShardingBenchmark(
         )
       );
     }
+    
+    await sleep(0.05);
   }
 
-  const total_duration_sec =
-    (Date.now() - start - totalMonitoringOverhead) / 1000.0;
-  const throughput = jobsSent / total_duration_sec;
-  const avgLatency = total_duration_sec / jobsSent;
+  const total_duration_ms = Math.max(1, Date.now() - start - totalMonitoringOverhead);
+  const total_duration_sec = total_duration_ms / 1000.0;
+  const throughput = total_duration_sec > 0 ? jobsSent / total_duration_sec : 0;
+  const avgLatency = jobsSent > 0 ? total_duration_sec / jobsSent : 0;
 
   console.log(`\n--- Results for ${numShards} shard(s) ---`);
   console.log(`jobs: ${jobsSent}`);
@@ -477,7 +477,7 @@ export async function main({
       const result = await runShardingBenchmark(context, options, numShards);
       results.push(result);
 
-      await sleep(1);
+      await sleep(0.3);
     } catch (error) {
       console.error(
         `Failed to run benchmark with ${numShards} shard(s):`,
