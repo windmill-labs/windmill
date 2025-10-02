@@ -20,7 +20,7 @@ pub async fn read_from_disk(
     step_id: &str,
 ) -> anyhow::Result<Option<Vec<OpenAIMessage>>> {
     let path = path_for(workspace_id, conversation_id, step_id);
-    if !path.exists() {
+    if !fs::try_exists(&path).await? {
         return Ok(None);
     }
 
@@ -66,7 +66,7 @@ pub async fn delete_conversation_from_disk(
         .join(workspace_id)
         .join(conversation_id.to_string());
 
-    if conversation_path.exists() {
+    if fs::try_exists(&conversation_path).await? {
         fs::remove_dir_all(&conversation_path).await?;
     }
 
