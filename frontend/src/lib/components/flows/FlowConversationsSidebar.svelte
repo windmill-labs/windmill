@@ -1,6 +1,13 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { MessageCircle, Plus, Trash2, PanelLeftClose, PanelLeftOpen } from 'lucide-svelte'
+	import {
+		MessageCircle,
+		Plus,
+		Trash2,
+		PanelLeftClose,
+		PanelLeftOpen,
+		Loader2
+	} from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { FlowConversationService, type FlowConversation } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -32,6 +39,7 @@
 	let isExpanded = $state(false)
 	let infiniteList: InfiniteList | undefined = $state()
 	let conversations = $state<ConversationWithDraft[]>([])
+	let deletingConversationId = $state<string | undefined>(undefined)
 
 	export async function refreshConversations() {
 		return await infiniteList?.loadData('forceRefresh')
@@ -84,6 +92,7 @@
 
 	async function deleteConversation(conversationId: string) {
 		try {
+			deletingConversationId = conversationId
 			await FlowConversationService.deleteFlowConversation({
 				workspace: $workspaceStore!,
 				conversationId
@@ -95,6 +104,8 @@
 			console.error('Failed to delete conversation:', error)
 			sendUserToast('Failed to delete conversation', true)
 			throw error
+		} finally {
+			deletingConversationId = undefined
 		}
 	}
 
@@ -191,9 +202,11 @@
 							{getConversationTitle(conversation)}
 						</span>
 						<button
-							class="ml-2 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-all {hover
+							class="ml-2 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-all {hover ||
+							deletingConversationId === conversation.id
 								? 'opacity-100'
 								: 'opacity-0'}"
+							disabled={deletingConversationId === conversation.id}
 							onclick={(e) => {
 								e.stopPropagation()
 								if (conversation.isDraft) {
@@ -206,7 +219,11 @@
 							}}
 							title="Delete conversation"
 						>
-							<Trash2 size={14} />
+							{#if deletingConversationId === conversation.id}
+								<Loader2 size={14} class="animate-spin" />
+							{:else}
+								<Trash2 size={14} />
+							{/if}
 						</button>
 					</Button>
 				</div>
