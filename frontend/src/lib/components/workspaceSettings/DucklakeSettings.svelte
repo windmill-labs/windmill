@@ -185,7 +185,7 @@
 		<div class="text-primary text-lg font-semibold">Ducklake</div>
 		<Description link="https://www.windmill.dev/docs/core_concepts/ducklake">
 			Windmill has first class support for Ducklake. You can use and explore ducklakes like a normal
-			SQL database, even through the data is actually stored in parquet files in S3 !
+			SQL database, even though the data is actually stored in parquet files in S3 !
 		</Description>
 	</div>
 </div>

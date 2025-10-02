@@ -808,6 +808,14 @@
 							/>
 						{/if}
 
+						{#if argName && schema?.properties?.[argName]?.description}
+							<div class="text-xs italic py-1 text-hint">
+								<pre class="font-main whitespace-normal"
+									>{schema.properties[argName].description}</pre
+								>
+							</div>
+						{/if}
+
 						{#if !hideHelpButton}
 							<DynamicInputHelpBox />
 						{/if}

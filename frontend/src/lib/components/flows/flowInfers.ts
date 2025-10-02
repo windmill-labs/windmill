@@ -29,9 +29,20 @@ export const AI_AGENT_SCHEMA = {
 		},
 		streaming: {
 			type: 'boolean',
-			description:
-				'Whether to stream the output of the AI agent (only used if output_type is text).',
+			description: 'Whether to stream the output of the AI agent.',
 			default: false,
+			showExpr: "fields.output_type === 'text'"
+		},
+		messages_context_length: {
+			type: 'number',
+			description:
+				'Maximum number of conversation messages to store and retrieve from memory (only used when chat input mode is enabled). Limits the conversation history to the last N messages to manage memory usage and API context limits. If not set or 0, memory operations are disabled and no messages will be stored or retrieved.',
+			showExpr: "fields.output_type === 'text'"
+		},
+		output_schema: {
+			type: 'object',
+			description: 'JSON schema that the AI agent will follow for its response format.',
+			format: 'json-schema',
 			showExpr: "fields.output_type === 'text'"
 		},
 		user_images: {
@@ -52,13 +63,6 @@ export const AI_AGENT_SCHEMA = {
 			description:
 				'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).',
 			showExpr: "fields.output_type === 'text'"
-		},
-		output_schema: {
-			type: 'object',
-			description:
-				'JSON schema that the AI agent will follow for its response format (only used if output_type is text).',
-			format: 'json-schema',
-			showExpr: "fields.output_type === 'text'"
 		}
 	},
 	required: ['provider', 'user_message', 'output_type'],
@@ -68,10 +72,11 @@ export const AI_AGENT_SCHEMA = {
 		'output_type',
 		'user_message',
 		'system_prompt',
+		'messages_context_length',
+		'output_schema',
 		'user_images',
 		'max_completion_tokens',
-		'temperature',
-		'output_schema'
+		'temperature'
 	]
 }
 

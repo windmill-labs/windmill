@@ -1,3 +1,4 @@
+use crate::memory_oss::{read_from_memory, write_to_memory};
 use anyhow::Context;
 use async_recursion::async_recursion;
 use regex::Regex;
@@ -153,6 +154,9 @@ pub async fn handle_ai_agent_job(
 
     let value = flow_data.value();
 
+    // Check if chat input is enabled at the flow level
+    let chat_input_enabled = value.chat_input_enabled.unwrap_or(false);
+
     let module = value.modules.iter().find(|m| m.id == *flow_step_id);
 
     let Some(module) = module else {
@@ -290,6 +294,7 @@ pub async fn handle_ai_agent_job(
         hostname,
         killpill_rx,
         has_stream,
+        chat_input_enabled,
     );
 
     let result = run_future_with_polling_update_job_poller(
@@ -309,7 +314,7 @@ pub async fn handle_ai_agent_job(
     Ok(result)
 }
 
-/// Find a unique tool name to avoid collisions with user-provided tools
+/// Find a unique tool name for structured output tool to avoid collisions with user-provided tools
 fn find_unique_tool_name(base_name: &str, existing_tools: Option<&[ToolDef]>) -> String {
     let Some(tools) = existing_tools else {
         return base_name.to_string();
@@ -424,6 +429,7 @@ pub async fn run_agent(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
+    chat_input_enabled: bool,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;
@@ -443,6 +449,37 @@ pub async fn run_agent(
         } else {
             vec![]
         };
+
+    // Load previous messages from memory for text output mode (only if chat input is enabled and context length is set)
+    if matches!(output_type, OutputType::Text) && chat_input_enabled {
+        if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
+            if let Some(step_id) = job.flow_step_id.as_deref() {
+                // Look up conversation_id for this flow
+                if let Ok(Some(conversation_id)) = sqlx::query_scalar!(
+                    "SELECT conversation_id FROM flow_conversation_message 
+                     WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
+                    parent_job
+                )
+                .fetch_optional(db)
+                .await
+                {
+                    // Read messages from memory
+                    match read_from_memory(&job.workspace_id, conversation_id, step_id).await {
+                        Ok(Some(loaded_messages)) => {
+                            // Take the last n messages
+                            let start_idx = loaded_messages.len().saturating_sub(context_length);
+                            let messages_to_load = loaded_messages[start_idx..].to_vec();
+                            messages.extend(messages_to_load);
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            tracing::error!("Failed to read memory for step {}: {}", step_id, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Create user message with optional images
     let mut parts = vec![ContentPart::Text { text: args.user_message.clone() }];
@@ -834,29 +871,68 @@ pub async fn run_agent(
                                 #[cfg(feature = "benchmark")]
                                 let mut bench = windmill_common::bench::BenchmarkIter::new();
 
-                                match handle_queued_job(
-                                    tool_job.clone(),
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    conn,
-                                    client,
-                                    hostname,
-                                    worker_name,
-                                    worker_dir,
-                                    &job_dir,
-                                    None,
-                                    base_internal_url,
-                                    inner_job_completed_tx,
-                                    occupancy_metrics,
-                                    killpill_rx,
-                                    None,
+                                // Spawn handle_queued_job on separate task to prevent tokio stack overflow
+                                // Clone everything needed for the spawned task
+                                let tool_job_spawn = tool_job.clone();
+                                let conn_spawn = conn.clone();
+                                let client_spawn = client.clone();
+                                let hostname_spawn = hostname.to_string();
+                                let worker_name_spawn = worker_name.to_string();
+                                let worker_dir_spawn = worker_dir.to_string();
+                                let job_dir_spawn = job_dir.clone();
+                                let base_internal_url_spawn = base_internal_url.to_string();
+                                let inner_job_completed_tx_spawn = inner_job_completed_tx.clone();
+                                let mut occupancy_metrics_spawn = occupancy_metrics.clone();
+                                let mut killpill_rx_spawn = killpill_rx.resubscribe();
+
+                                // Spawn on separate tokio task with fresh stack
+                                let join_handle = tokio::task::spawn(async move {
                                     #[cfg(feature = "benchmark")]
-                                    &mut bench,
-                                )
-                                .await
-                                {
+                                    let mut bench_spawn =
+                                        windmill_common::bench::BenchmarkIter::new();
+
+                                    let result = handle_queued_job(
+                                        tool_job_spawn,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        &conn_spawn,
+                                        &client_spawn,
+                                        &hostname_spawn,
+                                        &worker_name_spawn,
+                                        &worker_dir_spawn,
+                                        &job_dir_spawn,
+                                        None,
+                                        &base_internal_url_spawn,
+                                        inner_job_completed_tx_spawn,
+                                        &mut occupancy_metrics_spawn,
+                                        &mut killpill_rx_spawn,
+                                        None,
+                                        #[cfg(feature = "benchmark")]
+                                        &mut bench_spawn,
+                                    )
+                                    .await;
+
+                                    // Return both result and updated metrics
+                                    (result, occupancy_metrics_spawn)
+                                });
+
+                                // Await the spawned task
+                                let (handle_result, updated_occupancy) =
+                                    join_handle.await.map_err(|e| {
+                                        Error::internal_err(format!(
+                                            "Tool execution task panicked: {}",
+                                            e
+                                        ))
+                                    })?;
+
+                                // Merge occupancy metrics back
+                                occupancy_metrics.total_duration_of_running_jobs =
+                                    updated_occupancy.total_duration_of_running_jobs;
+
+                                // Continue with match on handle_result
+                                match handle_result {
                                     Err(err) => {
                                         let err_string =
                                             format!("{}: {}", err.name(), err.to_string());
@@ -1033,6 +1109,51 @@ pub async fn run_agent(
                     "Error waiting for stream event processor: {}",
                     e
                 )));
+            }
+        }
+    }
+
+    // Persist complete conversation to memory at the end (only if chat input is enabled and context length is set)
+    // final_messages contains the complete history (old messages + new ones)
+    if matches!(output_type, OutputType::Text) && chat_input_enabled {
+        if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
+            if let Some(step_id) = job.flow_step_id.as_deref() {
+                // Extract OpenAIMessages from final_messages
+                let all_messages: Vec<OpenAIMessage> =
+                    final_messages.iter().map(|m| m.message.clone()).collect();
+
+                if !all_messages.is_empty() {
+                    // Keep only the last n messages
+                    let start_idx = all_messages.len().saturating_sub(context_length);
+                    let messages_to_persist = all_messages[start_idx..].to_vec();
+
+                    // Look up conversation_id
+                    if let Ok(Some(conversation_id)) = sqlx::query_scalar!(
+                        "SELECT conversation_id FROM flow_conversation_message 
+                         WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
+                        parent_job
+                    )
+                    .fetch_optional(db)
+                    .await
+                    {
+                        // Use write_to_memory to replace entire conversation
+                        if let Err(e) = write_to_memory(
+                            &job.workspace_id,
+                            conversation_id,
+                            step_id,
+                            &messages_to_persist,
+                        )
+                        .await
+                        {
+                            tracing::error!(
+                                "Failed to persist {} messages to memory for step {}: {}",
+                                messages_to_persist.len(),
+                                step_id,
+                                e
+                            );
+                        }
+                    }
+                }
             }
         }
     }

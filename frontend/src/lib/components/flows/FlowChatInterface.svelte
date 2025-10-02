@@ -38,6 +38,7 @@
 	let hasMoreMessages = $state(true)
 	let loadingMoreMessages = $state(false)
 	let scrollTimeout: ReturnType<typeof setTimeout> | undefined = undefined
+	let inputElement: HTMLTextAreaElement | undefined = $state()
 
 	const conversationsCache = $state<Record<string, ChatMessage[]>>({})
 
@@ -54,6 +55,10 @@
 
 	export function fillInputMessage(message: string) {
 		inputMessage = message
+	}
+
+	export function focusInput() {
+		inputElement?.focus()
 	}
 
 	export function clearMessages() {
@@ -254,6 +259,9 @@
 		if (isNewConversation) {
 			await refreshConversations?.()
 		}
+
+		await tick()
+		focusInput()
 	}
 
 	function handleKeyDown(event: KeyboardEvent) {
@@ -320,6 +328,7 @@
 				class:opacity-50={deploymentInProgress}
 			>
 				<textarea
+					bind:this={inputElement}
 					bind:value={inputMessage}
 					use:autosize
 					onkeydown={handleKeyDown}
