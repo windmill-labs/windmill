@@ -414,18 +414,6 @@ pub struct AzureBlobResource {
     pub federated_token_file: Option<String>,
 }
 
-impl AzureBlobResource {
-    pub fn get_endpoint_url(&self) -> error::Result<String> {
-        Ok(render_endpoint(
-            self.endpoint.clone().unwrap_or_else(|| "".to_string()),
-            self.use_ssl.unwrap_or(false),
-            None,
-            None,
-            "".to_string(),
-        ))
-    }
-}
-
 fn as_string<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: serde::de::Deserializer<'de>,
@@ -526,7 +514,6 @@ pub async fn build_object_store_client(
     }
 }
 
-
 #[derive(PartialEq)]
 pub enum BundleFormat {
     Esm,
@@ -534,7 +521,7 @@ pub enum BundleFormat {
 }
 
 impl BundleFormat {
-   pub fn from_string(s: &str) -> Option<Self> {
+    pub fn from_string(s: &str) -> Option<Self> {
         match s {
             "esm" => Some(Self::Esm),
             "cjs" => Some(Self::Cjs),
@@ -543,49 +530,51 @@ impl BundleFormat {
     }
 }
 
-pub async fn upload_artifact_to_store(path: &str, data: bytes::Bytes, standalone_dir: &str) -> error::Result<()> {
+pub async fn upload_artifact_to_store(
+    path: &str,
+    data: bytes::Bytes,
+    standalone_dir: &str,
+) -> error::Result<()> {
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let object_store = crate::s3_helpers::get_object_store().await;
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     let object_store: Option<()> = None;
-    Ok(if &crate::utils::MODE_AND_ADDONS.mode
-        == &crate::utils::Mode::Standalone
-        && object_store.is_none()
-    {
-        let path = format!("{}/{}", standalone_dir, path);
-        tracing::info!("Writing file to path {path}");
-
-        let split_path = path.split("/").collect::<Vec<&str>>();
-        std::fs::create_dir_all(
-            split_path[..split_path.len() - 1].join("/"),
-        )?;
-
-        crate::worker::write_file_bytes(
-            &path,
-            &data,
-        )?;
-    } else {
-        #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+    Ok(
+        if &crate::utils::MODE_AND_ADDONS.mode == &crate::utils::Mode::Standalone
+            && object_store.is_none()
         {
-            return Err(error::Error::ExecutionErr("codebase is an EE feature".to_string()));
-        }
+            let path = format!("{}/{}", standalone_dir, path);
+            tracing::info!("Writing file to path {path}");
 
-        #[cfg(all(feature = "enterprise", feature = "parquet"))]
-        if let Some(os) = object_store {
+            let split_path = path.split("/").collect::<Vec<&str>>();
+            std::fs::create_dir_all(split_path[..split_path.len() - 1].join("/"))?;
 
-            if let Err(e) = os
-                .put(&object_store::path::Path::from(path), data.into())
-                .await
-            {
-                tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
-                return Err(error::Error::ExecutionErr(format!("Failed to put {path} to s3")));
-            }
+            crate::worker::write_file_bytes(&path, &data)?;
         } else {
-            return Err(error::Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
-        }
-    })
-}
+            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+            {
+                return Err(error::Error::ExecutionErr(
+                    "codebase is an EE feature".to_string(),
+                ));
+            }
 
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            if let Some(os) = object_store {
+                if let Err(e) = os
+                    .put(&object_store::path::Path::from(path), data.into())
+                    .await
+                {
+                    tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                    return Err(error::Error::ExecutionErr(format!(
+                        "Failed to put {path} to s3"
+                    )));
+                }
+            } else {
+                return Err(error::Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+            }
+        },
+    )
+}
 
 #[cfg(feature = "parquet")]
 pub async fn attempt_fetch_bytes(
@@ -1244,23 +1233,4 @@ pub fn duckdb_connection_settings_internal(
         s3_bucket: Some(s3_resource.bucket),
     };
     return Ok(response);
-}
-
-impl ObjectStoreResource {
-    pub fn get_endpoint_url(&self) -> error::Result<String> {
-        match self {
-            ObjectStoreResource::S3(s3_resource) => Ok(render_endpoint(
-                s3_resource.endpoint.clone(),
-                s3_resource.use_ssl,
-                s3_resource.port,
-                s3_resource.path_style,
-                s3_resource.bucket.clone(),
-            )),
-            ObjectStoreResource::Gcs(gcs_resource) => Ok(format!(
-                "https://storage.googleapis.com/{}",
-                gcs_resource.bucket
-            )),
-            ObjectStoreResource::Azure(az_resource) => az_resource.get_endpoint_url(),
-        }
-    }
 }
