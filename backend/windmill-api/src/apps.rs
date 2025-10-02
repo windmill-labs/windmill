@@ -390,19 +390,58 @@ async fn list_apps(
     Ok(Json(rows))
 }
 
-async fn get_raw_app_data(Path((w_id, version_id)): Path<(String, String)>) -> Result<Response> {
-    let file_path = format!("/tmp/wmill/{}/{}", w_id, version_id);
-    let file = tokio::fs::File::open(file_path).await?;
-    let stream = tokio_util::io::ReaderStream::new(file);
-    let res = Response::builder().header(
-        http::header::CONTENT_TYPE,
-        if version_id.ends_with(".css") {
-            "text/css"
-        } else {
-            "text/javascript"
-        },
-    );
-    Ok(res.body(Body::from_stream(stream)).unwrap())
+async fn get_raw_app_data(
+    Path((w_id, secret)): Path<(String, String)>, 
+    Extension(db): Extension<DB>) -> Result<Response> {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    let object_store = windmill_common::s3_helpers::get_object_store().await;
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+    let object_store: Option<()> = None;
+    
+    let mut splitted = version_id.split(".");
+    let id = splitted.next().unwrap_or("");
+    let file_type = if splitted.next().unwrap_or("").ends_with(".css") {
+        "css"
+    } else if version_id.ends_with(".js") {
+        "js"
+    } else {
+        return Err(Error::BadRequest("Invalid file type, only .css and .js are supported".to_string()));
+    };
+    let path = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
+
+    let mut body: Option<Body> = None;
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if let Some(os) = object_store {
+        let stream = os.get(&object_store::path::Path::from(path)).await?.bytes().await?;
+        body = Some(Body::from(stream));
+    } else {
+        return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+    }
+
+    if body.is_none() {
+        let get_raw_app_file = sqlx::query_scalar!(
+            "SELECT data FROM raw_app_bundles WHERE id = $1 AND file_type = $2",
+            id,
+            file_type,
+        )
+        .fetch_optional(&db)
+        .await?;
+        body = Some(Body::from(get_raw_app_file.unwrap()));
+    }
+
+    if let Some(body) = body {
+    // let stream = tokio_util::io::ReaderStream::new(file);
+        let res = Response::builder().header(
+            http::header::CONTENT_TYPE,
+            if file_type == "css" {
+                "text/css"
+            } else {
+                "text/javascript"
+            });
+        Ok(res.body(body).unwrap())
+    } else {
+        return Err(Error::NotFound("File not found".to_string()));
+    }
 }
 
 // async fn get_app_version(
@@ -812,7 +851,7 @@ async fn store_raw_app_file<'a>(
     id: &i64,
     file_type: &str,
     data: bytes::Bytes,
-    mut tx: sqlx::Transaction<'a, sqlx::Postgres>,
+    tx: &mut sqlx::Transaction<'a, sqlx::Postgres>,
 ) -> Result<()> {
 
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
@@ -842,9 +881,8 @@ async fn store_raw_app_file<'a>(
         file_type,
         data.to_byte_slice()
     )
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
-
     
     Ok(())
 }
@@ -872,7 +910,7 @@ macro_rules! process_app_multipart {
                     .await?;
                     saved_app = Some((npath, nid, ntx));
                 } else if name == "js" {
-                    if let Some((_npath, id, tx)) = saved_app.clone() {
+                    if let Some((_npath, id, tx)) = saved_app.as_mut() {
                         store_raw_app_file($w_id, &id, "js", data, tx).await?;
                         uploaded_js = true;
                     } else {
@@ -881,7 +919,7 @@ macro_rules! process_app_multipart {
                         ));
                     }
                 } else if name == "css" {
-                    if let Some((_npath, id, tx)) = saved_app {
+                    if let Some((_npath, id, tx)) = saved_app.as_mut() {
                         store_raw_app_file($w_id, &id, "css", data, tx).await?;
                     } else {
                         return Err(Error::BadRequest(
