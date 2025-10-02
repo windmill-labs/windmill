@@ -271,7 +271,7 @@
 	}
 </script>
 
-<div class="flex flex-col h-full w-full">
+<div class="flex flex-col h-full w-full max-w-7xl mx-auto">
 	<div class="flex-1 flex flex-col min-h-0 w-full">
 		<!-- Messages Container -->
 		<div
