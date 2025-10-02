@@ -2,6 +2,7 @@
 
 use anyhow::anyhow;
 
+use lazy_static::lazy_static;
 #[cfg(not(target_arch = "wasm32"))]
 use regex::Regex;
 #[cfg(target_arch = "wasm32")]
@@ -553,12 +554,13 @@ fn transform_types_with_spaces<'a>(typ: &'a str, cap: &regex::Match<'_>, code: &
     // time without time zone
     // timestamp with time zone
     // timestamp without time zone
-
-    static TYPES: [(&str, &str, &str); 2] = [
-        ("character", "varying", "varchar"),
-        ("double", "precision", "double"),
-    ];
-    for (prefix, suffix, alias) in TYPES {
+    lazy_static! {
+        static ref TYPES: [(&'static str, &'static str, &'static str); 2] = [
+            ("character", "varying", "varchar"),
+            ("double", "precision", "double"),
+        ];
+    }
+    for (prefix, suffix, alias) in TYPES.iter() {
         if typ.eq_ignore_ascii_case(prefix) {
             let remaining = code[cap.end()..].trim_start();
             if remaining.len() >= suffix.len()
