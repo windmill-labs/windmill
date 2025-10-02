@@ -825,31 +825,41 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     if success && !skipped && flow_is_done {
         let chat_input_enabled = queued_job.parse_chat_input_enabled();
         if chat_input_enabled.unwrap_or(false) {
-        // Format the result for the assistant message
-        let content = serde_json::to_string_pretty(&result)
-            .unwrap_or_else(|_| "Job completed successfully".to_string());
+            // Format the result for the assistant message
+            let content = serde_json::to_value(result.0)
+                .ok()
+                .and_then(|v| {
+                    if let serde_json::Value::String(s) = v {
+                        // If result is a simple string, use it directly
+                        Some(s)
+                    } else {
+                        // Otherwise, pretty-print the JSON
+                        serde_json::to_string_pretty(&v).ok()
+                    }
+                })
+                .unwrap_or_else(|| "Job completed successfully".to_string());
 
-        // check if flow_conversation_message exists
-        let flow_conversation_message_exists = sqlx::query_scalar!(
+            // check if flow_conversation_message exists
+            let flow_conversation_message_exists = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM flow_conversation_message WHERE job_id = $1 AND message_type = 'assistant')",
             queued_job.id
         )
         .fetch_one(db)
         .await?;
 
-        if flow_conversation_message_exists.unwrap_or(false) {
-            // Update the assistant message using direct DB access
-            let _ = sqlx::query!(
-                "UPDATE flow_conversation_message
+            if flow_conversation_message_exists.unwrap_or(false) {
+                // Update the assistant message using direct DB access
+                let _ = sqlx::query!(
+                    "UPDATE flow_conversation_message
                     SET content = $1
                     WHERE job_id = $2
                 ",
-                content,
-                queued_job.id,
-            )
-            .execute(db)
-            .await;
-        }
+                    content,
+                    queued_job.id,
+                )
+                .execute(db)
+                .await;
+            }
         }
     }
 
