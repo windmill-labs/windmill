@@ -6,10 +6,12 @@
 	import SkipTutorials from './SkipTutorials.svelte'
 	import TutorialControls from './TutorialControls.svelte'
 	import TutorialInner from './TutorialInner.svelte'
+	import { isCurrentlyInTutorial } from '$lib/stores'
 
 	export let index: number = 0
 	export let name: string = 'action'
 	export let tainted: boolean = false
+	export let onDestroyed: (() => void) | undefined = undefined
 
 	type Options = {
 		indexToInsertAt?: number
@@ -111,6 +113,7 @@
 			dispatch('error', { detail: name })
 			return
 		}
+		isCurrentlyInTutorial.val = true
 
 		tutorial = driver({
 			allowClose: true,
@@ -122,9 +125,11 @@
 				renderControls({ config, state })
 			},
 			onDestroyed: () => {
+				onDestroyed?.()
 				if (!tutorial?.hasNextStep()) {
 					$ignoredTutorials = Array.from(new Set([...$ignoredTutorials, index]))
 				}
+				isCurrentlyInTutorial.val = false
 			}
 		})
 

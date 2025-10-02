@@ -11,6 +11,7 @@
 	export let openConnection: () => void
 	export let closeConnection: () => void
 	export let btnWrapperClasses = ''
+	export let id: string | undefined = undefined
 
 	let selected = false
 
@@ -83,7 +84,7 @@
 			color="light"
 			title="Connect"
 			on:click={() => handleConnect(true)}
-			id="schema-plug"
+			{id}
 			wrapperClasses={twMerge(btnWrapperClasses, selected ? 'opacity-100' : '')}
 			btnClasses="p-0"
 		>
