@@ -12,8 +12,9 @@ import {
 	type WorkspaceDefaultScripts,
 	WorkspaceService
 } from './gen'
-import { getLocalSetting } from './utils'
+import { getLocalSetting, type StateStore } from './utils'
 import { workspaceAIClients } from './components/copilot/lib'
+import { createState } from './svelte5Utils.svelte'
 
 export interface UserExt {
 	email: string
@@ -276,6 +277,8 @@ export const workspaceColor: Readable<string | null | undefined> = derived(
 		})
 	}
 )
+
+export const isCurrentlyInTutorial: StateStore<boolean> = createState({ val: false })
 
 export function getFlatTableNamesFromSchema(dbSchema: DBSchema | undefined): string[] {
 	const schema = dbSchema?.schema ?? {}

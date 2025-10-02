@@ -284,7 +284,7 @@
 	function checkArrayValueType() {
 		try {
 			if (Array.isArray(value) && value.length > 0) {
-				const firstItem = value?.[0]
+				let firstItem = value?.[0]
 				const type = itemsType?.type
 
 				switch (type) {
@@ -499,6 +499,7 @@
 	$effect.pre(() => {
 		!isListJson &&
 			inputCat === 'list' &&
+			enum_ == undefined &&
 			value != lastValue &&
 			itemsType?.type &&
 			!hasIsListJsonChanged &&

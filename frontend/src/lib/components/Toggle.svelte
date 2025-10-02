@@ -112,9 +112,9 @@
 				'ml-2 font-normal duration-50 select-none',
 				bothOptions || textDisabled
 					? checked
-						? 'text-tertiary'
+						? 'text-secondary'
 						: 'text-disabled'
-					: 'text-tertiary',
+					: 'text-secondary',
 				size === 'xs' || size === '2sm' ? 'text-xs' : size === '2xs' ? 'text-xs' : 'text-sm',
 				textClass
 			)}

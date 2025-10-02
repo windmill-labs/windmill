@@ -33,7 +33,7 @@ const NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT: &str =
     include_str!("../nsjail/run.powershell.config.proto");
 
 lazy_static::lazy_static! {
-    static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"^Import-Module\s+(?:-Name\s+)?"?([^-\s"]+)"?"#).unwrap();
+    static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"^Import-Module\s+(?:-Name\s+)?"?([^\s"]+)"?"#).unwrap();
 }
 
 #[cfg(feature = "dind")]
@@ -46,7 +46,7 @@ use crate::{
     },
     handle_child::handle_child,
     DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR,
-    POWERSHELL_PATH, PROXY_ENVS, TZ_ENV,
+    POWERSHELL_PATH, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, PROXY_ENVS, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -56,6 +56,14 @@ use crate::SYSTEM_ROOT;
 lazy_static::lazy_static! {
 
     pub static ref ANSI_ESCAPE_RE: Regex = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
+}
+
+fn raw_to_string(x: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(x) {
+        Ok(serde_json::Value::String(x)) => x,
+        Ok(x) => serde_json::to_string(&x).unwrap_or_else(|_| String::new()),
+        _ => String::new(),
+    }
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -512,29 +520,111 @@ async fn container_is_alive(client: &bollard::Docker, container_id: &str) -> boo
     }
 }
 
-fn raw_to_string(x: &str) -> String {
-    match serde_json::from_str::<serde_json::Value>(x) {
-        Ok(serde_json::Value::String(x)) => x,
-        Ok(x) => serde_json::to_string(&x).unwrap_or_else(|_| String::new()),
-        _ => String::new(),
+fn val_to_pwsh_param(v: serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Array(x) => format!(
+            "@({})",
+            x.into_iter()
+                .map(|v| val_to_pwsh_param(v))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        serde_json::Value::Object(x) => {
+            let str = serde_json::to_string(&x).unwrap_or_else(|_| "{}".to_string());
+            let escaped = str.replace("'", "''");
+            format!("(ConvertFrom-Json '{escaped}')")
+        }
+        serde_json::Value::Null => "$null".to_string(),
+        serde_json::Value::Bool(x) => format!("${x}"),
+        serde_json::Value::String(x) => {
+            let escaped = x.replace("'", "''");
+            format!("'{escaped}'")
+        }
+        serde_json::Value::Number(x) => x.to_string(),
     }
 }
 
-const POWERSHELL_INSTALL_CODE: &str = r#"
+fn raw_to_pwsh_param(x: &str) -> String {
+    match serde_json::from_str::<serde_json::Value>(x) {
+        Ok(v) => val_to_pwsh_param(v),
+        Err(e) => {
+            tracing::error!("Error converting JSON to string: {:?}", e);
+            "$null".to_string()
+        }
+    }
+}
+
+fn generate_powershell_install_code_with_private_repo() -> String {
+    r#"
+$ErrorActionPreference = 'Stop'
+$availableModules = Get-Module -ListAvailable
+$path = '{path}'
+$jobId = '{job_id}'
+$privateRepoUrl = '{private_repo_url}'
+$privateRepoPat = '{private_repo_pat}'
+
+# Register temporary private repository with job ID
+$repoName = "windmill-private-$jobId"
+$repoUri = "$privateRepoUrl"
+
+# Create PSCredential for authentication
+$username = "token"
+$patToken = ConvertTo-SecureString $privateRepoPat -AsPlainText -Force
+$credentials = New-Object System.Management.Automation.PSCredential($username, $patToken)
+
+Write-Host "Registering temporary repository: $repoName"
+
+# Remove repository if it already exists
+Unregister-PSResourceRepository -Name $repoName -ErrorAction SilentlyContinue
+Register-PSResourceRepository -Name $repoName -Uri $repoUri -Trusted
+
+try {
+    $moduleNames = @({modules})
+    foreach ($module in $moduleNames) {
+        if (-not ($availableModules | Where-Object { $_.Name -eq $module })) {
+            $moduleFound = $false
+            # First try private repository if configured
+            $privateModule = Find-PSResource -Name $module -Repository $repoName -ErrorAction SilentlyContinue -Credential $credentials
+            if ($privateModule) {
+                $moduleFound = $true
+                Write-Host "Found module $module in private repository, installing from there..."
+                Save-PSResource -Name $module -Path $path -Repository $repoName -Credential $credentials
+            }
+            
+            # If not found in private repo, try all repositories
+            if (-not $moduleFound) {
+                Write-Host "Installing module $module from all repositories..."
+                Save-PSResource -Name $module -Path $path -TrustRepository
+            }
+        } else {
+            Write-Host "Module $module already installed"
+        }
+    }
+} finally {
+    Write-Host "Unregistering temporary repository: $repoName"
+    Unregister-PSResourceRepository -Name $repoName
+}
+"#.to_string()
+}
+
+fn generate_powershell_install_code_public_only() -> String {
+    r#"
+$ErrorActionPreference = 'Stop'
 $availableModules = Get-Module -ListAvailable
 $path = '{path}'
 
 $moduleNames = @({modules})
-
 foreach ($module in $moduleNames) {
     if (-not ($availableModules | Where-Object { $_.Name -eq $module })) {
         Write-Host "Installing module $module..."
-        Save-Module -Name $module -Path $path -Force
+        Save-PSResource -Name $module -Path $path -TrustRepository
     } else {
         Write-Host "Module $module already installed"
     }
 }
-"#;
+"#
+    .to_string()
+}
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_powershell_job(
@@ -566,17 +656,16 @@ pub async fn handle_powershell_job(
             .map(|arg| {
                 (
                     arg.name.clone(),
-                    job_args
-                        .and_then(|x| x.get(&arg.name).map(|x| raw_to_string(x.get())))
-                        .unwrap_or_else(String::new),
+                    job_args.and_then(|x| x.get(&arg.name).map(|x| raw_to_pwsh_param(x.get()))),
                 )
             })
-            .collect::<Vec<(String, String)>>();
+            .collect::<Vec<(String, Option<String>)>>();
+
         args_owned
-            .iter()
-            .map(|(n, v)| vec![format!("--{n}"), format!("{v}")])
-            .flatten()
+            .into_iter()
+            .filter_map(|(n, v)| v.map(|v| format!("-{n} {v}")))
             .collect::<Vec<_>>()
+            .join(" ")
     };
 
     #[cfg(windows)]
@@ -617,16 +706,33 @@ pub async fn handle_powershell_job(
     }
 
     if !modules_to_install.is_empty() {
-        let install_string = POWERSHELL_INSTALL_CODE
-            .replace("{path}", POWERSHELL_CACHE_DIR)
-            .replace(
-                "{modules}",
-                &modules_to_install
-                    .iter()
-                    .map(|x| format!("'{x}'"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
-            );
+        let powershell_repo_url = POWERSHELL_REPO_URL.read().await.clone();
+        let powershell_repo_pat = POWERSHELL_REPO_PAT.read().await.clone();
+        let has_private_repo = powershell_repo_url.is_some() && powershell_repo_pat.is_some();
+        let install_template = if has_private_repo {
+            generate_powershell_install_code_with_private_repo()
+        } else {
+            generate_powershell_install_code_public_only()
+        };
+
+        let modules_list = modules_to_install
+            .iter()
+            .map(|x| format!("'{x}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let install_string = if has_private_repo {
+            install_template
+                .replace("{path}", POWERSHELL_CACHE_DIR)
+                .replace("{job_id}", &job.id.to_string())
+                .replace("{private_repo_url}", &powershell_repo_url.unwrap())
+                .replace("{private_repo_pat}", &powershell_repo_pat.unwrap())
+                .replace("{modules}", &modules_list)
+        } else {
+            install_template
+                .replace("{path}", POWERSHELL_CACHE_DIR)
+                .replace("{modules}", &modules_list)
+        };
         let mut cmd = Command::new(POWERSHELL_PATH.as_str());
         cmd.args(&["-Command", &install_string])
             .stdout(Stdio::piped())
@@ -712,26 +818,16 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
     write_file(job_dir, "main.ps1", content.as_str())?;
 
-    #[cfg(unix)]
-    write_file(
-        job_dir,
-        "wrapper.sh",
-        &format!("set -o pipefail\nset -e\nmkfifo bp\ncat bp | tail -1 > ./result2.out &\n{} -F ./main.ps1 \"$@\" 2>&1 | tee bp\nwait $!", POWERSHELL_PATH.as_str()),
-    )?;
-
-    #[cfg(windows)]
     write_file(
         job_dir,
         "wrapper.ps1",
         &format!(
-            "param([string[]]$args)\n\
-    $ErrorActionPreference = 'Stop'\n\
+            "$ErrorActionPreference = 'Stop'\n\
     $pipe = New-TemporaryFile\n\
-    & \"{}\" -File ./main.ps1 @args 2>&1 | Tee-Object -FilePath $pipe\n\
+    ./main.ps1 {pwsh_args} 2>&1 | Tee-Object -FilePath $pipe\n\
     Get-Content -Path $pipe | Select-Object -Last 1 | Set-Content -Path './result2.out'\n\
     Remove-Item $pipe\n\
-    exit $LASTEXITCODE\n",
-            POWERSHELL_PATH.as_str()
+    exit $LASTEXITCODE\n"
         ),
     )?;
 
@@ -762,14 +858,13 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{CACHE_DIR}", POWERSHELL_CACHE_DIR),
         )?;
-        let mut cmd_args = vec![
+        let cmd_args = vec![
             "--config",
             "run.config.proto",
             "--",
-            BIN_BASH.as_str(),
-            "wrapper.sh",
+            POWERSHELL_PATH.as_str(),
+            "wrapper.ps1",
         ];
-        cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
         cmd.current_dir(job_dir)
             .env_clear()
@@ -784,21 +879,17 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
 
         start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let mut cmd;
-        let mut cmd_args;
+        let mut cmd = Command::new(POWERSHELL_PATH.as_str());
+        let cmd_args;
 
         #[cfg(unix)]
         {
-            cmd_args = vec!["wrapper.sh"];
-            cmd_args.extend(pwsh_args.iter().map(|x| x.as_str()));
-            cmd = Command::new(BIN_BASH.as_str());
+            cmd_args = vec!["wrapper.ps1"];
         }
 
         #[cfg(windows)]
         {
-            cmd_args = vec![r".\wrapper.ps1".to_string()];
-            cmd_args.extend(pwsh_args.iter().map(|x| x.replace("--", "-")));
-            cmd = Command::new(POWERSHELL_PATH.as_str());
+            cmd_args = vec![r".\wrapper.ps1"];
         }
 
         cmd.current_dir(job_dir)

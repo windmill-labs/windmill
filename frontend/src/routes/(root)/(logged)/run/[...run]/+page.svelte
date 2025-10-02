@@ -227,7 +227,7 @@
 			job.type == 'CompletedJob' &&
 			(job.job_kind == 'script' || isScriptPreview(job.job_kind))
 		) {
-			// If error occured and job is completed
+			// If error occurred and job is completed
 			// than we fetch progress from server to display on what progress did it fail
 			// Could be displayed after run or as a historical page
 			// If opening page without running job (e.g. reloading page after run) progress will be displayed instantly
