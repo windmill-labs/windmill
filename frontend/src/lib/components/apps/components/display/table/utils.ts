@@ -27,9 +27,9 @@ export abstract class AbstractCellRenderer implements ICellRendererComp {
 	eGui: any
 	protected component:
 		| {
-			refresh: (params: ICellRendererParams) => void
-			destroy: () => void
-		}
+				refresh: (params: ICellRendererParams) => void
+				destroy: () => void
+		  }
 		| undefined
 	constructor(parentElement = 'span') {
 		// create empty span (or other element) to place svelte component in
@@ -218,18 +218,27 @@ export function transformColumnDefs({
 			// Set default minWidth based on number of actions (if not wrapping)
 			...(!wrapActions ? { minWidth: 130 * actions?.length } : {}),
 			// Respect user-specified overrides when placeholder present (these should override defaults)
-			...(
-				actionsIndex > -1
-					? {
+			...(actionsIndex > -1
+				? {
 						// keep width/pin/flex/align/hide from placeholder when provided
-						...(['width', 'minWidth', 'maxWidth', 'flex', 'pinned', 'headerName', 'cellStyle', 'cellClass', 'autoHeight', 'hide']
-							.reduce((acc, key) => {
-								if (r[actionsIndex] && r[actionsIndex][key] !== undefined) acc[key] = r[actionsIndex][key]
-								return acc
-							}, {} as any))
+						...[
+							'width',
+							'minWidth',
+							'maxWidth',
+							'flex',
+							'pinned',
+							'headerName',
+							'cellStyle',
+							'cellClass',
+							'autoHeight',
+							'hide'
+						].reduce((acc, key) => {
+							if (r[actionsIndex] && r[actionsIndex][key] !== undefined)
+								acc[key] = r[actionsIndex][key]
+							return acc
+						}, {} as any)
 					}
-					: {}
-			),
+				: {}),
 			...(customActionsHeader?.trim() ? { headerName: customActionsHeader } : {})
 		}
 

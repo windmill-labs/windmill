@@ -382,8 +382,11 @@
 <Button
 	wrapperClasses="mt-4 mb-44 max-w-fit"
 	on:click={onSave}
-	disabled={Object.values(ducklakeIsDirty).every((v) => v === false)}>Save ducklake settings</Button
+	disabled={ducklakeSavedSettings.ducklakes.length === ducklakeSettings.ducklakes.length &&
+		Object.values(ducklakeIsDirty).every((v) => v === false)}
 >
+	Save ducklake settings
+</Button>
 <DbManagerDrawer bind:this={dbManagerDrawer} />
 
 <ConfirmationModal {...confirmationModal.props} />
