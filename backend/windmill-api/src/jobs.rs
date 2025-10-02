@@ -3940,8 +3940,7 @@ async fn handle_chat_conversation_messages(
 
     // Create conversation with provided ID (or get existing one)
     flow_conversations::get_or_create_conversation_with_id(
-        authed,
-        user_db,
+        tx,
         w_id,
         flow_path,
         &authed.username,

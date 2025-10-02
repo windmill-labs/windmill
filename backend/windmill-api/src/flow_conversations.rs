@@ -101,15 +101,13 @@ async fn list_conversations(
 }
 
 pub async fn get_or_create_conversation_with_id(
-    authed: &ApiAuthed,
-    user_db: &UserDB,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
     flow_path: &str,
     username: &str,
     title: &str,
     conversation_id: Uuid,
 ) -> Result<FlowConversation> {
-    let mut tx = user_db.clone().begin(authed).await?;
 
     // Check if conversation already exists
     let existing_conversation = sqlx::query_as!(
@@ -121,11 +119,10 @@ pub async fn get_or_create_conversation_with_id(
         w_id,
         username
     )
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await?;
 
     if let Some(existing) = existing_conversation {
-        tx.commit().await?;
         return Ok(existing);
     }
 
@@ -141,9 +138,8 @@ pub async fn get_or_create_conversation_with_id(
         username,
         title
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
-    tx.commit().await?;
     Ok(conversation)
 }
 
