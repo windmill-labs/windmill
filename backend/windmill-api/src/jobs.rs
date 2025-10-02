@@ -3977,7 +3977,6 @@ async fn handle_chat_conversation_messages(
         MessageType::User,
         &user_msg,
         None, // No job_id for user message
-        &authed.username,
         w_id,
     )
     .await?;
@@ -3989,7 +3988,6 @@ async fn handle_chat_conversation_messages(
         MessageType::Assistant,
         "",         // Empty content, will be updated when job completes
         Some(uuid), // Associate with the job
-        &authed.username,
         w_id,
     )
     .await?;

@@ -77,8 +77,7 @@ async fn list_conversations(
         "updated_at",
         "created_by",
     ])
-    .and_where_eq("workspace_id", "?".bind(&w_id))
-    .and_where_eq("created_by", "?".bind(&authed.username));
+    .and_where_eq("workspace_id", "?".bind(&w_id));
 
     if let Some(flow_path) = &query.flow_path {
         sqlb.and_where_eq("flow_path", "?".bind(flow_path));
@@ -113,10 +112,9 @@ pub async fn get_or_create_conversation_with_id(
         FlowConversation,
         "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
          FROM flow_conversation
-         WHERE id = $1 AND workspace_id = $2 AND created_by = $3",
+         WHERE id = $1 AND workspace_id = $2",
         conversation_id,
-        w_id,
-        username
+        w_id
     )
     .fetch_optional(&mut **tx)
     .await?;
@@ -154,10 +152,9 @@ async fn delete_conversation(
         FlowConversation,
         "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by
          FROM flow_conversation
-         WHERE id = $1 AND workspace_id = $2 AND created_by = $3",
+         WHERE id = $1 AND workspace_id = $2",
         conversation_id,
-        &w_id,
-        &authed.username
+        &w_id
     )
     .fetch_optional(&mut *tx)
     .await?;
@@ -166,10 +163,9 @@ async fn delete_conversation(
 
     // Delete the conversation (messages will be cascade deleted)
     sqlx::query!(
-        "DELETE FROM flow_conversation WHERE id = $1 AND workspace_id = $2 AND created_by = $3",
+        "DELETE FROM flow_conversation WHERE id = $1 AND workspace_id = $2",
         conversation_id,
-        &w_id,
-        &authed.username
+        &w_id
     )
     .execute(&mut *tx)
     .await?;
@@ -206,10 +202,9 @@ async fn list_messages(
 
     // Verify the conversation exists and belongs to the user
     let conversation_exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1 AND workspace_id = $2 AND created_by = $3)",
+        "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1 AND workspace_id = $2)",
         conversation_id,
-        &w_id,
-        &authed.username
+        &w_id
     )
     .fetch_one(&mut *tx)
     .await?
@@ -253,15 +248,13 @@ pub async fn create_message(
     message_type: MessageType,
     content: &str,
     job_id: Option<Uuid>,
-    username: &str,
     workspace_id: &str,
 ) -> windmill_common::error::Result<()> {
     // Verify the conversation exists and belongs to the user
     let conversation_exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1 AND workspace_id = $2 AND created_by = $3)",
+        "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1 AND workspace_id = $2)",
         conversation_id,
-        workspace_id,
-        username
+        workspace_id
     )
     .fetch_one(&mut **tx)
     .await?
