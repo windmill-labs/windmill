@@ -822,8 +822,9 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     restart_job_if_perpetual(db, queued_job, &canceled_by).await?;
 
     // Update conversation message if it's a flow and it's done
-    let chat_input_enabled = queued_job.parse_chat_input_enabled();
-    if success && !skipped && flow_is_done && chat_input_enabled.unwrap_or(false) {
+    if success && !skipped && flow_is_done {
+        let chat_input_enabled = queued_job.parse_chat_input_enabled();
+        if chat_input_enabled.unwrap_or(false) {
         // Format the result for the assistant message
         let content = serde_json::to_string_pretty(&result)
             .unwrap_or_else(|_| "Job completed successfully".to_string());
@@ -848,6 +849,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             )
             .execute(db)
             .await;
+        }
         }
     }
 
