@@ -36,7 +36,7 @@ export const AI_AGENT_SCHEMA = {
 		messages_context_length: {
 			type: 'number',
 			description:
-				'Maximum number of conversation messages to store and retrieve from memory (only used when chat input mode is enabled). Limits the conversation history to the last N messages to manage memory usage and API context limits. If not set or 0, memory operations are disabled and no messages will be stored or retrieved.',
+				'Maximum number of conversation messages to store and retrieve from memory (only used when chat input mode is enabled). If not set or 0, memory operations are disabled and no messages will be stored or retrieved.',
 			showExpr: "fields.output_type === 'text'"
 		},
 		output_schema: {
