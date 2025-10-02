@@ -2160,8 +2160,7 @@ impl PulledJobResult {
                     has_stream: Some(false),
                 }),
             ),
-            PulledJobResult { job: Some(job), missing_concurrency_key: false, .. } => Ok(Some(job)),
-            _ => Ok(None),
+            PulledJobResult { job, .. } => Ok(job),
         }
     }
 }
