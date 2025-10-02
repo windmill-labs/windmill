@@ -1757,7 +1757,7 @@ pub struct RunJobQuery {
     pub cache_ttl: Option<i32>,
     pub skip_preprocessor: Option<bool>,
     pub poll_delay_ms: Option<u64>,
-    pub conversation_id: Option<Uuid>,
+    pub memory_id: Option<Uuid>,
 }
 
 impl RunJobQuery {
@@ -3914,6 +3914,28 @@ async fn batch_rerun_handle_job(
     ))
 }
 
+/// Set the memory_id in flow_status for agent memory persistence
+async fn set_flow_memory_id(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    job_id: Uuid,
+    memory_id: Uuid,
+) -> error::Result<()> {
+    sqlx::query!(
+        "UPDATE v2_job_status 
+         SET flow_status = jsonb_set(
+             flow_status,
+             '{memory_id}',
+             to_jsonb($2::uuid)
+         )
+         WHERE id = $1",
+        job_id,
+        memory_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 async fn handle_chat_conversation_messages(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     authed: &ApiAuthed,
@@ -3923,9 +3945,9 @@ async fn handle_chat_conversation_messages(
     args: &PushArgsOwned,
     uuid: Uuid,
 ) -> error::Result<()> {
-    let conversation_id = run_query.conversation_id.ok_or_else(|| {
+    let memory_id = run_query.memory_id.ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
-            "conversation_id is required for chat-enabled flows".to_string(),
+            "memory_id is required for chat-enabled flows".to_string(),
         )
     })?;
 
@@ -3944,14 +3966,14 @@ async fn handle_chat_conversation_messages(
         flow_path,
         &authed.username,
         &user_msg,
-        conversation_id,
+        memory_id,
     )
     .await?;
 
     // Create user message
     flow_conversations::create_message(
         tx,
-        conversation_id,
+        memory_id,
         MessageType::User,
         &user_msg,
         None, // No job_id for user message
@@ -3963,7 +3985,7 @@ async fn handle_chat_conversation_messages(
     // Create placeholder assistant message in the same transaction as the job
     flow_conversations::create_message(
         tx,
-        conversation_id,
+        memory_id,
         MessageType::Assistant,
         "",         // Empty content, will be updated when job completes
         Some(uuid), // Associate with the job
@@ -4085,6 +4107,11 @@ pub async fn run_flow_by_path_inner(
         false,
     )
     .await?;
+
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
+    }
 
     // Handle conversation messages for chat-enabled flows
     if chat_input_enabled.unwrap_or(false) {
@@ -5572,6 +5599,11 @@ pub async fn run_wait_result_flow_by_path_internal(
         false,
     )
     .await?;
+
+    // Set conversation_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
+    }
 
     // Handle conversation messages for chat-enabled flows
     if chat_input_enabled.unwrap_or(false) {

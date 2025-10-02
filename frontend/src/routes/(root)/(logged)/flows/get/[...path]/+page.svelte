@@ -206,7 +206,7 @@
 		const run = await JobService.runFlowByPath({
 			workspace: $workspaceStore!,
 			path,
-			conversationId: conversationId,
+			memoryId: conversationId,
 			requestBody: args,
 			skipPreprocessor: true
 		})

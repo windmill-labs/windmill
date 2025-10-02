@@ -47,6 +47,8 @@ pub struct FlowStatus {
     pub stream_job: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chat_input_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_id: Option<Uuid>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -511,6 +513,7 @@ impl FlowStatus {
             user_states: HashMap::new(),
             stream_job: None,
             chat_input_enabled: f.chat_input_enabled,
+            memory_id: None,
         }
     }
 

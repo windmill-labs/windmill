@@ -99,6 +99,20 @@ pub async fn get_flow_job_runnable_and_raw_flow(
     Ok(job)
 }
 
+/// Get memory_id from parent flow's flow_status
+async fn get_memory_id_from_flow_status(db: &DB, parent_job: &Uuid) -> Result<Option<Uuid>, Error> {
+    let result = sqlx::query_scalar!(
+        "SELECT (flow_status->>'memory_id')::uuid as memory_id 
+         FROM v2_job_status 
+         WHERE id = $1",
+        parent_job
+    )
+    .fetch_optional(db)
+    .await?;
+
+    Ok(result.flatten())
+}
+
 pub async fn handle_ai_agent_job(
     // connection
     conn: &Connection,
@@ -153,9 +167,6 @@ pub async fn handle_ai_agent_job(
     };
 
     let value = flow_data.value();
-
-    // Check if chat input is enabled at the flow level
-    let chat_input_enabled = value.chat_input_enabled.unwrap_or(false);
 
     let module = value.modules.iter().find(|m| m.id == *flow_step_id);
 
@@ -294,7 +305,6 @@ pub async fn handle_ai_agent_job(
         hostname,
         killpill_rx,
         has_stream,
-        chat_input_enabled,
     );
 
     let result = run_future_with_polling_update_job_poller(
@@ -429,7 +439,6 @@ pub async fn run_agent(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
-    chat_input_enabled: bool,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;
@@ -450,21 +459,14 @@ pub async fn run_agent(
             vec![]
         };
 
-    // Load previous messages from memory for text output mode (only if chat input is enabled and context length is set)
-    if matches!(output_type, OutputType::Text) && chat_input_enabled {
+    // Load previous messages from memory for text output mode (only if context length is set)
+    if matches!(output_type, OutputType::Text) {
         if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
             if let Some(step_id) = job.flow_step_id.as_deref() {
-                // Look up conversation_id for this flow
-                if let Ok(Some(conversation_id)) = sqlx::query_scalar!(
-                    "SELECT conversation_id FROM flow_conversation_message 
-                     WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
-                    parent_job
-                )
-                .fetch_optional(db)
-                .await
-                {
+                // Get memory_id from flow_status
+                if let Ok(Some(memory_id)) = get_memory_id_from_flow_status(db, parent_job).await {
                     // Read messages from memory
-                    match read_from_memory(&job.workspace_id, conversation_id, step_id).await {
+                    match read_from_memory(&job.workspace_id, memory_id, step_id).await {
                         Ok(Some(loaded_messages)) => {
                             // Take the last n messages
                             let start_idx = loaded_messages.len().saturating_sub(context_length);
@@ -1113,9 +1115,9 @@ pub async fn run_agent(
         }
     }
 
-    // Persist complete conversation to memory at the end (only if chat input is enabled and context length is set)
+    // Persist complete conversation to memory at the end (only if context length is set)
     // final_messages contains the complete history (old messages + new ones)
-    if matches!(output_type, OutputType::Text) && chat_input_enabled {
+    if matches!(output_type, OutputType::Text) {
         if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
             if let Some(step_id) = job.flow_step_id.as_deref() {
                 // Extract OpenAIMessages from final_messages
@@ -1127,19 +1129,13 @@ pub async fn run_agent(
                     let start_idx = all_messages.len().saturating_sub(context_length);
                     let messages_to_persist = all_messages[start_idx..].to_vec();
 
-                    // Look up conversation_id
-                    if let Ok(Some(conversation_id)) = sqlx::query_scalar!(
-                        "SELECT conversation_id FROM flow_conversation_message 
-                         WHERE job_id = $1 AND message_type = 'assistant' LIMIT 1",
-                        parent_job
-                    )
-                    .fetch_optional(db)
-                    .await
+                    // Get memory_id from flow_status
+                    if let Ok(Some(memory_id)) =
+                        get_memory_id_from_flow_status(db, parent_job).await
                     {
-                        // Use write_to_memory to replace entire conversation
                         if let Err(e) = write_to_memory(
                             &job.workspace_id,
-                            conversation_id,
+                            memory_id,
                             step_id,
                             &messages_to_persist,
                         )

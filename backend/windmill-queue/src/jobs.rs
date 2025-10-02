@@ -3562,6 +3562,7 @@ pub async fn push<'c, 'd>(
                         preprocessor_module: None,
                         stream_job: None,
                         chat_input_enabled: None,
+                        memory_id: None,
                     }
                 }
                 _ => {
@@ -3819,6 +3820,7 @@ pub async fn push<'c, 'd>(
                 preprocessor_module: None,
                 stream_job: None,
                 chat_input_enabled: None,
+                memory_id: None,
             };
             let value = flow_data.value();
             let priority = value.priority;
