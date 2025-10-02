@@ -70,7 +70,7 @@
 					| undefined)
 			| undefined
 		workspace?: string | undefined
-		actions?: import('svelte').Snippet
+		actions?: import('svelte').Snippet<[{ item: { id: string; value: string } }]> | undefined
 	}
 
 	let {
@@ -414,7 +414,7 @@
 									{displayType}
 								>
 									{#snippet actions()}
-										{@render actions_render?.()}
+										{@render actions_render?.({ item })}
 										{#if linkedSecretCandidates?.includes(argName)}
 											<div>
 												<ToggleButtonGroup
