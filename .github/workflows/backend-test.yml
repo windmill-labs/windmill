@@ -54,7 +54,7 @@ jobs:
           toolchain: 1.90.0
       - name: Read EE repo commit hash
         run: |
-          echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
+          echo "ee_repo_ref=$(cat ./ee-repo-ref.txt)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v4
         with:
