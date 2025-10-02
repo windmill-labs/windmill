@@ -1513,7 +1513,7 @@ pub async fn run_worker(
                                 .expect("send kill to job completed tx");
                             break;
                         } else {
-                            job.map(|x| x.map(|j| NextJob::Sql(j)))
+                            job.map(|x| x.map(NextJob::Sql))
                         }
                     }
                     Connection::Http(client) => client
