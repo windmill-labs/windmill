@@ -78,6 +78,7 @@
 	import { deepEqual } from 'fast-equals'
 	import Popover from '../meltComponents/Popover.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
+	import Section from '../Section.svelte'
 
 	const DEFAULT_DUCKLAKE_CATALOG_NAME = 'ducklake_catalog'
 
@@ -194,6 +195,52 @@
 	<Alert title="Instance catalogs use the Windmill database" class="mb-4" type="info">
 		Using an instance catalog is the fastest way to get started with Ducklake. They are public to
 		the instance and can be re-used in other workspaces' Ducklake settings.
+		<div>
+			<Section
+				label="Manual setup instructions"
+				collapsable
+				headerClass="mt-6 border bg-surface px-3 py-1 rounded-md text-xs text-secondary"
+				class="text-secondary"
+				animate
+			>
+				This is what happens when you create a new Instance catalog with the name
+				<code>ducklake_catalog</code>. This may be useful to debug issues in case the automatic
+				setup fails in the middle, but in most cases Windmill will handle it for you.
+				<br /><br />
+
+				If the database <code>ducklake_catalog</code> already exists, Windmill assumes that the
+				setup was successful and does not do anything. However, it is possible that it failed in the
+				middle (in which case you should have seen an error pop up during setup). There is no
+				rollback as the following operations do not work in a transaction.
+				<br />
+				This is what the setup does :
+				<br /><br />
+				Connect to the Windmill PostgreSQL as the default user (the one in your DATABASE_URL, usually
+				'postgres') and run :
+				<br />
+				<code class="block p-2 border rounded-md bg-surface mt-2">
+					CREATE DATABASE <code>ducklake_catalog</code>;<br />
+					GRANT CONNECT ON DATABASE <code>ducklake_catalog</code> TO ducklake_user;
+				</code>
+				<br />
+				Then, connect to the <code>ducklake_catalog</code> database with the same user as above (NOT
+				ducklake_user) and run :
+				<code class="block p-2 border rounded-md bg-surface mt-2">
+					GRANT USAGE ON SCHEMA public TO ducklake_user;<br />
+					GRANT CREATE ON SCHEMA public TO ducklake_user;<br />
+					ALTER DEFAULT PRIVILEGES IN SCHEMA public<br />
+					&nbsp;&nbsp;GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ducklake_user;
+				</code>
+				<br />
+				After doing that, creating a new Ducklake with an Instance catalog named
+				<code>ducklake_catalog</code> should not prompt you to run the automatic setup, and
+				everything should work fine.
+				<br /><br />
+				Note : the ducklake_user is automatically created by Windmill in a migration. Its password is
+				auto-generated and stored in the database table <code>global_settings</code> with the key
+				<code>ducklake_user_pg_pwd</code>.
+			</Section>
+		</div>
 	</Alert>
 {/if}
 
@@ -264,6 +311,8 @@
 								<ResourcePicker
 									bind:value={ducklake.catalog.resource_path}
 									resourceType={ducklake.catalog.resource_type}
+									selectInputClass="min-h-9"
+									class="min-h-9"
 								/>
 							{:else}
 								<TextInput
@@ -341,8 +390,11 @@
 <Button
 	wrapperClasses="mt-4 mb-44 max-w-fit"
 	on:click={onSave}
-	disabled={Object.values(ducklakeIsDirty).every((v) => v === false)}>Save ducklake settings</Button
+	disabled={ducklakeSavedSettings.ducklakes.length === ducklakeSettings.ducklakes.length &&
+		Object.values(ducklakeIsDirty).every((v) => v === false)}
 >
+	Save ducklake settings
+</Button>
 <DbManagerDrawer bind:this={dbManagerDrawer} />
 
 <ConfirmationModal {...confirmationModal.props} />

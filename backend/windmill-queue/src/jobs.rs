@@ -2133,6 +2133,37 @@ pub async fn get_mini_pulled_job<'c>(
 pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,
+    pub missing_concurrency_key: bool,
+}
+
+pub enum PulledJobResultToJobErr {
+    MissingConcurrencyKey(JobCompleted),
+}
+
+impl PulledJobResult {
+    pub fn to_pulled_job(self) -> Result<Option<PulledJob>, PulledJobResultToJobErr> {
+        match self {
+            PulledJobResult { job: Some(job), missing_concurrency_key: true, .. } => Err(
+                PulledJobResultToJobErr::MissingConcurrencyKey(JobCompleted {
+                    preprocessed_args: None,
+                    job: Arc::new(job.job),
+                    success: false,
+                    result: Arc::new(windmill_common::worker::to_raw_value(&json!({
+                        "name": "InternalErr",
+                        "message": "The job has a concurrency limit but concurrency key couldn't be found. This is an unexpected behavior that should never happen. Please report this to support."}
+                    ))),
+                    result_columns: None,
+                    mem_peak: 0,
+                    cached_res_path: None,
+                    token: "".to_string(),
+                    canceled_by: None,
+                    duration: None,
+                    has_stream: Some(false),
+                }),
+            ),
+            PulledJobResult { job, .. } => Ok(job),
+        }
+    }
 }
 
 pub async fn pull(
@@ -2151,7 +2182,11 @@ pub async fn pull(
         }
         if pull_loop_count > 1000 {
             tracing::error!("Pull job loop count exceeded 1000, breaking");
-            return Ok(PulledJobResult { job: None, suspended: false });
+            return Ok(PulledJobResult {
+                job: None,
+                suspended: false,
+                missing_concurrency_key: false,
+            });
         }
         if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
@@ -2163,16 +2198,43 @@ pub async fn pull(
                         .fetch_optional(db)
                         .await?
                 };
-                if let Some(job) = job {
-                    PulledJobResult { job: Some(job), suspended: true }
+
+                let (job, suspended) = if let Some(job) = job {
+                    (Some(job), true)
                 } else {
                     let job = sqlx::query_as::<_, PulledJob>(query_no_suspend)
                         .bind(worker_name)
                         .fetch_optional(db)
                         .await?;
-                    PulledJobResult { job, suspended: false }
-                }
-            };
+                    (job, false)
+                };
+
+                #[cfg(all(feature = "enterprise", feature = "private"))]
+                let pulled_job_result = match job {
+                    Some(job) if job.concurrent_limit.is_some() => {
+                        let job = crate::jobs_ee::apply_concurrency_limit(
+                            db,
+                            pull_loop_count,
+                            suspended,
+                            job,
+                        )
+                        .await?;
+                        job.unwrap_or(PulledJobResult {
+                            job: None,
+                            suspended,
+                            missing_concurrency_key: false,
+                        })
+                    }
+                    _ => PulledJobResult { job, suspended, missing_concurrency_key: false },
+                };
+
+                #[cfg(not(all(feature = "enterprise", feature = "private")))]
+                let pulled_job_result =
+                    PulledJobResult { job, suspended, missing_concurrency_key: false };
+
+                Ok::<_, Error>(pulled_job_result)
+            }?;
+
             if let Some(job) = njob.job.as_ref() {
                 if job.is_flow() || job.is_dependency() {
                     let per_workspace = per_workspace_tag(&job.workspace_id).await;
@@ -2208,7 +2270,7 @@ pub async fn pull(
         .await?;
 
         let Some(job) = job else {
-            return Ok(PulledJobResult { job: None, suspended });
+            return Ok(PulledJobResult { job: None, suspended, missing_concurrency_key: false });
         };
 
         let has_concurent_limit = job.concurrent_limit.is_some();
@@ -2231,7 +2293,11 @@ pub async fn pull(
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
-            return Ok(PulledJobResult { job: Some(pulled_job), suspended });
+            return Ok(PulledJobResult {
+                job: Some(pulled_job),
+                suspended,
+                missing_concurrency_key: false,
+            });
         }
 
         #[cfg(all(feature = "enterprise", feature = "private"))]
