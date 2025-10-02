@@ -1063,7 +1063,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 }
 
                 #[cfg(all(feature = "enterprise", feature = "private"))]
-                if let Err(err) = crate::jobs_ee::apply_dynamic_skip_handlers(
+                if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
                     db,
                     &schedule,
                     &script_path,
