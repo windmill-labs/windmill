@@ -29,8 +29,7 @@ export const AI_AGENT_SCHEMA = {
 		},
 		streaming: {
 			type: 'boolean',
-			description:
-				'Whether to stream the output of the AI agent (only used if output_type is text).',
+			description: 'Whether to stream the output of the AI agent.',
 			default: false,
 			showExpr: "fields.output_type === 'text'"
 		},
@@ -42,8 +41,7 @@ export const AI_AGENT_SCHEMA = {
 		},
 		output_schema: {
 			type: 'object',
-			description:
-				'JSON schema that the AI agent will follow for its response format (only used if output_type is text).',
+			description: 'JSON schema that the AI agent will follow for its response format.',
 			format: 'json-schema',
 			showExpr: "fields.output_type === 'text'"
 		},
