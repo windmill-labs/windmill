@@ -1204,7 +1204,7 @@
 								<ScriptPicker
 									disabled={!can_write}
 									bind:scriptPath={dynamicSkipPath}
-									kinds={['dynamic_skip', 'script']}
+									kinds={['script']}
 									allowRefresh={can_write}
 									clearable
 								/>
