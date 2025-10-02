@@ -108,7 +108,6 @@ pub async fn get_or_create_conversation_with_id(
     title: &str,
     conversation_id: Uuid,
 ) -> Result<FlowConversation> {
-
     // Check if conversation already exists
     let existing_conversation = sqlx::query_as!(
         FlowConversation,
@@ -176,6 +175,18 @@ async fn delete_conversation(
     .await?;
 
     tx.commit().await?;
+
+    // Delete associated memory (do this after DB commit to ensure conversation deletion succeeds)
+    if let Err(e) =
+        windmill_worker::memory_oss::delete_conversation_memory(&w_id, conversation_id).await
+    {
+        tracing::error!(
+            "Failed to delete memory for conversation {}: {:?}",
+            conversation_id,
+            e
+        );
+        // Continue anyway since the conversation was already deleted from DB
+    }
 
     Ok(format!("Conversation {} deleted", conversation_id))
 }

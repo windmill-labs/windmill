@@ -192,6 +192,8 @@ impl OpenAIQueryBuilder {
             None
         };
 
+        println!("Prepared messages: {:?}", prepared_messages);
+
         let request = OpenAIRequest {
             model: args.model,
             messages: &prepared_messages,

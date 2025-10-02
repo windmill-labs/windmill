@@ -56,3 +56,20 @@ pub async fn write_to_disk(
 
     Ok(())
 }
+
+/// Delete all memory for a conversation from disk storage
+pub async fn delete_conversation_from_disk(
+    workspace_id: &str,
+    conversation_id: Uuid,
+) -> anyhow::Result<()> {
+    let conversation_path = PathBuf::from(TMP_LOGS_DIR)
+        .join("memory")
+        .join(workspace_id)
+        .join(conversation_id.to_string());
+
+    if conversation_path.exists() {
+        fs::remove_dir_all(&conversation_path).await?;
+    }
+
+    Ok(())
+}

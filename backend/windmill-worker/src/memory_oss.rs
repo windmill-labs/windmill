@@ -31,3 +31,13 @@ pub async fn write_to_memory(
 
     memory_common::write_to_disk(workspace_id, conversation_id, step_id, messages).await
 }
+
+/// Delete all memory for a conversation from storage
+/// In OSS: always deletes from disk
+#[cfg(not(feature = "private"))]
+pub async fn delete_conversation_memory(
+    workspace_id: &str,
+    conversation_id: Uuid,
+) -> anyhow::Result<()> {
+    memory_common::delete_conversation_from_disk(workspace_id, conversation_id).await
+}

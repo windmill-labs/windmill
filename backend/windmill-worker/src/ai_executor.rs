@@ -469,6 +469,7 @@ pub async fn run_agent(
                             // Take the last n messages
                             let start_idx = loaded_messages.len().saturating_sub(context_length);
                             let messages_to_load = loaded_messages[start_idx..].to_vec();
+                            println!("Loaded messages: {:?}", messages_to_load);
                             messages.extend(messages_to_load);
                         }
                         Ok(None) => {}
@@ -497,6 +498,8 @@ pub async fn run_agent(
         content: Some(user_content),
         ..Default::default()
     });
+
+    println!("Messages: {:?}", messages);
 
     let mut actions = vec![];
     let mut content = None;
