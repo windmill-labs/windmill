@@ -494,7 +494,7 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     for cap in RE_CODE_PGSQL.captures_iter(code) {
         let typ = cap
             .get(2)
-            .map(|cap| transform_types_with_spaces(cap.as_str(), &cap, &code))
+            .map(|cap| transform_types_with_spaces(&cap, &code))
             .unwrap_or("text");
         hm.insert(
             cap.get(1)
@@ -548,29 +548,33 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
 
 // The regex doesn't parse types with space such as "character varying"
 // So we look for them manually and replace them with their shorter counterpart
-fn transform_types_with_spaces<'a>(typ: &'a str, cap: &regex::Match<'_>, code: &str) -> &'a str {
-    // TODO :
-    // time with time zone
-    // time without time zone
-    // timestamp with time zone
-    // timestamp without time zone
+fn transform_types_with_spaces<'a>(cap: &regex::Match<'a>, code: &str) -> &'a str {
     lazy_static! {
-        static ref TYPES: [(&'static str, &'static str, &'static str); 2] = [
-            ("character", "varying", "varchar"),
-            ("double", "precision", "double"),
+        static ref TYPES: [(&'static str, &'static str); 6] = [
+            ("character varying", "varchar"),
+            ("double precision", "double"),
+            ("time with time zone", "timetz"),
+            ("time without time zone", "time"),
+            ("timestamp with time zone", "timestamptz"),
+            ("timestamp without time zone", "timestamp"),
         ];
     }
-    for (prefix, suffix, alias) in TYPES.iter() {
-        if typ.eq_ignore_ascii_case(prefix) {
-            let remaining = code[cap.end()..].trim_start();
-            if remaining.len() >= suffix.len()
-                && remaining[..suffix.len()].eq_ignore_ascii_case(suffix)
-            {
-                return alias;
+    let typ = &code[cap.start()..];
+    for (long_type, alias) in TYPES.iter() {
+        let mut typ = typ;
+        let mut found_mismatch = false;
+        for token in long_type.split(' ') {
+            if typ.len() < token.len() || !typ[..token.len()].eq_ignore_ascii_case(token) {
+                found_mismatch = true;
+                break;
             }
+            typ = typ[token.len()..].trim_start();
+        }
+        if !found_mismatch {
+            return alias;
         }
     }
-    typ
+    cap.as_str()
 }
 
 pub fn parse_sql_statement_named_params(code: &str, prefix: char) -> HashSet<String> {
