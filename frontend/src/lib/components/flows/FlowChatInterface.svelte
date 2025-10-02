@@ -14,7 +14,7 @@
 		refreshConversations?: () => Promise<void>
 		conversationId?: string
 		deploymentInProgress?: boolean
-		createConversation?: (options: { clearMessages?: boolean }) => Promise<string>
+		createConversation: (options: { clearMessages?: boolean }) => Promise<string>
 	}
 
 	interface ChatMessage extends FlowConversationMessage {

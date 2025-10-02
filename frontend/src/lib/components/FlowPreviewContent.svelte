@@ -418,25 +418,27 @@
 							</Popover>
 						{/if}
 					{/if}
-					<Button
-						variant="contained"
-						startIcon={{ icon: isRunning ? RefreshCw : Play }}
-						color="dark"
-						size="sm"
-						btnClasses="w-full max-w-lg"
-						on:click={() => runPreview(previewArgs.val, undefined)}
-						id="flow-editor-test-flow-drawer"
-						shortCut={{ Icon: CornerDownLeft }}
-					>
-						{#if previewMode == 'upTo'}
-							Test up to
-							<Badge baseClass="ml-1" color="indigo">
-								{$selectedId}
-							</Badge>
-						{:else}
-							Test flow
-						{/if}
-					</Button>
+					{#if !flowStore.val.value?.chat_input_enabled}
+						<Button
+							variant="contained"
+							startIcon={{ icon: isRunning ? RefreshCw : Play }}
+							color="dark"
+							size="sm"
+							btnClasses="w-full max-w-lg"
+							on:click={() => runPreview(previewArgs.val, undefined)}
+							id="flow-editor-test-flow-drawer"
+							shortCut={{ Icon: CornerDownLeft }}
+						>
+							{#if previewMode == 'upTo'}
+								Test up to
+								<Badge baseClass="ml-1" color="indigo">
+									{$selectedId}
+								</Badge>
+							{:else}
+								Test flow
+							{/if}
+						</Button>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -467,6 +469,10 @@
 						onRunFlow={async (args) => {
 							await runPreview(args, undefined)
 							return jobId ?? ''
+						}}
+						createConversation={async () => {
+							const newConversationId = crypto.randomUUID()
+							return newConversationId
 						}}
 					/>
 				</div>

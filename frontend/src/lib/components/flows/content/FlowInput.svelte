@@ -516,7 +516,13 @@ export async function main(x: string) {
 		<div class="flex flex-col h-full">
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex-1 min-h-0">
-					<FlowChatInterface onRunFlow={runFlowWithMessage} />
+					<FlowChatInterface
+						onRunFlow={runFlowWithMessage}
+						createConversation={async () => {
+							const newConversationId = crypto.randomUUID()
+							return newConversationId
+						}}
+					/>
 				</div>
 			{:else}
 				<div class="py-2 px-4 flex-1 min-h-0">
