@@ -77,6 +77,12 @@
 
 	let oneOfSelected: string | undefined = $state(oneOf?.[0]?.title)
 
+	$effect(() => {
+		if (oneOf?.length && !oneOfSelected) {
+			oneOfSelected = oneOf[0].title
+		}
+	})
+
 	const dispatch = createEventDispatcher()
 
 	function getResourceTypesFromFormat(format: string | undefined): string[] {
