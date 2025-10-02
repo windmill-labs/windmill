@@ -27,6 +27,7 @@
 		defaultValues?: Record<string, any> | undefined
 		placeholder?: string | undefined
 		selectInputClass?: string
+		class?: string
 		onClear?: () => void
 		excludedValues?: string[]
 	}
@@ -44,6 +45,7 @@
 		defaultValues = undefined,
 		placeholder = undefined,
 		selectInputClass = '',
+		class: className = '',
 		onClear = undefined,
 		excludedValues = undefined
 	}: Props = $props()
@@ -180,7 +182,7 @@
 	}}
 />
 <!-- {JSON.stringify({ value, collection })} -->
-<div class="flex flex-col w-full items-start min-h-10">
+<div class="flex flex-col w-full items-start min-h-10 {className}">
 	<div class="flex flex-row w-full items-center">
 		<Select
 			{disabled}
