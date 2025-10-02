@@ -27,7 +27,7 @@
 				<span>Processing...</span>
 			</div>
 		{:else if message.content}
-			<div class="prose prose-sm dark:prose-invert prose-ul:!pl-6">
+			<div class="prose prose-sm dark:prose-invert prose-ul:!pl-6 break-words">
 				<Markdown
 					md={message.content}
 					plugins={[
