@@ -49,6 +49,7 @@ use windmill_common::{
     },
     flows::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
+        StopAfterIf,
     },
     jobs::{get_payload_tag_from_prefixed_path, JobKind, JobPayload, QueuedJob, RawCode},
     schedule::Schedule,
@@ -1062,7 +1063,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 }
 
                 #[cfg(all(feature = "enterprise", feature = "private"))]
-                if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
+                if let Err(err) = crate::jobs_ee::apply_dynamic_skip_handlers(
                     db,
                     &schedule,
                     &script_path,
@@ -3535,12 +3536,17 @@ pub async fn push<'c, 'd>(
                 priority,
             )
         }
-        JobPayload::SingleScriptFlow {
+        JobPayload::SingleStepFlow {
             path,
             hash,
+            flow_version,
             retry,
             error_handler_path,
             error_handler_args,
+            skip_handler_path,
+            skip_handler_args,
+            skip_handler_stop_condition,
+            skip_handler_stop_message,
             args,
             custom_concurrency_key,
             concurrent_limit,
@@ -3551,10 +3557,77 @@ pub async fn push<'c, 'd>(
             trigger_path,
             apply_preprocessor,
         } => {
-            let mut input_transforms = HashMap::<String, InputTransform>::new();
-            for (arg_name, arg_value) in args {
-                input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+            // Determine if this is a flow or a script
+            let is_flow = flow_version.is_some();
+
+            // Build modules list
+            let mut modules = vec![];
+
+            // Add skip validation module if provided
+            if let Some(skip_handler_path) = skip_handler_path {
+                let mut skip_input_transforms = HashMap::<String, InputTransform>::new();
+                if let Some(skip_handler_args) = skip_handler_args {
+                    for (arg_name, arg_value) in skip_handler_args {
+                        skip_input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+                    }
+                }
+
+                modules.push(FlowModule {
+                    id: "skip_validation".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Script {
+                        input_transforms: skip_input_transforms,
+                        path: skip_handler_path,
+                        hash: None,
+                        tag_override: None,
+                        is_trigger: None,
+                        pass_flow_input_directly: None,
+                    }),
+                    stop_after_if: skip_handler_stop_condition.map(|expr| StopAfterIf {
+                        expr,
+                        skip_if_stopped: true,
+                        error_message: skip_handler_stop_message,
+                    }),
+                    ..Default::default()
+                });
             }
+
+            // Add main module (script or flow)
+            let mut main_input_transforms = HashMap::<String, InputTransform>::new();
+            for (arg_name, arg_value) in args {
+                main_input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+            }
+
+            let main_module = if is_flow {
+                FlowModule {
+                    id: "a".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Flow {
+                        path: path.clone(),
+                        input_transforms: main_input_transforms,
+                        pass_flow_input_directly: None,
+                    }),
+                    retry,
+                    pass_flow_input_directly: Some(true),
+                    ..Default::default()
+                }
+            } else {
+                FlowModule {
+                    id: "a".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Script {
+                        input_transforms: main_input_transforms,
+                        path: path.clone(),
+                        hash,
+                        tag_override,
+                        is_trigger: None,
+                        pass_flow_input_directly: None,
+                    }),
+                    retry,
+                    apply_preprocessor: Some(apply_preprocessor),
+                    ..Default::default()
+                }
+            };
+            modules.push(main_module);
+
+            // Build failure module if error handler is provided
             let failure_module = if let Some(error_handler_path) = error_handler_path {
                 let mut input_transforms = HashMap::<String, InputTransform>::new();
                 input_transforms.insert(
@@ -3567,7 +3640,7 @@ pub async fn push<'c, 'd>(
                 );
                 input_transforms.insert(
                     "is_flow".to_string(),
-                    InputTransform::Static { value: to_raw_value(&false) },
+                    InputTransform::Static { value: to_raw_value(&is_flow) },
                 );
                 input_transforms.insert(
                     "trigger_path".to_string(),
@@ -3606,6 +3679,7 @@ pub async fn push<'c, 'd>(
                         hash: None,
                         tag_override: None,
                         is_trigger: None,
+                        pass_flow_input_directly: None,
                     }),
                     ..Default::default()
                 }))
@@ -3614,19 +3688,7 @@ pub async fn push<'c, 'd>(
             };
 
             let flow_value = FlowValue {
-                modules: vec![FlowModule {
-                    id: "a".to_string(),
-                    value: to_raw_value(&FlowModuleValue::Script {
-                        input_transforms,
-                        path: path.clone(),
-                        hash: Some(hash),
-                        tag_override,
-                        is_trigger: None,
-                    }),
-                    retry,
-                    apply_preprocessor: Some(apply_preprocessor),
-                    ..Default::default()
-                }],
+                modules,
                 failure_module,
                 concurrency_time_window_s,
                 concurrent_limit,
@@ -3641,10 +3703,10 @@ pub async fn push<'c, 'd>(
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
             (
-                None,
+                None,  // No version needed - flow is stored in raw_flow like FlowPreview
                 Some(path),
                 None,
-                JobKind::Flow,
+                JobKind::SingleStepFlow,
                 Some(flow_value),
                 Some(flow_status),
                 None,
@@ -4203,7 +4265,7 @@ pub async fn push<'c, 'd>(
             }
             JobKind::Flow => "jobs.run.flow",
             JobKind::FlowPreview => "jobs.run.flow_preview",
-            JobKind::SingleScriptFlow => "jobs.run.single_script_flow",
+            JobKind::SingleStepFlow => "jobs.run.single_step_flow",
             JobKind::Script_Hub => "jobs.run.script_hub",
             JobKind::Dependencies => "jobs.run.dependencies",
             JobKind::Identity => "jobs.run.identity",

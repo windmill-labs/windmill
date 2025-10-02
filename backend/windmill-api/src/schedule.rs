@@ -78,6 +78,7 @@ pub struct NewSchedule {
     pub tag: Option<String>,
     pub paused_until: Option<DateTime<Utc>>,
     pub cron_version: Option<String>,
+    pub dynamic_skip: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -128,6 +129,48 @@ fn to_json_raw_opt(
     value.map(|v| sqlx::types::Json(to_raw_value(&v)))
 }
 
+/// Validate that a dynamic skip handler (script or flow) exists
+async fn validate_dynamic_skip<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    handler_path: &str,
+) -> Result<()> {
+    // Check for script first
+    let script_exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM script
+         WHERE workspace_id = $1 AND path = $2 AND archived = false AND deleted = false)",
+        w_id,
+        handler_path
+    )
+    .fetch_one(&mut **tx)
+    .await?
+    .unwrap_or(false);
+
+    if script_exists {
+        return Ok(());
+    }
+
+    // Check for flow
+    let flow_exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM flow
+         WHERE workspace_id = $1 AND path = $2 AND archived = false)",
+        w_id,
+        handler_path
+    )
+    .fetch_one(&mut **tx)
+    .await?
+    .unwrap_or(false);
+
+    if flow_exists {
+        Ok(())
+    } else {
+        Err(Error::BadRequest(format!(
+            "Dynamic skip handler '{}' not found. The handler must be an existing, non-archived script or flow at schedule creation time.",
+            handler_path
+        )))
+    }
+}
+
 async fn create_schedule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -169,6 +212,11 @@ async fn create_schedule(
     check_path_conflict(&mut tx, &w_id, &ns.path).await?;
     check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
 
+    // Validate dynamic_skip if provided
+    if let Some(handler_path) = &ns.dynamic_skip {
+        validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
+    }
+
     let schedule = sqlx::query_as!(
         Schedule,
         r#"
@@ -179,7 +227,7 @@ async fn create_schedule(
             on_recovery, on_recovery_times, on_recovery_extra_args,
             on_success, on_success_extra_args,
             ws_error_handler_muted, retry, summary, no_flow_overlap,
-            tag, paused_until, cron_version, description
+            tag, paused_until, cron_version, description, dynamic_skip
         ) VALUES (
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10,
@@ -187,7 +235,7 @@ async fn create_schedule(
             $15, $16, $17,
             $18, $19,
             $20, $21, $22, $23,
-            $24, $25, $26, $27
+            $24, $25, $26, $27, $28
         )
         RETURNING
             workspace_id,
@@ -219,7 +267,8 @@ async fn create_schedule(
             description,
             tag,
             paused_until,
-            cron_version
+            cron_version,
+            dynamic_skip
         "#,
         w_id,
         ns.path,
@@ -251,7 +300,8 @@ async fn create_schedule(
         ns.tag,
         ns.paused_until,
         ns.cron_version.clone().unwrap_or_else(|| "v2".to_string()),
-        ns.description
+        ns.description,
+        ns.dynamic_skip
     )
     .fetch_one(&mut *tx)
     .await
@@ -311,6 +361,11 @@ async fn edit_schedule(
     // Check schedule for error
     ScheduleType::from_str(&es.schedule, es.cron_version.as_deref(), true)?;
 
+    // Validate dynamic_skip if provided
+    if let Some(handler_path) = &es.dynamic_skip {
+        validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
+    }
+
     clear_schedule(&mut tx, path, &w_id).await?;
     let schedule = sqlx::query_as!(
         Schedule,
@@ -337,7 +392,8 @@ async fn edit_schedule(
             path                    = $19,
             workspace_id            = $20,
             cron_version            = COALESCE($21, cron_version),
-            description             = $22
+            description             = $22,
+            dynamic_skip        = $23
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -369,7 +425,8 @@ async fn edit_schedule(
             description,
             tag,
             paused_until,
-            cron_version
+            cron_version,
+            dynamic_skip
         "#,
         es.schedule,
         es.timezone,
@@ -396,7 +453,8 @@ async fn edit_schedule(
         path,
         w_id,
         es.cron_version,
-        es.description
+        es.description,
+        es.dynamic_skip
     )
     .fetch_one(&mut *tx)
     .await
@@ -657,7 +715,8 @@ pub async fn set_enabled(
             description,
             tag,
             paused_until,
-            cron_version
+            cron_version,
+            dynamic_skip
         "#,
         payload.enabled,
         authed.email,
@@ -1006,6 +1065,7 @@ pub struct EditSchedule {
     pub tag: Option<String>,
     pub paused_until: Option<DateTime<Utc>>,
     pub cron_version: Option<String>,
+    pub dynamic_skip: Option<String>,
 }
 
 pub async fn clear_schedule<'c>(

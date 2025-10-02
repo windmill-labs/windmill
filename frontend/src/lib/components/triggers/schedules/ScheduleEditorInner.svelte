@@ -51,7 +51,7 @@
 		trigger = undefined
 	} = $props()
 
-	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' =
+	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' | 'dynamic_skip' =
 		$state('error_handler')
 	let initialPath = $state('')
 	let edit = $state(true)
@@ -81,6 +81,7 @@
 	let failedExact = $state(false)
 	let recoveredTimes = $state(1)
 	let retry: Retry | undefined = $state(undefined)
+	let dynamicSkipPath: string | undefined = $state(undefined)
 	let script_path = $state('')
 	let initialScriptPath = $state('')
 	let runnable: Script | Flow | undefined = $state()
@@ -494,6 +495,7 @@
 			successHandlerSelected = 'slack'
 			successHandlerExtraArgs = {}
 		}
+		dynamicSkipPath = cfg.dynamic_skip
 		args = cfg.args ?? {}
 		extraPerms = cfg.extra_perms ?? {}
 		can_write = canWrite(cfg.path, cfg.extra_perms, $userStore)
@@ -595,7 +597,8 @@
 			tag: tag,
 			paused_until: paused_until,
 			cron_version: cronVersion,
-			extra_perms: extraPerms
+			extra_perms: extraPerms,
+			dynamic_skip: dynamicSkipPath
 		}
 	}
 
@@ -901,6 +904,7 @@
 				<Tab value="recovery_handler">Recovery Handler</Tab>
 				<Tab value="success_handler">Success Handler</Tab>
 				<Tab value="retries">Retries</Tab>
+				<Tab value="dynamic_skip">Dynamic skip</Tab>
 				{#if itemKind === 'script'}
 					<Tab value="tag">Custom tag</Tab>
 				{/if}
@@ -1185,6 +1189,43 @@
 							disabled={itemKind !== 'script' || disabled}
 						/>
 					{/if}
+				</Section>
+			{:else if optionTabSelected === 'dynamic_skip'}
+				<Section label="Dynamic skip">
+					{#snippet header()}
+						<Tooltip>
+							Optional script to filter scheduled dates. Receives the proposed datetime and returns
+							boolean. True = run on this date, False = skip to next occurrence.
+						</Tooltip>
+					{/snippet}
+					<div class="flex flex-col gap-2">
+						<Label label="Dynamic skip script">
+							<div class="flex flex-row">
+								<ScriptPicker
+									disabled={!can_write}
+									bind:scriptPath={dynamicSkipPath}
+									kinds={['dynamic_skip', 'script']}
+									allowRefresh={can_write}
+									clearable
+								/>
+								{#if !dynamicSkipPath}
+									<Button
+										btnClasses="ml-4 mt-2"
+										color="dark"
+										size="xs"
+										href="/scripts/add?hub=hub%2F19822%2Fwindmill%2Fdynamic_skip_template"
+										disabled={!can_write}
+										target="_blank"
+									>
+										Create from template
+									</Button>
+								{/if}
+							</div>
+						</Label>
+						<Alert type="info" size="xs" title="Handler requirements">
+							Handler must return a boolean value. Return true to execute the scheduled job, false to skip.
+						</Alert>
+					</div>
 				</Section>
 			{:else if optionTabSelected === 'tag'}
 				<Section

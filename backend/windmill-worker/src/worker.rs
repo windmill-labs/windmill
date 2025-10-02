@@ -2368,13 +2368,14 @@ pub async fn handle_queued_job(
             | JobKind::Dependencies
             | JobKind::FlowPreview
             | JobKind::Flow
-            | JobKind::FlowDependencies,
+            | JobKind::FlowDependencies
+            | JobKind::SingleStepFlow,
             x,
         ) => if x.map(|x| x.0).is_none_or(|x| is_special_codebase_hash(x)) {
             Some(
                 cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow.clone())
                     .await?,
-            ) 
+            )
         } else {
                 None
         },
@@ -2785,7 +2786,7 @@ async fn try_validate_schema(
                 JobKind::Script_Hub => 3,
                 JobKind::Preview => 4,
                 JobKind::DeploymentCallback => 5,
-                JobKind::SingleScriptFlow => 6,
+                JobKind::SingleStepFlow => 6,
                 JobKind::Dependencies => 7,
                 JobKind::Flow => 8,
                 JobKind::FlowPreview => 9,

@@ -7404,8 +7404,12 @@ pub fn filter_list_completed_query(
         sqlb.and_where_le("started_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.created_or_started_after {
-        sqlb.and_where_ge("created_at", "?".bind(&dt.to_rfc3339()));
-        sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
+        let ts = dt.to_rfc3339();
+        sqlb.and_where(format!(
+            "(created_at >= '{}' OR started_at >= '{}')",
+            ts.replace("'", "''"),
+            ts.replace("'", "''")
+        ));
     }
 
     if let Some(dt) = &lq.created_before {
