@@ -3917,7 +3917,6 @@ async fn batch_rerun_handle_job(
 async fn handle_chat_conversation_messages(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     authed: &ApiAuthed,
-    user_db: &UserDB,
     w_id: &str,
     flow_path: &str,
     run_query: &RunJobQuery,
@@ -4092,7 +4091,6 @@ pub async fn run_flow_by_path_inner(
         handle_chat_conversation_messages(
             &mut tx,
             &authed,
-            &user_db,
             &w_id,
             &flow_path.to_string(),
             &run_query,
@@ -5580,7 +5578,6 @@ pub async fn run_wait_result_flow_by_path_internal(
         handle_chat_conversation_messages(
             &mut tx,
             &authed,
-            &user_db,
             &w_id,
             &flow_path.to_string(),
             &run_query,
