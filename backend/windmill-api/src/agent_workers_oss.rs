@@ -17,7 +17,7 @@ use crate::db::DB;
 use axum::Router;
 
 #[cfg(not(feature = "private"))]
-pub fn global_service() -> Router {
+pub fn global_service(_job_completed_tx: windmill_worker::JobCompletedSender) -> Router {
     Router::new()
 }
 
