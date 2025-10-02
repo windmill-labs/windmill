@@ -52,6 +52,7 @@
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import S3FilePickerInner from './S3FilePickerInner.svelte'
+	import GitRepoViewer from './GitRepoViewer.svelte'
 
 	interface Props {
 		// Exported
@@ -544,61 +545,17 @@
 			{#if lang === 'ansible' && assets?.length && assets.length > 0}
 				<!-- Vertical split for ansible with assets -->
 				<Splitpanes horizontal class="!overflow-visible h-full">
-					<Pane size={70} minSize={30} class="!overflow-visible">
+					<Pane size={60} minSize={30} class="!overflow-visible">
 						{@render editorContent()}
 					</Pane>
-					<Pane size={30} minSize={20} class="!overflow-visible">
+					<Pane size={40} minSize={20} class="!overflow-visible">
 						<div class="h-full flex flex-col bg-surface border-l border-gray-200 dark:border-gray-700">
 							<div class="p-3 border-b border-gray-200 dark:border-gray-700">
 								<h4 class="text-sm font-semibold text-primary">File Browser</h4>
 							</div>
-								<button
-									class="text-secondary underline text-2xs whitespace-nowrap ml-1"
-									onclick={() => {
-										s3FilePicker?.open?.(undefined)
-									}}
-								>
-									ohhohho
-								</button>
-								<button
-									class="text-secondary underline text-2xs whitespace-nowrap ml-1"
-									onclick={() => {
-										s3FilePicker?.close?.(undefined)
-									}}
-								>
-									ugugugugu
-								</button>
-								<S3FilePickerInner
-									bind:this={s3FilePicker}
-									readOnlyMode
-									hideS3SpecificDetails
-									rootPath={`gitrepos/wwwww/${assets[0].path}/95cabf1a3d6d9db7958f41bbd0ebf8e44e9e0b50/`}
-									listStoredFilesRequest={HelpersService.listGitRepoFiles}
-									loadFilePreviewRequest={HelpersService.loadGitRepoFilePreview}
-									testConnectionRequest={(async (_d) => {
-										const bucketConfig: any = await SettingService.getGlobal({ key: "object_store_cache_config" })
-										return SettingService.testObjectStorageConfig({
-											requestBody: bucketConfig
-										})
-									}) as any}
-									loadFileMetadataRequest={HelpersService.loadGitRepoFileMetadata}
-								>
-									{#snippet replaceUnauthorizedWarning()}
-									<div class="mb-2">
-										<Alert type="error" title="Cannot view git repo">
-											<p>
-												The git repo resource you are trying to access either doesn't exist or you don't have access to it. Make sure the resource path is correct and that you have visibility over the resource.
-
-											</p>
-										</Alert>
-									</div>
-									{/snippet}
-								</S3FilePickerInner>
-
-							<!-- {assets[0].path} -->
-							<!-- S3 File Browser for Ansible assets will be integrated here -->
-							<!-- </div> -->
-							<!-- </div> -->
+								<GitRepoViewer
+									gitRepoResourcePath={assets[0].path}
+								/>
 						</div>
 					</Pane>
 				</Splitpanes>
