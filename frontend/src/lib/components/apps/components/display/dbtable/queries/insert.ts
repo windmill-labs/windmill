@@ -82,7 +82,9 @@ function shouldOmitColumnInInsert(column: ColumnDef) {
 export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbType) {
 	if (!table) throw new Error('Table name is required')
 
-	const columnsInsert = columns.filter((x) => !x.hideInsert)
+	const columnsInsert = columns.filter(
+		(x) => !x.hideInsert && !(dbType == 'postgresql' && x.defaultvalue?.startsWith('nextval('))
+	)
 	const columnsDefault = columns.filter((c) => !shouldOmitColumnInInsert(c))
 	const allInsertColumns = columnsInsert.concat(columnsDefault)
 
@@ -97,6 +99,7 @@ export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbT
 	const commaOrEmpty = shouldInsertComma ? ', ' : ''
 
 	query += `INSERT INTO ${table} (${columnNames}) VALUES (${insertValues}${commaOrEmpty}${defaultValues})`
+	console.log(query)
 	return query
 }
 
