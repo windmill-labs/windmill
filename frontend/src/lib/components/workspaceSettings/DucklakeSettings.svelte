@@ -208,9 +208,9 @@
 				setup fails in the middle, but in most cases Windmill will handle it for you.
 				<br /><br />
 
-				If the database <code>ducklake_catalog</code> already exists, nothing is done. Otherwise,
-				connect to the Windmill PostgreSQL as the default user (the one in your DATABASE_URL,
-				usually 'postgres') and run :
+				If the database <code>ducklake_catalog</code> already exists, assume the setup was already
+				done and do nothing. Otherwise, connect to the Windmill PostgreSQL as the default user (the
+				one in your DATABASE_URL, usually 'postgres') and run :
 				<br />
 				<code class="block p-2 border rounded-md bg-surface mt-2">
 					CREATE DATABASE <code>ducklake_catalog</code>;<br />
