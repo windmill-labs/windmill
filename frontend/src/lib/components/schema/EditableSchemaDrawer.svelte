@@ -223,24 +223,25 @@
 		{/snippet}
 	</Drawer>
 {:else}
-	<div class="mt-2"></div>
-	<SimpleEditor
-		bind:this={editor}
-		small
-		fixedOverflowWidgets={false}
-		on:change={() => {
-			try {
-				schema = JSON.parse(schemaString)
-				error = ''
-			} catch (err) {
-				error = err.message
-			}
-		}}
-		bind:code={schemaString}
-		lang="json"
-		autoHeight
-		automaticLayout
-	/>
+	<div class="mt-2 bg-surface-secondary rounded-md border py-2.5">
+		<SimpleEditor
+			bind:this={editor}
+			small
+			fixedOverflowWidgets={false}
+			on:change={() => {
+				try {
+					schema = JSON.parse(schemaString)
+					error = ''
+				} catch (err) {
+					error = err.message
+				}
+			}}
+			bind:code={schemaString}
+			lang="json"
+			autoHeight
+			automaticLayout
+		/>
+	</div>
 	{#if !emptyString(error)}
 		<div class="text-red-400 text-xs">{error}</div>
 	{:else}

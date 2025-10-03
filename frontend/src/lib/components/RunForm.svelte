@@ -229,7 +229,7 @@
 	{#if topButton}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
-			disabled={!isValid || jsonView}
+			disabled={!isValid && !jsonView}
 			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
 		>
 			{buttonText}
@@ -237,10 +237,12 @@
 	{/if}
 	{#if runnable?.schema}
 		<div class="my-2"></div>
-		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
-			<div class="text-sm py-4 italic">No arguments</div>
-		{:else if jsonView}
-			<div class="py-2" style="height: {schemaHeight}px" data-schema-picker>
+		{#if jsonView}
+			<div
+				class="py-2"
+				style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
+				data-schema-picker
+			>
 				<JsonInputs
 					bind:this={jsonEditor}
 					on:select={(e) => {
@@ -252,6 +254,8 @@
 					placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 				/>
 			</div>
+		{:else if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
+			<div class="text-sm py-4 italic">No arguments</div>
 		{:else}
 			{#key reloadArgs}
 				<div bind:clientHeight={schemaHeight}>
@@ -282,7 +286,7 @@
 					{loading}
 					color="dark"
 					btnClasses="!px-6 !py-1 !h-8 inline-flex gap-2"
-					disabled={!isValid || jsonView}
+					disabled={!isValid && !jsonView}
 					on:click={() => runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
@@ -320,7 +324,7 @@
 	{:else if !topButton}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
-			disabled={!isValid || jsonView}
+			disabled={!isValid && !jsonView}
 			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>

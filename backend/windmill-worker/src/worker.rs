@@ -57,6 +57,7 @@ use std::{
     time::Duration,
 };
 use windmill_parser::MainArgSignature;
+use windmill_queue::PulledJobResultToJobErr;
 
 use uuid::Uuid;
 
@@ -821,7 +822,18 @@ pub fn start_interactive_worker_shell(
                         )
                         .await;
 
-                        job.map(|x| x.job.map(NextJob::Sql))
+                        match job {
+                            Ok(j) => match j.to_pulled_job() {
+                                Ok(j) => Ok(j.map(NextJob::Sql)),
+                                Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc)) => {
+                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
+                                        tracing::error!("An error occurred while sending job completed (missing concurrency key): {:#?}", err)
+                                    }
+                                    Ok(None)
+                                }
+                            },
+                            Err(err) => Err(err),
+                        }
                     }
                     Connection::Http(client) => {
                         crate::agent_workers::pull_job(&client, None, Some(true))
@@ -1631,7 +1643,18 @@ pub async fn run_worker(
                                 }
                             }
                         }
-                        job.map(|x| x.job.map(NextJob::Sql))
+                        match job {
+                            Ok(pulled_job_result) => match pulled_job_result.to_pulled_job() {
+                                Ok(j) => Ok(j.map(NextJob::Sql)),
+                                Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc)) => {
+                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
+                                        tracing::error!("An error occurred while sending job completed (missing concurrency key): {:#?}", err)
+                                    }
+                                    Ok(None)
+                                }
+                            },
+                            Err(err) => Err(err),
+                        }
                     }
                     Connection::Http(client) => crate::agent_workers::pull_job(&client, None, None)
                         .await
@@ -2370,14 +2393,16 @@ pub async fn handle_queued_job(
             | JobKind::Flow
             | JobKind::FlowDependencies,
             x,
-        ) => if x.map(|x| x.0).is_none_or(|x| is_special_codebase_hash(x)) {
-            Some(
-                cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow.clone())
-                    .await?,
-            ) 
-        } else {
+        ) => {
+            if x.map(|x| x.0).is_none_or(|x| is_special_codebase_hash(x)) {
+                Some(
+                    cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow.clone())
+                        .await?,
+                )
+            } else {
                 None
-        },
+            }
+        }
         _ => None,
     };
 
@@ -2869,7 +2894,9 @@ async fn handle_code_execution_job(
         ScriptMetadata { language, envs, codebase, schema_validator, schema },
     ) = match job.kind {
         JobKind::Preview => {
-            let codebase = job.runnable_id.and_then(|x| hash_to_codebase_id(&job.id.to_string(), x.0));
+            let codebase = job
+                .runnable_id
+                .and_then(|x| hash_to_codebase_id(&job.id.to_string(), x.0));
             if codebase.is_none() && job.runnable_id.is_some() {
                 (arc_data, arc_metadata) =
                     cache::script::fetch(conn, job.runnable_id.unwrap()).await?;

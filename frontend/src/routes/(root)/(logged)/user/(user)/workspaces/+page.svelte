@@ -175,7 +175,7 @@
 
 	{#if adminsInstance}
 		<Button
-			btnClasses="w-full mt-2 mb-4 truncate"
+			btnClasses="w-full mt-2 mb-4 truncate text-secondary"
 			color="light"
 			size="sm"
 			on:click={async () => {
@@ -205,7 +205,7 @@
 			<label class="block pb-2" style:padding-left={`${depth * 24}px`}>
 				<button
 					class="w-full mx-auto py-1 px-2 rounded-md border
-					shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300 flex items-center"
+					shadow-sm text-sm text-secondary font-normal mt-1 hover:ring-1 hover:ring-indigo-300 flex items-center"
 					on:click={async () => {
 						speakFriendAndEnterWorkspace(workspace.id)
 					}}
