@@ -37,6 +37,7 @@ export interface UserWorkspace {
 	color?: string
 	operator_settings?: OperatorSettings
 	parent_workspace_id?: string | null
+	disabled: boolean
 }
 
 const persistedWorkspace = BROWSER && getWorkspace()
@@ -89,7 +90,8 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 					name: 'Admins',
 					username: 'superadmin',
 					color: undefined,
-					operator_settings: undefined
+					operator_settings: undefined,
+					disabled: false
 				}
 			]
 		} else {
