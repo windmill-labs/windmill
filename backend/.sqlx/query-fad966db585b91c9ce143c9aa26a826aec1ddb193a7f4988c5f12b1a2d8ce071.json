@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT app.versions[array_upper(app.versions, 1)] FROM app\n        WHERE app.path = $1 AND app.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "versions",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fad966db585b91c9ce143c9aa26a826aec1ddb193a7f4988c5f12b1a2d8ce071"
+}

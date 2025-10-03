@@ -5,13 +5,25 @@
 	import type { HiddenRunnable, JobById } from '../apps/types'
 	import { JobService } from '$lib/gen'
 
-	export let iframe: HTMLIFrameElement | undefined
-	export let path: string
-	export let runnables: Record<string, HiddenRunnable>
-	export let jobs: string[] = []
-	export let jobsById: Record<string, JobById> = {}
-	export let editor: boolean
-	export let workspace: string
+	interface Props {
+		iframe: HTMLIFrameElement | undefined
+		path: string
+		runnables: Record<string, HiddenRunnable>
+		jobs?: string[]
+		jobsById?: Record<string, JobById>
+		editor: boolean
+		workspace: string
+	}
+
+	let {
+		iframe,
+		path,
+		runnables,
+		jobs = $bindable([]),
+		jobsById = $bindable({}),
+		editor,
+		workspace
+	}: Props = $props()
 
 	let listener = async (event) => {
 		const data = event.data
@@ -87,4 +99,4 @@
 	}
 </script>
 
-<svelte:window on:message={listener} />
+<svelte:window onmessage={listener} />

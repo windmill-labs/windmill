@@ -7,21 +7,21 @@ export type RawApp = {
 	files: string[]
 }
 
-export function htmlContent(workspace: string, version: number, ctx: any) {
+export function htmlContent(workspace: string, secret: string | undefined, ctx: any) {
 	return `
         <!DOCTYPE html>
         <html>
             <head>
                 <meta charset="UTF-8" />
                 <title>App Preview</title>
-                <link rel="stylesheet" href="/api/w/${workspace}/apps/get_data/v/${version}.css" />
+                <link rel="stylesheet" href="/api/w/${workspace}/apps/get_data/v/${secret}.css" />
 				<script>
 					window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'}
 				</script>
             </head>
             <body>
                 <div id="root"></div>
-                <script src="/api/w/${workspace}/apps/get_data/v/${version}.js"></script>
+                <script src="/api/w/${workspace}/apps/get_data/v/${secret}.js"></script>
             </body>
         </html>
     `
@@ -58,20 +58,20 @@ export function genWmillTs(runnables: Record<string, HiddenRunnable>) {
 // AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
 	
 ${Object.entries(runnables)
-	.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)}\n`)
+			.map(([k, v]) => `export type RunBg${capitalize(k)} = ${hiddenRunnableToTsType(v)}\n`)
 
-	.join('\n')}
+			.join('\n')}
 
 export const runBg = {
 ${Object.keys(runnables)
-	.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<any>`)
-	.join(',\n')}
+			.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<any>`)
+			.join(',\n')}
 }
 	
 export const runBgAsync = {
 ${Object.keys(runnables)
-	.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<string>`)
-	.join(',\n')}
+			.map((k) => `  ${k}: null as unknown as (data: RunBg${capitalize(k)}) => Promise<string>`)
+			.join(',\n')}
 }
 	
 

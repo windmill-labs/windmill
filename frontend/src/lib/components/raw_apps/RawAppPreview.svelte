@@ -4,13 +4,17 @@
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
 	import { htmlContent } from './utils'
 
-	export let workspace: string
-	export let user: UserExt | undefined
-	export let version: number
-	export let path: string
-	export let runnables: Record<string, HiddenRunnable>
+	interface Props {
+		workspace: string
+		user: UserExt | undefined
+		secret: string | undefined
+		path: string
+		runnables: Record<string, HiddenRunnable>
+	}
 
-	let iframe: HTMLIFrameElement
+	let { workspace, user, secret, path, runnables }: Props = $props()
+
+	let iframe = $state() as HTMLIFrameElement | undefined
 </script>
 
 <RawAppBackgroundRunner {workspace} editor={false} {iframe} {runnables} {path} />
@@ -18,6 +22,6 @@
 <iframe
 	bind:this={iframe}
 	title="raw-app"
-	srcDoc={htmlContent(workspace, version, { ctx: user, workspace })}
+	srcDoc={htmlContent(workspace, secret, { ctx: user, workspace })}
 	class="w-full h-full min-h-screen bg-white border-none"
 ></iframe>

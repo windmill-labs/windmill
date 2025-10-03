@@ -5,28 +5,25 @@
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import DocLink from '../apps/editor/settingsPanel/DocLink.svelte'
 	import HideButton from '../apps/editor/settingsPanel/HideButton.svelte'
-	import type { Writable } from 'svelte/store'
 	import type { Runnable } from '../apps/inputType'
 	import { getNextId } from '$lib/components/flows/idUtils'
 
 	interface Props {
 		selectedRunnable: string | undefined
-		runnables: Writable<Record<string, Runnable>>
+		runnables: Record<string, Runnable>
 	}
 
 	let { selectedRunnable = $bindable(), runnables }: Props = $props()
 
 	function createBackgroundScript() {
-		const nid = getNextId(Object.keys($runnables ?? {}))
+		const nid = getNextId(Object.keys(runnables ?? {}))
 		const newScriptPath = `Backend Runnable ${nid}`
-		runnables.update((r) => {
-			r[nid] = {
-				name: newScriptPath,
-				inlineScript: undefined,
-				type: 'runnableByName'
-			}
-			return r
-		})
+		runnables[nid] = {
+			name: newScriptPath,
+			inlineScript: undefined,
+			type: 'runnableByName'
+		}
+
 		selectedRunnable = nid
 	}
 
@@ -62,8 +59,8 @@
 	<div class="w-full flex flex-col gap-6 py-1">
 		<div>
 			<div class="flex flex-col gap-1 w-full">
-				{#if Object.keys($runnables ?? {}).length > 0}
-					{#each Object.entries($runnables ?? {}) as [id, runnable]}
+				{#if Object.keys(runnables ?? {}).length > 0}
+					{#each Object.entries(runnables ?? {}) as [id, runnable]}
 						{#if runnable}
 							<button
 								{id}

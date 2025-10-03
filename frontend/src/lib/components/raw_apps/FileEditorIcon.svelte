@@ -6,7 +6,11 @@
 	import SvelteIcon from '../icons/SvelteIcon.svelte'
 	import VueIcon from '../icons/VueIcon.svelte'
 
-	export let file: string
+	interface Props {
+		file: string
+	}
+
+	let { file }: Props = $props()
 </script>
 
 {#if file.endsWith('.tsx')}
