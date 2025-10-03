@@ -14,6 +14,7 @@ use object_store::gcp::GoogleCloudStorageBuilder;
 use object_store::ObjectStore;
 #[cfg(feature = "parquet")]
 use object_store::{aws::AmazonS3Builder, ClientOptions};
+use quick_cache::sync::Cache;
 #[cfg(feature = "parquet")]
 use reqwest::header::HeaderMap;
 use serde::de::Visitor;
@@ -1233,4 +1234,13 @@ pub fn duckdb_connection_settings_internal(
         s3_bucket: Some(s3_resource.bucket),
     };
     return Ok(response);
+}
+
+// DuckDB does not parse anything in case of errors and just returns a generic error message.
+// To display better error messages, we cache the errors in a Map<Token, ErrorMessage>
+//
+// We leverage the fact that workers have an internal server to insert the error message
+// from the S3 Proxy, and read it directly in memory from the worker.
+lazy_static::lazy_static! {
+    pub static ref S3_PROXY_LAST_ERRORS_CACHE: Cache<String, String> = Cache::new(4);
 }

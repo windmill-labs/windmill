@@ -10,7 +10,7 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
-use windmill_common::s3_helpers::S3Object;
+use windmill_common::s3_helpers::{S3Object, S3_PROXY_LAST_ERRORS_CACHE};
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::Connection;
 use windmill_common::workspaces::{get_ducklake_from_db_unchecked, DucklakeCatalogResourceType};
@@ -128,7 +128,7 @@ pub async fn do_duckdb(
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
 
-        let (result, column_order) = tokio::task::spawn_blocking(move || {
+        let result = tokio::task::spawn_blocking(move || {
             run_duckdb_ffi_safe(
                 query_block_list.iter().map(String::as_str),
                 query_block_list.len(),
@@ -139,7 +139,21 @@ pub async fn do_duckdb(
             )
         })
         .await
-        .map_err(to_anyhow)??;
+        .map_err(|e| Error::from(to_anyhow(e)))
+        .and_then(|r| r);
+        let (result, column_order) = match result {
+            Ok(r) => r,
+            Err(e) => {
+                if let Some(s3_proxy_err) = S3_PROXY_LAST_ERRORS_CACHE.get(&client.token) {
+                    return Err(Error::ExecutionErr(format!(
+                        "{}\n\nS3 Proxy Error: {}",
+                        e.to_string(),
+                        s3_proxy_err,
+                    )));
+                }
+                return Err(e);
+            }
+        };
 
         drop(bigquery_credentials);
 
