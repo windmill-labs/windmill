@@ -807,6 +807,7 @@ pub async fn run_agent(
                                     job_priority,
                                     job_perms.as_ref(),
                                     true,
+                                    None,
                                 )
                                 .await?;
 

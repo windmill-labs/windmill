@@ -446,6 +446,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         false,
+        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -500,6 +501,7 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         false,
+        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -1313,6 +1315,7 @@ async fn restart_job_if_perpetual_inner(
             queued_job.priority,
             None,
             false,
+            None,
         )
         .await?;
         tx.commit().await?;
@@ -1800,6 +1803,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         priority,
         None,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1855,6 +1859,7 @@ pub struct MiniPulledJob {
     pub trigger: Option<String>,
     pub trigger_kind: Option<JobTriggerKind>,
     pub visible_to_owner: bool,
+    pub permissioned_as_end_user_email: Option<String>,
 }
 
 impl MiniPulledJob {
@@ -1919,6 +1924,7 @@ impl MiniPulledJob {
                 None
             },
             visible_to_owner: job.visible_to_owner.clone(),
+            permissioned_as_end_user_email: None,
         }
     }
     pub fn is_flow(&self) -> bool {
@@ -1973,6 +1979,7 @@ pub struct PulledJob {
     pub permissioned_as_is_operator: Option<bool>,
     pub permissioned_as_groups: Option<Vec<String>>,
     pub permissioned_as_folders: Option<Vec<serde_json::Value>>,
+    pub permissioned_as_end_user_email: Option<String>,
 }
 
 // NOTE:
@@ -2119,7 +2126,8 @@ pub async fn get_mini_pulled_job<'c>(
         script_entrypoint_override,
         trigger,
         trigger_kind as \"trigger_kind: JobTriggerKind\",
-        visible_to_owner
+        visible_to_owner,
+        NULL as permissioned_as_end_user_email
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
         job_id,
     )
@@ -3077,6 +3085,7 @@ pub async fn push<'c, 'd>(
     _priority_override: Option<i16>,
     authed: Option<&Authed>,
     running: bool, // whether the job is already running: only set this to true if you don't want the job to be picked up by a worker from the queue. It will also set started_at to now.
+    end_user_email: Option<String>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -4158,8 +4167,8 @@ pub async fn push<'c, 'd>(
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
         ),
         inserted_job_perms AS (
-            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) 
-            values ($1, $32, $33, $34, $35, $36, $37, $2) 
+            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email) 
+            values ($1, $32, $33, $34, $35, $36, $37, $2, $41) 
             ON CONFLICT (job_id) DO UPDATE SET email = $32, username = $33, is_admin = $34, is_operator = $35, folders = $36, groups = $37, workspace_id = $2
         )
         INSERT INTO v2_job_queue
@@ -4209,6 +4218,7 @@ pub async fn push<'c, 'd>(
         root_job,
         trigger_kind as Option<JobTriggerKind>,
         running,
+        end_user_email,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
@@ -4622,7 +4632,7 @@ pub async fn get_same_worker_job(
                     v2_job.raw_flow,
                     pj.runnable_path as parent_runnable_path,
                     p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
-                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
+                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
                     FROM v2_job_queue
                     INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
                     LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
