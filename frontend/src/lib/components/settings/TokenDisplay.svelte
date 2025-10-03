@@ -10,12 +10,7 @@
 		onCopy?: () => void
 	}
 
-	let {
-		token,
-		mcpUrl,
-		title,
-		onCopy
-	}: Props = $props()
+	let { token, mcpUrl, title, onCopy }: Props = $props()
 
 	function handleCopyClick() {
 		copyToClipboard(mcpUrl || token)
@@ -26,14 +21,18 @@
 		title || (mcpUrl ? 'MCP URL Generated Successfully' : 'Token Created Successfully')
 	)
 
-	const label = $derived(
-		mcpUrl ? 'Your MCP Server URL' : 'Your Token'
+	const label = $derived(mcpUrl ? 'Your MCP Server URL' : 'Your Token')
+
+	const info = $derived(
+		`Make sure to copy your ${mcpUrl ? 'MCP Server URL' : 'personal access token'} now. You won\'t be able to see it again!`
 	)
 
-	const info = $derived(`Make sure to copy your ${mcpUrl ? 'MCP Server URL' : 'personal access token'} now. You won\'t be able to see it again!`)
+	const tokenOrUrl = $derived(mcpUrl ? mcpUrl : token)
 
-	const tokenOrUrl = $derived(
-		mcpUrl ? mcpUrl : token
+	const cursorMcpUrl = $derived(
+		`cursor://anysphere.cursor-deeplink/mcp/install?name=windmill&config=${encodeURIComponent(
+			btoa(JSON.stringify({ url: `${mcpUrl}` }))
+		)}`
 	)
 
 	const colorScheme = {
@@ -49,16 +48,36 @@
 	}
 </script>
 
-<div class="border rounded-lg mb-6 p-4 bg-gradient-to-r {colorScheme.gradient} {colorScheme.border} shadow-sm">
+<div
+	class="border rounded-lg mb-6 p-4 bg-gradient-to-r {colorScheme.gradient} {colorScheme.border} shadow-sm"
+>
 	<div class="flex items-start gap-3">
-		<div class="flex-shrink-0 w-8 h-8 {colorScheme.iconBg} rounded-full flex items-center justify-center mt-0.5">
+		<div
+			class="flex-shrink-0 w-8 h-8 {colorScheme.iconBg} rounded-full flex items-center justify-center mt-0.5"
+		>
 			{#if mcpUrl}
-				<svg class="w-4 h-4 {colorScheme.iconColor}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+				<svg
+					class="w-4 h-4 {colorScheme.iconColor}"
+					fill="none"
+					stroke="currentColor"
+					viewBox="0 0 24 24"
+				>
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						stroke-width="2"
+						d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+					></path>
 				</svg>
 			{:else}
-				<svg class="w-4 h-4 {colorScheme.iconColor}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+				<svg
+					class="w-4 h-4 {colorScheme.iconColor}"
+					fill="none"
+					stroke="currentColor"
+					viewBox="0 0 24 24"
+				>
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"
+					></path>
 				</svg>
 			{/if}
 		</div>
@@ -66,40 +85,49 @@
 			<h4 class="text-sm font-semibold {colorScheme.titleColor} mb-2">
 				{displayTitle}
 			</h4>
-			
-				<div class="space-y-3">
-					<div>
-						<!-- svelte-ignore a11y_label_has_associated_control -->
-						<label class="block text-xs font-medium {colorScheme.labelColor} mb-1 mt-4">
-							{label}
-						</label>
-						<div class="bg-white dark:bg-gray-800 rounded-md p-3 border {colorScheme.border}">
-							<div class="flex items-center justify-between gap-2">
-								<code class="text-sm font-mono text-gray-800 dark:text-gray-200 break-all flex-1">
-									{tokenOrUrl}
-								</code>
-								<button 
-									onclick={handleCopyClick} 
-									class="flex-shrink-0 p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-									title="Copy token"
-								>
-									<Clipboard size={16} />
-								</button>
-							</div>
+
+			<div class="space-y-3">
+				<div>
+					<!-- svelte-ignore a11y_label_has_associated_control -->
+					<label class="block text-xs font-medium {colorScheme.labelColor} mb-1 mt-4">
+						{label}
+					</label>
+					<div class="bg-white dark:bg-gray-800 rounded-md p-3 border {colorScheme.border}">
+						<div class="flex items-center justify-between gap-2">
+							<code class="text-sm font-mono text-gray-800 dark:text-gray-200 break-all flex-1">
+								{tokenOrUrl}
+							</code>
+							<button
+								onclick={handleCopyClick}
+								class="flex-shrink-0 p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+								title="Copy token"
+							>
+								<Clipboard size={16} />
+							</button>
 						</div>
 					</div>
-					<Alert type="warning" title="Important" size="xs">
-						{info}
-					</Alert>
-					{#if mcpUrl}
-						<div class="{colorScheme.infoBg} rounded-md p-2 border {colorScheme.infoBorder}">
-							<p class="text-xs {colorScheme.infoText}">
-								<strong>Next steps:</strong> Use this URL in your MCP-compatible client (like Claude Desktop) to access your Windmill scripts and flows as tools.
-							</p>
-						</div>
-					{/if}
 				</div>
-			
+				<Alert type="warning" title="Important" size="xs">
+					{info}
+				</Alert>
+				{#if mcpUrl}
+					<div class="{colorScheme.infoBg} rounded-md p-2 border {colorScheme.infoBorder}">
+						<p class="text-xs {colorScheme.infoText}">
+							<strong>Next steps:</strong> Use this URL in your MCP-compatible client (like Claude Desktop)
+							to access your Windmill scripts and flows as tools.
+						</p>
+					</div>
+					<div class="flex flex-row justify-end gap-2 items-center">
+						<a href={cursorMcpUrl} class="pt-2"
+							><img
+								src="https://cursor.com/deeplink/mcp-install-dark.svg"
+								alt="Add windmill MCP server to Cursor"
+								height="32"
+							/></a
+						>
+					</div>
+				{/if}
+			</div>
 		</div>
 	</div>
 </div>
