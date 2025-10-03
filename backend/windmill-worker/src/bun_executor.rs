@@ -25,7 +25,11 @@ use crate::{
     DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
     NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
-use windmill_common::{client::AuthedClient, s3_helpers::BundleFormat, scripts::{id_to_codebase_info, CodebaseInfo}};
+use windmill_common::{
+    client::AuthedClient,
+    s3_helpers::BundleFormat,
+    scripts::{id_to_codebase_info, CodebaseInfo},
+};
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -910,7 +914,6 @@ pub async fn handle_bun_job(
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(Some(&base_internal_url)).await;
 
-
     let main_override = job.script_entrypoint_override.as_deref();
     let apply_preprocessor =
         job.flow_step_id.as_deref() != Some("preprocessor") && job.preprocessed == Some(false);
@@ -1621,10 +1624,10 @@ pub async fn start_worker(
         None,
         None,
         None,
+        None,
     )
     .await;
     let context_envs = build_envs_map(context.to_vec()).await;
-
 
     let mut format = BundleFormat::Cjs;
     if let Some(codebase) = codebase.as_ref() {

@@ -1243,6 +1243,7 @@ async fn create_app_internal<'a>(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -1622,6 +1623,7 @@ async fn update_app_internal<'a>(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -1908,6 +1910,8 @@ async fn execute_component(
         (email.as_str(), permissioned_as)
     };
 
+    let end_user_email = opt_authed.as_ref().map(|a| a.email.clone());
+
     let (uuid, tx) = push(
         &db,
         tx,
@@ -1937,6 +1941,7 @@ async fn execute_component(
         None,
         None,
         false,
+        end_user_email,
     )
     .await?;
     tx.commit().await?;

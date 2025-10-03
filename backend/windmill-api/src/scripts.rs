@@ -41,7 +41,12 @@ use windmill_audit::ActionKind;
 use windmill_worker::process_relative_imports;
 
 use windmill_common::{
-    assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType}, error::to_anyhow, s3_helpers::upload_artifact_to_store, scripts::hash_script, utils::WarnAfterExt, worker::CLOUD_HOSTED
+    assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
+    error::to_anyhow,
+    s3_helpers::upload_artifact_to_store,
+    scripts::hash_script,
+    utils::WarnAfterExt,
+    worker::CLOUD_HOSTED,
 };
 
 use windmill_common::{
@@ -418,7 +423,12 @@ async fn create_snapshot_script(
             uploaded = true;
 
             let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
-            upload_artifact_to_store(&path, data, &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR).await?;
+            upload_artifact_to_store(
+                &path,
+                data,
+                &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+            )
+            .await?;
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
     }
@@ -437,7 +447,6 @@ async fn create_snapshot_script(
     }
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
 }
-
 
 async fn list_paths_from_workspace_runnable(
     authed: ApiAuthed,
@@ -980,6 +989,7 @@ async fn create_script_internal<'c>(
             None,
             Some(&authed.clone().into()),
             false,
+            None,
         )
         .await?;
         Ok((hash, new_tx, None))
