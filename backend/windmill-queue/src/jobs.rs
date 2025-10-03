@@ -2049,7 +2049,6 @@ pub struct PulledJob {
     pub permissioned_as_is_operator: Option<bool>,
     pub permissioned_as_groups: Option<Vec<String>>,
     pub permissioned_as_folders: Option<Vec<serde_json::Value>>,
-    pub permissioned_as_end_user_email: Option<String>,
 }
 
 // NOTE:
