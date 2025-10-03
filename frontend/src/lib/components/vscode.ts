@@ -158,7 +158,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 						token: 'comment'
 					},
 					{
-						foreground: 'a3be8c',
+						foreground: 'b3deac',
 						token: 'string'
 					},
 					{
@@ -170,7 +170,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 						token: 'constant.language'
 					},
 					{
-						foreground: '81a1c1',
+						foreground: '92bae6',
 						token: 'keyword'
 					},
 					{
@@ -227,15 +227,20 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 					{
 						foreground: '8fbcbb',
 						token: 'variable.other.constant'
-					}
+					},
+					{ token: 'string.value.json', foreground: 'e8b886' }, // string values in JSON
+					{ token: 'keyword.json', foreground: 'e8b886' } // true, false, null in JSON
 				],
 				colors: {
 					'editor.foreground': '#D8DEE9',
 					'editor.background': '#00000000',
-					'editor.selectionBackground': '#434C5ECC',
+					'editor.selectionBackground': '#515A6D',
+					'editor.inactiveSelectionBackground': '#515A6DB0',
 					'editor.lineHighlightBackground': '#3B4252',
 					'editorCursor.foreground': '#D8DEE9',
-					'editorWhitespace.foreground': '#434C5ECC'
+					'editorWhitespace.foreground': '#515A6D',
+					'editorIndentGuide.background1': '#5A647860',
+					'editorIndentGuide.activeBackground1': '#6A7488'
 				}
 			})
 
