@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1 AND workspace_id = $2 AND created_by = $3)",
+  "query": "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1 AND workspace_id = $2)",
   "describe": {
     "columns": [
       {
@@ -12,7 +12,6 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text",
         "Text"
       ]
     },
@@ -20,5 +19,5 @@
       null
     ]
   },
-  "hash": "9003d50fc3c1ccbd7e82a5743509f8f0eca6c8a7b8c332d13e989efa759f9f57"
+  "hash": "81e997576319ae1d6d9a91f76465f6fa53892ff223f3b9d9ad3f4a1d2e720cc8"
 }

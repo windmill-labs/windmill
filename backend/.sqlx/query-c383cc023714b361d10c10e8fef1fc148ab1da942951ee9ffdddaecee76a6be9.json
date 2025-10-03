@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by\n         FROM flow_conversation\n         WHERE id = $1 AND workspace_id = $2 AND created_by = $3",
+  "query": "SELECT id, workspace_id, flow_path, title, created_at, updated_at, created_by\n         FROM flow_conversation\n         WHERE id = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -42,7 +42,6 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text",
         "Text"
       ]
     },
@@ -56,5 +55,5 @@
       false
     ]
   },
-  "hash": "301ca865a147fab72301f58a2194ce9b2bdf330792e49b9eb090cc1cdd8f8932"
+  "hash": "c383cc023714b361d10c10e8fef1fc148ab1da942951ee9ffdddaecee76a6be9"
 }
