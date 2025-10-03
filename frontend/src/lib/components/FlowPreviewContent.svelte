@@ -466,8 +466,8 @@
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-row justify-center w-full">
 					<FlowChatInterface
-						onRunFlow={async (args) => {
-							await runPreview(args, undefined)
+						onRunFlow={async (userMessage, _conversationId) => {
+							await runPreview({ user_message: userMessage }, undefined)
 							return jobId ?? ''
 						}}
 						createConversation={async () => {

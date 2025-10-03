@@ -10,7 +10,7 @@
 	import FlowChatMessage from './FlowChatMessage.svelte'
 
 	interface Props {
-		onRunFlow: (args: Record<string, any>, conversationId?: string) => Promise<string | undefined>
+		onRunFlow: (userMessage: string, conversationId: string) => Promise<string | undefined>
 		refreshConversations?: () => Promise<void>
 		conversationId?: string
 		deploymentInProgress?: boolean
@@ -232,7 +232,7 @@
 		try {
 			// Run the flow with the user message as input
 			// The backend will automatically store messages when the flow runs
-			const jobId = await onRunFlow({ user_message: messageContent }, currentConversationId)
+			const jobId = await onRunFlow(messageContent, currentConversationId)
 
 			if (!jobId) {
 				console.error('No jobId returned from onRunFlow')

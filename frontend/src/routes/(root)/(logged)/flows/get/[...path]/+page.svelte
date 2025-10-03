@@ -199,15 +199,12 @@
 		}
 	}
 
-	async function runFlowForChat(
-		args: Record<string, any>,
-		conversationId?: string
-	): Promise<string> {
+	async function runFlowForChat(userMessage: string, conversationId?: string): Promise<string> {
 		const run = await JobService.runFlowByPath({
 			workspace: $workspaceStore!,
 			path,
 			memoryId: conversationId,
-			requestBody: args,
+			requestBody: { user_message: userMessage },
 			skipPreprocessor: true
 		})
 		return run

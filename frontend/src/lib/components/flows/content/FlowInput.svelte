@@ -370,7 +370,8 @@
 		firstStepInputs?.resetSelected(true)
 	}
 
-	async function runFlowWithMessage(args: Record<string, any>): Promise<string | undefined> {
+	async function runFlowWithMessage(message: string): Promise<string | undefined> {
+		previewArgs.val = { user_message: message }
 		const jobId = await onTestFlow?.()
 		return jobId
 	}
