@@ -78,7 +78,9 @@ export class JobManager {
 		try {
 			onProgress?.({ status: 'running' })
 
-			const result = await tryEvery({
+			let finalResult: T | undefined = undefined
+
+			await tryEvery({
 				tryCode: async () => {
 					if (controller.signal.aborted) {
 						throw new Error('Job was cancelled')
@@ -103,6 +105,8 @@ export class JobManager {
 
 					onProgress?.(status)
 
+					finalResult = jobResult.result as T
+
 					return jobResult.result as T
 				},
 				timeoutCode: async () => {
@@ -123,7 +127,7 @@ export class JobManager {
 				timeout
 			})
 
-			return result as T
+			return finalResult as T
 		} finally {
 			this.activeJobs.delete(jobId)
 		}
