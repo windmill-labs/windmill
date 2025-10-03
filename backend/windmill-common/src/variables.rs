@@ -165,11 +165,11 @@ pub async fn get_secret_value_as_admin(
         if !value.is_empty() {
             let mc = build_crypt(db, w_id).await?;
             decrypt(&mc, value).map_err(|e| {
-                    crate::error::Error::internal_err(format!(
-                        "Error decrypting variable {}: {}",
-                        variable.path, e
-                    ))
-                })?
+                crate::error::Error::internal_err(format!(
+                    "Error decrypting variable {}: {}",
+                    variable.path, e
+                ))
+            })?
         } else {
             "".to_string()
         }
@@ -219,6 +219,7 @@ pub async fn get_reserved_variables(
     root_job_id: Option<String>,
     scheduled_for: Option<chrono::DateTime<Utc>>,
     runnable_id: Option<ScriptHash>,
+    end_user_email: Option<String>,
 ) -> Vec<ContextualVariable> {
     let state_path = {
         let trigger = if schedule_path.is_some() {
@@ -387,6 +388,12 @@ pub async fn get_reserved_variables(
         name: "WM_RUNNABLE_ID".to_string(),
         value: runnable_id.map(|x| x.to_string()).unwrap_or_else(|| "".to_string()),
         description: "Hash of the script. Useful as cache key for cache that should be runnable specific.".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_END_USER_EMAIL".to_string(),
+        value: end_user_email.unwrap_or_else(|| "".to_string()),
+        description: "Email of the end user that executed the current script. Only available when triggered from an app.".to_string(),
         is_custom: false,
     },
 ].into_iter().chain(custom_envs.into_iter().map(|(name, value)| ContextualVariable {

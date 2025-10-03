@@ -452,6 +452,7 @@ pub async fn get_reserved_variables(
         Some(get_root_job_id(job).to_string()),
         Some(job.scheduled_for.clone()),
         job.runnable_id,
+        job.permissioned_as_end_user_email.clone(),
     )
     .await
     .to_vec();

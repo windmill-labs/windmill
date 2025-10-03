@@ -83,6 +83,7 @@ async fn list_contextual_variables(
             Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
             Some(chrono::offset::Utc::now()),
             Some(ScriptHash(1234567890)),
+            None,
         )
         .await
         .to_vec(),
@@ -843,11 +844,11 @@ pub async fn get_value_internal<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres
         } else if !value.is_empty() {
             let mc = build_crypt(&db, &w_id).await?;
             decrypt(&mc, value).map_err(|e| {
-                    Error::internal_err(format!(
-                        "Error decrypting variable {}: {}",
-                        variable.path, e
-                    ))
-                })?
+                Error::internal_err(format!(
+                    "Error decrypting variable {}: {}",
+                    variable.path, e
+                ))
+            })?
         } else {
             "".to_string()
         }
@@ -884,11 +885,8 @@ pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<S
         if record.is_secret {
             let mc = build_crypt(db, w_id).await?;
             value = decrypt(&mc, value).map_err(|e| {
-                    Error::internal_err(format!(
-                        "Error decrypting variable {}: {}",
-                        path, e
-                    ))
-                })?;
+                Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
+            })?;
         }
 
         Ok(value)

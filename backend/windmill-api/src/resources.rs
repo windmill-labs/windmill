@@ -515,7 +515,8 @@ pub async fn transform_json_value<'c>(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let userdb_authed = UserDbWithOptAuthed { authed: authed, user_db: user_db.clone(), db: db.clone() };
+            let userdb_authed =
+                UserDbWithOptAuthed { authed: authed, user_db: user_db.clone(), db: db.clone() };
 
             let v = crate::variables::get_value_internal(
                 &userdb_authed,
@@ -615,6 +616,7 @@ pub async fn transform_json_value<'c>(
                 job.flow_innermost_root_job.map(|x| x.to_string()),
                 job.root_job.map(|x| x.to_string()),
                 Some(job.scheduled_for.clone()),
+                None,
                 None,
             )
             .await;
