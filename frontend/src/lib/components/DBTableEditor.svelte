@@ -202,8 +202,8 @@
 										</label>
 										{#if !column.primaryKey}
 											<label class="flex gap-2 items-center text-xs">
-												<input type="checkbox" class="!w-4 !h-4" bind:checked={column.not_null} />
-												Not nullable
+												<input type="checkbox" class="!w-4 !h-4" bind:checked={column.nullable} />
+												Nullable
 											</label>
 										{/if}
 									{/snippet}
