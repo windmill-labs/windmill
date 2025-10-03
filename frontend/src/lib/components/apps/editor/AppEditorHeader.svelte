@@ -1,13 +1,9 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
-	import { Alert, Drawer, DrawerContent, UndoRedo } from '$lib/components/common'
+	import { Drawer, DrawerContent, UndoRedo } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 
-	import Path from '$lib/components/Path.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { AppService, DraftService, SettingService, type Policy } from '$lib/gen'
+	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import type { Item } from '$lib/utils'
@@ -22,7 +18,6 @@
 		FormInput,
 		History,
 		Laptop2,
-		Loader2,
 		Save,
 		Smartphone,
 		FileClock,
@@ -30,8 +25,7 @@
 		Moon,
 		SunMoon,
 		Zap,
-		Globe,
-		AlertTriangle
+		Globe
 	} from 'lucide-svelte'
 	import { getContext, untrack } from 'svelte'
 	import {
@@ -51,7 +45,6 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from './DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
@@ -75,14 +68,14 @@
 		computeWorkspaceS3FileInputPolicy,
 		computeS3ImageViewerPolicy
 	} from './appUtilsS3'
-	import { isCloudHosted } from '$lib/cloud'
-	import { base } from '$lib/base'
-	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import AppJobsDrawer from './AppJobsDrawer.svelte'
 	import { collectStaticFields, type TriggerableV2 } from './commonAppUtils'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
 	import { Sha256 } from '@aws-crypto/sha256-js'
 	import type { DiffDrawerI } from '$lib/components/diff_drawer'
+	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
+	import AppEditorHeaderDeployInitialDraft from './AppEditorHeaderDeployInitialDraft.svelte'
+	import { computeSecretUrl } from './appDeploy.svelte'
 
 	async function hash(message) {
 		try {
@@ -158,6 +151,7 @@
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
+	let customPathError: string = $state('')
 
 	const {
 		app,
@@ -184,7 +178,7 @@
 
 	let selectedJobId: string | undefined = $state(undefined)
 
-	let pathError: string | undefined = $state(undefined)
+	let pathError: string = $state('')
 	let appExport: AppExportButton | undefined = $state()
 
 	let draftDrawerOpen = $state(false)
@@ -193,7 +187,7 @@
 	let historyBrowserDrawerOpen = $state(false)
 	let debugAppDrawerOpen = $state(false)
 	let lazyDrawerOpen = $state(false)
-	let deploymentMsg: string | undefined = $state(undefined)
+	let deploymentMsg = $state('')
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -533,15 +527,6 @@
 		}
 	}
 
-	let secretUrl: string | undefined = $state(undefined)
-
-	async function getSecretUrl() {
-		secretUrl = await AppService.getPublicSecretOfApp({
-			workspace: $workspaceStore!,
-			path: $appPath
-		})
-	}
-
 	async function setPublishState() {
 		await computeTriggerables()
 		await AppService.updateApp({
@@ -792,15 +777,6 @@
 		lock = false
 	}
 
-	let dirtyPath = $state(false)
-	let path: Path | undefined = $state(undefined)
-
-	let secretUrlHref = $derived(
-		secretUrl
-			? `${window.location.origin}${base}/public/${$workspaceStore}/${secretUrl}`
-			: undefined
-	)
-
 	let moreItems = $derived([
 		{
 			displayName: 'Deployment history',
@@ -820,9 +796,13 @@
 		{
 			displayName: 'Public URL',
 			icon: Globe,
-			disabled: !secretUrlHref,
-			href: secretUrlHref,
-			hrefTarget: '_blank'
+			action: async () => {
+				const secretUrl = await AppService.getPublicSecretOfApp({
+					workspace: $workspaceStore!,
+					path: $appPath
+				})
+				window.open(computeSecretUrl(secretUrl), '_blank')
+			}
 		},
 		// {
 		// 	displayName: 'Publish to Hub',
@@ -927,42 +907,7 @@
 	setTheme($app?.darkMode)
 
 	let customPath = $state(savedApp?.custom_path)
-	let dirtyCustomPath = $state(false)
-	let customPathError = $state('')
-	let globalWorkspacedRoute = $state(false)
 
-	async function loadGlobalWorkspacedRouteSetting() {
-		try {
-			const setting = await SettingService.getGlobal({ key: 'app_workspaced_route' })
-			globalWorkspacedRoute = (setting as boolean) ?? false
-		} catch (error) {
-			globalWorkspacedRoute = false
-		}
-	}
-
-	async function appExists(customPath: string) {
-		return await AppService.customPathExists({
-			workspace: $workspaceStore!,
-			customPath
-		})
-	}
-	let validateTimeout: number | undefined = undefined
-	async function validateCustomPath(customPath: string): Promise<void> {
-		customPathError = ''
-		if (validateTimeout) {
-			clearTimeout(validateTimeout)
-		}
-		validateTimeout = setTimeout(async () => {
-			if (!/^[\w-]+(\/[\w-]+)*$/.test(customPath)) {
-				customPathError = 'Invalid path'
-			} else if (customPath !== savedApp?.custom_path && (await appExists(customPath))) {
-				customPathError = 'Path already taken'
-			} else {
-				customPathError = ''
-			}
-			validateTimeout = undefined
-		}, 500)
-	}
 	$effect(() => {
 		if ($openDebugRun == undefined) {
 			$openDebugRun = (jobId: string) => {
@@ -971,23 +916,11 @@
 			}
 		}
 	})
-	$effect(() => {
-		$appPath && $appPath != '' && secretUrl == undefined && untrack(() => getSecretUrl())
-	})
+
 	$effect(() => {
 		saveDrawerOpen && untrack(() => compareVersions())
 	})
 	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
-	let fullCustomUrl = $derived(
-		`${window.location.origin}${base}/a/${
-			isCloudHosted() || globalWorkspacedRoute ? $workspaceStore + '/' : ''
-		}${customPath}`
-	)
-	$effect(() => {
-		;[customPath]
-		untrack(() => customPath !== undefined && validateCustomPath(customPath))
-	})
-	loadGlobalWorkspacedRouteSetting()
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -1028,45 +961,6 @@
 {#if $appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">
 		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
-			<Alert bgClass="mb-4" title="Require path" type="info">
-				Choose a path to save the initial draft of the app.
-			</Alert>
-			<h3>Summary</h3>
-			<div class="w-full pt-2">
-				<!-- svelte-ignore a11y_autofocus -->
-				<input
-					autofocus
-					type="text"
-					placeholder="App summary"
-					class="text-sm w-full font-semibold"
-					onkeydown={stopPropagation(bubble('keydown'))}
-					bind:value={$summary}
-					onkeyup={() => {
-						if ($appPath == '' && $summary?.length > 0 && !dirtyPath) {
-							path?.setName(
-								$summary
-									.toLowerCase()
-									.replace(/[^a-z0-9_]/g, '_')
-									.replace(/-+/g, '_')
-									.replace(/^-|-$/g, '')
-							)
-						}
-					}}
-				/>
-			</div>
-			<div class="py-2"></div>
-			<Path
-				autofocus={false}
-				bind:this={path}
-				bind:error={pathError}
-				bind:path={newEditedPath}
-				bind:dirty={dirtyPath}
-				initialPath=""
-				namePlaceholder="app"
-				kind="app"
-			/>
-			<div class="py-4"></div>
-
 			{#snippet actions()}
 				<div>
 					<Button
@@ -1078,6 +972,8 @@
 					</Button>
 				</div>
 			{/snippet}
+
+			<AppEditorHeaderDeployInitialDraft {summary} {appPath} bind:pathError bind:newEditedPath />
 		</DrawerContent>
 	</Drawer>
 {/if}
@@ -1100,59 +996,6 @@
 />
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
-		{#if !onLatest}
-			<Alert title="You're not on the latest app version. " type="warning">
-				By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff.
-			</Alert>
-			<div class="py-2"></div>
-		{/if}
-		<span class="text-secondary text-sm font-bold">Summary</span>
-		<div class="w-full pt-2">
-			<!-- svelte-ignore a11y_autofocus -->
-			<input
-				autofocus
-				type="text"
-				placeholder="App summary"
-				class="text-sm w-full"
-				bind:value={$summary}
-				onkeydown={stopPropagation(bubble('keydown'))}
-				onkeyup={() => {
-					if ($appPath == '' && $summary?.length > 0 && !dirtyPath) {
-						path?.setName(
-							$summary
-								.toLowerCase()
-								.replace(/[^a-z0-9_]/g, '_')
-								.replace(/-+/g, '_')
-								.replace(/^-|-$/g, '')
-						)
-					}
-				}}
-			/>
-		</div>
-		<div class="py-4"></div>
-		<span class="text-secondary text-sm font-bold">Deployment message</span>
-		<div class="w-full pt-2">
-			<!-- svelte-ignore a11y_autofocus -->
-			<input
-				type="text"
-				placeholder="Optional deployment message"
-				class="text-sm w-full"
-				bind:value={deploymentMsg}
-			/>
-		</div>
-		<div class="py-4"></div>
-		<span class="text-secondary text-sm font-bold">Path</span>
-		<Path
-			bind:this={path}
-			bind:dirty={dirtyPath}
-			bind:error={pathError}
-			bind:path={newEditedPath}
-			initialPath={newPath}
-			namePlaceholder="app"
-			kind="app"
-			autofocus={false}
-		/>
-
 		{#snippet actions()}
 			<div class="flex flex-row gap-4">
 				<Button
@@ -1212,111 +1055,21 @@
 				</Button>
 			</div>
 		{/snippet}
-		<div class="py-2"></div>
-		<Alert title="App executed on behalf of you">
-			A viewer of the app will execute the runnables of the app on behalf of the publisher (you)
-			<Tooltip>
-				It ensures that all required resources/runnable visible for publisher but not for viewer at
-				time of creating the app would prevent the execution of the app. To guarantee tight
-				security, a policy is computed at time of deployment of the app which only allow the
-				scripts/flows referred to in the app to be called on behalf of. Furthermore, static
-				parameters are not overridable. Hence, users will only be able to use the app as intended by
-				the publisher without risk for leaking resources not used in the app.
-			</Tooltip>
-		</Alert>
-
-		<div class="mt-10"></div>
-
-		<h2>Public URL</h2>
-
-		<div class="my-6">
-			<div class="flex gap-2 items-center mb-2">
-				<Toggle
-					options={{
-						left: `Require login and read-access`,
-						right: `No login required`
-					}}
-					checked={policy.execution_mode == 'anonymous'}
-					on:change={(e) => {
-						policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
-						setPublishState()
-					}}
-					disabled={$appPath == ''}
-				/>
-			</div>
-			{#if $appPath == ''}
-				<ClipboardPanel content={`Save this app once to get the public secret URL`} size="md" />
-			{:else if secretUrlHref}
-				<ClipboardPanel content={secretUrlHref} size="md" />
-			{:else}<Loader2 class="animate-spin" />
-			{/if}
-			<div class="text-xs text-secondary mt-1">
-				Share this url directly or embed it using an iframe (if requiring login, top-level domain of
-				embedding app must be the same as the one of Windmill)
-			</div>
-
-			<div class="mt-4">
-				{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
-					<Alert type="warning" title="Admin only" size="xs">
-						Custom path can only be set by workspace admins
-					</Alert>
-					<div class="mb-2"></div>
-				{/if}
-				{#if !$enterpriseLicense}
-					<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap mb-2">
-						<AlertTriangle size={16} />
-						EE only <Tooltip>Enterprise Edition only feature</Tooltip>
-					</div>
-				{/if}
-				<Toggle
-					on:change={({ detail }) => {
-						customPath = detail ? '' : undefined
-						if (customPath === undefined) {
-							customPathError = ''
-						}
-					}}
-					checked={customPath !== undefined}
-					options={{
-						right: 'Use a custom URL'
-					}}
-					disabled={!$enterpriseLicense || !($userStore?.is_admin || $userStore?.is_super_admin)}
-				/>
-
-				{#if customPath !== undefined}
-					<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-						<div>Custom path</div>
-					</div>
-					<input
-						disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
-						type="text"
-						autocomplete="off"
-						bind:value={customPath}
-						class={customPathError === ''
-							? ''
-							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-						oninput={() => {
-							dirtyCustomPath = true
-						}}
-					/>
-					<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
-						<div>Custom public URL</div>
-					</div>
-					<ClipboardPanel content={fullCustomUrl} size="md" />
-
-					<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
-						>{dirtyCustomPath ? customPathError : ''}
-					</div>
-				{/if}
-			</div>
-		</div>
-		<Alert type="info" title="Only latest deployed app is publicly available">
-			You will still need to deploy the app to make visible the latest changes
-		</Alert>
-
-		<a
-			href="https://www.windmill.dev/docs/advanced/external_auth_with_jwt#embed-public-apps-using-your-own-authentification"
-			class="mt-4 text-2xs">Embed this app in your own product to be used by your own users</a
-		>
+		<AppEditorHeaderDeploy
+			{newPath}
+			{policy}
+			{setPublishState}
+			appPath={$appPath}
+			{onLatest}
+			{savedApp}
+			bind:summary={$summary}
+			bind:customPath
+			bind:deploymentMsg
+			bind:customPathError
+			bind:pathError
+			bind:newEditedPath
+			hideSecretUrl={false}
+		/>
 	</DrawerContent>
 </Drawer>
 
