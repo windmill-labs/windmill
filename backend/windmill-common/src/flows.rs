@@ -403,6 +403,11 @@ pub struct FlowModuleValueWithParallel {
     #[serde(rename = "type")]
     pub type_: String,
     pub parallel: Option<bool>,
+    #[serde(
+        default,
+        deserialize_with = "raw_value_to_input_transform::<_, u16>",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub parallelism: Option<InputTransform>,
 }
 
@@ -410,6 +415,11 @@ pub struct FlowModuleValueWithParallel {
 pub struct FlowModuleValueWithSkipFailures {
     pub skip_failures: Option<bool>,
     pub parallel: Option<bool>,
+    #[serde(
+        default,
+        deserialize_with = "raw_value_to_input_transform::<_, u16>",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub parallelism: Option<InputTransform>,
 }
 
