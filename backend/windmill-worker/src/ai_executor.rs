@@ -470,7 +470,16 @@ pub async fn run_agent(
                         Ok(Some(loaded_messages)) => {
                             // Take the last n messages
                             let start_idx = loaded_messages.len().saturating_sub(context_length);
-                            let messages_to_load = loaded_messages[start_idx..].to_vec();
+                            let mut messages_to_load = loaded_messages[start_idx..].to_vec();
+
+                            // Remove the first message if its role is "tool" to avoid OpenAI API error
+                            // "messages with role 'tool' must be a response to a preceeding message with 'tool_calls'"
+                            if let Some(first_msg) = messages_to_load.first() {
+                                if first_msg.role == "tool" {
+                                    messages_to_load.remove(0);
+                                }
+                            }
+
                             messages.extend(messages_to_load);
                         }
                         Ok(None) => {}
