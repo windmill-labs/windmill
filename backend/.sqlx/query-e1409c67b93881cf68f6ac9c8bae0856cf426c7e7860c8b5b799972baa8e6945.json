@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, on_behalf_of_email, edited_by, flow_version.id AS version\n                    FROM flow\n                    INNER JOIN flow_version\n                        ON flow_version.id = $3\n                    WHERE flow.path = $1 and flow.workspace_id = $2",
+  "query": "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled, on_behalf_of_email, edited_by, flow_version.id AS version\n                    FROM flow\n                    INNER JOIN flow_version\n                        ON flow_version.id = $3\n                    WHERE flow.path = $1 and flow.workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -25,16 +25,21 @@
       },
       {
         "ordinal": 4,
+        "name": "chat_input_enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
         "name": "on_behalf_of_email",
         "type_info": "Text"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "edited_by",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "version",
         "type_info": "Int8"
       }
@@ -51,10 +56,11 @@
       true,
       null,
       null,
+      null,
       true,
       false,
       false
     ]
   },
-  "hash": "9b60fa8a1003015bc5a7cdbee9a4486b313d45347dfd9d4793d60e2760763ca3"
+  "hash": "e1409c67b93881cf68f6ac9c8bae0856cf426c7e7860c8b5b799972baa8e6945"
 }

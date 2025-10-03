@@ -25,6 +25,7 @@
 		title?: string | undefined
 		summary?: string | undefined
 		children?: import('svelte').Snippet
+		action?: import('svelte').Snippet
 		isAgentTool?: boolean
 	}
 
@@ -33,6 +34,7 @@
 		title = undefined,
 		summary = $bindable(undefined),
 		children,
+		action,
 		isAgentTool = false
 	}: Props = $props()
 
@@ -165,4 +167,5 @@
 		<div class="text-sm font-bold text-primary pr-2">{title}</div>
 	{/if}
 	{@render children?.()}
+	{@render action?.()}
 </div>

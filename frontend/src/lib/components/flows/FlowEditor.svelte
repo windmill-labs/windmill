@@ -48,7 +48,7 @@
 		localModuleStates?: Record<string, GraphModuleState>
 		testModuleStates?: ModulesTestStates
 		isOwner?: boolean
-		onTestFlow?: () => void
+		onTestFlow?: () => Promise<string | undefined>
 		isRunning?: boolean
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void

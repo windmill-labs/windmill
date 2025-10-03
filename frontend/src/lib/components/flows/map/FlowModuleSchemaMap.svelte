@@ -402,6 +402,7 @@
 			{showJobStatus}
 			suspendStatus={suspendStatus.val}
 			{flowHasChanged}
+			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
 				const cb = () => {

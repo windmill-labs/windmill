@@ -9,6 +9,7 @@
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
+	import { MessageSquare } from 'lucide-svelte'
 
 	interface Props {
 		data: InputN['data']
@@ -28,6 +29,8 @@
 			? schemaToObject(flowStore?.val.schema as Schema, previewArgs.val || {})
 			: undefined
 	)
+
+	let inputLabel = $derived(data.chatInputEnabled ? 'Chat message' : 'Input')
 </script>
 
 <NodeWrapper>
@@ -59,7 +62,9 @@
 			</div>
 		{/if}
 		<VirtualItem
-			label="Input"
+			id={'Input'}
+			hideId={true}
+			label={inputLabel}
 			selectable
 			selected={$selectedId === 'Input'}
 			bgColor={getStateColor(undefined, darkMode)}
@@ -95,6 +100,12 @@
 			showJobStatus={data.showJobStatus}
 			flowHasChanged={data.flowHasChanged}
 			{darkMode}
-		/>
+		>
+			{#snippet icon()}
+				{#if data.chatInputEnabled}
+					<MessageSquare size={14} class="text-blue-500 dark:text-blue-400" />
+				{/if}
+			{/snippet}
+		</VirtualItem>
 	{/snippet}
 </NodeWrapper>

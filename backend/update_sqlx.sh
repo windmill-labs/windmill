@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 # Default directory
 EE_DIR="../windmill-ee-private"
 

@@ -117,6 +117,7 @@ pub struct AIAgentArgs {
     pub output_type: Option<OutputType>,
     pub user_images: Option<Vec<S3Object>>,
     pub streaming: Option<bool>,
+    pub messages_context_length: Option<usize>,
 }
 
 #[derive(Deserialize, Debug)]
