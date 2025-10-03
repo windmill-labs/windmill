@@ -1236,7 +1236,7 @@ pub fn duckdb_connection_settings_internal(
     return Ok(response);
 }
 
-// DuckDB does not parse anything in case of errors and just returns a generic error message.
+// DuckDB does not parse anything in case of S3 errors and just returns a generic error message.
 // To display better error messages, we cache the errors in a Map<Token, ErrorMessage>
 //
 // We leverage the fact that workers have an internal server to insert the error message
