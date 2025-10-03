@@ -11,6 +11,8 @@
 
 use anyhow::anyhow;
 use futures::TryFutureExt;
+use sqlx::Pool;
+use sqlx::Postgres;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::scripts::hash_to_codebase_id;
@@ -731,6 +733,7 @@ fn create_span(arc_job: &Arc<MiniPulledJob>, worker_name: &str, hostname: &str) 
 
 pub async fn handle_all_job_kind_error(
     conn: &Connection,
+    job_queue_db: Option<&DB>,
     authed_client: &AuthedClient,
     job: Arc<MiniPulledJob>,
     err: Error,
@@ -744,6 +747,7 @@ pub async fn handle_all_job_kind_error(
         Connection::Sql(db) => {
             handle_job_error(
                 db,
+                job_queue_db.expect("Job queue database connection required for error handling"),
                 authed_client,
                 job.as_ref(),
                 0,
@@ -787,6 +791,7 @@ pub async fn handle_all_job_kind_error(
 
 pub fn start_interactive_worker_shell(
     conn: Connection,
+    job_queue_db: Option<&DB>,
     hostname: String,
     worker_name: String,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
@@ -794,12 +799,12 @@ pub fn start_interactive_worker_shell(
     base_internal_url: String,
     worker_dir: String,
 ) -> JoinHandle<()> {
+    let job_queue_db = job_queue_db.cloned();
     tokio::spawn(async move {
         let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
 
         let mut last_executed_job: Option<Instant> =
             Instant::now().checked_sub(Duration::from_millis(2500));
-
         loop {
             if let Ok(_) = killpill_rx.try_recv() {
                 tracing::info!("Received killpill, exiting worker shell");
@@ -814,6 +819,7 @@ pub fn start_interactive_worker_shell(
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
                         let job = pull(
                             &db,
+                            &db, // Use same database for both main and job queue in non-sharded mode
                             false,
                             &worker_name,
                             Some(&query),
@@ -877,6 +883,7 @@ pub fn start_interactive_worker_shell(
                             raw_flow,
                             parent_runnable_path,
                             &conn,
+                            job_queue_db.as_ref(),
                             &authed_client,
                             &hostname,
                             &worker_name,
@@ -935,6 +942,7 @@ pub async fn create_job_dir(worker_directory: &str, job_id: impl Display) -> Str
 
 pub async fn run_worker(
     conn: &Connection,
+    job_queue_db: Option<Pool<Postgres>>,
     hostname: &str,
     worker_name: String,
     i_worker: u64,
@@ -1254,6 +1262,9 @@ pub async fn run_worker(
             last_processing_duration.clone(),
             base_internal_url.to_string(),
             db.clone(),
+            &job_queue_db
+                .clone()
+                .expect("Job queue database connection required for background processor"),
             worker_dir.clone(),
             same_worker_tx.clone(),
             worker_name.clone(),
@@ -1269,6 +1280,7 @@ pub async fn run_worker(
     let interactive_shell = if i_worker == 1 {
         let it_shell = start_interactive_worker_shell(
             conn.clone(),
+            job_queue_db.as_ref(),
             hostname.to_owned(),
             worker_name.clone(),
             killpill_rx.resubscribe(),
@@ -1569,6 +1581,9 @@ pub async fn run_worker(
                             Duration::from_secs(10),
                             pull(
                                 &db,
+                                job_queue_db.as_ref().expect(
+                                    "Job queue database connection required for job pulling",
+                                ),
                                 suspend_first,
                                 &worker_name,
                                 None,
@@ -1872,6 +1887,7 @@ pub async fn run_worker(
                         raw_flow,
                         parent_runnable_path,
                         &conn,
+                        job_queue_db.as_ref(),
                         &authed_client,
                         hostname,
                         &worker_name,
@@ -1935,6 +1951,7 @@ pub async fn run_worker(
                             }
                             handle_all_job_kind_error(
                                 &conn,
+                                job_queue_db.as_ref(),
                                 &authed_client,
                                 arc_job.clone(),
                                 err,
@@ -2312,6 +2329,7 @@ pub async fn handle_queued_job(
     raw_flow: Option<Json<Box<RawValue>>>,
     parent_runnable_path: Option<String>,
     conn: &Connection,
+    job_queue_db: Option<&DB>,
     client: &AuthedClient,
     hostname: &str,
     worker_name: &str,
@@ -2612,6 +2630,8 @@ pub async fn handle_queued_job(
                     handle_ai_agent_job(
                         conn,
                         db,
+                        job_queue_db
+                            .expect("Job queue database connection required for error handling"),
                         job.as_ref(),
                         &client,
                         &mut canceled_by,

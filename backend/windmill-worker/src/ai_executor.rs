@@ -102,7 +102,7 @@ pub async fn handle_ai_agent_job(
     // connection
     conn: &Connection,
     db: &DB,
-
+    job_queue_db: &DB,
     // agent job
     job: &MiniPulledJob,
 
@@ -277,6 +277,7 @@ pub async fn handle_ai_agent_job(
     let agent_fut = run_agent(
         db,
         conn,
+        job_queue_db,
         job,
         parent_job,
         &args,
@@ -407,7 +408,7 @@ pub async fn run_agent(
     // connection
     db: &DB,
     conn: &Connection,
-
+    job_queue_db: &DB,
     // agent job and flow data
     job: &MiniPulledJob,
     parent_job: &Uuid,
@@ -841,6 +842,7 @@ pub async fn run_agent(
                                     None,
                                     None,
                                     conn,
+                                    Some(job_queue_db),
                                     client,
                                     hostname,
                                     worker_name,
@@ -863,6 +865,7 @@ pub async fn run_agent(
                                         let err_json = error_to_value(&err);
                                         let _ = handle_non_flow_job_error(
                                             db,
+                                            job_queue_db,
                                             &tool_job,
                                             0,
                                             None,
