@@ -390,6 +390,10 @@ components:
           type: string
           enum:
             - whileloopflow
+        parallel:
+          type: boolean
+        parallelism:
+          $ref: "#/components/schemas/InputTransform"
       required:
         - modules
         - skip_failures
