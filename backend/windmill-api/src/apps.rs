@@ -399,8 +399,6 @@ async fn get_raw_app_data(
 ) -> Result<Response> {
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let object_store = windmill_common::s3_helpers::get_object_store().await;
-    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-    let object_store: Option<()> = None;
 
     // tracing::info!("secret_with_ext: {}", secret_with_ext);
     let mut splitted = secret_with_ext.split('.');
@@ -429,12 +427,12 @@ async fn get_raw_app_data(
         ));
     };
     // tracing::info!("file_type: {}", file_type);
-    let path = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
 
     #[allow(unused_assignments)]
     let mut body: Option<Body> = None;
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = object_store {
+        let path = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
         let stream = os
             .get(&object_store::path::Path::from(path))
             .await?
@@ -920,8 +918,6 @@ async fn get_latest_version_secret_id(
     Ok(hx)
 }
 
-use windmill_common::error;
-
 async fn store_raw_app_file<'a>(
     w_id: &str,
     id: &i64,
@@ -930,24 +926,24 @@ async fn store_raw_app_file<'a>(
     tx: &mut sqlx::Transaction<'a, sqlx::Postgres>,
 ) -> Result<()> {
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    let object_store = windmill_common::s3_helpers::get_object_store().await;
-    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-    let object_store: Option<()> = None;
+    {
+        let object_store = windmill_common::s3_helpers::get_object_store().await;
 
-    let path = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
-    #[cfg(all(feature = "enterprise", feature = "parquet"))]
-    if let Some(os) = object_store {
-        if let Err(e) = os
-            .put(&object_store::path::Path::from(path.clone()), data.into())
-            .await
-        {
-            tracing::error!("Failed to put snapshot to s3 at {path}: {:?}", e);
-            return Err(error::Error::ExecutionErr(format!(
-                "Failed to put {path} to s3"
-            )));
+        let path: String = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
+
+        if let Some(os) = object_store {
+            if let Err(e) = os
+                .put(&object_store::path::Path::from(path.clone()), data.into())
+                .await
+            {
+                tracing::error!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                return Err(windmill_common::error::Error::ExecutionErr(format!(
+                    "Failed to put {path} to s3"
+                )));
+            }
+            tracing::info!("Successfully put snapshot to s3 at {path}");
+            return Ok(());
         }
-        tracing::info!("Successfully put snapshot to s3 at {path}");
-        return Ok(());
     }
 
     sqlx::query!(

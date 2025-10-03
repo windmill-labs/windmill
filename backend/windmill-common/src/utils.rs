@@ -246,6 +246,7 @@ pub async fn now_from_db<'c, E: sqlx::PgExecutor<'c>>(
 ) -> Result<chrono::DateTime<chrono::Utc>> {
     Ok(sqlx::query_scalar!("SELECT now()")
         .fetch_one(db)
+        .warn_after_seconds_with_sql(1, "now_from_db".to_string())
         .await?
         .unwrap())
 }
