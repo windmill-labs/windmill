@@ -403,14 +403,14 @@ pub struct FlowModuleValueWithParallel {
     #[serde(rename = "type")]
     pub type_: String,
     pub parallel: Option<bool>,
-    pub parallelism: Option<u16>,
+    pub parallelism: Option<InputTransform>,
 }
 
 #[derive(Deserialize)]
 pub struct FlowModuleValueWithSkipFailures {
     pub skip_failures: Option<bool>,
     pub parallel: Option<bool>,
-    pub parallelism: Option<u16>,
+    pub parallelism: Option<InputTransform>,
 }
 
 #[derive(Deserialize)]
@@ -567,6 +567,32 @@ where
     Ok(input_tranform)
 }
 
+fn parallelism_to_input_transform<'de, D>(
+    deserializer: D,
+) -> Result<Option<InputTransform>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val = Option::<RawValueOrFormatted<u16>>::deserialize(deserializer)?;
+    let input_transform = match val {
+        Some(RawValueOrFormatted::RawValue(v)) => {
+            Some(InputTransform::new_static_value(to_raw_value(&v)))
+        }
+        Some(RawValueOrFormatted::Formatted { r#type, expr, value }) => {
+            let untaged_input_transform = UntaggedInputTransform {
+                type_: r#type,
+                expr,
+                value: value.map(|val| to_raw_value(&val)),
+            };
+            let input_transform = TryInto::<InputTransform>::try_into(untaged_input_transform)
+                .map_err(|e| serde::de::Error::custom(e))?;
+            Some(input_transform)
+        }
+        _ => None,
+    };
+    Ok(input_transform)
+}
+
 /// Id in the `flow_node` table.
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, Hash, Eq, PartialEq)]
 #[serde(transparent)]
@@ -625,7 +651,7 @@ pub enum FlowModuleValue {
         skip_failures: bool,
         parallel: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
-        parallelism: Option<u16>,
+        parallelism: Option<InputTransform>,
     },
 
     /// While loop node
@@ -728,7 +754,8 @@ struct UntaggedFlowModuleValue {
     modules: Option<Vec<FlowModule>>,
     skip_failures: Option<bool>,
     parallel: Option<bool>,
-    parallelism: Option<u16>,
+    #[serde(default, deserialize_with = "parallelism_to_input_transform")]
+    parallelism: Option<InputTransform>,
     branches: Option<Vec<Branch>>,
     default: Option<Vec<FlowModule>>,
     content: Option<String>,

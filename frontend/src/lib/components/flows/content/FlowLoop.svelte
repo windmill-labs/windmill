@@ -17,7 +17,7 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import { Play } from 'lucide-svelte'
-	import type { FlowModule, Job } from '$lib/gen'
+	import type { FlowModule, ForloopFlow, Job } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import IteratorGen from '$lib/components/copilot/IteratorGen.svelte'
@@ -28,6 +28,9 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
+	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
+	import { emptySchema } from '$lib/utils'
+	import { slide } from 'svelte/transition'
 
 	const { previewArgs, flowStateStore, flowStore, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -49,7 +52,23 @@
 	}: Props = $props()
 
 	let editor: SimpleEditor | undefined = $state(undefined)
+	let parallelismEditor: SimpleEditor | undefined = $state(undefined)
 	let selected: string = $state('early-stop')
+
+	let parallelismSchema = $state(emptySchema())
+	parallelismSchema.properties['parallelism'] = {
+		type: 'number'
+	}
+
+	if (mod.value.type === 'forloopflow') {
+		const forloopValue = mod.value as any
+		if (typeof forloopValue.parallelism === 'number') {
+			forloopValue.parallelism = {
+				type: 'static',
+				value: forloopValue.parallelism
+			}
+		}
+	}
 
 	// UI Intent handling for AI tool control
 	useUiIntent(`forloopflow-${mod.id}`, {
@@ -168,16 +187,52 @@
 					<div>
 						<div class="mb-2 text-sm font-bold"
 							>Parallelism <Tooltip
-								>Assign a maximum number of branches run in parallel to control huge for-loops.</Tooltip
+								>Assign a maximum number of branches run in parallel to control huge for-loops. Can
+								be set as a static number or an expression.</Tooltip
 							>
 						</div>
-						<input
-							type="number"
+						<Toggle
+							checked={Boolean(mod.value.parallelism)}
 							disabled={!mod.value.parallel}
-							bind:value={mod.value.parallelism}
+							on:change={() => {
+								const forloopValue = mod.value as ForloopFlow
+								if (forloopValue.parallelism) {
+									forloopValue.parallelism = undefined
+								} else {
+									forloopValue.parallelism = {
+										type: 'static',
+										value: 3
+									}
+								}
+							}}
+							options={{
+								right: 'Set parallelism limit'
+							}}
 						/>
 					</div>
 				</div>
+				{#if (mod.value as ForloopFlow).parallelism && mod.value.parallel}
+					<div transition:slide={{ duration: 300 }} class="border mt-2">
+						<PropPickerWrapper
+							notSelectable
+							flow_input={stepPropPicker.pickableProperties.flow_input}
+							pickableProperties={stepPropPicker.pickableProperties}
+							on:select={({ detail }) => {
+								parallelismEditor?.insertAtCursor(detail)
+								parallelismEditor?.focus()
+							}}
+						>
+							<InputTransformForm
+								bind:arg={mod.value.parallelism}
+								argName="parallelism"
+								schema={parallelismSchema}
+								previousModuleId={previousModule?.id}
+								argExtra={{ min: 1 }}
+								bind:editor={parallelismEditor}
+							/>
+						</PropPickerWrapper>
+					</div>
+				{/if}
 				<div class="my-2 flex flex-row gap-2 items-center">
 					<div class="text-sm font-bold whitespace-nowrap">
 						Iterator expression

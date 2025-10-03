@@ -372,7 +372,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .as_ref()
                         .and_then(|x| x.skip_failures)
                         .unwrap_or(false),
-                    value.as_ref().and_then(|x| x.parallelism),
+                    value.as_ref().and_then(|x| x.parallelism.clone()),
                     *parallel,
                 )
             } else {
@@ -3171,17 +3171,32 @@ async fn push_next_flow_job(
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
         if value_with_parallel.type_ == "forloopflow" {
-            if let Some(p) = value_with_parallel.parallelism {
-                tracing::debug!(id = %flow_job.id, root_id = %job_root, "updating suspend for forloopflow job {uuid}");
+            if let Some(parallelism_transform) = &value_with_parallel.parallelism {
+                tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
 
-                if i as u16 >= p {
+                let ctx = get_transform_context(&flow_job, &previous_id, &status)
+                    .warn_after_seconds(3)
+                    .await?;
+
+                let evaluated_parallelism = evaluate_input_transform::<u16>(
+                    parallelism_transform,
+                    arc_last_job_result.clone(),
+                    Some(arc_flow_job_args.clone()),
+                    Some(client),
+                    Some(&ctx),
+                )
+                .await?;
+
+                tracing::debug!(id = %flow_job.id, root_id = %job_root, "updating suspend for forloopflow job {uuid} with parallelism {evaluated_parallelism}");
+
+                if i as u16 >= evaluated_parallelism {
                     sqlx::query!(
                         "UPDATE v2_job_queue SET
                              suspend = $1,
                              suspend_until = now() + interval '14 day',
                              running = true
                          WHERE id = $2",
-                        (i as u16 - p + 1) as i32,
+                        (i as u16 - evaluated_parallelism + 1) as i32,
                         uuid,
                     )
                     .execute(&mut *inner_tx)

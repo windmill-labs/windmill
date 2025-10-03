@@ -370,7 +370,7 @@ components:
         parallel:
           type: boolean
         parallelism:
-          type: integer
+          $ref: "#/components/schemas/InputTransform"
       required:
         - modules
         - iterator
@@ -390,10 +390,6 @@ components:
           type: string
           enum:
             - whileloopflow
-        parallel:
-          type: boolean
-        parallelism:
-          type: integer
       required:
         - modules
         - skip_failures
