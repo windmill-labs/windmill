@@ -32,7 +32,6 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use datafusion::arrow::datatypes::ToByteSlice;
 use futures::future::{FutureExt, TryFutureExt};
 use hyper::StatusCode;
 #[cfg(feature = "parquet")]
@@ -391,24 +390,27 @@ async fn list_apps(
 }
 
 async fn get_raw_app_data(
-    Path((w_id, secret)): Path<(String, String)>, 
+    Path((w_id, secret_with_ext)): Path<(String, String)>, 
     Extension(db): Extension<DB>) -> Result<Response> {
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let object_store = windmill_common::s3_helpers::get_object_store().await;
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     let object_store: Option<()> = None;
     
-    let mut splitted = version_id.split(".");
-    let id = splitted.next().unwrap_or("");
-    let file_type = if splitted.next().unwrap_or("").ends_with(".css") {
+    let mut splitted = secret_with_ext.split(".");
+    let secret_id = splitted.next().unwrap_or("");
+    let id = get_id_from_secret(&db, &w_id, secret_id.to_string()).await?;
+    
+    let file_type = if splitted.next().unwrap_or("") == "css" {
         "css"
-    } else if version_id.ends_with(".js") {
+    } else if splitted.next().unwrap_or("") == "js" {
         "js"
     } else {
         return Err(Error::BadRequest("Invalid file type, only .css and .js are supported".to_string()));
     };
     let path = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
 
+    #[allow(unused_assignments)]
     let mut body: Option<Body> = None;
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = object_store {
@@ -420,7 +422,7 @@ async fn get_raw_app_data(
 
     if body.is_none() {
         let get_raw_app_file = sqlx::query_scalar!(
-            "SELECT data FROM raw_app_bundles WHERE id = $1 AND file_type = $2",
+            "SELECT data FROM raw_app_bundles WHERE app_id = $1 AND file_type = $2",
             id,
             file_type,
         )
@@ -732,14 +734,7 @@ async fn get_public_app_by_secret(
     Extension(db): Extension<DB>,
     Path((w_id, secret)): Path<(String, String)>,
 ) -> JsonResult<AppWithLastVersion> {
-    let mc = build_crypt(&db, &w_id).await?;
-
-    let decrypted = mc
-        .decrypt_bytes_to_bytes(&(hex::decode(secret)?))
-        .map_err(|e| Error::internal_err(e.to_string()))?;
-    let bytes = str::from_utf8(&decrypted).map_err(to_anyhow)?;
-
-    let id: i64 = bytes.parse().map_err(to_anyhow)?;
+    let id = get_id_from_secret(&db, &w_id, secret).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
@@ -785,6 +780,16 @@ async fn get_public_app_by_secret(
     }
 
     Ok(Json(app))
+}
+
+async fn get_id_from_secret(db: &DB, w_id: &str, secret: String) -> Result<i64> {
+    let mc = build_crypt(db, w_id).await?;
+    let decrypted = mc
+        .decrypt_bytes_to_bytes(&(hex::decode(secret)?))
+        .map_err(|e| Error::internal_err(e.to_string()))?;
+    let bytes = str::from_utf8(&decrypted).map_err(to_anyhow)?;
+    let id: i64 = bytes.parse().map_err(to_anyhow)?;
+    Ok(id)
 }
 
 async fn get_public_resource(
@@ -879,7 +884,7 @@ async fn store_raw_app_file<'a>(
         id,
         w_id,
         file_type,
-        data.to_byte_slice()
+        data.to_vec()
     )
     .execute(&mut **tx)
     .await?;
