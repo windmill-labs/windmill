@@ -22,6 +22,7 @@ use windmill_common::get_latest_flow_version_info_for_path_from_version;
 use windmill_common::jobs::check_tag_available_for_workspace_internal;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
+use windmill_common::utils::WarnAfterExt;
 use windmill_common::FlowVersionInfo;
 use windmill_common::DB;
 use windmill_common::{
@@ -76,6 +77,7 @@ pub async fn push_scheduled_job<'c>(
                     &schedule.path
                 )
                 .execute(&mut *tx)
+                .warn_after_seconds_with_sql(1, "update_schedule_paused_until".to_string())
                 .await
                 .context("Failed to clear paused_until for schedule")?;
             }
@@ -107,6 +109,7 @@ pub async fn push_scheduled_job<'c>(
         &schedule.script_path
     )
     .fetch_one(&mut *tx)
+    .warn_after_seconds_with_sql(1, "already_exists_job".to_string())
     .await?
     .unwrap_or(false);
 
@@ -141,6 +144,7 @@ pub async fn push_scheduled_job<'c>(
             &schedule.script_path,
             false,
         )
+        .warn_after_seconds_with_sql(1, "get_latest_flow_version_id_for_path".to_string())
         .await?;
 
         let FlowVersionInfo {
@@ -150,6 +154,10 @@ pub async fn push_scheduled_job<'c>(
             version,
             &schedule.workspace_id,
             &schedule.script_path,
+        )
+        .warn_after_seconds_with_sql(
+            1,
+            "get_latest_flow_version_info_for_path_from_version".to_string(),
         )
         .await?;
         (
@@ -184,6 +192,7 @@ pub async fn push_scheduled_job<'c>(
             &schedule.script_path,
             false,
         )
+        .warn_after_seconds_with_sql(1, "get_latest_hash_for_path".to_string())
         .await?;
 
         if schedule.retry.is_some() {
@@ -257,6 +266,7 @@ pub async fn push_scheduled_job<'c>(
         &schedule.path
     )
     .execute(&mut *tx)
+    .warn_after_seconds_with_sql(1, "clear_schedule_error".to_string())
     .await
     {
         tracing::error!(
@@ -272,10 +282,12 @@ pub async fn push_scheduled_job<'c>(
         let is_windmill_user =
             sqlx::query_scalar!("SELECT CURRENT_USER = 'windmill_user' as \"is_windmill_user!\"")
                 .fetch_one(&mut *tx)
+                .warn_after_seconds_with_sql(1, "is_windmill_user".to_string())
                 .await?;
         if is_windmill_user {
             sqlx::query!("SET LOCAL ROLE NONE")
                 .execute(&mut *tx)
+                .warn_after_seconds_with_sql(1, "set_local_role_none".to_string())
                 .await?;
         }
         (
@@ -301,6 +313,7 @@ pub async fn push_scheduled_job<'c>(
             email,
             None, // no token for schedules so no scopes so no scope_tags
         )
+        .warn_after_seconds_with_sql(1, "check_tag_available_for_workspace_internal".to_string())
         .await?;
     }
 
@@ -333,11 +346,13 @@ pub async fn push_scheduled_job<'c>(
         false,
         None,
     )
+    .warn_after_seconds_with_sql(1, "push in push_scheduled_job".to_string())
     .await?;
 
     if revert_to_windmill_user {
         sqlx::query!("SET LOCAL ROLE windmill_user")
             .execute(&mut *tx)
+            .warn_after_seconds_with_sql(1, "set_local_role_windmill_user".to_string())
             .await?;
     }
 
