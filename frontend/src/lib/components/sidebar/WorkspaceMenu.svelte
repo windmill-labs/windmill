@@ -140,12 +140,17 @@
 					<MenuItem
 						class={twMerge(
 							'text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5',
+							workspace.disabled && 'opacity-50 cursor-not-allowed',
 							$workspaceStore === workspace.id
 								? 'cursor-default bg-surface-selected'
-								: 'cursor-pointer hover:bg-surface-hover data-[highlighted]:bg-surface-hover'
+								: workspace.disabled
+									? ''
+									: 'cursor-pointer hover:bg-surface-hover data-[highlighted]:bg-surface-hover'
 						)}
 						onClick={async () => {
-							await toggleSwitchWorkspace(workspace.id)
+							if (!workspace.disabled) {
+								await toggleSwitchWorkspace(workspace.id)
+							}
 						}}
 						{item}
 					>
@@ -166,7 +171,7 @@
 											isForked ? 'text-secondary' : 'text-primary'
 										)}
 									>
-										{workspace.name}
+										{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
 									</div>
 									<div
 										class={twMerge(
