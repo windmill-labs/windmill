@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'PowerShell private repositories and parameter enhancements',
+		href: 'https://www.windmill.dev/changelog/powershell-private-repository',
+		date: '2025-10-01'
+	},
+
+	{
 		label: 'Dynamic select for flows',
 		href: 'https://www.windmill.dev/changelog/dynamic-select-flows',
 		date: '2025-08-08'
