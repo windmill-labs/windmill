@@ -61,7 +61,7 @@
 	}
 
 	if (mod.value.type === 'forloopflow') {
-		const forloopValue = mod.value as any
+		const forloopValue = mod.value as ForloopFlow
 		if (typeof forloopValue.parallelism === 'number') {
 			forloopValue.parallelism = {
 				type: 'static',
