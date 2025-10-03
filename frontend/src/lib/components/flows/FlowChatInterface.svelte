@@ -454,8 +454,7 @@
 						? 'Chat is disabled during deployment...'
 						: 'Type your message here...'}
 					class="flex-1 min-h-[24px] max-h-32 resize-none !border-0 !bg-transparent text-sm placeholder-gray-400 !outline-none !ring-0 p-0 !shadow-none focus:!border-0 focus:!outline-none focus:!ring-0 focus:!shadow-none"
-					class:cursor-not-allowed={deploymentInProgress}
-					disabled={isLoading || deploymentInProgress}
+					disabled={deploymentInProgress}
 					rows={3}
 				></textarea>
 				<div class="flex-shrink-0 pr-2">
@@ -463,7 +462,7 @@
 						color="blue"
 						size="xs2"
 						btnClasses="!rounded-full !p-1.5"
-						startIcon={{ icon: isLoading ? Loader2 : ArrowUp }}
+						startIcon={{ icon: ArrowUp }}
 						disabled={!inputMessage?.trim() || isLoading || deploymentInProgress}
 						on:click={sendMessage}
 						iconOnly
