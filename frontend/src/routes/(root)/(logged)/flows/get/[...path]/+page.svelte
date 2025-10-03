@@ -199,7 +199,7 @@
 		}
 	}
 
-	async function runFlowForChat(userMessage: string, conversationId?: string): Promise<string> {
+	async function runFlowForChat(userMessage: string, conversationId: string): Promise<string> {
 		const run = await JobService.runFlowByPath({
 			workspace: $workspaceStore!,
 			path,
@@ -479,6 +479,14 @@
 	})
 	let mainButtons = $derived(getMainButtons(flow, args))
 	let chatInputEnabled = $derived(flow?.value?.chat_input_enabled ?? false)
+	let shouldUseStreaming = $derived.by(() => {
+		const lastModule = flow?.value?.modules?.at(-1)
+		return (
+			lastModule?.value?.type === 'aiagent' &&
+			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
+			lastModule?.value?.input_transforms?.streaming?.value === true
+		)
+	})
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -620,10 +628,12 @@
 								<FlowChatInterface
 									bind:this={flowChatInterface}
 									onRunFlow={runFlowForChat}
+									useStreaming={shouldUseStreaming}
 									{refreshConversations}
 									conversationId={selectedConversationId}
 									{deploymentInProgress}
 									createConversation={handleNewConversation}
+									{path}
 								/>
 							</div>
 						</div>

@@ -11,10 +11,12 @@
 
 	interface Props {
 		onRunFlow: (userMessage: string, conversationId: string) => Promise<string | undefined>
+		useStreaming?: boolean
 		refreshConversations?: () => Promise<void>
 		conversationId?: string
 		deploymentInProgress?: boolean
 		createConversation: (options: { clearMessages?: boolean }) => Promise<string>
+		path: string
 	}
 
 	interface ChatMessage extends FlowConversationMessage {
@@ -26,7 +28,9 @@
 		conversationId,
 		refreshConversations,
 		deploymentInProgress = false,
-		createConversation
+		createConversation,
+		useStreaming = false,
+		path
 	}: Props = $props()
 
 	let messages = $state<ChatMessage[]>([])
@@ -40,6 +44,7 @@
 	let loadingMoreMessages = $state(false)
 	let scrollTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 	let inputElement: HTMLTextAreaElement | undefined = $state()
+	let currentEventSource: EventSource | undefined = $state()
 
 	const conversationsCache = $state<Record<string, ChatMessage[]>>({})
 
@@ -52,6 +57,15 @@
 			}
 		}
 		scroll()
+	})
+
+	// Cleanup EventSource on unmount
+	$effect(() => {
+		return () => {
+			if (currentEventSource) {
+				currentEventSource.close()
+			}
+		}
 	})
 
 	export function fillInputMessage(message: string) {
@@ -196,6 +210,23 @@
 		return String(result)
 	}
 
+	function parseStreamDeltas(streamData: string): string {
+		const lines = streamData.trim().split('\n')
+		let content = ''
+		for (const line of lines) {
+			if (!line.trim()) continue
+			try {
+				const parsed = JSON.parse(line)
+				if (parsed.type === 'token_delta' && parsed.content) {
+					content += parsed.content
+				}
+			} catch (e) {
+				console.error('Failed to parse stream line:', line, e)
+			}
+		}
+		return content
+	}
+
 	async function sendMessage() {
 		if (!inputMessage.trim() || isLoading) return
 
@@ -230,15 +261,6 @@
 		isLoading = true
 
 		try {
-			// Run the flow with the user message as input
-			// The backend will automatically store messages when the flow runs
-			const jobId = await onRunFlow(messageContent, currentConversationId)
-
-			if (!jobId) {
-				console.error('No jobId returned from onRunFlow')
-				return
-			}
-
 			// Add assistant message placeholder
 			const assistantMessageId = crypto.randomUUID()
 			const assistantMessage: ChatMessage = {
@@ -247,20 +269,123 @@
 				created_at: new Date().toISOString(),
 				message_type: 'assistant',
 				conversation_id: currentConversationId,
-				job_id: jobId,
+				job_id: '',
 				loading: true
 			}
 
 			messages = [...messages, assistantMessage]
-			scrollToBottom()
 
-			// Start polling for job result
-			pollJobResult(jobId, assistantMessageId)
+			if (useStreaming) {
+				// Close any existing EventSource
+				if (currentEventSource) {
+					currentEventSource.close()
+				}
+
+				// Track stream state for this message
+				let accumulatedContent = ''
+
+				try {
+					// Encode the payload as base64 for GET request (EventSource only supports GET)
+					const payload = { user_message: messageContent }
+					const payloadBase64 = btoa(JSON.stringify(payload))
+
+					// Build the EventSource URL
+					const streamUrl = `/api/w/${$workspaceStore}/jobs/run_and_stream/f/${path}`
+					const url = new URL(streamUrl, window.location.origin)
+					url.searchParams.set('payload', payloadBase64)
+					url.searchParams.set('memory_id', currentConversationId)
+					url.searchParams.set('poll_delay_ms', '50')
+
+					// Create EventSource connection
+					const eventSource = new EventSource(url.toString())
+					currentEventSource = eventSource
+
+					eventSource.onmessage = (event) => {
+						try {
+							const data = JSON.parse(event.data)
+
+							if (data.type === 'update') {
+								// Process new stream content
+								if (data.new_result_stream) {
+									const newContent = parseStreamDeltas(data.new_result_stream)
+									accumulatedContent += newContent
+									// Update message content
+									messages = messages.map((msg) =>
+										msg.id === assistantMessageId
+											? { ...msg, content: accumulatedContent, loading: false }
+											: msg
+									)
+								}
+
+								// Handle completion
+								if (data.completed && data.only_result) {
+									const finalContent = data.only_result.output || accumulatedContent
+									messages = messages.map((msg) =>
+										msg.id === assistantMessageId
+											? {
+													...msg,
+													content: finalContent,
+													loading: false
+												}
+											: msg
+									)
+									eventSource.close()
+									currentEventSource = undefined
+									isLoading = false
+								}
+							}
+						} catch (error) {
+							console.error('Error processing stream event:', error)
+						}
+					}
+
+					eventSource.onerror = (error) => {
+						console.error('EventSource error:', error)
+						messages = messages.map((msg) =>
+							msg.id === assistantMessageId
+								? {
+										...msg,
+										content: accumulatedContent || 'Stream error occurred',
+										loading: false
+									}
+								: msg
+						)
+						eventSource.close()
+						currentEventSource = undefined
+						isLoading = false
+						sendUserToast('Stream error occurred', true)
+					}
+				} catch (error) {
+					console.error('Stream connection error:', error)
+					messages = messages.map((msg) =>
+						msg.id === assistantMessageId
+							? {
+									...msg,
+									content: 'Failed to connect to stream',
+									loading: false
+								}
+							: msg
+					)
+					isLoading = false
+					sendUserToast('Failed to connect to stream', true)
+				}
+			} else {
+				const jobId = await onRunFlow(messageContent, currentConversationId)
+				if (!jobId) {
+					console.error('No jobId returned from onRunFlow')
+					return
+				}
+				pollJobResult(jobId, assistantMessageId)
+			}
+
+			scrollToBottom()
 		} catch (error) {
 			console.error('Error running flow:', error)
 			sendUserToast('Failed to run flow: ' + error, true)
 		} finally {
-			isLoading = false
+			if (!useStreaming) {
+				isLoading = false
+			}
 		}
 
 		if (isNewConversation) {
