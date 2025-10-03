@@ -85,7 +85,7 @@
 			jobKind === 'script' ||
 			isScriptPreview(jobKind) ||
 			jobKind === 'script_hub' ||
-			jobKind === 'singlescriptflow'
+			jobKind === 'singlestepflow'
 		) {
 			return Code
 		} else if (jobKind === 'aiagent') {

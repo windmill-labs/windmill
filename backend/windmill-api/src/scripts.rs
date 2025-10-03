@@ -856,6 +856,16 @@ async fn create_script_internal<'c>(
             schedulables.push(schedule);
         }
 
+        // Update dynamic_skip references when script is renamed
+        sqlx::query!(
+            "UPDATE schedule SET dynamic_skip = $1 WHERE dynamic_skip = $2 AND workspace_id = $3",
+            &ns.path,
+            &p_path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
         for schedule in schedulables {
             clear_schedule(&mut tx, &schedule.path, &w_id).await?;
 

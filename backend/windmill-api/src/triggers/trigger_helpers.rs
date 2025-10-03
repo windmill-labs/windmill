@@ -807,13 +807,18 @@ async fn trigger_script_with_retry_and_error_handler(
             priority,
             apply_preprocessor,
             ..
-        } => JobPayload::SingleScriptFlow {
+        } => JobPayload::SingleStepFlow {
             path,
-            hash,
+            hash: Some(hash),
+            flow_version: None,
             args: HashMap::from(&push_args),
             retry,
             error_handler_path,
             error_handler_args,
+            skip_handler_path: None,
+            skip_handler_args: None,
+            skip_handler_stop_condition: None,
+            skip_handler_stop_message: None,
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,

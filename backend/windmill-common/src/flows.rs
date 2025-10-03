@@ -391,6 +391,8 @@ pub struct FlowModule {
     pub skip_if: Option<SkipIf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub apply_preprocessor: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pass_flow_input_directly: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -605,6 +607,8 @@ pub enum FlowModuleValue {
         tag_override: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pass_flow_input_directly: Option<bool>,
     },
 
     /// Reference to another flow on the workspace
@@ -613,6 +617,8 @@ pub enum FlowModuleValue {
         #[serde(alias = "input_transform")]
         input_transforms: HashMap<String, InputTransform>,
         path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pass_flow_input_directly: Option<bool>,
     },
 
     /// For loop node
@@ -744,6 +750,7 @@ struct UntaggedFlowModuleValue {
     modules_node: Option<FlowNodeId>,
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Vec<FlowModule>>,
+    pass_flow_input_directly: Option<bool>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -762,12 +769,14 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 hash: untagged.hash,
                 tag_override: untagged.tag_override,
                 is_trigger: untagged.is_trigger,
+                pass_flow_input_directly: untagged.pass_flow_input_directly,
             }),
             "flow" => Ok(FlowModuleValue::Flow {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
                 path: untagged
                     .path
                     .ok_or_else(|| serde::de::Error::missing_field("path"))?,
+                pass_flow_input_directly: untagged.pass_flow_input_directly,
             }),
             "forloopflow" => Ok(FlowModuleValue::ForloopFlow {
                 iterator: untagged
@@ -909,6 +918,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             continue_on_error: None,
             skip_if: None,
             apply_preprocessor: None,
+            pass_flow_input_directly: None,
         });
     }
 }
