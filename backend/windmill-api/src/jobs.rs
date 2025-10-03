@@ -18,7 +18,6 @@ use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use serde_json::Value;
 use sqlx::Pool;
-use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::{Deref, DerefMut};
@@ -36,6 +35,7 @@ use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
     DynamicInput, ENTRYPOINT_OVERRIDE,
 };
+use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 use windmill_common::DYNAMIC_INPUT_CACHE;
@@ -101,6 +101,8 @@ use windmill_queue::{
     cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
     PushArgsOwned, PushIsolationLevel,
 };
+
+use crate::flow_conversations::{self, MessageType};
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -1755,6 +1757,7 @@ pub struct RunJobQuery {
     pub cache_ttl: Option<i32>,
     pub skip_preprocessor: Option<bool>,
     pub poll_delay_ms: Option<u64>,
+    pub memory_id: Option<Uuid>,
 }
 
 impl RunJobQuery {
@@ -3526,7 +3529,7 @@ struct Preview {
     tag: Option<String>,
     dedicated_worker: Option<bool>,
     lock: Option<String>,
-    format: Option<String>
+    format: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -3911,6 +3914,87 @@ async fn batch_rerun_handle_job(
     ))
 }
 
+/// Set the memory_id in flow_status for agent memory persistence
+async fn set_flow_memory_id(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    job_id: Uuid,
+    memory_id: Uuid,
+) -> error::Result<()> {
+    sqlx::query!(
+        "UPDATE v2_job_status 
+         SET flow_status = jsonb_set(
+             flow_status,
+             '{memory_id}',
+             to_jsonb($2::uuid)
+         )
+         WHERE id = $1",
+        job_id,
+        memory_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn handle_chat_conversation_messages(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    authed: &ApiAuthed,
+    w_id: &str,
+    flow_path: &str,
+    run_query: &RunJobQuery,
+    args: &PushArgsOwned,
+    uuid: Uuid,
+) -> error::Result<()> {
+    let memory_id = run_query.memory_id.ok_or_else(|| {
+        windmill_common::error::Error::BadRequest(
+            "memory_id is required for chat-enabled flows".to_string(),
+        )
+    })?;
+
+    let user_msg_raw = args.args.get("user_message").ok_or_else(|| {
+        windmill_common::error::Error::BadRequest(
+            "user_message argument is required for chat-enabled flows".to_string(),
+        )
+    })?;
+
+    let user_msg = serde_json::from_str::<String>(user_msg_raw.get())?;
+
+    // Create conversation with provided ID (or get existing one)
+    flow_conversations::get_or_create_conversation_with_id(
+        tx,
+        w_id,
+        flow_path,
+        &authed.username,
+        &user_msg,
+        memory_id,
+    )
+    .await?;
+
+    // Create user message
+    flow_conversations::create_message(
+        tx,
+        memory_id,
+        MessageType::User,
+        &user_msg,
+        None, // No job_id for user message
+        w_id,
+    )
+    .await?;
+
+    // Create placeholder assistant message in the same transaction as the job
+    flow_conversations::create_message(
+        tx,
+        memory_id,
+        MessageType::Assistant,
+        "",         // Empty content, will be updated when job completes
+        Some(uuid), // Associate with the job
+        w_id,
+    )
+    .await?;
+
+    Ok(())
+}
+
 pub async fn run_flow_by_path(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -3957,6 +4041,7 @@ pub async fn run_flow_by_path_inner(
         tag,
         dedicated_worker,
         has_preprocessor,
+        chat_input_enabled,
         on_behalf_of_email,
         edited_by,
         early_return,
@@ -3982,11 +4067,11 @@ pub async fn run_flow_by_path_inner(
                 &authed.email,
                 username_to_permissioned_as(&authed.username),
                 Some(authed.clone().into()),
-                PushIsolationLevel::Isolated(user_db, authed.clone().into()),
+                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
             )
         };
 
-    let (uuid, tx) = push(
+    let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
@@ -3997,7 +4082,7 @@ pub async fn run_flow_by_path_inner(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        PushArgs { args: &args.args, extra: args.extra.clone() },
         authed.display_username(),
         email,
         permissioned_as,
@@ -4020,6 +4105,26 @@ pub async fn run_flow_by_path_inner(
         false,
     )
     .await?;
+
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
+    }
+
+    // Handle conversation messages for chat-enabled flows
+    if chat_input_enabled.unwrap_or(false) {
+        handle_chat_conversation_messages(
+            &mut tx,
+            &authed,
+            &w_id,
+            &flow_path.to_string(),
+            &run_query,
+            &args,
+            uuid,
+        )
+        .await?;
+    }
+
     tx.commit().await?;
     Ok((uuid, early_return))
 }
@@ -5431,6 +5536,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         dedicated_worker,
         early_return,
         has_preprocessor,
+        chat_input_enabled,
         on_behalf_of_email,
         edited_by,
         version,
@@ -5453,11 +5559,11 @@ pub async fn run_wait_result_flow_by_path_internal(
                 &authed.email,
                 username_to_permissioned_as(&authed.username),
                 Some(authed.clone().into()),
-                PushIsolationLevel::Isolated(user_db, authed.clone().into()),
+                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
             )
         };
 
-    let (uuid, tx) = push(
+    let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
@@ -5468,7 +5574,7 @@ pub async fn run_wait_result_flow_by_path_internal(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
         },
-        PushArgs { args: &args.args, extra: args.extra },
+        PushArgs { args: &args.args, extra: args.extra.clone() },
         authed.display_username(),
         email,
         permissioned_as,
@@ -5491,6 +5597,26 @@ pub async fn run_wait_result_flow_by_path_internal(
         false,
     )
     .await?;
+
+    // Set conversation_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
+    }
+
+    // Handle conversation messages for chat-enabled flows
+    if chat_input_enabled.unwrap_or(false) {
+        handle_chat_conversation_messages(
+            &mut tx,
+            &authed,
+            &w_id,
+            &flow_path.to_string(),
+            &run_query,
+            &args,
+            uuid,
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
@@ -5591,7 +5717,6 @@ async fn run_wait_result_preview_script(
     return result;
 }
 
-
 async fn run_bundle_preview_script(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -5600,7 +5725,6 @@ async fn run_bundle_preview_script(
     Query(run_query): Query<RunJobQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> error::Result<(StatusCode, String)> {
-
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
@@ -5619,7 +5743,10 @@ async fn run_bundle_preview_script(
         let data = data.map_err(to_anyhow)?;
         if name == "preview" {
             let preview: Preview = serde_json::from_slice(&data).map_err(to_anyhow)?;
-            format = preview.format.and_then(|s| BundleFormat::from_string(&s)).unwrap_or(BundleFormat::Cjs);
+            format = preview
+                .format
+                .and_then(|s| BundleFormat::from_string(&s))
+                .unwrap_or(BundleFormat::Cjs);
 
             let scheduled_for = run_query.get_scheduled_for(&db).await?;
             let tag = run_query.tag.clone().or(preview.tag.clone());
@@ -5640,7 +5767,10 @@ async fn run_bundle_preview_script(
                 ltx,
                 &w_id,
                 JobPayload::Code(RawCode {
-                    hash: Some(windmill_common::scripts::codebase_to_hash(is_tar, format == BundleFormat::Esm)),
+                    hash: Some(windmill_common::scripts::codebase_to_hash(
+                        is_tar,
+                        format == BundleFormat::Esm,
+                    )),
                     content: preview.content.unwrap_or_default(),
                     path: preview.path,
                     language: preview.language.unwrap_or(ScriptLang::Deno),
@@ -5699,7 +5829,12 @@ async fn run_bundle_preview_script(
             uploaded = true;
 
             let path = windmill_common::s3_helpers::bundle(&w_id, &id);
-            upload_artifact_to_store(&path, data, &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR).await?;
+            upload_artifact_to_store(
+                &path,
+                data,
+                &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+            )
+            .await?;
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
     }

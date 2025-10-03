@@ -9,6 +9,7 @@
 		noHeader?: boolean
 		flowModuleValue?: FlowModuleValue | undefined
 		header?: import('svelte').Snippet
+		action?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 		isAgentTool?: boolean
 	}
@@ -20,6 +21,7 @@
 		noHeader = false,
 		flowModuleValue = undefined,
 		header,
+		action,
 		children,
 		isAgentTool = false
 	}: Props = $props()
@@ -28,7 +30,15 @@
 <div class="flex flex-col h-full">
 	{#if !noEditor && !noHeader}
 		<div>
-			<FlowCardHeader on:setHash on:reload {title} bind:summary {flowModuleValue} {isAgentTool}>
+			<FlowCardHeader
+				on:setHash
+				on:reload
+				{title}
+				bind:summary
+				{flowModuleValue}
+				{action}
+				{isAgentTool}
+			>
 				{@render header?.()}
 			</FlowCardHeader>
 		</div>

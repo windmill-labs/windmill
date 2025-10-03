@@ -87,6 +87,7 @@ pub mod ee;
 pub mod ee_oss;
 pub mod embeddings;
 mod favorite;
+mod flow_conversations;
 pub mod flows;
 mod folders;
 mod granular_acls;
@@ -443,6 +444,10 @@ pub async fn run_server(
                         .nest("/drafts", drafts::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest(
+                            "/flow_conversations",
+                            flow_conversations::workspaced_service(),
+                        )
                         .nest("/folders", folders::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
