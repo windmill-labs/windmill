@@ -117,13 +117,12 @@
 		<div class="flex flex-col w-full">
 			<div
 				style={borderColor ? `border-color: ${borderColor};` : 'border: 0'}
-				class="flex flex-row gap-1 justify-between {center
+				class="flex flex-row justify-between {center
 					? 'items-center'
 					: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400 dark:border-gray-600"
 			>
 				{#if icon}
 					{@render icon?.()}
-					<span class="mr-2"></span>
 				{/if}
 				<div class="flex flex-col flex-grow shrink-0 max-w-full min-w-0">
 					{#if label}

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE flow_conversation_message\n                    SET content = $1\n                    WHERE job_id = $2\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "20888e946a5597989488e2a54e354e4ce2872f2bc3af7b26fcaafe8703ba70bf"
+}
