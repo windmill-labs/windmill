@@ -16,7 +16,7 @@
 		conversationId?: string
 		deploymentInProgress?: boolean
 		createConversation: (options: { clearMessages?: boolean }) => Promise<string>
-		path: string
+		path?: string
 	}
 
 	interface ChatMessage extends FlowConversationMessage {
@@ -275,7 +275,7 @@
 
 			messages = [...messages, assistantMessage]
 
-			if (useStreaming) {
+			if (useStreaming && path) {
 				// Close any existing EventSource
 				if (currentEventSource) {
 					currentEventSource.close()

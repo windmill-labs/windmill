@@ -480,7 +480,8 @@
 	let mainButtons = $derived(getMainButtons(flow, args))
 	let chatInputEnabled = $derived(flow?.value?.chat_input_enabled ?? false)
 	let shouldUseStreaming = $derived.by(() => {
-		const lastModule = flow?.value?.modules?.at(-1)
+		const modules = flow?.value?.modules
+		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
 		return (
 			lastModule?.value?.type === 'aiagent' &&
 			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
