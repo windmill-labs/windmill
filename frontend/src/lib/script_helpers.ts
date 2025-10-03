@@ -522,7 +522,7 @@ const FETCH_INIT_CODE = `export async function main(
 	return await fetch(url, requestOptions)
 		.then((res) => res.json())
 		.catch(() => {
-			throw new Error('An error occured')
+			throw new Error('An error occurred')
 		})
 }`
 
@@ -987,7 +987,7 @@ docker pull $IMAGE
 docker run --name $WM_JOB_ID -it -d $IMAGE $COMMAND
 `
 
-const POWERSHELL_INIT_CODE = `param($Msg, $Dflt = "default value", [int]$Nb = 3)
+const POWERSHELL_INIT_CODE = `param($Msg, [string[]]$Names, [PSCustomObject]$Obj, $Dflt = "default value", [int]$Nb = 3)
 
 # Import-Module MyModule
 
@@ -1251,8 +1251,8 @@ export const INITIAL_CODE = {
 	},
 	ruby: {
 		script: RUBY_INIT_CODE
-	},
-	// for related places search: ADD_NEW_LANG 
+	}
+	// for related places search: ADD_NEW_LANG
 }
 
 export function isInitialCode(content: string): boolean {
@@ -1362,7 +1362,7 @@ export function initialCode(
 		return INITIAL_CODE.java.script
 	} else if (language == 'ruby') {
 		return INITIAL_CODE.ruby.script
-		// for related places search: ADD_NEW_LANG 
+		// for related places search: ADD_NEW_LANG
 	} else if (language == 'bun' || language == 'bunnative') {
 		if (kind == 'trigger') {
 			return INITIAL_CODE.bun.trigger

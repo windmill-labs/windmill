@@ -70,7 +70,7 @@
 		>
 			<span class="text-base">
 				{error != undefined
-					? 'Error occured'
+					? 'Error occurred'
 					: finished
 						? 'Done'
 						: hideStepTitle

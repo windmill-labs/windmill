@@ -1,5 +1,9 @@
 import { log, yamlParseFile, Confirm, yamlStringify } from "../../deps.ts";
-import { getCurrentGitBranch, getOriginalBranchForWorkspaceForks, isGitRepository } from "../utils/git.ts";
+import {
+  getCurrentGitBranch,
+  getOriginalBranchForWorkspaceForks,
+  isGitRepository,
+} from "../utils/git.ts";
 import { join, dirname, resolve, relative } from "node:path";
 import { existsSync } from "node:fs";
 import { execSync } from "node:child_process";
@@ -32,6 +36,7 @@ export interface SyncOptions {
   includeGroups?: boolean;
   includeSettings?: boolean;
   includeKey?: boolean;
+  skipBranchValidation?: boolean;
   message?: string;
   includes?: string[];
   extraIncludes?: string[];
@@ -94,13 +99,14 @@ export interface Codebase {
   external?: string[];
   define?: { [key: string]: string };
   inject?: string[];
+  format?: "cjs" | "esm";
 }
 
 function getGitRepoRoot(): string | null {
   try {
     const result = execSync("git rev-parse --show-toplevel", {
       encoding: "utf8",
-      stdio: "pipe"
+      stdio: "pipe",
     });
     return result.trim();
   } catch (error) {
@@ -182,34 +188,45 @@ export async function readConfigFile(): Promise<SyncOptions> {
     const migrationMessages: string[] = [];
 
     // Handle obsolete overrides format
-    if (conf && 'overrides' in conf) {
+    if (conf && "overrides" in conf) {
       const overrides = conf.overrides as any;
-      const hasSettings = overrides && typeof overrides === 'object' && Object.keys(overrides).length > 0;
+      const hasSettings =
+        overrides &&
+        typeof overrides === "object" &&
+        Object.keys(overrides).length > 0;
 
       if (hasSettings) {
         throw new Error(
           "❌ The 'overrides' field is no longer supported.\n" +
-          "   The configuration system now uses Git branch-based configuration only.\n" +
-          "   Please delete your wmill.yaml and run 'wmill init' to recreate it with the new format."
+            "   The configuration system now uses Git branch-based configuration only.\n" +
+            "   Please delete your wmill.yaml and run 'wmill init' to recreate it with the new format."
         );
       } else {
         // Remove empty overrides
         delete conf.overrides;
         needsConfigWrite = true;
-        migrationMessages.push("ℹ️  Removing empty 'overrides: {}' from wmill.yaml (migrated to gitBranches format)");
+        migrationMessages.push(
+          "ℹ️  Removing empty 'overrides: {}' from wmill.yaml (migrated to gitBranches format)"
+        );
       }
     }
 
     // Handle git_branches to gitBranches migration
-    if (conf && 'git_branches' in conf) {
+    if (conf && "git_branches" in conf) {
       if (!conf.gitBranches) {
         // Deep copy git_branches to gitBranches (even if empty)
         conf.gitBranches = JSON.parse(JSON.stringify(conf.git_branches));
         needsConfigWrite = true;
-        migrationMessages.push("⚠️  Migrating 'git_branches' to 'gitBranches' (camelCase). The snake_case format is deprecated.");
-        migrationMessages.push("✅ Successfully migrated 'git_branches' to 'gitBranches' in wmill.yaml");
+        migrationMessages.push(
+          "⚠️  Migrating 'git_branches' to 'gitBranches' (camelCase). The snake_case format is deprecated."
+        );
+        migrationMessages.push(
+          "✅ Successfully migrated 'git_branches' to 'gitBranches' in wmill.yaml"
+        );
       } else {
-        migrationMessages.push("⚠️  Both 'git_branches' and 'gitBranches' found in wmill.yaml. Using 'gitBranches' and ignoring 'git_branches'.");
+        migrationMessages.push(
+          "⚠️  Both 'git_branches' and 'gitBranches' found in wmill.yaml. Using 'gitBranches' and ignoring 'git_branches'."
+        );
       }
       // Always remove the old field from config object (both file and memory)
       delete conf.git_branches;
@@ -220,20 +237,24 @@ export async function readConfigFile(): Promise<SyncOptions> {
       try {
         await Deno.writeTextFile(wmillYamlPath, yamlStringify(conf));
         // Log all migration messages after successful write
-        migrationMessages.forEach(msg => {
-          if (msg.startsWith('⚠️')) {
+        migrationMessages.forEach((msg) => {
+          if (msg.startsWith("⚠️")) {
             log.warn(msg);
           } else {
             log.info(msg);
           }
         });
       } catch (error) {
-        log.warn(`Could not update wmill.yaml to apply migrations: ${error instanceof Error ? error.message : error}`);
+        log.warn(
+          `Could not update wmill.yaml to apply migrations: ${
+            error instanceof Error ? error.message : error
+          }`
+        );
       }
     } else if (migrationMessages.length > 0) {
       // Log messages for non-write cases (like "both found")
-      migrationMessages.forEach(msg => {
-        if (msg.startsWith('⚠️')) {
+      migrationMessages.forEach((msg) => {
+        if (msg.startsWith("⚠️")) {
           log.warn(msg);
         } else {
           log.info(msg);
@@ -248,38 +269,66 @@ export async function readConfigFile(): Promise<SyncOptions> {
     }
     return typeof conf == "object" ? conf : ({} as SyncOptions);
   } catch (e) {
-    if (e instanceof Error && (e.message.includes("overrides") || e.message.includes("Obsolete configuration format"))) {
+    if (
+      e instanceof Error &&
+      (e.message.includes("overrides") ||
+        e.message.includes("Obsolete configuration format"))
+    ) {
       throw e; // Re-throw the specific obsolete format error
     }
 
     // Since we already found the file path, this is likely a parsing or access error
     if (e instanceof Error && e.message.includes("Error parsing yaml")) {
-      const yamlError = e.cause instanceof Error ? e.cause.message : String(e.cause);
+      const yamlError =
+        e.cause instanceof Error ? e.cause.message : String(e.cause);
       throw new Error(
         "❌ YAML syntax error in wmill.yaml:\n" +
-        "   " + yamlError + "\n" +
-        "   Please fix the YAML syntax in wmill.yaml or delete the file to start fresh."
+          "   " +
+          yamlError +
+          "\n" +
+          "   Please fix the YAML syntax in wmill.yaml or delete the file to start fresh."
       );
     } else {
       // File exists but has other issues (permissions, etc.)
       throw new Error(
         "❌ Failed to read wmill.yaml:\n" +
-        "   " + (e instanceof Error ? e.message : String(e)) + "\n" +
-        "   Please check file permissions or fix the syntax."
+          "   " +
+          (e instanceof Error ? e.message : String(e)) +
+          "\n" +
+          "   Please check file permissions or fix the syntax."
       );
     }
   }
 }
 
 // Default sync options - shared across the codebase to prevent duplication
-export const DEFAULT_SYNC_OPTIONS: Readonly<Required<Pick<SyncOptions,
-  'defaultTs' | 'includes' | 'excludes' | 'codebases' | 'skipVariables' | 'skipResources' |
-  'skipResourceTypes' | 'skipSecrets' | 'includeSchedules' | 'includeTriggers' |
-  'skipScripts' | 'skipFlows' | 'skipApps' | 'skipFolders' |
-  'includeUsers' | 'includeGroups' | 'includeSettings' | 'includeKey'
->>> = {
-  defaultTs: 'bun',
-  includes: ['f/**'],
+export const DEFAULT_SYNC_OPTIONS: Readonly<
+  Required<
+    Pick<
+      SyncOptions,
+      | "defaultTs"
+      | "includes"
+      | "excludes"
+      | "codebases"
+      | "skipVariables"
+      | "skipResources"
+      | "skipResourceTypes"
+      | "skipSecrets"
+      | "includeSchedules"
+      | "includeTriggers"
+      | "skipScripts"
+      | "skipFlows"
+      | "skipApps"
+      | "skipFolders"
+      | "includeUsers"
+      | "includeGroups"
+      | "includeSettings"
+      | "includeKey"
+    >
+  >
+> = {
+  defaultTs: "bun",
+  includes: ["f/**"],
   excludes: [],
   codebases: [],
   skipVariables: false,
@@ -295,7 +344,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<Required<Pick<SyncOptions,
   includeUsers: false,
   includeGroups: false,
   includeSettings: false,
-  includeKey: false
+  includeKey: false,
 } as const;
 
 export async function mergeConfigWithConfigFile<T>(
@@ -306,8 +355,10 @@ export async function mergeConfigWithConfigFile<T>(
 }
 
 // Validate branch configuration early in the process
-export async function validateBranchConfiguration(skipValidation?: boolean, autoAccept?: boolean): Promise<void> {
-  if (skipValidation || !isGitRepository()) {
+export async function validateBranchConfiguration(
+  opts: Pick<SyncOptions, "skipBranchValidation" | "yes">
+): Promise<void> {
+  if (opts.skipBranchValidation || !isGitRepository()) {
     return;
   }
 
@@ -320,7 +371,9 @@ export async function validateBranchConfiguration(skipValidation?: boolean, auto
 
   let currentBranch: string | null;
   if (originalBranchIfForked) {
-    log.info(`Workspace fork detected from branch name \`${rawBranch}\`. Validating branch configuration using original branch \`${originalBranchIfForked}\``);
+    log.info(
+      `Workspace fork detected from branch name \`${rawBranch}\`. Validating branch configuration using original branch \`${originalBranchIfForked}\``
+    );
     currentBranch = originalBranchIfForked;
   } else {
     currentBranch = rawBranch;
@@ -330,8 +383,8 @@ export async function validateBranchConfiguration(skipValidation?: boolean, auto
   if (!gitBranches || Object.keys(gitBranches).length === 0) {
     log.warn(
       "⚠️  WARNING: In a Git repository, the 'gitBranches' section is recommended in wmill.yaml.\n" +
-      "   Consider adding a gitBranches section with configuration for your Git branches.\n" +
-      "   Run 'wmill init' to recreate the configuration file with proper branch setup."
+        "   Consider adding a gitBranches section with configuration for your Git branches.\n" +
+        "   Run 'wmill init' to recreate the configuration file with proper branch setup."
     );
     return;
   }
@@ -340,24 +393,35 @@ export async function validateBranchConfiguration(skipValidation?: boolean, auto
   if (currentBranch && !gitBranches[currentBranch]) {
     // In interactive mode, offer to create the branch
     if (Deno.stdin.isTerminal()) {
-      const availableBranches = Object.keys(gitBranches).join(', ');
+      const availableBranches = Object.keys(gitBranches).join(", ");
       log.info(
         `Current Git branch '${currentBranch}' is not defined in the gitBranches configuration.\n` +
-        `Available branches: ${availableBranches}`
+          `Available branches: ${availableBranches}`
       );
 
-      const shouldCreate = autoAccept || await Confirm.prompt({
-        message: `Create empty branch configuration for '${currentBranch}'?`,
-        default: true,
-      });
+      const shouldCreate =
+        opts.yes ||
+        (await Confirm.prompt({
+          message: `Create empty branch configuration for '${currentBranch}'?`,
+          default: true,
+        }));
 
       if (shouldCreate) {
         // Warn if branch name contains filesystem-unsafe characters
         if (/[\/\\:*?"<>|.]/.test(currentBranch)) {
-          const sanitizedBranchName = currentBranch.replace(/[\/\\:*?"<>|.]/g, '_');
-          log.warn(`⚠️  WARNING: Branch name "${currentBranch}" contains filesystem-unsafe characters (/ \\ : * ? " < > | .).`);
-          log.warn(`   Branch-specific files will be saved with sanitized name: "${sanitizedBranchName}"`);
-          log.warn(`   Example: "file.variable.yaml" → "file.${sanitizedBranchName}.variable.yaml"`);
+          const sanitizedBranchName = currentBranch.replace(
+            /[\/\\:*?"<>|.]/g,
+            "_"
+          );
+          log.warn(
+            `⚠️  WARNING: Branch name "${currentBranch}" contains filesystem-unsafe characters (/ \\ : * ? " < > | .).`
+          );
+          log.warn(
+            `   Branch-specific files will be saved with sanitized name: "${sanitizedBranchName}"`
+          );
+          log.warn(
+            `   Example: "file.variable.yaml" → "file.${sanitizedBranchName}.variable.yaml"`
+          );
         }
 
         // Read current config, add branch, and write it back
@@ -370,23 +434,34 @@ export async function validateBranchConfiguration(skipValidation?: boolean, auto
 
         await Deno.writeTextFile("wmill.yaml", yamlStringify(currentConfig));
 
-        log.info(`✅ Created empty branch configuration for '${currentBranch}'`);
+        log.info(
+          `✅ Created empty branch configuration for '${currentBranch}'`
+        );
       } else {
-        log.warn("⚠️  WARNING: Branch creation cancelled. You can manually add the branch to wmill.yaml or use 'wmill gitsync-settings pull' to pull configuration from an existing windmill workspace git-sync configuration.");
+        log.warn(
+          "⚠️  WARNING: Branch creation cancelled. You can manually add the branch to wmill.yaml or use 'wmill gitsync-settings pull' to pull configuration from an existing windmill workspace git-sync configuration."
+        );
         return;
       }
     } else {
       // Warn about filesystem-unsafe characters in branch name
       if (/[\/\\:*?"<>|.]/.test(currentBranch)) {
-        const sanitizedBranchName = currentBranch.replace(/[\/\\:*?"<>|.]/g, '_');
-        log.warn(`⚠️  WARNING: Branch name "${currentBranch}" contains filesystem-unsafe characters (/ \\ : * ? " < > | .).`);
-        log.warn(`   Branch-specific files will use sanitized name: "${sanitizedBranchName}"`);
+        const sanitizedBranchName = currentBranch.replace(
+          /[\/\\:*?"<>|.]/g,
+          "_"
+        );
+        log.warn(
+          `⚠️  WARNING: Branch name "${currentBranch}" contains filesystem-unsafe characters (/ \\ : * ? " < > | .).`
+        );
+        log.warn(
+          `   Branch-specific files will use sanitized name: "${sanitizedBranchName}"`
+        );
       }
-      
+
       log.warn(
         `⚠️  WARNING: Current Git branch '${currentBranch}' is not defined in the gitBranches configuration.\n` +
-        `   Consider adding configuration for branch '${currentBranch}' in the gitBranches section of wmill.yaml.\n` +
-        `   Available branches: ${Object.keys(gitBranches).join(', ')}`
+          `   Consider adding configuration for branch '${currentBranch}' in the gitBranches section of wmill.yaml.\n` +
+          `   Available branches: ${Object.keys(gitBranches).join(", ")}`
       );
       return;
     }
@@ -394,7 +469,12 @@ export async function validateBranchConfiguration(skipValidation?: boolean, auto
 }
 
 // Get effective settings by merging top-level settings with branch-specific overrides
-export async function getEffectiveSettings(config: SyncOptions, promotion?: string, skipBranchValidation?: boolean, suppressLogs?: boolean): Promise<SyncOptions> {
+export async function getEffectiveSettings(
+  config: SyncOptions,
+  promotion?: string,
+  skipBranchValidation?: boolean,
+  suppressLogs?: boolean
+): Promise<SyncOptions> {
   // Start with top-level settings from config
   const { gitBranches, ...topLevelSettings } = config;
   const effective = { ...topLevelSettings };
@@ -406,10 +486,12 @@ export async function getEffectiveSettings(config: SyncOptions, promotion?: stri
 
     let currentBranch: string | null;
     if (originalBranchIfForked) {
-      log.info(`Using overrides from original branch \`${originalBranchIfForked}\``);
+      log.info(
+        `Using overrides from original branch \`${originalBranchIfForked}\``
+      );
       currentBranch = originalBranchIfForked;
     } else {
-      currentBranch = branch
+      currentBranch = branch;
     }
 
     // If promotion is specified, use that branch's promotionOverrides or overrides
@@ -425,21 +507,36 @@ export async function getEffectiveSettings(config: SyncOptions, promotion?: stri
       } else if (targetBranch.overrides) {
         Object.assign(effective, targetBranch.overrides);
         if (!suppressLogs) {
-          log.info(`Applied settings from branch: ${promotion} (no promotionOverrides found)`);
+          log.info(
+            `Applied settings from branch: ${promotion} (no promotionOverrides found)`
+          );
         }
       } else {
-        log.debug(`No promotion or regular overrides found for branch '${promotion}', using top-level settings`);
+        log.debug(
+          `No promotion or regular overrides found for branch '${promotion}', using top-level settings`
+        );
       }
     }
     // Otherwise use current branch overrides (existing behavior)
-    else if (currentBranch && gitBranches && gitBranches[currentBranch] && gitBranches[currentBranch].overrides) {
+    else if (
+      currentBranch &&
+      gitBranches &&
+      gitBranches[currentBranch] &&
+      gitBranches[currentBranch].overrides
+    ) {
       Object.assign(effective, gitBranches[currentBranch].overrides);
       if (!suppressLogs) {
-        const extraLog = originalBranchIfForked ? ` (because it is the origin of the workspace fork branch \`${branch}\`)` : "";
-        log.info(`Applied settings for Git branch: ${currentBranch}${extraLog}`);
+        const extraLog = originalBranchIfForked
+          ? ` (because it is the origin of the workspace fork branch \`${branch}\`)`
+          : "";
+        log.info(
+          `Applied settings for Git branch: ${currentBranch}${extraLog}`
+        );
       }
     } else if (currentBranch) {
-      log.debug(`No branch-specific overrides found for '${currentBranch}', using top-level settings`);
+      log.debug(
+        `No branch-specific overrides found for '${currentBranch}', using top-level settings`
+      );
     }
   } else {
     log.debug("Not in a Git repository, using top-level settings");

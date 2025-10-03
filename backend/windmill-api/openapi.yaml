@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.552.1
+  version: 1.554.1
   title: Windmill API
 
   contact:
@@ -5727,6 +5727,12 @@ paths:
         - $ref: "#/components/parameters/QueueLimit"
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: memory_id
+          description: memory ID for chat-enabled flows
+          in: query
+          schema:
+            type: string
+            format: uuid
 
       requestBody:
         description: script args
@@ -5742,6 +5748,230 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/jobs/run_and_stream/f/{path}:
+    post:
+      summary: run flow by path and stream updates via SSE
+      operationId: runAndStreamFlowByPath
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: memory_id
+          description: memory ID for chat-enabled flows
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: poll_delay_ms
+          description: delay between polling for job updates in milliseconds
+          in: query
+          schema:
+            type: integer
+            format: int64
+
+      requestBody:
+        description: flow args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+    get:
+      summary: run flow by path with GET and stream updates via SSE
+      operationId: runAndStreamFlowByPathGet
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/Payload"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: memory_id
+          description: memory ID for chat-enabled flows
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: poll_delay_ms
+          description: delay between polling for job updates in milliseconds
+          in: query
+          schema:
+            type: integer
+            format: int64
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs/run_and_stream/p/{path}:
+    post:
+      summary: run script by path and stream updates via SSE
+      operationId: runAndStreamScriptByPath
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: poll_delay_ms
+          description: delay between polling for job updates in milliseconds
+          in: query
+          schema:
+            type: integer
+            format: int64
+
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+    get:
+      summary: run script by path with GET and stream updates via SSE
+      operationId: runAndStreamScriptByPathGet
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/Payload"
+        - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: poll_delay_ms
+          description: delay between polling for job updates in milliseconds
+          in: query
+          schema:
+            type: integer
+            format: int64
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs/run_and_stream/h/{hash}:
+    post:
+      summary: run script by hash and stream updates via SSE
+      operationId: runAndStreamScriptByHash
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: poll_delay_ms
+          description: delay between polling for job updates in milliseconds
+          in: query
+          schema:
+            type: integer
+            format: int64
+
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+    get:
+      summary: run script by hash with GET and stream updates via SSE
+      operationId: runAndStreamScriptByHashGet
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/Payload"
+        - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: poll_delay_ms
+          description: delay between polling for job updates in milliseconds
+          in: query
+          schema:
+            type: integer
+            format: int64
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
 
   /w/{workspace}/jobs/result_by_id/{flow_job_id}/{node_id}:
     get:
@@ -6249,6 +6479,81 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/flow_conversations/list:
+    get:
+      summary: list flow conversations
+      operationId: listFlowConversations
+      tags:
+        - flow_conversation
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: flow_path
+          description: filter conversations by flow path
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: flow conversations list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowConversation"
+
+  /w/{workspace}/flow_conversations/delete/{conversation_id}:
+    delete:
+      summary: delete flow conversation
+      operationId: deleteFlowConversation
+      tags:
+        - flow_conversation
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: conversation_id
+          description: conversation id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: flow conversation deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/flow_conversations/{conversation_id}/messages:
+    get:
+      summary: list conversation messages
+      operationId: listConversationMessages
+      tags:
+        - flow_conversation
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: conversation_id
+          description: conversation id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: conversation messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowConversationMessage"
 
   /w/{workspace}/raw_apps/list:
     get:
@@ -7122,6 +7427,12 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: memory_id
+          description: memory ID for chat-enabled flows
+          in: query
+          schema:
+            type: string
+            format: uuid
       requestBody:
         description: flow args
         required: true
@@ -14438,6 +14749,66 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatusModule"
     # -- INLINE END --
     # Do not change line above
+
+    FlowConversation:
+      type: object
+      required:
+        [id, workspace_id, flow_path, created_at, updated_at, created_by]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the conversation
+        workspace_id:
+          type: string
+          description: The workspace ID where the conversation belongs
+        flow_path:
+          type: string
+          description: Path of the flow this conversation is for
+        title:
+          type: string
+          description: Optional title for the conversation
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the conversation was created
+        updated_at:
+          type: string
+          format: date-time
+          description: When the conversation was last updated
+        created_by:
+          type: string
+          description: Username who created the conversation
+
+    FlowConversationMessage:
+      type: object
+      required: [id, conversation_id, message_type, content, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the message
+        conversation_id:
+          type: string
+          format: uuid
+          description: The conversation this message belongs to
+        message_type:
+          type: string
+          enum: [user, assistant, system]
+          description: Type of the message
+        content:
+          type: string
+          description: The message content
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Associated job ID if this message came from a flow run
+        created_at:
+          type: string
+          format: date-time
+          description: When the message was created
 
     EndpointTool:
       type: object

@@ -193,6 +193,7 @@
 						{openConnection}
 						isOpen={!!$connectingInput.opened}
 						btnWrapperClasses={'h-6 w-8 opacity-0 group-hover:opacity-100 transition-opacity'}
+						id="schema-plug-{key}"
 					/>
 					<ToggleButtonGroup
 						class="h-6"

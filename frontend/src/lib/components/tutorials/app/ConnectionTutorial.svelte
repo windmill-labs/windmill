@@ -68,12 +68,12 @@
 			}
 		},
 		{
-			element: '#plug',
+			element: '[data-connection-button] button[title="Connect"]',
 			popover: {
 				title: 'Connect the text component',
 				description: 'Click on the plug icon to connect the text component',
 				onNextClick: () => {
-					clickButtonBySelector('#plug')
+					clickButtonBySelector('[data-connection-button] button[title="Connect"]')
 					setTimeout(() => {
 						driver.moveNext()
 					})

@@ -1242,14 +1242,14 @@ pub async fn update_flow_status_after_job_completion_internal(
                 if let Some(t) = tag {
                     tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
                 }
-            } else if let Some(ck) = concurrency_key {
+            } else if concurrent_limit.is_some() {
                 let mut tx = db.begin().await?;
                 insert_concurrency_key(
                     &flow_job.workspace_id,
                     &PushArgs::from(&HashMap::new()),
                     &flow_job.runnable_path,
                     JobKind::Flow,
-                    Some(ck),
+                    concurrency_key,
                     &mut tx,
                     flow,
                 )
