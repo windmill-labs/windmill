@@ -285,7 +285,7 @@
 				let accumulatedContent = ''
 
 				try {
-					// Encode the payload as base64 for GET request (EventSource only supports GET)
+					// Encode the payload as base64
 					const payload = { user_message: messageContent }
 					const payloadBase64 = btoa(JSON.stringify(payload))
 
@@ -312,14 +312,21 @@
 									// Update message content
 									messages = messages.map((msg) =>
 										msg.id === assistantMessageId
-											? { ...msg, content: accumulatedContent, loading: false }
+											? {
+													...msg,
+													content: accumulatedContent,
+													loading: accumulatedContent.length === 0
+												}
 											: msg
 									)
 								}
 
 								// Handle completion
 								if (data.completed && data.only_result) {
-									const finalContent = data.only_result.output || accumulatedContent
+									const finalContent =
+										data.only_result.output ||
+										accumulatedContent ||
+										JSON.stringify(data.only_result.error)
 									messages = messages.map((msg) =>
 										msg.id === assistantMessageId
 											? {
