@@ -7,12 +7,12 @@
 	interface Props {
 		workspace: string
 		user: UserExt | undefined
-		version: number
+		secret: string | undefined
 		path: string
 		runnables: Record<string, HiddenRunnable>
 	}
 
-	let { workspace, user, version, path, runnables }: Props = $props()
+	let { workspace, user, secret, path, runnables }: Props = $props()
 
 	let iframe = $state() as HTMLIFrameElement | undefined
 </script>
@@ -22,6 +22,6 @@
 <iframe
 	bind:this={iframe}
 	title="raw-app"
-	srcDoc={htmlContent(workspace, version, { ctx: user, workspace })}
+	srcDoc={htmlContent(workspace, secret, { ctx: user, workspace })}
 	class="w-full h-full min-h-screen bg-white border-none"
 ></iframe>

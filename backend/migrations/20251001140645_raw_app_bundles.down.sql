@@ -1,2 +1,2 @@
 -- Add down migration script here
-DROP TABLE raw_app_bundles;
+DROP TABLE app_bundles;

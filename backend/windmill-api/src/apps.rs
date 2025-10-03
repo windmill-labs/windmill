@@ -88,6 +88,10 @@ pub fn workspaced_service() -> Router {
         .route("/get/lite/*path", get(get_app_lite))
         .route("/get/draft/*path", get(get_app_w_draft))
         .route("/secret_of/*path", get(get_secret_id))
+        .route(
+            "/secret_of_latest_version/*path",
+            get(get_latest_version_secret_id),
+        )
         .route("/get/v/*id", get(get_app_by_id))
         .route("/get_data/v/*id", get(get_raw_app_data))
         .route("/exists/*path", get(exists_app))
@@ -390,56 +394,80 @@ async fn list_apps(
 }
 
 async fn get_raw_app_data(
-    Path((w_id, secret_with_ext)): Path<(String, String)>, 
-    Extension(db): Extension<DB>) -> Result<Response> {
+    Path((w_id, secret_with_ext)): Path<(String, String)>,
+    Extension(db): Extension<DB>,
+) -> Result<Response> {
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let object_store = windmill_common::s3_helpers::get_object_store().await;
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     let object_store: Option<()> = None;
-    
-    let mut splitted = secret_with_ext.split(".");
+
+    // tracing::info!("secret_with_ext: {}", secret_with_ext);
+    let mut splitted = secret_with_ext.split('.');
     let secret_id = splitted.next().unwrap_or("");
-    let id = get_id_from_secret(&db, &w_id, secret_id.to_string()).await?;
-    
-    let file_type = if splitted.next().unwrap_or("") == "css" {
+
+    if secret_id.is_empty() {
+        return Err(Error::BadRequest("Invalid secret".to_string()));
+    }
+
+    let id = get_id_from_secret(
+        &db,
+        &w_id,
+        secret_id.to_string(),
+        Some(BUNDLE_SECRET_PREFIX),
+    )
+    .await?;
+
+    let file_type = splitted.next().unwrap_or("");
+    let file_type = if file_type == "css" {
         "css"
-    } else if splitted.next().unwrap_or("") == "js" {
+    } else if file_type == "js" {
         "js"
     } else {
-        return Err(Error::BadRequest("Invalid file type, only .css and .js are supported".to_string()));
+        return Err(Error::BadRequest(
+            "Invalid file type, only .css and .js are supported".to_string(),
+        ));
     };
+    // tracing::info!("file_type: {}", file_type);
     let path = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
 
     #[allow(unused_assignments)]
     let mut body: Option<Body> = None;
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = object_store {
-        let stream = os.get(&object_store::path::Path::from(path)).await?.bytes().await?;
+        let stream = os
+            .get(&object_store::path::Path::from(path))
+            .await?
+            .bytes()
+            .await?;
+        tracing::info!("stream: {}", stream.len());
         body = Some(Body::from(stream));
-    } else {
-        return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
     }
 
     if body.is_none() {
         let get_raw_app_file = sqlx::query_scalar!(
-            "SELECT data FROM raw_app_bundles WHERE app_id = $1 AND file_type = $2",
+            "SELECT data FROM app_bundles WHERE app_version_id = $1 AND file_type = $2 AND w_id = $3",
             id,
             file_type,
+            &w_id,
         )
         .fetch_optional(&db)
         .await?;
-        body = Some(Body::from(get_raw_app_file.unwrap()));
+        if let Some(file) = get_raw_app_file {
+            body = Some(Body::from(file));
+        }
     }
 
     if let Some(body) = body {
-    // let stream = tokio_util::io::ReaderStream::new(file);
+        // let stream = tokio_util::io::ReaderStream::new(file);
         let res = Response::builder().header(
             http::header::CONTENT_TYPE,
             if file_type == "css" {
                 "text/css"
             } else {
                 "text/javascript"
-            });
+            },
+        );
         Ok(res.body(body).unwrap())
     } else {
         return Err(Error::NotFound("File not found".to_string()));
@@ -734,7 +762,7 @@ async fn get_public_app_by_secret(
     Extension(db): Extension<DB>,
     Path((w_id, secret)): Path<(String, String)>,
 ) -> JsonResult<AppWithLastVersion> {
-    let id = get_id_from_secret(&db, &w_id, secret).await?;
+    let id = get_id_from_secret(&db, &w_id, secret, None).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
@@ -782,12 +810,23 @@ async fn get_public_app_by_secret(
     Ok(Json(app))
 }
 
-async fn get_id_from_secret(db: &DB, w_id: &str, secret: String) -> Result<i64> {
+async fn get_id_from_secret(
+    db: &DB,
+    w_id: &str,
+    secret: String,
+    prefix: Option<&str>,
+) -> Result<i64> {
     let mc = build_crypt(db, w_id).await?;
     let decrypted = mc
         .decrypt_bytes_to_bytes(&(hex::decode(secret)?))
         .map_err(|e| Error::internal_err(e.to_string()))?;
-    let bytes = str::from_utf8(&decrypted).map_err(to_anyhow)?;
+    let mut bytes = str::from_utf8(&decrypted).map_err(to_anyhow)?;
+    if let Some(prefix) = prefix {
+        if !bytes.starts_with(prefix) {
+            return Err(Error::BadRequest("Invalid secret".to_string()));
+        }
+        bytes = bytes.strip_prefix(prefix).unwrap_or("");
+    }
     let id: i64 = bytes.parse().map_err(to_anyhow)?;
     Ok(id)
 }
@@ -848,8 +887,40 @@ async fn get_secret_id(
     Ok(hx)
 }
 
-use windmill_common::error;
+const BUNDLE_SECRET_PREFIX: &str = "bundle_";
 
+async fn get_latest_version_secret_id(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
+
+    let id_o = sqlx::query_scalar!(
+        "SELECT app.versions[array_upper(app.versions, 1)] FROM app
+        WHERE app.path = $1 AND app.workspace_id = $2",
+        path,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    tx.commit().await?;
+
+    let id = not_found_if_none(id_o, "App", path.to_string())?;
+
+    let mc = build_crypt(&db, &w_id).await?;
+
+    let hx = hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, id)));
+
+    Ok(hx)
+}
+
+use windmill_common::error;
 
 async fn store_raw_app_file<'a>(
     w_id: &str,
@@ -858,29 +929,29 @@ async fn store_raw_app_file<'a>(
     data: bytes::Bytes,
     tx: &mut sqlx::Transaction<'a, sqlx::Postgres>,
 ) -> Result<()> {
-
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     let object_store = windmill_common::s3_helpers::get_object_store().await;
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
     let object_store: Option<()> = None;
-    
+
     let path = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = object_store {
-
         if let Err(e) = os
             .put(&object_store::path::Path::from(path.clone()), data.into())
             .await
         {
-
-            tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
-            return Err(error::Error::ExecutionErr(format!("Failed to put {path} to s3")));
-        } 
+            tracing::error!("Failed to put snapshot to s3 at {path}: {:?}", e);
+            return Err(error::Error::ExecutionErr(format!(
+                "Failed to put {path} to s3"
+            )));
+        }
+        tracing::info!("Successfully put snapshot to s3 at {path}");
         return Ok(());
-    } 
+    }
 
     sqlx::query!(
-        "INSERT INTO raw_app_bundles (app_id, w_id, file_type, data) VALUES ($1, $2, $3, $4)",
+        "INSERT INTO app_bundles (app_version_id, w_id, file_type, data) VALUES ($1, $2, $3, $4)",
         id,
         w_id,
         file_type,
@@ -888,7 +959,7 @@ async fn store_raw_app_file<'a>(
     )
     .execute(&mut **tx)
     .await?;
-    
+
     Ok(())
 }
 macro_rules! process_app_multipart {

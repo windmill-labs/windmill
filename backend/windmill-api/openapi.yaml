@@ -6698,6 +6698,23 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/apps/secret_of_latest_version/{path}:
+    get:
+      summary: get public secret of latest version of an app bundle
+      operationId: getPublicSecretOfLatestVersionOfApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: app secret
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/get/v/{id}:
     get:
       summary: get app by version
