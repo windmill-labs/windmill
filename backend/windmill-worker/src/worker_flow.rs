@@ -372,7 +372,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .as_ref()
                         .and_then(|x| x.skip_failures)
                         .unwrap_or(false),
-                    value.as_ref().and_then(|x| x.parallelism.clone()),
+                    value.and_then(|x| x.parallelism),
                     *parallel,
                 )
             } else {
