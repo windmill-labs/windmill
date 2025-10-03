@@ -142,10 +142,7 @@ pub async fn do_duckdb(
         .map_err(|e| Error::from(to_anyhow(e)))
         .and_then(|r| r);
         let (result, column_order) = match result {
-            Ok(r) => {
-                S3_PROXY_LAST_ERRORS_CACHE.remove(&client.token);
-                r
-            }
+            Ok(r) => r,
             Err(e) => {
                 if let Some(s3_proxy_err) = S3_PROXY_LAST_ERRORS_CACHE.get(&client.token) {
                     return Err(Error::ExecutionErr(format!(
