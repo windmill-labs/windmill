@@ -5,17 +5,27 @@
 	import { Wand2, Loader2 } from 'lucide-svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import { emptyString } from '$lib/utils'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher, onMount, untrack } from 'svelte'
 
-	export let funcDesc: string
-	export let trigger = false
-	export let loading = false
-	export let preFilter: string
-	export let disableAi = false
+	let scripts: Script[] | undefined = $state(undefined)
+	interface Props {
+		funcDesc: string
+		trigger?: boolean
+		loading?: boolean
+		preFilter: string
+		disableAi?: boolean
+		filteredItems?: (Script & { marked?: string })[] | (Item & { marked?: string })[]
+	}
 
-	let scripts: Script[] | undefined = undefined
-	export let filteredItems: (Script & { marked?: string })[] | (Item & { marked?: string })[] = []
-	$: prefilteredItems = scripts ?? []
+	let {
+		funcDesc = $bindable(),
+		trigger = false,
+		loading = false,
+		preFilter,
+		disableAi = false,
+		filteredItems = $bindable([])
+	}: Props = $props()
+	let prefilteredItems = $derived(scripts ?? [])
 
 	const dispatch = createEventDispatcher()
 
@@ -29,14 +39,18 @@
 		scripts = loadedScripts
 	}
 
-	$: scripts == undefined && funcDesc?.length > 1 && loadScripts()
+	$effect(() => {
+		scripts == undefined && funcDesc?.length > 1 && untrack(() => loadScripts())
+	})
 
-	let input: HTMLInputElement
+	let input: HTMLInputElement | undefined = $state()
 
-	$: preFilter &&
-		setTimeout(() => {
-			input?.focus()
-		}, 50)
+	$effect(() => {
+		preFilter &&
+			setTimeout(() => {
+				input?.focus()
+			}, 50)
+	})
 
 	onMount(() => {
 		input?.focus()
@@ -55,7 +69,7 @@
 		<input
 			bind:this={input}
 			type="text"
-			on:keydown={(e) => {
+			onkeydown={(e) => {
 				if (e.key === 'Escape') {
 					dispatch('escape')
 				}

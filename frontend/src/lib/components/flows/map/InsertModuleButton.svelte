@@ -21,6 +21,7 @@
 		iconSize?: number
 		clazz?: string
 		placement?: Placement
+		disableAi?: boolean
 	}
 
 	let {
@@ -29,7 +30,8 @@
 		kind = 'script',
 		iconSize = 12,
 		clazz = '',
-		placement = 'bottom-center'
+		placement = 'bottom-center',
+		disableAi = false
 	}: Props = $props()
 
 	let floatingConfig: ComputeConfig = {
@@ -98,6 +100,7 @@ shouldUsePortal={true} -->
 			on:pickScript
 			allowTrigger={index == 0}
 			{kind}
+			{disableAi}
 		/>
 	{/snippet}
 </PopupV2>

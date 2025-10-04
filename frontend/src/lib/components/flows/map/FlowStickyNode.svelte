@@ -15,6 +15,7 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
+		disableAi?: boolean
 	}
 
 	let {
@@ -23,7 +24,8 @@
 		smallErrorHandler,
 		aiChatOpen,
 		showFlowAiButton,
-		toggleAiChat
+		toggleAiChat,
+		disableAi
 	}: Props = $props()
 
 	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -68,7 +70,7 @@
 		</Popover>
 	{/if}
 	<Popover>
-		<FlowErrorHandlerItem small={smallErrorHandler} on:generateStep clazz={nodeClass} />
+		<FlowErrorHandlerItem {disableAi} small={smallErrorHandler} on:generateStep clazz={nodeClass} />
 		{#snippet text()}
 			Error Handler
 		{/snippet}
