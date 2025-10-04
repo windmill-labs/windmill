@@ -39,7 +39,7 @@
 
 	let width = $state(0)
 	let height = $state(0)
-
+	let owners = $state([])
 	let displayPath = $derived(width > 650 || height > 400)
 </script>
 
@@ -164,6 +164,7 @@
 			{disableAi}
 			{funcDesc}
 			{kind}
+			bind:owners
 			on:close={() => {
 				dispatch('close')
 			}}

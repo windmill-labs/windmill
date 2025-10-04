@@ -11,7 +11,7 @@
 			isTemplate?: boolean
 			refreshCount?: number
 		}) =>
-			workspace
+			workspace && get(userStore)
 				? kind == 'flow'
 					? FlowService.listFlows({ workspace })
 					: ScriptService.listScripts({ workspace, kinds: kind, isTemplate })
@@ -42,6 +42,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { get } from 'svelte/store'
+	import { userStore } from '$lib/stores'
 
 	type Item = {
 		path: string
@@ -114,17 +115,19 @@
 		}
 	})
 	$effect(() => {
-		owners = Array.from(
-			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-		).sort((a, b) => {
-			if (a.startsWith('u/') && !b.startsWith('u/')) return -1
-			if (b.startsWith('u/') && !a.startsWith('u/')) return 1
+		if (filteredItems) {
+			owners = Array.from(
+				new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+			).sort((a, b) => {
+				if (a.startsWith('u/') && !b.startsWith('u/')) return -1
+				if (b.startsWith('u/') && !a.startsWith('u/')) return 1
 
-			if (a.startsWith('f/') && !b.startsWith('f/')) return -1
-			if (b.startsWith('f/') && !a.startsWith('f/')) return 1
+				if (a.startsWith('f/') && !b.startsWith('f/')) return -1
+				if (b.startsWith('f/') && !a.startsWith('f/')) return 1
 
-			return a.localeCompare(b)
-		})
+				return a.localeCompare(b)
+			})
+		}
 	})
 	$effect(() => {
 		filteredWithOwner =
