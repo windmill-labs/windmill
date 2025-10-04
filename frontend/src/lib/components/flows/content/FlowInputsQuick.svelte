@@ -13,7 +13,6 @@
 	import ListFiltersQuick from '$lib/components/home/ListFiltersQuick.svelte'
 	import { Folder, User } from 'lucide-svelte'
 	import type { FlowEditorContext } from '../../flows/types'
-	import { copilotInfo } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import { fade } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
@@ -23,6 +22,7 @@
 	import DefaultScriptsInner from '$lib/components/DefaultScriptsInner.svelte'
 	import GenAiQuick from './GenAiQuick.svelte'
 	import FlowToplevelNode from '../pickers/FlowToplevelNode.svelte'
+	import { copilotInfo } from '$lib/aiStore'
 
 	const dispatch = createEventDispatcher()
 

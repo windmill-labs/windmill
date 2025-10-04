@@ -4,10 +4,10 @@
 	import { getNonStreamingCompletion } from './lib'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { copilotInfo } from '$lib/stores'
 
 	import { base } from '$lib/base'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+	import { copilotInfo } from '$lib/aiStore'
 
 	export let schedule: string
 	export let cronVersion: string

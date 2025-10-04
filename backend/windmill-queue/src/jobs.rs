@@ -446,6 +446,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         false,
+        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -500,6 +501,7 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         false,
+        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -744,6 +746,11 @@ lazy_static::lazy_static! {
     pub static ref MAX_RESULT_SIZE_MB: usize = std::env::var("MAX_RESULT_SIZE_MB").unwrap_or("500".to_string()).parse().unwrap_or(500);
 }
 
+#[derive(Deserialize)]
+struct OutputWrapper {
+    output: String,
+}
+
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
     queued_job: &MiniPulledJob,
@@ -820,6 +827,59 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     .await;
 
     restart_job_if_perpetual(db, queued_job, &canceled_by).await?;
+
+    // Update conversation message if it's a flow and it's done (both success and error cases)
+    if !skipped && flow_is_done {
+        let chat_input_enabled = queued_job.parse_chat_input_enabled();
+        if chat_input_enabled.unwrap_or(false) {
+            let content = if let Ok(wrapper) = serde_json::from_value::<OutputWrapper>(
+                serde_json::to_value(result.0).unwrap_or(serde_json::Value::Null),
+            ) {
+                // Successfully deserialized to OutputWrapper, use the output field
+                wrapper.output
+            } else {
+                // No string output field, use the whole result
+                serde_json::to_value(result.0)
+                    .ok()
+                    .and_then(|v| {
+                        if let serde_json::Value::String(s) = v {
+                            Some(s)
+                        } else {
+                            serde_json::to_string_pretty(&v).ok()
+                        }
+                    })
+                    .unwrap_or_else(|| {
+                        if success {
+                            "Job completed successfully".to_string()
+                        } else {
+                            "Job failed".to_string()
+                        }
+                    })
+            };
+
+            // check if flow_conversation_message exists
+            let flow_conversation_message_exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM flow_conversation_message WHERE job_id = $1 AND message_type = 'assistant')",
+            queued_job.id
+        )
+        .fetch_one(db)
+        .await?;
+
+            if flow_conversation_message_exists.unwrap_or(false) {
+                // Update the assistant message using direct DB access
+                let _ = sqlx::query!(
+                    "UPDATE flow_conversation_message
+                    SET content = $1
+                    WHERE job_id = $2
+                ",
+                    content,
+                    queued_job.id,
+                )
+                .execute(db)
+                .await;
+            }
+        }
+    }
 
     // tracing::error!("4 {:?}", start.elapsed());
 
@@ -1313,6 +1373,7 @@ async fn restart_job_if_perpetual_inner(
             queued_job.priority,
             None,
             false,
+            None,
         )
         .await?;
         tx.commit().await?;
@@ -1800,6 +1861,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         priority,
         None,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1855,6 +1917,12 @@ pub struct MiniPulledJob {
     pub trigger: Option<String>,
     pub trigger_kind: Option<JobTriggerKind>,
     pub visible_to_owner: bool,
+    pub permissioned_as_end_user_email: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct FlowStatusChatInputEnabled {
+    chat_input_enabled: Option<bool>,
 }
 
 impl MiniPulledJob {
@@ -1879,6 +1947,13 @@ impl MiniPulledJob {
         self.flow_status
             .as_ref()
             .and_then(|v| serde_json::from_str::<FlowStatus>((**v).get()).ok())
+    }
+
+    pub fn parse_chat_input_enabled(&self) -> Option<bool> {
+        self.flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_str::<FlowStatusChatInputEnabled>((**v).get()).ok())
+            .and_then(|f| f.chat_input_enabled)
     }
 
     pub fn from(job: &QueuedJob) -> MiniPulledJob {
@@ -1919,6 +1994,7 @@ impl MiniPulledJob {
                 None
             },
             visible_to_owner: job.visible_to_owner.clone(),
+            permissioned_as_end_user_email: None,
         }
     }
     pub fn is_flow(&self) -> bool {
@@ -2119,7 +2195,8 @@ pub async fn get_mini_pulled_job<'c>(
         script_entrypoint_override,
         trigger,
         trigger_kind as \"trigger_kind: JobTriggerKind\",
-        visible_to_owner
+        visible_to_owner,
+        NULL as permissioned_as_end_user_email
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
         job_id,
     )
@@ -2132,6 +2209,37 @@ pub async fn get_mini_pulled_job<'c>(
 pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,
+    pub missing_concurrency_key: bool,
+}
+
+pub enum PulledJobResultToJobErr {
+    MissingConcurrencyKey(JobCompleted),
+}
+
+impl PulledJobResult {
+    pub fn to_pulled_job(self) -> Result<Option<PulledJob>, PulledJobResultToJobErr> {
+        match self {
+            PulledJobResult { job: Some(job), missing_concurrency_key: true, .. } => Err(
+                PulledJobResultToJobErr::MissingConcurrencyKey(JobCompleted {
+                    preprocessed_args: None,
+                    job: Arc::new(job.job),
+                    success: false,
+                    result: Arc::new(windmill_common::worker::to_raw_value(&json!({
+                        "name": "InternalErr",
+                        "message": "The job has a concurrency limit but concurrency key couldn't be found. This is an unexpected behavior that should never happen. Please report this to support."}
+                    ))),
+                    result_columns: None,
+                    mem_peak: 0,
+                    cached_res_path: None,
+                    token: "".to_string(),
+                    canceled_by: None,
+                    duration: None,
+                    has_stream: Some(false),
+                }),
+            ),
+            PulledJobResult { job, .. } => Ok(job),
+        }
+    }
 }
 
 pub async fn pull(
@@ -2150,7 +2258,11 @@ pub async fn pull(
         }
         if pull_loop_count > 1000 {
             tracing::error!("Pull job loop count exceeded 1000, breaking");
-            return Ok(PulledJobResult { job: None, suspended: false });
+            return Ok(PulledJobResult {
+                job: None,
+                suspended: false,
+                missing_concurrency_key: false,
+            });
         }
         if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
@@ -2162,16 +2274,43 @@ pub async fn pull(
                         .fetch_optional(db)
                         .await?
                 };
-                if let Some(job) = job {
-                    PulledJobResult { job: Some(job), suspended: true }
+
+                let (job, suspended) = if let Some(job) = job {
+                    (Some(job), true)
                 } else {
                     let job = sqlx::query_as::<_, PulledJob>(query_no_suspend)
                         .bind(worker_name)
                         .fetch_optional(db)
                         .await?;
-                    PulledJobResult { job, suspended: false }
-                }
-            };
+                    (job, false)
+                };
+
+                #[cfg(all(feature = "enterprise", feature = "private"))]
+                let pulled_job_result = match job {
+                    Some(job) if job.concurrent_limit.is_some() => {
+                        let job = crate::jobs_ee::apply_concurrency_limit(
+                            db,
+                            pull_loop_count,
+                            suspended,
+                            job,
+                        )
+                        .await?;
+                        job.unwrap_or(PulledJobResult {
+                            job: None,
+                            suspended,
+                            missing_concurrency_key: false,
+                        })
+                    }
+                    _ => PulledJobResult { job, suspended, missing_concurrency_key: false },
+                };
+
+                #[cfg(not(all(feature = "enterprise", feature = "private")))]
+                let pulled_job_result =
+                    PulledJobResult { job, suspended, missing_concurrency_key: false };
+
+                Ok::<_, Error>(pulled_job_result)
+            }?;
+
             if let Some(job) = njob.job.as_ref() {
                 if job.is_flow() || job.is_dependency() {
                     let per_workspace = per_workspace_tag(&job.workspace_id).await;
@@ -2207,7 +2346,7 @@ pub async fn pull(
         .await?;
 
         let Some(job) = job else {
-            return Ok(PulledJobResult { job: None, suspended });
+            return Ok(PulledJobResult { job: None, suspended, missing_concurrency_key: false });
         };
 
         let has_concurent_limit = job.concurrent_limit.is_some();
@@ -2230,7 +2369,11 @@ pub async fn pull(
             if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
                 QUEUE_PULL_COUNT.inc();
             }
-            return Ok(PulledJobResult { job: Some(pulled_job), suspended });
+            return Ok(PulledJobResult {
+                job: Some(pulled_job),
+                suspended,
+                missing_concurrency_key: false,
+            });
         }
 
         #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -3011,6 +3154,7 @@ pub async fn push<'c, 'd>(
     _priority_override: Option<i16>,
     authed: Option<&Authed>,
     running: bool, // whether the job is already running: only set this to true if you don't want the job to be picked up by a worker from the queue. It will also set started_at to now.
+    end_user_email: Option<String>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -3507,6 +3651,8 @@ pub async fn push<'c, 'd>(
                         user_states,
                         preprocessor_module: None,
                         stream_job: None,
+                        chat_input_enabled: None,
+                        memory_id: None,
                     }
                 }
                 _ => {
@@ -3637,6 +3783,7 @@ pub async fn push<'c, 'd>(
                 early_return: None,
                 skip_expr: None,
                 preprocessor_module: None,
+                chat_input_enabled: None,
             };
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
@@ -3762,6 +3909,8 @@ pub async fn push<'c, 'd>(
                 user_states,
                 preprocessor_module: None,
                 stream_job: None,
+                chat_input_enabled: None,
+                memory_id: None,
             };
             let value = flow_data.value();
             let priority = value.priority;
@@ -4092,8 +4241,8 @@ pub async fn push<'c, 'd>(
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
         ),
         inserted_job_perms AS (
-            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) 
-            values ($1, $32, $33, $34, $35, $36, $37, $2) 
+            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email) 
+            values ($1, $32, $33, $34, $35, $36, $37, $2, $41) 
             ON CONFLICT (job_id) DO UPDATE SET email = $32, username = $33, is_admin = $34, is_operator = $35, folders = $36, groups = $37, workspace_id = $2
         )
         INSERT INTO v2_job_queue
@@ -4143,6 +4292,7 @@ pub async fn push<'c, 'd>(
         root_job,
         trigger_kind as Option<JobTriggerKind>,
         running,
+        end_user_email,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
@@ -4556,7 +4706,7 @@ pub async fn get_same_worker_job(
                     v2_job.raw_flow,
                     pj.runnable_path as parent_runnable_path,
                     p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
-                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
+                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
                     FROM v2_job_queue
                     INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
                     LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id

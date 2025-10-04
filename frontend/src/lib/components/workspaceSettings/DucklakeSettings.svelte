@@ -186,7 +186,7 @@
 		<div class="text-primary text-lg font-semibold">Ducklake</div>
 		<Description link="https://www.windmill.dev/docs/core_concepts/ducklake">
 			Windmill has first class support for Ducklake. You can use and explore ducklakes like a normal
-			SQL database, even through the data is actually stored in parquet files in S3 !
+			SQL database, even though the data is actually stored in parquet files in S3 !
 		</Description>
 	</div>
 </div>
@@ -208,9 +208,15 @@
 				setup fails in the middle, but in most cases Windmill will handle it for you.
 				<br /><br />
 
-				If the database <code>ducklake_catalog</code> already exists, assume the setup was already
-				done and do nothing. Otherwise, connect to the Windmill PostgreSQL as the default user (the
-				one in your DATABASE_URL, usually 'postgres') and run :
+				If the database <code>ducklake_catalog</code> already exists, Windmill assumes that the
+				setup was successful and does not do anything. However, it is possible that it failed in the
+				middle (in which case you should have seen an error pop up during setup). There is no
+				rollback as the following operations do not work in a transaction.
+				<br />
+				This is what the setup does :
+				<br /><br />
+				Connect to the Windmill PostgreSQL as the default user (the one in your DATABASE_URL, usually
+				'postgres') and run :
 				<br />
 				<code class="block p-2 border rounded-md bg-surface mt-2">
 					CREATE DATABASE <code>ducklake_catalog</code>;<br />
@@ -305,6 +311,8 @@
 								<ResourcePicker
 									bind:value={ducklake.catalog.resource_path}
 									resourceType={ducklake.catalog.resource_type}
+									selectInputClass="min-h-9"
+									class="min-h-9"
 								/>
 							{:else}
 								<TextInput

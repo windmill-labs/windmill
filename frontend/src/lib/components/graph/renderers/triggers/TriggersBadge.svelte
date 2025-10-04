@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Calendar, Mail, Webhook, Unplug, Database, Terminal } from 'lucide-svelte'
-	import { Loader2 } from 'lucide-svelte'
 	import { type Component, type ComponentType } from 'svelte'
 	import { Route } from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -12,6 +11,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
+	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
 
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -262,32 +262,7 @@
 	>
 		{#if countKey}
 			{@const count = $triggersCount?.[countKey] ?? 0}
-			{#if count > 0}
-				<div
-					class={twMerge(
-						// Base styles that apply in all cases
-						'absolute z-10 rounded-full overflow-hidden',
-						'flex center-center text-primary-inverse font-mono',
-						'bg-tertiary/50 group-hover:bg-primary transition-all duration-[100ms]',
-						noTriggers ? 'bg-primary' : '',
-
-						// Size variants based on small prop
-						small
-							? '-right-[3px] -top-[3px] h-3 w-3 text-[8px]'
-							: '-right-1.5 -top-1.5 h-4 w-4 text-xs',
-
-						// Special case for no triggers
-						noTriggers && small ? 'h-3 w-3 text-[8px] -right-0.5 -top-0.5' : '',
-						noTriggers && !small ? 'h-4 w-4 text-xs -right-1 -top-1' : ''
-					)}
-				>
-					{#if count === undefined}
-						<Loader2 class="animate-spin text-2xs" />
-					{:else}
-						<p>{count}</p>
-					{/if}
-				</div>
-			{/if}
+			<CountBadge {count} {small} alwaysVisible={noTriggers} />
 		{/if}
 		<SvelteComponent size={small ? 12 : 14} />
 	</MeltButton>
