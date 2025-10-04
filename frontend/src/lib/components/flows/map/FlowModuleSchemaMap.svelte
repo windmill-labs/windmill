@@ -363,6 +363,7 @@
 		class={`z-50 absolute inline-flex flex-col gap-2 top-3 left-1/2 -translate-x-1/2 flex-initial  items-center transition-colors duration-[400ms] ease-linear bg-surface-100`}
 	>
 		<FlowStickyNode
+			{disableAi}
 			{showFlowAiButton}
 			{disableSettings}
 			{disableStaticInputs}

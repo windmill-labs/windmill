@@ -38,6 +38,7 @@
 		{#if data.insertable && !data.hasPreprocessor}
 			<div class="absolute bottom-full left-0 right-0 flex center-center mb-3.5">
 				<InsertModuleButton
+					disableAi={data.disableAi}
 					index={0}
 					kind="preprocessor"
 					on:new={(e) => {

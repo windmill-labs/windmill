@@ -92,6 +92,7 @@
 			<!-- <pre class="text-2xs">A{JSON.stringify(data.branch)}, {data.sourceId}, {data.targetId}</pre> -->
 			<!-- {data.targetId} B -->
 			<InsertModuleButton
+				disableAi={data.disableAi}
 				index={data.index ?? 0}
 				on:new={(e) => {
 					data?.eventHandlers.insert({
