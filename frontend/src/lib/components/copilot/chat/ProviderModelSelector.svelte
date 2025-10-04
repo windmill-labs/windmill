@@ -3,26 +3,27 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import {
 		COPILOT_SESSION_MODEL_SETTING_NAME,
-		COPILOT_SESSION_PROVIDER_SETTING_NAME,
-		copilotInfo,
-		copilotSessionModel
+		COPILOT_SESSION_PROVIDER_SETTING_NAME
 	} from '$lib/stores'
 	import { storeLocalSetting } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
+	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 
-	$: providerModel = $copilotSessionModel ??
-		$copilotInfo.defaultModel ??
-		$copilotInfo.aiModels[0] ?? {
-			model: 'No model',
-			provider: 'No provider'
-		}
+	let providerModel = $derived(
+		$copilotSessionModel ??
+			$copilotInfo.defaultModel ??
+			$copilotInfo.aiModels[0] ?? {
+				model: 'No model',
+				provider: 'No provider'
+			}
+	)
 
-	$: multipleModels = $copilotInfo.aiModels.length > 1
+	let multipleModels = $derived($copilotInfo.aiModels.length > 1)
 </script>
 
 <div class="min-w-0">
 	<Popover disablePopup={!multipleModels} class="max-w-full">
-		<svelte:fragment slot="trigger">
+		{#snippet trigger()}
 			<div class="text-tertiary text-xs flex flex-row items-center font-normal gap-0.5">
 				<span class={`truncate ${multipleModels ? '' : 'pr-2'}`}>{providerModel.model}</span>
 				{#if multipleModels}
@@ -31,8 +32,8 @@
 					</div>
 				{/if}
 			</div>
-		</svelte:fragment>
-		<svelte:fragment slot="content" let:close>
+		{/snippet}
+		{#snippet content({ close })}
 			<div class="flex flex-col gap-1 p-1 min-w-24">
 				{#each $copilotInfo.aiModels as providerModel}
 					<button
@@ -40,7 +41,7 @@
 							'text-left text-xs hover:bg-surface-hover rounded-md p-1 font-normal',
 							providerModel.model === $copilotSessionModel?.model && 'bg-surface-hover'
 						)}
-						on:click={() => {
+						onclick={() => {
 							$copilotSessionModel = providerModel
 							storeLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME, providerModel.model)
 							storeLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME, providerModel.provider)
@@ -51,6 +52,6 @@
 					</button>
 				{/each}
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Popover>
 </div>

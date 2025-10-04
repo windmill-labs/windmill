@@ -16,7 +16,7 @@
 		type TriggersCount
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { setCopilotInfo, userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, readFieldsRecursively, sendUserToast, type StateStore } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext, untrack } from 'svelte'
@@ -51,6 +51,7 @@
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import type { GraphModuleState } from './graph'
+	import { setCopilotInfo } from '$lib/aiStore'
 
 	let {
 		initial = undefined

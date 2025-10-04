@@ -3,7 +3,7 @@
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
-	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs, inferAssets } from '$lib/infer'
@@ -50,6 +50,7 @@
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
 	import { editor as meditor } from 'monaco-editor'
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
+	import { copilotInfo } from '$lib/aiStore'
 
 	interface Props {
 		// Exported

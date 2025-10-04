@@ -5,29 +5,34 @@
 	import { sendUserToast } from '$lib/toast'
 	import type { Flow, InputTransform } from '$lib/gen'
 	import ManualPopover from '../ManualPopover.svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import YAML from 'yaml'
 	import { sliceModules } from '../flows/flowStateUtils.svelte'
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
-	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
+	import { stepInputCompletionEnabled } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import { twMerge } from 'tailwind-merge'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
-	let generatedContent = ''
-	let loading = false
-	export let focused = false
-	export let arg: InputTransform | any
-	export let pickableProperties: PickableProperties | undefined = undefined
+	let generatedContent = $state('')
+	let loading = $state(false)
+	interface Props {
+		focused?: boolean
+		arg: InputTransform | any
+		pickableProperties?: PickableProperties | undefined
+	}
 
-	let btnFocused = false
-	let empty = false
-	$: empty =
+	let { focused = false, arg, pickableProperties = undefined }: Props = $props()
+
+	let btnFocused = $state(false)
+
+	let empty = $derived(
 		Object.keys(arg ?? {}).length === 0 ||
-		(arg.type === 'static' && !arg.value) ||
-		(arg.type === 'javascript' && !arg.expr)
+			(arg.type === 'static' && !arg.value) ||
+			(arg.type === 'javascript' && !arg.expr)
+	)
 
 	let abortController = new AbortController()
 	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -97,7 +102,6 @@ Only output the expression, do not explain or discuss.`
 	}
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function automaticGeneration() {
 		if (empty) {
@@ -114,22 +118,32 @@ Only output the expression, do not explain or discuss.`
 		}, 150)
 	}
 
-	$: if (!focused) {
-		cancelOnOutOfFocus()
-	}
+	$effect(() => {
+		if (!focused) {
+			untrack(() => {
+				cancelOnOutOfFocus()
+			})
+		}
+	})
 
-	$: if ($copilotInfo.enabled && $stepInputCompletionEnabled && focused) {
-		automaticGeneration()
-	}
+	$effect(() => {
+		if ($copilotInfo.enabled && $stepInputCompletionEnabled && focused) {
+			untrack(() => {
+				automaticGeneration()
+			})
+		}
+	})
 
 	function cancel() {
 		abortController.abort()
 		generatedContent = ''
 	}
 
-	$: dispatchIfMounted('showExpr', generatedContent)
+	$effect(() => {
+		dispatch('showExpr', generatedContent)
+	})
 
-	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
+	let out = $state(true) // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 </script>
 
 {#if $copilotInfo.enabled && $stepInputCompletionEnabled}
@@ -178,10 +192,10 @@ Only output the expression, do not explain or discuss.`
 				{/if}
 			{/if}
 		</Button>
-		<svelte:fragment slot="content">
+		{#snippet content()}
 			<div class="text-sm text-tertiary">
 				{generatedContent}
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</ManualPopover>
 {/if}

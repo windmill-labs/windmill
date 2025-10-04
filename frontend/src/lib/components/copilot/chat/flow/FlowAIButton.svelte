@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { base } from '$lib/base'
-	import { copilotInfo } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DarkPopover from '$lib/components/Popover.svelte'
 	import { ExternalLink } from 'lucide-svelte'

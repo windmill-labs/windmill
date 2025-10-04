@@ -1,10 +1,10 @@
-import { copilotInfo } from '$lib/stores'
 import { get } from 'svelte/store'
 import { getFimCompletion } from '../lib'
 import { getLangContext } from '../chat/script/core'
 import { type ScriptLang } from '$lib/gen/types.gen'
 import type { editor } from 'monaco-editor'
 import { getCommentSymbol } from '../utils'
+import { copilotInfo } from '$lib/aiStore'
 
 function comment(commentSymbol: string, text: string) {
 	return text

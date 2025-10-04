@@ -8,7 +8,7 @@
 	import type Editor from '../Editor.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
-	import { dbSchemas, copilotInfo, type DBSchema, workspaceStore } from '$lib/stores'
+	import { dbSchemas, type DBSchema, workspaceStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type SimpleEditor from '../SimpleEditor.svelte'
@@ -26,6 +26,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { onDestroy } from 'svelte'
 	import ProviderModelSelector from './chat/ProviderModelSelector.svelte'
+	import { copilotInfo } from '$lib/aiStore'
 
 	interface Props {
 		// props
