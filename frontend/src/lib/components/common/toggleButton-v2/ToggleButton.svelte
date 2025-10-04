@@ -57,7 +57,7 @@
 				? 'hover:text-secondary data-[state=on]:text-secondary text-tertiary'
 				: 'hover:text-primary data-[state=on]:text-primary text-secondary',
 			'data-[state=on]:bg-surface data-[state=off]:border-transparent data-[state=on]:border-gray-300 dark:data-[state=on]:border-gray-500',
-			'bg-surface-secondary hover:bg-surface-hover',
+			'hover:bg-surface-hover',
 			disabled ? '!shadow-none' : '',
 			className
 		)}
