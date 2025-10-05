@@ -5,7 +5,7 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use monitor::{
     load_base_url, load_otel, reload_critical_alerts_on_db_oversize,
     reload_delete_logs_periodically_setting, reload_indexer_config,
@@ -16,7 +16,7 @@ use monitor::{
     send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
-use sqlx::postgres::PgListener;
+use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
     collections::HashMap,
     fs::{create_dir_all, DirBuilder},
@@ -27,7 +27,7 @@ use strum::IntoEnumIterator;
 use tokio::{fs::File, io::AsyncReadExt, task::JoinHandle};
 use uuid::Uuid;
 use windmill_api::HTTP_CLIENT;
-
+use indexmap::map::IndexMap;
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{
     maybe_renew_license_key_on_start, LICENSE_KEY_ID, LICENSE_KEY_VALID,
@@ -35,7 +35,7 @@ use windmill_common::ee_oss::{
 
 use windmill_common::{
     agent_workers::build_agent_http_client,
-    get_database_url,
+    connect_db, get_database_url,
     global_settings::{
         APP_WORKSPACED_ROUTE_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
@@ -62,7 +62,8 @@ use windmill_common::{
     worker::{
         reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
     },
-    KillpillSender, METRICS_ENABLED,
+    KillpillSender, DB, METRICS_ENABLED, SHARD_DB_INSTANCE, SHARD_DB_URL, SHARD_ID_TO_DB_INSTANCE,
+    SHARD_MODE, SHARD_URLS,
 };
 
 #[cfg(feature = "enterprise")]
@@ -301,6 +302,37 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
+async fn initialize_worker_shard_db() -> anyhow::Result<Pool<Postgres>> {
+    let shard = SHARD_DB_URL.as_deref().ok_or_else(|| {
+        anyhow!("SHARD_DB_URL environment variable is required for worker shard mode")
+    })?;
+
+    tracing::info!("Shard url: {}", shard);
+    let shard = connect_db(Some(shard), false, false, true).await?;
+    SHARD_DB_INSTANCE.set(shard.clone()).map_err(|_| {
+        anyhow!("SHARD_DB_INSTANCE already initialized")
+    })?;
+    Ok(shard)
+}
+
+async fn initialize_server_shard_instances() -> anyhow::Result<()> {
+    let shard_urls = &*SHARD_URLS
+        .as_ref()
+        .ok_or_else(|| anyhow!("SHARD_URLS environment variable is required for server shard mode. Please set it as: SHARD_URLS=dburl1,dburl2,..."))?;
+
+    let mut shard_to_db = IndexMap::new();
+    for (i, shard_url) in shard_urls.iter().enumerate() {
+        tracing::info!("Connecting to shard {}: {}", i, &shard_url);
+        let shard = connect_db(Some(&shard_url), true, false, false).await.with_context(|| format!("Failed to connect to shard {}", i))?;
+        shard_to_db.insert(i, shard);
+    }
+
+    SHARD_ID_TO_DB_INSTANCE.set(shard_to_db).map_err(|_| {
+        anyhow!("SHARD_ID_TO_DB_INSTANCE already initialized")
+    })?;
+    Ok(())
+}
+
 async fn windmill_main() -> anyhow::Result<()> {
     let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
@@ -491,13 +523,24 @@ async fn windmill_main() -> anyhow::Result<()> {
     }
 
     let worker_mode = num_workers > 0;
-
+    let shard_mode = *SHARD_MODE;
+    let mut job_queue_db = None;
     let conn = if mode == Mode::Agent {
         conn
     } else {
         // This time we use a pool of connections
-        let db = windmill_common::connect_db(server_mode, indexer_mode, worker_mode).await?;
+        let db = connect_db(None, server_mode, indexer_mode, worker_mode).await?;
 
+        if shard_mode {
+            if server_mode {
+                initialize_server_shard_instances().await?;
+            }
+            else {
+                job_queue_db = Some(initialize_worker_shard_db().await?);
+            }
+        } else {
+            job_queue_db = Some(db.clone());
+        }
         // NOTE: Variable/resource cache initialization moved to API server in windmill-api
 
         Connection::Sql(db)
@@ -791,6 +834,7 @@ Windmill Community Edition {GIT_VERSION}
                         base_internal_url.clone(),
                         hostname.clone(),
                         &workers,
+                        job_queue_db.as_ref(),
                     )
                     .await?;
                     tracing::info!("All workers exited.");
@@ -1381,6 +1425,7 @@ pub async fn run_workers(
     base_internal_url: String,
     hostname: String,
     workers: &[WorkerConn],
+    job_queue_db: Option<&DB>,
 ) -> anyhow::Result<()> {
     let mut killpill_rxs = vec![];
     let num_workers = workers.len();
@@ -1449,7 +1494,7 @@ pub async fn run_workers(
         let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
         let hostname = hostname.clone();
-
+        let job_queue_db = job_queue_db.cloned();
         handles.push(tokio::spawn(async move {
             if num_workers > 1 {
                 tracing::info!(worker = %worker_name, "starting worker {i}");
@@ -1457,6 +1502,7 @@ pub async fn run_workers(
 
             let f = windmill_worker::run_worker(
                 &conn1,
+                job_queue_db,
                 &hostname,
                 worker_name,
                 i as u64,

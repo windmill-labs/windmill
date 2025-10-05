@@ -7909,6 +7909,16 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: tags
+          description: filter by tags (comma-separated)
+          in: query
+          schema:
+            type: string
+        - name: num_shards
+          description: number of shards to query (only applicable in shard mode)
+          in: query
+          schema:
+            type: integer
       responses:
         "200":
           description: queue count
@@ -7932,6 +7942,11 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: num_shards
+          description: number of shards to query (only applicable in shard mode)
+          in: query
+          schema:
+            type: integer
       responses:
         "200":
           description: completed count

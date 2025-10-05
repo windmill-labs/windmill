@@ -33,6 +33,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
+use windmill_common::db::{get_shard_db_from_job_uuid, get_shard_id_from_job_uuid};
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
@@ -61,6 +62,7 @@ use windmill_common::{
     },
     DB, METRICS_ENABLED,
 };
+use windmill_common::{SHARD_DB_INSTANCE, SHARD_ID_TO_DB_INSTANCE, SHARD_MODE};
 
 use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
@@ -175,6 +177,7 @@ pub async fn cancel_single_job<'c>(
             .await;
             let add_job = add_completed_job_error(
                 &db,
+                &db, //put here for compile will need to pass the proper SHARD DB if shard mode is on
                 &MiniPulledJob::from(&job_running),
                 job_running.mem_peak.unwrap_or(0),
                 Some(CanceledBy { username: Some(username.to_string()), reason: Some(reason) }),
@@ -370,13 +373,25 @@ pub async fn append_logs(
     }
     match conn {
         Connection::Sql(pool) => {
+            let db = if *SHARD_MODE {
+                if let Some(worker_db) = SHARD_DB_INSTANCE.get() {
+                    worker_db
+                } else if let Some(server_shards) = SHARD_ID_TO_DB_INSTANCE.get() {
+                    let shard_id = get_shard_id_from_job_uuid(*job_id);
+                    server_shards.get(&shard_id).unwrap_or(pool)
+                } else {
+                    pool
+                }
+            } else {
+                pool
+            };
             if let Err(err) = sqlx::query!(
                 "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, $1::text)",
                 logs.as_ref(),
                 job_id,
                 workspace.as_ref(),
             )
-            .execute(pool)
+            .execute(db)
             .warn_after_seconds(1)
             .await
             {
@@ -385,12 +400,17 @@ pub async fn append_logs(
         }
         Connection::Http(client) => {
             if let Err(e) = client
-            .post::<_, String>(
-                &format!("/api/w/{}/agent_workers/push_logs/{}", workspace.as_ref(), job_id),
-                None,
-                &logs.as_ref(),
-            )
-            .await {
+                .post::<_, String>(
+                    &format!(
+                        "/api/w/{}/agent_workers/push_logs/{}",
+                        workspace.as_ref(),
+                        job_id
+                    ),
+                    None,
+                    &logs.as_ref(),
+                )
+                .await
+            {
                 tracing::error!(%job_id, %e, "error sending logs for  job {job_id}: {e}");
             };
         }
@@ -689,7 +709,8 @@ where
 }
 
 pub async fn add_completed_job_error(
-    db: &Pool<Postgres>,
+    db: &DB,
+    job_queue_db: &DB,
     queued_job: &MiniPulledJob,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
@@ -726,6 +747,7 @@ pub async fn add_completed_job_error(
     );
     let _ = add_completed_job(
         db,
+        job_queue_db,
         &queued_job,
         false,
         false,
@@ -752,7 +774,8 @@ struct OutputWrapper {
 }
 
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
-    db: &Pool<Postgres>,
+    db: &DB,
+    job_queue_db: &DB,
     queued_job: &MiniPulledJob,
     success: bool,
     skipped: bool,
@@ -778,6 +801,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let (opt_uuid, duration, _skip_downstream_error_handlers) = (|| {
         commit_completed_job(
             db,
+            job_queue_db,
             queued_job,
             success,
             skipped,
@@ -888,6 +912,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
 async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
+    job_queue_db: &Pool<Postgres>,
     queued_job: &MiniPulledJob,
     success: bool,
     skipped: bool,
@@ -901,7 +926,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool)> {
     // let start = std::time::Instant::now();
 
-    let mut tx = db.begin().await?;
+    let (mut tx, mut job_tx) = tokio::try_join!(db.begin(), job_queue_db.begin())?;
 
     let job_id = queued_job.id;
     // tracing::error!("1 {:?}", start.elapsed());
@@ -915,7 +940,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let mem_peak = mem_peak;
     // add_time!(bench, "add_completed_job query START");
 
-    if let Some(value) = check_result_size(db, queued_job, result).await {
+    if let Some(value) = check_result_size(db, job_queue_db, queued_job, result).await {
         return value;
     }
 
@@ -955,32 +980,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             /* $9 */ duration,
             /* $10 */ result_columns as Option<&Vec<String>>,
         )
-        .fetch_optional(&mut *tx)
+        .fetch_one(&mut *job_tx)
         .await
         .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?;
-
-    let duration = if let Some(duration) = duration {
-        duration
-    } else {
-        let already_inserted = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM v2_job_completed WHERE id = $1)",
-            job_id
-        )
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?
-        .unwrap_or(false);
-
-        if already_inserted {
-            return Err(Error::AlreadyCompleted(format!(
-                "The queued job {job_id} is already completed."
-            )));
-        } else {
-            return Err(Error::AlreadyCompleted(format!(
-                "There is no queued job anymore for {job_id} but there is no completed job either."
-            )));
-        }
-    };
 
     if let Some(labels) = result.wm_labels() {
         sqlx::query!(
@@ -991,7 +993,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             job_id,
             labels as Vec<String>
         )
-        .execute(&mut *tx)
+        .execute(&mut *job_tx)
         .await
         .map_err(|e| Error::InternalErr(format!("Could not update job labels: {e:#}")))?;
     }
@@ -1014,7 +1016,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 duration,
                 parent_job
             )
-            .execute(&mut *tx)
+            .execute(&mut *job_tx)
             .await
             .inspect_err(|e| {
                 tracing::error!(
@@ -1027,7 +1029,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // tracing::error!("Added completed job {:#?}", queued_job);
 
     let mut _skip_downstream_error_handlers = false;
-    tx = delete_job(tx, &job_id).await?;
+    job_tx = delete_job(job_tx, &job_id).await?;
     // tracing::error!("3 {:?}", start.elapsed());
 
     if queued_job.is_flow_step() {
@@ -1047,14 +1049,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 parent_job,
                 &queued_job.workspace_id
             )
-            .execute(&mut *tx)
+            .execute(&mut *job_tx)
             .await?;
             if flow_is_done {
                 let r = sqlx::query_scalar!(
                     "UPDATE parallel_monitor_lock SET last_ping = now() WHERE parent_flow_id = $1 and job_id = $2 RETURNING 1",
                     parent_job,
                     &queued_job.id
-                ).fetch_optional(&mut *tx).await?;
+                ).fetch_optional(&mut *job_tx).await?;
                 if r.is_some() {
                     tracing::info!(
                             "parallel flow iteration is done, setting parallel monitor last ping lock for job {}",
@@ -1098,7 +1100,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                             &queued_job.id,
                             &queued_job.workspace_id
                         )
-                        .fetch_optional(&mut *tx)
+                        .fetch_optional(&mut *job_tx)
                         .await?
                         .flatten()
                         .unwrap_or(false);
@@ -1163,25 +1165,35 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             }
         }
     }
+
     if queued_job.concurrent_limit.is_some() {
         let concurrency_key = concurrency_key(db, &queued_job.id).await?;
-        if *DISABLE_CONCURRENCY_LIMIT || concurrency_key.is_none() {
-            tracing::warn!("Concurrency limit is disabled, skipping");
-        } else {
-            let concurrency_key = concurrency_key.unwrap();
-            sqlx::query_scalar!(
-                "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
-                concurrency_key,
-                queued_job.id.hyphenated().to_string(),
-            )
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                Error::internal_err(format!(
-                    "Could not decrement concurrency counter for job_id={}: {e:#}",
-                    queued_job.id
-                ))
-            })?;
+        match concurrency_key {
+            Some(concurrency_key) if !*DISABLE_CONCURRENCY_LIMIT => {
+                sqlx::query_scalar!(
+                    "
+                UPDATE 
+                    concurrency_counter 
+                SET 
+                    job_uuids = job_uuids - $2 
+                WHERE 
+                    concurrency_id = $1
+                ",
+                    concurrency_key,
+                    queued_job.id.hyphenated().to_string(),
+                )
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Could not decrement concurrency counter for job_id={}: {e:#}",
+                        queued_job.id
+                    ))
+                })?;
+            }
+            _ => {
+                tracing::warn!("Concurrency limit is disabled, skipping");
+            }
         }
 
         if let Err(e) = sqlx::query_scalar!(
@@ -1200,7 +1212,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job_id)
-        .execute(&mut *tx)
+        .execute(&mut *job_tx)
         .await?;
 
     if !success || has_stream {
@@ -1208,12 +1220,49 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             .execute(&mut *tx)
             .await?;
     }
+    let main_db_result = tx.commit().await;
 
-    tx.commit().await?;
+    match main_db_result {
+        Ok(()) => match job_tx.commit().await {
+            Ok(()) => {
+                tracing::debug!(
+                    "Both main DB and shard DB transactions committed successfully for job {}",
+                    job_id
+                );
+            }
+            Err(shard_error) => {
+                //TODO: looks for solution
+                tracing::error!(
+                    job_id = %job_id,
+                    workspace_id = %queued_job.workspace_id,
+                    error = %shard_error,
+                    "CRITICAL: Main DB committed but shard DB failed during job completion. Data inconsistency possible."
+                );
+
+                return Err(Error::internal_err(format!(
+                    "Shard DB commit failed after main DB commit for job {}: {}",
+                    job_id, shard_error
+                )));
+            }
+        },
+        Err(main_error) => {
+            if let Err(rollback_err) = job_tx.rollback().await {
+                tracing::error!(
+                    job_id = %job_id,
+                    main_error = %main_error,
+                    rollback_error = %rollback_err,
+                    "Failed to rollback shard DB after main DB commit failure"
+                );
+            }
+            return Err(Error::internal_err(format!(
+                "Main DB commit failed for job {}: {}",
+                job_id, main_error
+            )));
+        }
+    }
 
     tracing::info!(
         %job_id,
-        root_job = ?queued_job.flow_innermost_root_job.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
         path = &queued_job.runnable_path(),
         job_kind = ?queued_job.kind,
         started_at = ?queued_job.started_at.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
@@ -1235,6 +1284,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
 async fn check_result_size<T: ValidableJson>(
     db: &Pool<Postgres>,
+    job_queue_db: &DB,
     queued_job: &MiniPulledJob,
     result: Json<&T>,
 ) -> Option<Result<(Option<Uuid>, i64, bool), Error>> {
@@ -2243,7 +2293,8 @@ impl PulledJobResult {
 }
 
 pub async fn pull(
-    db: &Pool<Postgres>,
+    db: &DB,
+    job_queue_db: &DB,
     suspend_first: bool,
     worker_name: &str,
     query_o: Option<&(String, String)>,
@@ -2271,7 +2322,7 @@ pub async fn pull(
                 } else {
                     sqlx::query_as::<_, PulledJob>(query_suspended)
                         .bind(worker_name)
-                        .fetch_optional(db)
+                        .fetch_optional(job_queue_db)
                         .await?
                 };
 
@@ -2280,7 +2331,7 @@ pub async fn pull(
                 } else {
                     let job = sqlx::query_as::<_, PulledJob>(query_no_suspend)
                         .bind(worker_name)
-                        .fetch_optional(db)
+                        .fetch_optional(job_queue_db)
                         .await?;
                     (job, false)
                 };
@@ -2329,7 +2380,7 @@ pub async fn pull(
                         tag,
                         job.id
                     )
-                    .execute(db)
+                    .execute(job_queue_db)
                     .await?;
                     continue;
                 }
@@ -2337,7 +2388,7 @@ pub async fn pull(
             return Ok(njob);
         };
         let (job, suspended) = pull_single_job_and_mark_as_running_no_concurrency_limit(
-            db,
+            job_queue_db,
             suspend_first,
             worker_name,
             #[cfg(feature = "benchmark")]
@@ -2387,7 +2438,7 @@ pub async fn pull(
 }
 
 async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
-    db: &Pool<Postgres>,
+    job_queue_db: &DB,
     suspend_first: bool,
     worker_name: &str,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
@@ -2411,7 +2462,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             // tracing::info!("Pulling job with query: {}", query);
             sqlx::query_as::<_, PulledJob>(&query)
                 .bind(worker_name)
-                .fetch_optional(db)
+                .fetch_optional(job_queue_db)
                 .await?
         } else {
             None
@@ -2438,7 +2489,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
 
                 let r = sqlx::query_as::<_, PulledJob>(query)
                     .bind(worker_name)
-                    .fetch_optional(db)
+                    .fetch_optional(job_queue_db)
                     .await?;
 
                 #[cfg(feature = "benchmark")]
@@ -4116,23 +4167,44 @@ pub async fn push<'c, 'd>(
         })
     };
 
+    let shard_mode = *SHARD_MODE;
+    let mut existing_job_id = false;
     let mut tx = tx.into_tx().await?;
 
     let job_id: Uuid = if let Some(job_id) = job_id {
-        let conflicting_id = sqlx::query_scalar!("SELECT 1 FROM v2_job WHERE id = $1", job_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+        existing_job_id = true;
+        job_id
+    } else {
+        Ulid::new().into()
+    };
+
+    let mut job_queue_tx = if shard_mode {
+        if let Some(job_queue_db) = get_shard_db_from_job_uuid(job_id) {
+            Some(job_queue_db.begin().await?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    if existing_job_id {
+        let conflicting_id = if shard_mode {
+            sqlx::query_scalar!("SELECT 1 FROM v2_job WHERE id = $1", job_id)
+                .fetch_optional(&mut **job_queue_tx.as_mut().unwrap())
+                .await?
+        } else {
+            sqlx::query_scalar!("SELECT 1 FROM v2_job WHERE id = $1", job_id)
+                .fetch_optional(&mut *tx)
+                .await?
+        };
 
         if conflicting_id.is_some() {
             return Err(Error::BadRequest(format!(
                 "Job with id {job_id} already exists"
             )));
         }
-
-        job_id
-    } else {
-        Ulid::new().into()
-    };
+    }
 
     if concurrent_limit.is_some() {
         insert_concurrency_key(
@@ -4294,7 +4366,10 @@ pub async fn push<'c, 'd>(
         running,
         end_user_email,
     )
-    .execute(&mut *tx)
+    .execute(if !shard_mode {&mut *tx} else {
+        println!("Push");
+         job_queue_tx.as_mut().unwrap()
+    })
     .warn_after_seconds(1)
     .await?;
 
@@ -4325,7 +4400,11 @@ pub async fn push<'c, 'd>(
             job_id,
             Json(flow_status) as Json<FlowStatus>,
         )
-        .execute(&mut *tx)
+        .execute(if !shard_mode {
+            &mut *tx
+        } else {
+            job_queue_tx.as_mut().unwrap()
+        })
         .warn_after_seconds(1)
         .await?;
     }
@@ -4400,6 +4479,52 @@ pub async fn push<'c, 'd>(
         .await?;
     }
 
+    if shard_mode {
+        let job_queue_tx = job_queue_tx.unwrap();
+
+        let main_commit_result = tx.commit().await;
+
+        let commit_result = match main_commit_result {
+            Ok(_) => match job_queue_tx.commit().await {
+                Ok(_) => {
+                    tracing::debug!(
+                        "Both main DB and shard DB committed successfully for job {}",
+                        job_id
+                    );
+                    let new_tx = _db.begin().await?;
+                    Ok((job_id, new_tx))
+                }
+                Err(shard_error) => {
+                    tracing::error!(
+                        job_id = %job_id,
+                        workspace_id = %workspace_id,
+                        error = %shard_error,
+                        "CRITICAL: Main DB committed but shard DB failed during job push. Data inconsistency detected."
+                    );
+
+                    Err(Error::internal_err(format!(
+                            "CRITICAL: Shard DB commit failed after main DB commit for job {} (workspace: {}): {}", 
+                            job_id, workspace_id, shard_error
+                        )))
+                }
+            },
+            Err(main_error) => {
+                if let Err(rollback_err) = job_queue_tx.rollback().await {
+                    tracing::error!(
+                        job_id = %job_id,
+                        main_error = %main_error,
+                        rollback_error = %rollback_err,
+                        "Failed to rollback shard DB after main DB commit failure"
+                    );
+                }
+                Err(Error::internal_err(format!(
+                    "Main DB commit failed for job {}: {}",
+                    job_id, main_error
+                )))
+            }
+        };
+        return commit_result;
+    }
     Ok((job_id, tx))
 }
 
