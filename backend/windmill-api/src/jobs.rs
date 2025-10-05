@@ -14,6 +14,7 @@ use deno_core::{op2, serde_v8, v8, JsRuntime, OpState};
 use futures::future::join_all;
 use futures::{StreamExt, TryFutureExt};
 use http::{HeaderMap, HeaderName};
+use indexmap::IndexMap;
 use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
@@ -6439,7 +6440,7 @@ async fn add_batch_jobs(
         };
 
         let mut uuid_per_db = {
-            let mut store = HashMap::with_capacity(num_shards_to_use);
+            let mut store = IndexMap::with_capacity(num_shards_to_use);
             for shard_id in 0..num_shards_to_use {
                 store.insert(shard_id, Vec::new());
             }

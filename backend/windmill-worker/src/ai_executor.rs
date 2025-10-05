@@ -897,7 +897,7 @@ pub async fn run_agent(
                                 let inner_job_completed_tx_spawn = inner_job_completed_tx.clone();
                                 let mut occupancy_metrics_spawn = occupancy_metrics.clone();
                                 let mut killpill_rx_spawn = killpill_rx.resubscribe();
-
+                                let queue_db = job_queue_db.clone();
                                 // Spawn on separate tokio task with fresh stack
                                 let join_handle = tokio::task::spawn(async move {
                                     #[cfg(feature = "benchmark")]
@@ -911,7 +911,7 @@ pub async fn run_agent(
                                         None,
                                         None,
                                         &conn_spawn,
-                                        Some(job_queue_db),
+                                        Some(&queue_db),
                                         &client_spawn,
                                         &hostname_spawn,
                                         &worker_name_spawn,
@@ -953,7 +953,7 @@ pub async fn run_agent(
                                         let err_json = error_to_value(&err);
                                         let _ = handle_non_flow_job_error(
                                             db,
-                                            job_queue_db,
+                                            &job_queue_db,
                                             &tool_job,
                                             0,
                                             None,
