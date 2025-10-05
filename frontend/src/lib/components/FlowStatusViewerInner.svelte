@@ -1671,7 +1671,7 @@
 		</div>
 		{#if selected == 'logs' && render}
 			<div
-				class="mx-auto"
+				class="mx-auto overflow-auto"
 				bind:clientHeight={tabsHeight.logsHeight}
 				style="min-height: {minTabHeight}px"
 			>

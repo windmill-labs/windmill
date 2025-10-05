@@ -366,6 +366,7 @@ struct UserWorkspace {
     pub color: Option<String>,
     pub operator_settings: Option<Option<serde_json::Value>>,
     pub parent_workspace_id: Option<String>,
+    pub disabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -2109,7 +2110,8 @@ async fn user_workspaces(
     let workspaces = sqlx::query_as!(
         UserWorkspace,
         "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
-                CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings
+                CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,
+                usr.disabled
          FROM workspace
          JOIN usr ON usr.workspace_id = workspace.id
          JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id

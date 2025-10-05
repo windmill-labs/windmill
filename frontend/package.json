@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.554.0",
+	"version": "1.555.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -349,8 +349,8 @@
 			"default": "./package/gen/index.js"
 		},
 		"./components/flows/flowStore": {
-			"types": "./package/components/flows/flowStore.d.ts",
-			"default": "./package/components/flows/flowStore.js"
+			"types": "./package/components/flows/flowStore.svelte.d.ts",
+			"default": "./package/components/flows/flowStore.svelte.js"
 		},
 		"./components/icons": {
 			"types": "./package/components/icons/index.d.ts",
@@ -501,7 +501,7 @@
 				"./package/gen/index.d.ts"
 			],
 			"components/flows/flowStore": [
-				"./package/components/flows/flowStore.d.ts"
+				"./package/components/flows/flowStore.svelte.d.ts"
 			],
 			"components/icons": [
 				"./package/components/icons/index.d.ts"

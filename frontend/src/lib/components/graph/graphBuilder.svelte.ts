@@ -124,6 +124,7 @@ export type InputN = {
 		flowJob: Job | undefined
 		showJobStatus: boolean
 		flowHasChanged: boolean
+		chatInputEnabled: boolean
 		assets?: AssetWithAltAccessType[] | undefined
 	}
 }
@@ -374,6 +375,7 @@ export function graphBuilder(
 		showJobStatus: boolean
 		suspendStatus: Record<string, { job: Job; nb: number }>
 		flowHasChanged: boolean
+		chatInputEnabled: boolean
 		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
 	},
 	failureModule: FlowModule | undefined,
@@ -548,6 +550,7 @@ export function graphBuilder(
 				flowJob: extra.flowJob,
 				showJobStatus: extra.showJobStatus,
 				flowHasChanged: extra.flowHasChanged,
+				chatInputEnabled: extra.chatInputEnabled,
 				...(inputAssets ? { assets: inputAssets } : {})
 			}
 		}

@@ -1,14 +1,17 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Button, ButtonType } from '$lib/components/common'
 	import { RefreshCw } from 'lucide-svelte'
 
 	import Popover from '$lib/components/Popover.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		loading: boolean
+		size?: ButtonType.Size
+		light?: boolean
 	}
 
-	let { loading }: Props = $props()
+	let { loading, size = 'xs2', light = false }: Props = $props()
 
 	let buttonHover = $state(false)
 </script>
@@ -18,11 +21,14 @@
 		on:mouseenter={() => (buttonHover = true)}
 		on:mouseleave={() => (buttonHover = false)}
 		color="light"
-		size="xs2"
+		{size}
 		variant="border"
 		on:click
 	>
-		<RefreshCw class={loading ? 'animate-spin ' : ''} size="14" />
+		<RefreshCw
+			class={twMerge(loading ? 'animate-spin ' : '', light ? 'text-secondary' : '')}
+			size="14"
+		/>
 	</Button>
 	{#snippet text()}
 		{#if loading}

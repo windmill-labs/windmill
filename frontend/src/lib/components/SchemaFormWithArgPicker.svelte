@@ -86,7 +86,7 @@
 	let loading = false
 	let captureTable: CaptureTable | undefined = undefined
 	let historicInputs: HistoricInputs | undefined = undefined
-	$: selectedTab, (dropdownItems = getDropdownItems())
+	$: (selectedTab, (dropdownItems = getDropdownItems()))
 
 	let inputPanelSize = 70
 </script>

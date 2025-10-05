@@ -682,6 +682,7 @@ pub struct FlowVersionInfo {
     pub tag: Option<String>,
     pub early_return: Option<String>,
     pub has_preprocessor: Option<bool>,
+    pub chat_input_enabled: Option<bool>,
     pub on_behalf_of_email: Option<String>,
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
@@ -803,7 +804,7 @@ pub fn get_latest_flow_version_info_for_path_from_version<
                 let mut conn = db.acquire().await?;
                 let info = sqlx::query_as!(
                     FlowVersionInfo,
-                    "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, on_behalf_of_email, edited_by, flow_version.id AS version
+                    "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled, on_behalf_of_email, edited_by, flow_version.id AS version
                     FROM flow
                     INNER JOIN flow_version
                         ON flow_version.id = $3
