@@ -227,6 +227,17 @@ export const settings: Record<string, Setting[]> = {
 			requiresReloadOnChange: true
 		},
 		{
+			label: 'Private Hub API secret',
+			description:
+				'If your private hub is protected, you can set the hub API secret here. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
+			key: 'hub_api_secret',
+			fieldType: 'text',
+
+			storage: 'setting',
+			ee_only: '',
+			requiresReloadOnChange: true
+		},
+		{
 			label: 'App workspace prefix',
 			description:
 				'When enabled apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path} allowing you to define same custom path for apps in different workspace without conflict',
