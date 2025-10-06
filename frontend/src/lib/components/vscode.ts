@@ -9,7 +9,6 @@ import {
 	getEnhancedMonacoEnvironment,
 	MonacoVscodeApiWrapper
 } from 'monaco-languageclient/vscodeApiWrapper'
-import { Uri } from 'vscode'
 
 export function buildWorkerDefinition() {
 	const envEnhanced = getEnhancedMonacoEnvironment()
