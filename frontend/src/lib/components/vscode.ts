@@ -1,15 +1,19 @@
-import { initServices } from 'monaco-languageclient/vscode/services'
 // import getThemeServiceOverride from '@codingame/monaco-vscode-theme-service-override'
 // import getTextmateServiceOverride from '@codingame/monaco-vscode-textmate-service-override'
-import getMonarchServiceOverride from '@codingame/monaco-vscode-monarch-service-override'
+// import getMonarchServiceOverride from '@codingame/monaco-vscode-monarch-service-override'
 import '@codingame/monaco-vscode-standalone-typescript-language-features'
-import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
+// import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
+import getLogServiceOverride from '@codingame/monaco-vscode-log-service-override'
 import { editor as meditor, Uri as mUri } from 'monaco-editor'
 
 export let isInitialized = false
 export let isInitializing = false
 
-import { getEnhancedMonacoEnvironment } from 'monaco-languageclient/vscode/services'
+import {
+	getEnhancedMonacoEnvironment,
+	MonacoVscodeApiWrapper
+} from 'monaco-languageclient/vscodeApiWrapper'
+import { Uri } from 'vscode'
 
 export function buildWorkerDefinition() {
 	const envEnhanced = getEnhancedMonacoEnvironment()
@@ -124,25 +128,43 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 
 		try {
 			// init vscode-api
-			await initServices(
-				{
-					serviceOverrides: {
-						// ...getThemeServiceOverride(),
-						// ...getTextmateServiceOverride()
-						...getConfigurationServiceOverride(),
-						...getMonarchServiceOverride()
-					},
-					enableExtHostWorker: false,
-					userConfiguration: {
-						json: JSON.stringify({
-							'editor.experimental.asyncTokenization': true
-						})
+			const workspaceFileUri = Uri.file('/workspace.code-workspace')
+			const apiWrapper = new MonacoVscodeApiWrapper({
+				$type: 'classic',
+				viewsConfig: {
+					$type: 'EditorService'
+				},
+				serviceOverrides: {
+					...getLogServiceOverride()
+					// ...getThemeServiceOverride(),
+					// ...getTextmateServiceOverride()
+					// ...getConfigurationServiceOverride(),
+					// ...getKeybindingsServiceOverride()
+				},
+				userConfiguration: {
+					json: JSON.stringify({
+						'editor.experimental.asyncTokenization': true
+					})
+				},
+				advanced: {
+					enableExtHostWorker: true
+				},
+				workspaceConfig: {
+					enableWorkspaceTrust: true,
+					workspaceProvider: {
+						trusted: true,
+						async open() {
+							window.open(window.location.href)
+							return true
+						},
+						workspace: {
+							workspaceUri: workspaceFileUri
+						}
 					}
 				},
-				{
-					monacoWorkerFactory: buildWorkerDefinition
-				}
-			)
+				monacoWorkerFactory: buildWorkerDefinition
+			})
+			await apiWrapper.start()
 
 			isInitialized = true
 			meditor.defineTheme('nord', {
