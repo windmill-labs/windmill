@@ -21,6 +21,7 @@
 
 	interface ChatMessage extends FlowConversationMessage {
 		loading?: boolean
+		streaming?: boolean
 	}
 
 	let {
@@ -47,17 +48,6 @@
 	let currentEventSource: EventSource | undefined = $state()
 
 	const conversationsCache = $state<Record<string, ChatMessage[]>>({})
-
-	// Auto-scroll to bottom when messages change
-	$effect(() => {
-		const scroll = async () => {
-			if (messages.length > 0) {
-				await tick()
-				scrollToBottom()
-			}
-		}
-		scroll()
-	})
 
 	// Cleanup EventSource on unmount
 	$effect(() => {
@@ -153,6 +143,14 @@
 	function scrollToBottom() {
 		if (messagesContainer) {
 			messagesContainer.scrollTop = messagesContainer.scrollHeight
+		}
+	}
+
+	function scrollToUserMessage(messageId: string) {
+		if (!messagesContainer) return
+		const messageElement = messagesContainer.querySelector(`[data-message-id="${messageId}"]`)
+		if (messageElement) {
+			messageElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
 		}
 	}
 
@@ -270,10 +268,14 @@
 				message_type: 'assistant',
 				conversation_id: currentConversationId,
 				job_id: '',
-				loading: true
+				loading: true,
+				streaming: useStreaming && path
 			}
 
 			messages = [...messages, assistantMessage]
+
+			await tick()
+			scrollToUserMessage(userMessage.id)
 
 			if (useStreaming && path) {
 				// Close any existing EventSource
@@ -332,7 +334,8 @@
 											? {
 													...msg,
 													content: finalContent,
-													loading: false
+													loading: false,
+													streaming: false
 												}
 											: msg
 									)
@@ -353,7 +356,8 @@
 								? {
 										...msg,
 										content: accumulatedContent || 'Stream error occurred',
-										loading: false
+										loading: false,
+										streaming: false
 									}
 								: msg
 						)
@@ -369,7 +373,8 @@
 							? {
 									...msg,
 									content: 'Failed to connect to stream',
-									loading: false
+									loading: false,
+									streaming: false
 								}
 							: msg
 					)
@@ -384,8 +389,6 @@
 				}
 				pollJobResult(jobId, assistantMessageId)
 			}
-
-			scrollToBottom()
 		} catch (error) {
 			console.error('Error running flow:', error)
 			sendUserToast('Failed to run flow: ' + error, true)
@@ -416,7 +419,7 @@
 		<!-- Messages Container -->
 		<div
 			bind:this={messagesContainer}
-			class="flex-1 overflow-y-auto p-4 space-y-4 bg-background"
+			class="flex-1 overflow-y-auto p-4 bg-background"
 			onscroll={handleScroll}
 		>
 			{#if deploymentInProgress}
@@ -433,7 +436,7 @@
 					<p class="text-sm">Send a message to run the flow and see the results</p>
 				</div>
 			{:else}
-				<div class="max-w-7xl mx-auto">
+				<div class="max-w-7xl mx-auto space-y-4">
 					{#each messages as message (message.id)}
 						<FlowChatMessage {message} />
 					{/each}

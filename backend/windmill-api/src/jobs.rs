@@ -3942,7 +3942,7 @@ async fn handle_chat_conversation_messages(
     w_id: &str,
     flow_path: &str,
     run_query: &RunJobQuery,
-    user_message: Option<&str>,
+    user_message_raw: Option<&Box<serde_json::value::RawValue>>,
     uuid: Uuid,
 ) -> error::Result<()> {
     let memory_id = run_query.memory_id.ok_or_else(|| {
@@ -3951,11 +3951,17 @@ async fn handle_chat_conversation_messages(
         )
     })?;
 
-    if user_message.is_none() {
-        return Err(windmill_common::error::Error::BadRequest(
+    let user_message_raw = user_message_raw.ok_or_else(|| {
+        windmill_common::error::Error::BadRequest(
             "user_message argument is required for chat-enabled flows".to_string(),
-        ));
-    }
+        )
+    })?;
+
+    // Deserialize the RawValue to get the actual string without quotes
+    let user_message: String = serde_json::from_str(user_message_raw.get())
+        .map_err(|e| windmill_common::error::Error::BadRequest(
+            format!("Failed to deserialize user_message: {}", e)
+        ))?;
 
     // Create conversation with provided ID (or get existing one)
     flow_conversations::get_or_create_conversation_with_id(
@@ -3963,7 +3969,7 @@ async fn handle_chat_conversation_messages(
         w_id,
         flow_path,
         &authed.username,
-        &user_message.unwrap(),
+        &user_message,
         memory_id,
     )
     .await?;
@@ -3973,7 +3979,7 @@ async fn handle_chat_conversation_messages(
         tx,
         memory_id,
         MessageType::User,
-        &user_message.unwrap(),
+        &user_message,
         None, // No job_id for user message
         w_id,
     )
@@ -4111,7 +4117,6 @@ pub async fn run_flow_by_path_inner(
     }
 
     // Handle conversation messages for chat-enabled flows
-    let user_message = args.args.get("user_message").map(|v| v.get());
     if chat_input_enabled.unwrap_or(false) {
         handle_chat_conversation_messages(
             &mut tx,
@@ -4119,7 +4124,7 @@ pub async fn run_flow_by_path_inner(
             &w_id,
             &flow_path.to_string(),
             &run_query,
-            user_message,
+            args.args.get("user_message"),
             uuid,
         )
         .await?;
@@ -5611,7 +5616,6 @@ pub async fn run_wait_result_flow_by_path_internal(
     }
 
     // Handle conversation messages for chat-enabled flows
-    let user_message = args.args.get("user_message").map(|v| v.get());
     if chat_input_enabled.unwrap_or(false) {
         handle_chat_conversation_messages(
             &mut tx,
@@ -5619,7 +5623,7 @@ pub async fn run_wait_result_flow_by_path_internal(
             &w_id,
             &flow_path.to_string(),
             &run_query,
-            user_message,
+            args.args.get("user_message"),
             uuid,
         )
         .await?;

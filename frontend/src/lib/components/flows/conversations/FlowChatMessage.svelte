@@ -13,7 +13,10 @@
 	let { message }: Props = $props()
 </script>
 
-<div class="flex {message.message_type === 'user' ? 'justify-end' : 'justify-start'}">
+<div
+	class={`flex ${message.message_type === 'user' ? 'justify-end' : 'justify-start'} ${message.loading || message.streaming ? 'min-h-[200px] items-start' : ''}`}
+	data-message-id={message.id}
+>
 	<div
 		class="max-w-[90%] min-w-0 rounded-lg p-3 {message.message_type === 'user'
 			? 'bg-surface-secondary'
