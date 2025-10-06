@@ -424,6 +424,8 @@
 			flowChatInterface.clearMessages()
 		}
 
+		flowChatInterface?.focusInput()
+
 		return newConversationId
 	}
 

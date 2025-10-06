@@ -839,7 +839,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         s
                     } else {
                         // serialize the whole result
-                        serde_json::to_string_pretty(&serde_json::Value::Object(map))
+                        serde_json::to_string_pretty(&map)
                             .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
                     }
                 }
