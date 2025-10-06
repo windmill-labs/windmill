@@ -81,7 +81,6 @@
 			if (newDate.toString() === 'Invalid Date') return
 			if (newDate.getFullYear() < 1900) return
 			value = newDate.toISOString()
-			console.log({ newDate, value })
 			dispatchIfMounted('change', value)
 		}
 	}
