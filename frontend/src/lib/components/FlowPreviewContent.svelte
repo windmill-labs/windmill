@@ -38,7 +38,7 @@
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
-	import FlowChatInterface from './flows/FlowChatInterface.svelte'
+	import FlowChatInterface from './flows/conversations/FlowChatInterface.svelte'
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'

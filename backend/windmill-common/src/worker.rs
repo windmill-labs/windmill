@@ -457,6 +457,7 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
 
 pub const TMP_DIR: &str = "/tmp/windmill";
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
+pub const TMP_MEMORY_DIR: &str = concatcp!(TMP_DIR, "/memory");
 
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 

@@ -2,12 +2,14 @@
 	import { Tabs, Tab, TabContent } from '$lib/components/common'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import DetailPageDetailPanel from './DetailPageDetailPanel.svelte'
+	import FlowViewerInner from '../FlowViewerInner.svelte'
 
 	interface Props {
 		isOperator?: boolean
 		flow_json?: any | undefined
 		selected: string
 		forceSmallScreen?: boolean
+		isChatMode?: boolean
 		header?: import('svelte').Snippet
 		form?: import('svelte').Snippet
 		scriptRender?: import('svelte').Snippet
@@ -21,6 +23,7 @@
 		flow_json = undefined,
 		selected = $bindable(),
 		forceSmallScreen = false,
+		isChatMode = false,
 		header,
 		form,
 		scriptRender: script,
@@ -74,8 +77,10 @@
 			{@render header?.()}
 			<div class="grow min-h-0 w-full flex flex-col">
 				<Tabs bind:selected={mobileTab} wrapperClass="flex-none">
-					<Tab value="form">Run form</Tab>
-					<Tab value="saved_inputs">Inputs</Tab>
+					<Tab value="form">{isChatMode ? 'Chat' : 'Run form'}</Tab>
+					{#if !isChatMode}
+						<Tab value="saved_inputs">Inputs</Tab>
+					{/if}
 					{#if !isOperator}
 						<Tab value="triggers">Triggers</Tab>
 					{/if}
@@ -97,6 +102,11 @@
 							<TabContent value="triggers" class="flex flex-col flex-1 h-full mt-[-2px]">
 								{@render triggers?.()}
 							</TabContent>
+							{#if flow_json}
+								<TabContent value="raw" class="flex flex-col flex-1 h-full overflow-auto p-2">
+									<FlowViewerInner flow={flow_json} />
+								</TabContent>
+							{/if}
 							<TabContent value="script" class="flex flex-col flex-1 h-full">
 								{@render script?.()}
 							</TabContent>

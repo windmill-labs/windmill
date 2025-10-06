@@ -349,6 +349,7 @@
 						</Popover>
 					{:else}
 						<ExploreAssetButton
+							class="h-9"
 							asset={{ kind: 'ducklake', path: ducklake.name }}
 							{dbManagerDrawer}
 						/>

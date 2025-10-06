@@ -471,13 +471,12 @@ pub async fn run_agent(
                             // Take the last n messages
                             let start_idx = loaded_messages.len().saturating_sub(context_length);
                             let mut messages_to_load = loaded_messages[start_idx..].to_vec();
+                            let first_non_tool_message_index =
+                                messages_to_load.iter().position(|m| m.role != "tool");
 
-                            // Remove the first message if its role is "tool" to avoid OpenAI API error
-                            // "messages with role 'tool' must be a response to a preceeding message with 'tool_calls'"
-                            if let Some(first_msg) = messages_to_load.first() {
-                                if first_msg.role == "tool" {
-                                    messages_to_load.remove(0);
-                                }
+                            // Remove the first messages if their role is "tool" to avoid OpenAI API error
+                            if let Some(index) = first_non_tool_message_index {
+                                messages_to_load = messages_to_load[index..].to_vec();
                             }
 
                             messages.extend(messages_to_load);
@@ -871,8 +870,6 @@ pub async fn run_agent(
 
                                 let tool_job = Arc::new(tool_job);
 
-                                let job_dir = create_job_dir(&worker_dir, job.id).await;
-
                                 let (inner_job_completed_tx, inner_job_completed_rx) =
                                     JobCompletedSender::new(&conn, 1);
 
@@ -891,7 +888,6 @@ pub async fn run_agent(
                                 let hostname_spawn = hostname.to_string();
                                 let worker_name_spawn = worker_name.to_string();
                                 let worker_dir_spawn = worker_dir.to_string();
-                                let job_dir_spawn = job_dir.clone();
                                 let base_internal_url_spawn = base_internal_url.to_string();
                                 let inner_job_completed_tx_spawn = inner_job_completed_tx.clone();
                                 let mut occupancy_metrics_spawn = occupancy_metrics.clone();
@@ -902,6 +898,9 @@ pub async fn run_agent(
                                     #[cfg(feature = "benchmark")]
                                     let mut bench_spawn =
                                         windmill_common::bench::BenchmarkIter::new();
+
+                                    let job_dir =
+                                        create_job_dir(&worker_dir_spawn, tool_job_spawn.id).await;
 
                                     let result = handle_queued_job(
                                         tool_job_spawn,
@@ -914,7 +913,7 @@ pub async fn run_agent(
                                         &hostname_spawn,
                                         &worker_name_spawn,
                                         &worker_dir_spawn,
-                                        &job_dir_spawn,
+                                        &job_dir,
                                         None,
                                         &base_internal_url_spawn,
                                         inner_job_completed_tx_spawn,
@@ -934,7 +933,7 @@ pub async fn run_agent(
                                 let (handle_result, updated_occupancy) =
                                     join_handle.await.map_err(|e| {
                                         Error::internal_err(format!(
-                                            "Tool execution task panicked: {}",
+                                            "Tool execution task failed: {}",
                                             e
                                         ))
                                     })?;

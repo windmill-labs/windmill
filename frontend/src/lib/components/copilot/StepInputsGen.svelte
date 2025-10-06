@@ -229,7 +229,7 @@ input_name2: expression2
 				<Button
 					size="xs"
 					color="light"
-					btnClasses="text-violet-800 dark:text-violet-400 border border-violet-200 hover:bg-violet-50"
+					btnClasses={stepInputGenButtonClasses(false)}
 					nonCaptureEvent
 					startIcon={{
 						icon: Wand2
