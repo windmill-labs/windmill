@@ -80,6 +80,7 @@
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { GraphModuleState } from './graph'
+	import { validateRetryConfig } from '$lib/utils'
 	import {
 		setStepHistoryLoaderContext,
 		StepHistoryLoader,
@@ -427,6 +428,15 @@
 		loadingSave = true
 		try {
 			const flow = cleanInputs(flowStore.val)
+			
+			if (flow.value?.modules) {
+				for (const module of flow.value.modules) {
+					const error = validateRetryConfig(module.retry)
+					if (error) {
+						throw new Error(error)
+					}
+				}
+			}
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
