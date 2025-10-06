@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT EXISTS (SELECT 1\n                FROM workspace_settings\n                WHERE workspace_id <> $1\n                    AND teams_command_script IS NOT NULL\n                    AND teams_team_id IS NOT NULL\n                    AND teams_team_id = (SELECT teams_team_id FROM workspace_settings WHERE workspace_id = $1))\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3b02f3ec6b92706c26065b2fa703cd1a1d6eca4083286c6f29c9acba522d2fe3"
+}

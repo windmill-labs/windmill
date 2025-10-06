@@ -423,7 +423,7 @@
 
 		<Select
 			bind:value={operation}
-			items={['all', ...Object.keys(operations)].map((r) => ({ value: r, label: r }))}
+			items={['all', ...Object.values(operations)].map((r) => ({ value: r, label: r }))}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
 		/>

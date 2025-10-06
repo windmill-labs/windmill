@@ -545,6 +545,7 @@ async fn create_flow(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
     )
     .await?;
 
@@ -1012,6 +1013,7 @@ async fn update_flow(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
     )
     .await?;
     sqlx::query!(
@@ -1599,6 +1601,7 @@ mod tests {
             priority: None,
             early_return: None,
             concurrency_key: None,
+            chat_input_enabled: None,
         };
         let expect = serde_json::json!({
           "modules": [

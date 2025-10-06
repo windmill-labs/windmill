@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT (scalar_int)::int FROM job_stats WHERE job_id = $1 AND workspace_id = $2 AND metric_id = 'progress_perc'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scalar_int",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "d600a0ad953ed131952d9c46deb8f65143894f86517f2b5b2d51bc9a2857695c"
+}

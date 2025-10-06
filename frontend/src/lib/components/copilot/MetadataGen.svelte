@@ -2,7 +2,8 @@
 	import { getCompletion, getResponseFromEvent } from './lib'
 	import { isInitialCode } from '$lib/script_helpers'
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
-	import { copilotInfo, metadataCompletionEnabled } from '$lib/stores'
+	import { metadataCompletionEnabled } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { twMerge } from 'tailwind-merge'
@@ -324,9 +325,9 @@ Generate a tool name for the script below:
 			on:blur={() => (focused = false)}
 		/>
 		{#if promptConfigName === 'agentToolFunctionName' && !validateToolName(content ?? '')}
-			<div class="text-3xs text-red-400 -mt-0.5">
+			<p class="text-3xs text-red-400 leading-tight mt-0.5">
 				Invalid tool name, should only contain letters, numbers and underscores
-			</div>
+			</p>
 		{/if}
 	{/if}
 	<!-- <slot {updateFocus} {active} {generatedContent} classNames={active ? '!indent-[8.8rem]' : ''} /> -->

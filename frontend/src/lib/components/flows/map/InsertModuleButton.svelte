@@ -21,6 +21,7 @@
 		iconSize?: number
 		clazz?: string
 		placement?: Placement
+		disableAi?: boolean
 	}
 
 	let {
@@ -29,7 +30,8 @@
 		kind = 'script',
 		iconSize = 12,
 		clazz = '',
-		placement = 'bottom-center'
+		placement = 'bottom-center',
+		disableAi = false
 	}: Props = $props()
 
 	let floatingConfig: ComputeConfig = {
@@ -41,6 +43,7 @@
 	}
 
 	let open = $state(false)
+
 	$effect(() => {
 		!open && (funcDesc = '')
 	})
@@ -72,7 +75,9 @@ shouldUsePortal={true} -->
 				'w-[17.5px] h-[17.5px] flex items-center justify-center !outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded',
 				clazz
 			)}
-			onpointerdown={() => (open = !open)}
+			onpointerdown={() => {
+				open = !open
+			}}
 		>
 			{#if kind === 'trigger'}
 				<SchedulePollIcon size={14} />
@@ -95,6 +100,7 @@ shouldUsePortal={true} -->
 			on:pickScript
 			allowTrigger={index == 0}
 			{kind}
+			{disableAi}
 		/>
 	{/snippet}
 </PopupV2>

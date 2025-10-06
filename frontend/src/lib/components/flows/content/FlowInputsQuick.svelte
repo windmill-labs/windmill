@@ -1,19 +1,21 @@
+<script module lang="ts">
+	let cachedOwners: Record<string, string[]> = {}
+	let cachedIntegrations: string[] = []
+</script>
+
 <script lang="ts">
 	import { isCloudHosted } from '$lib/cloud'
 	import { sendUserToast } from '$lib/toast'
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
-	import WorkspaceScriptPickerQuick from '../pickers/WorkspaceScriptPickerQuick.svelte'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
-	import { defaultScripts, enterpriseLicense, userStore } from '$lib/stores'
+	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
 	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
-	import PickHubScriptQuick from '../pickers/PickHubScriptQuick.svelte'
 	import { type Script, type ScriptLang, type HubScriptKind } from '$lib/gen'
 	import ListFiltersQuick from '$lib/components/home/ListFiltersQuick.svelte'
 	import { Folder, User } from 'lucide-svelte'
 	import type { FlowEditorContext } from '../../flows/types'
-	import { copilotInfo } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import { fade } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
@@ -23,6 +25,7 @@
 	import DefaultScriptsInner from '$lib/components/DefaultScriptsInner.svelte'
 	import GenAiQuick from './GenAiQuick.svelte'
 	import FlowToplevelNode from '../pickers/FlowToplevelNode.svelte'
+	import { copilotInfo } from '$lib/aiStore'
 
 	const dispatch = createEventDispatcher()
 
@@ -56,6 +59,9 @@
 		refreshCount = 0
 	}: Props = $props()
 
+	if ($workspaceStore && cachedOwners?.[$workspaceStore]) {
+		owners = cachedOwners[$workspaceStore]
+	}
 	type HubCompletion = {
 		path: string
 		summary: string
@@ -77,7 +83,7 @@
 	let selected: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined =
 		$state(undefined)
 
-	let integrations: string[] = $state([])
+	let integrations: string[] = $state(cachedIntegrations)
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
@@ -444,41 +450,56 @@
 			{#if !selected && (preFilter !== 'workspace' || funcDesc?.length > 0)}
 				<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Workspace</div>
 			{/if}
-			<WorkspaceScriptPickerQuick
-				bind:owners
-				bind:ownerFilter={selected}
-				bind:filteredWithOwner={filteredWorkspaceItems}
-				{filter}
-				kind={selectedKind}
-				selected={selectedByKeyboard - inlineScripts?.length - aiLength - topLevelNodes.length}
-				on:pickScript
-				on:pickFlow
-				{displayPath}
-				{refreshCount}
-			/>
+			{#await import('../pickers/WorkspaceScriptPickerQuick.svelte') then Module}
+				<Module.default
+					bind:owners={
+						() => owners,
+						(v) => {
+							$workspaceStore && (cachedOwners[$workspaceStore] = v)
+							owners = v
+						}
+					}
+					bind:ownerFilter={selected}
+					bind:filteredWithOwner={filteredWorkspaceItems}
+					{filter}
+					kind={selectedKind}
+					selected={selectedByKeyboard - inlineScripts?.length - aiLength - topLevelNodes.length}
+					on:pickScript
+					on:pickFlow
+					{displayPath}
+					{refreshCount}
+				/>
+			{/await}
 		{/if}
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}
 				{#if !selected && preFilter !== 'hub'}
 					<div class=" pb-0 text-2xs font-light text-secondary ml-2">Hub</div>
 				{/if}
-
-				<PickHubScriptQuick
-					bind:items={hubCompletions}
-					bind:filter
-					bind:apps={integrations}
-					appFilter={selected?.name}
-					kind={selectedKind}
-					selected={selectedByKeyboard -
-						inlineScripts?.length -
-						aiLength -
-						filteredWorkspaceItems?.length -
-						topLevelNodes.length}
-					on:pickScript
-					bind:loading
-					{displayPath}
-					{refreshCount}
-				/>
+				{#await import('../pickers/PickHubScriptQuick.svelte') then Module}
+					<Module.default
+						bind:items={hubCompletions}
+						bind:filter
+						bind:apps={
+							() => integrations,
+							(v) => {
+								cachedIntegrations = v
+								integrations = v
+							}
+						}
+						appFilter={selected?.name}
+						kind={selectedKind}
+						selected={selectedByKeyboard -
+							inlineScripts?.length -
+							aiLength -
+							filteredWorkspaceItems?.length -
+							topLevelNodes.length}
+						on:pickScript
+						bind:loading
+						{displayPath}
+						{refreshCount}
+					/>
+				{/await}
 			{/if}
 		{/if}
 	</Scrollable>
