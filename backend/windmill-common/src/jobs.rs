@@ -408,10 +408,7 @@ pub enum JobPayload {
         retry: Option<Retry>,
         error_handler_path: Option<String>,
         error_handler_args: Option<HashMap<String, Box<RawValue>>>,
-        skip_handler_path: Option<String>,
-        skip_handler_args: Option<HashMap<String, Box<RawValue>>>,
-        skip_handler_stop_condition: Option<String>,
-        skip_handler_stop_message: Option<String>,
+        skip_handler: Option<SkipHandler>,
         custom_concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
@@ -429,6 +426,14 @@ pub enum JobPayload {
     AIAgent {
         path: String,
     },
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct SkipHandler {
+    pub path: String,
+    pub args: HashMap<String, Box<RawValue>>,
+    pub stop_condition: String,
+    pub stop_message: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]

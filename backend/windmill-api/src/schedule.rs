@@ -135,10 +135,12 @@ async fn validate_dynamic_skip<'c>(
     w_id: &str,
     handler_path: &str,
 ) -> Result<()> {
-    // Check for script first
-    let script_exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM script
-         WHERE workspace_id = $1 AND path = $2 AND archived = false AND deleted = false)",
+    // Check for script only (flows are not supported in the UI)
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(
+            SELECT 1 FROM script
+            WHERE workspace_id = $1 AND path = $2 AND archived = false AND deleted = false
+        )",
         w_id,
         handler_path
     )
@@ -146,26 +148,11 @@ async fn validate_dynamic_skip<'c>(
     .await?
     .unwrap_or(false);
 
-    if script_exists {
-        return Ok(());
-    }
-
-    // Check for flow
-    let flow_exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM flow
-         WHERE workspace_id = $1 AND path = $2 AND archived = false)",
-        w_id,
-        handler_path
-    )
-    .fetch_one(&mut **tx)
-    .await?
-    .unwrap_or(false);
-
-    if flow_exists {
+    if exists {
         Ok(())
     } else {
         Err(Error::BadRequest(format!(
-            "Dynamic skip handler '{}' not found. The handler must be an existing, non-archived script or flow at schedule creation time.",
+            "Dynamic skip handler '{}' not found. The handler must be an existing, non-archived script at schedule creation time.",
             handler_path
         )))
     }

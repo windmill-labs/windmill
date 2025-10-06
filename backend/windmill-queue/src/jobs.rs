@@ -3672,10 +3672,7 @@ pub async fn push<'c, 'd>(
             retry,
             error_handler_path,
             error_handler_args,
-            skip_handler_path,
-            skip_handler_args,
-            skip_handler_stop_condition,
-            skip_handler_stop_message,
+            skip_handler,
             args,
             custom_concurrency_key,
             concurrent_limit,
@@ -3693,28 +3690,26 @@ pub async fn push<'c, 'd>(
             let mut modules = vec![];
 
             // Add skip validation module if provided
-            if let Some(skip_handler_path) = skip_handler_path {
+            if let Some(skip_handler) = skip_handler {
                 let mut skip_input_transforms = HashMap::<String, InputTransform>::new();
-                if let Some(skip_handler_args) = skip_handler_args {
-                    for (arg_name, arg_value) in skip_handler_args {
-                        skip_input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
-                    }
+                for (arg_name, arg_value) in skip_handler.args {
+                    skip_input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
                 }
 
                 modules.push(FlowModule {
                     id: "skip_validation".to_string(),
                     value: to_raw_value(&FlowModuleValue::Script {
                         input_transforms: skip_input_transforms,
-                        path: skip_handler_path,
+                        path: skip_handler.path,
                         hash: None,
                         tag_override: None,
                         is_trigger: None,
                         pass_flow_input_directly: None,
                     }),
-                    stop_after_if: skip_handler_stop_condition.map(|expr| StopAfterIf {
-                        expr,
+                    stop_after_if: Some(StopAfterIf {
+                        expr: skip_handler.stop_condition,
                         skip_if_stopped: true,
-                        error_message: skip_handler_stop_message,
+                        error_message: Some(skip_handler.stop_message),
                     }),
                     ..Default::default()
                 });

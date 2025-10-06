@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS(SELECT 1 FROM flow\n         WHERE workspace_id = $1 AND path = $2 AND archived = false)",
+  "query": "SELECT EXISTS(\n            SELECT 1 FROM script\n            WHERE workspace_id = $1 AND path = $2 AND archived = false AND deleted = false\n        )",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "b1a39be68b3d4c200517aae5d08f49c8f38b8f2323513216e6447b9eeeb3559b"
+  "hash": "145b364bcd45b6a8b3b80fd67a5ae17212785bd7206fbd3901a3b516eb77dc55"
 }
