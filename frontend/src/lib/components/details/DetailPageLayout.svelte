@@ -2,6 +2,7 @@
 	import { Tabs, Tab, TabContent } from '$lib/components/common'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import DetailPageDetailPanel from './DetailPageDetailPanel.svelte'
+	import FlowViewerInner from '../FlowViewerInner.svelte'
 
 	interface Props {
 		isOperator?: boolean
@@ -101,6 +102,11 @@
 							<TabContent value="triggers" class="flex flex-col flex-1 h-full mt-[-2px]">
 								{@render triggers?.()}
 							</TabContent>
+							{#if flow_json}
+								<TabContent value="raw" class="flex flex-col flex-1 h-full overflow-auto p-2">
+									<FlowViewerInner flow={flow_json} />
+								</TabContent>
+							{/if}
 							<TabContent value="script" class="flex flex-col flex-1 h-full">
 								{@render script?.()}
 							</TabContent>
