@@ -269,7 +269,7 @@
 				conversation_id: currentConversationId,
 				job_id: '',
 				loading: true,
-				streaming: useStreaming && path
+				streaming: Boolean(useStreaming && path)
 			}
 
 			messages = [...messages, assistantMessage]
