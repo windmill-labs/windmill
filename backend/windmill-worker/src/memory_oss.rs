@@ -1,13 +1,13 @@
-#[cfg(feature = "private")]
+#[cfg(all(feature = "private", feature = "enterprise"))]
 #[allow(unused)]
 pub use crate::memory_ee::*;
 
-#[cfg(not(feature = "private"))]
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
 use {crate::ai::types::OpenAIMessage, crate::memory_common, uuid::Uuid};
 
 /// Read AI agent memory from storage
 /// In OSS: always reads from disk
-#[cfg(not(feature = "private"))]
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub async fn read_from_memory(
     workspace_id: &str,
     conversation_id: Uuid,
@@ -18,7 +18,7 @@ pub async fn read_from_memory(
 
 /// Write AI agent memory to storage
 /// In OSS: always writes to disk
-#[cfg(not(feature = "private"))]
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub async fn write_to_memory(
     workspace_id: &str,
     conversation_id: Uuid,
@@ -34,7 +34,7 @@ pub async fn write_to_memory(
 
 /// Delete all memory for a conversation from storage
 /// In OSS: always deletes from disk
-#[cfg(not(feature = "private"))]
+#[cfg(not(all(feature = "private", feature = "enterprise")))]
 pub async fn delete_conversation_memory(
     workspace_id: &str,
     conversation_id: Uuid,

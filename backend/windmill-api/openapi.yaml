@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.554.1
+  version: 1.555.1
   title: Windmill API
 
   contact:
@@ -6990,6 +6990,23 @@ paths:
     get:
       summary: get public secret of app
       operationId: getPublicSecretOfApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: app secret
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/secret_of_latest_version/{path}:
+    get:
+      summary: get public secret of latest version of an app bundle
+      operationId: getPublicSecretOfLatestVersionOfApp
       tags:
         - app
       parameters:
@@ -18010,11 +18027,14 @@ components:
               created_by:
                 type: string
                 nullable: true
+              disabled:
+                type: boolean
             required:
               - id
               - name
               - username
               - color
+              - disabled
       required:
         - email
         - workspaces

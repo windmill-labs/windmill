@@ -5,11 +5,11 @@
 	import { getNonStreamingCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { copilotInfo } from '$lib/stores'
 
 	import { autoPlacement } from '@floating-ui/core'
 	import { ExternalLink, HistoryIcon, Wand2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { copilotInfo } from '$lib/aiStore'
 
 	// state
 	let funcDesc: string = ''
