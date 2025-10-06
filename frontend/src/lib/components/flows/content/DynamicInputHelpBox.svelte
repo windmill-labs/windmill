@@ -22,7 +22,7 @@
 
 {#if opened}
 	<div
-		class="bg-surface-secondary border-l-4 text-sm text-secondary p-4 mt-2"
+		class="bg-surface-secondary border-x border-r-0 border-l-4 text-sm text-secondary p-4 mt-2"
 		role="alert"
 		id="dynamic-input-help-box"
 	>
