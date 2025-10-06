@@ -838,7 +838,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     if let Some(serde_json::Value::String(s)) = map.remove("output") {
                         s
                     } else {
-                        // serialize the whole result
+                        // prettify the whole result
                         serde_json::to_string_pretty(&map)
                             .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
                     }
