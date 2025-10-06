@@ -8,6 +8,7 @@
 		flow_json?: any | undefined
 		selected: string
 		forceSmallScreen?: boolean
+		isChatMode?: boolean
 		header?: import('svelte').Snippet
 		form?: import('svelte').Snippet
 		scriptRender?: import('svelte').Snippet
@@ -21,6 +22,7 @@
 		flow_json = undefined,
 		selected = $bindable(),
 		forceSmallScreen = false,
+		isChatMode = false,
 		header,
 		form,
 		scriptRender: script,
@@ -74,8 +76,10 @@
 			{@render header?.()}
 			<div class="grow min-h-0 w-full flex flex-col">
 				<Tabs bind:selected={mobileTab} wrapperClass="flex-none">
-					<Tab value="form">Run form</Tab>
-					<Tab value="saved_inputs">Inputs</Tab>
+					<Tab value="form">{isChatMode ? 'Chat' : 'Run form'}</Tab>
+					{#if !isChatMode}
+						<Tab value="saved_inputs">Inputs</Tab>
+					{/if}
 					{#if !isOperator}
 						<Tab value="triggers">Triggers</Tab>
 					{/if}

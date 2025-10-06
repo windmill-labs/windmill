@@ -508,6 +508,7 @@
 	bind:selected={rightPaneSelected}
 	isOperator={$userStore?.operator}
 	forceSmallScreen={chatInputEnabled}
+	isChatMode={chatInputEnabled}
 	flow_json={{
 		value: flow?.value,
 		summary: flow?.summary,
@@ -583,7 +584,9 @@
 		{#if flow}
 			<div class="flex flex-col h-full justify-between">
 				<div
-					class="w-full {chatInputEnabled ? 'p-4 mt-8' : 'max-w-3xl p-8'} mx-auto gap-2 bg-surface"
+					class="w-full {chatInputEnabled
+						? 'p-3 flex flex-col h-full'
+						: 'max-w-3xl p-8'} mx-auto gap-2 bg-surface"
 				>
 					{#if flow?.archived}
 						<Alert type="error" title="Archived">This flow was archived</Alert>
@@ -612,8 +615,7 @@
 					{#if chatInputEnabled}
 						<!-- Chat Layout with Sidebar -->
 						<div
-							class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
-							style="height: 600px;"
+							class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1"
 						>
 							<div class="flex-shrink-0">
 								<FlowConversationsSidebar
@@ -625,7 +627,7 @@
 									onDeleteConversation={handleDeleteConversation}
 								/>
 							</div>
-							<div class="flex-1 min-h-0">
+							<div class="flex-1">
 								<FlowChatInterface
 									bind:this={flowChatInterface}
 									onRunFlow={runFlowForChat}
@@ -704,7 +706,7 @@
 						</div>
 					{/if}
 				</div>
-				<div class="mt-8">
+				<div class={chatInputEnabled ? 'mt-2' : 'mt-8'}>
 					<FlowGraphViewer
 						triggerNode={true}
 						download
