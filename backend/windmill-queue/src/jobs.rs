@@ -829,24 +829,24 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         let value = serde_json::to_value(result.0)
             .map_err(|e| Error::internal_err(format!("Failed to serialize result: {e}")))?;
         if chat_input_enabled.unwrap_or(false) {
-            let content = match &value {
+            let content = match value {
                 // If it's an Object with "output" key AND the output is a String, return it
-                serde_json::Value::Object(map)
+                serde_json::Value::Object(mut map)
                     if map.contains_key("output")
                         && matches!(map.get("output"), Some(serde_json::Value::String(_))) =>
                 {
-                    if let Some(serde_json::Value::String(s)) = map.get("output") {
-                        s.clone()
+                    if let Some(serde_json::Value::String(s)) = map.remove("output") {
+                        s
                     } else {
                         // serialize the whole result
-                        serde_json::to_string(&value)
+                        serde_json::to_string_pretty(&serde_json::Value::Object(map))
                             .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
                     }
                 }
                 // Otherwise, if the whole value is a String, return it
-                serde_json::Value::String(s) => s.clone(),
+                serde_json::Value::String(s) => s,
                 // Otherwise, prettify the whole result
-                _ => serde_json::to_string(&value)
+                v => serde_json::to_string_pretty(&v)
                     .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
             };
 
