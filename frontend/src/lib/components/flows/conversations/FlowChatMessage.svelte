@@ -7,7 +7,7 @@
 	import LinkRenderer from '$lib/components/copilot/chat/LinkRenderer.svelte'
 
 	interface Props {
-		message: FlowConversationMessage & { loading?: boolean }
+		message: FlowConversationMessage & { loading?: boolean; streaming?: boolean }
 	}
 
 	let { message }: Props = $props()
