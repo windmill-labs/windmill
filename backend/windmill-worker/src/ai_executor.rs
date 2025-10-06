@@ -471,13 +471,12 @@ pub async fn run_agent(
                             // Take the last n messages
                             let start_idx = loaded_messages.len().saturating_sub(context_length);
                             let mut messages_to_load = loaded_messages[start_idx..].to_vec();
+                            let first_non_tool_message_index =
+                                messages_to_load.iter().position(|m| m.role != "tool");
 
-                            // Remove the first message if its role is "tool" to avoid OpenAI API error
-                            // "messages with role 'tool' must be a response to a preceeding message with 'tool_calls'"
-                            if let Some(first_msg) = messages_to_load.first() {
-                                if first_msg.role == "tool" {
-                                    messages_to_load.remove(0);
-                                }
+                            // Remove the first messages if their role is "tool" to avoid OpenAI API error
+                            if let Some(index) = first_non_tool_message_index {
+                                messages_to_load = messages_to_load[index..].to_vec();
                             }
 
                             messages.extend(messages_to_load);
@@ -934,7 +933,7 @@ pub async fn run_agent(
                                 let (handle_result, updated_occupancy) =
                                     join_handle.await.map_err(|e| {
                                         Error::internal_err(format!(
-                                            "Tool execution task panicked: {}",
+                                            "Tool execution task failed: {}",
                                             e
                                         ))
                                     })?;

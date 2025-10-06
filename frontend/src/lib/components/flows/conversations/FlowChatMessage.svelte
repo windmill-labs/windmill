@@ -7,13 +7,16 @@
 	import LinkRenderer from '$lib/components/copilot/chat/LinkRenderer.svelte'
 
 	interface Props {
-		message: FlowConversationMessage & { loading?: boolean }
+		message: FlowConversationMessage & { loading?: boolean; streaming?: boolean }
 	}
 
 	let { message }: Props = $props()
 </script>
 
-<div class="flex {message.message_type === 'user' ? 'justify-end' : 'justify-start'}">
+<div
+	class={`flex ${message.message_type === 'user' ? 'justify-end' : 'justify-start'} ${message.loading || message.streaming ? 'min-h-[200px] items-start' : ''}`}
+	data-message-id={message.id}
+>
 	<div
 		class="max-w-[90%] min-w-0 rounded-lg p-3 {message.message_type === 'user'
 			? 'bg-surface-secondary'
@@ -27,7 +30,7 @@
 				<span>Processing...</span>
 			</div>
 		{:else if message.content}
-			<div class="prose prose-sm dark:prose-invert prose-ul:!pl-6 break-words">
+			<div class="prose prose-sm dark:prose-invert prose-ul:!pl-6 break-words whitespace-pre-wrap">
 				<Markdown
 					md={message.content}
 					plugins={[

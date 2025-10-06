@@ -88,7 +88,7 @@ async fn list_conversations(
         .offset(offset as i64);
 
     let sql = sqlb.sql().map_err(|e| {
-        windmill_common::error::Error::InternalErr(format!("Failed to build SQL: {}", e))
+        windmill_common::error::Error::internal_err(format!("Failed to build SQL: {}", e))
     })?;
 
     let conversations = sqlx::query_as::<Postgres, FlowConversation>(&sql)
@@ -123,6 +123,12 @@ pub async fn get_or_create_conversation_with_id(
         return Ok(existing);
     }
 
+    // Truncate title to 25 char characters max
+    let title = if title.len() > 25 {
+        format!("{}...", &title[..25])
+    } else {
+        title.to_string()
+    };
     // Create new conversation with provided ID
     let conversation = sqlx::query_as!(
         FlowConversation,

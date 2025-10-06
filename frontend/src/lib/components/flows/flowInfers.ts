@@ -30,7 +30,7 @@ export const AI_AGENT_SCHEMA = {
 		streaming: {
 			type: 'boolean',
 			description: 'Whether to stream the output of the AI agent.',
-			default: false,
+			default: true,
 			showExpr: "fields.output_type === 'text'"
 		},
 		messages_context_length: {
