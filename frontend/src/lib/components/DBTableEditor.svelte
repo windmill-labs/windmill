@@ -73,6 +73,7 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	const { onConfirm, dbType, previewSql, dbSchema, currentSchema }: DBTableEditorProps = $props()
 
@@ -121,9 +122,8 @@
 	<div class="flex-1 overflow-y-auto flex flex-col gap-6">
 		<label>
 			Name
-			<input
-				type="text"
-				placeholder="my_table"
+			<TextInput
+				inputProps={{ type: 'text', placeholder: 'my_table' }}
 				class={errors?.name ? 'border !border-red-600/60' : ''}
 				bind:value={values.name}
 			/>
@@ -144,12 +144,9 @@
 					{#each values.columns as column, i}
 						<tr>
 							<Cell first>
-								<input
-									type="text"
-									class={'h-10 ' +
-										(errors?.columns?.includes(column.name) ? 'border !border-red-600/60' : '')}
-									style="height: 2rem;"
-									placeholder="column_name"
+								<TextInput
+									error={errors?.columns?.includes(column.name)}
+									inputProps={{ type: 'text', placeholder: 'column_name' }}
 									bind:value={column.name}
 								/>
 							</Cell>
