@@ -276,7 +276,7 @@
 					</div>
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="border w-full mb-2"
+						class="border w-full mb-2 h-full max-h-[250px]"
 						id="flow-editor-parallel-expression"
 						transition:slide={{ duration: 300 }}
 					>
