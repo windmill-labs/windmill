@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use crate::{
     db::{ApiAuthed, DB},
@@ -23,6 +23,7 @@ use axum::{
 
 #[cfg(feature = "enterprise")]
 use axum::extract::Query;
+use serde_json::json;
 
 #[cfg(feature = "enterprise")]
 use crate::utils::require_devops_role;
@@ -68,10 +69,13 @@ pub fn global_service() -> Router {
             "/critical_alerts/:id/acknowledge",
             post(acknowledge_critical_alert),
         )
-        .route("/databases_exist", post(databases_exist))
         .route(
-            "/create_ducklake_database/:name",
-            post(create_ducklake_database),
+            "/get_ducklake_instance_catalog_db_status",
+            post(get_ducklake_instance_catalog_db_status),
+        )
+        .route(
+            "/setup_ducklake_catalog_db/:name",
+            post(setup_ducklake_catalog_db),
         )
         .route(
             "/critical_alerts/acknowledge_all",
@@ -568,61 +572,126 @@ pub async fn acknowledge_all_critical_alerts() -> error::Error {
     error::Error::NotFound("Critical Alerts require EE".to_string())
 }
 
-async fn databases_exist(
-    _authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Json(database_names): Json<Vec<String>>,
-) -> JsonResult<Vec<String>> {
-    let result = sqlx::query_scalar!(
-        r#"SELECT elem FROM (SELECT unnest($1::TEXT[]) AS elem) AS e
-        WHERE elem NOT IN (SELECT datname FROM pg_catalog.pg_database);"#,
-        database_names.as_slice()
-    )
-    .fetch_all(&db)
-    .await?
-    .into_iter()
-    .filter_map(|x| x)
-    .collect();
-
-    Ok(Json(result))
+#[derive(Deserialize, Debug, Serialize)]
+struct DucklakeInstanceCatalogDbStatus {
+    logs: Vec<(String, String)>, // (Step, Message)[]
+    success: bool,
+    error: Option<String>,
 }
 
-async fn create_ducklake_database(
+async fn get_ducklake_instance_catalog_db_status(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<HashMap<String, DucklakeInstanceCatalogDbStatus>> {
+    require_super_admin(&db, &authed.email).await?;
+    let result = sqlx::query_scalar!(
+        r#"SELECT value->'instance_catalog_db_status' FROM global_settings WHERE name = 'ducklake_settings'"#,
+    )
+    .fetch_one(&db)
+    .await?
+    .ok_or_else(|| error::Error::ExecutionErr("Couldn't find ducklake_settings".to_string()))?;
+    let result = serde_json::from_value(result).map_err(|e| {
+        error::Error::ExecutionErr(format!(
+            "couldn't parse instance_catalog_db_status : {}",
+            e.to_string()
+        ))
+    })?;
+    return Ok(Json(result));
+}
+
+async fn setup_ducklake_catalog_db(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(dbname): Path<String>,
+) -> JsonResult<DucklakeInstanceCatalogDbStatus> {
+    let mut logs = vec![];
+    let result = setup_ducklake_catalog_db_inner(authed, &db, &dbname, &mut logs).await;
+    let logs = logs
+        .into_iter()
+        .map(|(step, msg)| (step.to_string(), msg.to_string()))
+        .collect();
+    let success = result.is_ok();
+    let error = result.err().map(|e| e.to_string());
+    let status = DucklakeInstanceCatalogDbStatus { logs, success, error };
+    let status_json = serde_json::to_value(&status).map_err(to_anyhow)?;
+    // Save that the database was setup successfully
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{instance_catalog_db_status}', (COALESCE(value->'instance_catalog_db_status', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'ducklake_settings'"#,
+        json!({ dbname: status_json })
+    ).execute(&db).await?;
+
+    Ok(Json(status))
+}
+
+async fn setup_ducklake_catalog_db_inner(
+    authed: ApiAuthed,
+    db: &DB,
+    dbname: &str,
+    logs_ref: &mut Vec<(&str, &str)>,
 ) -> Result<()> {
-    require_super_admin(&db, &authed.email).await?;
+    logs_ref.push(("Super-admin", "Checking super-admin"));
+    require_super_admin(db, &authed.email).await?;
+    logs_ref.push((
+        "Database credentials",
+        "Aquiring Postgres URL from DATABASE_URL or DATABASE_URL_FILE",
+    ));
+    let pg_creds = &get_database_url().await?;
+    logs_ref.push(("Database credentials", "Parsing ..."));
+    let pg_creds = parse_postgres_url(pg_creds)?;
 
     // Validate name to ensure it only contains alphanumeric characters
     // Prevents SQL injection on the instance database
-    let valid_name = regex::Regex::new(r"^[a-zA-Z0-9_]+$")
-        .map_err(|_| error::Error::internal_err("Failed to compile regex".to_string()))?;
-    if !valid_name.is_match(&dbname) {
+    lazy_static::lazy_static! {
+        static ref VALID_NAME: regex::Regex = regex::Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
+    }
+    logs_ref.push(("Validate catalog name", ""));
+    if !VALID_NAME.is_match(dbname) {
         return Err(error::Error::BadRequest(
-            "Invalid database name".to_string(),
+            "Catalog name must be alphanumeric, underscores allowed".to_string(),
+        ));
+    }
+    if pg_creds.database.trim().eq_ignore_ascii_case(dbname.trim()) {
+        return Err(error::Error::BadRequest(
+            "Database name cannot be the same as the main database".to_string(),
         ));
     }
 
-    sqlx::query(&format!("CREATE DATABASE \"{dbname}\""))
-        .execute(&db)
-        .await?;
+    logs_ref.push(("DB existence", "Checking if the database exists"));
+    let db_exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+        dbname
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
 
+    if !db_exists {
+        logs_ref.push(("DB existence", "Database does not exist, creating ..."));
+        sqlx::query(&format!("CREATE DATABASE \"{dbname}\""))
+            .execute(db)
+            .await?;
+    } else {
+        logs_ref.push(("DB existence", "Database already exists"));
+    }
+
+    logs_ref.push(("Grant permisions", "Grant CONNECT to ducklake_user"));
     sqlx::query(&format!(
         "GRANT CONNECT ON DATABASE \"{dbname}\" TO ducklake_user"
     ))
-    .execute(&db)
-    .await?;
+    .execute(db)
+    .await
+    .map_err(|e| {
+        error::Error::ExecutionErr(format!("Failed to run GRANT CONNECT: {}", e.to_string()))
+    })?;
 
-    // We have to connect to the newly created database as admin to grant permissions
-    let pg_creds = parse_postgres_url(&get_database_url().await?)?;
-
+    logs_ref.push(("DB connection", "Connecting to the new database"));
     let ssl_mode = match pg_creds.ssl_mode.as_deref() {
         Some("allow") => "prefer".to_string(),
         Some("verify-ca") | Some("verify-full") => "require".to_string(),
         Some(s) => s.to_string(),
         None => "prefer".to_string(),
     };
+    // We have to connect to the newly created database as admin to grant permissions
     let conn_str = format!(
         "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
         user = urlencoding::encode(&pg_creds.username.unwrap_or_else(|| "postgres".to_string())),
@@ -637,15 +706,14 @@ async fn create_ducklake_database(
         tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
     )
     .await
-    .map_err(to_anyhow)?
-    .map_err(to_anyhow)?;
+    .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
+    .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
+    let join_handle = tokio::spawn(async move { connection.await });
 
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("connection error: {}", e);
-        }
-    });
-
+    logs_ref.push((
+        "Grant permisions",
+        "Grant USAGE, CREATE, SELECT, INSERT, UPDATE, DELETE to ducklake_user",
+    ));
     client
         .batch_execute(&format!(
             "GRANT USAGE ON SCHEMA public TO ducklake_user;
@@ -654,7 +722,24 @@ async fn create_ducklake_database(
                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ducklake_user;"
         ))
         .await
-        .map_err(to_anyhow)?;
+        .map_err(|e| {
+            error::Error::ExecutionErr(format!(
+                "Failed to grant permissions to ducklake_user: {}",
+                e.to_string(),
+            ))
+        })?;
+
+    drop(client); // /!\ Drop before joining to avoid deadlock
+    logs_ref.push((
+        "Join handle",
+        "Check that postgres connection closed cleanly",
+    ));
+    join_handle
+        .await
+        .map_err(|e| error::Error::ExecutionErr(format!("join error: {}", e.to_string())))?
+        .map_err(|e| {
+            error::Error::ExecutionErr(format!("tokio_postgres error: {}", e.to_string()))
+        })?;
 
     Ok(())
 }

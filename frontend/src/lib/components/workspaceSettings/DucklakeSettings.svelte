@@ -73,7 +73,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
-	import { clone, pluralize } from '$lib/utils'
+	import { clone } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
 	import { deepEqual } from 'fast-equals'
 	import Popover from '../meltComponents/Popover.svelte'
@@ -111,12 +111,6 @@
 		ducklakeSettings.ducklakes.splice(index, 1)
 	}
 
-	const windmillDbNames = $derived(
-		ducklakeSettings.ducklakes
-			.filter((d) => d.catalog.resource_type === 'instance')
-			.map((d) => d.catalog.resource_path ?? '')
-	)
-
 	const ducklakeIsDirty: Record<string, boolean> = $derived(
 		Object.fromEntries(
 			ducklakeSettings.ducklakes.map((d) => {
@@ -126,26 +120,15 @@
 		)
 	)
 
+	const instanceCatalogDbNames = $derived(
+		ducklakeSettings.ducklakes
+			.filter((d) => d.catalog.resource_type === 'instance')
+			.map((d) => d.catalog.resource_path ?? '')
+	)
+	const instanceCatalogStatuses = usePromise(SettingService.getDucklakeInstanceCatalogDbStatus)
+
 	async function onSave() {
 		try {
-			if (windmillDbNames.length) {
-				// Ensure that all instance dbs exist
-				const nonExistentDbs = await SettingService.databasesExist({ requestBody: windmillDbNames })
-				if (nonExistentDbs.length) {
-					let confirmed = await confirmationModal.ask({
-						title: "The following databases do not exist in Windmill's Postgres instance",
-						confirmationText: `Create ${pluralize(nonExistentDbs.length, 'database')}`,
-						children: `<span>
-							Confirm running the following in the instance's Postgres :<br />
-							${nonExistentDbs.map((db) => `<pre class='border mt-1 p-2 rounded-md'>CREATE DATABASE "${db}";</pre>`).join('\n')}
-						</span>`
-					})
-					if (!confirmed) return
-					await Promise.all(
-						nonExistentDbs.map((name) => SettingService.createDucklakeDatabase({ name }))
-					)
-				}
-			}
 			const settings = convertDucklakeSettingsToBackend(ducklakeSettings)
 			await WorkspaceService.editDucklakeConfig({
 				workspace: $workspaceStore!,
@@ -197,7 +180,7 @@
 		the instance and can be re-used in other workspaces' Ducklake settings.
 		<div>
 			<Section
-				label="Manual setup instructions"
+				label="Troubleshoot"
 				collapsable
 				headerClass="mt-6 border bg-surface px-3 py-1 rounded-md text-xs text-secondary"
 				class="text-secondary"
@@ -238,7 +221,7 @@
 				<br /><br />
 				Note : the ducklake_user is automatically created by Windmill in a migration. Its password is
 				auto-generated and stored in the database table <code>global_settings</code> with the key
-				<code>ducklake_user_pg_pwd</code>.
+				<code>ducklake_settings.ducklake_user_pg_pwd</code>.
 			</Section>
 		</div>
 	</Alert>
@@ -271,7 +254,7 @@
 			<Row>
 				<Cell first class="w-48 relative">
 					{#if ducklake.name === 'main'}
-						<Tooltip wrapperClass="absolute mt-2.5 right-4" placement="bottom-start">
+						<Tooltip wrapperClass="absolute mt-3 right-4" placement="bottom-start">
 							The <i>main</i> ducklake can be accessed with the
 							<br />
 							<code class="px-1 py-0.5 border rounded-md">ATTACH 'ducklake' AS dl;</code> shorthand
@@ -283,7 +266,7 @@
 					<div class="flex gap-4">
 						<div class="relative">
 							{#if ducklake.catalog.resource_type === 'instance'}
-								<Tooltip wrapperClass="absolute mt-2.5 right-2 z-20" placement="bottom-start">
+								<Tooltip wrapperClass="absolute mt-3 right-2 z-20" placement="bottom-start">
 									Use Windmill's PostgreSQL instance as a catalog
 								</Tooltip>
 							{/if}
