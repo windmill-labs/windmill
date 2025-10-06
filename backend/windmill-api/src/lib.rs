@@ -476,6 +476,16 @@ pub async fn run_server(
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_oss::workspaced_service())
                         .nest("/openapi", openapi::openapi_service())
+                        .nest("/webhooks/nextcloud", {
+                            #[cfg(feature = "nextcloud_trigger")]
+                            {
+                                Router::new()
+                            }
+                            #[cfg(not(feature = "nextcloud_trigger"))]
+                            {
+                                Router::new()
+                            }
+                        })
                         .merge(triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
