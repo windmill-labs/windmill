@@ -804,7 +804,8 @@ paths:
           description: status
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
 
   /settings/global/{key}:
     get:
@@ -17325,6 +17326,30 @@ components:
         - enabled
         - aws_auth_resource_type
 
+    LoggedWizardStatus:
+      type: string
+      enum:
+        - OK
+        - SKIP
+        - FAIL
+    
+    DucklakeInstanceCatalogDbStatusLogs:
+      type: object
+      properties:
+        super_admin:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        database_credentials:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        valid_dbname:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        created_database:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+          description: Created database status log
+        db_connect:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        grant_permissions:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+
     DucklakeInstanceCatalogDbStatus:
       type: object
       required:
@@ -17332,18 +17357,7 @@ components:
         - success
       properties:
         logs:
-          type: array
-          description: Array of step and message tuples
-          items:
-            type: array
-            items:
-              type: string
-            minItems: 2
-            maxItems: 2
-          example:
-            - ["initialization", "Starting database setup"]
-            - ["migration", "Running migrations"]
-            - ["completion", "Database ready"]
+          $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatusLogs"
         success:
           type: boolean
           description: Whether the operation completed successfully

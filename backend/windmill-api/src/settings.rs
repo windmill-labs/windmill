@@ -574,16 +574,31 @@ pub async fn acknowledge_all_critical_alerts() -> error::Error {
 
 #[derive(Deserialize, Debug, Serialize)]
 struct DucklakeInstanceCatalogDbStatus {
-    logs: Vec<(String, String)>, // (Step, Message)[]
+    logs: DucklakeInstanceCatalogDbStatusLogs, // (Step, Message)[]
     success: bool,
     error: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Serialize, Default)]
+#[serde(default)]
+struct DucklakeInstanceCatalogDbStatusLogs {
+    super_admin: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    database_credentials: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    valid_dbname: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    created_database: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    db_connect: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    grant_permissions: String,
 }
 
 async fn get_ducklake_instance_catalog_db_status(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<HashMap<String, DucklakeInstanceCatalogDbStatus>> {
-    require_super_admin(&db, &authed.email).await?;
     let result = sqlx::query_scalar!(
         r#"SELECT value->'instance_catalog_db_status' FROM global_settings WHERE name = 'ducklake_settings'"#,
     )
@@ -604,12 +619,8 @@ async fn setup_ducklake_catalog_db(
     Extension(db): Extension<DB>,
     Path(dbname): Path<String>,
 ) -> JsonResult<DucklakeInstanceCatalogDbStatus> {
-    let mut logs = vec![];
+    let mut logs = DucklakeInstanceCatalogDbStatusLogs::default();
     let result = setup_ducklake_catalog_db_inner(authed, &db, &dbname, &mut logs).await;
-    let logs = logs
-        .into_iter()
-        .map(|(step, msg)| (step.to_string(), msg.to_string()))
-        .collect();
     let success = result.is_ok();
     let error = result.err().map(|e| e.to_string());
     let status = DucklakeInstanceCatalogDbStatus { logs, success, error };
@@ -627,24 +638,19 @@ async fn setup_ducklake_catalog_db_inner(
     authed: ApiAuthed,
     db: &DB,
     dbname: &str,
-    logs_ref: &mut Vec<(&str, &str)>,
+    logs: &mut DucklakeInstanceCatalogDbStatusLogs,
 ) -> Result<()> {
-    logs_ref.push(("Super-admin", "Checking super-admin"));
     require_super_admin(db, &authed.email).await?;
-    logs_ref.push((
-        "Database credentials",
-        "Aquiring Postgres URL from DATABASE_URL or DATABASE_URL_FILE",
-    ));
+    logs.super_admin = "OK".to_string();
     let pg_creds = &get_database_url().await?;
-    logs_ref.push(("Database credentials", "Parsing ..."));
     let pg_creds = parse_postgres_url(pg_creds)?;
+    logs.database_credentials = "OK".to_string();
 
     // Validate name to ensure it only contains alphanumeric characters
     // Prevents SQL injection on the instance database
     lazy_static::lazy_static! {
         static ref VALID_NAME: regex::Regex = regex::Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
     }
-    logs_ref.push(("Validate catalog name", ""));
     if !VALID_NAME.is_match(dbname) {
         return Err(error::Error::BadRequest(
             "Catalog name must be alphanumeric, underscores allowed".to_string(),
@@ -655,8 +661,8 @@ async fn setup_ducklake_catalog_db_inner(
             "Database name cannot be the same as the main database".to_string(),
         ));
     }
+    logs.valid_dbname = "OK".to_string();
 
-    logs_ref.push(("DB existence", "Checking if the database exists"));
     let db_exists = sqlx::query_scalar!(
         "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
         dbname
@@ -665,26 +671,14 @@ async fn setup_ducklake_catalog_db_inner(
     .await?
     .unwrap_or(false);
 
+    logs.created_database = "SKIP".to_string();
     if !db_exists {
-        logs_ref.push(("DB existence", "Database does not exist, creating ..."));
         sqlx::query(&format!("CREATE DATABASE \"{dbname}\""))
             .execute(db)
             .await?;
-    } else {
-        logs_ref.push(("DB existence", "Database already exists"));
+        logs.created_database = "OK".to_string();
     }
 
-    logs_ref.push(("Grant permisions", "Grant CONNECT to ducklake_user"));
-    sqlx::query(&format!(
-        "GRANT CONNECT ON DATABASE \"{dbname}\" TO ducklake_user"
-    ))
-    .execute(db)
-    .await
-    .map_err(|e| {
-        error::Error::ExecutionErr(format!("Failed to run GRANT CONNECT: {}", e.to_string()))
-    })?;
-
-    logs_ref.push(("DB connection", "Connecting to the new database"));
     let ssl_mode = match pg_creds.ssl_mode.as_deref() {
         Some("allow") => "prefer".to_string(),
         Some("verify-ca") | Some("verify-full") => "require".to_string(),
@@ -701,6 +695,13 @@ async fn setup_ducklake_catalog_db_inner(
         dbname = dbname,
         sslmode = ssl_mode
     );
+
+    let x = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
+    )
+    .await;
+
     let (client, connection) = tokio::time::timeout(
         std::time::Duration::from_secs(20),
         tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
@@ -709,14 +710,12 @@ async fn setup_ducklake_catalog_db_inner(
     .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
     .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
     let join_handle = tokio::spawn(async move { connection.await });
+    logs.db_connect = "OK".to_string();
 
-    logs_ref.push((
-        "Grant permisions",
-        "Grant USAGE, CREATE, SELECT, INSERT, UPDATE, DELETE to ducklake_user",
-    ));
     client
         .batch_execute(&format!(
-            "GRANT USAGE ON SCHEMA public TO ducklake_user;
+            "GRANT CONNECT ON DATABASE \"{dbname}\" TO ducklake_user;
+            GRANT USAGE ON SCHEMA public TO ducklake_user;
             GRANT CREATE ON SCHEMA public TO ducklake_user;
             ALTER DEFAULT PRIVILEGES IN SCHEMA public 
                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ducklake_user;"
@@ -728,12 +727,9 @@ async fn setup_ducklake_catalog_db_inner(
                 e.to_string(),
             ))
         })?;
+    logs.grant_permissions = "OK".to_string();
 
     drop(client); // /!\ Drop before joining to avoid deadlock
-    logs_ref.push((
-        "Join handle",
-        "Check that postgres connection closed cleanly",
-    ));
     join_handle
         .await
         .map_err(|e| error::Error::ExecutionErr(format!("join error: {}", e.to_string())))?

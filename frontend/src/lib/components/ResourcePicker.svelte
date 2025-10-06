@@ -51,7 +51,6 @@
 	}: Props = $props()
 
 	if (initialValue && value == undefined) {
-		console.log('initialValue', initialValue)
 		value = initialValue
 	}
 
@@ -76,15 +75,12 @@
 	$effect(() => {
 		if (value === undefined) {
 			if (initialValue) {
-				console.log('initialValue', initialValue)
 				if (initialValue != value) {
 					value = initialValue
 				}
 			} else {
-				console.log('no value')
 			}
 		} else {
-			console.log('value', value)
 		}
 	})
 
@@ -125,7 +121,6 @@
 			}
 			collection = nc
 			if (collection.length == 1 && selectFirst && (value == undefined || value == '')) {
-				console.log('selectFirst', collection[0].value)
 				value = collection[0].value
 				valueType = collection[0].type
 			}
