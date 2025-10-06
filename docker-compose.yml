@@ -46,8 +46,6 @@ services:
         condition: service_healthy
     volumes:
       - worker_logs:/tmp/windmill/logs
-      # for AI agent memory
-      - worker_memory:/tmp/windmill/memory
 
     logging: *default-logging
 
