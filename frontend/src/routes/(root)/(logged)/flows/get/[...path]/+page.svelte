@@ -706,27 +706,29 @@
 						</div>
 					{/if}
 				</div>
-				<div class={chatInputEnabled ? 'mt-2' : 'mt-8'}>
-					<FlowGraphViewer
-						triggerNode={true}
-						download
-						{flow}
-						overflowAuto
-						noSide={true}
-						on:select={(e) => {
-							if (e.detail) {
-								stepDetail = e.detail
-								rightPaneSelected = 'flow_step'
-							} else {
-								stepDetail = undefined
-								rightPaneSelected = 'saved_inputs'
-							}
-						}}
-						on:triggerDetail={(e) => {
-							rightPaneSelected = 'triggers'
-						}}
-					/>
-				</div>
+				{#if !chatInputEnabled}
+					<div class="mt-8">
+						<FlowGraphViewer
+							triggerNode={true}
+							download
+							{flow}
+							overflowAuto
+							noSide={true}
+							on:select={(e) => {
+								if (e.detail) {
+									stepDetail = e.detail
+									rightPaneSelected = 'flow_step'
+								} else {
+									stepDetail = undefined
+									rightPaneSelected = 'saved_inputs'
+								}
+							}}
+							on:triggerDetail={(e) => {
+								rightPaneSelected = 'triggers'
+							}}
+						/>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	{/snippet}

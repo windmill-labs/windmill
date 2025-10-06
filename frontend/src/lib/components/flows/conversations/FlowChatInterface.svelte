@@ -411,7 +411,7 @@
 	}
 </script>
 
-<div class="flex flex-col h-full w-full max-w-7xl mx-auto">
+<div class="flex flex-col h-full w-full">
 	<div class="flex-1 flex flex-col min-h-0 w-full">
 		<!-- Messages Container -->
 		<div
@@ -433,9 +433,11 @@
 					<p class="text-sm">Send a message to run the flow and see the results</p>
 				</div>
 			{:else}
-				{#each messages as message (message.id)}
-					<FlowChatMessage {message} />
-				{/each}
+				<div class="max-w-7xl mx-auto">
+					{#each messages as message (message.id)}
+						<FlowChatMessage {message} />
+					{/each}
+				</div>
 			{/if}
 		</div>
 
