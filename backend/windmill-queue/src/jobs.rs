@@ -746,11 +746,6 @@ lazy_static::lazy_static! {
     pub static ref MAX_RESULT_SIZE_MB: usize = std::env::var("MAX_RESULT_SIZE_MB").unwrap_or("500".to_string()).parse().unwrap_or(500);
 }
 
-#[derive(Deserialize)]
-struct OutputWrapper {
-    output: String,
-}
-
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
     queued_job: &MiniPulledJob,
@@ -834,19 +829,26 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         let value = serde_json::to_value(result.0)
             .map_err(|e| Error::internal_err(format!("Failed to serialize result: {e}")))?;
         if chat_input_enabled.unwrap_or(false) {
-            let content =
-                if let Ok(wrapper) = serde_json::from_value::<OutputWrapper>(value.clone()) {
-                    // Successfully deserialized to OutputWrapper, use the output field
-                    wrapper.output
-                } else {
-                    // No string output field, use the whole result
-                    if let serde_json::Value::String(s) = value {
-                        s
+            let content = match &value {
+                // If it's an Object with "output" key AND the output is a String, return it
+                serde_json::Value::Object(map)
+                    if map.contains_key("output")
+                        && matches!(map.get("output"), Some(serde_json::Value::String(_))) =>
+                {
+                    if let Some(serde_json::Value::String(s)) = map.get("output") {
+                        s.clone()
                     } else {
-                        serde_json::to_string_pretty(&value)
+                        // serialize the whole result
+                        serde_json::to_string(&value)
                             .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
                     }
-                };
+                }
+                // Otherwise, if the whole value is a String, return it
+                serde_json::Value::String(s) => s.clone(),
+                // Otherwise, prettify the whole result
+                _ => serde_json::to_string(&value)
+                    .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+            };
 
             // Update the assistant message
             let _ = sqlx::query!(
