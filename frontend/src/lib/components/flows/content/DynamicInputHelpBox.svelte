@@ -27,10 +27,10 @@
 		id="dynamic-input-help-box"
 	>
 		Single JavaScript expression. The following functions and objects are available:
-		<ul class="ml-4">
+		<ul class="ml-4 list-disc">
 			<li
-				><b>{'results.<id>'}</b>: the result of step at id 'id' (use <b>{'results?.<id>'}</b> if id may
-				not exist because branch was not chosen)</li
+				><b>{'results.<id>'}</b>: the result of step at id 'id' (use optional chaining if id may not
+				exist because branch was not chosen, for example: <code>{'results.<id>?.[0]'}</code>)</li
 			>
 			<li><b>flow_input</b>: the object containing the flow input arguments</li>
 			<li><b>previous_result</b>: the result of previous step</li>
