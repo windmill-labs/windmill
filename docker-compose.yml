@@ -46,6 +46,9 @@ services:
         condition: service_healthy
     volumes:
       - worker_logs:/tmp/windmill/logs
+      # for AI agent memory
+      - worker_memory:/tmp/windmill/memory
+
     logging: *default-logging
 
   windmill_worker:
@@ -72,6 +75,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - worker_dependency_cache:/tmp/windmill/cache
       - worker_logs:/tmp/windmill/logs
+      # for AI agent memory
+      - worker_memory:/tmp/windmill/memory
+
     logging: *default-logging
 
   ## This worker is specialized for "native" jobs. Native jobs run in-process and thus are much more lightweight than other jobs
@@ -188,6 +194,7 @@ volumes:
   db_data: null
   worker_dependency_cache: null
   worker_logs: null
+  worker_memory: null
   windmill_index: null
   lsp_cache: null
   caddy_data: null
