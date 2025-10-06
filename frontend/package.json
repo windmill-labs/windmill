@@ -77,7 +77,6 @@
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.60.0",
 		"@aws-crypto/sha256-js": "^4.0.0",
-		"@codingame/monaco-vscode-configuration-service-override": "~21.3.2",
 		"@codingame/monaco-vscode-editor-api": "~21.3.2",
 		"@codingame/monaco-vscode-standalone-css-language-features": "~21.3.2",
 		"@codingame/monaco-vscode-standalone-html-language-features": "~21.3.2",
