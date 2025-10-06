@@ -88,7 +88,7 @@ async fn list_conversations(
         .offset(offset as i64);
 
     let sql = sqlb.sql().map_err(|e| {
-        windmill_common::error::Error::InternalErr(format!("Failed to build SQL: {}", e))
+        windmill_common::error::Error::internal_err(format!("Failed to build SQL: {}", e))
     })?;
 
     let conversations = sqlx::query_as::<Postgres, FlowConversation>(&sql)

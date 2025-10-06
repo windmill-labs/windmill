@@ -831,53 +831,34 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // Update conversation message if it's a flow and it's done (both success and error cases)
     if !skipped && flow_is_done {
         let chat_input_enabled = queued_job.parse_chat_input_enabled();
+        let value = serde_json::to_value(result.0)
+            .map_err(|e| Error::InternalErr(format!("Failed to serialize result: {e}")))?;
         if chat_input_enabled.unwrap_or(false) {
-            let content = if let Ok(wrapper) = serde_json::from_value::<OutputWrapper>(
-                serde_json::to_value(result.0).unwrap_or(serde_json::Value::Null),
-            ) {
-                // Successfully deserialized to OutputWrapper, use the output field
-                wrapper.output
-            } else {
-                // No string output field, use the whole result
-                serde_json::to_value(result.0)
-                    .ok()
-                    .and_then(|v| {
-                        if let serde_json::Value::String(s) = v {
-                            Some(s)
-                        } else {
-                            serde_json::to_string_pretty(&v).ok()
-                        }
-                    })
-                    .unwrap_or_else(|| {
-                        if success {
-                            "Job completed successfully".to_string()
-                        } else {
-                            "Job failed".to_string()
-                        }
-                    })
-            };
+            let content =
+                if let Ok(wrapper) = serde_json::from_value::<OutputWrapper>(value.clone()) {
+                    // Successfully deserialized to OutputWrapper, use the output field
+                    wrapper.output
+                } else {
+                    // No string output field, use the whole result
+                    if let serde_json::Value::String(s) = value {
+                        s
+                    } else {
+                        serde_json::to_string_pretty(&value)
+                            .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
+                    }
+                };
 
-            // check if flow_conversation_message exists
-            let flow_conversation_message_exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM flow_conversation_message WHERE job_id = $1 AND message_type = 'assistant')",
-            queued_job.id
-        )
-        .fetch_one(db)
-        .await?;
-
-            if flow_conversation_message_exists.unwrap_or(false) {
-                // Update the assistant message using direct DB access
-                let _ = sqlx::query!(
-                    "UPDATE flow_conversation_message
+            // Update the assistant message
+            let _ = sqlx::query!(
+                "UPDATE flow_conversation_message
                     SET content = $1
                     WHERE job_id = $2
                 ",
-                    content,
-                    queued_job.id,
-                )
-                .execute(db)
-                .await;
-            }
+                content,
+                queued_job.id,
+            )
+            .execute(db)
+            .await;
         }
     }
 
