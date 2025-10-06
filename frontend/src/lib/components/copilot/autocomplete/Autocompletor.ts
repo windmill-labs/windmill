@@ -6,8 +6,8 @@ import { autocompleteRequest } from './request'
 import { FIM_MAX_TOKENS, getModelContextWindow } from '../lib'
 import { setGlobalCSS } from '../shared'
 import { get } from 'svelte/store'
-import { copilotInfo } from '$lib/stores'
 import type { MonacoLanguageClient } from 'monaco-languageclient'
+import { copilotInfo } from '$lib/aiStore'
 
 // max ratio of completions to context window
 const COMPLETIONS_MAX_RATIO = 0.1

@@ -18,8 +18,7 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { untrack } from 'svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-
-	let schema: Schema | undefined = $state(undefined)
+	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	type FieldMetadata = {
 		type: string
@@ -69,13 +68,13 @@
 			return typ
 		}
 	}
-	async function builtSchema(fields: FieldMetadata[], dbType: DbType) {
+	async function buildSchema(): Promise<Schema> {
 		const properties: { [name: string]: SchemaProperty } = {}
 		const required: string[] = []
 
 		await init(wasmUrl)
 
-		fields.forEach((field) => {
+		fields?.forEach((field) => {
 			const schemaProperty: SchemaProperty = {
 				type: 'string'
 			}
@@ -97,6 +96,12 @@
 					schemaProperty.default = field.defaultValue
 				}
 			}
+			if (field.type === 'timestamp without time zone' || field.type === 'timestamp') {
+				schemaProperty.format = 'naive-date-time'
+			}
+			if (field.type === 'timestamp with time zone' || field.type === 'timestamptz') {
+				schemaProperty.format = 'date-time'
+			}
 
 			properties[field.name] = schemaProperty
 
@@ -110,12 +115,12 @@
 			}
 		})
 
-		schema = {
+		return {
 			$schema: 'http://json-schema.org/draft-07/schema#',
 			type: 'object',
 			properties,
 			required
-		} as Schema
+		}
 	}
 
 	interface Props {
@@ -157,9 +162,11 @@
 				}
 			}) as FieldMetadata[] | undefined
 	)
+
+	let schemaPromise = usePromise(buildSchema)
+	let schema = $derived(schemaPromise.value)
 	$effect(() => {
-		;[fields, dbType]
-		untrack(() => builtSchema(fields ?? [], dbType))
+		fields && dbType && untrack(() => schemaPromise.refresh())
 	})
 	$effect(() => {
 		if (schema) {

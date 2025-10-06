@@ -3942,7 +3942,7 @@ async fn handle_chat_conversation_messages(
     w_id: &str,
     flow_path: &str,
     run_query: &RunJobQuery,
-    args: &PushArgsOwned,
+    user_message_raw: Option<&Box<serde_json::value::RawValue>>,
     uuid: Uuid,
 ) -> error::Result<()> {
     let memory_id = run_query.memory_id.ok_or_else(|| {
@@ -3951,13 +3951,17 @@ async fn handle_chat_conversation_messages(
         )
     })?;
 
-    let user_msg_raw = args.args.get("user_message").ok_or_else(|| {
+    let user_message_raw = user_message_raw.ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
             "user_message argument is required for chat-enabled flows".to_string(),
         )
     })?;
 
-    let user_msg = serde_json::from_str::<String>(user_msg_raw.get())?;
+    // Deserialize the RawValue to get the actual string without quotes
+    let user_message: String = serde_json::from_str(user_message_raw.get())
+        .map_err(|e| windmill_common::error::Error::BadRequest(
+            format!("Failed to deserialize user_message: {}", e)
+        ))?;
 
     // Create conversation with provided ID (or get existing one)
     flow_conversations::get_or_create_conversation_with_id(
@@ -3965,7 +3969,7 @@ async fn handle_chat_conversation_messages(
         w_id,
         flow_path,
         &authed.username,
-        &user_msg,
+        &user_message,
         memory_id,
     )
     .await?;
@@ -3975,7 +3979,7 @@ async fn handle_chat_conversation_messages(
         tx,
         memory_id,
         MessageType::User,
-        &user_msg,
+        &user_message,
         None, // No job_id for user message
         w_id,
     )
@@ -4082,7 +4086,7 @@ pub async fn run_flow_by_path_inner(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
         },
-        PushArgs { args: &args.args, extra: args.extra.clone() },
+        PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
         email,
         permissioned_as,
@@ -4103,6 +4107,7 @@ pub async fn run_flow_by_path_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
     )
     .await?;
 
@@ -4119,7 +4124,7 @@ pub async fn run_flow_by_path_inner(
             &w_id,
             &flow_path.to_string(),
             &run_query,
-            &args,
+            args.args.get("user_message"),
             uuid,
         )
         .await?;
@@ -4219,6 +4224,7 @@ pub async fn restart_flow(
         completed_job.priority,
         Some(&authed.clone().into()),
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4321,6 +4327,7 @@ pub async fn run_script_by_path_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4473,6 +4480,7 @@ pub async fn run_workflow_as_code(
         None,
         push_authed.as_ref(),
         false,
+        None,
     )
     .await?;
 
@@ -5016,6 +5024,7 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         push_authed.as_ref(),
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5168,6 +5177,7 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         push_authed.as_ref(),
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5284,6 +5294,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         push_authed.as_ref(),
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5574,7 +5585,7 @@ pub async fn run_wait_result_flow_by_path_internal(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
         },
-        PushArgs { args: &args.args, extra: args.extra.clone() },
+        PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
         email,
         permissioned_as,
@@ -5595,6 +5606,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         None,
         push_authed.as_ref(),
         false,
+        None,
     )
     .await?;
 
@@ -5611,7 +5623,7 @@ pub async fn run_wait_result_flow_by_path_internal(
             &w_id,
             &flow_path.to_string(),
             &run_query,
-            &args,
+            args.args.get("user_message"),
             uuid,
         )
         .await?;
@@ -5686,6 +5698,7 @@ async fn run_preview_script(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5802,6 +5815,7 @@ async fn run_bundle_preview_script(
                 None,
                 Some(&authed.clone().into()),
                 false,
+                None,
             )
             .await?;
             job_id = Some(uuid);
@@ -5939,6 +5953,7 @@ async fn run_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6006,6 +6021,7 @@ async fn run_flow_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6349,6 +6365,7 @@ async fn run_preview_flow_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6522,6 +6539,7 @@ async fn run_dynamic_select(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6649,6 +6667,7 @@ pub async fn run_job_by_hash_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
     )
     .await?;
     tx.commit().await?;

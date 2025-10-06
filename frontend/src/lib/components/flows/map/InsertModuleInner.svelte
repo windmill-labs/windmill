@@ -39,7 +39,7 @@
 
 	let width = $state(0)
 	let height = $state(0)
-
+	let owners = $state([])
 	let displayPath = $derived(width > 650 || height > 400)
 </script>
 
@@ -69,7 +69,7 @@
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		{/if}
-		<RefreshButton {loading} on:click={() => (refreshCount.val += 1)} />
+		<RefreshButton size="md" light {loading} on:click={() => (refreshCount.val += 1)} />
 	</div>
 
 	<div class="flex flex-row grow min-h-0">
@@ -164,6 +164,7 @@
 			{disableAi}
 			{funcDesc}
 			{kind}
+			bind:owners
 			on:close={() => {
 				dispatch('close')
 			}}

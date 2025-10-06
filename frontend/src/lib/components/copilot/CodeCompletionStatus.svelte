@@ -1,9 +1,6 @@
 <script lang="ts">
-	import {
-		codeCompletionSessionEnabled,
-		copilotInfo,
-		CODE_COMPLETION_SETTING_NAME
-	} from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
+	import { codeCompletionSessionEnabled, CODE_COMPLETION_SETTING_NAME } from '$lib/stores'
 	import { storeLocalSetting } from '$lib/utils'
 	import Toggle from '../Toggle.svelte'
 

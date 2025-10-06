@@ -4,6 +4,7 @@
 			IntegrationService.listHubIntegrations({ kind }),
 		{ initial: { kind: 'script', refreshCount: 0 }, invalidateMs: 1000 * 60 }
 	)
+	console.log('listHubIntegrationsCached', listHubIntegrationsCached)
 	let listHubScriptsCached = createCache(
 		async ({
 			filter,
@@ -15,9 +16,11 @@
 			appFilter: string | undefined
 			refreshCount?: number
 		}) =>
-			filter.length > 0
-				? await ScriptService.queryHubScripts({ text: filter, limit: 40, kind })
-				: ((await ScriptService.getTopHubScripts({ limit: 40, kind, app: appFilter })).asks ?? []),
+			get(userStore)
+				? filter.length > 0
+					? await ScriptService.queryHubScripts({ text: filter, limit: 40, kind })
+					: ((await ScriptService.getTopHubScripts({ limit: 40, kind, app: appFilter })).asks ?? [])
+				: undefined,
 		{
 			initial: { filter: '', kind: 'script', appFilter: undefined, refreshCount: 0 },
 			invalidateMs: 1000 * 60
@@ -34,6 +37,8 @@
 	import { Circle } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { userStore } from '$lib/stores'
+	import { get } from 'svelte/store'
 
 	let hubNotAvailable = $state(false)
 

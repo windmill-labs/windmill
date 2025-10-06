@@ -3,8 +3,9 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AiChat from './AIChat.svelte'
 	import { zIndexes } from '$lib/zIndexes'
-	import { loadCopilot, userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { chatState } from './sharedChatState.svelte'
+	import { loadCopilot } from '$lib/aiStore'
 
 	interface Props {
 		noPadding?: boolean

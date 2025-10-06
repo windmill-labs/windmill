@@ -23,8 +23,8 @@
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { getDependentComponents } from '../flowExplorer'
-	import { copilotInfo, tutorialsToDo, workspaceStore } from '$lib/stores'
-
+	import { tutorialsToDo, workspaceStore } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
 	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import { tutorialInProgress } from '$lib/tutorialUtils'
@@ -363,6 +363,7 @@
 		class={`z-50 absolute inline-flex flex-col gap-2 top-3 left-1/2 -translate-x-1/2 flex-initial  items-center transition-colors duration-[400ms] ease-linear bg-surface-100`}
 	>
 		<FlowStickyNode
+			{disableAi}
 			{showFlowAiButton}
 			{disableSettings}
 			{disableStaticInputs}

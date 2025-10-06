@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, onMount } from 'svelte'
@@ -19,20 +22,33 @@
 	import RunButton from '$lib/components/RunButton.svelte'
 	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'
 
-	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
+	let inlineScriptEditorDrawer = $state() as InlineScriptEditorDrawer | undefined
 
-	export let inlineScript: InlineScript | undefined
-	export let name: string | undefined = undefined
-	export let id: string
-	export let fields: Record<string, AppInput> = {}
-	export let path: string
-	export let isLoading: boolean = false
-	export let onRun: () => Promise<void>
-	export let onCancel: () => Promise<void>
+	interface Props {
+		inlineScript: InlineScript | undefined
+		name?: string | undefined
+		id: string
+		fields?: Record<string, AppInput>
+		path: string
+		isLoading?: boolean
+		onRun: () => Promise<void>
+		onCancel: () => Promise<void>
+		editor?: Editor | undefined
+	}
 
-	export let editor: Editor | undefined = undefined
-	let diffEditor: DiffEditor
-	let validCode = true
+	let {
+		inlineScript = $bindable(),
+		name = $bindable(undefined),
+		id,
+		fields = $bindable({}),
+		path,
+		isLoading = false,
+		onRun,
+		onCancel,
+		editor = $bindable(undefined)
+	}: Props = $props()
+	let diffEditor = $state() as DiffEditor | undefined
+	let validCode = $state(true)
 
 	async function inferInlineScriptSchema(
 		language: Preview['language'],
@@ -72,7 +88,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	let drawerIsOpen: boolean | undefined = undefined
+	let drawerIsOpen: boolean | undefined = $state(undefined)
 </script>
 
 {#if inlineScript}
@@ -95,11 +111,11 @@
 			{#if name !== undefined}
 				<div class="flex flex-row gap-2 w-full items-center">
 					<input
-						on:keydown|stopPropagation
+						onkeydown={stopPropagation(bubble('keydown'))}
 						bind:value={name}
 						placeholder="Inline script name"
 						class="!text-xs !rounded-sm !shadow-none"
-						on:keyup={() => {
+						onkeyup={() => {
 							// $app = $app
 							// if (stateId) {
 							// 	$stateId++
