@@ -139,8 +139,7 @@
 			) {
 				let confirm = await confirmationModal.ask({
 					title: 'Some instance catalogs are not setup',
-					children:
-						'The windmill postgres instance needs to be configured for instance catalogs. Are you sure you want to save without setting them up ?',
+					children: 'Are you sure you want to save without setting them up ?',
 					confirmationText: 'Save anyway'
 				})
 				if (!confirm) return
@@ -246,7 +245,11 @@
 								items={[
 									{ value: 'postgresql', label: 'PostgreSQL' },
 									{ value: 'mysql', label: 'MySQL' },
-									...(isInstanceCatalogEnabled ? [{ value: 'instance', label: 'Instance' }] : [])
+									{
+										value: 'instance',
+										label: 'Instance',
+										subtitle: isInstanceCatalogEnabled ? undefined : 'Superadmin only'
+									}
 								]}
 								bind:value={
 									() => ducklake.catalog.resource_type,
@@ -279,6 +282,7 @@
 									onCreateItem={(i) => (ducklake.catalog.resource_path = i)}
 									placeholder="PostgreSQL database name"
 									items={safeSelectItems(Object.keys(instanceCatalogStatuses.value ?? {}))}
+									disabled={!isInstanceCatalogEnabled}
 								/>
 
 								<Popover
@@ -394,10 +398,19 @@
 	dbname: string
 )}
 	{#if !status}
-		<div class="mb-4 text-secondary">
+		<div class="mb-4 text-secondary text-sm">
 			{dbname} needs to be configured in the Windmill postgres instance
 		</div>
 	{/if}
+
+	{#if status?.error}
+		<div transition:slide={{ duration: 200 }} class="mb-4">
+			<Alert title="Error setting up ducklake instance catalog" type="error">
+				{status.error}
+			</Alert>
+		</div>
+	{/if}
+
 	<LoggedWizardResult
 		class="max-h-[24rem] overflow-y-auto"
 		steps={firstEmptyStepIsError(
@@ -448,6 +461,7 @@
 			status?.error ?? undefined
 		)}
 	/>
+
 	<Button
 		wrapperClasses="mt-6"
 		size="sm"
@@ -456,7 +470,6 @@
 			if (instanceCatalogSetupIsRunning) return
 
 			let wasAlreadySuccessful = status?.success ?? false
-			console.log(status?.logs)
 			if (status?.logs.created_database != 'OK' && status?.logs.created_database != 'SKIP') {
 				let confirm = await confirmationModal.ask({
 					title: 'Confirm setup',
