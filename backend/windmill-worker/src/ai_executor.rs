@@ -871,8 +871,6 @@ pub async fn run_agent(
 
                                 let tool_job = Arc::new(tool_job);
 
-                                let job_dir = create_job_dir(&worker_dir, job.id).await;
-
                                 let (inner_job_completed_tx, inner_job_completed_rx) =
                                     JobCompletedSender::new(&conn, 1);
 
@@ -891,7 +889,6 @@ pub async fn run_agent(
                                 let hostname_spawn = hostname.to_string();
                                 let worker_name_spawn = worker_name.to_string();
                                 let worker_dir_spawn = worker_dir.to_string();
-                                let job_dir_spawn = job_dir.clone();
                                 let base_internal_url_spawn = base_internal_url.to_string();
                                 let inner_job_completed_tx_spawn = inner_job_completed_tx.clone();
                                 let mut occupancy_metrics_spawn = occupancy_metrics.clone();
@@ -902,6 +899,9 @@ pub async fn run_agent(
                                     #[cfg(feature = "benchmark")]
                                     let mut bench_spawn =
                                         windmill_common::bench::BenchmarkIter::new();
+
+                                    let job_dir =
+                                        create_job_dir(&worker_dir_spawn, tool_job_spawn.id).await;
 
                                     let result = handle_queued_job(
                                         tool_job_spawn,
@@ -914,7 +914,7 @@ pub async fn run_agent(
                                         &hostname_spawn,
                                         &worker_name_spawn,
                                         &worker_dir_spawn,
-                                        &job_dir_spawn,
+                                        &job_dir,
                                         None,
                                         &base_internal_url_spawn,
                                         inner_job_completed_tx_spawn,
