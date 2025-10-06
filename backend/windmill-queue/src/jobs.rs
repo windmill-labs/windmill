@@ -832,7 +832,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     if !skipped && flow_is_done {
         let chat_input_enabled = queued_job.parse_chat_input_enabled();
         let value = serde_json::to_value(result.0)
-            .map_err(|e| Error::InternalErr(format!("Failed to serialize result: {e}")))?;
+            .map_err(|e| Error::internal_err(format!("Failed to serialize result: {e}")))?;
         if chat_input_enabled.unwrap_or(false) {
             let content =
                 if let Ok(wrapper) = serde_json::from_value::<OutputWrapper>(value.clone()) {

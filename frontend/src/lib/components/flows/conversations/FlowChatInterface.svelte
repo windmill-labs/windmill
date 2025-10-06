@@ -423,11 +423,11 @@
 				<Alert type="warning" title="Deployment in progress" size="xs" />
 			{/if}
 			{#if isLoadingMessages}
-				<div class="flex items-center justify-center">
-					<Loader2 size={24} class="animate-spin" />
+				<div class="flex items-center justify-center h-full">
+					<Loader2 size={32} class="animate-spin" />
 				</div>
 			{:else if messages.length === 0}
-				<div class="text-center text-tertiary py-8">
+				<div class="text-center text-tertiary flex items-center justify-center flex-col h-full">
 					<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
 					<p class="text-lg font-medium">Start a conversation</p>
 					<p class="text-sm">Send a message to run the flow and see the results</p>
