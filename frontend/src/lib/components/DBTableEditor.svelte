@@ -80,7 +80,7 @@
 	const columnTypes = DB_TYPES[dbType]
 	const defaultColumnType = (
 		{
-			postgresql: 'VARCHAR',
+			postgresql: 'BIGSERIAL',
 			snowflake: 'varchar',
 			ms_sql_server: 'varchar',
 			bigquery: 'string',
