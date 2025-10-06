@@ -60,7 +60,7 @@
 <div
 	bind:clientWidth
 	bind:clientHeight
-	class="h-full w-full relative editor dark:bg-[#272D38] {className}"
+	class="h-full w-full relative editor {className}"
 	style="--vscode-editorCodeLens-lineHeight: 18px; --vscode-editorCodeLens-fontSize: 12px; --vscode-editorCodeLens-fontFeatureSettings: 'liga' off, 'calt' off; --code-editorInlayHintsFontFamily: {fontFamily};"
 >
 	<div
