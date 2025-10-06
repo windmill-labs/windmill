@@ -690,9 +690,7 @@ export function setInputCat(
 		return 'object'
 	} else if (type == 'string' && enum_) {
 		return 'enum'
-	} else if (type == 'string' && format == 'date-time') {
-		return 'date'
-	} else if (type == 'string' && format == 'date') {
+	} else if (type == 'string' && ['date-time', 'naive-date-time', 'date'].includes(format!)) {
 		return 'date'
 	} else if (type == 'string' && format == 'sql') {
 		return 'sql'
