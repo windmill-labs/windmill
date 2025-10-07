@@ -46,14 +46,22 @@
 	let scrollTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 	let inputElement: HTMLTextAreaElement | undefined = $state()
 	let currentEventSource: EventSource | undefined = $state()
+	let pollingInterval: ReturnType<typeof setInterval> | undefined = $state()
+	let streamingJobId: string | undefined = $state()
+	let isFlowComplete = $state(false)
+	let isWaitingForResponse = $state(false)
 
 	const conversationsCache = $state<Record<string, ChatMessage[]>>({})
 
-	// Cleanup EventSource on unmount
+	// Cleanup EventSource and polling on unmount
 	$effect(() => {
 		return () => {
 			if (currentEventSource) {
 				currentEventSource.close()
+			}
+			if (pollingInterval) {
+				clearInterval(pollingInterval)
+				pollingInterval = undefined
 			}
 		}
 	})
@@ -154,58 +162,37 @@
 		}
 	}
 
-	async function pollJobResult(jobId: string, messageId: string) {
+	async function pollJobResult(jobId: string) {
 		try {
-			const result = await waitJob(jobId)
+			await waitJob(jobId)
 
-			// Job completed successfully, update the message with the result
-			messages = messages.map((msg) =>
-				msg.id === messageId
-					? {
-							...msg,
-							loading: false,
-							content: formatJobResult(result)
-						}
-					: msg
-			)
+			// Do a final poll to get all messages from database
+			if (conversationId) {
+				await pollConversationMessages(conversationId)
+			}
+			isWaitingForResponse = false
 		} catch (error) {
 			console.error('Error polling job result:', error)
 
-			// Job failed, update the message with error
-			messages = messages.map((msg) =>
-				msg.id === messageId
-					? {
-							...msg,
-							loading: false,
-							content: 'Error: ' + (error?.message || String(error))
-						}
-					: msg
-			)
+			// Create error message
+			const resultMessageId = crypto.randomUUID()
+			isWaitingForResponse = false
+			messages = [
+				...messages,
+				{
+					id: resultMessageId,
+					content: 'Error: ' + (error?.message || String(error)),
+					created_at: new Date().toISOString(),
+					message_type: 'assistant',
+					conversation_id: conversationId!,
+					job_id: jobId,
+					loading: false
+				}
+			]
+		} finally {
+			stopPolling()
+			isLoading = false
 		}
-	}
-
-	function formatJobResult(result: any): string {
-		if (result === null || result === undefined) {
-			return 'No result returned'
-		}
-
-		// If result is an object with an output field, use that
-		if (typeof result === 'object' && result.output !== undefined) {
-			if (typeof result.output === 'string') {
-				return result.output
-			}
-			return JSON.stringify(result.output, null, 2)
-		}
-
-		if (typeof result === 'string') {
-			return result
-		}
-
-		if (typeof result === 'object') {
-			return JSON.stringify(result, null, 2)
-		}
-
-		return String(result)
 	}
 
 	function parseStreamDeltas(streamData: string): string {
@@ -225,10 +212,81 @@
 		return content
 	}
 
+	async function pollConversationMessages(conversationId: string) {
+		if (!$workspaceStore) return
+
+		try {
+			const lastId = messages[messages.length - 1].id
+			console.log('lastId', lastId)
+			const response = await FlowConversationService.listConversationMessages({
+				workspace: $workspaceStore,
+				conversationId: conversationId,
+				page: 1,
+				perPage: 50,
+				afterId: lastId
+			})
+
+			// Filter out the streaming job's message and user messages
+			const newMessages = response.filter(
+				(msg) => msg.message_type !== 'user' && msg.job_id !== streamingJobId
+			)
+
+			// Update existing messages
+			messages = messages.map((msg) => {
+				if (msg.id && response.find((r) => r.id === msg.id)) {
+					return response.find((r) => r.id === msg.id)!
+				}
+				return msg
+			})
+
+			// Add any new intermediate messages not already present
+			for (const msg of newMessages) {
+				if (!messages.find((m) => m.id === msg.id)) {
+					// Insert in chronological order
+					const insertIndex = messages.findIndex(
+						(m) => new Date(m.created_at) > new Date(msg.created_at)
+					)
+					if (insertIndex === -1) {
+						messages = [...messages, msg]
+					} else {
+						messages = [...messages.slice(0, insertIndex), msg, ...messages.slice(insertIndex)]
+					}
+				}
+			}
+
+			// Check if streaming job's message appeared (flow complete)
+			if (streamingJobId && response.find((r) => r.job_id === streamingJobId)) {
+				stopPolling()
+				isFlowComplete = true
+			}
+		} catch (error) {
+			console.error('Polling error:', error)
+		}
+	}
+
+	function startPolling(conversationId: string) {
+		if (pollingInterval) return
+		pollingInterval = setInterval(() => {
+			pollConversationMessages(conversationId)
+		}, 1500) // Poll every 1.5 seconds
+	}
+
+	function stopPolling() {
+		if (pollingInterval) {
+			clearInterval(pollingInterval)
+			pollingInterval = undefined
+		}
+	}
+
 	async function sendMessage() {
 		if (!inputMessage.trim() || isLoading) return
 
 		const isNewConversation = messages.length === 0
+
+		// Reset state for new message
+		streamingJobId = undefined
+		isFlowComplete = false
+		stopPolling()
 
 		// Generate a new conversation ID if we don't have one
 		let currentConversationId = conversationId
@@ -257,23 +315,9 @@
 		const messageContent = inputMessage.trim()
 		inputMessage = ''
 		isLoading = true
+		isWaitingForResponse = true
 
 		try {
-			// Add assistant message placeholder
-			const assistantMessageId = crypto.randomUUID()
-			const assistantMessage: ChatMessage = {
-				id: assistantMessageId,
-				content: '',
-				created_at: new Date().toISOString(),
-				message_type: 'assistant',
-				conversation_id: currentConversationId,
-				job_id: '',
-				loading: true,
-				streaming: Boolean(useStreaming && path)
-			}
-
-			messages = [...messages, assistantMessage]
-
 			await tick()
 			scrollToUserMessage(userMessage.id)
 
@@ -285,6 +329,7 @@
 
 				// Track stream state for this message
 				let accumulatedContent = ''
+				let assistantMessageId = ''
 
 				try {
 					// Encode the payload as base64
@@ -302,25 +347,46 @@
 					const eventSource = new EventSource(url.toString())
 					currentEventSource = eventSource
 
-					eventSource.onmessage = (event) => {
+					eventSource.onmessage = async (event) => {
 						try {
 							const data = JSON.parse(event.data)
 
 							if (data.type === 'update') {
+								// Extract streaming job ID from first update and start polling
+								if (!streamingJobId && data.flow_stream_job_id) {
+									streamingJobId = data.flow_stream_job_id
+									// Start polling now that we know which job to skip
+									startPolling(currentConversationId)
+								}
+
 								// Process new stream content
 								if (data.new_result_stream) {
 									const newContent = parseStreamDeltas(data.new_result_stream)
 									accumulatedContent += newContent
-									// Update message content
-									messages = messages.map((msg) =>
-										msg.id === assistantMessageId
-											? {
-													...msg,
-													content: accumulatedContent,
-													loading: accumulatedContent.length === 0
-												}
-											: msg
-									)
+
+									// Create message on first content
+									if (assistantMessageId.length === 0) {
+										assistantMessageId = crypto.randomUUID()
+										isWaitingForResponse = false
+										messages = [
+											...messages,
+											{
+												id: assistantMessageId,
+												content: accumulatedContent,
+												created_at: new Date().toISOString(),
+												message_type: 'assistant',
+												conversation_id: currentConversationId,
+												job_id: streamingJobId,
+												loading: false,
+												streaming: true
+											}
+										]
+									} else {
+										// Update existing message
+										messages = messages.map((msg) =>
+											msg.id === assistantMessageId ? { ...msg, content: accumulatedContent } : msg
+										)
+									}
 								}
 
 								// Handle completion
@@ -329,19 +395,45 @@
 										data.only_result.output ||
 										accumulatedContent ||
 										JSON.stringify(data.only_result.error)
-									messages = messages.map((msg) =>
-										msg.id === assistantMessageId
-											? {
-													...msg,
-													content: finalContent,
-													loading: false,
-													streaming: false
-												}
-											: msg
-									)
+
+									// If no message created yet (no stream), create it now
+									if (assistantMessageId.length === 0) {
+										assistantMessageId = crypto.randomUUID()
+										isWaitingForResponse = false
+										messages = [
+											...messages,
+											{
+												id: assistantMessageId,
+												content: finalContent,
+												created_at: new Date().toISOString(),
+												message_type: 'assistant',
+												conversation_id: currentConversationId,
+												job_id: streamingJobId,
+												loading: false,
+												streaming: false
+											}
+										]
+									} else {
+										messages = messages.map((msg) =>
+											msg.id === assistantMessageId
+												? {
+														...msg,
+														content: finalContent,
+														loading: false,
+														streaming: false,
+														job_id: streamingJobId
+													}
+												: msg
+										)
+									}
+
 									eventSource.close()
 									currentEventSource = undefined
 									isLoading = false
+
+									// Do one final poll to ensure we have all messages
+									await pollConversationMessages(currentConversationId)
+									stopPolling()
 								}
 							}
 						} catch (error) {
@@ -351,33 +443,43 @@
 
 					eventSource.onerror = (error) => {
 						console.error('EventSource error:', error)
-						messages = messages.map((msg) =>
-							msg.id === assistantMessageId
-								? {
-										...msg,
-										content: accumulatedContent || 'Stream error occurred',
-										loading: false,
-										streaming: false
-									}
-								: msg
-						)
+						isWaitingForResponse = false
+						messages = [
+							...messages,
+							{
+								id: crypto.randomUUID(),
+								content: 'Stream error occurred',
+								created_at: new Date().toISOString(),
+								message_type: 'assistant',
+								conversation_id: currentConversationId,
+								job_id: '',
+								loading: false,
+								streaming: false
+							}
+						]
 						eventSource.close()
 						currentEventSource = undefined
+						stopPolling()
 						isLoading = false
 						sendUserToast('Stream error occurred', true)
 					}
 				} catch (error) {
 					console.error('Stream connection error:', error)
-					messages = messages.map((msg) =>
-						msg.id === assistantMessageId
-							? {
-									...msg,
-									content: 'Failed to connect to stream',
-									loading: false,
-									streaming: false
-								}
-							: msg
-					)
+					isWaitingForResponse = false
+					messages = [
+						...messages,
+						{
+							id: crypto.randomUUID(),
+							content: 'Failed to connect to stream',
+							created_at: new Date().toISOString(),
+							message_type: 'assistant',
+							conversation_id: currentConversationId,
+							job_id: '',
+							loading: false,
+							streaming: false
+						}
+					]
+					stopPolling()
 					isLoading = false
 					sendUserToast('Failed to connect to stream', true)
 				}
@@ -387,7 +489,9 @@
 					console.error('No jobId returned from onRunFlow')
 					return
 				}
-				pollJobResult(jobId, assistantMessageId)
+				// Start polling for intermediate messages in non-streaming mode too
+				startPolling(currentConversationId)
+				pollJobResult(jobId)
 			}
 		} catch (error) {
 			console.error('Error running flow:', error)
@@ -440,6 +544,12 @@
 					{#each messages as message (message.id)}
 						<FlowChatMessage {message} />
 					{/each}
+					{#if isWaitingForResponse}
+						<div class="flex items-center gap-2 text-tertiary">
+							<Loader2 size={16} class="animate-spin" />
+							<span class="text-sm">Processing...</span>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
