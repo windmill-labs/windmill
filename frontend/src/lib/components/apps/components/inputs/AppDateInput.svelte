@@ -91,6 +91,7 @@
 		} else {
 			outputs?.result.set(undefined)
 		}
+		console.log('outputs?.result', outputs?.result.peak())
 		untrack(() => fireOnChange())
 	})
 </script>

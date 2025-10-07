@@ -189,6 +189,7 @@
 			<div class={classNames('flex gap-x-2 gap-y-1 justify-end items-center')}>
 				{#if componentInput?.type && allowTypeChange !== false}
 					<ConnectionButton
+						small
 						{closeConnection}
 						{openConnection}
 						isOpen={!!$connectingInput.opened}

@@ -191,8 +191,8 @@
 										{#if job?.args}
 											<div class="p-2">
 												<JobArgs
-													id={job.id}
-													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+													id={job?.id}
+													workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
 													args={job?.args}
 												/>
 											</div>
@@ -216,12 +216,12 @@
 													/>
 												</Pane>
 												<Pane size={50} minSize={10} class="text-sm text-secondary">
-													{#if job != undefined && 'result' in job && job.result != undefined}<div
+													{#if job != undefined && 'result' in job && job?.result != undefined}<div
 															class="relative h-full px-2"
 															><DisplayResult
 																workspaceId={$workspaceStore}
 																jobId={selectedJobId}
-																result={job.result}
+																result={job?.result}
 															/></div
 														>
 													{:else if testIsLoading}
@@ -237,7 +237,7 @@
 												{#if jobResult?.transformer}
 													<Pane size={50} minSize={10} class="text-sm text-secondary p-2">
 														<div class="font-bold">Transformer results</div>
-														{#if job != undefined && 'result' in job && job.result != undefined}
+														{#if job != undefined && 'result' in job && job?.result != undefined}
 															<div class="relative h-full px-2">
 																<DisplayResult
 																	workspaceId={$workspaceStore}
