@@ -289,6 +289,7 @@ pub async fn do_postgresql(
                 tracing::error!("connection error: {}", e);
             }
         });
+        drop(mtex);
         (Some((client, handle)), None)
     } else {
         tracing::info!("Creating new connection");
@@ -307,6 +308,7 @@ pub async fn do_postgresql(
                 tracing::error!("connection error: {}", e);
             }
         });
+        drop(mtex);
         (Some((client, handle)), None)
     };
 
