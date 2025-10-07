@@ -696,12 +696,6 @@ async fn setup_ducklake_catalog_db_inner(
         sslmode = ssl_mode
     );
 
-    let x = tokio::time::timeout(
-        std::time::Duration::from_secs(20),
-        tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
-    )
-    .await;
-
     let (client, connection) = tokio::time::timeout(
         std::time::Duration::from_secs(20),
         tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
