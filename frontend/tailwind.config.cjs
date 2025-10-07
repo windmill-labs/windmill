@@ -11,11 +11,12 @@ const lightTheme = {
 	surfaceDisabled: '#f9fafb',
 	surfaceSelected: '#d1d5db',
 
-	textPrimary: '#2d3748',
-	textSecondary: '#4a5568',
-	textTertiary: '#505c70',
-	textHint: '#757E8F',
+	textPrimary: '#4a5568',
+	textSecondary: '#718096',
+	textTertiary: '#a4a9b2',
+	textHint: '#757e8f',
 	textDisabled: '#a0aec0',
+	textEmphasis: '#2d3748',
 
 	border: '#dddddd',
 	borderHover: '#cccccc'
@@ -30,11 +31,12 @@ const darkTheme = {
 	surfaceDisabled: '#212732',
 	surfaceSelected: '#434c5e',
 
-	textPrimary: '#EEEEEE',
-	textSecondary: '#C2C9D1',
-	textTertiary: '#A8AEB7',
-	textHint: '#989DA5',
-	textDisabled: '#989DA5',
+	textPrimary: '#d4d8dd',
+	textSecondary: '#aab0bb',
+	textTertiary: '#a8a9ac',
+	textHint: '#b3bac9',
+	textDisabled: '#727c88',
+	textEmphasis: '#f3f4f6',
 
 	border: '#3e4c60',
 	borderHover: '#3e4c60'
@@ -417,6 +419,7 @@ const config = {
 			tertiary: 'rgb(var(--color-text-tertiary) / <alpha-value>)',
 			hint: 'rgb(var(--color-text-hint) / <alpha-value>)',
 			disabled: 'rgb(var(--color-text-disabled) / <alpha-value>)',
+			emphasis: 'rgb(var(--color-text-emphasis) / <alpha-value>)',
 
 			'surface-inverse': 'rgb(var(--color-surface-inverse) / <alpha-value>)',
 			'surface-secondary-inverse': 'rgb(var(--color-surface-secondary-inverse) / <alpha-value>)',
@@ -428,7 +431,8 @@ const config = {
 			'secondary-inverse': 'rgb(var(--color-text-secondary-inverse) / <alpha-value>)',
 			'tertiary-inverse': 'rgb(var(--color-text-tertiary-inverse) / <alpha-value>)',
 			'hint-inverse': 'rgb(var(--color-text-hint-inverse) / <alpha-value>)',
-			'disabled-inverse': 'rgb(var(--color-text-disabled-inverse) / <alpha-value>)'
+			'disabled-inverse': 'rgb(var(--color-text-disabled-inverse) / <alpha-value>)',
+			'emphasis-inverse': 'rgb(var(--color-text-emphasis-inverse) / <alpha-value>)'
 		},
 		fontFamily: {
 			// add double quotes if there is space in font name
@@ -525,6 +529,7 @@ const config = {
 					'--color-text-tertiary': lightThemeRgb.textTertiary,
 					'--color-text-hint': lightThemeRgb.textHint,
 					'--color-text-disabled': lightThemeRgb.textDisabled,
+					'--color-text-emphasis': lightThemeRgb.textEmphasis,
 
 					'--color-surface-inverse': darkThemeRgb.surface,
 					'--color-surface-secondary-inverse': darkThemeRgb.surfaceSecondary,
@@ -537,6 +542,7 @@ const config = {
 					'--color-text-tertiary-inverse': darkThemeRgb.textTertiary,
 					'--color-text-hint-inverse': darkThemeRgb.textHint,
 					'--color-text-disabled-inverse': darkThemeRgb.textDisabled,
+					'--color-text-emphasis-inverse': darkThemeRgb.textEmphasis,
 
 					'--color-border': lightThemeRgb.border,
 					'--color-border-hover': lightThemeRgb.borderHover,
@@ -568,6 +574,7 @@ const config = {
 						'--color-text-tertiary': darkThemeRgb.textTertiary,
 						'--color-text-hint': darkThemeRgb.textHint,
 						'--color-text-disabled': darkThemeRgb.textDisabled,
+						'--color-text-emphasis': darkThemeRgb.textEmphasis,
 
 						'--color-surface-inverse': lightThemeRgb.surface,
 						'--color-surface-secondary-inverse': lightThemeRgb.surfaceSecondary,
@@ -580,6 +587,7 @@ const config = {
 						'--color-text-tertiary-inverse': lightThemeRgb.textTertiary,
 						'--color-text-hint-inverse': lightThemeRgb.textHint,
 						'--color-text-disabled-inverse': lightThemeRgb.textDisabled,
+						'--color-text-emphasis-inverse': lightThemeRgb.textEmphasis,
 
 						'--color-border': darkThemeRgb.border,
 						'--color-border-hover': darkThemeRgb.borderHover,
@@ -672,7 +680,7 @@ const config = {
 				'input:not(.windmillapp):not(.no-default-style),input[type="text"]:not(.windmillapp):not(.no-default-style),input[type="email"]:not(.windmillapp):not(.no-default-style),input[type="url"]:not(.windmillapp):not(.no-default-style),input[type="password"]:not(.windmillapp):not(.no-default-style),input[type="number"]:not(.windmillapp):not(.no-default-style),input[type="date"]:not(.windmillapp):not(.no-default-style),input[type="datetime-local"]:not(.windmillapp):not(.no-default-style),input[type="month"]:not(.windmillapp):not(.no-default-style),input[type="search"]:not(.windmillapp):not(.no-default-style),input[type="tel"]:not(.windmillapp):not(.no-default-style),input[type="time"]:not(.windmillapp):not(.no-default-style),input[type="week"]:not(.windmillapp):not(.no-default-style),textarea:not(.windmillapp):not(.no-default-style):not(.monaco-mouse-cursor-text),select:not(.windmillapp):not(.no-default-style)':
 					{
 						display: 'block',
-						fontSize: theme('fontSize.sm'),
+						fontSize: theme('fontSize.xs'),
 						boxShadow: theme('boxShadow.sm'),
 						width: '100%',
 						padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
