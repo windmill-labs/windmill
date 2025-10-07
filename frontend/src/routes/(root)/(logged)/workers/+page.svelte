@@ -489,14 +489,16 @@
 							{@const activeWorkers = worker_group?.[1].flatMap((x) =>
 								x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
 							)}
-							<Tab value={worker_group[0]}>
-								{`${worker_group[0]} - ${pluralize(activeWorkers?.length, 'worker')}`}
-								<Tooltip>Number of workers active in the last 15s</Tooltip>
+							<Tab
+								value={worker_group[0]}
+								label={`${worker_group[0]} - ${pluralize(activeWorkers?.length, 'worker')}`}
+							>
+								{#snippet extra()}
+									<Tooltip>Number of workers active in the last 15s</Tooltip>
+								{/snippet}
 							</Tab>
 						{:else}
-							<Tab value={name}>
-								{name} (0 worker)
-							</Tab>
+							<Tab value={name} label={`${name} (0 worker)`} />
 						{/if}
 					{/each}
 				</Tabs>

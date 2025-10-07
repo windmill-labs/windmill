@@ -125,9 +125,7 @@
 				return isValidTeamsChannel(entry.teams_channel)
 			}
 			if ('slack_channel' in entry) {
-				return (
-					typeof entry.slack_channel === 'string' && entry.slack_channel.trim() !== ''
-				)
+				return typeof entry.slack_channel === 'string' && entry.slack_channel.trim() !== ''
 			}
 			if ('email' in entry) {
 				return typeof entry.email === 'string' && entry.email.trim() !== ''
@@ -247,7 +245,7 @@
 	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<Tabs {hideTabs} bind:selected={tab}>
 		{#each settingsKeys as category}
-			<Tab value={category}>{category}</Tab>
+			<Tab value={category} label={category}></Tab>
 		{/each}
 
 		{#snippet content()}

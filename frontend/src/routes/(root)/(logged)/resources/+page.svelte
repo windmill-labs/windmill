@@ -689,51 +689,42 @@
 					}
 				}}
 			>
-				<Tab size="md" value="workspace">
-					<div class="flex gap-2 items-center my-1">
-						<Building size={18} />
-						Workspace
-					</div>
-				</Tab>
-				<Tab size="md" value="types">
-					<div class="flex gap-2 items-center my-1">
-						Resource Types
+				<Tab value="workspace" label="Workspace" icon={Building} />
+				<Tab value="types" label="Resource Types">
+					{#snippet extra()}
 						<Tooltip
 							documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 						>
 							Every resource has a Resource Type attached to it which contains its schema and make
 							it easy in scripts and flows to accept only resources of a specific resource type.
 						</Tooltip>
-					</div>
+					{/snippet}
 				</Tab>
-				<Tab size="md" value="states">
-					<div class="flex gap-2 items-center my-1">
-						States
+				<Tab value="states" label="States">
+					{#snippet extra()}
 						<Tooltip>
 							States are actually resources (but excluded from the Workspace tab for clarity).
 							States are used by scripts to keep data persistent between runs of the same script by
 							the same trigger (schedule or user)
 						</Tooltip>
-					</div>
+					{/snippet}
 				</Tab>
-				<Tab size="md" value="cache">
-					<div class="flex gap-2 items-center my-1">
-						Cache
+				<Tab value="cache" label="Cache">
+					{#snippet extra()}
 						<Tooltip>
 							Cached results are actually resources (but excluded from the Workspace tab for
 							clarity). Cache are used by flows's step to cache result to avoid recomputing
 							unnecessarily
 						</Tooltip>
-					</div>
+					{/snippet}
 				</Tab>
-				<Tab size="md" value="theme">
-					<div class="flex gap-2 items-center my-1">
-						Theme
+				<Tab value="theme" label="Theme">
+					{#snippet extra()}
 						<Tooltip>
 							Theme are actually resources (but excluded from the Workspace tab for clarity). Theme
 							are used by the apps to customize their look and feel.
 						</Tooltip>
-					</div>
+					{/snippet}
 				</Tab>
 			</Tabs>
 			<div class="flex">
