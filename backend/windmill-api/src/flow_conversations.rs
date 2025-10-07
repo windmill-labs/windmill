@@ -22,6 +22,8 @@ use windmill_common::{
 pub enum MessageType {
     User,
     Assistant,
+    System,
+    Tool,
 }
 
 pub fn workspaced_service() -> Router {
@@ -50,6 +52,7 @@ pub struct FlowConversationMessage {
     pub content: String,
     pub job_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
+    pub step_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -226,9 +229,9 @@ async fn list_messages(
     // Fetch messages for this conversation, oldest first, but reverse the order of the messages for easy rendering on the frontend
     let messages = sqlx::query_as!(
         FlowConversationMessage,
-        r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at
+        r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, step_name
          FROM (
-            SELECT id, conversation_id, message_type, content, job_id, created_at
+            SELECT id, conversation_id, message_type, content, job_id, created_at, step_name
             FROM flow_conversation_message
             WHERE conversation_id = $1
             ORDER BY created_at DESC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
@@ -255,6 +258,7 @@ pub async fn create_message(
     content: &str,
     job_id: Option<Uuid>,
     workspace_id: &str,
+    step_name: Option<&str>,
 ) -> windmill_common::error::Result<()> {
     // Verify the conversation exists and belongs to the user
     let conversation_exists = sqlx::query_scalar!(
@@ -275,12 +279,13 @@ pub async fn create_message(
 
     // Insert the message
     sqlx::query!(
-        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id)
-         VALUES ($1, $2, $3, $4)",
+        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name)
+         VALUES ($1, $2, $3, $4, $5)",
         conversation_id,
         message_type as MessageType,
         content,
-        job_id
+        job_id,
+        step_name
     )
     .execute(&mut **tx)
     .await?;

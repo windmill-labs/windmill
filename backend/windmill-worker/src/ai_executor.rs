@@ -2,6 +2,7 @@ use crate::memory_oss::{read_from_memory, write_to_memory};
 use anyhow::Context;
 use async_recursion::async_recursion;
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use ulid;
@@ -13,7 +14,7 @@ use windmill_common::{
     db::DB,
     error::{self, to_anyhow, Error},
     flow_status::AgentAction,
-    flows::{FlowModuleValue, Step},
+    flows::{FlowModuleValue, FlowValue, Step},
     get_latest_hash_for_path,
     jobs::JobKind,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
@@ -83,6 +84,16 @@ pub struct FlowJobRunnableIdAndRawFlow {
     pub runnable_id: Option<ScriptHash>,
     pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
     pub kind: JobKind,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "MESSAGE_TYPE", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum MessageType {
+    User,
+    Assistant,
+    System,
+    Tool,
 }
 
 pub async fn get_flow_job_runnable_and_raw_flow(
@@ -296,6 +307,7 @@ pub async fn handle_ai_agent_job(
         parent_job,
         &args,
         &tools,
+        value,
         client,
         &mut inner_occupancy_metrics,
         job_completed_tx,
@@ -409,6 +421,65 @@ async fn update_flow_status_module_with_actions_success(
     Ok(())
 }
 
+/// Add a message to the conversation database
+async fn add_message_to_conversation(
+    db: &DB,
+    workspace_id: &str,
+    conversation_id: Uuid,
+    job_id: Uuid,
+    content: &str,
+    message_type: MessageType,
+    step_name: Option<&str>,
+) -> Result<(), Error> {
+    let mut tx = db.begin().await?;
+
+    // Verify the conversation exists
+    let conversation_exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1 AND workspace_id = $2)",
+        conversation_id,
+        workspace_id
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+
+    if !conversation_exists {
+        // Conversation doesn't exist yet, silently skip
+        return Ok(());
+    }
+
+    // Insert the message
+    sqlx::query!(
+        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name)
+         VALUES ($1, $2, $3, $4, $5)",
+        conversation_id,
+        message_type as MessageType,
+        content,
+        job_id,
+        step_name
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Update conversation updated_at timestamp
+    sqlx::query!(
+        "UPDATE flow_conversation SET updated_at = NOW() WHERE id = $1",
+        conversation_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Get step name from the flow module (summary if exists, else id)
+fn get_step_name_from_flow(flow_value: &FlowValue, flow_step_id: Option<&str>) -> Option<String> {
+    let flow_step_id = flow_step_id?;
+    let module = flow_value.modules.iter().find(|m| m.id == flow_step_id)?;
+    Some(module.summary.clone().unwrap_or_else(|| module.id.clone()))
+}
+
 /// Check if the provider is Anthropic (either direct or through OpenRouter)
 fn is_anthropic_provider(provider: &ProviderWithResource) -> bool {
     let provider_is_anthropic = provider.kind.is_anthropic();
@@ -428,6 +499,7 @@ pub async fn run_agent(
     parent_job: &Uuid,
     args: &AIAgentArgs,
     tools: &[Tool],
+    flow_value: &FlowValue,
 
     // job execution context
     client: &AuthedClient,
@@ -659,6 +731,43 @@ pub async fn run_agent(
                                 .await?;
 
                             content = Some(OpenAIContent::Text(response_content.clone()));
+
+                            // Add assistant message to conversation if chat_input_enabled
+                            if flow_value.chat_input_enabled.unwrap_or(false) {
+                                if let Ok(Some(memory_id)) =
+                                    get_memory_id_from_flow_status(db, parent_job).await
+                                {
+                                    let workspace_id = job.workspace_id.clone();
+                                    let agent_job_id = job.id;
+                                    let db_clone = db.clone();
+                                    let message_content = response_content.clone();
+                                    let step_name = get_step_name_from_flow(
+                                        flow_value,
+                                        job.flow_step_id.as_deref(),
+                                    );
+
+                                    // Spawn task to avoid blocking on DB write
+                                    tokio::spawn(async move {
+                                        if let Err(e) = add_message_to_conversation(
+                                            &db_clone,
+                                            &workspace_id,
+                                            memory_id,
+                                            agent_job_id,
+                                            &message_content,
+                                            MessageType::Assistant,
+                                            step_name.as_deref(),
+                                        )
+                                        .await
+                                        {
+                                            tracing::warn!(
+                                                "Failed to add assistant message to conversation {}: {}",
+                                                memory_id,
+                                                e
+                                            );
+                                        }
+                                    });
+                                }
+                            }
                         }
 
                         if tool_calls.is_empty() {
@@ -977,7 +1086,7 @@ pub async fn run_agent(
                                             let tool_result_event = StreamingEvent::ToolResult {
                                                 call_id: tool_call.id.clone(),
                                                 function_name: tool_call.function.name.clone(),
-                                                result: error_message,
+                                                result: error_message.clone(),
                                                 success: false,
                                             };
                                             stream_event_processor
@@ -989,6 +1098,47 @@ pub async fn run_agent(
                                             db, parent_job, false,
                                         )
                                         .await?;
+
+                                        // Add tool message to conversation if chat_input_enabled (error case)
+                                        if flow_value.chat_input_enabled.unwrap_or(false) {
+                                            if let Ok(Some(memory_id)) =
+                                                get_memory_id_from_flow_status(db, parent_job).await
+                                            {
+                                                let error_text = error_message;
+                                                let workspace_id = job.workspace_id.clone();
+                                                let tool_job_id = job_id;
+                                                let db_clone = db.clone();
+                                                let tool_name = tool_call.function.name.clone();
+                                                let step_name = get_step_name_from_flow(
+                                                    flow_value,
+                                                    job.flow_step_id.as_deref(),
+                                                );
+
+                                                // Spawn task to avoid blocking on DB write
+                                                tokio::spawn(async move {
+                                                    if let Err(e) = add_message_to_conversation(
+                                                        &db_clone,
+                                                        &workspace_id,
+                                                        memory_id,
+                                                        tool_job_id,
+                                                        &format!(
+                                                            "Error executing {}: {}",
+                                                            tool_name, error_text
+                                                        ),
+                                                        MessageType::Tool,
+                                                        step_name.as_deref(),
+                                                    )
+                                                    .await
+                                                    {
+                                                        tracing::warn!(
+                                                            "Failed to add tool error message to conversation {}: {}",
+                                                            memory_id,
+                                                            e
+                                                        );
+                                                    }
+                                                });
+                                            }
+                                        }
                                     }
                                     Ok(success) => {
                                         let send_result =
@@ -1055,6 +1205,44 @@ pub async fn run_agent(
                                             db, parent_job, success,
                                         )
                                         .await?;
+
+                                        // Add tool message to conversation if chat_input_enabled
+                                        if flow_value.chat_input_enabled.unwrap_or(false) {
+                                            if let Ok(Some(memory_id)) =
+                                                get_memory_id_from_flow_status(db, parent_job).await
+                                            {
+                                                let workspace_id = job.workspace_id.clone();
+                                                let tool_job_id = job_id;
+                                                let db_clone = db.clone();
+                                                let tool_name = tool_call.function.name.clone();
+                                                let step_name = tool
+                                                    .module
+                                                    .summary
+                                                    .clone()
+                                                    .unwrap_or_else(|| tool.module.id.clone());
+
+                                                // Spawn task to avoid blocking on DB write
+                                                tokio::spawn(async move {
+                                                    if let Err(e) = add_message_to_conversation(
+                                                        &db_clone,
+                                                        &workspace_id,
+                                                        memory_id,
+                                                        tool_job_id,
+                                                        &format!("Used {} tool", tool_name),
+                                                        MessageType::Tool,
+                                                        Some(&step_name),
+                                                    )
+                                                    .await
+                                                    {
+                                                        tracing::warn!(
+                                                            "Failed to add tool message to conversation {}: {}",
+                                                            memory_id,
+                                                            e
+                                                        );
+                                                    }
+                                                });
+                                            }
+                                        }
                                     }
                                 }
                             } else {

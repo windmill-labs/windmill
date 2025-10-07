@@ -3982,17 +3982,7 @@ async fn handle_chat_conversation_messages(
         &user_message,
         None, // No job_id for user message
         w_id,
-    )
-    .await?;
-
-    // Create placeholder assistant message in the same transaction as the job
-    flow_conversations::create_message(
-        tx,
-        memory_id,
-        MessageType::Assistant,
-        "",         // Empty content, will be updated when job completes
-        Some(uuid), // Associate with the job
-        w_id,
+        None, // No step_name for user message
     )
     .await?;
 
