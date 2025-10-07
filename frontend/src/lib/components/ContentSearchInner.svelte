@@ -164,10 +164,9 @@
 		<div class="p-2">
 			<ToggleButtonGroup bind:selected={searchKind} class="h-10 ">
 				{#snippet children({ item })}
-					<ToggleButton small light value="all" label={'All' + counts.all} {item} />
+					<ToggleButton small value="all" label={'All' + counts.all} {item} />
 					<ToggleButton
 						small
-						light
 						value="scripts"
 						icon={Code2}
 						label={'Scripts' + counts.scripts}
@@ -175,7 +174,6 @@
 					/>
 					<ToggleButton
 						small
-						light
 						value="resources"
 						icon={Boxes}
 						label={'Resources' + counts.resources}
@@ -183,7 +181,6 @@
 					/>
 					<ToggleButton
 						small
-						light
 						value="flows"
 						label={'Flows' + counts.flows}
 						icon={FlowIcon}
@@ -192,7 +189,6 @@
 					/>
 					<ToggleButton
 						small
-						light
 						value="apps"
 						label={'Apps' + counts.apps}
 						icon={LayoutDashboard}

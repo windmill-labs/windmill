@@ -121,9 +121,9 @@
 		}}
 	>
 		{#snippet children({ item })}
-			<ToggleButton light value="disabled" label="Disabled" {item} />
-			<ToggleButton light value="constant" label="Constant" {item} />
-			<ToggleButton light value="exponential" label="Exponential" {item} />
+			<ToggleButton value="disabled" label="Disabled" {item} />
+			<ToggleButton value="constant" label="Constant" {item} />
+			<ToggleButton value="exponential" label="Exponential" {item} />
 		{/snippet}
 	</ToggleButtonGroup>
 

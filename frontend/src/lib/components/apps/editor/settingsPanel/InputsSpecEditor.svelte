@@ -218,43 +218,18 @@
 						}}
 					>
 						{#snippet children({ item })}
-							<ToggleButton
-								small
-								light
-								value="static"
-								icon={Pen}
-								iconOnly
-								tooltip="Static"
-								{item}
-							/>
+							<ToggleButton small value="static" icon={Pen} iconOnly tooltip="Static" {item} />
 							{#if userInputEnabled}
-								<ToggleButton
-									small
-									light
-									value="user"
-									icon={User}
-									iconOnly
-									tooltip="User Input"
-									{item}
-								/>
+								<ToggleButton small value="user" icon={User} iconOnly tooltip="User Input" {item} />
 							{/if}
 							{#if fileUpload}
-								<ToggleButton
-									small
-									light
-									value="upload"
-									icon={Upload}
-									iconOnly
-									tooltip="Upload"
-									{item}
-								/>
+								<ToggleButton small value="upload" icon={Upload} iconOnly tooltip="Upload" {item} />
 							{/if}
 							{#if fileUploadS3}
 								<ToggleButton
 									value="uploadS3"
 									icon={UploadCloud}
 									iconOnly
-									light
 									small
 									tooltip="Upload S3"
 									{item}
@@ -262,7 +237,6 @@
 							{/if}
 							{#if componentInput?.type === 'connected'}
 								<ToggleButton
-									light
 									value="connected"
 									icon={Plug2}
 									iconOnly
@@ -276,7 +250,6 @@
 									value="eval"
 									icon={FunctionSquare}
 									iconOnly
-									light
 									small
 									tooltip="Eval Legacy"
 									{item}
@@ -284,7 +257,6 @@
 							{/if}
 							<ToggleButton
 								value="evalv2"
-								light
 								icon={FunctionSquare}
 								iconOnly
 								small

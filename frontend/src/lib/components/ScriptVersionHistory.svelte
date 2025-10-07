@@ -201,8 +201,8 @@
 										}}
 									>
 										{#snippet children({ item })}
-											<ToggleButton light small value="code" label="Code" icon={Code} {item} />
-											<ToggleButton light small value="diff" label="Diff" icon={Diff} {item} />
+											<ToggleButton small value="code" label="Code" icon={Code} {item} />
+											<ToggleButton small value="diff" label="Diff" icon={Diff} {item} />
 										{/snippet}
 									</ToggleButtonGroup>
 								</div>

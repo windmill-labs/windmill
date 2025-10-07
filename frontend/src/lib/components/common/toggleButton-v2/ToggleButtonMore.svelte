@@ -13,7 +13,7 @@
 	interface Props {
 		disabled?: boolean
 		small?: boolean
-		light?: boolean
+
 		id?: string | undefined
 		item?: any | undefined
 		selected?: string | undefined
@@ -24,7 +24,7 @@
 	let {
 		disabled = false,
 		small = false,
-		light = false,
+
 		id = undefined,
 		item = undefined,
 		selected = $bindable(undefined),
@@ -57,7 +57,6 @@
 				value={selected ?? ''}
 				{item}
 				{small}
-				{light}
 				{id}
 				label={togglableItems.find((i) => i.value === selected)?.label}
 				{tooltip}

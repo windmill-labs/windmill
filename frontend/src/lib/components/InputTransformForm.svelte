@@ -624,7 +624,6 @@
 							{#snippet children({ item })}
 								{#if isStaticTemplate(inputCat)}
 									<ToggleButton
-										light
 										small
 										tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
 										value="static"
@@ -632,7 +631,7 @@
 										{item}
 									/>
 								{:else}
-									<ToggleButton light small label="static" value="static" {item} />
+									<ToggleButton small label="static" value="static" {item} />
 								{/if}
 
 								{#if codeInjectionDetected && propertyType == 'static'}
@@ -651,7 +650,6 @@
 									<ToggleButton
 										disabled={inputCat === 'dynamic'}
 										small
-										light
 										tooltip="JavaScript expression ('flow_input' or 'results')."
 										value="javascript"
 										icon={FunctionSquare}

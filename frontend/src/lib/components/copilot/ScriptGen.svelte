@@ -420,20 +420,8 @@
 						<div class="flex flex-row justify-between items-center w-96 gap-2">
 							<ToggleButtonGroup class="w-auto shrink-0 h-auto" bind:selected={mode}>
 								{#snippet children({ item })}
-									<ToggleButton
-										value={'gen'}
-										label="Generate from scratch"
-										light
-										class="px-2"
-										{item}
-									/>
-									<ToggleButton
-										value={'edit'}
-										label="Edit existing code"
-										light
-										class="px-2"
-										{item}
-									/>
+									<ToggleButton value={'gen'} label="Generate from scratch" class="px-2" {item} />
+									<ToggleButton value={'edit'} label="Edit existing code" class="px-2" {item} />
 								{/snippet}
 							</ToggleButtonGroup>
 
@@ -530,10 +518,9 @@
 													? 'Dbo'
 													: 'Public') + ' schema'}
 												small
-												light
 												{item}
 											/>
-											<ToggleButton value={'false'} label="All schemas" small light {item} />
+											<ToggleButton value={'false'} label="All schemas" small {item} />
 										{/snippet}
 									</ToggleButtonGroup>
 								{/if}

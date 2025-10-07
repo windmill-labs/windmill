@@ -12,7 +12,6 @@
 		disabled?: boolean
 		selectedColor?: string | undefined
 		small?: boolean
-		light?: boolean
 		iconProps?: Record<string, any>
 		showTooltipIcon?: boolean
 		documentationLink?: string | undefined
@@ -30,7 +29,6 @@
 		disabled = false,
 		selectedColor = undefined,
 		small = false,
-		light = false,
 		iconProps = {},
 		showTooltipIcon = false,
 		documentationLink = undefined,
@@ -53,9 +51,7 @@
 		class={twMerge(
 			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center border',
 			small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-1 text-sm',
-			light
-				? 'hover:text-secondary data-[state=on]:text-secondary text-tertiary'
-				: 'hover:text-primary data-[state=on]:text-primary text-secondary',
+			'text-primary data-[state=on]:text-emphasis',
 			'data-[state=on]:bg-surface data-[state=off]:border-transparent data-[state=on]:border-gray-300 dark:data-[state=on]:border-gray-500',
 			'bg-surface-secondary hover:bg-surface-hover',
 			disabled ? '!shadow-none' : '',
@@ -70,7 +66,7 @@
 				size={small ? 12 : 14}
 				{...iconProps}
 				class={twMerge(
-					light ? 'text-tertiary' : 'text-secondary',
+					'text-primary',
 					selectedColor
 						? 'group-data-[state=on]:text-[var(--selected-color)]'
 						: 'group-data-[state=on]:text-blue-500 dark:group-data-[state=on]:text-nord-800',
