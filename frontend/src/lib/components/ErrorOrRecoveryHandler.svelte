@@ -58,7 +58,7 @@
 		handlerExtraArgs = $bindable(),
 		customScriptTemplate,
 		customHandlerKind = $bindable('script'),
-		customTabTooltip,
+		customTabTooltip
 	}: Props = $props()
 
 	let customHandlerSchema: Schema | undefined = $state()
@@ -324,13 +324,10 @@
 
 <div>
 	<Tabs bind:selected={handlerSelected} class="mt-2 mb-4">
-		<Tab value="slack" disabled={!isEditable}>Slack</Tab>
-		<Tab value="teams" disabled={!isEditable}>Teams</Tab>
-		<Tab value="email" disabled={!isEditable}>Email</Tab>
-		<Tab value="custom" disabled={!isEditable}>
-			Custom
-			{@render customTabTooltip?.()}
-		</Tab>
+		<Tab value="slack" disabled={!isEditable} label="Slack" />
+		<Tab value="teams" disabled={!isEditable} label="Teams" />
+		<Tab value="email" disabled={!isEditable} label="Email" />
+		<Tab value="custom" disabled={!isEditable} label="Custom" extra={customTabTooltip} />
 	</Tabs>
 </div>
 
@@ -513,8 +510,8 @@
 									}
 								: undefined,
 						(channel) => {
-							handlerExtraArgs['channel'] = channel?.channel_id;
-							handlerExtraArgs['channel_name'] = channel?.channel_name;
+							handlerExtraArgs['channel'] = channel?.channel_id
+							handlerExtraArgs['channel_name'] = channel?.channel_name
 						}
 					}
 					onError={(e) => sendUserToast('Failed to load channels: ' + e.message, true)}

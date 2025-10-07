@@ -226,7 +226,7 @@
 		<PageHeader title="Home">
 			<div class="flex flex-row gap-4 flex-wrap justify-end items-center">
 				{#if !$userStore?.operator}
-					<span class="text-sm text-secondary">Create a</span>
+					<span class="text-xs text-primary">Create a</span>
 					<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
 					{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
 					{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
@@ -237,19 +237,9 @@
 		{#if !$userStore?.operator}
 			<div class="w-full overflow-auto scrollbar-hidden">
 				<Tabs values={['hub', 'workspace']} hashNavigation bind:selected={tab}>
-					<Tab size="md" value="workspace">
-						<div class="flex gap-2 items-center my-1">
-							<Building size={18} />
-							Workspace
-						</div>
-					</Tab>
+					<Tab value="workspace" label="Workspace" icon={Building} />
 					{#if HOME_SHOW_HUB}
-						<Tab size="md" value="hub">
-							<div class="flex gap-2 items-center my-1">
-								<Globe2 size={18} />
-								Hub
-							</div>
-						</Tab>
+						<Tab value="hub" label="Hub" icon={Globe2} />
 					{/if}
 				</Tabs>
 			</div>
@@ -264,15 +254,9 @@
 							setQuery($page.url, 'kind', subtab, window.location.hash)
 						}}
 					>
-						<Tab size="md" value="script">
-							<div class="flex gap-2 items-center my-1"> Scripts </div>
-						</Tab>
-						<Tab size="md" value="flow">
-							<div class="flex gap-2 items-center my-1"> Flows </div>
-						</Tab>
-						<Tab size="md" value="app">
-							<div class="flex gap-2 items-center my-1"> Apps </div>
-						</Tab>
+						<Tab value="script" label="Scripts" />
+						<Tab value="flow" label="Flows" />
+						<Tab value="app" label="Apps" />
 					</Tabs>
 					<div class="my-2"></div>
 

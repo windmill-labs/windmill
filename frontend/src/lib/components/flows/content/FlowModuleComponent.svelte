@@ -546,11 +546,11 @@
 								<Pane minSize={36} bind:size={leftPanelSize}>
 									<Tabs bind:selected>
 										{#if !preprocessorModule && !isAgentTool}
-											<Tab value="inputs">Step Input</Tab>
+											<Tab value="inputs" label="Step Input" />
 										{/if}
-										<Tab value="test">Test this step</Tab>
+										<Tab value="test" label="Test this step" />
 										{#if !preprocessorModule && !isAgentTool}
-											<Tab value="advanced">Advanced</Tab>
+											<Tab value="advanced" label="Advanced" />
 										{/if}
 									</Tabs>
 									<div
@@ -613,34 +613,45 @@
 											/>
 										{:else if selected === 'advanced'}
 											<Tabs bind:selected={advancedSelected}>
-												<Tab value="retries" active={flowModule.retry !== undefined}>Retries</Tab>
+												<Tab
+													value="retries"
+													active={flowModule.retry !== undefined}
+													label="Retries"
+												/>
 												{#if !$selectedId.includes('failure')}
-													<Tab value="runtime">Runtime</Tab>
-													<Tab value="cache" active={Boolean(flowModule.cache_ttl)}>Cache</Tab>
+													<Tab value="runtime" label="Runtime" />
+													<Tab value="cache" active={Boolean(flowModule.cache_ttl)} label="Cache" />
 													<Tab
 														value="early-stop"
 														active={Boolean(
 															flowModule.stop_after_if || flowModule.stop_after_all_iters_if
 														)}
-													>
-														Early Stop
-													</Tab>
-													<Tab value="skip" active={Boolean(flowModule.skip_if)}>Skip</Tab>
-													<Tab value="suspend" active={Boolean(flowModule.suspend)}>Suspend</Tab>
-													<Tab value="sleep" active={Boolean(flowModule.sleep)}>Sleep</Tab>
-													<Tab value="mock" active={Boolean(flowModule.mock?.enabled)}>Mock</Tab>
-													<Tab value="same_worker">Shared Directory</Tab>
+														label="Early Stop"
+													/>
+													<Tab value="skip" active={Boolean(flowModule.skip_if)} label="Skip" />
+													<Tab
+														value="suspend"
+														active={Boolean(flowModule.suspend)}
+														label="Suspend"
+													/>
+													<Tab value="sleep" active={Boolean(flowModule.sleep)} label="Sleep" />
+													<Tab
+														value="mock"
+														active={Boolean(flowModule.mock?.enabled)}
+														label="Mock"
+													/>
+													<Tab value="same_worker" label="Shared Directory" />
 													{#if flowModule.value['language'] === 'python3' || flowModule.value['language'] === 'deno'}
-														<Tab value="s3">S3</Tab>
+														<Tab value="s3" label="S3" />
 													{/if}
 												{/if}
 											</Tabs>
 											{#if advancedSelected === 'runtime'}
 												<Tabs bind:selected={advancedRuntimeSelected}>
-													<Tab value="concurrency">Concurrency</Tab>
-													<Tab value="timeout">Timeout</Tab>
-													<Tab value="priority">Priority</Tab>
-													<Tab value="lifetime">Lifetime</Tab>
+													<Tab value="concurrency" label="Concurrency" />
+													<Tab value="timeout" label="Timeout" />
+													<Tab value="priority" label="Priority" />
+													<Tab value="lifetime" label="Lifetime" />
 												</Tabs>
 											{/if}
 											<div class="h-[calc(100%-32px)] overflow-auto p-4">

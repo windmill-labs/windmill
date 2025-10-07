@@ -897,12 +897,12 @@
 	<div class="flex flex-col gap-2 min-h-96">
 		{#if !loading}
 			<Tabs bind:selected={optionTabSelected}>
-				<Tab value="error_handler">Error Handler</Tab>
-				<Tab value="recovery_handler">Recovery Handler</Tab>
-				<Tab value="success_handler">Success Handler</Tab>
-				<Tab value="retries">Retries</Tab>
+				<Tab value="error_handler" label="Error Handler" />
+				<Tab value="recovery_handler" label="Recovery Handler" />
+				<Tab value="success_handler" label="Success Handler" />
+				<Tab value="retries" label="Retries" />
 				{#if itemKind === 'script'}
-					<Tab value="tag">Custom tag</Tab>
+					<Tab value="tag" label="Custom tag" />
 				{/if}
 			</Tabs>
 			<div class="pt-0.5"></div>

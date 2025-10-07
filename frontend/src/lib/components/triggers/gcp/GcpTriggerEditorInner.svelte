@@ -418,9 +418,9 @@
 				<div class="flex flex-col gap-4">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
-							<Tab value="settings">Settings</Tab>
-							<Tab value="error_handler">Error Handler</Tab>
-							<Tab value="retries">Retries</Tab>
+							<Tab value="settings" label="Settings" />
+							<Tab value="error_handler" label="Error Handler" />
+							<Tab value="retries" label="Retries" />
 						</Tabs>
 						<div class="mt-4">
 							{#if optionTabSelected === 'settings'}

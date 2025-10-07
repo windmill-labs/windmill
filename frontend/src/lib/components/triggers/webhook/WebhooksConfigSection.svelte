@@ -442,14 +442,11 @@ done`
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div>
 		<Tabs bind:selected={selectedTab}>
-			<Tab value="rest" size="xs">REST</Tab>
+			<Tab value="rest" label="REST" />
 			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL && callMethod !== 'sse'}
-				<Tab value="curl" size="xs">Curl</Tab>
+				<Tab value="curl" label="Curl" />
 			{/if}
-			<Tab value="fetch" size="xs">
-				{callMethod === 'sse' ? 'Event Source' : 'Fetch'}
-			</Tab>
-
+			<Tab value="fetch" label={callMethod === 'sse' ? 'Event Source' : 'Fetch'} />
 			{#snippet content()}
 				{#key token}
 					<TabContent value="rest" class="flex flex-col flex-1 h-full ">

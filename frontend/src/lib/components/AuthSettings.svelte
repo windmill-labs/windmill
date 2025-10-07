@@ -81,9 +81,9 @@
 
 <div>
 	<Tabs bind:selected={tab} class="mt-2 mb-4">
-		<Tab value="sso">SSO</Tab>
-		<Tab value="oauth">OAuth</Tab>
-		<Tab value="scim">SCIM/SAML</Tab>
+		<Tab value="sso" label="SSO" />
+		<Tab value="oauth" label="OAuth" />
+		<Tab value="scim" label="SCIM/SAML" />
 	</Tabs>
 </div>
 

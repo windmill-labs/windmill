@@ -643,9 +643,9 @@
 								{/if}
 							{/snippet}
 							<Tabs bind:selected={tab}>
-								<Tab value="basic"
-									><div class="flex flex-row gap-1"
-										>Basic<Tooltip
+								<Tab value="basic" label="Basic">
+									{#snippet extra()}
+										<Tooltip
 											documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
 											><p
 												>Choose the <strong>relations</strong> to track without worrying about the
@@ -654,12 +654,12 @@
 												or <strong>slot</strong>. This simplified option lets you focus only on the
 												data you want to monitor.</p
 											></Tooltip
-										></div
-									></Tab
-								>
-								<Tab value="advanced"
-									><div class="flex flex-row gap-1"
-										>Advanced<Tooltip
+										>
+									{/snippet}
+								</Tab>
+								<Tab value="advanced" label="Advanced">
+									{#snippet extra()}
+										<Tooltip
 											documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#advanced"
 											><p
 												>Select a specific <strong>publication</strong> from your database to track,
@@ -671,9 +671,9 @@
 												<strong>currently used slot</strong> by the trigger will be retrieved from your
 												database for management.</p
 											></Tooltip
-										></div
-									></Tab
-								>
+										>
+									{/snippet}
+								</Tab>
 								{#snippet content()}
 									<div class="mt-5 overflow-hidden bg-surface">
 										<TabContent value="basic">
@@ -808,8 +808,8 @@
 				<div class="flex flex-col gap-4">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
-							<Tab value="error_handler">Error Handler</Tab>
-							<Tab value="retries">Retries</Tab>
+							<Tab value="error_handler" label="Error Handler" />
+							<Tab value="retries" label="Retries" />
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler

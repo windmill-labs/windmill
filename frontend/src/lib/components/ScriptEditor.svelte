@@ -664,10 +664,10 @@
 				{#if showTabs}
 					<div transition:slide={{ duration: 200 }}>
 						<Tabs bind:selected={selectedTab}>
-							<Tab value="main">Main</Tab>
+							<Tab value="main" label="Main" />
 							{#if hasPreprocessor}
 								<div transition:slide={{ duration: 200, axis: 'x' }}>
-									<Tab value="preprocessor">Preprocessor</Tab>
+									<Tab value="preprocessor" label="Preprocessor" />
 								</div>
 							{/if}
 						</Tabs>

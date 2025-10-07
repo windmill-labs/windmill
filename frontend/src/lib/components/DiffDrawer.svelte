@@ -136,14 +136,19 @@
 			{#if diffType && data}
 				<Tabs bind:selected={diffType} wrapperClass="shrink-0">
 					{#if data.mode === 'simple'}
-						<Tab value="custom">{data.title}</Tab>
+						<Tab value="custom" label={data.title} />
 					{:else}
-						<Tab value="deployed" disabled={!data.deployed}
-							>{'Deployed <> Current'}{!data.deployed ? ' (no deployed version)' : ''}</Tab
-						>
-						<Tab value="draft" disabled={!data.draft}
-							>{'Latest saved draft <> Current'}{!data.draft ? ' (no draft)' : ''}</Tab
-						>
+						<Tab
+							value="deployed"
+							disabled={!data.deployed}
+							label="{'Deployed <> Current'}{!data.deployed ? ' (no deployed version)' : ''}"
+						/>
+
+						<Tab
+							value="draft"
+							disabled={!data.draft}
+							label="{'Latest saved draft <> Current'}{!data.draft ? ' (no draft)' : ''}"
+						/>
 					{/if}
 				</Tabs>
 			{/if}
@@ -195,12 +200,16 @@
 					<div class="flex flex-col h-full gap-4">
 						{#if data.current.content !== undefined}
 							<Tabs bind:selected={contentType}>
-								<Tab value="content" disabled={content === data.current.content}
-									>Content{content === data.current.content ? ' (no changes)' : ''}</Tab
-								>
-								<Tab value="metadata" disabled={metadata === data.current.metadata}
-									>Metadata{metadata === data.current.metadata ? ' (no changes)' : ''}</Tab
-								>
+								<Tab
+									value="content"
+									disabled={content === data.current.content}
+									label={`Content${content === data.current.content ? ' (no changes)' : ''}`}
+								/>
+								<Tab
+									value="metadata"
+									disabled={metadata === data.current.metadata}
+									label={`Metadata${metadata === data.current.metadata ? ' (no changes)' : ''}`}
+								/>
 							</Tabs>
 						{/if}
 						<div class="flex-1">

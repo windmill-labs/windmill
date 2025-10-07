@@ -221,11 +221,11 @@
 						</div>
 					{:else}
 						<Tabs bind:selected={viewTab}>
-							<Tab size="xs" value="result">Results</Tab>
-							<Tab size="xs" value="logs">Logs</Tab>
-							<Tab size="xs" value="assets">Assets</Tab>
+							<Tab value="result" label="Results" />
+							<Tab value="logs" label="Logs" />
+							<Tab value="assets" label="Assets" />
 							{#if isScriptPreview(job?.job_kind)}
-								<Tab size="xs" value="code">Code</Tab>
+								<Tab value="code" label="Code" />
 							{/if}
 						</Tabs>
 

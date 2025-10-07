@@ -653,7 +653,7 @@
 						{/snippet}
 						{#snippet content()}
 							<label class="block text-primary">
-								<div class="pb-1 text-sm text-secondary"
+								<div class="pb-1 text-xs font-medium text-emphasis"
 									>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
 								>
 								<div class="flex w-full">
@@ -818,7 +818,7 @@
 									localStorage.setItem('hideExplicitProgressTip', 'true')
 									showExplicitProgressTip = false
 								}}
-								class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-gray-400 hover:text-tertiary focus:outline-none"
+								class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-tertiary hover:text-tertiary focus:outline-none"
 							>
 								<span class="sr-only">Close</span>
 								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -861,12 +861,12 @@
 							manuallySetLogs = value == 'logs'
 						}}
 					>
-						<Tab value="result">Result</Tab>
-						<Tab value="logs">Logs</Tab>
-						<Tab value="stats">Metrics</Tab>
-						<Tab value="assets">Assets</Tab>
+						<Tab value="result" label="Result" />
+						<Tab value="logs" label="Logs" />
+						<Tab value="stats" label="Metrics" />
+						<Tab value="assets" label="Assets" />
 						{#if isScriptPreview(job?.job_kind)}
-							<Tab value="code">Code</Tab>
+							<Tab value="code" label="Code" />
 						{/if}
 					</Tabs>
 

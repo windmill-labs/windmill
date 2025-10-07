@@ -1306,15 +1306,17 @@
 		{#if render}
 			{#if innerModules && innerModules.length > 0 && !isListJob}
 				<Tabs class="mx-auto {wideResults ? '' : 'max-w-7xl'}" bind:selected>
-					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
+					<Tab value="graph" label="Graph" />
 					<Tab
 						value="logs"
 						class={animateLogsTab
 							? 'animate-pulse animate-duration-1000 bg-surface-inverse text-primary-inverse'
-							: ''}><span class="font-semibold">Logs</span></Tab
-					>
-					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
-					<Tab value="assets"><span class="font-semibold">Assets</span></Tab>
+							: ''}
+						label="Logs"
+					/>
+
+					<Tab value="sequence" label="Details" />
+					<Tab value="assets" label="Assets" />
 				</Tabs>
 			{:else}
 				<div class="h-[30px]"></div>
@@ -1774,15 +1776,14 @@
 					>
 						<Tabs bind:selected={rightColumnSelect}>
 							{#if !hideTimeline}
-								<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+								<Tab value="timeline" label="Timeline" />
 							{/if}
-							<Tab value="node_status"><span class="font-semibold">Node status</span></Tab>
+							<Tab value="node_status" label="Node status" />
 							{#if !hideNodeDefinition}
-								<Tab value="node_definition"><span class="font-semibold">Node definition</span></Tab
-								>
+								<Tab value="node_definition" label="Node definition" />
 							{/if}
 							{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
-								<Tab value="user_states"><span class="font-semibold">User States</span></Tab>
+								<Tab value="user_states" label="User States" />
 							{/if}
 						</Tabs>
 						{#if rightColumnSelect == 'timeline'}

@@ -1166,7 +1166,6 @@
 										{/snippet}
 										<Tab
 											value="insert"
-											size="xs"
 											class="h-full"
 											on:pointerdown={() => {
 												if ($cssEditorOpen) {
@@ -1175,11 +1174,8 @@
 												}
 											}}
 											id="app-editor-component-library-tab"
-										>
-											<div class="m-1 center-center">
-												<Plus size={18} />
-											</div>
-										</Tab>
+											icon={Plus}
+										></Tab>
 									</Popover>
 									<Popover disappearTimeout={0} notClickable placement="bottom">
 										{#snippet text()}
@@ -1187,7 +1183,6 @@
 										{/snippet}
 										<Tab
 											value="settings"
-											size="xs"
 											class="h-full"
 											on:pointerdown={() => {
 												if ($cssEditorOpen) {
@@ -1195,11 +1190,8 @@
 													selectedTab = 'settings'
 												}
 											}}
-										>
-											<div class="m-1 center-center">
-												<Component size={18} />
-											</div>
-										</Tab>
+											icon={Component}
+										/>
 									</Popover>
 									<Popover disappearTimeout={0} notClickable placement="bottom">
 										{#snippet text()}
@@ -1207,7 +1199,6 @@
 										{/snippet}
 										<Tab
 											value="css"
-											size="xs"
 											class="h-full"
 											on:pointerdown={() => {
 												if (!$cssEditorOpen) {
@@ -1215,11 +1206,8 @@
 													selectedTab = 'css'
 												}
 											}}
-										>
-											<div class="m-1 center-center">
-												<Paintbrush size={18} />
-											</div>
-										</Tab>
+											icon={Paintbrush}
+										/>
 									</Popover>
 									<div class="h-full w-full flex justify-end px-1">
 										<HideButton on:click={() => hideRightPanel()} direction="right" />

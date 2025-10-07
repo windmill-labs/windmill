@@ -49,7 +49,7 @@
 
 <div class="flex flex-col gap-4 my-8">
 	<div class="flex flex-col gap-1">
-		<div class="text-primary text-lg font-semibold"
+		<div class="text-sm font-semibold text-emphasis"
 			>Workspace Object Storage (S3/Azure Blob/GCS)</div
 		>
 		<Description
@@ -83,11 +83,11 @@
 			<!-- this can be removed once parent moves to runes -->
 			<!-- svelte-ignore binding_property_non_reactive -->
 			<Tabs bind:selected={s3ResourceSettings.resourceType}>
-				<Tab exact size="xs" value="s3">S3</Tab>
-				<Tab size="xs" value="azure_blob">Azure Blob</Tab>
-				<Tab exact size="xs" value="s3_aws_oidc">AWS OIDC</Tab>
-				<Tab size="xs" value="azure_workload_identity">Azure Workload Identity</Tab>
-				<Tab exact size="xs" value="gcloud_storage">Google Cloud Storage</Tab>
+				<Tab exact label="S3" value="s3" />
+				<Tab value="azure_blob" label="Azure Blob" />
+				<Tab exact value="s3_aws_oidc" label="AWS OIDC" />
+				<Tab value="azure_workload_identity" label="Azure Workload Identity" />
+				<Tab exact value="gcloud_storage" label="Google Cloud Storage" />
 			</Tabs>
 		</div>
 		<div class="w-full flex gap-1 mt-4">
