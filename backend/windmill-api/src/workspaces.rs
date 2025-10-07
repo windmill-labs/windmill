@@ -1023,10 +1023,11 @@ async fn edit_ducklake_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
     Json(new_config): Json<EditDucklakeConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
+    let is_superadmin = require_super_admin(&db, &email).await.is_ok();
 
     let mut tx = db.begin().await?;
 
@@ -1062,6 +1063,38 @@ async fn edit_ducklake_config(
                 "Ducklake catalog resource {} not found in workspace {}",
                 dl.catalog.resource_path, &w_id
             )));
+        }
+    }
+
+    // Check that non-superadmins are not abusing Instance catalogs
+    if !is_superadmin {
+        let old_ducklakes = sqlx::query_scalar!(
+            r#"
+                SELECT ws.ducklake->'ducklakes' AS ducklake_name
+                FROM workspace_settings ws
+                WHERE ws.workspace_id = $1
+            "#,
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(serde_json::Value::Null);
+        let old_ducklakes: HashMap<String, Ducklake> =
+            serde_json::from_value(old_ducklakes).unwrap_or_default();
+        for (name, dl) in new_config.settings.ducklakes.iter() {
+            if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
+                let old_dl = old_ducklakes.get(name);
+                if old_dl.is_none()
+                    || old_dl.unwrap().catalog.resource_type
+                        != DucklakeCatalogResourceType::Instance
+                    || old_dl.unwrap().catalog.resource_path != dl.catalog.resource_path
+                {
+                    return Err(Error::BadRequest(
+                        "Only superadmins can create or modify ducklakes with Instance catalogs"
+                            .to_string(),
+                    ));
+                }
+            }
         }
     }
 

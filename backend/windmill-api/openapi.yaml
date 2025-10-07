@@ -770,34 +770,26 @@ paths:
               schema:
                 type: boolean
 
-  /settings/databases_exist:
+  /settings/get_ducklake_instance_catalog_db_status:
     post:
-      summary: checks that all given databases exist or else return the ones that don't
-      operationId: databasesExist
+      summary: Returns the set-up statuses of ducklake instance catalog dbs
+      operationId: getDucklakeInstanceCatalogDbStatus
       tags:
         - setting
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                type: string
       responses:
         "200":
-          description: databases that do not exist
+          description: Statuses of all ducklake instance catalog dbs
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: string
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
 
-  /settings/create_ducklake_database/{name}:
+  /settings/setup_ducklake_catalog_db/{name}:
     post:
       summary: Runs CREATE DATABASE on the Windmill Postgres and grants access to the ducklake_user
-      operationId: createDucklakeDatabase
+      operationId: setupDucklakeCatalogDb
       tags:
         - setting
       parameters:
@@ -812,7 +804,8 @@ paths:
           description: status
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
 
   /settings/global/{key}:
     get:
@@ -17332,6 +17325,49 @@ components:
         - aws_resource_path
         - enabled
         - aws_auth_resource_type
+
+    LoggedWizardStatus:
+      type: string
+      enum:
+        - OK
+        - SKIP
+        - FAIL
+    
+    DucklakeInstanceCatalogDbStatusLogs:
+      type: object
+      properties:
+        super_admin:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        database_credentials:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        valid_dbname:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        created_database:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+          description: Created database status log
+        db_connect:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        grant_permissions:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+
+    DucklakeInstanceCatalogDbStatus:
+      type: object
+      required:
+        - logs
+        - success
+      properties:
+        logs:
+          $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatusLogs"
+        success:
+          type: boolean
+          description: Whether the operation completed successfully
+          example: true
+        error:
+          type: string
+          nullable: true
+          description: Error message if the operation failed
+          example: "Connection timeout"
+
 
     NewSqsTrigger:
       type: object
