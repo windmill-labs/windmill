@@ -90,7 +90,6 @@
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
 	let monacoTemplate: TemplateEditor | undefined = $state(undefined)
-	let argInput: ArgInput | undefined = $state(undefined)
 	let focusedPrev = false
 
 	let hidden = $state(false)
@@ -685,7 +684,6 @@
 							{resourceTypes}
 							noMargin
 							compact
-							bind:this={argInput}
 							on:focus={onFocus}
 							on:blur={() => {
 								focused = false
