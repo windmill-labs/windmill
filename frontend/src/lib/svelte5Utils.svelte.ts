@@ -30,6 +30,7 @@ export type UsePromiseResult<T> = (
 	| { status: 'ok'; value: T; error?: undefined }
 ) & {
 	refresh: () => void
+	clear: () => void
 }
 
 export type UsePromiseOptions = {
@@ -64,6 +65,12 @@ export function usePromise<T>(
 						ret.status = 'error'
 					})
 			})
+		},
+		clear: () => {
+			ret.status = 'loading'
+			ret.value = undefined
+			ret.error = undefined
+			ret.__promise = undefined
 		}
 	})
 	if (loadInit) ret.refresh()

@@ -50,7 +50,7 @@
 </script>
 
 <script>
-	import { Plus } from 'lucide-svelte'
+	import { ArrowRight, TriangleAlert, Plus } from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
 
@@ -62,7 +62,7 @@
 	import Select from '../select/Select.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
-	import { SettingService, WorkspaceService } from '$lib/gen'
+	import { SettingService, WorkspaceService, type DucklakeInstanceCatalogDbStatus } from '$lib/gen'
 	import { type GetSettingsResponse } from '$lib/gen'
 
 	import { superadmin, workspaceStore } from '$lib/stores'
@@ -73,12 +73,14 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
-	import { clone, pluralize } from '$lib/utils'
+	import { clone } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
 	import { deepEqual } from 'fast-equals'
 	import Popover from '../meltComponents/Popover.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
-	import Section from '../Section.svelte'
+	import LoggedWizardResult, { firstEmptyStepIsError } from '../wizards/LoggedWizardResult.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
+	import { slide } from 'svelte/transition'
 
 	const DEFAULT_DUCKLAKE_CATALOG_NAME = 'ducklake_catalog'
 
@@ -88,7 +90,7 @@
 	}
 	let { ducklakeSettings = $bindable(), ducklakeSavedSettings = $bindable() }: Props = $props()
 
-	let isWmDbEnabled = $derived($superadmin && !isCloudHosted())
+	let isInstanceCatalogEnabled = $derived($superadmin && !isCloudHosted())
 
 	function onNewDucklake() {
 		const name = ducklakeSettings.ducklakes.some((d) => d.name === 'main')
@@ -97,8 +99,8 @@
 		ducklakeSettings.ducklakes.push({
 			name,
 			catalog: {
-				resource_type: isWmDbEnabled ? 'instance' : 'postgresql',
-				resource_path: isWmDbEnabled ? DEFAULT_DUCKLAKE_CATALOG_NAME : undefined
+				resource_type: isInstanceCatalogEnabled ? 'instance' : 'postgresql',
+				resource_path: isInstanceCatalogEnabled ? DEFAULT_DUCKLAKE_CATALOG_NAME : undefined
 			},
 			storage: {
 				storage: undefined,
@@ -111,12 +113,6 @@
 		ducklakeSettings.ducklakes.splice(index, 1)
 	}
 
-	const windmillDbNames = $derived(
-		ducklakeSettings.ducklakes
-			.filter((d) => d.catalog.resource_type === 'instance')
-			.map((d) => d.catalog.resource_path ?? '')
-	)
-
 	const ducklakeIsDirty: Record<string, boolean> = $derived(
 		Object.fromEntries(
 			ducklakeSettings.ducklakes.map((d) => {
@@ -126,25 +122,27 @@
 		)
 	)
 
+	let instanceCatalogSetupIsRunning = $state(false)
+	const instanceCatalogStatuses = usePromise(SettingService.getDucklakeInstanceCatalogDbStatus, {
+		clearValueOnRefresh: false
+	})
+
 	async function onSave() {
 		try {
-			if (windmillDbNames.length) {
-				// Ensure that all instance dbs exist
-				const nonExistentDbs = await SettingService.databasesExist({ requestBody: windmillDbNames })
-				if (nonExistentDbs.length) {
-					let confirmed = await confirmationModal.ask({
-						title: "The following databases do not exist in Windmill's Postgres instance",
-						confirmationText: `Create ${pluralize(nonExistentDbs.length, 'database')}`,
-						children: `<span>
-							Confirm running the following in the instance's Postgres :<br />
-							${nonExistentDbs.map((db) => `<pre class='border mt-1 p-2 rounded-md'>CREATE DATABASE "${db}";</pre>`).join('\n')}
-						</span>`
-					})
-					if (!confirmed) return
-					await Promise.all(
-						nonExistentDbs.map((name) => SettingService.createDucklakeDatabase({ name }))
-					)
-				}
+			if (
+				isInstanceCatalogEnabled &&
+				ducklakeSettings.ducklakes.some(
+					(d) =>
+						d.catalog.resource_type === 'instance' &&
+						!instanceCatalogStatuses.value?.[d.catalog.resource_path ?? '']?.success
+				)
+			) {
+				let confirm = await confirmationModal.ask({
+					title: 'Some instance catalogs are not setup',
+					children: 'Are you sure you want to save without setting them up ?',
+					confirmationText: 'Save anyway'
+				})
+				if (!confirm) return
 			}
 			const settings = convertDucklakeSettingsToBackend(ducklakeSettings)
 			await WorkspaceService.editDucklakeConfig({
@@ -192,56 +190,12 @@
 </div>
 
 {#if ducklakeSettings.ducklakes.some((d) => d.catalog.resource_type === 'instance')}
-	<Alert title="Instance catalogs use the Windmill database" class="mb-4" type="info">
-		Using an instance catalog is the fastest way to get started with Ducklake. They are public to
-		the instance and can be re-used in other workspaces' Ducklake settings.
-		<div>
-			<Section
-				label="Manual setup instructions"
-				collapsable
-				headerClass="mt-6 border bg-surface px-3 py-1 rounded-md text-xs text-secondary"
-				class="text-secondary"
-				animate
-			>
-				This is what happens when you create a new Instance catalog with the name
-				<code>ducklake_catalog</code>. This may be useful to debug issues in case the automatic
-				setup fails in the middle, but in most cases Windmill will handle it for you.
-				<br /><br />
-
-				If the database <code>ducklake_catalog</code> already exists, Windmill assumes that the
-				setup was successful and does not do anything. However, it is possible that it failed in the
-				middle (in which case you should have seen an error pop up during setup). There is no
-				rollback as the following operations do not work in a transaction.
-				<br />
-				This is what the setup does :
-				<br /><br />
-				Connect to the Windmill PostgreSQL as the default user (the one in your DATABASE_URL, usually
-				'postgres') and run :
-				<br />
-				<code class="block p-2 border rounded-md bg-surface mt-2">
-					CREATE DATABASE <code>ducklake_catalog</code>;<br />
-					GRANT CONNECT ON DATABASE <code>ducklake_catalog</code> TO ducklake_user;
-				</code>
-				<br />
-				Then, connect to the <code>ducklake_catalog</code> database with the same user as above (NOT
-				ducklake_user) and run :
-				<code class="block p-2 border rounded-md bg-surface mt-2">
-					GRANT USAGE ON SCHEMA public TO ducklake_user;<br />
-					GRANT CREATE ON SCHEMA public TO ducklake_user;<br />
-					ALTER DEFAULT PRIVILEGES IN SCHEMA public<br />
-					&nbsp;&nbsp;GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ducklake_user;
-				</code>
-				<br />
-				After doing that, creating a new Ducklake with an Instance catalog named
-				<code>ducklake_catalog</code> should not prompt you to run the automatic setup, and
-				everything should work fine.
-				<br /><br />
-				Note : the ducklake_user is automatically created by Windmill in a migration. Its password is
-				auto-generated and stored in the database table <code>global_settings</code> with the key
-				<code>ducklake_user_pg_pwd</code>.
-			</Section>
-		</div>
-	</Alert>
+	<div transition:slide={{ duration: 200 }} class="mb-4">
+		<Alert title="Instance catalogs use the Windmill database" type="info">
+			Using an instance catalog is the fastest way to get started with Ducklake. They are public to
+			the instance and can be re-used in other workspaces' Ducklake settings.
+		</Alert>
+	</div>
 {/if}
 
 <DataTable>
@@ -271,7 +225,7 @@
 			<Row>
 				<Cell first class="w-48 relative">
 					{#if ducklake.name === 'main'}
-						<Tooltip wrapperClass="absolute mt-2.5 right-4" placement="bottom-start">
+						<Tooltip wrapperClass="absolute mt-3 right-4" placement="bottom-start">
 							The <i>main</i> ducklake can be accessed with the
 							<br />
 							<code class="px-1 py-0.5 border rounded-md">ATTACH 'ducklake' AS dl;</code> shorthand
@@ -280,10 +234,10 @@
 					<TextInput bind:value={ducklake.name} inputProps={{ placeholder: 'Name' }} />
 				</Cell>
 				<Cell>
-					<div class="flex gap-4">
+					<div class="flex gap-2">
 						<div class="relative">
 							{#if ducklake.catalog.resource_type === 'instance'}
-								<Tooltip wrapperClass="absolute mt-2.5 right-2 z-20" placement="bottom-start">
+								<Tooltip wrapperClass="absolute mt-3 right-2 z-20" placement="bottom-start">
 									Use Windmill's PostgreSQL instance as a catalog
 								</Tooltip>
 							{/if}
@@ -291,7 +245,11 @@
 								items={[
 									{ value: 'postgresql', label: 'PostgreSQL' },
 									{ value: 'mysql', label: 'MySQL' },
-									...(isWmDbEnabled ? [{ value: 'instance', label: 'Instance' }] : [])
+									{
+										value: 'instance',
+										label: 'Instance',
+										subtitle: isInstanceCatalogEnabled ? undefined : 'Superadmin only'
+									}
 								]}
 								bind:value={
 									() => ducklake.catalog.resource_type,
@@ -306,7 +264,7 @@
 								class="w-28"
 							/>
 						</div>
-						<div class="flex items-center gap-1 w-80">
+						<div class="flex items-center gap-1 w-80 relative">
 							{#if ducklake.catalog.resource_type !== 'instance'}
 								<ResourcePicker
 									bind:value={ducklake.catalog.resource_path}
@@ -315,16 +273,51 @@
 									class="min-h-9"
 								/>
 							{:else}
-								<TextInput
+								{@const status =
+									instanceCatalogStatuses.value?.[ducklake.catalog.resource_path ?? '']}
+								<Select
+									class="flex-1"
+									inputClass="pr-20"
 									bind:value={ducklake.catalog.resource_path}
-									inputProps={{ placeholder: 'PostgreSQL database name' }}
+									onCreateItem={(i) => (ducklake.catalog.resource_path = i)}
+									placeholder="PostgreSQL database name"
+									items={safeSelectItems(Object.keys(instanceCatalogStatuses.value ?? {}))}
+									disabled={!isInstanceCatalogEnabled}
 								/>
+
+								<Popover
+									class="absolute right-1.5"
+									enableFlyTransition
+									contentClasses="py-5 px-6 w-[34rem] bg-surface-secondary -translate-y-2"
+									closeOnOtherPopoverOpen
+									closeOnOutsideClick
+									{...confirmationModal.props.open ? { isOpen: false } : {}}
+								>
+									<svelte:fragment slot="trigger">
+										<Button spacingSize="xs2" variant="border" color="light" btnClasses="h-6">
+											{#if !status}
+												<span class="text-yellow-600 dark:text-yellow-400">
+													Setup <ArrowRight class="inline" size={14} />
+												</span>
+											{:else if !status.success}
+												<span class="text-red-400 flex gap-1">
+													Error <TriangleAlert class="inline" size={16} />
+												</span>
+											{:else}
+												<div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
+											{/if}
+										</Button>
+									</svelte:fragment>
+									<svelte:fragment slot="content">
+										{@render instanceCatalogWizard(status, ducklake.catalog.resource_path ?? '')}
+									</svelte:fragment>
+								</Popover>
 							{/if}
 						</div>
 					</div>
 				</Cell>
 				<Cell>
-					<div class="flex gap-4">
+					<div class="flex gap-2">
 						<Select
 							placeholder="Default storage"
 							items={[
@@ -389,7 +382,7 @@
 	</tbody>
 </DataTable>
 <Button
-	wrapperClasses="mt-4 mb-44 max-w-fit"
+	wrapperClasses="mt-4 mb-16 max-w-fit"
 	on:click={onSave}
 	disabled={ducklakeSavedSettings.ducklakes.length === ducklakeSettings.ducklakes.length &&
 		Object.values(ducklakeIsDirty).every((v) => v === false)}
@@ -399,3 +392,120 @@
 <DbManagerDrawer bind:this={dbManagerDrawer} />
 
 <ConfirmationModal {...confirmationModal.props} />
+
+{#snippet instanceCatalogWizard(
+	status: DucklakeInstanceCatalogDbStatus | undefined,
+	dbname: string
+)}
+	{#if !status}
+		<div class="mb-4 text-secondary text-sm">
+			{dbname} needs to be configured in the Windmill postgres instance
+		</div>
+	{/if}
+
+	{#if status?.error}
+		<div transition:slide={{ duration: 200 }} class="mb-4">
+			<Alert title="Error setting up ducklake instance catalog" type="error">
+				{status.error}
+			</Alert>
+		</div>
+	{/if}
+
+	<LoggedWizardResult
+		class="max-h-[24rem] overflow-y-auto"
+		steps={firstEmptyStepIsError(
+			[
+				{
+					title: 'Super admin required',
+					status: status?.logs.super_admin,
+					description:
+						'You need to be a super admin to setup an instance catalog, as it requires creating a new database in the Windmill PostgreSQL instance'
+				},
+				{
+					title: 'Retrieve and parse database credentials',
+					status: status?.logs.database_credentials,
+					description:
+						'Windmill uses the DATABASE_URL or DATABASE_URL_FILE environment variable to connect to the PostgreSQL instance. Make sure it is correctly set'
+				},
+				{
+					title: 'Catalog name is valid',
+					status: status?.logs.valid_dbname,
+					description:
+						'The catalog name must be alphanumeric (underscores allowed) and cannot be named the same as the Windmill database (usually "windmill")'
+				},
+				{
+					title:
+						'Create database' +
+						(status?.logs.created_database === 'SKIP' ? ' (already exists, skipped)' : ''),
+					status: status?.logs.created_database,
+					description: `In the Windmill PostgreSQL instance, run: CREATE DATABASE "${dbname}".`
+				},
+				{
+					title: `Connect to the ${dbname} database`,
+					status: status?.logs.db_connect,
+					description:
+						"Connect to the newly created database with the default admin user (the one in DATABASE_URL, usually 'postgres') to run the next commands"
+				},
+				{
+					title: 'Grant permissions to ducklake_user',
+					status: status?.logs.grant_permissions,
+					description:
+						'Gives ducklake_user the required permissions to use the database as a Ducklake catalog. ducklake_user is already created during a migration and has an auto-generated password stored in global_settings.ducklake_settings.ducklake_user_pg_pwd. These are the commands : \n\n' +
+						`GRANT CONNECT ON DATABASE "${dbname}" TO ducklake_user;\n` +
+						'GRANT USAGE ON SCHEMA public TO ducklake_user;\n' +
+						'GRANT CREATE ON SCHEMA public TO ducklake_user;\n' +
+						'ALTER DEFAULT PRIVILEGES IN SCHEMA public \n' +
+						'  	GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES\n    TO ducklake_user;'
+				}
+			],
+			status?.error ?? undefined
+		)}
+	/>
+
+	<Button
+		wrapperClasses="mt-6"
+		size="sm"
+		disabled={!isInstanceCatalogEnabled}
+		onClick={async () => {
+			if (instanceCatalogSetupIsRunning) return
+
+			let wasAlreadySuccessful = status?.success ?? false
+			if (status?.logs.created_database != 'OK' && status?.logs.created_database != 'SKIP') {
+				let confirm = await confirmationModal.ask({
+					title: 'Confirm setup',
+					children: `This will create a new database ${dbname} in the Windmill PostgreSQL instance`,
+					confirmationText: 'Setup catalog'
+				})
+				if (!confirm) return
+			}
+
+			try {
+				instanceCatalogSetupIsRunning = true
+				let result = await SettingService.setupDucklakeCatalogDb({ name: dbname })
+				await instanceCatalogStatuses.refresh()
+				if (result.success) {
+					if (!wasAlreadySuccessful) sendUserToast('Setup successful')
+					else sendUserToast('Everything OK')
+				} else {
+					sendUserToast(result.error ?? 'An error occured', true)
+				}
+			} catch (e) {
+				sendUserToast('Unexpected error, check console for details', true)
+				console.error('Error setting up ducklake instance catalog', e)
+			} finally {
+				instanceCatalogSetupIsRunning = false
+			}
+		}}
+		loading={instanceCatalogSetupIsRunning}
+	>
+		{#if !isInstanceCatalogEnabled}
+			Only superadmins can setup instance catalogs
+		{:else if status?.success}
+			Check again
+		{:else if status?.error}
+			Try again
+		{:else}
+			Setup {dbname}
+		{/if}
+	</Button>
+{/snippet}
