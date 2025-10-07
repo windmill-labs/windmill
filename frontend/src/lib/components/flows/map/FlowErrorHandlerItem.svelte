@@ -14,10 +14,12 @@
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	let {
 		small,
-		clazz
+		clazz,
+		disableAi
 	}: {
 		small: boolean
 		clazz: string
+		disableAi?: boolean
 	} = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -109,8 +111,10 @@
 		{/if}
 	</div>
 {:else}
+	<!-- Index 0 is used by the tutorial to identify the first "Add step" -->
 	<InsertModuleButton
-		index={0}
+		{disableAi}
+		index="error-handler-button"
 		placement={'bottom-center'}
 		on:new={(e) => {
 			insertFailureModule(e.detail.inlineScript)

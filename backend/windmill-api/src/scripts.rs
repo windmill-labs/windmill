@@ -43,6 +43,7 @@ use windmill_worker::process_relative_imports;
 use windmill_common::{
     assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
     error::to_anyhow,
+    s3_helpers::upload_artifact_to_store,
     scripts::hash_script,
     utils::WarnAfterExt,
     worker::CLOUD_HOSTED,
@@ -421,45 +422,13 @@ async fn create_snapshot_script(
 
             uploaded = true;
 
-            #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            let object_store = windmill_common::s3_helpers::get_object_store().await;
-
-            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-            let object_store: Option<()> = None;
-
-            if &windmill_common::utils::MODE_AND_ADDONS.mode
-                == &windmill_common::utils::Mode::Standalone
-                && object_store.is_none()
-            {
-                std::fs::create_dir_all(
-                    windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
-                )?;
-                windmill_common::worker::write_file_bytes(
-                    &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
-                    &hash,
-                    &data,
-                )?;
-            } else {
-                #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-                {
-                    return Err(Error::ExecutionErr("codebase is an EE feature".to_string()));
-                }
-
-                #[cfg(all(feature = "enterprise", feature = "parquet"))]
-                if let Some(os) = object_store {
-                    let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
-
-                    if let Err(e) = os
-                        .put(&object_store::path::Path::from(path.clone()), data.into())
-                        .await
-                    {
-                        tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
-                        return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
-                    }
-                } else {
-                    return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
-                }
-            }
+            let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
+            upload_artifact_to_store(
+                &path,
+                data,
+                &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+            )
+            .await?;
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
     }
@@ -900,7 +869,7 @@ async fn create_script_internal<'c>(
             clear_schedule(&mut tx, &schedule.path, &w_id).await?;
 
             if schedule.enabled {
-                tx = push_scheduled_job(&db, tx, &schedule, None).await?;
+                tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
             }
         }
     } else {
@@ -1020,6 +989,7 @@ async fn create_script_internal<'c>(
             None,
             Some(&authed.clone().into()),
             false,
+            None,
         )
         .await?;
         Ok((hash, new_tx, None))

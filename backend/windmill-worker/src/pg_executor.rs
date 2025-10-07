@@ -88,7 +88,7 @@ fn do_postgresql_inner<'a>(
             let arg_t = arg
                 .otyp
                 .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("Missing otzyp for pg arg"))?;
+                .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?;
             let typ = &arg.typ;
             let param = convert_val(value, arg_t, typ)?;
             query_params.push(param);
@@ -555,11 +555,15 @@ fn convert_vec_val(
                 chrono::NaiveTime::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default()
             })
         })?)),
-        "timestamp" | "timestamptz" => Ok(Box::new(map_as_single_type(vec, |v| {
+        "timestamp" => Ok(Box::new(map_as_single_type(vec, |v| {
             v.as_str().map(|x| {
                 chrono::NaiveDateTime::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ")
                     .unwrap_or_default()
             })
+        })?)),
+        "timestamptz" => Ok(Box::new(map_as_single_type(vec, |v| {
+            v.as_str()
+                .map(|x| x.parse::<chrono::DateTime<Utc>>().unwrap_or_default())
         })?)),
         "jsonb" | "json" => Ok(Box::new(
             vec.map(|v| v.clone().into_iter().map(Some).collect_vec()),
@@ -605,7 +609,8 @@ fn convert_val(
             "uuid" => Ok(Box::new(None::<Uuid>)),
             "date" => Ok(Box::new(None::<chrono::NaiveDate>)),
             "time" | "timetz" => Ok(Box::new(None::<chrono::NaiveTime>)),
-            "timestamp" | "timestamptz" => Ok(Box::new(None::<chrono::NaiveDateTime>)),
+            "timestamp" => Ok(Box::new(None::<chrono::NaiveDateTime>)),
+            "timestamptz" => Ok(Box::new(None::<chrono::DateTime<Utc>>)),
             "jsonb" | "json" => Ok(Box::new(None::<Option<Value>>)),
             "bytea" => Ok(Box::new(None::<Vec<u8>>)),
             "text" | "varchar" => Ok(Box::new(None::<String>)),
@@ -668,9 +673,13 @@ fn convert_val(
                 chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
             Ok(Box::new(time))
         }
-        Value::String(s) if arg_t == "timestamp" || arg_t == "timestamptz" => {
+        Value::String(s) if arg_t == "timestamp" => {
             let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
                 .unwrap_or_default();
+            Ok(Box::new(datetime))
+        }
+        Value::String(s) if arg_t == "timestamptz" => {
+            let datetime = s.parse::<chrono::DateTime<Utc>>().unwrap_or_default();
             Ok(Box::new(datetime))
         }
         Value::String(s) if arg_t == "bytea" => {

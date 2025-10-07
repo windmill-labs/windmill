@@ -25,7 +25,11 @@ use crate::{
     DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
     NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
 };
-use windmill_common::client::AuthedClient;
+use windmill_common::{
+    client::AuthedClient,
+    s3_helpers::BundleFormat,
+    scripts::{id_to_codebase_info, CodebaseInfo},
+};
 
 #[cfg(windows)]
 use crate::SYSTEM_ROOT;
@@ -610,15 +614,18 @@ pub async fn generate_bun_bundle(
     Ok(())
 }
 
-pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
+struct PulledCodebase {
+    is_esm: bool,
+}
+async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCodebase> {
     let path = windmill_common::s3_helpers::bundle(&w_id, &id);
     let bun_cache_path = format!(
         "{}/{}",
         windmill_common::worker::ROOT_CACHE_NOMOUNT_DIR,
         path
     );
-    let is_tar = id.ends_with(".tar");
 
+    let CodebaseInfo { is_tar, is_esm } = id_to_codebase_info(id);
     let dst = format!(
         "{job_dir}/{}",
         if is_tar { "codebase.tar" } else { "main.js" }
@@ -639,9 +646,9 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
             && object_store.is_none()
         {
             let bun_cache_path = format!(
-                "{}{}",
+                "{}/{}",
                 *windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
-                id
+                path
             );
             if std::fs::metadata(&bun_cache_path).is_ok() {
                 tracing::info!("loading {bun_cache_path} from standalone bundle cache");
@@ -671,7 +678,7 @@ pub async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<()> {
         }
     }
 
-    Ok(())
+    Ok(PulledCodebase { is_esm })
 }
 
 fn extract_saved_codebase(
@@ -858,6 +865,7 @@ pub async fn handle_bun_job(
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
@@ -906,13 +914,11 @@ pub async fn handle_bun_job(
     let common_bun_proc_envs: HashMap<String, String> =
         get_common_bun_proc_envs(Some(&base_internal_url)).await;
 
-    if codebase.is_some() {
-        annotation.nodejs = true
-    }
     let main_override = job.script_entrypoint_override.as_deref();
     let apply_preprocessor =
         job.flow_step_id.as_deref() != Some("preprocessor") && job.preprocessed == Some(false);
 
+    let mut format = BundleFormat::Cjs;
     if has_bundle_cache {
         let target;
         let symlink;
@@ -934,7 +940,10 @@ pub async fn handle_bun_job(
             ))
         })?;
     } else if let Some(codebase) = codebase.as_ref() {
-        pull_codebase(&job.workspace_id, codebase, job_dir).await?;
+        let pulled_codebase = pull_codebase(&job.workspace_id, codebase, job_dir).await?;
+        if pulled_codebase.is_esm {
+            format = BundleFormat::Esm;
+        }
     } else if let Some(reqs) = requirements_o.as_ref() {
         let (pkg, lock, empty, is_binary) = split_lockfile(reqs);
 
@@ -990,6 +999,10 @@ pub async fn handle_bun_job(
         // }
     }
 
+    if codebase.is_some() && format == BundleFormat::Cjs {
+        annotation.nodejs = true
+    }
+
     let mut init_logs = if annotation.native {
         "\n\n--- NATIVE CODE EXECUTION ---\n".to_string()
     } else if has_bundle_cache {
@@ -999,7 +1012,11 @@ pub async fn handle_bun_job(
             "\n\n--- BUN BUNDLE SNAPSHOT EXECUTION ---\n".to_string()
         }
     } else if codebase.is_some() {
-        "\n\n--- NODE CODEBASE SNAPSHOT EXECUTION ---\n".to_string()
+        if format == BundleFormat::Esm {
+            "\n\n--- ESM CODEBASE SNAPSHOT EXECUTION ---\n".to_string()
+        } else {
+            "\n\n--- CJS CODEBASE SNAPSHOT EXECUTION ---\n".to_string()
+        }
     } else if annotation.native {
         "\n\n--- NATIVE CODE EXECUTION ---\n".to_string()
     } else if annotation.nodejs {
@@ -1115,7 +1132,7 @@ async function run() {{
     let res = await Main.{main_name}(...argsArr);
     if (isAsyncIterable(res)) {{
         for await (const chunk of res) {{
-            console.log("WM_STREAM: " + chunk.replace('\n', '\\n'));
+            console.log("WM_STREAM: " + chunk.replace(/\n/g, '\\n'));
         }}
         res = null;
     }}
@@ -1331,6 +1348,7 @@ try {{
                 false,
                 occupancy_metrics,
                 stream_notifier,
+                has_stream,
             )
             .await?;
             tracing::info!(
@@ -1493,6 +1511,8 @@ try {{
     )
     .await?;
 
+    *has_stream = handle_result.result_stream.is_some();
+
     if apply_preprocessor {
         let args = read_file(&format!("{job_dir}/args.json"))
             .await
@@ -1604,12 +1624,17 @@ pub async fn start_worker(
         None,
         None,
         None,
+        None,
     )
     .await;
     let context_envs = build_envs_map(context.to_vec()).await;
 
+    let mut format = BundleFormat::Cjs;
     if let Some(codebase) = codebase.as_ref() {
-        pull_codebase(w_id, codebase, job_dir).await?;
+        let pulled_codebase = pull_codebase(w_id, codebase, job_dir).await?;
+        if pulled_codebase.is_esm {
+            format = BundleFormat::Esm;
+        }
     } else if let Some(reqs) = requirements_o {
         let (pkg, lock, empty, is_binary) = split_lockfile(&reqs);
         if lock.is_none() {
@@ -1736,7 +1761,11 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
         write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
     }
 
-    if !codebase.is_some() {
+    if format == BundleFormat::Esm {
+        annotation.nodejs = false;
+    }
+
+    if !codebase.is_some() || format == BundleFormat::Esm {
         build_loader(
             job_dir,
             base_internal_url,

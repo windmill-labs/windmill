@@ -2302,7 +2302,7 @@ async fn test_rust_client(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 #[sqlx::test(fixtures("base", "schedule"))]
 async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -2459,7 +2459,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
     Ok(())
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 #[sqlx::test(fixtures("base", "schedule"))]
 async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -2924,3 +2924,4 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
 //
 // TODO: Create a map of tested/untested features.
 // If we can test things like suspend works and that essentials, we can rely on them that they work and do not write tests for suspend in higher level test
+

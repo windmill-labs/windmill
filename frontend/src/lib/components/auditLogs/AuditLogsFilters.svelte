@@ -260,6 +260,9 @@
 		USERS_ADD_GLOBAL: 'users.add_global',
 		USERS_IMPERSONATE: 'users.impersonate',
 		USERS_LEAVE_WORKSPACE: 'users.leave_workspace',
+		USERS_SCIM_CREATE: 'users.scim_create',
+		USERS_SCIM_DELETE: 'users.scim_delete',
+		USERS_SCIM_UPDATE: 'users.scim_update',
 		OAUTH_LOGIN: 'oauth.login',
 		OAUTH_LOGIN_FAILURE: 'oauth.login_failure',
 		OAUTH_SIGNUP: 'oauth.signup',
@@ -287,6 +290,9 @@
 		IGROUP_DELETE: 'igroup.delete',
 		IGROUP_ADDUSER: 'igroup.adduser',
 		IGROUP_REMOVEUSER: 'igroup.removeuser',
+		INSTANCE_GROUPS_SCIM_CREATE: 'instance_groups.scim_create',
+		INSTANCE_GROUPS_SCIM_DELETE: 'instance_groups.scim_delete',
+		INSTANCE_GROUPS_SCIM_UPDATE: 'instance_groups.scim_update',
 		VARIABLES_DECRYPT_SECRET: 'variables.decrypt_secret',
 		WORKSPACES_EDIT_COMMAND_SCRIPT: 'workspaces.edit_command_script',
 		WORKSPACES_EDIT_DEPLOY_TO: 'workspaces.edit_deploy_to',
@@ -417,7 +423,7 @@
 
 		<Select
 			bind:value={operation}
-			items={['all', ...Object.keys(operations)].map((r) => ({ value: r, label: r }))}
+			items={['all', ...Object.values(operations)].map((r) => ({ value: r, label: r }))}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
 		/>

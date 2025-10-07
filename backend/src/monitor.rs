@@ -53,7 +53,8 @@ use windmill_common::{
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING,
-        OTEL_SETTING, PIP_INDEX_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
@@ -83,7 +84,8 @@ use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
 use windmill_worker::{
     handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
     INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
-    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL,
+    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
+    POWERSHELL_REPO_URL,
 };
 
 #[cfg(feature = "parquet")]
@@ -298,6 +300,8 @@ pub async fn initial_load(
         reload_bunfig_install_scopes_setting(&conn).await;
         reload_instance_python_version_setting(&conn).await;
         reload_nuget_config_setting(&conn).await;
+        reload_powershell_repo_url_setting(&conn).await;
+        reload_powershell_repo_pat_setting(&conn).await;
         reload_maven_repos_setting(&conn).await;
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
@@ -867,6 +871,16 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::error!("Error deleting audit log on CE: {:?}", e);
     }
 
+    if let Err(e) = sqlx::query_scalar!(
+        "DELETE FROM autoscaling_event WHERE applied_at <= now() - ($1::bigint::text || ' s')::interval",
+        30 * 24 * 60 * 60, // 30 days
+    )
+    .fetch_all(db)
+    .await
+    {
+        tracing::error!("Error deleting autoscaling event on CE: {:?}", e);
+    }
+
     match sqlx::query_scalar!(
         "DELETE FROM agent_token_blacklist WHERE expires_at <= now() RETURNING token",
     )
@@ -949,6 +963,17 @@ pub async fn delete_expired_items(db: &DB) -> () {
                                     .await
                             {
                                 tracing::error!("Error deleting job: {:?}", e);
+                            }
+
+                            // should already be deleted but just in case
+                            if let Err(e) = sqlx::query!(
+                                "DELETE FROM job_result_stream_v2 WHERE job_id = ANY($1)",
+                                &deleted_jobs
+                            )
+                            .execute(&mut *tx)
+                            .await
+                            {
+                                tracing::error!("Error deleting job result stream: {:?}", e);
                             }
                         }
                     }
@@ -1100,6 +1125,26 @@ pub async fn reload_nuget_config_setting(conn: &Connection) {
         NUGET_CONFIG_SETTING,
         "NUGET_CONFIG",
         NUGET_CONFIG.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_powershell_repo_url_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        POWERSHELL_REPO_URL_SETTING,
+        "POWERSHELL_REPO_URL",
+        POWERSHELL_REPO_URL.clone(),
+    )
+    .await;
+}
+
+pub async fn reload_powershell_repo_pat_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        POWERSHELL_REPO_PAT_SETTING,
+        "POWERSHELL_REPO_PAT",
+        POWERSHELL_REPO_PAT.clone(),
     )
     .await;
 }
@@ -1655,7 +1700,7 @@ pub async fn monitor_db(
 }
 
 async fn vacuuming_tables(db: &Pool<Postgres>) -> error::Result<()> {
-    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream, job_stats, job_logs, concurrency_key, log_file, metrics")
+    sqlx::query!("VACUUM v2_job, v2_job_completed, job_result_stream_v2, job_stats, job_logs, concurrency_key, log_file, metrics")
         .execute(db)
         .await?;
     Ok(())

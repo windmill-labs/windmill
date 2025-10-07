@@ -67,7 +67,7 @@
 	let globalRefreshes: Record<string, ((clear, root) => Promise<void>)[]> = $state({})
 
 	setContext<FlowStatusViewerContext>('FlowStatusViewer', {
-		flowState: flowState,
+		flowState,
 		suspendStatus,
 		retryStatus,
 		hideDownloadInGraph,
@@ -88,7 +88,7 @@
 			retryStatus.val = {}
 			suspendStatus.val = {}
 			globalRefreshes = {}
-			flowState.val = {}
+			for (let key in localModuleStates) delete flowState[key]
 			localDurationStatuses = {}
 			localModuleStates = {}
 		}

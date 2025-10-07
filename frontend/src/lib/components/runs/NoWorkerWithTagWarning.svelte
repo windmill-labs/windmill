@@ -4,7 +4,7 @@
 	import Popover from '../Popover.svelte'
 	import { onDestroy, untrack } from 'svelte'
 	interface Props {
-		tag: string
+		tag: string | undefined
 		tagLabel?: string
 	}
 
@@ -17,9 +17,9 @@
 	let visible = true
 
 	let customTag = $derived.by(() => {
-		if (tag.includes('$workspace') || tag.includes('$args')) return
+		if (tag?.includes('$workspace') || tag?.includes('$args')) return
 
-		if (tag.includes('(')) {
+		if (tag?.includes('(')) {
 			return tag.split('(')[0]
 		}
 		return tag
@@ -44,7 +44,7 @@
 
 	$effect(() => {
 		customTag
-		untrack(() => lookForTag())
+		untrack(() => timeout && setTimeout(() => lookForTag(), 2500))
 	})
 
 	onDestroy(() => {

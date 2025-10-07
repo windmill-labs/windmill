@@ -745,7 +745,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                                 .await
                                 .map_err(|e| {
                                     Error::internal_err(format!(
-                                        "error while fetching sucess from completed_jobs: {e:#}"
+                                        "error while fetching success from completed_jobs: {e:#}"
                                     ))
                                 })?
                                 .into_iter()
@@ -1242,14 +1242,14 @@ pub async fn update_flow_status_after_job_completion_internal(
                 if let Some(t) = tag {
                     tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
                 }
-            } else if let Some(ck) = concurrency_key {
+            } else if concurrent_limit.is_some() {
                 let mut tx = db.begin().await?;
                 insert_concurrency_key(
                     &flow_job.workspace_id,
                     &PushArgs::from(&HashMap::new()),
                     &flow_job.runnable_path,
                     JobKind::Flow,
-                    Some(ck),
+                    concurrency_key,
                     &mut tx,
                     flow,
                 )
@@ -1473,6 +1473,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     None,
                     true,
                     None,
+                    false,
                 )
                 .await?;
                 duration
@@ -1492,6 +1493,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     None,
                     true,
                     None,
+                    false,
                 )
                 .await?;
                 duration
@@ -3151,6 +3153,7 @@ async fn push_next_flow_job(
             new_job_priority_override,
             job_perms.as_ref(),
             false,
+            None,
         )
         .warn_after_seconds(2)
         .await?;

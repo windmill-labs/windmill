@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { emptyString, sendUserToast } from '$lib/utils'
-	import { ChevronDown, Plus, Shield, X } from 'lucide-svelte'
+	import { ChevronDown, Plus, Shield } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import Button from '../common/button/Button.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
@@ -19,11 +19,12 @@
 	import { WorkspaceService } from '$lib/gen'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import Portal from '../Portal.svelte'
-	import { fade } from 'svelte/transition'
 	import Popover from '../meltComponents/Popover.svelte'
 	import ClearableInput from '../common/clearableInput/ClearableInput.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
+	import Select from '../select/Select.svelte'
 
 	let { s3ResourceSettings = $bindable() }: { s3ResourceSettings: S3ResourceSettings } = $props()
 
@@ -114,10 +115,10 @@
 	<div class="mt-6">
 		<div class="flex mt-2 flex-col gap-y-4 max-w-5xl">
 			{#each s3ResourceSettings.secondaryStorage ?? [] as _, idx}
-				<div class="flex gap-1 items-center">
-					<input
+				<div class="flex gap-1 relative">
+					<TextInput
 						class="max-w-[200px]"
-						type="text"
+						inputProps={{ type: 'text', placeholder: 'Storage name' }}
 						bind:value={
 							() => s3ResourceSettings.secondaryStorage?.[idx]?.[0] || '',
 							(v) => {
@@ -126,10 +127,10 @@
 								}
 							}
 						}
-						placeholder="Storage name"
 					/>
-					<select
+					<Select
 						class="max-w-[125px]"
+						inputClass="h-full"
 						bind:value={
 							() => s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourceType || 's3',
 							(v) => {
@@ -138,19 +139,19 @@
 								}
 							}
 						}
-					>
-						<option value="s3">S3</option>
-						<option value="azure_blob">Azure Blob</option>
-						<option value="s3_aws_oidc">AWS OIDC</option>
-						<option value="azure_workload_identity">Azure Workload Identity</option>
-						<option value="gcloud_storage">Google Cloud Storage</option>
-					</select>
-					<!-- this can be removed once parent moves to runes -->
-					<!-- svelte-ignore binding_property_non_reactive -->
+						items={[
+							{ value: 's3', label: 'S3' },
+							{ value: 'azure_blob', label: 'Azure Blob' },
+							{ value: 's3_aws_oidc', label: 'AWS OIDC' },
+							{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
+							{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
+						]}
+					/>
+
 					<ResourcePicker
 						resourceType={s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourceType || 's3'}
 						bind:value={
-							() => s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourcePath || '',
+							() => s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourcePath || undefined,
 							(v) => {
 								if (s3ResourceSettings.secondaryStorage?.[idx]) {
 									s3ResourceSettings.secondaryStorage[idx][1].resourcePath = v
@@ -173,19 +174,16 @@
 							}
 						}}>Browse content (save first)</Button
 					>
-					<button
-						transition:fade|local={{ duration: 100 }}
-						class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-						aria-label="Clear"
-						onclick={() => {
+					<CloseButton
+						class="my-auto"
+						small
+						on:close={() => {
 							if (s3ResourceSettings.secondaryStorage) {
 								s3ResourceSettings.secondaryStorage.splice(idx, 1)
 								s3ResourceSettings.secondaryStorage = [...s3ResourceSettings.secondaryStorage]
 							}
 						}}
-					>
-						<X size={14} />
-					</button>
+					/>
 				</div>
 			{/each}
 			<div class="flex gap-1">
@@ -229,7 +227,7 @@
 {#snippet permissionBtn(storage: NonNullable<S3ResourceSettings['secondaryStorage']>[number][1])}
 	<Popover closeOnOtherPopoverOpen placement="left">
 		<svelte:fragment slot="trigger">
-			<Button variant="border" btnClasses="px-2.5" color="dark" size="sm">
+			<Button variant="border" wrapperClasses="h-full" btnClasses="px-2.5" color="dark" size="sm">
 				<Shield size={16} /> Permissions <ChevronDown size={14} />
 			</Button>
 		</svelte:fragment>

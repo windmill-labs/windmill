@@ -1,6 +1,5 @@
 // TODO: move all related logic here (if anything left anywhere in codebase)
 mod common;
-
 use windmill_api_client::types::NewScript;
 
 fn quick_ns(
@@ -66,6 +65,21 @@ mod dependency_map {
 
     async fn init(db: Pool<Postgres>) -> (windmill_api_client::Client, u16, ApiServer) {
         init_client(db).await
+
+
+    }
+      async fn rebuild_dmap(client: &windmill_api_client::Client) -> bool {
+        client
+            .client()
+            .post(format!(
+                "{}/w/test-workspace/workspaces/rebuild_dependency_map",
+                client.baseurl()
+            ))
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .is_success()
     }
 
     async fn _clear_dmap(db: &Pool<Postgres>) {
@@ -1063,3 +1077,4 @@ WHERE
     // TODO: Test git sync
     // TODO: Can we find timing when we update the job but at the same time it is being pulled for execution?
 }
+

@@ -6,12 +6,23 @@
 	import type { ToastAction } from '$lib/toast'
 	import { processMessage } from './toast'
 
-	export let message: string
-	export let toastId: string
-	export let error: boolean = false
-	export let actions: ToastAction[] = []
-	export let errorMessage: string | undefined = undefined
-	export let duration = 5000
+	interface Props {
+		message: string
+		toastId: string
+		error?: boolean
+		actions?: ToastAction[]
+		errorMessage?: string | undefined
+		duration?: number
+	}
+
+	let {
+		message,
+		toastId,
+		error = false,
+		actions = [],
+		errorMessage = undefined,
+		duration = 5000
+	}: Props = $props()
 
 	function handleClose() {
 		toast.pop(toastId)
@@ -51,7 +62,7 @@
 			<div class="ml-4 flex flex-shrink-0">
 				<button
 					type="button"
-					on:click={handleClose}
+					onclick={handleClose}
 					class="inline-flex rounded-md bg-surface-secondary text-gray-400 hover:text-tertiary focus:outline-none"
 				>
 					<span class="sr-only">Close</span>

@@ -8,7 +8,7 @@
 	import { autoPlacement } from '@floating-ui/core'
 	import { WandSparkles } from 'lucide-svelte'
 	import { aiChatManager } from './chat/AIChatManager.svelte'
-	import { copilotInfo } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 
 	let {
 		lang

@@ -1,3 +1,5 @@
+use crate::memory_oss::{read_from_memory, write_to_memory};
+use anyhow::Context;
 use async_recursion::async_recursion;
 use regex::Regex;
 use serde_json::value::RawValue;
@@ -5,8 +7,7 @@ use std::{collections::HashMap, sync::Arc};
 use ulid;
 use uuid::Uuid;
 use windmill_common::{
-    ai_providers::AIProvider,
-    ai_providers::AZURE_API_VERSION,
+    ai_providers::{AIProvider, AZURE_API_VERSION},
     cache,
     client::AuthedClient,
     db::DB,
@@ -27,10 +28,14 @@ use windmill_queue::{
 use crate::{
     ai::{
         image_handler::upload_image_to_s3,
-        query_builder::{create_query_builder, BuildRequestArgs, ParsedResponse},
+        query_builder::{
+            create_query_builder, BuildRequestArgs, ParsedResponse, StreamEventProcessor,
+        },
         types::*,
     },
-    common::{build_args_map, error_to_value, OccupancyMetrics},
+    common::{
+        build_args_map, error_to_value, resolve_job_timeout, OccupancyMetrics, StreamNotifier,
+    },
     create_job_dir,
     handle_child::run_future_with_polling_update_job_poller,
     handle_queued_job, parse_sig_of_lang,
@@ -44,7 +49,6 @@ lazy_static::lazy_static! {
 }
 
 const MAX_AGENT_ITERATIONS: usize = 10;
-const REQUEST_TIMEOUT_SECONDS: u64 = 120;
 
 fn parse_raw_script_schema(content: &str, language: &ScriptLang) -> Result<Box<RawValue>, Error> {
     let main_arg_signature = parse_sig_of_lang(content, Some(&language), None)?.unwrap(); // safe to unwrap as langauge is some
@@ -95,6 +99,20 @@ pub async fn get_flow_job_runnable_and_raw_flow(
     Ok(job)
 }
 
+/// Get memory_id from parent flow's flow_status
+async fn get_memory_id_from_flow_status(db: &DB, parent_job: &Uuid) -> Result<Option<Uuid>, Error> {
+    let result = sqlx::query_scalar!(
+        "SELECT (flow_status->>'memory_id')::uuid as memory_id 
+         FROM v2_job_status 
+         WHERE id = $1",
+        parent_job
+    )
+    .fetch_optional(db)
+    .await?;
+
+    Ok(result.flatten())
+}
+
 pub async fn handle_ai_agent_job(
     // connection
     conn: &Connection,
@@ -114,6 +132,7 @@ pub async fn handle_ai_agent_job(
     worker_name: &str,
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+    has_stream: &mut bool,
 ) -> Result<Box<RawValue>, Error> {
     let args = build_args_map(job, client, conn).await?;
 
@@ -264,6 +283,12 @@ pub async fn handle_ai_agent_job(
 
     let mut inner_occupancy_metrics = occupancy_metrics.clone();
 
+    let stream_notifier = StreamNotifier::new(conn, job);
+
+    if let Some(stream_notifier) = stream_notifier {
+        stream_notifier.update_flow_status_with_stream_job();
+    }
+
     let agent_fut = run_agent(
         db,
         conn,
@@ -279,6 +304,7 @@ pub async fn handle_ai_agent_job(
         worker_name,
         hostname,
         killpill_rx,
+        has_stream,
     );
 
     let result = run_future_with_polling_update_job_poller(
@@ -298,7 +324,7 @@ pub async fn handle_ai_agent_job(
     Ok(result)
 }
 
-/// Find a unique tool name to avoid collisions with user-provided tools
+/// Find a unique tool name for structured output tool to avoid collisions with user-provided tools
 fn find_unique_tool_name(base_name: &str, existing_tools: Option<&[ToolDef]>) -> String {
     let Some(tools) = existing_tools else {
         return base_name.to_string();
@@ -412,6 +438,7 @@ pub async fn run_agent(
     worker_name: &str,
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+    has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;
@@ -431,6 +458,38 @@ pub async fn run_agent(
         } else {
             vec![]
         };
+
+    // Load previous messages from memory for text output mode (only if context length is set)
+    if matches!(output_type, OutputType::Text) {
+        if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
+            if let Some(step_id) = job.flow_step_id.as_deref() {
+                // Get memory_id from flow_status
+                if let Ok(Some(memory_id)) = get_memory_id_from_flow_status(db, parent_job).await {
+                    // Read messages from memory
+                    match read_from_memory(&job.workspace_id, memory_id, step_id).await {
+                        Ok(Some(loaded_messages)) => {
+                            // Take the last n messages
+                            let start_idx = loaded_messages.len().saturating_sub(context_length);
+                            let mut messages_to_load = loaded_messages[start_idx..].to_vec();
+                            let first_non_tool_message_index =
+                                messages_to_load.iter().position(|m| m.role != "tool");
+
+                            // Remove the first messages if their role is "tool" to avoid OpenAI API error
+                            if let Some(index) = first_non_tool_message_index {
+                                messages_to_load = messages_to_load[index..].to_vec();
+                            }
+
+                            messages.extend(messages_to_load);
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            tracing::error!("Failed to read memory for step {}: {}", step_id, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Create user message with optional images
     let mut parts = vec![ContentPart::Text { text: args.user_message.clone() }];
@@ -501,6 +560,21 @@ pub async fn run_agent(
         // For non-Anthropic providers, response_format is handled by the query builder
     }
 
+    // Check if streaming is enabled and supported
+    let should_stream = args.streaming.unwrap_or(false)
+        && query_builder.supports_streaming()
+        && output_type == &OutputType::Text;
+
+    *has_stream = should_stream;
+
+    let mut final_events_str = String::new();
+
+    let stream_event_processor = if should_stream {
+        Some(StreamEventProcessor::new(conn, job))
+    } else {
+        None
+    };
+
     // Main agent loop
     for i in 0..MAX_AGENT_ITERATIONS {
         if used_structured_output_tool {
@@ -522,21 +596,25 @@ pub async fn run_agent(
         };
 
         let request_body = query_builder
-            .build_request(&build_args, client, &job.workspace_id)
+            .build_request(&build_args, client, &job.workspace_id, should_stream)
             .await?;
 
         let endpoint =
             query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
         let auth_headers = query_builder.get_auth_headers(api_key, &base_url, output_type);
 
+        let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
+            .await
+            .0;
+
         let mut request = HTTP_CLIENT
             .post(&endpoint)
-            .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECONDS))
+            .timeout(timeout)
             .header("Content-Type", "application/json");
 
         // Apply authentication headers
-        for (header_name, header_value) in auth_headers {
-            request = request.header(header_name, header_value);
+        for (header_name, header_value) in &auth_headers {
+            request = request.header(*header_name, header_value.clone());
         }
 
         if args.provider.kind.is_azure_openai(&base_url) {
@@ -551,10 +629,21 @@ pub async fn run_agent(
 
         match resp.error_for_status_ref() {
             Ok(_) => {
-                let parsed = query_builder.parse_response(resp).await?;
+                let parsed = if let Some(stream_event_processor) = stream_event_processor.clone() {
+                    query_builder
+                        .parse_streaming_response(resp, stream_event_processor)
+                        .await?
+                } else {
+                    // Handle non-streaming response
+                    query_builder.parse_response(resp).await?
+                };
 
                 match parsed {
-                    ParsedResponse::Text { content: response_content, tool_calls } => {
+                    ParsedResponse::Text { content: response_content, tool_calls, events_str } => {
+                        if let Some(events_str) = events_str {
+                            final_events_str.push_str(&events_str);
+                        }
+
                         if let Some(ref response_content) = response_content {
                             actions.push(AgentAction::Message {});
                             messages.push(OpenAIMessage {
@@ -589,6 +678,17 @@ pub async fn run_agent(
 
                         // Handle tool calls (keeping existing tool execution logic)
                         for tool_call in tool_calls.iter() {
+                            // Stream tool call progress
+                            if let Some(ref stream_event_processor) = stream_event_processor {
+                                let event = StreamingEvent::ToolExecution {
+                                    call_id: tool_call.id.clone(),
+                                    function_name: tool_call.function.name.clone(),
+                                };
+                                stream_event_processor
+                                    .send(event, &mut final_events_str)
+                                    .await?;
+                            }
+
                             // Check if this is the structured output tool
                             if structured_output_tool_name
                                 .as_ref()
@@ -631,10 +731,22 @@ pub async fn run_agent(
                                 update_flow_status_module_with_actions(db, parent_job, &actions)
                                     .await?;
 
+                                let raw_tool_call_args = if tool_call.function.arguments.is_empty()
+                                {
+                                    "{}".to_string()
+                                } else {
+                                    tool_call.function.arguments.clone()
+                                };
                                 let tool_call_args =
                                     serde_json::from_str::<HashMap<String, Box<RawValue>>>(
-                                        &tool_call.function.arguments,
-                                    )?;
+                                        &raw_tool_call_args,
+                                    )
+                                    .with_context(|| {
+                                        format!(
+                                        "Failed to parse tool call arguments for tool call {}: {}",
+                                        tool_call.function.name, tool_call.function.arguments
+                                    )
+                                    })?;
 
                                 let job_payload = match tool.module.get_value()? {
                                     FlowModuleValue::Script {
@@ -742,6 +854,7 @@ pub async fn run_agent(
                                     job_priority,
                                     job_perms.as_ref(),
                                     true,
+                                    None,
                                 )
                                 .await?;
 
@@ -757,8 +870,6 @@ pub async fn run_agent(
 
                                 let tool_job = Arc::new(tool_job);
 
-                                let job_dir = create_job_dir(&worker_dir, job.id).await;
-
                                 let (inner_job_completed_tx, inner_job_completed_rx) =
                                     JobCompletedSender::new(&conn, 1);
 
@@ -766,32 +877,70 @@ pub async fn run_agent(
                                      "inner_job_completed_tx should be set as agent jobs are not supported on agent workers",
                                  );
 
-                                #[cfg(feature = "benchmark")]
-                                let mut bench = windmill_common::bench::BenchmarkIter::new();
+                                // Spawn handle_queued_job on separate task to prevent tokio stack overflow
+                                // Clone everything needed for the spawned task
+                                let tool_job_spawn = tool_job.clone();
+                                let conn_spawn = conn.clone();
+                                let client_spawn = client.clone();
+                                let hostname_spawn = hostname.to_string();
+                                let worker_name_spawn = worker_name.to_string();
+                                let worker_dir_spawn = worker_dir.to_string();
+                                let base_internal_url_spawn = base_internal_url.to_string();
+                                let inner_job_completed_tx_spawn = inner_job_completed_tx.clone();
+                                let mut occupancy_metrics_spawn = occupancy_metrics.clone();
+                                let mut killpill_rx_spawn = killpill_rx.resubscribe();
 
-                                match handle_queued_job(
-                                    tool_job.clone(),
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    conn,
-                                    client,
-                                    hostname,
-                                    worker_name,
-                                    worker_dir,
-                                    &job_dir,
-                                    None,
-                                    base_internal_url,
-                                    inner_job_completed_tx,
-                                    occupancy_metrics,
-                                    killpill_rx,
-                                    None,
+                                // Spawn on separate tokio task with fresh stack
+                                let join_handle = tokio::task::spawn(async move {
                                     #[cfg(feature = "benchmark")]
-                                    &mut bench,
-                                )
-                                .await
-                                {
+                                    let mut bench_spawn =
+                                        windmill_common::bench::BenchmarkIter::new();
+
+                                    let job_dir =
+                                        create_job_dir(&worker_dir_spawn, tool_job_spawn.id).await;
+
+                                    let result = handle_queued_job(
+                                        tool_job_spawn,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        &conn_spawn,
+                                        &client_spawn,
+                                        &hostname_spawn,
+                                        &worker_name_spawn,
+                                        &worker_dir_spawn,
+                                        &job_dir,
+                                        None,
+                                        &base_internal_url_spawn,
+                                        inner_job_completed_tx_spawn,
+                                        &mut occupancy_metrics_spawn,
+                                        &mut killpill_rx_spawn,
+                                        None,
+                                        #[cfg(feature = "benchmark")]
+                                        &mut bench_spawn,
+                                    )
+                                    .await;
+
+                                    // Return both result and updated metrics
+                                    (result, occupancy_metrics_spawn)
+                                });
+
+                                // Await the spawned task
+                                let (handle_result, updated_occupancy) =
+                                    join_handle.await.map_err(|e| {
+                                        Error::internal_err(format!(
+                                            "Tool execution task failed: {}",
+                                            e
+                                        ))
+                                    })?;
+
+                                // Merge occupancy metrics back
+                                occupancy_metrics.total_duration_of_running_jobs =
+                                    updated_occupancy.total_duration_of_running_jobs;
+
+                                // Continue with match on handle_result
+                                match handle_result {
                                     Err(err) => {
                                         let err_string =
                                             format!("{}: {}", err.name(), err.to_string());
@@ -806,12 +955,13 @@ pub async fn run_agent(
                                             worker_name,
                                         )
                                         .await;
+                                        let error_message =
+                                            format!("Error running tool: {}", err_string);
                                         messages.push(OpenAIMessage {
                                             role: "tool".to_string(),
-                                            content: Some(OpenAIContent::Text(format!(
-                                                "Error running tool: {}",
-                                                err_string
-                                            ))),
+                                            content: Some(OpenAIContent::Text(
+                                                error_message.clone(),
+                                            )),
                                             tool_call_id: Some(tool_call.id.clone()),
                                             agent_action: Some(AgentAction::ToolCall {
                                                 job_id,
@@ -820,6 +970,21 @@ pub async fn run_agent(
                                             }),
                                             ..Default::default()
                                         });
+                                        // Stream tool result (error case)
+                                        if let Some(ref stream_event_processor) =
+                                            stream_event_processor
+                                        {
+                                            let tool_result_event = StreamingEvent::ToolResult {
+                                                call_id: tool_call.id.clone(),
+                                                function_name: tool_call.function.name.clone(),
+                                                result: error_message,
+                                                success: false,
+                                            };
+                                            stream_event_processor
+                                                .send(tool_result_event, &mut final_events_str)
+                                                .await?;
+                                        }
+
                                         update_flow_status_module_with_actions_success(
                                             db, parent_job, false,
                                         )
@@ -857,7 +1022,6 @@ pub async fn run_agent(
                                                 "Tool job completed but no result".to_string(),
                                             ));
                                         };
-
                                         messages.push(OpenAIMessage {
                                             role: "tool".to_string(),
                                             content: Some(OpenAIContent::Text(
@@ -871,6 +1035,22 @@ pub async fn run_agent(
                                             }),
                                             ..Default::default()
                                         });
+
+                                        // Stream tool result (success case)
+                                        if let Some(ref stream_event_processor) =
+                                            stream_event_processor
+                                        {
+                                            let tool_result_event = StreamingEvent::ToolResult {
+                                                call_id: tool_call.id.clone(),
+                                                function_name: tool_call.function.name.clone(),
+                                                result: result.get().to_string(),
+                                                success: true,
+                                            };
+                                            stream_event_processor
+                                                .send(tool_result_event, &mut final_events_str)
+                                                .await?;
+                                        }
+
                                         update_flow_status_module_with_actions_success(
                                             db, parent_job, success,
                                         )
@@ -930,8 +1110,63 @@ pub async fn run_agent(
         None => to_raw_value(&""),
     };
 
+    if let Some(stream_event_processor) = stream_event_processor {
+        if let Some(handle) = stream_event_processor.to_handle() {
+            if let Err(e) = handle.await {
+                return Err(Error::internal_err(format!(
+                    "Error waiting for stream event processor: {}",
+                    e
+                )));
+            }
+        }
+    }
+
+    // Persist complete conversation to memory at the end (only if context length is set)
+    // final_messages contains the complete history (old messages + new ones)
+    if matches!(output_type, OutputType::Text) {
+        if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
+            if let Some(step_id) = job.flow_step_id.as_deref() {
+                // Extract OpenAIMessages from final_messages
+                let all_messages: Vec<OpenAIMessage> =
+                    final_messages.iter().map(|m| m.message.clone()).collect();
+
+                if !all_messages.is_empty() {
+                    // Keep only the last n messages
+                    let start_idx = all_messages.len().saturating_sub(context_length);
+                    let messages_to_persist = all_messages[start_idx..].to_vec();
+
+                    // Get memory_id from flow_status
+                    if let Ok(Some(memory_id)) =
+                        get_memory_id_from_flow_status(db, parent_job).await
+                    {
+                        if let Err(e) = write_to_memory(
+                            &job.workspace_id,
+                            memory_id,
+                            step_id,
+                            &messages_to_persist,
+                        )
+                        .await
+                        {
+                            tracing::error!(
+                                "Failed to persist {} messages to memory for step {}: {}",
+                                messages_to_persist.len(),
+                                step_id,
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(to_raw_value(&AIAgentResult {
         output: output_value,
         messages: final_messages,
+        wm_stream: if !final_events_str.is_empty() {
+            Some(final_events_str)
+        } else {
+            None
+        },
     }))
 }

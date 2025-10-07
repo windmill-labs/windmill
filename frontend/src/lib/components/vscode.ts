@@ -1,15 +1,14 @@
-import { initServices } from 'monaco-languageclient/vscode/services'
-// import getThemeServiceOverride from '@codingame/monaco-vscode-theme-service-override'
-// import getTextmateServiceOverride from '@codingame/monaco-vscode-textmate-service-override'
-import getMonarchServiceOverride from '@codingame/monaco-vscode-monarch-service-override'
 import '@codingame/monaco-vscode-standalone-typescript-language-features'
-import getConfigurationServiceOverride from '@codingame/monaco-vscode-configuration-service-override'
+
 import { editor as meditor, Uri as mUri } from 'monaco-editor'
 
 export let isInitialized = false
 export let isInitializing = false
 
-import { getEnhancedMonacoEnvironment } from 'monaco-languageclient/vscode/services'
+import {
+	getEnhancedMonacoEnvironment,
+	MonacoVscodeApiWrapper
+} from 'monaco-languageclient/vscodeApiWrapper'
 
 export function buildWorkerDefinition() {
 	const envEnhanced = getEnhancedMonacoEnvironment()
@@ -124,25 +123,29 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 
 		try {
 			// init vscode-api
-			await initServices(
-				{
-					serviceOverrides: {
-						// ...getThemeServiceOverride(),
-						// ...getTextmateServiceOverride()
-						...getConfigurationServiceOverride(),
-						...getMonarchServiceOverride()
-					},
-					enableExtHostWorker: false,
-					userConfiguration: {
-						json: JSON.stringify({
-							'editor.experimental.asyncTokenization': true
-						})
-					}
+			const apiWrapper = new MonacoVscodeApiWrapper({
+				$type: 'classic',
+				viewsConfig: {
+					$type: 'EditorService'
 				},
-				{
-					monacoWorkerFactory: buildWorkerDefinition
-				}
-			)
+				serviceOverrides: {
+					// ...getLogServiceOverride()
+					// ...getThemeServiceOverride(),
+					// ...getTextmateServiceOverride()
+					// ...getConfigurationServiceOverride(),
+					// ...getKeybindingsServiceOverride()
+				},
+				userConfiguration: {
+					json: JSON.stringify({
+						'editor.experimental.asyncTokenization': true
+					})
+				},
+				advanced: {
+					enableExtHostWorker: true
+				},
+				monacoWorkerFactory: buildWorkerDefinition
+			})
+			await apiWrapper.start()
 
 			isInitialized = true
 			meditor.defineTheme('nord', {
@@ -158,7 +161,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 						token: 'comment'
 					},
 					{
-						foreground: 'a3be8c',
+						foreground: 'b3deac',
 						token: 'string'
 					},
 					{
@@ -170,7 +173,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 						token: 'constant.language'
 					},
 					{
-						foreground: '81a1c1',
+						foreground: '92bae6',
 						token: 'keyword'
 					},
 					{
@@ -227,15 +230,20 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 					{
 						foreground: '8fbcbb',
 						token: 'variable.other.constant'
-					}
+					},
+					{ token: 'string.value.json', foreground: 'e8b886' }, // string values in JSON
+					{ token: 'keyword.json', foreground: 'e8b886' } // true, false, null in JSON
 				],
 				colors: {
 					'editor.foreground': '#D8DEE9',
-					'editor.background': '#272D38',
-					'editor.selectionBackground': '#434C5ECC',
+					'editor.background': '#00000000',
+					'editor.selectionBackground': '#515A6D',
+					'editor.inactiveSelectionBackground': '#515A6DB0',
 					'editor.lineHighlightBackground': '#3B4252',
 					'editorCursor.foreground': '#D8DEE9',
-					'editorWhitespace.foreground': '#434C5ECC'
+					'editorWhitespace.foreground': '#515A6D',
+					'editorIndentGuide.background1': '#5A647860',
+					'editorIndentGuide.activeBackground1': '#6A7488'
 				}
 			})
 
@@ -244,8 +252,11 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 				inherit: true,
 				rules: [],
 				colors: {
-					'editorLineNumber.foreground': '#999',
-					'editorGutter.background': '#F9FAFB'
+					'editor.background': '#FFFFFF00',
+					'editor.foreground': '#2d3748',
+					'editorLineNumber.foreground': '#C2C9D1',
+					'editorLineNumber.activeForeground': '#989DA5',
+					'editorGutter.background': '#FFFFFF00'
 				}
 			})
 

@@ -194,6 +194,7 @@ pub async fn handle_deno_job(
     envs: HashMap<String, String>,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
     // let mut start = Instant::now();
     let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
@@ -298,7 +299,7 @@ async function run() {{
     let res: any = await {main_name}(...argsArr);
     if (isAsyncIterable(res)) {{
         for await (const chunk of res) {{
-            console.log("WM_STREAM: " + chunk.replace('\n', '\\n'));
+            console.log("WM_STREAM: " + chunk.replace(/\n/g, '\\n'));
         }}
         res = null;
     }}
@@ -440,6 +441,9 @@ try {{
         stream_notifier,
     )
     .await?;
+
+    *has_stream = handle_result.result_stream.is_some();
+
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
     if let Err(e) = tokio::fs::remove_dir_all(format!("{DENO_CACHE_DIR}/gen/file/{job_dir}")).await
     {
@@ -544,6 +548,7 @@ pub async fn start_worker(
         "NOT_AVAILABLE",
         "dedicated_worker",
         Some(script_path.to_string()),
+        None,
         None,
         None,
         None,

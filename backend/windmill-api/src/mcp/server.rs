@@ -151,6 +151,22 @@ impl ServerHandler for Runner {
 
         check_scopes(authed)?;
 
+        if request.name.ends_with("_TRUNC") {
+            return Ok(CallToolResult::error(
+                vec![
+                    Annotated::new(
+                        RawContent::Text(RawTextContent {
+                            text:
+                                "Tool path is too long. Consider shortening it to make it compatible with MCP."
+                                    .to_string(),
+                            meta: None,
+                        }),
+                        None
+                    ),
+                ]
+            ));
+        }
+
         let db = http_parts.extensions.get::<DB>().ok_or_else(|| {
             tracing::error!("DB Axum extension not found");
             ErrorData::internal_error("DB Axum extension not found", None)
@@ -435,7 +451,6 @@ impl ServerHandler for Runner {
             protocol_version: ProtocolVersion::default(),
             capabilities: ServerCapabilities::builder()
                 .enable_tools()
-                .enable_tool_list_changed()
                 .build(),
             server_info: Implementation::from_build_env(),
             instructions: Some("This server provides a list of scripts and flows the user can run on Windmill. Each flow and script is a tool callable with their respective arguments.".to_string()),

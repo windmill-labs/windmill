@@ -16,10 +16,14 @@
 		noItemsMsg = 'No items found',
 		class: className = '',
 		ulClass = '',
+		itemLabelWrapperClasses = '',
+		itemButtonWrapperClasses = '',
 		header,
 		getInputRect,
 		onSelectValue,
-		startSnippet
+		startSnippet,
+		endSnippet,
+		bottomSnippet
 	}: {
 		processedItems?: ProcessedItem<T>[]
 		value: T | undefined
@@ -31,10 +35,14 @@
 		noItemsMsg?: string
 		class?: string
 		ulClass?: string
+		itemLabelWrapperClasses?: string
+		itemButtonWrapperClasses?: string
 		header?: Snippet
 		getInputRect?: () => DOMRect
 		onSelectValue: (item: ProcessedItem<T>) => void
-		startSnippet?: Snippet<[{ item: ProcessedItem<T> }]>
+		startSnippet?: Snippet<[{ item: ProcessedItem<T>; close: () => void }]>
+		endSnippet?: Snippet<[{ item: ProcessedItem<T>; close: () => void }]>
+		bottomSnippet?: Snippet<[{ close: () => void }]>
 	} = $props()
 
 	let processedItems = $derived(
@@ -50,15 +58,22 @@
 	let dropdownPos = $state(computeDropdownPos())
 	let keyArrowPos = $state<number | undefined>()
 
-	function computeDropdownPos(): { width: number; x: number; y: number } {
-		if (!getInputRect || !listEl) return { width: 0, x: 0, y: 0 }
+	function computeDropdownPos(): {
+		width: number
+		height: number
+		x: number
+		y: number
+		isBelow: boolean
+	} {
+		if (!getInputRect || !listEl) return { width: 0, height: 0, x: 0, y: 0, isBelow: true }
 		let inputR = getInputRect()
 		const listR = listEl.getBoundingClientRect()
-		const openBelow = inputR.y + inputR.height + listR.height <= window.innerHeight
+		const isBelow = inputR.y + inputR.height + listR.height <= window.innerHeight
 		let [x, y] = disablePortal ? [0, 0] : [inputR.x, inputR.y]
-		if (openBelow) return { width: inputR.width, x: x, y: y + inputR.height }
+		if (isBelow)
+			return { width: inputR.width, height: listR.height, x: x, y: y + inputR.height, isBelow }
 		else {
-			return { width: inputR.width, x: x, y: y - listR.height }
+			return { width: inputR.width, height: listR.height, x: x, y: y - listR.height, isBelow }
 		}
 	}
 
@@ -75,11 +90,46 @@
 		;[open, processedItems]
 		untrack(() => (keyArrowPos = open && filterText ? 0 : undefined))
 	})
+
+	// We do not want to render the dropdown when it is closed for performance reasons
+	// but we want to keep it in the DOM for a short time to allow for transitions to finish
+	//
+	// We do not use Svelte transitions because they can not animate in the opposite direction
+	// when the dropdown is opens above the input
+	// Also CSS transitions are smoother because they do not rely on JS / animation frames
+	let uiState = $state({ domExists: open, visible: open, timeout: null as number | null })
+	let initial = true
+	$effect(() => {
+		let isOpen = open && !disabled
+		untrack(() => {
+			if (initial) {
+				initial = false
+				return
+			}
+			if (uiState.timeout) clearTimeout(uiState.timeout)
+			uiState = {
+				domExists: true,
+				visible: !isOpen,
+				timeout: setTimeout(() => {
+					if (isOpen) {
+						uiState.visible = true
+						uiState.timeout = null
+					} else if (!isOpen) {
+						uiState.visible = false
+						uiState.timeout = setTimeout(() => {
+							uiState.domExists = false
+							uiState.timeout = null
+						}, 500) // leave time for transition to finish
+					}
+				}, 0) // We need the height to be 0 then change immediately for the transition to play
+			}
+		})
+	})
 </script>
 
 <svelte:window
 	on:keydown={(e) => {
-		if (!open || !processedItems?.length) return
+		if (!uiState.visible || !processedItems?.length) return
 		if (e.key === 'ArrowUp' && keyArrowPos !== undefined && processedItems.length > 0) {
 			keyArrowPos = keyArrowPos <= 0 ? undefined : keyArrowPos - 1
 		} else if (e.key === 'ArrowDown') {
@@ -99,55 +149,71 @@
 />
 
 <ConditionalPortal condition={!disablePortal} name="select-dropdown-portal">
-	{#if open && !disabled}
+	{#if uiState.domExists}
 		<div
 			class={twMerge(
 				disablePortal ? 'absolute' : 'fixed',
-				'flex flex-col z-[5001] max-h-64 overflow-y-auto bg-surface-secondary text-tertiary text-sm select-none border rounded-lg shadow-lg',
+				'z-[5001] text-tertiary text-sm select-none',
+				dropdownPos.isBelow ? '' : 'flex flex-col justify-end',
+				uiState.visible ? '' : 'pointer-events-none',
 				className
 			)}
 			style="{`top: ${dropdownPos.y}px; left: ${dropdownPos.x}px;`} {listAutoWidth
-				? `min-width: ${dropdownPos.width}px;`
+				? `min-width: ${dropdownPos.width}px; height: ${dropdownPos.height}px;`
 				: ''}"
-			bind:this={listEl}
 		>
-			{@render header?.()}
-			{#if processedItems?.length === 0}
-				<div class="py-8 px-4 text-center text-primary">{noItemsMsg}</div>
-			{/if}
-			<ul class={twMerge('flex-1 overflow-y-auto flex flex-col', ulClass)}>
-				{#each processedItems ?? [] as item, itemIndex}
-					{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
-						<li
-							class={twMerge(
-								'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b',
-								itemIndex === 0 ? 'mt-3' : 'mt-6'
-							)}
-						>
-							{item.__select_group}
-						</li>
+			<div
+				class={twMerge(
+					'overflow-clip rounded-md bg-surface-secondary shadow-lg transition-height',
+					dropdownPos.isBelow ? '' : 'flex flex-col justify-end'
+				)}
+				style="height: {uiState.visible ? dropdownPos.height : 0}px;"
+			>
+				<div bind:this={listEl} class="flex flex-col max-h-64 border rounded-md overflow-clip">
+					{@render header?.()}
+					{#if processedItems?.length === 0}
+						<div class="py-8 px-4 text-center text-primary">{noItemsMsg}</div>
 					{/if}
-					<li>
-						<button
-							class={twMerge(
-								'py-2 px-4 w-full font-normal text-left text-primary',
-								itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
-								item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover'
-							)}
-							onclick={(e) => {
-								e.stopImmediatePropagation()
-								onSelectValue(item)
-							}}
-						>
-							{@render startSnippet?.({ item })}
-							{item.label || '\xa0'}
-							{#if item.subtitle}
-								<div class="text-xs text-tertiary">{item.subtitle}</div>
+					<ul class={twMerge('flex-1 overflow-y-auto flex flex-col', ulClass)}>
+						{#each processedItems ?? [] as item, itemIndex}
+							{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
+								<li
+									class={twMerge(
+										'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b',
+										itemIndex === 0 ? 'mt-3' : 'mt-6'
+									)}
+								>
+									{item.__select_group}
+								</li>
 							{/if}
-						</button>
-					</li>
-				{/each}
-			</ul>
+							<li>
+								<button
+									class={twMerge(
+										'py-2 px-4 w-full font-normal text-left text-primary',
+										itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
+										item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover',
+										itemButtonWrapperClasses
+									)}
+									onclick={(e) => {
+										e.stopImmediatePropagation()
+										onSelectValue(item)
+									}}
+								>
+									{@render startSnippet?.({ item, close: () => (open = false) })}
+									<span class={itemLabelWrapperClasses}>
+										{item.label || '\xa0'}
+									</span>
+									{@render endSnippet?.({ item, close: () => (open = false) })}
+									{#if item.subtitle}
+										<div class="text-xs text-tertiary">{item.subtitle}</div>
+									{/if}
+								</button>
+							</li>
+						{/each}
+					</ul>
+					{@render bottomSnippet?.({ close: () => (open = false) })}
+				</div>
+			</div>
 		</div>
 	{/if}
 </ConditionalPortal>

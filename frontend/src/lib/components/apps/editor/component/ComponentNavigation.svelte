@@ -11,6 +11,7 @@
 		left
 	} from './componentCallbacks.svelte'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
+	import { isCurrentlyInTutorial } from '$lib/stores'
 
 	const { history, movingcomponents, jobsDrawerOpen, runnableJobEditorPanel } =
 		getContext<AppEditorContext>('AppEditorContext') as AppEditorContext
@@ -33,7 +34,8 @@
 		if (
 			(typeof classes === 'string' && classes.includes('inputarea')) ||
 			['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName!) ||
-			$runnableJobEditorPanel.focused
+			$runnableJobEditorPanel.focused ||
+			isCurrentlyInTutorial.val
 		) {
 			return
 		}

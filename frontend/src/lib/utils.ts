@@ -690,9 +690,7 @@ export function setInputCat(
 		return 'object'
 	} else if (type == 'string' && enum_) {
 		return 'enum'
-	} else if (type == 'string' && format == 'date-time') {
-		return 'date'
-	} else if (type == 'string' && format == 'date') {
+	} else if (type == 'string' && ['date-time', 'naive-date-time', 'date'].includes(format!)) {
 		return 'date'
 	} else if (type == 'string' && format == 'sql') {
 		return 'sql'
@@ -1072,18 +1070,17 @@ export async function tryEvery({
 		timeoutCode()
 	}
 }
-
-export function roughSizeOfObject(object: object | string) {
-	if (typeof object == 'string') {
+export function roughSizeOfObject(object: object | string | any) {
+	if (typeof object === 'string') {
 		return object.length * 2
 	}
 
-	var objectList: any[] = []
-	var stack = [object]
-	var bytes = 0
+	const visited = new Set<object>()
+	const stack = [object]
+	let bytes = 0
 
 	while (stack.length) {
-		let value: any = stack.pop()
+		const value = stack.pop()
 
 		if (typeof value === 'boolean') {
 			bytes += 4
@@ -1091,12 +1088,12 @@ export function roughSizeOfObject(object: object | string) {
 			bytes += value.length * 2
 		} else if (typeof value === 'number') {
 			bytes += 8
-		} else if (typeof value === 'object' && objectList.indexOf(value) === -1) {
-			objectList.push(value)
+		} else if (typeof value === 'object' && value !== null && !visited.has(value)) {
+			visited.add(value)
 
-			for (var i in value) {
-				bytes += 2 * i.length
-				stack.push(value[i])
+			for (const key in value) {
+				bytes += 2 * key.length
+				stack.push(value[key])
 			}
 		}
 	}
@@ -1620,4 +1617,8 @@ export function createCache<Keys extends Record<string, any>, T, InitialKeys ext
 		}
 		return cache.get(key)!.value
 	}
+}
+
+export async function wait(ms: number) {
+	return new Promise((resolve) => setTimeout(() => resolve(undefined), ms))
 }

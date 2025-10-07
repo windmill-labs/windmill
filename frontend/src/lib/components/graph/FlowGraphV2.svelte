@@ -102,6 +102,7 @@
 		flowJob?: Job | undefined
 		showJobStatus?: boolean
 		suspendStatus?: Record<string, { job: Job; nb: number }>
+		chatInputEnabled?: boolean
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -180,7 +181,8 @@
 		flowJob = undefined,
 		showJobStatus = false,
 		suspendStatus = {},
-		flowHasChanged = false
+		flowHasChanged = false,
+		chatInputEnabled = false
 	}: Props = $props()
 
 	setContext<{
@@ -484,6 +486,7 @@
 				showJobStatus,
 				suspendStatus,
 				flowHasChanged,
+				chatInputEnabled,
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
 			untrack(() => failureModule),

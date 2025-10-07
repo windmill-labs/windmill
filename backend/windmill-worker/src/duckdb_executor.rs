@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::env;
-use std::ffi::{c_char, CString};
+use std::ffi::{c_char, CStr, CString};
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 
@@ -10,7 +10,7 @@ use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use windmill_common::error::{to_anyhow, Error, Result};
-use windmill_common::s3_helpers::S3Object;
+use windmill_common::s3_helpers::{S3Object, S3_PROXY_LAST_ERRORS_CACHE};
 use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::Connection;
 use windmill_common::workspaces::{get_ducklake_from_db_unchecked, DucklakeCatalogResourceType};
@@ -128,7 +128,7 @@ pub async fn do_duckdb(
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
 
-        let (result, column_order) = tokio::task::spawn_blocking(move || {
+        let result = tokio::task::spawn_blocking(move || {
             run_duckdb_ffi_safe(
                 query_block_list.iter().map(String::as_str),
                 query_block_list.len(),
@@ -139,7 +139,21 @@ pub async fn do_duckdb(
             )
         })
         .await
-        .map_err(to_anyhow)??;
+        .map_err(|e| Error::from(to_anyhow(e)))
+        .and_then(|r| r);
+        let (result, column_order) = match result {
+            Ok(r) => r,
+            Err(e) => {
+                if let Some(s3_proxy_err) = S3_PROXY_LAST_ERRORS_CACHE.get(&client.token) {
+                    return Err(Error::ExecutionErr(format!(
+                        "{}\n\nS3 Related Error: {}",
+                        e.to_string(),
+                        s3_proxy_err,
+                    )));
+                }
+                return Err(e);
+            }
+        };
 
         drop(bigquery_credentials);
 
@@ -193,6 +207,7 @@ struct DuckDbFfiLib {
             column_order_ptr: *mut *mut c_char,
         ) -> *mut c_char,
     >,
+    free_cstr: Symbol<'static, unsafe extern "C" fn(string: *mut c_char) -> ()>,
 }
 
 impl DuckDbFfiLib {
@@ -232,6 +247,7 @@ impl DuckDbFfiLib {
         let lib = Box::leak(Box::new(lib));
         Ok(DuckDbFfiLib {
             run_duckdb_ffi: unsafe { lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? },
+            free_cstr: unsafe { lib.get(b"free_cstr").map_err(to_anyhow)? },
         })
     }
 }
@@ -264,8 +280,9 @@ fn run_duckdb_ffi_safe<'a>(
     let w_id = CString::new(w_id).map_err(to_anyhow)?;
 
     let run_duckdb_ffi = &DuckDbFfiLib::get_singleton()?.run_duckdb_ffi;
+    let free_cstr = &DuckDbFfiLib::get_singleton()?.free_cstr;
     let mut column_order: *mut c_char = std::ptr::null_mut();
-    let result_cstr = unsafe {
+    let result_str = unsafe {
         let ptr = run_duckdb_ffi(
             query_block_list.as_ptr(),
             query_block_list_count,
@@ -275,26 +292,18 @@ fn run_duckdb_ffi_safe<'a>(
             w_id.as_ptr(),
             &mut column_order,
         );
-        CString::from_raw(ptr) // Using from_raw to take ownership and ensure it gets freed
+        let str = CStr::from_ptr(ptr).to_string_lossy().to_string();
+        free_cstr(ptr);
+        str
     };
 
     let column_order = if column_order.is_null() {
         None
     } else {
-        Some(unsafe {
-            serde_json::from_str::<Vec<String>>(&CString::from_raw(column_order).to_string_lossy())?
-        })
+        let str = unsafe { CStr::from_ptr(column_order).to_string_lossy().to_string() };
+        unsafe { free_cstr(column_order) };
+        Some(serde_json::from_str::<Vec<String>>(&str)?)
     };
-
-    let result_str = result_cstr
-        .to_str()
-        .map_err(|e| {
-            Error::ExecutionErr(format!(
-                "Failed to convert result C string to Rust string: {}",
-                e.to_string()
-            ))
-        })?
-        .to_string();
 
     if result_str.starts_with("ERROR") {
         Err(Error::ExecutionErr(result_str[6..].to_string()))

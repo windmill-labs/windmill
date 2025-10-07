@@ -172,7 +172,12 @@
 			href: `${base}/runs`,
 			icon: Play,
 			aiId: 'sidebar-menu-link-runs',
-			aiDescription: 'Button to navigate to runs'
+			aiDescription: 'Button to navigate to runs',
+			onclick: () => {
+				setTimeout(() => {
+					window.dispatchEvent(new Event('popstate'))
+				}, 100)
+			}
 		},
 		{
 			label: 'Variables',
@@ -359,7 +364,7 @@
 							}
 						]
 					: []),
-				...($workspaceStore?.startsWith("wm-fork")
+				...($workspaceStore?.startsWith('wm-fork')
 					? [
 							{
 								label: 'Delete Forked Workspace',
@@ -370,7 +375,7 @@
 								faIcon: undefined
 							}
 						]
-					: []),
+					: [])
 			],
 			disabled: $userStore?.operator
 		},
@@ -572,14 +577,9 @@
 							{/snippet}
 						</Menu>
 					{:else}
-						<MenuSingleItem {createMenu}>
-							{#snippet triggr({ trigger })}
-								<div class="w-full">
-									<MenuButton class="!text-2xs" {...menuLink} {isCollapsed} {trigger} />
-								</div>
-							{/snippet}
-							{#snippet children({ item })}
-								<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} {item} />
+						<MenuSingleItem>
+							{#snippet children({})}
+								<MenuLink class="!text-2xs" {...menuLink} {isCollapsed} />
 							{/snippet}
 						</MenuSingleItem>
 					{/if}
@@ -665,20 +665,20 @@
 	</div>
 </ConfirmationModal>
 
-{#if $workspaceStore?.startsWith("wm-fork-")}
-<ConfirmationModal
-	open={deleteWorkspaceForkModal}
-	title="Delete forked workspace"
-	confirmationText="Remove"
-	on:canceled={() => {
-		deleteWorkspaceForkModal = false
-	}}
-	on:confirmed={() => {
-		deleteFork()
-	}}
->
-	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to delete this workspace fork? (deleting {$workspaceStore})</span>
-	</div>
-</ConfirmationModal>
+{#if $workspaceStore?.startsWith('wm-fork-')}
+	<ConfirmationModal
+		open={deleteWorkspaceForkModal}
+		title="Delete forked workspace"
+		confirmationText="Remove"
+		on:canceled={() => {
+			deleteWorkspaceForkModal = false
+		}}
+		on:confirmed={() => {
+			deleteFork()
+		}}
+	>
+		<div class="flex flex-col w-full space-y-4">
+			<span>Are you sure you want to delete this workspace fork? (deleting {$workspaceStore})</span>
+		</div>
+	</ConfirmationModal>
 {/if}

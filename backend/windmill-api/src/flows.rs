@@ -545,6 +545,7 @@ async fn create_flow(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
     )
     .await?;
 
@@ -937,7 +938,7 @@ async fn update_flow(
         clear_schedule(&mut tx, &schedule.path, &w_id).await?;
 
         if schedule.enabled {
-            tx = push_scheduled_job(&db, tx, &schedule, None).await?;
+            tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
         }
     }
 
@@ -1012,6 +1013,7 @@ async fn update_flow(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
     )
     .await?;
     sqlx::query!(
@@ -1593,6 +1595,7 @@ mod tests {
             priority: None,
             early_return: None,
             concurrency_key: None,
+            chat_input_enabled: None,
         };
         let expect = serde_json::json!({
           "modules": [

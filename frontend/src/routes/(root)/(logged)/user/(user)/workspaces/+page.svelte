@@ -70,7 +70,7 @@
 
 	async function loadWorkspacesAsAdmin() {
 		workspaces = (await WorkspaceService.listWorkspacesAsSuperAdmin({ perPage: 1000 })).map((x) => {
-			return { ...x, username: 'superadmin' }
+			return { ...x, username: 'superadmin', disabled: false }
 		})
 	}
 
@@ -175,7 +175,7 @@
 
 	{#if adminsInstance}
 		<Button
-			btnClasses="w-full mt-2 mb-4 truncate"
+			btnClasses="w-full mt-2 mb-4 truncate text-secondary"
 			color="light"
 			size="sm"
 			on:click={async () => {
@@ -205,9 +205,16 @@
 			<label class="block pb-2" style:padding-left={`${depth * 24}px`}>
 				<button
 					class="w-full mx-auto py-1 px-2 rounded-md border
-					shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300 flex items-center"
+					shadow-sm text-sm text-secondary font-normal mt-1 flex items-center"
+					class:opacity-50={workspace.disabled}
+					class:cursor-not-allowed={workspace.disabled}
+					class:hover:ring-1={!workspace.disabled}
+					class:hover:ring-indigo-300={!workspace.disabled}
+					disabled={workspace.disabled}
 					on:click={async () => {
-						speakFriendAndEnterWorkspace(workspace.id)
+						if (!workspace.disabled) {
+							speakFriendAndEnterWorkspace(workspace.id)
+						}
 					}}
 				>
 					{#if isForked}
@@ -226,6 +233,9 @@
 						<span class="font-mono" class:text-secondary={isForked}>{workspace.username}</span>
 						{#if workspace['deleted']}
 							<span class="text-red-500"> (archived)</span>
+						{/if}
+						{#if workspace.disabled}
+							<span class="text-red-500"> (user disabled in this workspace)</span>
 						{/if}
 						{#if isForked && parentName}
 							<span class="text-tertiary text-xs mt-1">

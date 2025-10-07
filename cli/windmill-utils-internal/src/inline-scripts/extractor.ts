@@ -1,4 +1,4 @@
-import { newPathAssigner } from "../path-utils/path-assigner.ts";
+import { newPathAssigner, PathAssigner } from "../path-utils/path-assigner.ts";
 import { FlowModule } from "../gen/types.gen.ts";
 
 /**
@@ -17,20 +17,25 @@ interface InlineScript {
  *
  * @param modules - Array of flow modules to process
  * @param mapping - Optional mapping of module IDs to custom file paths
+ * @param separator - Path separator to use
  * @param defaultTs - Default TypeScript runtime to use ("bun" or "deno")
+ * @param pathAssigner - Optional path assigner to reuse (for nested calls)
  * @returns Array of inline scripts with their paths and content
  */
 export function extractInlineScripts(
   modules: FlowModule[],
   mapping: Record<string, string> = {},
   separator: string = "/",
-  defaultTs?: "bun" | "deno"
+  defaultTs?: "bun" | "deno",
+  pathAssigner?: PathAssigner
 ): InlineScript[] {
-  const pathAssigner = newPathAssigner(defaultTs ?? "bun");
+  // Create pathAssigner only if not provided (top-level call), but reuse it for nested calls
+  const assigner = pathAssigner ?? newPathAssigner(defaultTs ?? "bun");
+
   return modules.flatMap((m) => {
     if (m.value.type == "rawscript") {
       let basePath, ext;
-      [basePath, ext] = pathAssigner.assignPath(m.summary, m.value.language);
+      [basePath, ext] = assigner.assignPath(m.summary, m.value.language);
       const path = mapping[m.id] ?? basePath + ext;
       const content = m.value.content;
       const r = [{ path: path, content: content }];
@@ -47,25 +52,39 @@ export function extractInlineScripts(
         m.value.modules,
         mapping,
         separator,
-        defaultTs
+        defaultTs,
+        assigner
       );
     } else if (m.value.type == "branchall") {
       return m.value.branches.flatMap((b) =>
-        extractInlineScripts(b.modules, mapping, separator, defaultTs)
+        extractInlineScripts(b.modules, mapping, separator, defaultTs, assigner)
       );
     } else if (m.value.type == "whileloopflow") {
       return extractInlineScripts(
         m.value.modules,
         mapping,
         separator,
-        defaultTs
+        defaultTs,
+        assigner
       );
     } else if (m.value.type == "branchone") {
       return [
         ...m.value.branches.flatMap((b) =>
-          extractInlineScripts(b.modules, mapping, separator, defaultTs)
+          extractInlineScripts(
+            b.modules,
+            mapping,
+            separator,
+            defaultTs,
+            assigner
+          )
         ),
-        ...extractInlineScripts(m.value.default, mapping, separator, defaultTs),
+        ...extractInlineScripts(
+          m.value.default,
+          mapping,
+          separator,
+          defaultTs,
+          assigner
+        ),
       ];
     } else {
       return [];

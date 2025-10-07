@@ -3,7 +3,7 @@
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
-	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs, inferAssets } from '$lib/infer'
@@ -50,6 +50,7 @@
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
 	import { editor as meditor } from 'monaco-editor'
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
+	import { copilotInfo } from '$lib/aiStore'
 
 	interface Props {
 		// Exported
@@ -124,7 +125,7 @@
 	})
 	let showHistoryDrawer = $state(false)
 
-	let jobProgressReset: (() => void) | undefined = $state(undefined)
+	let jobProgressBar: JobProgressBar | undefined = $state(undefined)
 	let diffMode = $state(false)
 
 	let websocketAlive = $state({
@@ -201,7 +202,7 @@
 
 	export async function runTest() {
 		// Not defined if JobProgressBar not loaded
-		if (jobProgressReset) jobProgressReset()
+		jobProgressBar?.reset()
 		//@ts-ignore
 		let job = await jobLoader.runPreview(
 			path,
@@ -528,7 +529,7 @@
 						icon: Github
 					}}
 				>
-					Use VScode
+					VScode
 				</Button>
 			</div>
 		{/if}
@@ -537,7 +538,7 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
-			<div class="h-full !overflow-visible bg-gray-50 dark:bg-[#272D38] relative">
+			<div class="h-full !overflow-visible bg-surface dark:bg-[#272D38] relative">
 				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
 					{#if assets?.length}
 						<AssetsDropdownButton {assets} />
@@ -784,8 +785,8 @@
 								<!-- Put to the slot in logpanel -->
 								<JobProgressBar
 									job={testJob}
-									bind:scriptProgress
-									bind:reset={jobProgressReset}
+									{scriptProgress}
+									bind:this={jobProgressBar}
 									compact={true}
 								/>
 							{/if}

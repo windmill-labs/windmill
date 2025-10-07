@@ -353,13 +353,21 @@
 						</div>
 					{/if}
 				{:else if setting.fieldType == 'codearea'}
-					<SimpleEditor
-						autoHeight
-						class="editor"
-						lang={setting.codeAreaLang ?? 'txt'}
-						bind:code={$values[setting.key]}
-						fixedOverflowWidgets={false}
-					/>
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						onclick={(ev) => {
+							ev.stopPropagation() // this is to prevent wrapping label interference
+						}}
+					>
+						<SimpleEditor
+							autoHeight
+							class="editor"
+							lang={setting.codeAreaLang ?? 'txt'}
+							bind:code={$values[setting.key]}
+							fixedOverflowWidgets={false}
+						/></div
+					>
 				{:else if setting.fieldType == 'license_key'}
 					{@const { valid, expiration } = parseLicenseKey($values[setting.key] ?? '')}
 					<div class="flex gap-2">
@@ -738,7 +746,7 @@
 										The max amount of documents (here jobs) per commit. To optimize indexing
 										throughput, it is best to keep this as high as possible. However, especially
 										when reindexing the whole instance, it can be useful to have a limit on how many
-										jobs can be written without being commited. A commit will make the jobs
+										jobs can be written without being committed. A commit will make the jobs
 										available for search, constitute a "checkpoint" state in the indexing and will
 										be logged.
 									</Tooltip>
@@ -797,7 +805,7 @@
 										representing all logs during 1 minute for a specific host. To optimize indexing
 										throughput, it is best to keep this as high as possible. However, especially
 										when reindexing the whole instance, it can be useful to have a limit on how many
-										logs can be written without being commited. A commit will make the logs
+										logs can be written without being committed. A commit will make the logs
 										available for search, appear as a log line, and be a "checkpoint" of the
 										indexing progress.
 									</Tooltip>

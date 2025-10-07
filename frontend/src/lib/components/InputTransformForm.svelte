@@ -23,7 +23,6 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { tick } from 'svelte'
-	import { fade } from 'svelte/transition'
 	import { buildPrefixRegex } from './flows/previousResults'
 	import type VariableEditor from './VariableEditor.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
@@ -39,6 +38,7 @@
 	import FlowPlugConnect from './FlowPlugConnect.svelte'
 	import { deepEqual } from 'fast-equals'
 	import S3ArrayHelperButton from './S3ArrayHelperButton.svelte'
+	import { inputBorderClass } from './text_input/TextInput.svelte'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
@@ -90,7 +90,6 @@
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
 	let monacoTemplate: TemplateEditor | undefined = $state(undefined)
-	let argInput: ArgInput | undefined = $state(undefined)
 	let focusedPrev = false
 
 	let hidden = $state(false)
@@ -355,32 +354,6 @@
 
 	function onFocus() {
 		focused = true
-		if (isStaticTemplate(inputCat)) {
-			focusProp?.(argName, 'append', (path) => {
-				// Empty field + variable = use $var:/$res: syntax instead of ${...}
-				const isEmpty = !arg.value || arg.value.trim() === ''
-
-				if (isEmpty && variableMatch(path)) {
-					connectProperty(path)
-					return true
-				} else {
-					const toAppend = `\$\{${path}}`
-					arg.value = `${arg.value ?? ''}${toAppend}`
-					monacoTemplate?.setCode(arg.value)
-					setPropertyType(arg.value)
-					argInput?.focus()
-					return false
-				}
-			})
-		} else {
-			focusProp?.(argName, 'insert', (path) => {
-				arg.expr = path
-				arg.type = 'javascript'
-				propertyType = 'javascript'
-				monaco?.setCode(arg.expr)
-				return true
-			})
-		}
 	}
 
 	let prevArg: any = undefined
@@ -470,18 +443,10 @@
 	)
 </script>
 
-{#if arg != undefined && !hidden}
-	<div
-		class={twMerge(
-			'pl-2 pt-2 pb-2 ml-2 relative hover:bg-surface hover:shadow-md transition-all duration-200',
-			$propPickerConfig?.propName == argName
-				? 'bg-surface border-l-4 border-blue-500 shadow-md rounded-l-md z-50 '
-				: 'hover:rounded-md',
-			className
-		)}
-	>
-		<div class="flex flex-row justify-between gap-1 pb-1 px-2">
-			<div class="flex flex-wrap grow">
+{#if arg != undefined}
+	<div class={twMerge('pt-2 pb-2 relative group', className)}>
+		<div class="flex flex-row justify-between gap-1 pb-1">
+			<div class="flex flex-wrap grow min-h-7 items-end">
 				<FieldHeader
 					label={argName}
 					simpleTooltip={headerTooltip}
@@ -496,7 +461,7 @@
 				{#if isStaticTemplate(inputCat)}
 					<div>
 						<span
-							class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 !py-0.5 rounded ml-2 {propertyType ==
+							class="border text-gray-400 dark:text-gray-500 text-2xs font-medium mr-2 px-1 !py-[1px] rounded ml-2.5 {propertyType ==
 								'static' && arg.type === 'javascript'
 								? 'visible'
 								: 'invisible'}"
@@ -507,7 +472,9 @@
 				{/if}
 			</div>
 			{#if !noDynamicToggle}
-				<div class="flex flex-row gap-x-2 gap-y-1 flex-wrap z-10 items-center">
+				<div
+					class="flex flex-row gap-x-2 z-10 absolute right-0 group-hover:bg-surface transition-colors"
+				>
 					{#if enableAi}
 						<StepInputGen
 							bind:this={stepInputGen}
@@ -536,8 +503,40 @@
 							}}
 							{pickableProperties}
 							{argName}
+							btnClass={twMerge(
+								'h-6 min-w-8 px-2',
+								'group-hover:opacity-100 transition-opacity',
+								!connecting ? 'opacity-0' : ''
+							)}
 						/>
 					{/if}
+
+					{#if propPickerWrapperContext}
+						<FlowPlugConnect
+							wrapperClasses={twMerge(
+								connecting ? 'h-5 w-7' : 'h-6 w-8',
+								'group-hover:opacity-100 transition-opacity p-0',
+								!connecting ? 'opacity-0' : ''
+							)}
+							id="flow-editor-plug"
+							{connecting}
+							on:click={() => {
+								if (
+									$propPickerConfig?.propName == argName &&
+									$propPickerConfig?.insertionMode == 'connect'
+								) {
+									clearFocus()
+								} else {
+									focusProp?.(argName, 'connect', (path) => {
+										connectProperty(path)
+										dispatch('change', { argName })
+										return true
+									})
+								}
+							}}
+						/>
+					{/if}
+
 					<div>
 						<ToggleButtonGroup
 							selected={propertyType}
@@ -593,19 +592,20 @@
 									propertyType = 'static'
 								}
 							}}
+							class="h-6"
 						>
 							{#snippet children({ item })}
 								{#if isStaticTemplate(inputCat)}
 									<ToggleButton
-										tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
 										light
+										small
+										tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
 										value="static"
-										size="xs2"
 										label={'${}'}
 										{item}
 									/>
 								{:else}
-									<ToggleButton small label="Static" value="static" {item} />
+									<ToggleButton light small label="static" value="static" {item} />
 								{/if}
 
 								{#if codeInjectionDetected && propertyType == 'static'}
@@ -634,27 +634,6 @@
 							{/snippet}
 						</ToggleButtonGroup>
 					</div>
-
-					{#if propPickerWrapperContext && inputCat !== 'dynamic'}
-						<FlowPlugConnect
-							id="flow-editor-plug"
-							{connecting}
-							on:click={() => {
-								if (
-									$propPickerConfig?.propName == argName &&
-									$propPickerConfig?.insertionMode == 'connect'
-								) {
-									clearFocus()
-								} else {
-									focusProp?.(argName, 'connect', (path) => {
-										connectProperty(path)
-										dispatch('change', { argName })
-										return true
-									})
-								}
-							}}
-						/>
-					{/if}
 				</div>
 			{/if}
 		</div>
@@ -674,12 +653,7 @@
 			<div class="relative flex flex-row items-top gap-2 justify-between">
 				<div class="min-w-0 grow">
 					{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-						{#if argName && schema?.properties?.[argName]?.description}
-							<div class="text-xs italic pb-1 text-secondary">
-								<pre class="font-main">{schema.properties[argName].description}</pre>
-							</div>
-						{/if}
-						<div class="mt-2 min-h-[28px]">
+						<div>
 							{#if arg}
 								<TemplateEditor
 									bind:this={monacoTemplate}
@@ -694,7 +668,15 @@
 										dispatch('change', { argName, arg })
 									}}
 									loadAsync
+									class="bg-surface-secondary"
 								/>
+							{/if}
+							{#if argName && schema?.properties?.[argName]?.description}
+								<div class="text-xs italic py-1 text-hint">
+									<pre class="font-main whitespace-normal"
+										>{schema.properties[argName].description}</pre
+									>
+								</div>
 							{/if}
 						</div>
 					{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}
@@ -702,7 +684,6 @@
 							{resourceTypes}
 							noMargin
 							compact
-							bind:this={argInput}
 							on:focus={onFocus}
 							on:blur={() => {
 								focused = false
@@ -743,47 +724,45 @@
 									transform?.type === 'static' ? transform.value : transform?.expr
 								])
 							)}
-						/>
-
-						{#if shouldShowS3ArrayHelper}
-							<S3ArrayHelperButton
-								{connecting}
-								onClick={() =>
-									switchToJsAndConnect((path) => appendPathToArrayExpr(arg.expr, path))}
-							/>
-						{/if}
+						>
+							{#snippet innerBottomSnippet()}
+								{#if shouldShowS3ArrayHelper}
+									<S3ArrayHelperButton
+										{connecting}
+										onClick={() =>
+											switchToJsAndConnect((path) => appendPathToArrayExpr(arg.expr, path))}
+									/>
+								{/if}
+							{/snippet}
+						</ArgInput>
 					{:else if arg.expr != undefined}
-						<div class="border mt-2">
+						<div
+							class={`bg-surface-secondary rounded-md flex flex-col pl-4 ${inputBorderClass({ forceFocus: focused })}`}
+						>
 							<SimpleEditor
 								bind:this={monaco}
 								bind:code={arg.expr}
+								yPadding={8}
 								{extraLib}
 								lang="javascript"
 								shouldBindKey={false}
-								on:focus={() => {
-									focused = true
-									focusProp?.(argName, 'insert', (path) => {
-										monaco?.insertAtCursor(path)
-										return false
-									})
-								}}
+								renderLineHighlight="none"
+								hideLineNumbers
+								fakeMonacoPlaceholderClass="mt-2"
+								on:focus={() => (focused = true)}
+								on:blur={() => (focused = false)}
 								on:change={() => {
 									dispatch('change', { argName, arg })
-								}}
-								on:blur={() => {
-									focused = false
 								}}
 								autoHeight
 								loadAsync
 							/>
 							<!-- <input type="text" bind:value={arg.expr} /> -->
 						</div>
-						{#if !hideHelpButton}
-							<DynamicInputHelpBox />
-						{/if}
 
 						{#if shouldShowS3ArrayHelper}
 							<S3ArrayHelperButton
+								class="mt-2"
 								{connecting}
 								onClick={() =>
 									focusProp?.(argName, 'connect', (path) => {
@@ -793,9 +772,23 @@
 							/>
 						{/if}
 
+						{#if argName && schema?.properties?.[argName]?.description}
+							<div class="text-xs italic py-1 text-hint">
+								<pre class="font-main whitespace-normal"
+									>{schema.properties[argName].description}</pre
+								>
+							</div>
+						{/if}
+
+						{#if !hideHelpButton}
+							<DynamicInputHelpBox />
+						{/if}
+
 						<div class="mb-2"></div>
 					{:else}
-						Not recognized input type {argName} ({arg.expr}, {propertyType})
+						<span class="text-xs text-red-500">
+							Not recognized input type {argName} ({arg.expr}, {propertyType})
+						</span>
 						<div class="flex mt-2">
 							<Button
 								variant="border"
@@ -807,29 +800,6 @@
 						>
 					{/if}
 				</div>
-
-				{#if $propPickerConfig?.propName == argName}
-					<div
-						class="text-blue-500 absolute top-2 lg:-right-2.5 -right-1"
-						in:fade={{ duration: 200 }}
-					>
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							width="16"
-							height="24"
-							viewBox="0 0 24 24"
-							fill="currentColor"
-							stroke="currentColor"
-							stroke-width="2"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						>
-							<polyline points="24 24 12 12 24 0" />
-						</svg>
-					</div>
-				{:else}
-					<div class="w-0"></div>
-				{/if}
 			</div>
 		</div>
 	</div>
