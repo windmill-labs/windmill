@@ -150,6 +150,7 @@ mod smtp_server_oss;
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
 
+mod native_triggers;
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
 pub mod stripe_ee;
@@ -372,6 +373,7 @@ pub async fn run_server(
 
     if !*CLOUD_HOSTED && server_mode && !mcp_mode {
         start_all_listeners(db.clone(), &killpill_rx);
+        native_triggers::sync::start_sync_loop(db.clone(), killpill_rx.resubscribe());
     }
 
     let listener = tokio::net::TcpListener::bind(addr)
@@ -454,6 +456,7 @@ pub async fn run_server(
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
+                        .nest("/native_triggers", native_triggers::handler::generate_native_trigger_routers())
                         .nest("/oauth", {
                             #[cfg(feature = "oauth2")]
                             {
