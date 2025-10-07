@@ -194,7 +194,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Private Hub base url',
 			description:
-				'Base URL of your private Hub instance, without trailing slash. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
+				'Base URL of your Private Hub instance, without trailing slash. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
 			placeholder: 'https://hub.company.com',
 			key: 'hub_base_url',
 			fieldType: 'text',
@@ -229,9 +229,9 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Private Hub API secret',
 			description:
-				'If your private hub is protected, you can set the hub API secret here. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
+				'If access to your Private Hub is restricted, you can set the hub API secret here. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
 			key: 'hub_api_secret',
-			fieldType: 'text',
+			fieldType: 'password',
 			storage: 'setting',
 			ee_only: '',
 			requiresReloadOnChange: true
@@ -365,7 +365,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'PowerShell Repository PAT',
 			description: 'Add private PowerShell repository Personal Access Token',
 			key: 'powershell_repo_pat',
-			fieldType: 'text',
+			fieldType: 'password',
 			storage: 'setting',
 			ee_only: ''
 		}
