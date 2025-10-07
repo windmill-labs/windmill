@@ -48,12 +48,12 @@
 	$: badgeClass = classNames(
 		baseClass,
 		small
-			? 'text-xs'
+			? 'text-xs font-normal'
 			: verySmall
-				? 'text-2xs'
+				? 'text-2xs font-normal'
 				: large
-					? 'text-sm font-medium'
-					: 'text-xs font-semibold',
+					? 'text-xs font-medium'
+					: 'text-2xs font-normal',
 		colors[color],
 		href &&
 			(color.startsWith(ColorModifier) ? hovers[color.replace(ColorModifier, '')] : hovers[color]),
