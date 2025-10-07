@@ -126,11 +126,13 @@ pub fn initialize_tracing(
 
     // Create a common filter for OTEL logs bridge and tracing layer to respect RUST_LOG
     let otel_logs_filter = file_env_filter.clone();
-    let otel_tracing_filter = file_env_filter.clone();
 
     // Apply filter to the opentelemetry tracing layer to prevent debug events from being attached to spans
     #[cfg(all(feature = "otel", feature = "enterprise"))]
-    let opentelemetry_filtered = opentelemetry.map(|layer| layer.with_filter(otel_tracing_filter));
+    let opentelemetry_filtered = {
+        let otel_tracing_filter = file_env_filter.clone();
+        opentelemetry.map(|layer| layer.with_filter(otel_tracing_filter))
+    };
 
     #[cfg(not(all(feature = "otel", feature = "enterprise")))]
     let opentelemetry_filtered = opentelemetry;
