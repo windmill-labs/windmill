@@ -90,7 +90,6 @@
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
 	let monacoTemplate: TemplateEditor | undefined = $state(undefined)
-	let argInput: ArgInput | undefined = $state(undefined)
 	let focusedPrev = false
 
 	let hidden = $state(false)
@@ -355,32 +354,6 @@
 
 	function onFocus() {
 		focused = true
-		if (isStaticTemplate(inputCat)) {
-			focusProp?.(argName, 'append', (path) => {
-				// Empty field + variable = use $var:/$res: syntax instead of ${...}
-				const isEmpty = !arg.value || arg.value.trim() === ''
-
-				if (isEmpty && variableMatch(path)) {
-					connectProperty(path)
-					return true
-				} else {
-					const toAppend = `\$\{${path}}`
-					arg.value = `${arg.value ?? ''}${toAppend}`
-					monacoTemplate?.setCode(arg.value)
-					setPropertyType(arg.value)
-					argInput?.focus()
-					return false
-				}
-			})
-		} else {
-			focusProp?.(argName, 'insert', (path) => {
-				arg.expr = path
-				arg.type = 'javascript'
-				propertyType = 'javascript'
-				monaco?.setCode(arg.expr)
-				return true
-			})
-		}
 	}
 
 	let prevArg: any = undefined
@@ -711,7 +684,6 @@
 							{resourceTypes}
 							noMargin
 							compact
-							bind:this={argInput}
 							on:focus={onFocus}
 							on:blur={() => {
 								focused = false
@@ -777,18 +749,10 @@
 								renderLineHighlight="none"
 								hideLineNumbers
 								fakeMonacoPlaceholderClass="mt-2"
-								on:focus={() => {
-									focused = true
-									focusProp?.(argName, 'insert', (path) => {
-										monaco?.insertAtCursor(path)
-										return false
-									})
-								}}
+								on:focus={() => (focused = true)}
+								on:blur={() => (focused = false)}
 								on:change={() => {
 									dispatch('change', { argName, arg })
-								}}
-								on:blur={() => {
-									focused = false
 								}}
 								autoHeight
 								loadAsync
