@@ -2513,6 +2513,12 @@ impl std::ops::Deref for PulledJob {
     }
 }
 
+impl std::ops::DerefMut for PulledJob {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.job
+    }
+}
+
 lazy_static::lazy_static! {
     static ref DISABLE_CONCURRENCY_LIMIT: bool = std::env::var("DISABLE_CONCURRENCY_LIMIT").is_ok_and(|s| s == "true");
 }
@@ -2570,10 +2576,13 @@ pub struct PulledJobResult {
     pub suspended: bool,
 }
 
+/// Pull the job from queue
 pub async fn pull(
     db: &Pool<Postgres>,
+    // Whether or not try to pull from suspended jobs first
     suspend_first: bool,
     worker_name: &str,
+    // Execute queries supplied by caller instead of generic one
     query_o: Option<&(String, String)>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<PulledJobResult> {
@@ -2588,6 +2597,8 @@ pub async fn pull(
             tracing::error!("Pull job loop count exceeded 1000, breaking");
             return Ok(PulledJobResult { job: None, suspended: false });
         }
+
+        // TODO: Used only for agent workers?
         if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
                 let job = if query_suspended.is_empty() {
@@ -2631,8 +2642,11 @@ pub async fn pull(
                     continue;
                 }
             }
+            // Will return njob with None on .job.
+            // This will trigger nap for worker upstream.
             return Ok(njob);
         };
+
         let (job, suspended) = pull_single_job_and_mark_as_running_no_concurrency_limit(
             db,
             suspend_first,
@@ -2642,19 +2656,65 @@ pub async fn pull(
         )
         .await?;
 
-        let Some(job) = job else {
+        let Some(mut job) = job else {
             return Ok(PulledJobResult { job: None, suspended });
         };
+
+        if job.kind.is_dependency() {
+            dbg!("WE DELETE debounce key and stuff");
+            // IMPORTANT:
+            // we remove by job_id and NOT by debounce_key.
+            // see how we [push] jobs for more context.
+            //
+            // But briefly we can re-use debounce_key entry if job assigned to it already runs,
+            // in this case we re-assign to it different job_id.
+            //
+            // We do this to eliminate gap where race-condition is possible.
+            // We are not using transaction in this function. So while we are executin this, debounce_key table can be updated.
+            sqlx::query!("DELETE FROM debounce_key WHERE job_id = $1", &job.id)
+                .execute(db)
+                .await?;
+
+            // Take stale data. This is ok to do, since it is indexed by job_id
+            // we wanna replace *_to_relock from job.args with data from debounce_stale_data
+            // TODO: Also set _to_relock to `delegated`;
+            if let Some(stale_data) = sqlx::query_scalar!(
+                "DELETE FROM debounce_stale_data WHERE job_id = $1 RETURNING to_relock",
+                &job.id
+            )
+            .fetch_optional(db)
+            .await?
+            .flatten()
+            {
+                let to_relock = if job
+                    .args
+                    .as_ref()
+                    .map(|args| args.contains_key("nodes_to_relock"))
+                    // TODO: If none we should do something different
+                    .unwrap_or_default()
+                {
+                    "nodes_to_relock"
+                } else {
+                    "components_to_relock"
+                };
+
+                job.args.as_mut().map(|args| {
+                    if let Some(to_relock) = args.get_mut(to_relock) {
+                        *to_relock = to_raw_value(&stale_data);
+                    }
+                });
+            }
+        }
 
         let has_concurent_limit = job.concurrent_limit.is_some();
 
         #[cfg(not(feature = "enterprise"))]
-        if has_concurent_limit {
+        if has_concurent_limit && !job.is_dependency() {
             tracing::error!("Concurrent limits are an EE feature only, ignoring constraints")
         }
 
         #[cfg(not(feature = "enterprise"))]
-        let has_concurent_limit = false;
+        let has_concurent_limit = false || job.is_dependency();
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
         let pulled_job = job;
@@ -2870,6 +2930,7 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
         } else {
             None
         };
+
         if r.is_none() {
             // #[cfg(feature = "benchmark")]
             // let instant = Instant::now();
@@ -2955,6 +3016,44 @@ async fn concurrency_key(
         .map_err(|e| {
             Error::internal_err(format!("Could not get concurrency key for job {id}: {e:#}"))
         })
+}
+
+pub async fn custom_debounce_key(
+    db: &Pool<Postgres>,
+    job_id: &Uuid,
+) -> Result<Option<String>, sqlx::Error> {
+    let fut = async || {
+        sqlx::query_scalar!("SELECT key FROM debounce_key WHERE job_id = $1", job_id)
+            .fetch_optional(db) // this should no longer be fetch optional
+            .await
+    };
+    fut.retry(
+        ConstantBuilder::default()
+            .with_delay(std::time::Duration::from_secs(3))
+            .with_max_times(5)
+            .build(),
+    )
+    .notify(|err, dur| {
+        tracing::error!(
+            "Could not get debounce key for job {job_id}, retrying in {dur:#?}, err: {err:#?}"
+        );
+    })
+    .await
+}
+
+async fn debounce_key(
+    db: &Pool<Postgres>,
+    id: &Uuid,
+) -> windmill_common::error::Result<Option<String>> {
+    custom_debounce_key(db, id)
+        .await
+        .map(|x| {
+            if x.is_none() {
+                tracing::info!("No debounce key found for job {id}, defaulting to empty string");
+            }
+            return x;
+        })
+        .map_err(|e| Error::internal_err(format!("Could not get debounce key for job {id}: {e:#}")))
 }
 
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
@@ -4039,9 +4138,9 @@ pub async fn push<'c, 'd>(
                 value_o,
                 None,
                 None,
-                None,
-                None,
-                None,
+                Some("dependency_job_concurrency_key".into()),
+                Some(1),
+                Some(3), // In seconds?
                 None,
                 dedicated_worker,
                 None,
@@ -4577,6 +4676,114 @@ pub async fn push<'c, 'd>(
         Ulid::new().into()
     };
 
+    // TODO: if enable_debounce
+    // TODO: use parent_job in the match.
+    match (job_kind.is_dependency(), script_path.clone()) {
+        (true, Some(obj_path)) => {
+            let debounce_key = format!("admins:{obj_path}:dependency");
+            if let Some(debounce_job_id) = sqlx::query_scalar!(
+                "SELECT job_id FROM debounce_key WHERE key = $1::text",
+                &debounce_key
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            {
+                dbg!("Debounce-job-id key pair already exist.");
+                // If the job has already started, we do not want to reuse job_id it already has.
+                // We will reuse debounce_key entry however.
+                if sqlx::query_scalar!(
+                    "SELECT running FROM v2_job_queue WHERE id = $1",
+                    &debounce_job_id
+                )
+                .fetch_optional(&mut *tx)
+                .await?
+                    == Some(true)
+                {
+                    dbg!("Assigning new job_id to debounce_key.");
+                    sqlx::query!(
+                        "UPDATE debounce_key SET job_id = $2 WHERE key = $1",
+                        &debounce_key,
+                        job_id,
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                }
+                // TODO: TODO: and to be used it would require a nodes_to_relock to be equal to "dynamic" or "auto", so that dependency jobs from local dev still work same as before
+                // dbg!(&debounce_job_id);
+                if let Some(to_relock) = dbg!(args.args)
+                    // For flows
+                    .get("nodes_to_relock")
+                    // Apps
+                    .or(args.args.get("components_to_relock"))
+                    .and_then(|rv| serde_json::from_str::<Vec<String>>(&rv.to_string()).ok())
+                {
+                    sqlx::query!(
+                        "
+                        INSERT INTO debounce_stale_data (job_id, to_relock)
+                            VALUES ($1, $2)
+                            ON CONFLICT (job_id)
+                                DO UPDATE SET to_relock = (
+                                    SELECT array_agg(DISTINCT x)
+                                    FROM unnest(
+                                        -- Combine existing array with new values
+                                        array_cat(debounce_stale_data.to_relock, EXCLUDED.to_relock)
+                                    ) AS x
+                                )
+                        ",
+                        &debounce_job_id,
+                        to_relock.as_slice()
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                    dbg!("CONSOLIDATED");
+                }
+
+                return Ok((debounce_job_id, tx));
+            } else {
+                dbg!("There is no entry in debounce_key. We will create new one.");
+                sqlx::query!(
+                    "INSERT INTO debounce_key (key, job_id) VALUES ($1, $2)",
+                    &debounce_key,
+                    job_id,
+                )
+                .execute(&mut *tx)
+                .await?;
+                // TODO: enforce better correctness checks
+                // TODO: Only enfore if it is an app or flow djobs
+                if let Some(to_relock) = args
+                    .args
+                    // For flows
+                    .get("nodes_to_relock")
+                    // Apps
+                    .or(args.args.get("components_to_relock"))
+                    .and_then(|rv| serde_json::from_str::<Vec<String>>(&rv.to_string()).ok())
+                {
+                    sqlx::query!(
+                        "
+                        INSERT INTO debounce_stale_data (job_id, to_relock)
+                            VALUES ($1, $2)
+                            ON CONFLICT (job_id)
+                                DO UPDATE SET to_relock = (
+                                    SELECT array_agg(DISTINCT x)
+                                    FROM unnest(
+                                        -- Combine existing array with new values
+                                        array_cat(debounce_stale_data.to_relock, EXCLUDED.to_relock)
+                                    ) AS x
+                                )
+                        ",
+                        // &debounce_key,
+                        &job_id,
+                        to_relock.as_slice()
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+                    dbg!("Inserted initial components_to_relock.");
+                }
+            }
+        }
+        _ => {}
+    };
+
     if concurrent_limit.is_some() {
         insert_concurrency_key(
             workspace_id,
@@ -4717,6 +4924,7 @@ pub async fn push<'c, 'd>(
         } else {
             None
         },
+        // TODO: Add debounce_delay
         custom_timeout,
         flow_step_id,
         cache_ttl,
@@ -4877,6 +5085,39 @@ pub async fn insert_concurrency_key<'d, 'c>(
     .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
     Ok(())
 }
+
+// pub async fn insert_debounce_key<'d, 'c>(
+//     workspace_id: &str,
+//     args: &PushArgs<'d>,
+//     script_path: &Option<String>,
+//     job_kind: JobKind,
+//     custom_concurrency_key: Option<String>,
+//     tx: &mut Transaction<'c, Postgres>,
+//     job_id: Uuid,
+// ) -> Result<(), Error> {
+//     let concurrency_key = custom_concurrency_key
+//         .map(|x| interpolate_args(x, args, workspace_id))
+//         .unwrap_or(fullpath_with_workspace(
+//             workspace_id,
+//             script_path.as_ref(),
+//             &job_kind,
+//         ));
+//     sqlx::query!(
+//         "WITH inserted_concurrency_counter AS (
+//                 INSERT INTO concurrency_counter (concurrency_id, job_uuids)
+//                 VALUES ($1, '{}'::jsonb)
+//                 ON CONFLICT DO NOTHING
+//             )
+//             INSERT INTO concurrency_key(key, job_id) VALUES ($1, $2)",
+//         concurrency_key,
+//         job_id,
+//     )
+//     .execute(&mut **tx)
+//     .warn_after_seconds(3)
+//     .await
+//     .map_err(|e| Error::internal_err(format!("Could not insert concurrency_key={concurrency_key} for job_id={job_id} script_path={script_path:?} workspace_id={workspace_id}: {e:#}")))?;
+//     Ok(())
+// }
 
 pub fn canceled_job_to_result(job: &MiniPulledJob) -> serde_json::Value {
     let reason = job

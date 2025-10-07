@@ -1531,6 +1531,7 @@ pub async fn monitor_db(
             }
         }
     };
+
     // run every hour (60 minutes / 30 seconds = 120)
     let cleanup_worker_group_stats_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
@@ -2358,6 +2359,7 @@ async fn cleanup_concurrency_counters_empty_keys(db: &DB) -> error::Result<()> {
 WITH rows_to_delete AS (
     SELECT concurrency_id
     FROM concurrency_counter
+    
     WHERE job_uuids = '{}'::jsonb
     FOR UPDATE SKIP LOCKED
 )

@@ -323,10 +323,13 @@ impl CompletedJob {
 
 #[derive(Debug, Clone)]
 pub enum JobPayload {
+    /// ???
     ScriptHub {
         path: String,
         apply_preprocessor: bool,
     },
+
+    /// ???
     ScriptHash {
         hash: ScriptHash,
         path: String,
@@ -339,51 +342,75 @@ pub enum JobPayload {
         priority: Option<i16>,
         apply_preprocessor: bool,
     },
+
+    /// Inline Flow Script?
     FlowScript {
         id: FlowNodeId, // flow_node(id).
         language: ScriptLang,
+        /// Overide default concurrency key
         custom_concurrency_key: Option<String>,
+        /// How many jobs can ran at the same time
         concurrent_limit: Option<i32>,
+        /// In seconds
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
         path: String,
     },
+
+    /// ???
     FlowNode {
         id: FlowNodeId, // flow_node(id).
         path: String,   // flow node inner path (e.g. `outer/branchall-42`).
     },
+
+    /// Inline App Script?
     AppScript {
         id: AppScriptId, // app_script(id).
         path: Option<String>,
         language: ScriptLang,
         cache_ttl: Option<i32>,
     },
+
+    /// ???
     Code(RawCode),
+
+    /// Script Dependency Job
     Dependencies {
         path: String,
         hash: ScriptHash,
         language: ScriptLang,
         dedicated_worker: Option<bool>,
     },
+
+    /// Flow Dependency Job
     FlowDependencies {
         path: String,
         dedicated_worker: Option<bool>,
         version: i64,
     },
+
+    /// App Dependency Job
     AppDependencies {
         path: String,
         version: i64,
     },
+
+    /// Flow Dependency Job, but requirements are partially or fully predefined
     RawFlowDependencies {
         path: String,
         flow_value: FlowValue,
     },
+
+    /// Dependency Job, but requirements are predefined
     RawScriptDependencies {
         script_path: String,
+        /// Will reflect raw requirements content (e.g. requirements.txt)
         content: String,
         language: ScriptLang,
     },
+
+    /// Flow Job
     Flow {
         path: String,
         dedicated_worker: Option<bool>,
@@ -400,6 +427,8 @@ pub enum JobPayload {
         path: Option<String>,
         restarted_from: Option<RestartedFrom>,
     },
+
+    /// Flow consisting of single script
     SingleScriptFlow {
         path: String,
         hash: ScriptHash,
@@ -535,7 +564,7 @@ pub async fn script_path_to_payload<'e>(
                 custom_concurrency_key: concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
-                cache_ttl: cache_ttl,
+                cache_ttl,
                 language,
                 dedicated_worker,
                 priority,

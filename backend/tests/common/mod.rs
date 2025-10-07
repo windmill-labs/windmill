@@ -20,6 +20,17 @@ use windmill_common::{
 };
 use windmill_queue::PushIsolationLevel;
 
+pub async fn init_client(db: Pool<Postgres>) -> (windmill_api_client::Client, u16, ApiServer) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db).await.unwrap();
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    (client, port, server)
+}
+
 /// it's important this is unique between tests as there is one prometheus registry and
 /// run_worker shouldn't register the same metric with the same worker name more than once.
 ///
@@ -669,4 +680,18 @@ pub async fn run_preview_relative_imports(
     .await;
 
     Ok(())
+}
+
+pub async fn rebuild_dmap(client: &windmill_api_client::Client) -> bool {
+    client
+        .client()
+        .post(format!(
+            "{}/w/test-workspace/workspaces/rebuild_dependency_map",
+            client.baseurl()
+        ))
+        .send()
+        .await
+        .unwrap()
+        .status()
+        .is_success()
 }
