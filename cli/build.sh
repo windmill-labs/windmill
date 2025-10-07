@@ -16,8 +16,5 @@ set -e
 echo "Running dnt..."
 deno run -A dnt.ts
 
-# Remove .ts extensions after building to go back to the original state
-./windmill-utils-internal/remove-ts-ext.sh
-
 echo "Build complete!"
 

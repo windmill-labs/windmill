@@ -1,7 +1,7 @@
+#!/bin/bash
+
 # This script outputs all features except private. Usage :
 #  > cargo build --features $(./all_features_oss.sh)
-
-#!/bin/bash
 
 # Path to the Cargo.toml file
 CARGO_TOML_PATH="./Cargo.toml"
