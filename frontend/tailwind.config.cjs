@@ -13,7 +13,7 @@ const lightTheme = {
 
 	textPrimary: '#4a5568',
 	textSecondary: '#718096',
-	textTertiary: '#a4a9b2',
+	textTertiary: '#505c70',
 	textHint: '#757e8f',
 	textDisabled: '#a0aec0',
 	textEmphasis: '#2d3748',
@@ -33,7 +33,7 @@ const darkTheme = {
 
 	textPrimary: '#d4d8dd',
 	textSecondary: '#aab0bb',
-	textTertiary: '#a8a9ac',
+	textTertiary: '#A8AEB7',
 	textHint: '#b3bac9',
 	textDisabled: '#727c88',
 	textEmphasis: '#f3f4f6',
