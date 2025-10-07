@@ -32,7 +32,7 @@
 		jobKindsCat?: string | undefined
 		minTs?: string | undefined
 		maxTs?: string | undefined
-		jobKinds?: string
+		jobKinds?: string | undefined
 		queue_count?: Tweened<number> | undefined
 		suspended_count?: Tweened<number> | undefined
 		autoRefresh?: boolean
@@ -98,12 +98,12 @@
 		loadJobsIntern(true)
 	}
 
-	function computeJobKinds(jobKindsCat: string | undefined): string {
+	function computeJobKinds(jobKindsCat: string | undefined): string | undefined {
 		if (jobKindsCat == undefined && jobKinds != undefined) {
 			return jobKinds
 		}
 		if (jobKindsCat == 'all') {
-			return ''
+			return undefined
 		} else if (jobKindsCat == 'dependencies') {
 			let kinds: CompletedJob['job_kind'][] = [
 				'dependencies',
