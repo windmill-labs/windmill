@@ -477,7 +477,12 @@ async fn add_message_to_conversation(
 fn get_step_name_from_flow(flow_value: &FlowValue, flow_step_id: Option<&str>) -> Option<String> {
     let flow_step_id = flow_step_id?;
     let module = flow_value.modules.iter().find(|m| m.id == flow_step_id)?;
-    Some(module.summary.clone().unwrap_or_else(|| module.id.clone()))
+    Some(
+        module
+            .summary
+            .clone()
+            .unwrap_or_else(|| format!("AI Agent Step {}", module.id)),
+    )
 }
 
 /// Check if the provider is Anthropic (either direct or through OpenRouter)
@@ -1215,11 +1220,10 @@ pub async fn run_agent(
                                                 let tool_job_id = job_id;
                                                 let db_clone = db.clone();
                                                 let tool_name = tool_call.function.name.clone();
-                                                let step_name = tool
-                                                    .module
-                                                    .summary
-                                                    .clone()
-                                                    .unwrap_or_else(|| tool.module.id.clone());
+                                                let step_name = get_step_name_from_flow(
+                                                    flow_value,
+                                                    job.flow_step_id.as_deref(),
+                                                );
 
                                                 // Spawn task to avoid blocking on DB write
                                                 tokio::spawn(async move {
@@ -1230,7 +1234,7 @@ pub async fn run_agent(
                                                         tool_job_id,
                                                         &format!("Used {} tool", tool_name),
                                                         MessageType::Tool,
-                                                        Some(&step_name),
+                                                        step_name.as_deref(),
                                                     )
                                                     .await
                                                     {

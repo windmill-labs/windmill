@@ -18,35 +18,29 @@
 	data-message-id={message.id}
 >
 	<div
-		class="max-w-[90%] min-w-0 rounded-lg {message.message_type === 'tool'
-			? 'bg-surface border border-gray-200 dark:border-gray-700 overflow-hidden font-mono text-xs'
-			: message.message_type === 'user'
-				? 'bg-surface-secondary p-3'
-				: 'bg-surface border border-gray-200 dark:border-gray-600 p-3'}"
+		class="max-w-[90%] min-w-0 rounded-lg
+			{message.message_type === 'user'
+			? 'bg-surface-secondary p-3'
+			: 'bg-surface border border-gray-200 dark:border-gray-600'}"
 	>
-		{#if message.message_type === 'tool'}
-			<!-- Tool message compact layout -->
-			<div
-				class="w-full p-3 bg-surface-secondary flex items-center gap-2 text-left border-b border-gray-200 dark:border-gray-700"
+		{#if message.step_name}
+			<div class="bg-surface-secondary text-2xs text-tertiary mb-2 font-medium py-1 px-2"
+				>{message.step_name}</div
 			>
-				<CheckCircle2 class="w-3.5 h-3.5 text-green-500" />
-				<span class="text-primary font-medium text-2xs">{message.content}</span>
+		{/if}
+
+		{#if message.message_type === 'user'}
+			<p class="whitespace-pre-wrap text-sm break-words">{message.content}</p>
+		{:else if message.loading}
+			<div class="flex items-center gap-2 text-tertiary">
+				<Loader2 size={16} class="animate-spin" />
+				<span>Processing...</span>
 			</div>
-			{#if message.step_name}
-				<div class="px-3 pt-2 pb-1 text-2xs text-tertiary font-medium">{message.step_name}</div>
-			{/if}
-		{:else}
-			{#if message.step_name}
-				<div class="text-2xs text-tertiary mb-2 font-medium">{message.step_name}</div>
-			{/if}
-			{#if message.message_type === 'user'}
-				<p class="whitespace-pre-wrap text-sm break-words">{message.content}</p>
-			{:else if message.loading}
-				<div class="flex items-center gap-2 text-tertiary">
-					<Loader2 size={16} class="animate-spin" />
-					<span>Processing...</span>
-				</div>
-			{:else if message.content}
+		{:else if message.content}
+			<div class="flex flex-row items-center gap-2 px-3 pb-3 {!message.step_name ? 'pt-3' : ''}">
+				{#if message.message_type === 'tool'}
+					<CheckCircle2 class="w-3.5 h-3.5 text-green-500" />
+				{/if}
 				<div
 					class="prose prose-sm dark:prose-invert prose-ul:!pl-6 break-words whitespace-pre-wrap"
 				>
@@ -63,9 +57,9 @@
 						]}
 					/>
 				</div>
-			{:else}
-				<p class="text-tertiary text-sm">No result</p>
-			{/if}
+			</div>
+		{:else}
+			<p class="text-tertiary text-sm">No result</p>
 		{/if}
 	</div>
 </div>

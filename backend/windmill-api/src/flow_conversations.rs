@@ -58,6 +58,7 @@ pub struct FlowConversationMessage {
 #[derive(Deserialize)]
 pub struct ListConversationsQuery {
     pub flow_path: Option<String>,
+    pub after_id: Option<Uuid>,
 }
 
 async fn list_conversations(
@@ -84,6 +85,15 @@ async fn list_conversations(
 
     if let Some(flow_path) = &query.flow_path {
         sqlb.and_where_eq("flow_path", "?".bind(flow_path));
+    }
+    if let Some(after_id) = &query.after_id {
+        let message_id_created_at = sqlx::query_scalar!(
+            "SELECT created_at FROM flow_conversation_message WHERE id = $1",
+            after_id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlb.and_where_gt("created_at", "?".bind(&message_id_created_at.to_rfc3339()));
     }
 
     sqlb.order_by("updated_at", true)

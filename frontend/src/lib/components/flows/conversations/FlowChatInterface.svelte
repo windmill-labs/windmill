@@ -256,6 +256,11 @@
 
 			// Check if streaming job's message appeared (flow complete)
 			if (streamingJobId && response.find((r) => r.job_id === streamingJobId)) {
+				// set step name to the last message
+				messages = [
+					...messages.slice(0, messages.length - 1),
+					{ ...messages[messages.length - 1], step_name: response[response.length - 1].step_name }
+				]
 				stopPolling()
 				isFlowComplete = true
 			}
