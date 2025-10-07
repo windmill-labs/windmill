@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { Markdown } from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import { Loader2, CheckCircle2 } from 'lucide-svelte'
+	import { Loader2, CheckCircle2, AlertTriangle } from 'lucide-svelte'
 	import type { FlowConversationMessage } from '$lib/gen'
 	import CodeDisplay from '$lib/components/copilot/chat/script/CodeDisplay.svelte'
 	import LinkRenderer from '$lib/components/copilot/chat/LinkRenderer.svelte'
 
 	interface Props {
-		message: FlowConversationMessage & { loading?: boolean; streaming?: boolean }
+		message: FlowConversationMessage & { loading?: boolean; streaming?: boolean; error?: boolean }
 	}
 
 	let { message }: Props = $props()
@@ -40,6 +40,8 @@
 			<div class="flex flex-row items-center gap-2 px-3 pb-3 {!message.step_name ? 'pt-3' : ''}">
 				{#if message.message_type === 'tool'}
 					<CheckCircle2 class="w-3.5 h-3.5 text-green-500" />
+				{:else if message.error}
+					<AlertTriangle class="w-3.5 h-3.5 text-red-500" />
 				{/if}
 				<div
 					class="prose prose-sm dark:prose-invert prose-ul:!pl-6 break-words whitespace-pre-wrap"

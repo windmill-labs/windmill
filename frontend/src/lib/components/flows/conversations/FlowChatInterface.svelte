@@ -22,6 +22,7 @@
 	interface ChatMessage extends FlowConversationMessage {
 		loading?: boolean
 		streaming?: boolean
+		error?: boolean
 	}
 
 	let {
@@ -195,21 +196,35 @@
 		}
 	}
 
-	function parseStreamDeltas(streamData: string): string {
+	function parseStreamDeltas(streamData: string): {
+		type: string
+		content: string
+		error?: boolean
+	} {
+		let type = 'message'
 		const lines = streamData.trim().split('\n')
 		let content = ''
+		let error = false
 		for (const line of lines) {
 			if (!line.trim()) continue
 			try {
 				const parsed = JSON.parse(line)
+				if (parsed.type === 'tool_result') {
+					type = 'tool_result'
+					const toolName = parsed.function_name
+					console.log('parsed', parsed, typeof parsed.success)
+					error = !parsed.success
+					content = error ? `Failed to use ${toolName} tool` : `Used ${toolName} tool`
+				}
 				if (parsed.type === 'token_delta' && parsed.content) {
+					type = 'message'
 					content += parsed.content
 				}
 			} catch (e) {
 				console.error('Failed to parse stream line:', line, e)
 			}
 		}
-		return content
+		return { type, content, error }
 	}
 
 	async function pollConversationMessages(conversationId: string) {
@@ -366,11 +381,49 @@
 
 								// Process new stream content
 								if (data.new_result_stream) {
-									const newContent = parseStreamDeltas(data.new_result_stream)
+									// Stop polling since we are receiving last step streaming
+									stopPolling()
+									const {
+										type,
+										content: newContent,
+										error
+									} = parseStreamDeltas(data.new_result_stream)
 									accumulatedContent += newContent
 
+									// Create tool message if type is tool_result
+									if (type === 'tool_result') {
+										// set last message streaming to false
+										messages = messages.map((msg) =>
+											msg.id === messages[messages.length - 1].id
+												? { ...msg, streaming: false }
+												: msg
+										)
+
+										messages = [
+											...messages,
+											{
+												id: crypto.randomUUID(),
+												content: newContent,
+												created_at: new Date().toISOString(),
+												message_type: 'tool',
+												conversation_id: currentConversationId,
+												job_id: streamingJobId,
+												loading: false,
+												streaming: false,
+												error
+											}
+										]
+										// Reset assistant message ID since we are creating a tool message
+										assistantMessageId = ''
+										accumulatedContent = ''
+									}
+
 									// Create message on first content
-									if (assistantMessageId.length === 0) {
+									else if (
+										type === 'message' &&
+										assistantMessageId.length === 0 &&
+										accumulatedContent.length > 0
+									) {
 										assistantMessageId = crypto.randomUUID()
 										isWaitingForResponse = false
 										messages = [
@@ -437,8 +490,8 @@
 									isLoading = false
 
 									// Do one final poll to ensure we have all messages
-									await pollConversationMessages(currentConversationId)
-									stopPolling()
+									// await pollConversationMessages(currentConversationId)
+									// stopPolling()
 								}
 							}
 						} catch (error) {
