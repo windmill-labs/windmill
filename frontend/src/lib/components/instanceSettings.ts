@@ -232,7 +232,6 @@ export const settings: Record<string, Setting[]> = {
 				'If your private hub is protected, you can set the hub API secret here. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
 			key: 'hub_api_secret',
 			fieldType: 'text',
-
 			storage: 'setting',
 			ee_only: '',
 			requiresReloadOnChange: true

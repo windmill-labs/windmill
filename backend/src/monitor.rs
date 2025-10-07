@@ -285,6 +285,8 @@ pub async fn initial_load(
         reload_smtp_config(db).await;
     }
 
+    reload_hub_api_secret_setting(&conn).await;
+
     if server_mode {
         reload_retention_period_setting(&conn).await;
         reload_request_size(&conn).await;
