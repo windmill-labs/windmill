@@ -180,5 +180,14 @@
       "accounting.transactions"
     ]
   },
-  "snowflake_oauth": {}
+  "snowflake_oauth": {},
+  "apify_oauth": {
+    "auth_url": "https://console.apify.com/authorize/oauth",
+    "token_url": "https://console-backend.apify.com/oauth/apps/token",
+    "scopes": [
+      "profile",
+      "full_api_access"
+    ],
+    "extra_params": {}
+  }
 }
