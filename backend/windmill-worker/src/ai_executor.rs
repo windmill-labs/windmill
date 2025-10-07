@@ -877,9 +877,6 @@ pub async fn run_agent(
                                      "inner_job_completed_tx should be set as agent jobs are not supported on agent workers",
                                  );
 
-                                #[cfg(feature = "benchmark")]
-                                let mut bench = windmill_common::bench::BenchmarkIter::new();
-
                                 // Spawn handle_queued_job on separate task to prevent tokio stack overflow
                                 // Clone everything needed for the spawned task
                                 let tool_job_spawn = tool_job.clone();

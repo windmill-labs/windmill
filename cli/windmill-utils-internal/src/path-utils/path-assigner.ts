@@ -1,4 +1,4 @@
-import { RawScript } from "../gen/types.gen";
+import { RawScript } from "../gen/types.gen.ts";
 
 const INLINE_SCRIPT_PREFIX = "inline_script";
 
