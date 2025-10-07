@@ -367,18 +367,14 @@
 					const eventSource = new EventSource(url.toString())
 					currentEventSource = eventSource
 
+					// start polling
+					startPolling(currentConversationId)
+
 					eventSource.onmessage = async (event) => {
 						try {
 							const data = JSON.parse(event.data)
 
 							if (data.type === 'update') {
-								// Extract streaming job ID from first update and start polling
-								if (!streamingJobId && data.flow_stream_job_id) {
-									streamingJobId = data.flow_stream_job_id
-									// Start polling now that we know which job to skip
-									startPolling(currentConversationId)
-								}
-
 								// Process new stream content
 								if (data.new_result_stream) {
 									// Stop polling since we are receiving last step streaming

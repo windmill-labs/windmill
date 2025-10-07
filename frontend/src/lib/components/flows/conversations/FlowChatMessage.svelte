@@ -43,9 +43,7 @@
 				{:else if message.error}
 					<AlertTriangle class="w-3.5 h-3.5 text-red-500" />
 				{/if}
-				<div
-					class="prose prose-sm dark:prose-invert prose-ul:!pl-6 break-words whitespace-pre-wrap"
-				>
+				<div class="dark:prose-invert break-words whitespace-pre-wrap prose-headings:!text-base">
 					<Markdown
 						md={message.content}
 						plugins={[
