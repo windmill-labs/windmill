@@ -4,13 +4,14 @@
 	import { Alert, Button } from './common'
 	import S3FilePickerInner from './S3FilePickerInner.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { Loader2 } from 'lucide-svelte'
+	import { Loader, Loader2 } from 'lucide-svelte'
 	import { hubPaths } from '$lib/hub'
 	import { tryEvery } from '$lib/utils'
 
 	let s3FilePicker: S3FilePickerInner | undefined = $state()
 
 	let isLoadingCommitHash = $state(false)
+	let isLoadingRepoClone = $state(false)
 	let isCheckingPathExists = $state(false)
 	let pathExists = $state<boolean | null>(null)
 	let error = $state<string | null>(null)
@@ -23,47 +24,52 @@
 	let { gitRepoResourcePath, commitHash }: Props = $props()
 
 	async function populateS3WithGitRepo() {
-			const workspace = $workspaceStore
-			if (!workspace) return
+		const workspace = $workspaceStore
+		if (!workspace) return
 
-			const payload = {
-				workspace_id: workspace,
-				repo_url_resource_path: gitRepoResourcePath,
-			}
+		const payload = {
+			workspace: workspace,
+			resource_path: gitRepoResourcePath
+		}
 
-			const jobId = await JobService.runScriptByPath({
-				workspace,
-				path: hubPaths.cloneRepoToS3forGitRepoViewer,
-				requestBody: payload,
-				skipPreprocessor: true
-			})
+		isLoadingRepoClone = true
+		const jobId = await JobService.runScriptByPath({
+			workspace,
+			path: hubPaths.cloneRepoToS3forGitRepoViewer,
+			requestBody: payload,
+			skipPreprocessor: true
+		})
 
-			let jobSuccess = false
-			let result: any = {}
-
-			await tryEvery({
-				tryCode: async () => {
-					const testResult = await JobService.getCompletedJob({ workspace, id: jobId })
-					jobSuccess = !!testResult.success
-					if (jobSuccess) {
-						const jobResult = await JobService.getCompletedJobResult({ workspace, id: jobId })
-						result = jobResult
-					}
-				},
-				timeoutCode: async () => {
-					try {
-						await JobService.cancelQueuedJob({
-							workspace,
-							id: jobId,
-							requestBody: { reason: `job timed out after 60s` }
-						})
-					} catch (err) {}
-				},
-				interval: 1000,
-				timeout: 60000
-			})
-		// TODO: Implement logic to populate S3 with git repo content
-		console.log('Populating S3 with git repo content...')
+		let jobSuccess = false
+		let result: any = {}
+		await tryEvery({
+			tryCode: async () => {
+				const testResult = await JobService.getCompletedJob({ workspace, id: jobId })
+				jobSuccess = !!testResult.success
+				console.log("res", testResult)
+				if (jobSuccess) {
+					const jobResult = await JobService.getCompletedJobResult({ workspace, id: jobId })
+					result = jobResult
+				} else {
+					error = (testResult.result as any).error.message ?? "Failed to clone"
+				}
+			},
+			timeoutCode: async () => {
+				try {
+					await JobService.cancelQueuedJob({
+						workspace,
+						id: jobId,
+						requestBody: { reason: `job timed out after 60s` }
+					})
+				} catch (err) {}
+			},
+			interval: 1000,
+			timeout: 60000
+		})
+		isLoadingRepoClone = false
+		if (jobSuccess) {
+			pathExists = true
+		}
 	}
 
 	onMount(async () => {
@@ -104,11 +110,10 @@
 	})
 
 	$effect(() => {
-		[commitHash, pathExists, isCheckingPathExists, isLoadingCommitHash];
+		;[commitHash, pathExists, isCheckingPathExists, isLoadingCommitHash]
 		untrack(() => {
 			s3FilePicker?.open(undefined)
 		})
-
 	})
 </script>
 
@@ -120,6 +125,11 @@
 	<div class="flex items-center gap-2 p-4">
 		<Loader2 class="h-4 w-4 animate-spin" />
 		<span class="text-secondary">Fetching latest commit hash...</span>
+	</div>
+{:else if isLoadingRepoClone}
+	<div class="flex items-center gap-2 p-4">
+		<Loader class="h-4 w-4 animate-spin" />
+		<span class="text-secondary">Cloning repository...</span>
 	</div>
 {:else if commitHash && isCheckingPathExists}
 	<div class="flex items-center gap-2 p-4">
