@@ -26,10 +26,10 @@ export namespace ButtonType {
 		xs3: 'text-2xs',
 		xs2: 'text-xs',
 		xs: 'text-xs',
-		sm: 'text-sm',
-		md: 'text-md',
-		lg: 'text-lg',
-		xl: 'text-xl'
+		sm: 'text-xs',
+		md: 'text-xs',
+		lg: 'text-xs',
+		xl: 'text-xs'
 	} as const
 
 	export const SpacingClasses: Record<ButtonType.Size, Record<ButtonType.Variant, string>> = {

@@ -154,12 +154,12 @@
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
 			ButtonType.SpacingClasses[spacingSize][variant],
-			'focus-visible:ring-2 font-semibold',
+			'focus-visible:ring-2 font-medium',
 			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md h-full' : 'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
 			btnClasses,
 			'active:opacity-80 transition-all',
-			disabled ? '!bg-surface-disabled !text-tertiary cursor-not-allowed' : '',
+			disabled ? '!bg-surface-disabled !text-disabled cursor-not-allowed' : '',
 			loading ? 'cursor-wait' : ''
 		)
 	)
