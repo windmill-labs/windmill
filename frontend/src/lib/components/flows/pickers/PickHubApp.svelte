@@ -54,7 +54,7 @@
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
-						on:click={() => dispatch('pick', item)}
+						onclick={() => dispatch('pick', item)}
 					>
 						<div class="flex items-center gap-4">
 							<RowIcon kind="app" />
