@@ -7,6 +7,7 @@ const { zIndexes } = require('./src/lib/zIndexes')
 const lightTheme = {
 	surface: '#ffffff',
 	surfaceSecondary: '#f3f4f6',
+	surfaceSunken: '#e8e8f0',
 	surfaceHover: '#e5e7eb',
 	surfaceDisabled: '#f9fafb',
 	surfaceSelected: '#d1d5db',
@@ -27,6 +28,7 @@ const lightThemeRgb = makeRgb(lightTheme)
 const darkTheme = {
 	surface: '#2e3440',
 	surfaceSecondary: '#3b4252',
+	surfaceSunken: '#2e3440',
 	surfaceHover: '#454F64',
 	surfaceDisabled: '#212732',
 	surfaceSelected: '#434c5e',
@@ -410,6 +412,7 @@ const config = {
 
 			surface: 'rgb(var(--color-surface) / <alpha-value>)',
 			'surface-secondary': 'rgb(var(--color-surface-secondary) / <alpha-value>)',
+			'surface-sunken': 'rgb(var(--color-surface-sunken) / <alpha-value>)',
 			'surface-hover': 'rgb(var(--color-surface-hover) / <alpha-value>)',
 			'surface-disabled': 'rgb(var(--color-surface-disabled) / <alpha-value>)',
 			'surface-selected': 'rgb(var(--color-surface-selected) / <alpha-value>)',
@@ -520,6 +523,7 @@ const config = {
 					color: lightTheme.textPrimary,
 					'--color-surface': lightThemeRgb.surface,
 					'--color-surface-secondary': lightThemeRgb.surfaceSecondary,
+					'--color-surface-sunken': lightThemeRgb.surfaceSunken,
 					'--color-surface-hover': lightThemeRgb.surfaceHover,
 					'--color-surface-disabled': lightThemeRgb.surfaceDisabled,
 					'--color-surface-selected': lightThemeRgb.surfaceSelected,
@@ -533,6 +537,7 @@ const config = {
 
 					'--color-surface-inverse': darkThemeRgb.surface,
 					'--color-surface-secondary-inverse': darkThemeRgb.surfaceSecondary,
+					'--color-surface-sunken-inverse': darkThemeRgb.surfaceSunken,
 					'--color-surface-hover-inverse': darkThemeRgb.surfaceHover,
 					'--color-surface-disabled-inverse': darkThemeRgb.surfaceDisabled,
 					'--color-surface-selected-inverse': darkThemeRgb.surfaceSelected,
@@ -565,6 +570,7 @@ const config = {
 
 						'--color-surface': darkThemeRgb.surface,
 						'--color-surface-secondary': darkThemeRgb.surfaceSecondary,
+						'--color-surface-sunken': darkThemeRgb.surfaceSunken,
 						'--color-surface-hover': darkThemeRgb.surfaceHover,
 						'--color-surface-disabled': darkThemeRgb.surfaceDisabled,
 						'--color-surface-selected': darkThemeRgb.surfaceSelected,
@@ -578,6 +584,7 @@ const config = {
 
 						'--color-surface-inverse': lightThemeRgb.surface,
 						'--color-surface-secondary-inverse': lightThemeRgb.surfaceSecondary,
+						'--color-surface-sunken-inverse': lightThemeRgb.surfaceSunken,
 						'--color-surface-hover-inverse': lightThemeRgb.surfaceHover,
 						'--color-surface-disabled-inverse': lightThemeRgb.surfaceDisabled,
 						'--color-surface-selected-inverse': lightThemeRgb.surfaceSelected,
