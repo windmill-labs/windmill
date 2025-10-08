@@ -49,11 +49,11 @@
 	{#if filteredItems.length == 0}
 		<NoItemFound />
 	{:else}
-		<ul class="divide-y border rounded-md">
+		<ul class="divide-y border rounded-md bg-surface-tertiary">
 			{#each filteredItems as item (item)}
 				<li class="flex flex-row w-full">
 					<button
-						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
+						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover transition-all items-center"
 						onclick={() => dispatch('pick', item)}
 					>
 						<div class="flex items-center gap-4">

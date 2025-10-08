@@ -18,8 +18,8 @@
 		Code2,
 		FoldVertical,
 		LayoutDashboard,
+		ListFilterPlus,
 		SearchCode,
-		SlidersHorizontal,
 		UnfoldVertical
 	} from 'lucide-svelte'
 
@@ -434,11 +434,10 @@
 		</div>
 		<Button
 			on:click={() => openSearchWithPrefilledText('#')}
-			variant="border"
+			variant="default"
 			size="sm"
 			spacingSize="lg"
 			wrapperClasses="h-10"
-			color="light"
 			endIcon={{
 				icon: SearchCode
 			}}
@@ -457,18 +456,18 @@
 			<div class="mt-10"></div>
 		{/if}
 		{#if !loading}
-			<div class="flex w-full flex-row-reverse gap-2 mt-4 mb-1 items-center h-6">
+			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-6">
 				<Popover floatingConfig={{ placement: 'bottom-end' }}>
 					{#snippet trigger()}
 						<Button
 							startIcon={{
-								icon: SlidersHorizontal
+								icon: ListFilterPlus
 							}}
 							nonCaptureEvent
 							iconOnly
 							size="xs"
 							color="light"
-							variant="border"
+							variant="default"
 							spacingSize="xs2"
 						/>
 					{/snippet}
@@ -500,10 +499,8 @@
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
 				{#if treeView}
 					<Button
-						btnClasses="py-0 h-6"
-						size="xs"
-						variant="border"
-						color="light"
+						size="xs2"
+						variant="default"
 						on:click={() => (collapseAll = !collapseAll)}
 						startIcon={{
 							icon: collapseAll ? UnfoldVertical : FoldVertical
@@ -547,7 +544,7 @@
 				{showCode}
 			/>
 		{:else}
-			<div class="border rounded-md">
+			<div class="border rounded-md bg-surface-tertiary">
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}

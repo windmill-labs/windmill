@@ -90,7 +90,7 @@
 		{#if app.execution_mode == 'anonymous'}
 			<Badge small>
 				<div class="flex gap-1 items-center">
-					<Eye size={14} />
+					<Eye size={16} />
 					Public
 				</div></Badge
 			>
@@ -98,7 +98,7 @@
 		{#if app.raw_app}
 			<Badge small>
 				<div class="flex gap-1 items-center">
-					<FileJson size={14} />
+					<FileJson size={16} />
 					Raw
 				</div></Badge
 			>

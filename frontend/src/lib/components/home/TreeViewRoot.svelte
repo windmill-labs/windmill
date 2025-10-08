@@ -36,7 +36,7 @@
 		<div class="text-xs font-normal text-hint">No items</div>
 	</div>
 {:else}
-	<div class="border rounded-md">
+	<div class="border rounded-md bg-surface-tertiary">
 		{#each groupedItems.slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
 			{#if item}
 				<TreeView

@@ -146,7 +146,7 @@
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
 		<DraftBadge has_draft={script.has_draft} draft_only={script.draft_only} />
 		<div class="w-8 center-center">
-			<LanguageIcon lang={script.language} width={12} height={12} />
+			<LanguageIcon lang={script.language} width={16} height={16} />
 		</div>
 	{/snippet}
 
