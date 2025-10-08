@@ -10,11 +10,11 @@ use windmill_common::{
 
 use crate::db::ApiAuthed;
 
+
 pub mod handler;
 pub mod nextcloud;
 pub mod sync;
 
-/// Service name enum for native triggers
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[sqlx(type_name = "native_trigger_service", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -37,7 +37,16 @@ impl ServiceName {
     }
 }
 
-/// Native trigger record in Windmill database
+impl std::fmt::Display for ServiceName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let service_name = match self {
+            ServiceName::Nextcloud => "nextcloud",
+        };
+
+        write!(f, "{}", service_name)
+    }
+}
+
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct NativeTrigger {
     pub service_name: ServiceName,
@@ -53,7 +62,6 @@ pub struct NativeTrigger {
     pub extra_perms: Option<serde_json::Value>,
 }
 
-/// Request data for creating/updating a native trigger
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeTriggerData<P: Debug> {
     pub path: String,
@@ -62,7 +70,6 @@ pub struct NativeTriggerData<P: Debug> {
     pub payload: P,
 }
 
-/// Metadata extracted from external service payload
 #[derive(Debug, Clone)]
 pub struct TriggerMetadata {
     pub external_id: String,
@@ -71,49 +78,30 @@ pub struct TriggerMetadata {
     pub metadata: Option<serde_json::Value>,
 }
 
-/// Trait for external service implementations
 #[async_trait]
 pub trait External: Send + Sync + 'static {
     type Payload: Debug + DeserializeOwned + Serialize + Send + Sync;
     type TriggerData: Debug + Serialize + Send + Sync;
-    type Resource: Debug + DeserializeOwned + Send + Sync;
+    type Resource: DeserializeOwned + Send + Sync;
 
     const SERVICE_NAME: ServiceName;
     const DISPLAY_NAME: &'static str;
     const RESOURCE_TYPE: &'static str;
 
-    async fn create(
-        &self,
-        resource: &Self::Resource,
-        path: &str,
-        payload: &Self::Payload,
-    ) -> Result<TriggerMetadata>;
+    async fn create(&self, resource: &Self::Resource, payload: &Self::Payload) -> Result<()>;
 
     async fn update(
         &self,
         resource: &Self::Resource,
         external_id: &str,
-        path: &str,
         payload: &Self::Payload,
-    ) -> Result<TriggerMetadata>;
-
-    async fn get(
-        &self,
-        resource: &Self::Resource,
-        external_id: &str,
-    ) -> Result<Self::TriggerData>;
-
-    async fn delete(
-        &self,
-        resource: &Self::Resource,
-        external_id: &str,
     ) -> Result<()>;
 
-    async fn exists(
-        &self,
-        resource: &Self::Resource,
-        external_id: &str,
-    ) -> Result<bool>;
+    async fn get(&self, resource: &Self::Resource, external_id: &str) -> Result<Self::TriggerData>;
+
+    async fn delete(&self, resource: &Self::Resource, external_id: &str) -> Result<()>;
+
+    async fn exists(&self, resource: &Self::Resource, external_id: &str) -> Result<bool>;
 
     fn extract_metadata_from_payload(
         &self,
@@ -121,10 +109,7 @@ pub trait External: Send + Sync + 'static {
         external_id: Option<&str>,
     ) -> Result<TriggerMetadata>;
 
-    async fn list_all(
-        &self,
-        resource: &Self::Resource,
-    ) -> Result<Vec<Self::TriggerData>>;
+    async fn list_all(&self, resource: &Self::Resource) -> Result<Vec<Self::TriggerData>>;
 
     fn additional_routes(&self) -> axum::Router {
         axum::Router::new()
@@ -211,14 +196,14 @@ pub async fn update_native_trigger(
         old_path,
         service_name as ServiceName
     )
-    .execute(&mut *tx)
+    .execute(tx)
     .await?;
 
     Ok(())
 }
 
 pub async fn get_native_trigger(
-    db: &DB,
+    tx: &mut PgConnection,
     workspace_id: &str,
     path: &str,
     service_name: ServiceName,
@@ -227,7 +212,7 @@ pub async fn get_native_trigger(
         NativeTrigger,
         r#"
         SELECT
-            service_name,
+            service_name AS "service_name!: ServiceName",
             external_id,
             path,
             workspace_id,
@@ -249,7 +234,7 @@ pub async fn get_native_trigger(
         path,
         service_name as ServiceName
     )
-    .fetch_optional(db)
+    .fetch_optional(tx)
     .await?
     .ok_or_else(|| Error::NotFound(format!("Native trigger not found at path: {}", path)))
 }
@@ -305,7 +290,7 @@ pub async fn exists_native_trigger(
 }
 
 pub async fn get_native_trigger_by_external_id(
-    db: &DB,
+    tx: &mut PgConnection,
     workspace_id: &str,
     service_name: ServiceName,
     external_id: &str,
@@ -314,7 +299,7 @@ pub async fn get_native_trigger_by_external_id(
         NativeTrigger,
         r#"
         SELECT
-            service_name,
+            service_name AS "service_name!: ServiceName",
             external_id,
             path,
             workspace_id,
@@ -336,14 +321,14 @@ pub async fn get_native_trigger_by_external_id(
         service_name as ServiceName,
         external_id
     )
-    .fetch_optional(db)
+    .fetch_optional(tx)
     .await?;
 
     Ok(trigger)
 }
 
 pub async fn list_native_triggers(
-    db: &DB,
+    tx: &mut PgConnection,
     workspace_id: &str,
     service_name: ServiceName,
     page: Option<usize>,
@@ -356,7 +341,7 @@ pub async fn list_native_triggers(
         NativeTrigger,
         r#"
             SELECT
-                service_name,
+                service_name AS "service_name!: ServiceName",
                 external_id,
                 path,
                 workspace_id,
@@ -380,7 +365,7 @@ pub async fn list_native_triggers(
         limit,
         offset
     )
-    .fetch_all(db)
+    .fetch_all(tx)
     .await?;
 
     Ok(triggers)
@@ -396,42 +381,4 @@ impl<T> ClientWithAuth<T> {
     pub fn new(auth_data: T) -> Self {
         Self { client: reqwest::Client::new(), auth_data }
     }
-}
-
-pub async fn get_resource_for_native_trigger<T>(
-    db: &DB,
-    workspace_id: &str,
-    resource_type: &str,
-) -> Result<ClientWithAuth<T>>
-where
-    T: serde::de::DeserializeOwned,
-{
-    let resource = sqlx::query!(
-        r#"
-        SELECT value, path
-        FROM resource
-        WHERE workspace_id = $1
-          AND resource_type = $2
-        LIMIT 1
-        "#,
-        workspace_id,
-        resource_type
-    )
-    .fetch_optional(db)
-    .await?
-    .ok_or_else(|| {
-        Error::BadConfig(format!(
-            "No '{}' resource found in workspace '{}'. Please create a resource with type '{}' containing the required credentials.",
-            resource_type, workspace_id, resource_type
-        ))
-    })?;
-
-    let auth_data: T = serde_json::from_value(resource.value.clone()).map_err(|e| {
-        Error::BadConfig(format!(
-            "Invalid '{}' resource at path '{}': {}. Please check the resource schema.",
-            resource_type, resource.path, e
-        ))
-    })?;
-
-    Ok(ClientWithAuth::new(auth_data))
 }

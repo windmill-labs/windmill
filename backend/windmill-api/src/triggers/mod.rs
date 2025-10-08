@@ -21,8 +21,6 @@ pub mod postgres;
 pub mod sqs;
 #[cfg(feature = "websocket")]
 pub mod websocket;
-#[cfg(feature = "nextcloud_trigger")]
-pub mod nextcloud;
 
 mod handler;
 mod listener;

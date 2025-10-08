@@ -746,11 +746,6 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    #[cfg(feature = "nextcloud_trigger")]
-    {
-        todo!()
-    }
-
     router
 }
 
@@ -774,7 +769,6 @@ pub struct TriggersCount {
     mqtt_count: i64,
     sqs_count: i64,
     gcp_count: i64,
-    nextcloud_count: i64,
 }
 
 pub async fn get_triggers_count_internal(
@@ -934,17 +928,6 @@ pub async fn get_triggers_count_internal(
     .await?
     .unwrap_or(0);
 
-    #[cfg(feature = "nextcloud_trigger")]
-    let nextcloud_count = {
-        use crate::triggers::nextcloud::handler::NextcloudTriggerCrud;
-        let count = NextcloudTriggerCrud
-            .trigger_count(&mut tx, w_id, is_flow, path)
-            .await;
-        count
-    };
-    #[cfg(not(feature = "nextcloud_trigger"))]
-    let nextcloud_count = 0;
-
     Ok(Json(TriggersCount {
         primary_schedule: primary_schedule.map(|s| TriggerPrimarySchedule { schedule: s }),
         schedule_count,
@@ -959,6 +942,5 @@ pub async fn get_triggers_count_internal(
         mqtt_count,
         gcp_count,
         sqs_count,
-        nextcloud_count,
     }))
 }

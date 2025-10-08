@@ -2,7 +2,7 @@
 
 -- Create enum for native trigger service names
 CREATE TYPE native_trigger_service AS ENUM ('nextcloud');
-CREATE TYPE runnable_kind AS ENUM ('script', 'flow')
+CREATE TYPE runnable_kind AS ENUM ('script', 'flow');
 
 
 -- Create native_triggers table

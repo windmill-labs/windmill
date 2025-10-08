@@ -2,11 +2,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use windmill_common::{error::Result, utils::report_critical_error, DB};
 
-use crate::{
-    db::ApiAuthed,
-    native_triggers::{list_native_triggers, External, ServiceName},
-    users::fetch_api_authed,
-};
+use crate::native_triggers::ServiceName;
 
 /// Synchronization state for a service
 struct SyncState {
@@ -39,7 +35,8 @@ pub fn start_sync_loop(
                     break;
                 }
                 _ = interval.tick() => {
-                    if let Err(e) = sync_all_triggers(&db).await {
+                    todo!()
+                    /*if let Err(e) = sync_all_triggers(&db).await {
                         tracing::error!("Error syncing native triggers: {:#}", e);
                         report_critical_error(
                             format!("Native triggers sync failed: {:#}", e),
@@ -48,7 +45,7 @@ pub fn start_sync_loop(
                             None
                         )
                         .await;
-                    }
+                    }*/
                 }
             }
         }
@@ -56,7 +53,7 @@ pub fn start_sync_loop(
 }
 
 /// Sync all native triggers across all workspaces
-async fn sync_all_triggers(db: &DB) -> Result<()> {
+/*async fn sync_all_triggers(db: &DB) -> Result<()> {
     tracing::debug!("Starting native triggers sync");
 
     // Get all workspaces
@@ -89,13 +86,13 @@ async fn sync_workspace_triggers(db: &DB, workspace_id: &str) -> Result<()> {
     // Sync NextCloud triggers
     #[cfg(feature = "nextcloud_trigger")]
     {
-        use crate::native_triggers::nextcloud::NextCloudHandler;
-        sync_service_triggers::<NextCloudHandler>(db, workspace_id, NextCloudHandler).await?;
+        use crate::native_triggers::nextcloud::NextCloud;
+        sync_service_triggers::<NextCloud>(db, workspace_id, NextCloud).await?;
     }
 
     Ok(())
 }
-
+*/
 /// Sync triggers for a specific external service
 /*async fn sync_service_triggers<T: External>(db: &DB, workspace_id: &str, handler: T) -> Result<()> {
     // Update sync state
