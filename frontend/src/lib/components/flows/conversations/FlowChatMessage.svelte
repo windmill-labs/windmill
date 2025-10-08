@@ -50,7 +50,9 @@
 						<AlertTriangle class="w-3.5 h-3.5 text-red-500" />
 					{/if}
 				{/if}
-				<div class="dark:prose-invert break-words whitespace-pre-wrap prose-headings:!text-base">
+				<div
+					class="prose prose-sm dark:prose-invert break-words whitespace-pre-wrap prose-headings:!text-base"
+				>
 					<Markdown
 						md={message.content}
 						plugins={[
