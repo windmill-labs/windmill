@@ -40,10 +40,6 @@ const designTokens = {
 				selected: '#a0affa',
 				ai: '#f2cefb'
 			},
-			component: {
-				'button-accent-secondary': '#ffffff',
-				'virtual-node': '#dde1f1'
-			},
 			reserved: {
 				ai: '#de75f8'
 			}
@@ -80,10 +76,6 @@ const designTokens = {
 				accent: '#a0affa',
 				selected: '#758ff8',
 				ai: '#8e6b96'
-			},
-			component: {
-				'button-accent-secondary': '#f3f4f6',
-				'virtual-node': '#4c566a'
 			},
 			reserved: {
 				ai: '#de75f8'
@@ -557,9 +549,6 @@ const config = {
 			'border-selected': 'rgb(var(--color-border-selected) / <alpha-value>)',
 			'border-ai': 'rgb(var(--color-border-ai) / <alpha-value>)',
 
-			// Component colors (semantic)
-			'button-accent-secondary': 'rgb(var(--color-button-accent-secondary) / <alpha-value>)',
-			'virtual-node': 'rgb(var(--color-virtual-node) / <alpha-value>)',
 
 			// Reserved colors (semantic)
 			ai: 'rgb(var(--color-reserved-ai) / <alpha-value>)',
@@ -689,9 +678,6 @@ const config = {
 					'--color-border-selected': lightTokensRgb.border.selected,
 					'--color-border-ai': lightTokensRgb.border.ai,
 
-					// Component colors
-					'--color-button-accent-secondary': lightTokensRgb.component['button-accent-secondary'],
-					'--color-virtual-node': lightTokensRgb.component['virtual-node'],
 
 					// Reserved colors
 					'--color-reserved-ai': lightTokensRgb.reserved.ai,
@@ -770,14 +756,6 @@ const config = {
 						'--color-border-selected-inverse': lightTokensRgb.border.selected,
 						'--color-border-ai-inverse': lightTokensRgb.border.ai,
 
-						// Component colors
-						'--color-button-accent-secondary': darkTokensRgb.component['button-accent-secondary'],
-						'--color-virtual-node': darkTokensRgb.component['virtual-node'],
-
-						// Component inverse colors (from light theme)
-						'--color-button-accent-secondary-inverse':
-							lightTokensRgb.component['button-accent-secondary'],
-						'--color-virtual-node-inverse': lightTokensRgb.component['virtual-node'],
 
 						// Reserved colors
 						'--color-reserved-ai': darkTokensRgb.reserved.ai,
