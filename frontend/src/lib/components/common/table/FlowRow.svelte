@@ -126,9 +126,8 @@
 				{#if flow.canWrite && !flow.archived}
 					<div>
 						<Button
-							color="light"
+							variant="default"
 							size="xs"
-							variant="border"
 							startIcon={{ icon: Pen }}
 							href="{base}/flows/edit/{flow.path}?nodraft=true"
 							aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
@@ -140,9 +139,8 @@
 				{:else}
 					<div>
 						<Button
-							color="light"
+							variant="default"
 							size="xs"
-							variant="border"
 							startIcon={{ icon: GitFork }}
 							href="{base}/flows/add?template={flow.path}"
 							aiId={`fork-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
