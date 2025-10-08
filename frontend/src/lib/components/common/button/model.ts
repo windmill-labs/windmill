@@ -1,4 +1,14 @@
-export const BUTTON_COLORS = ['blue', 'red', 'dark', 'light', 'green', 'gray', 'none'] as const
+export const BUTTON_COLORS = [
+	'blue',
+	'red',
+	'dark',
+	'light',
+	'green',
+	'gray',
+	'none',
+	'marine',
+	'nord'
+] as const
 
 export namespace ButtonType {
 	export type Size = 'xs3' | 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
@@ -12,7 +22,14 @@ export namespace ButtonType {
 		| 'none'
 		| 'marine'
 		| 'nord'
-	export type Variant = 'contained' | 'border' | 'divider'
+	export type Variant =
+		| 'contained'
+		| 'border'
+		| 'divider'
+		| 'accent-secondary'
+		| 'accent'
+		| 'default'
+		| 'subtle'
 	export type Target = '_self' | '_blank'
 	export type Element = HTMLButtonElement | HTMLAnchorElement
 	export interface Icon {
@@ -32,7 +49,10 @@ export namespace ButtonType {
 		xl: 'text-xs'
 	} as const
 
-	export const SpacingClasses: Record<ButtonType.Size, Record<ButtonType.Variant, string>> = {
+	export const SpacingClasses: Record<
+		ButtonType.Size,
+		Record<'contained' | 'border' | 'divider', string>
+	> = {
 		xs3: {
 			border: 'px-0.5 py-[1px] !rounded-xs',
 			contained: 'px-0.5 py-[1px]',
@@ -75,7 +95,10 @@ export namespace ButtonType {
 		color: Color
 	}
 
-	export const ColorVariants: Record<ButtonType.Color, Record<ButtonType.Variant, string>> = {
+	export const ColorVariants: Record<
+		ButtonType.Color,
+		Record<'contained' | 'border' | 'divider', string>
+	> = {
 		none: {
 			border: '',
 			contained: '',
@@ -138,5 +161,27 @@ export namespace ButtonType {
 				'bg-nord-300 hover:bg-nord-0 focus-visible:bg-surface-hover-inverse text-primary-inverse focus-visible:ring-surface-selected-inverse dark:bg-nord-400 dark:hover:bg-nord-600 dark:text-primary-inverse',
 			divider: 'divide-x divide-gray-800 dark:divide-gray-200'
 		}
+	}
+
+	export const VariantStyles: Record<'accent-secondary' | 'accent' | 'default' | 'subtle', string> =
+		{
+			'accent-secondary':
+				'bg-surface-accent-secondary hover:bg-surface-accent-secondary-hover focus-visible:bg-surface-accent-secondary-clicked text-white dark:text-deep-blue-900 focus-visible:ring-luminance-blue-300',
+			accent:
+				'bg-surface-accent-primary hover:bg-surface-accent-hover focus-visible:bg-surface-accent-clicked text-white focus-visible:ring-luminance-blue-300',
+			default:
+				'border border-border-light bg-transparent hover:bg-surface-hover text-primary focus-visible:bg-surface-hover focus-visible:ring-luminance-blue-300',
+			subtle:
+				'bg-transparent hover:bg-surface-hover text-primary focus-visible:bg-surface-hover focus-visible:ring-luminance-blue-300'
+		}
+
+	export const VariantSpacingClasses: Record<ButtonType.Size, string> = {
+		xs3: 'px-0.5 py-[1px]',
+		xs2: 'px-2 py-[4px]',
+		xs: 'px-3 py-[7px]',
+		sm: 'px-3 py-[7px]',
+		md: 'px-3 py-[7px]',
+		lg: 'px-4 py-[9px]',
+		xl: 'px-4 py-[9px]'
 	}
 }

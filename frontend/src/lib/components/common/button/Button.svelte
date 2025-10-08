@@ -33,6 +33,7 @@
 		wrapperClasses?: string
 		wrapperStyle?: string
 		disabled?: boolean
+		selected?: boolean
 		href?: string | undefined
 		target?: '_self' | '_blank' | undefined
 		iconOnly?: boolean
@@ -78,6 +79,7 @@
 		wrapperClasses = '',
 		wrapperStyle = '',
 		disabled = false,
+		selected = false,
 		href = undefined,
 		target = undefined,
 		iconOnly = false,
@@ -139,7 +141,18 @@
 		}
 	}
 
-	function getColorClass(color, variant) {
+	function getStyleClass(color, variant) {
+		// Check if using new design system variants
+		if (['accent-secondary', 'accent', 'default', 'subtle'].includes(variant)) {
+			let style = ButtonType.VariantStyles[variant]
+			// For default variant with dropdowns, remove border from button since it's on wrapper
+			if (variant === 'default' && dropdownItems && dropdownItems.length > 0) {
+				style = style.replace('border border-border-light', '')
+			}
+			return style
+		}
+
+		// Legacy color-based styling
 		if (color in ButtonType.ColorVariants) {
 			return ButtonType.ColorVariants[color][variant]
 		} else {
@@ -147,20 +160,57 @@
 		}
 	}
 
+	function getSpacingClass(variant, size, spacingSize) {
+		// Check if using new design system variants
+		if (['accent-secondary', 'accent', 'default', 'subtle'].includes(variant)) {
+			return ButtonType.VariantSpacingClasses[spacingSize]
+		}
+
+		// Legacy spacing
+		return ButtonType.SpacingClasses[spacingSize][variant]
+	}
+
+	function getDividerClass(color, variant) {
+		// Check if using new design system variants
+		if (variant === 'default') {
+			return 'border border-border-light divide-x divide-border-light'
+		} else if (variant === 'accent') {
+			return 'divide-x divide-luminance-blue-200'
+		} else if (variant === 'accent-secondary') {
+			return 'divide-x divide-deep-blue-400 dark:divide-deep-blue-100'
+		} else if (variant === 'subtle') {
+			return 'divide-x divide-transparent'
+		}
+
+		// Legacy color-based dividers
+		if (color in ButtonType.ColorVariants) {
+			return ButtonType.ColorVariants[color].divider
+		}
+
+		return ''
+	}
+
 	let buttonClass = $derived(
 		twMerge(
 			'w-full',
-			getColorClass(color, variant),
+			getStyleClass(color, variant),
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
-			ButtonType.SpacingClasses[spacingSize][variant],
+			getSpacingClass(variant, size, spacingSize),
 			'focus-visible:ring-2 font-medium',
 			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md h-full' : 'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
 			btnClasses,
 			'active:opacity-80 transition-all',
-			disabled ? '!bg-surface-disabled !text-disabled cursor-not-allowed' : '',
-			loading ? 'cursor-wait' : ''
+			disabled
+				? ['accent-secondary', 'accent', 'default', 'subtle'].includes(variant)
+					? '!bg-surface-disabled !text-disabled cursor-not-allowed !border-border-light'
+					: '!bg-surface-disabled !text-disabled cursor-not-allowed'
+				: '',
+			loading ? 'cursor-wait' : '',
+			selected && ['default', 'subtle'].includes(variant)
+				? '!bg-surface-accent-selected !text-luminance-blue-500 !border-border-selected'
+				: ''
 		)
 	)
 
@@ -215,11 +265,9 @@
 
 <div
 	class={twMerge(
-		dropdownItems && dropdownItems.length > 0 && variant === 'contained'
-			? ButtonType.ColorVariants[color].divider
-			: '',
+		dropdownItems && dropdownItems.length > 0 ? getDividerClass(color, variant) : '',
 		wrapperClasses,
-		'flex flex-row',
+		'flex flex-row rounded-md',
 		disabled ? 'divide-text-disabled' : ''
 	)}
 	style={wrapperStyle}

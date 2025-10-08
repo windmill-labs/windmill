@@ -289,8 +289,7 @@
 						startIcon={{ icon: ExternalLink }}
 						target="_blank"
 						href={$hubBaseUrlStore}
-						variant="border"
-						color="light"
+						variant="default"
 						size="sm"
 						wrapperClasses="h-10"
 					>
