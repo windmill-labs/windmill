@@ -549,7 +549,6 @@ const config = {
 			'border-selected': 'rgb(var(--color-border-selected) / <alpha-value>)',
 			'border-ai': 'rgb(var(--color-border-ai) / <alpha-value>)',
 
-
 			// Reserved colors (semantic)
 			ai: 'rgb(var(--color-reserved-ai) / <alpha-value>)',
 
@@ -678,7 +677,6 @@ const config = {
 					'--color-border-selected': lightTokensRgb.border.selected,
 					'--color-border-ai': lightTokensRgb.border.ai,
 
-
 					// Reserved colors
 					'--color-reserved-ai': lightTokensRgb.reserved.ai,
 
@@ -755,7 +753,6 @@ const config = {
 						'--color-border-accent-inverse': lightTokensRgb.border.accent,
 						'--color-border-selected-inverse': lightTokensRgb.border.selected,
 						'--color-border-ai-inverse': lightTokensRgb.border.ai,
-
 
 						// Reserved colors
 						'--color-reserved-ai': darkTokensRgb.reserved.ai,
@@ -887,17 +884,14 @@ const config = {
 						border: '1px solid rgb(var(--color-border-light))',
 						borderRadius: theme('borderRadius.md'),
 						'&:hover': {
-							borderColor: 'rgb(var(--color-border-normal))'
+							borderColor: 'rgb(var(--color-border-selected) / 0.5)'
 						},
 						'&:focus': {
 							borderColor: 'rgb(var(--color-border-selected))',
 							outline: 'none'
 						},
 						'&:disabled,[disabled]': {
-							backgroundColor: theme('colors.gray.100') + ' !important',
-							'.dark &': {
-								backgroundColor: theme('colors.gray.700') + ' !important'
-							}
+							backgroundColor: 'rgb(var(--color-surface-disabled))' + ' !important'
 						}
 					},
 
