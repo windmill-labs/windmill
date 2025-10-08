@@ -851,8 +851,8 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     .map(|v| matches!(v, FlowModuleValue::AIAgent { .. }))
                     .unwrap_or(false);
 
-                // Only create assistant message if last module is NOT an AI agent
-                if !last_module_is_ai_agent {
+                // Only create assistant message if last module is NOT an AI agent, or there was an error
+                if !last_module_is_ai_agent || success == false {
                     let value = serde_json::to_value(result.0).map_err(|e| {
                         Error::internal_err(format!("Failed to serialize result: {e}"))
                     })?;
@@ -883,11 +883,12 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
                     // Insert new assistant message
                     let _ = sqlx::query!(
-                        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id)
-                         VALUES ($1, 'assistant', $2, $3)",
+                        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, error)
+                         VALUES ($1, 'assistant', $2, $3, $4)",
                         conversation_id,
                         content,
                         queued_job.id,
+                        success == false,
                     )
                     .execute(db)
                     .await;
