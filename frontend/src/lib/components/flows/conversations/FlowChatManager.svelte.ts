@@ -257,6 +257,12 @@ class FlowChatManager {
 		this.pollingInterval = setInterval(() => {
 			this.pollConversationMessages(conversationId, isNewConversation)
 		}, 500) // Poll every 0.5 seconds
+		setTimeout(
+			() => {
+				this.stopPolling()
+			},
+			2 * 60 * 1000
+		) // Stop polling after 2 minutes
 	}
 
 	private stopPolling() {
