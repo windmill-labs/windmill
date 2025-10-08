@@ -28,8 +28,10 @@ use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
 use std::borrow::Cow;
 use std::fmt::Display;
+use std::sync::Arc;
 use std::{fs::DirBuilder as SyncDirBuilder, str::FromStr};
 use tokio::fs::DirBuilder as AsyncDirBuilder;
+use tokio::sync::RwLock;
 use url::Url;
 
 pub const MAX_PER_PAGE: usize = 10000;
@@ -134,6 +136,8 @@ lazy_static::lazy_static! {
             mode,
         }
     };
+
+    pub static ref HUB_API_SECRET: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 }
 
 lazy_static::lazy_static! {
@@ -332,6 +336,10 @@ pub async fn http_get_from_hub(
 
     if let Some(uid) = uid {
         request = request.header("X-uid", uid);
+    }
+
+    if let Some(hub_api_secret) = HUB_API_SECRET.read().await.clone() {
+        request = request.header("X-api-secret", hub_api_secret);
     }
 
     if let Some(query_params) = query_params {

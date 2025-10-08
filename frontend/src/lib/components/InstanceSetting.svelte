@@ -1067,12 +1067,7 @@
 						bind:value={$values[setting.key]}
 					/>
 				{:else if setting.fieldType == 'password'}
-					<input
-						autocomplete="new-password"
-						type="password"
-						placeholder={setting.placeholder}
-						bind:value={$values[setting.key]}
-					/>
+					<Password small placeholder={setting.placeholder} bind:password={$values[setting.key]} />
 				{:else if setting.fieldType == 'boolean'}
 					<div class="mt-0.5">
 						<Toggle
