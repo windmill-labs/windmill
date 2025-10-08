@@ -405,14 +405,24 @@ pub struct FlowModuleValueWithParallel {
     #[serde(rename = "type")]
     pub type_: String,
     pub parallel: Option<bool>,
-    pub parallelism: Option<u16>,
+    #[serde(
+        default,
+        deserialize_with = "raw_value_to_input_transform::<_, u16>",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parallelism: Option<InputTransform>,
 }
 
 #[derive(Deserialize)]
 pub struct FlowModuleValueWithSkipFailures {
     pub skip_failures: Option<bool>,
     pub parallel: Option<bool>,
-    pub parallelism: Option<u16>,
+    #[serde(
+        default,
+        deserialize_with = "raw_value_to_input_transform::<_, u16>",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parallelism: Option<InputTransform>,
 }
 
 #[derive(Deserialize)]
@@ -627,7 +637,7 @@ pub enum FlowModuleValue {
         skip_failures: bool,
         parallel: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
-        parallelism: Option<u16>,
+        parallelism: Option<InputTransform>,
     },
 
     /// While loop node
@@ -730,7 +740,8 @@ struct UntaggedFlowModuleValue {
     modules: Option<Vec<FlowModule>>,
     skip_failures: Option<bool>,
     parallel: Option<bool>,
-    parallelism: Option<u16>,
+    #[serde(default, deserialize_with = "raw_value_to_input_transform::<_, u16>")]
+    parallelism: Option<InputTransform>,
     branches: Option<Vec<Branch>>,
     default: Option<Vec<FlowModule>>,
     content: Option<String>,
