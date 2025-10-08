@@ -205,9 +205,9 @@
 			'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
 			'active:opacity-80 transition-all',
 			disabled
-				? ['accent-secondary', 'accent', 'default', 'subtle'].includes(variant)
-					? '!bg-surface-disabled !text-disabled cursor-not-allowed !border-border-light'
-					: '!bg-surface-disabled !text-disabled cursor-not-allowed'
+				? ['default', 'subtle'].includes(variant)
+					? '!text-disabled'
+					: '!bg-surface-disabled !text-disabled'
 				: '',
 			loading ? 'cursor-wait' : '',
 			selected && ['default', 'subtle'].includes(variant)
@@ -261,7 +261,7 @@
 		dropdownItems && dropdownItems.length > 0 ? getDividerClass(color, variant) : '',
 		wrapperClasses,
 		'flex flex-row rounded-md',
-		disabled ? 'divide-text-disabled' : ''
+		disabled ? 'divide-text-disabled cursor-not-allowed' : ''
 	)}
 	style={wrapperStyle}
 	data-interactive
