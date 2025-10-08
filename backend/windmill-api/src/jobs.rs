@@ -102,7 +102,8 @@ use windmill_queue::{
     PushArgsOwned, PushIsolationLevel,
 };
 
-use crate::flow_conversations::{self, MessageType};
+use crate::flow_conversations;
+use windmill_common::flow_conversations::MessageType;
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -3958,10 +3959,12 @@ async fn handle_chat_conversation_messages(
     })?;
 
     // Deserialize the RawValue to get the actual string without quotes
-    let user_message: String = serde_json::from_str(user_message_raw.get())
-        .map_err(|e| windmill_common::error::Error::BadRequest(
-            format!("Failed to deserialize user_message: {}", e)
-        ))?;
+    let user_message: String = serde_json::from_str(user_message_raw.get()).map_err(|e| {
+        windmill_common::error::Error::BadRequest(format!(
+            "Failed to deserialize user_message: {}",
+            e
+        ))
+    })?;
 
     // Create conversation with provided ID (or get existing one)
     flow_conversations::get_or_create_conversation_with_id(
@@ -3982,7 +3985,8 @@ async fn handle_chat_conversation_messages(
         &user_message,
         None, // No job_id for user message
         w_id,
-        None, // No step_name for user message
+        None,  // No step_name for user message
+        false, // User messages are not errors
     )
     .await?;
 

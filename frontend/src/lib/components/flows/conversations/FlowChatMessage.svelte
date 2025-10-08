@@ -7,10 +7,11 @@
 	import LinkRenderer from '$lib/components/copilot/chat/LinkRenderer.svelte'
 
 	interface Props {
-		message: FlowConversationMessage & { loading?: boolean; streaming?: boolean; error?: boolean }
+		message: FlowConversationMessage & { loading?: boolean; streaming?: boolean }
 	}
 
 	let { message }: Props = $props()
+	$inspect(message)
 </script>
 
 <div
@@ -21,10 +22,11 @@
 		class="max-w-[90%] min-w-0 rounded-lg
 			{message.message_type === 'user'
 			? 'bg-surface-secondary p-3'
-			: 'bg-surface border border-gray-200 dark:border-gray-600'}"
+			: `bg-surface border ${message.error ? '!border-red-500' : 'border-gray-200 dark:border-gray-600'}`}"
 	>
 		{#if message.step_name}
-			<div class="bg-surface-secondary text-2xs text-tertiary mb-2 font-medium py-1 px-2"
+			<div
+				class="bg-surface-secondary text-2xs text-tertiary mb-2 font-medium py-1 px-2 rounded-t-lg"
 				>{message.step_name}</div
 			>
 		{/if}
@@ -43,9 +45,11 @@
 					: ''}"
 			>
 				{#if message.message_type === 'tool'}
-					<CheckCircle2 class="w-3.5 h-3.5 text-green-500" />
-				{:else if message.error}
-					<AlertTriangle class="w-3.5 h-3.5 text-red-500" />
+					{#if message.error}
+						<AlertTriangle class="w-3.5 h-3.5 text-red-500" />
+					{:else}
+						<CheckCircle2 class="w-3.5 h-3.5 text-green-500" />
+					{/if}
 				{/if}
 				<div class="dark:prose-invert break-words whitespace-pre-wrap prose-headings:!text-base">
 					<Markdown

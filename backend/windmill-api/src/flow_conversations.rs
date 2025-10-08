@@ -13,18 +13,9 @@ use crate::db::ApiAuthed;
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
+    flow_conversations::MessageType,
     utils::{not_found_if_none, paginate, Pagination},
 };
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "MESSAGE_TYPE", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum MessageType {
-    User,
-    Assistant,
-    System,
-    Tool,
-}
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -53,6 +44,7 @@ pub struct FlowConversationMessage {
     pub job_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub step_name: Option<String>,
+    pub error: bool,
 }
 
 #[derive(Deserialize)]
@@ -239,9 +231,9 @@ async fn list_messages(
     // Fetch messages for this conversation, oldest first, but reverse the order of the messages for easy rendering on the frontend
     let messages = sqlx::query_as!(
         FlowConversationMessage,
-        r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, step_name
+        r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, step_name, error as "error!"
          FROM (
-            SELECT id, conversation_id, message_type, content, job_id, created_at, step_name
+            SELECT id, conversation_id, message_type, content, job_id, created_at, step_name, COALESCE(error, false) as error
             FROM flow_conversation_message
             WHERE conversation_id = $1
             ORDER BY created_at DESC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
@@ -269,44 +261,17 @@ pub async fn create_message(
     job_id: Option<Uuid>,
     workspace_id: &str,
     step_name: Option<&str>,
+    error: bool,
 ) -> windmill_common::error::Result<()> {
-    // Verify the conversation exists and belongs to the user
-    let conversation_exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1 AND workspace_id = $2)",
+    windmill_common::flow_conversations::add_message_to_conversation_tx(
+        tx,
+        workspace_id,
         conversation_id,
-        workspace_id
-    )
-    .fetch_one(&mut **tx)
-    .await?
-    .unwrap_or(false);
-
-    if !conversation_exists {
-        return Err(windmill_common::error::Error::NotFound(format!(
-            "Conversation not found or access denied: {}",
-            conversation_id
-        )));
-    }
-
-    // Insert the message
-    sqlx::query!(
-        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name)
-         VALUES ($1, $2, $3, $4, $5)",
-        conversation_id,
-        message_type as MessageType,
-        content,
         job_id,
-        step_name
+        content,
+        message_type,
+        step_name,
+        error,
     )
-    .execute(&mut **tx)
-    .await?;
-
-    // Update conversation updated_at timestamp
-    sqlx::query!(
-        "UPDATE flow_conversation SET updated_at = NOW() WHERE id = $1",
-        conversation_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
+    .await
 }

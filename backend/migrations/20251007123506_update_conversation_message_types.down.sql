@@ -1,6 +1,7 @@
 -- Remove step_name column
 ALTER TABLE flow_conversation_message
 DROP COLUMN IF EXISTS step_name;
+DROP COLUMN IF EXISTS error;
 
 -- Note: PostgreSQL doesn't support removing values from ENUMs directly
 -- You would need to recreate the enum to remove values, which is complex

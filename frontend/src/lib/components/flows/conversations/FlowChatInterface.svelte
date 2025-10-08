@@ -22,7 +22,6 @@
 	interface ChatMessage extends FlowConversationMessage {
 		loading?: boolean
 		streaming?: boolean
-		error?: boolean
 	}
 
 	let {

@@ -2,7 +2,6 @@ use crate::memory_oss::{read_from_memory, write_to_memory};
 use anyhow::Context;
 use async_recursion::async_recursion;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use ulid;
@@ -13,6 +12,7 @@ use windmill_common::{
     client::AuthedClient,
     db::DB,
     error::{self, to_anyhow, Error},
+    flow_conversations::{add_message_to_conversation_tx, MessageType},
     flow_status::AgentAction,
     flows::{FlowModuleValue, FlowValue, Step},
     get_latest_hash_for_path,
@@ -84,16 +84,6 @@ pub struct FlowJobRunnableIdAndRawFlow {
     pub runnable_id: Option<ScriptHash>,
     pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
     pub kind: JobKind,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "MESSAGE_TYPE", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum MessageType {
-    User,
-    Assistant,
-    System,
-    Tool,
 }
 
 pub async fn get_flow_job_runnable_and_raw_flow(
@@ -421,58 +411,6 @@ async fn update_flow_status_module_with_actions_success(
     Ok(())
 }
 
-/// Add a message to the conversation database
-async fn add_message_to_conversation(
-    db: &DB,
-    workspace_id: &str,
-    conversation_id: Uuid,
-    job_id: Uuid,
-    content: &str,
-    message_type: MessageType,
-    step_name: Option<&str>,
-) -> Result<(), Error> {
-    let mut tx = db.begin().await?;
-
-    // Verify the conversation exists
-    let conversation_exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1 AND workspace_id = $2)",
-        conversation_id,
-        workspace_id
-    )
-    .fetch_one(&mut *tx)
-    .await?
-    .unwrap_or(false);
-
-    if !conversation_exists {
-        // Conversation doesn't exist yet, silently skip
-        return Ok(());
-    }
-
-    // Insert the message
-    sqlx::query!(
-        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name)
-         VALUES ($1, $2, $3, $4, $5)",
-        conversation_id,
-        message_type as MessageType,
-        content,
-        job_id,
-        step_name
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    // Update conversation updated_at timestamp
-    sqlx::query!(
-        "UPDATE flow_conversation SET updated_at = NOW() WHERE id = $1",
-        conversation_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    tx.commit().await?;
-    Ok(())
-}
-
 /// Get step name from the flow module (summary if exists, else id)
 fn get_step_name_from_flow(flow_value: &FlowValue, flow_step_id: Option<&str>) -> Option<String> {
     let flow_step_id = flow_step_id?;
@@ -738,7 +676,9 @@ pub async fn run_agent(
                             content = Some(OpenAIContent::Text(response_content.clone()));
 
                             // Add assistant message to conversation if chat_input_enabled
-                            if flow_value.chat_input_enabled.unwrap_or(false) {
+                            if flow_value.chat_input_enabled.unwrap_or(false)
+                                && !response_content.is_empty()
+                            {
                                 if let Ok(Some(memory_id)) =
                                     get_memory_id_from_flow_status(db, parent_job).await
                                 {
@@ -753,22 +693,40 @@ pub async fn run_agent(
 
                                     // Spawn task to avoid blocking on DB write
                                     tokio::spawn(async move {
-                                        if let Err(e) = add_message_to_conversation(
-                                            &db_clone,
-                                            &workspace_id,
-                                            memory_id,
-                                            agent_job_id,
-                                            &message_content,
-                                            MessageType::Assistant,
-                                            step_name.as_deref(),
-                                        )
-                                        .await
-                                        {
-                                            tracing::warn!(
-                                                "Failed to add assistant message to conversation {}: {}",
-                                                memory_id,
-                                                e
-                                            );
+                                        match db_clone.begin().await {
+                                            Ok(mut tx) => {
+                                                if let Err(e) = add_message_to_conversation_tx(
+                                                    &mut tx,
+                                                    &workspace_id,
+                                                    memory_id,
+                                                    Some(agent_job_id),
+                                                    &message_content,
+                                                    MessageType::Assistant,
+                                                    step_name.as_deref(),
+                                                    false,
+                                                )
+                                                .await
+                                                {
+                                                    tracing::warn!(
+                                                        "Failed to add assistant message to conversation {}: {}",
+                                                        memory_id,
+                                                        e
+                                                    );
+                                                    return;
+                                                }
+                                                if let Err(e) = tx.commit().await {
+                                                    tracing::warn!(
+                                                        "Failed to commit transaction for assistant message: {}",
+                                                        e
+                                                    );
+                                                }
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!(
+                                                    "Failed to begin transaction for assistant message: {}",
+                                                    e
+                                                );
+                                            }
                                         }
                                     });
                                 }
@@ -1121,25 +1079,44 @@ pub async fn run_agent(
 
                                                 // Spawn task to avoid blocking on DB write
                                                 tokio::spawn(async move {
-                                                    if let Err(e) = add_message_to_conversation(
-                                                        &db_clone,
-                                                        &workspace_id,
-                                                        memory_id,
-                                                        tool_job_id,
-                                                        &format!(
-                                                            "Error executing {}: {}",
-                                                            tool_name, error_text
-                                                        ),
-                                                        MessageType::Tool,
-                                                        step_name.as_deref(),
-                                                    )
-                                                    .await
-                                                    {
-                                                        tracing::warn!(
-                                                            "Failed to add tool error message to conversation {}: {}",
-                                                            memory_id,
-                                                            e
-                                                        );
+                                                    match db_clone.begin().await {
+                                                        Ok(mut tx) => {
+                                                            if let Err(e) =
+                                                                add_message_to_conversation_tx(
+                                                                    &mut tx,
+                                                                    &workspace_id,
+                                                                    memory_id,
+                                                                    Some(tool_job_id),
+                                                                    &format!(
+                                                                        "Error executing {}: {}",
+                                                                        tool_name, error_text
+                                                                    ),
+                                                                    MessageType::Tool,
+                                                                    step_name.as_deref(),
+                                                                    true,
+                                                                )
+                                                                .await
+                                                            {
+                                                                tracing::warn!(
+                                                                    "Failed to add tool error message to conversation {}: {}",
+                                                                    memory_id,
+                                                                    e
+                                                                );
+                                                                return;
+                                                            }
+                                                            if let Err(e) = tx.commit().await {
+                                                                tracing::warn!(
+                                                                    "Failed to commit transaction for tool error message: {}",
+                                                                    e
+                                                                );
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            tracing::warn!(
+                                                                "Failed to begin transaction for tool error message: {}",
+                                                                e
+                                                            );
+                                                        }
                                                     }
                                                 });
                                             }
@@ -1224,25 +1201,49 @@ pub async fn run_agent(
                                                     flow_value,
                                                     job.flow_step_id.as_deref(),
                                                 );
+                                                let content = if success {
+                                                    format!("Used {} tool", tool_name)
+                                                } else {
+                                                    format!("Error executing {}", tool_name)
+                                                };
 
                                                 // Spawn task to avoid blocking on DB write
                                                 tokio::spawn(async move {
-                                                    if let Err(e) = add_message_to_conversation(
-                                                        &db_clone,
-                                                        &workspace_id,
-                                                        memory_id,
-                                                        tool_job_id,
-                                                        &format!("Used {} tool", tool_name),
-                                                        MessageType::Tool,
-                                                        step_name.as_deref(),
-                                                    )
-                                                    .await
-                                                    {
-                                                        tracing::warn!(
-                                                            "Failed to add tool message to conversation {}: {}",
-                                                            memory_id,
-                                                            e
-                                                        );
+                                                    match db_clone.begin().await {
+                                                        Ok(mut tx) => {
+                                                            if let Err(e) =
+                                                                add_message_to_conversation_tx(
+                                                                    &mut tx,
+                                                                    &workspace_id,
+                                                                    memory_id,
+                                                                    Some(tool_job_id),
+                                                                    &content,
+                                                                    MessageType::Tool,
+                                                                    step_name.as_deref(),
+                                                                    success == false,
+                                                                )
+                                                                .await
+                                                            {
+                                                                tracing::warn!(
+                                                                    "Failed to add tool message to conversation {}: {}",
+                                                                    memory_id,
+                                                                    e
+                                                                );
+                                                                return;
+                                                            }
+                                                            if let Err(e) = tx.commit().await {
+                                                                tracing::warn!(
+                                                                    "Failed to commit transaction for tool message: {}",
+                                                                    e
+                                                                );
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            tracing::warn!(
+                                                                "Failed to begin transaction for tool message: {}",
+                                                                e
+                                                            );
+                                                        }
                                                     }
                                                 });
                                             }
