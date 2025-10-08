@@ -143,6 +143,7 @@ pub struct JobCompleted {
     pub canceled_by: Option<CanceledBy>,
     pub duration: Option<i64>,
     pub has_stream: Option<bool>,
+    pub from_cache: Option<bool>,
 }
 
 pub async fn cancel_single_job<'c>(
@@ -736,6 +737,7 @@ pub async fn add_completed_job_error(
         flow_is_done,
         duration,
         false,
+        false,
     )
     .await?;
     Ok(result)
@@ -758,6 +760,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     flow_is_done: bool,
     duration: Option<i64>,
     has_stream: bool,
+    from_cache: bool,
 ) -> Result<(Uuid, i64), Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
@@ -783,6 +786,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             flow_is_done,
             duration,
             has_stream,
+            from_cache,
         )
     })
     .retry(
@@ -881,6 +885,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     flow_is_done: bool,
     duration: Option<i64>,
     has_stream: bool,
+    from_cache: bool,
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool)> {
     // let start = std::time::Instant::now();
 
@@ -1061,9 +1066,11 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 }
 
                 // for scripts, always try to schedule next tick
-                // for flows, only try to schedule next tick here if flow failed and because first handle_flow failed (step = 0, modules[0] = {type: 'Failure', 'job': uuid::nil()}) or job was cancelled before first handle_flow was called (step = 0, modules = [] OR modules[0].type == 'WaitingForPriorSteps')
+                // for flows, only try to schedule next tick here if flow failed and because first handle_flow failed (step = 0, modules[0] = {type: 'Failure', 'job': uuid::nil()})
+                // or job was cancelled before first handle_flow was called (step = 0, modules = [] OR modules[0].type == 'WaitingForPriorSteps')
                 // otherwise flow rescheduling is done inside handle_flow
                 let schedule_next_tick = !queued_job.is_flow()
+                    || from_cache
                     || !success
                         && sqlx::query_scalar!(
                             "SELECT 
@@ -2218,6 +2225,7 @@ impl PulledJobResult {
                     canceled_by: None,
                     duration: None,
                     has_stream: Some(false),
+                    from_cache: None,
                 }),
             ),
             PulledJobResult { job, .. } => Ok(job),
