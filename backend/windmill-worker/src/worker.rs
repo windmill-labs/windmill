@@ -776,6 +776,7 @@ pub async fn handle_all_job_kind_error(
                         token: authed_client.token.clone(),
                         duration: None,
                         has_stream: Some(false),
+                        from_cache: None,
                     },
                     false,
                 )
@@ -1721,6 +1722,7 @@ pub async fn run_worker(
                                 canceled_by: None,
                                 duration: None,
                                 has_stream: Some(false),
+                                from_cache: None,
                             },
                             true,
                         )
@@ -2448,6 +2450,7 @@ pub async fn handle_queued_job(
                             token: client.token.clone(),
                             duration: None,
                             has_stream: Some(false),
+                            from_cache: Some(true),
                         },
                         true,
                     )
