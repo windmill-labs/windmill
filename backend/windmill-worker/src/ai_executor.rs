@@ -724,7 +724,7 @@ pub async fn run_agent(
                                             &message_content,
                                             MessageType::Assistant,
                                             &step_name,
-                                            false,
+                                            true,
                                         )
                                         .await
                                         {

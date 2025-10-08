@@ -220,8 +220,7 @@ class FlowChatManager {
 		return { type, content, success }
 	}
 
-	private async pollConversationMessages(conversationId: string) {
-		console.log('pollConversationMessages', conversationId)
+	private async pollConversationMessages(conversationId: string, isNewConversation?: boolean) {
 		if (!this.#workspace) return
 
 		try {
@@ -233,6 +232,10 @@ class FlowChatManager {
 				perPage: 50,
 				afterId: lastId
 			})
+
+			if (isNewConversation) {
+				await this.#refreshConversations?.()
+			}
 
 			const filteredResponse = response.filter((msg) => msg.message_type !== 'user')
 
@@ -250,10 +253,10 @@ class FlowChatManager {
 		}
 	}
 
-	private startPolling(conversationId: string) {
+	private startPolling(conversationId: string, isNewConversation?: boolean) {
 		if (this.pollingInterval) return
 		this.pollingInterval = setInterval(() => {
-			this.pollConversationMessages(conversationId)
+			this.pollConversationMessages(conversationId, isNewConversation)
 		}, 500) // Poll every 0.5 seconds
 	}
 
@@ -308,9 +311,9 @@ class FlowChatManager {
 			this.scrollToUserMessage(userMessage.id)
 
 			if (this.#useStreaming && this.#path) {
-				await this.handleStreamingMessage(messageContent, currentConversationId)
+				await this.handleStreamingMessage(messageContent, currentConversationId, isNewConversation)
 			} else {
-				await this.handlePollingMessage(messageContent, currentConversationId)
+				await this.handlePollingMessage(messageContent, currentConversationId, isNewConversation)
 			}
 		} catch (error) {
 			console.error('Error running flow:', error)
@@ -321,15 +324,15 @@ class FlowChatManager {
 			}
 		}
 
-		if (isNewConversation) {
-			await this.#refreshConversations?.()
-		}
-
 		await tick()
 		this.focusInput()
 	}
 
-	private async handleStreamingMessage(messageContent: string, currentConversationId: string) {
+	private async handleStreamingMessage(
+		messageContent: string,
+		currentConversationId: string,
+		isNewConversation: boolean
+	) {
 		// Close any existing EventSource
 		if (this.currentEventSource) {
 			this.currentEventSource.close()
@@ -356,7 +359,7 @@ class FlowChatManager {
 			this.currentEventSource = eventSource
 
 			// start polling
-			this.startPolling(currentConversationId)
+			this.startPolling(currentConversationId, isNewConversation)
 
 			eventSource.onmessage = async (event) => {
 				try {
@@ -459,12 +462,21 @@ class FlowChatManager {
 		}
 	}
 
-	private async handlePollingMessage(messageContent: string, currentConversationId: string) {
+	private async handlePollingMessage(
+		messageContent: string,
+		currentConversationId: string,
+		isNewConversation: boolean
+	) {
 		const jobId = await this.#onRunFlow?.(messageContent, currentConversationId)
 		if (!jobId) {
 			console.error('No jobId returned from onRunFlow')
 			return
 		}
+
+		if (isNewConversation) {
+			await this.#refreshConversations?.()
+		}
+
 		// Start polling for intermediate messages in non-streaming mode too
 		this.startPolling(currentConversationId)
 		this.pollJobResult(jobId)
