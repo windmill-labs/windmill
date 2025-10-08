@@ -27,6 +27,7 @@
 		CornerDownLeft,
 		ExternalLink,
 		Github,
+		GitBranch,
 		Play,
 		PlayIcon,
 		WandSparkles
@@ -52,6 +53,7 @@
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import GitRepoViewer from './GitRepoViewer.svelte'
+	import GitRepoResourcePicker from './GitRepoResourcePicker.svelte'
 
 	interface Props {
 		// Exported
@@ -291,6 +293,87 @@
 	}
 
 	let gitRepoViewer: GitRepoViewer | undefined = $state()
+	let gitRepoResourcePickerOpen = $state(false)
+	
+	// Check if delegate_to_git_repo exists in the code
+	let hasDelegateToGitRepo = $derived(
+		code && code.includes('delegate_to_git_repo:')
+	)
+
+	function insertDelegateToGitRepo(resourcePath: string) {
+		if (!editor) return
+
+		const currentCode = editor.getCode()
+		const lines = currentCode.split('\n')
+		
+		// Check if delegate_to_git_repo already exists
+		const delegateLineIndex = lines.findIndex(line => line.trim().startsWith('delegate_to_git_repo:'))
+		
+		if (delegateLineIndex !== -1) {
+			// Update existing delegate_to_git_repo resource
+			const resourceLineIndex = lines.findIndex((line, index) => 
+				index > delegateLineIndex && line.trim().startsWith('resource:')
+			)
+			
+			if (resourceLineIndex !== -1) {
+				// Replace existing resource line
+				lines[resourceLineIndex] = `  resource: ${resourcePath}`
+			} else {
+				// Add resource line after delegate_to_git_repo
+				lines.splice(delegateLineIndex + 1, 0, `  resource: ${resourcePath}`)
+			}
+		} else {
+			// Insert new delegate_to_git_repo section
+			const delegateSection = [
+				'delegate_to_git_repo:',
+				`  resource: ${resourcePath}`
+			]
+			
+			// Find a good insertion point (after ---, then after inventories if they exist, otherwise at the top)
+			let insertionIndex = 0
+			
+			// First, skip whitespace and find document start marker ---
+			for (let i = 0; i < lines.length; i++) {
+				const trimmedLine = lines[i].trim()
+				if (trimmedLine === '---') {
+					insertionIndex = i + 1 // Start after the document marker
+					break
+				} else if (trimmedLine && !trimmedLine.startsWith('#')) {
+					// Hit non-comment, non-whitespace content without finding ---, stop looking
+					break
+				}
+			}
+			
+			// Look for the end of inventories section
+			for (let i = insertionIndex; i < lines.length; i++) {
+				const line = lines[i].trim()
+				if (line.startsWith('inventories:')) {
+					// Find the end of inventories section
+					for (let j = i + 1; j < lines.length; j++) {
+						const nextLine = lines[j].trim()
+						if (nextLine && !nextLine.startsWith('-') && !nextLine.startsWith(' ') && !nextLine.startsWith('#')) {
+							insertionIndex = j
+							break
+						}
+					}
+					break
+				} else if (line && !line.startsWith('#') && insertionIndex <= 1) {
+					// First non-comment line after ---, insert before it
+					insertionIndex = i
+					break
+				}
+			}
+			
+			// Insert the delegate section
+			lines.splice(insertionIndex, 0, ...delegateSection, '')
+		}
+		
+		const newCode = lines.join('\n')
+		editor.setCode(newCode)
+		
+		// Trigger schema inference to update assets
+		inferSchema(newCode)
+	}
 
 	onMount(() => {
 		inferSchema(code)
@@ -744,6 +827,18 @@
 			{#if assets?.length}
 				<AssetsDropdownButton {assets} />
 			{/if}
+			{#if lang === 'ansible' && hasDelegateToGitRepo}
+				<Button
+					color="light"
+					variant="border"
+					size="xs"
+					on:click={() => (gitRepoResourcePickerOpen = true)}
+					startIcon={{ icon: GitBranch }}
+					btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
+				>
+					Delegating to git repo
+				</Button>
+			{/if}
 			{#if testPanelSize === 0}
 				<HideButton
 					hidden={true}
@@ -860,3 +955,8 @@
 		{/key}
 	</div>
 {/snippet}
+
+<GitRepoResourcePicker 
+	bind:open={gitRepoResourcePickerOpen}
+	on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
+/>

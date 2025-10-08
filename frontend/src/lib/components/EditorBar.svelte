@@ -31,6 +31,7 @@
 		DiffIcon,
 		DollarSign,
 		File,
+		GitBranch,
 		History,
 		Library,
 		Link,
@@ -53,6 +54,7 @@
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
 	import ScriptGen from './copilot/ScriptGen.svelte'
+	import GitRepoPopoverPicker from './GitRepoPopoverPicker.svelte'
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -119,6 +121,7 @@
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let ducklakePicker: ItemPicker | undefined = $state()
 	let databasePicker: ItemPicker | undefined = $state()
+	let gitRepoPickerOpen = $state(false)
 
 	let showContextVarPicker = $derived(
 		[
@@ -186,6 +189,7 @@
 	)
 	let showDucklakePicker = $derived(['duckdb'].includes(lang ?? ''))
 	let showDatabasePicker = $derived(['duckdb'].includes(lang ?? ''))
+	let showGitRepoPicker = $derived(lang === 'ansible')
 
 	let showResourceTypePicker = $derived(
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -195,6 +199,79 @@
 
 	let codeViewer: Drawer | undefined = $state()
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
+
+	function insertDelegateToGitRepo(resourcePath: string) {
+		if (!editor) return
+
+		const currentCode = editor.getCode()
+		const lines = currentCode.split('\n')
+
+		// Check if delegate_to_git_repo already exists
+		const delegateLineIndex = lines.findIndex(line => line.trim().startsWith('delegate_to_git_repo:'))
+
+		if (delegateLineIndex !== -1) {
+			// Update existing delegate_to_git_repo resource
+			const resourceLineIndex = lines.findIndex((line, index) =>
+				index > delegateLineIndex && line.trim().startsWith('resource:')
+			)
+
+			if (resourceLineIndex !== -1) {
+				// Replace existing resource line
+				lines[resourceLineIndex] = `  resource: ${resourcePath}`
+			} else {
+				// Add resource line after delegate_to_git_repo
+				lines.splice(delegateLineIndex + 1, 0, `  resource: ${resourcePath}`)
+			}
+		} else {
+			// Insert new delegate_to_git_repo section
+			const delegateSection = [
+				'delegate_to_git_repo:',
+				`  resource: ${resourcePath}`,
+				`  playbook: `
+			]
+
+			// Find a good insertion point (after ---, then after inventories if they exist, otherwise at the top)
+			let insertionIndex = 0
+
+			// First, skip whitespace and find document start marker ---
+			for (let i = 0; i < lines.length; i++) {
+				const trimmedLine = lines[i].trim()
+				if (trimmedLine === '---') {
+					insertionIndex = i + 1 // Start after the document marker
+					break
+				} else if (trimmedLine && !trimmedLine.startsWith('#')) {
+					// Hit non-comment, non-whitespace content without finding ---, stop looking
+					break
+				}
+			}
+
+			// Look for the end of inventories section
+			for (let i = insertionIndex; i < lines.length; i++) {
+				const line = lines[i].trim()
+				if (line.startsWith('inventories:')) {
+					// Find the end of inventories section
+					for (let j = i + 1; j < lines.length; j++) {
+						const nextLine = lines[j].trim()
+						if (nextLine && !nextLine.startsWith('-') && !nextLine.startsWith(' ') && !nextLine.startsWith('#')) {
+							insertionIndex = j
+							break
+						}
+					}
+					break
+				} else if (line && !line.startsWith('#') && insertionIndex <= 1) {
+					// First non-comment line after ---, insert before it
+					insertionIndex = i
+					break
+				}
+			}
+
+			// Insert the delegate section
+			lines.splice(insertionIndex, 0, ...delegateSection, '')
+		}
+
+		const newCode = lines.join('\n')
+		editor.setCode(newCode)
+	}
 
 	function addEditorActions() {
 		editor?.addAction('insert-variable', 'Windmill: Insert variable', () => {
@@ -800,6 +877,28 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				>
 					+Resource
 				</Button>
+			{/if}
+
+			{#if showGitRepoPicker && customUi?.resource != false}
+				<GitRepoPopoverPicker
+					bind:isOpen={gitRepoPickerOpen}
+					on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
+				>
+					<Button
+						aiId="editor-bar-add-git-repo"
+						aiDescription="Delegate to Git repository"
+						title="Delegate to Git repository"
+						btnClasses="!font-medium text-tertiary"
+						size="xs"
+						spacingSize="md"
+						color="light"
+						on:click={() => (gitRepoPickerOpen = true)}
+						{iconOnly}
+						startIcon={{ icon: GitBranch }}
+					>
+						+Git Repo
+					</Button>
+				</GitRepoPopoverPicker>
 			{/if}
 
 			{#if showResourceTypePicker && customUi?.type != false}
