@@ -31,6 +31,7 @@
 		render: boolean
 		customCss?: ComponentCustomCSS<'aggridinfinitecomponent'> | undefined
 		actions?: TableAction[] | undefined
+		onChange?: string[] | undefined
 	}
 
 	let {
@@ -40,7 +41,8 @@
 		initializing = $bindable(undefined),
 		render,
 		customCss = undefined,
-		actions = undefined
+		actions = undefined,
+		onChange = undefined
 	}: Props = $props()
 
 	let runnableComponent: RunnableComponent | undefined = $state(undefined)
@@ -232,6 +234,7 @@
 			{result}
 			{actions}
 			allowDelete={false}
+			{onChange}
 			bind:this={aggrid}
 		/>
 	</div>

@@ -35,7 +35,12 @@
 		'textinputcomponent',
 		'textareainputcomponent',
 		'passwordinputcomponent',
-		'emailinputcomponent'
+		'emailinputcomponent',
+		'aggridcomponent',
+		'aggridcomponentee',
+		'aggridinfinitecomponent',
+		'aggridinfinitecomponentee',
+		'dbexplorercomponent'
 	]
 </script>
 
@@ -86,7 +91,7 @@
 				bind:value={item.data.onToggle}
 			/>
 		{/if}
-		{#if item.data.type === 'dateinputcomponent' || item.data.type === 'datetimeinputcomponent' || item.data.type === 'timeinputcomponent' || item.data.type === 'numberinputcomponent' || item.data.type === 'textinputcomponent' || item.data.type === 'textareainputcomponent' || item.data.type === 'passwordinputcomponent' || item.data.type === 'emailinputcomponent'}
+		{#if item.data.type === 'dateinputcomponent' || item.data.type === 'datetimeinputcomponent' || item.data.type === 'timeinputcomponent' || item.data.type === 'numberinputcomponent' || item.data.type === 'textinputcomponent' || item.data.type === 'textareainputcomponent' || item.data.type === 'passwordinputcomponent' || item.data.type === 'emailinputcomponent' || item.data.type === 'aggridcomponent' || item.data.type === 'aggridcomponentee' || item.data.type === 'aggridinfinitecomponent' || item.data.type === 'aggridinfinitecomponentee' || item.data.type === 'dbexplorercomponent'}
 			<EventHandlerItem
 				title="on change"
 				tooltip="When a human change the value of the input"

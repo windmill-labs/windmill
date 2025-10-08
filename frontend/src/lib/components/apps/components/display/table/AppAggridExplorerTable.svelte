@@ -23,6 +23,7 @@
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { stateSnapshot, withProps } from '$lib/svelte5Utils.svelte'
+	import { get } from 'svelte/store'
 
 	interface Props {
 		id: string
@@ -40,6 +41,7 @@
 		actions?: TableAction[]
 		result?: any[] | undefined
 		allowColumnDefsActions?: boolean
+		onChange?: string[] | undefined
 	}
 
 	let {
@@ -53,7 +55,8 @@
 		allowDelete,
 		actions = [],
 		result = undefined,
-		allowColumnDefsActions = true
+		allowColumnDefsActions = true,
+		onChange = undefined
 	}: Props = $props()
 	let inputs = {}
 
@@ -99,6 +102,13 @@
 
 	const dispatch = createEventDispatcher()
 
+	function fireOnChange() {
+		let runnableComponents = get(context.runnableComponents)
+		if (onChange) {
+			onChange.forEach((id) => runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+		}
+	}
+
 	function onCellValueChanged(event) {
 		let dataCell = event.newValue
 		outputs?.newChange?.set({
@@ -120,6 +130,7 @@
 		})
 
 		resolvedConfig?.extraConfig?.['defaultColDef']?.['onCellValueChanged']?.(event)
+		fireOnChange()
 	}
 
 	let api: GridApi<any> | undefined = $state(undefined)

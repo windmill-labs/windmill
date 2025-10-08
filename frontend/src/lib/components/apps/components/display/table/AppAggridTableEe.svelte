@@ -25,6 +25,7 @@
 		customCss?: ComponentCustomCSS<'aggridcomponent'> | undefined
 		actions?: TableAction[]
 		actionsOrder?: RichConfiguration | undefined
+		onChange?: string[] | undefined
 	}
 
 	let {
@@ -36,7 +37,8 @@
 		render,
 		customCss = undefined,
 		actions = [],
-		actionsOrder = undefined
+		actionsOrder = undefined,
+		onChange = undefined
 	}: Props = $props()
 
 	let loaded = $state(false)
@@ -61,6 +63,7 @@
 		{customCss}
 		{actions}
 		{actionsOrder}
+		{onChange}
 	/>
 {:else}
 	<Loader2 class="animate-spin" />
