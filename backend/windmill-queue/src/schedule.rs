@@ -114,7 +114,7 @@ pub async fn push_scheduled_job<'c>(
     .unwrap_or(false);
 
     if already_exists {
-        tracing::info!(
+        tracing::warn!(
             "Job for schedule {} at {} already exists",
             &schedule.path,
             next
