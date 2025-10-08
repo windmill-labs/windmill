@@ -52,7 +52,7 @@
 			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center border',
 			small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-1 text-xs',
 			'text-primary data-[state=on]:text-emphasis',
-			'data-[state=on]:bg-surface data-[state=off]:border-transparent data-[state=on]:border-gray-300 dark:data-[state=on]:border-gray-500',
+			'data-[state=on]:bg-surface-tertiary data-[state=off]:border-transparent data-[state=on]:border-border-normal',
 			'bg-surface-secondary hover:bg-surface-hover',
 			disabled ? '!shadow-none' : '',
 			className
