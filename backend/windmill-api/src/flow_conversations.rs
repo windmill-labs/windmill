@@ -44,7 +44,7 @@ pub struct FlowConversationMessage {
     pub job_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub step_name: Option<String>,
-    pub error: bool,
+    pub success: bool,
 }
 
 #[derive(Deserialize)]
@@ -231,9 +231,9 @@ async fn list_messages(
     // Fetch messages for this conversation, oldest first, but reverse the order of the messages for easy rendering on the frontend
     let messages = sqlx::query_as!(
         FlowConversationMessage,
-        r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, step_name, error as "error!"
+        r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, step_name, success
          FROM (
-            SELECT id, conversation_id, message_type, content, job_id, created_at, step_name, COALESCE(error, false) as error
+            SELECT id, conversation_id, message_type, content, job_id, created_at, step_name, success
             FROM flow_conversation_message
             WHERE conversation_id = $1
             ORDER BY created_at DESC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END

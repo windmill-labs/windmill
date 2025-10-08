@@ -14829,9 +14829,9 @@ components:
         step_name:
           type: string
           description: The step name that produced that message
-        error:
+        success:
           type: boolean
-          description: Whether the message is an error
+          description: Whether the message is a success
 
     EndpointTool:
       type: object

@@ -7,7 +7,6 @@ import { tick } from 'svelte'
 export interface ChatMessage extends FlowConversationMessage {
 	loading?: boolean
 	streaming?: boolean
-	error?: boolean
 }
 
 export interface FlowChatManagerOptions {
@@ -194,12 +193,12 @@ class FlowChatManager {
 	private parseStreamDeltas(streamData: string): {
 		type: string
 		content: string
-		error?: boolean
+		success: boolean
 	} {
 		let type = 'message'
 		const lines = streamData.trim().split('\n')
 		let content = ''
-		let error = false
+		let success = true
 		for (const line of lines) {
 			if (!line.trim()) continue
 			try {
@@ -207,8 +206,8 @@ class FlowChatManager {
 				if (parsed.type === 'tool_result') {
 					type = 'tool_result'
 					const toolName = parsed.function_name
-					error = !parsed.success
-					content = error ? `Failed to use ${toolName} tool` : `Used ${toolName} tool`
+					success = parsed.success
+					content = success ? `Used ${toolName} tool` : `Failed to use ${toolName} tool`
 				}
 				if (parsed.type === 'token_delta' && parsed.content) {
 					type = 'message'
@@ -218,7 +217,7 @@ class FlowChatManager {
 				console.error('Failed to parse stream line:', line, e)
 			}
 		}
-		return { type, content, error }
+		return { type, content, success }
 	}
 
 	private async pollConversationMessages(conversationId: string) {
@@ -371,7 +370,7 @@ class FlowChatManager {
 							const {
 								type,
 								content: newContent,
-								error
+								success
 							} = this.parseStreamDeltas(data.new_result_stream)
 							accumulatedContent += newContent
 							if (accumulatedContent.length > 0 || type === 'tool_result') {
@@ -398,7 +397,7 @@ class FlowChatManager {
 										job_id: '',
 										loading: false,
 										streaming: false,
-										error
+										success
 									}
 								]
 								// Reset assistant message ID since we are creating a tool message

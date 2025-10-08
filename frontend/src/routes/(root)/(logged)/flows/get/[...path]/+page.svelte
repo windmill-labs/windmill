@@ -430,7 +430,6 @@
 	}
 
 	async function handleSelectConversation(conversationId: string, isDraft?: boolean) {
-		console.log('handleSelectConversation', conversationId)
 		selectedConversationId = conversationId
 		// Load conversation messages into chat interface
 		if (flowChatInterface) {

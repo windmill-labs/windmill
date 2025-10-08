@@ -2,12 +2,12 @@
 	import { Markdown } from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { Loader2, CheckCircle2, AlertTriangle } from 'lucide-svelte'
-	import type { FlowConversationMessage } from '$lib/gen'
 	import CodeDisplay from '$lib/components/copilot/chat/script/CodeDisplay.svelte'
 	import LinkRenderer from '$lib/components/copilot/chat/LinkRenderer.svelte'
+	import { type ChatMessage } from './FlowChatManager.svelte'
 
 	interface Props {
-		message: FlowConversationMessage & { loading?: boolean; streaming?: boolean }
+		message: ChatMessage
 	}
 
 	let { message }: Props = $props()
@@ -21,7 +21,7 @@
 		class="max-w-[90%] min-w-0 rounded-lg
 			{message.message_type === 'user'
 			? 'bg-surface-secondary p-3'
-			: `bg-surface border ${message.error ? '!border-red-500' : 'border-gray-200 dark:border-gray-600'}`}"
+			: `bg-surface border ${message.success !== false ? 'border-gray-200 dark:border-gray-600' : '!border-red-500'}`}"
 	>
 		{#if message.step_name}
 			<div
@@ -44,10 +44,10 @@
 					: ''}"
 			>
 				{#if message.message_type === 'tool'}
-					{#if message.error}
-						<AlertTriangle class="w-3.5 h-3.5 text-red-500" />
-					{:else}
+					{#if message.success !== false}
 						<CheckCircle2 class="w-3.5 h-3.5 text-green-500" />
+					{:else}
+						<AlertTriangle class="w-3.5 h-3.5 text-red-500" />
 					{/if}
 				{/if}
 				<div class="dark:prose-invert break-words whitespace-pre-wrap prose-headings:!text-base">

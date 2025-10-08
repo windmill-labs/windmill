@@ -891,7 +891,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         &content,
                         MessageType::Assistant,
                         None,
-                        success == false,
+                        success,
                     )
                     .await?;
                     tx.commit().await?;

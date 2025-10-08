@@ -22,18 +22,18 @@ pub async fn add_message_to_conversation_tx(
     content: &str,
     message_type: MessageType,
     step_name: Option<&str>,
-    error: bool,
+    success: bool,
 ) -> Result<()> {
     // Insert the message
     sqlx::query!(
-        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name, error)
+        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name, success)
          VALUES ($1, $2, $3, $4, $5, $6)",
         conversation_id,
         message_type as MessageType,
         content,
         job_id,
         step_name,
-        error
+        success
     )
     .execute(&mut **tx)
     .await?;

@@ -3945,7 +3945,6 @@ async fn handle_chat_conversation_messages(
     flow_path: &str,
     run_query: &RunJobQuery,
     user_message_raw: Option<&Box<serde_json::value::RawValue>>,
-    uuid: Uuid,
 ) -> error::Result<()> {
     let memory_id = run_query.memory_id.ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
@@ -4119,7 +4118,6 @@ pub async fn run_flow_by_path_inner(
             &flow_path.to_string(),
             &run_query,
             args.args.get("user_message"),
-            uuid,
         )
         .await?;
     }
@@ -5618,7 +5616,6 @@ pub async fn run_wait_result_flow_by_path_internal(
             &flow_path.to_string(),
             &run_query,
             args.args.get("user_message"),
-            uuid,
         )
         .await?;
     }
