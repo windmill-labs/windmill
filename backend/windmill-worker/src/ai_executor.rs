@@ -100,13 +100,22 @@ pub async fn get_flow_job_runnable_and_raw_flow(
     Ok(job)
 }
 
-/// Get memory_id from parent flow's flow_status
-async fn get_memory_id_from_flow_status(db: &DB, parent_job: &Uuid) -> Option<Uuid> {
+/// Get memory_id from root flow's flow_status
+/// For nested AI agents (e.g., inside branches), memory_id is stored in the root flow,
+/// so we need to query using the root_job instead of parent_job
+async fn get_memory_id_from_flow_status(db: &DB, job: &MiniPulledJob) -> Option<Uuid> {
+    // Get the actual root job ID using the same logic as get_root_job_id
+    // Fallback: root_job -> flow_innermost_root_job -> parent_job
+    let root_job_id = job
+        .root_job
+        .or(job.flow_innermost_root_job)
+        .or(job.parent_job)?;
+
     match sqlx::query_scalar!(
-        "SELECT (flow_status->>'memory_id')::uuid as memory_id 
-         FROM v2_job_status 
+        "SELECT (flow_status->>'memory_id')::uuid as memory_id
+         FROM v2_job_status
          WHERE id = $1",
-        parent_job
+        root_job_id
     )
     .fetch_optional(db)
     .await
@@ -114,7 +123,7 @@ async fn get_memory_id_from_flow_status(db: &DB, parent_job: &Uuid) -> Option<Uu
         Ok(Some(memory_id)) => memory_id,
         Ok(None) => None,
         Err(e) => {
-            tracing::warn!("Failed to get memory id from flow status: {}", e);
+            tracing::warn!("Failed to get memory id from flow status for job {}: {}", job.id, e);
             None
         }
     }
@@ -510,8 +519,8 @@ pub async fn run_agent(
     if matches!(output_type, OutputType::Text) {
         if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
             if let Some(step_id) = job.flow_step_id.as_deref() {
-                // Get memory_id from flow_status
-                memory_id = get_memory_id_from_flow_status(db, parent_job).await;
+                // Get memory_id from root flow's flow_status
+                memory_id = get_memory_id_from_flow_status(db, job).await;
                 if let Some(memory_id) = memory_id {
                     // Read messages from memory
                     match read_from_memory(&job.workspace_id, memory_id, step_id).await {
@@ -714,7 +723,7 @@ pub async fn run_agent(
                             {
                                 if memory_id.is_none() {
                                     memory_id =
-                                        get_memory_id_from_flow_status(db, parent_job).await;
+                                        get_memory_id_from_flow_status(db, job).await;
                                 }
 
                                 if let Some(mid) = memory_id {
@@ -1079,7 +1088,7 @@ pub async fn run_agent(
                                         if flow_value.chat_input_enabled.unwrap_or(false) {
                                             if memory_id.is_none() {
                                                 memory_id =
-                                                    get_memory_id_from_flow_status(db, parent_job)
+                                                    get_memory_id_from_flow_status(db, job)
                                                         .await;
                                             }
 
@@ -1180,7 +1189,7 @@ pub async fn run_agent(
                                         if flow_value.chat_input_enabled.unwrap_or(false) {
                                             if memory_id.is_none() {
                                                 memory_id =
-                                                    get_memory_id_from_flow_status(db, parent_job)
+                                                    get_memory_id_from_flow_status(db, job)
                                                         .await;
                                             }
 
