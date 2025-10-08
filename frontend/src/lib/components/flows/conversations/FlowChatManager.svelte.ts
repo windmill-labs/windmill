@@ -58,7 +58,6 @@ class FlowChatManager {
 	}
 
 	updateConversationId(conversationId: string | undefined) {
-		console.log('updateConversationId', conversationId)
 		this.#conversationId = conversationId
 	}
 
@@ -261,7 +260,6 @@ class FlowChatManager {
 	}
 
 	private stopPolling() {
-		console.log('stopPolling')
 		if (this.pollingInterval) {
 			clearInterval(this.pollingInterval)
 			this.pollingInterval = undefined
