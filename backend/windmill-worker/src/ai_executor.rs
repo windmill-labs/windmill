@@ -107,11 +107,7 @@ struct FlowChatSettings {
 }
 
 /// Get chat settings (memory_id and chat_input_enabled) from root flow's flow_status
-/// For nested AI agents (e.g., inside branches), both values are stored in the root flow,
-/// so we query using root_job instead of parent_job. Fetches both in a single query.
 async fn get_flow_chat_settings(db: &DB, job: &MiniPulledJob) -> FlowChatSettings {
-    // Get the actual root job ID using the same logic as get_root_job_id
-    // Fallback: root_job -> flow_innermost_root_job -> parent_job
     let root_job_id = job
         .root_job
         .or(job.flow_innermost_root_job)
@@ -138,7 +134,11 @@ async fn get_flow_chat_settings(db: &DB, job: &MiniPulledJob) -> FlowChatSetting
         },
         Ok(None) => FlowChatSettings::default(),
         Err(e) => {
-            tracing::warn!("Failed to get chat settings from flow status for job {}: {}", job.id, e);
+            tracing::warn!(
+                "Failed to get chat settings from flow status for job {}: {}",
+                job.id,
+                e
+            );
             FlowChatSettings::default()
         }
     }
@@ -529,14 +529,13 @@ pub async fn run_agent(
             vec![]
         };
 
-    // Lazy-loaded chat settings (fetched from root flow's flow_status only when needed)
     let mut chat_settings: Option<FlowChatSettings> = None;
 
     // Load previous messages from memory for text output mode (only if context length is set)
     if matches!(output_type, OutputType::Text) {
         if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
             if let Some(step_id) = job.flow_step_id.as_deref() {
-                // Fetch chat settings from root flow (memory_id + chat_input_enabled)
+                // Fetch chat settings from root flow
                 chat_settings = Some(get_flow_chat_settings(db, job).await);
                 if let Some(memory_id) = chat_settings.as_ref().and_then(|s| s.memory_id) {
                     // Read messages from memory
@@ -735,14 +734,17 @@ pub async fn run_agent(
                             content = Some(OpenAIContent::Text(response_content.clone()));
 
                             // Add assistant message to conversation if chat_input_enabled
-                            // Lazy-load chat settings if not already fetched
                             if chat_settings.is_none() {
                                 chat_settings = Some(get_flow_chat_settings(db, job).await);
                             }
-                            let chat_enabled = chat_settings.as_ref().map(|s| s.chat_input_enabled).unwrap_or(false);
+                            let chat_enabled = chat_settings
+                                .as_ref()
+                                .map(|s| s.chat_input_enabled)
+                                .unwrap_or(false);
 
                             if chat_enabled && !response_content.is_empty() {
-                                if let Some(mid) = chat_settings.as_ref().and_then(|s| s.memory_id) {
+                                if let Some(mid) = chat_settings.as_ref().and_then(|s| s.memory_id)
+                                {
                                     let agent_job_id = job.id;
                                     let db_clone = db.clone();
                                     let message_content = response_content.clone();
@@ -1102,12 +1104,18 @@ pub async fn run_agent(
 
                                         // Add tool message to conversation if chat_input_enabled (error case)
                                         if chat_settings.is_none() {
-                                            chat_settings = Some(get_flow_chat_settings(db, job).await);
+                                            chat_settings =
+                                                Some(get_flow_chat_settings(db, job).await);
                                         }
-                                        let chat_enabled = chat_settings.as_ref().map(|s| s.chat_input_enabled).unwrap_or(false);
+                                        let chat_enabled = chat_settings
+                                            .as_ref()
+                                            .map(|s| s.chat_input_enabled)
+                                            .unwrap_or(false);
 
                                         if chat_enabled {
-                                            if let Some(mid) = chat_settings.as_ref().and_then(|s| s.memory_id) {
+                                            if let Some(mid) =
+                                                chat_settings.as_ref().and_then(|s| s.memory_id)
+                                            {
                                                 let tool_job_id = job_id;
                                                 let db_clone = db.clone();
                                                 let step_name = get_step_name_from_flow(
@@ -1202,12 +1210,18 @@ pub async fn run_agent(
 
                                         // Add tool message to conversation if chat_input_enabled
                                         if chat_settings.is_none() {
-                                            chat_settings = Some(get_flow_chat_settings(db, job).await);
+                                            chat_settings =
+                                                Some(get_flow_chat_settings(db, job).await);
                                         }
-                                        let chat_enabled = chat_settings.as_ref().map(|s| s.chat_input_enabled).unwrap_or(false);
+                                        let chat_enabled = chat_settings
+                                            .as_ref()
+                                            .map(|s| s.chat_input_enabled)
+                                            .unwrap_or(false);
 
                                         if chat_enabled {
-                                            if let Some(mid) = chat_settings.as_ref().and_then(|s| s.memory_id) {
+                                            if let Some(mid) =
+                                                chat_settings.as_ref().and_then(|s| s.memory_id)
+                                            {
                                                 let tool_job_id = job_id;
                                                 let db_clone = db.clone();
                                                 let tool_name = tool_call.function.name.clone();
