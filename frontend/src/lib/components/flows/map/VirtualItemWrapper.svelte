@@ -49,7 +49,7 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class={classNames('w-full flex relative rounded-sm', onTop ? 'z-[901]' : '', className)}
+		class={classNames('w-full flex relative rounded-md', onTop ? 'z-[901]' : '', className)}
 		style="width: 275px; max-height: 34px; background-color: {hover && bgHoverColor && selectable
 			? bgHoverColor
 			: bgColor};"
@@ -69,7 +69,7 @@
 	>
 		<div
 			class={twMerge(
-				'absolute  outline-gray-600 dark:outline-gray-400 rounded-sm',
+				'absolute  outline-gray-600 dark:outline-gray-400 rounded-md',
 				selected ? 'outline outline-2' : '',
 				selectable ? 'cursor-pointer active:outline active:outline-2' : ''
 			)}

@@ -45,7 +45,7 @@
 	}
 </script>
 
-<NodeWrapper wrapperClass="shadow-md rounded-sm">
+<NodeWrapper>
 	{#snippet children({ darkMode })}
 		{#if data.simplifiableFlow?.simplifiedFlow != true}
 			<TriggersWrapper

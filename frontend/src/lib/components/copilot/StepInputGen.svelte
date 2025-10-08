@@ -1,14 +1,3 @@
-<script lang="ts" module>
-	export function stepInputGenButtonClasses(selected: boolean) {
-		return twMerge(
-			'text-violet-500 dark:text-violet-400 border',
-			selected
-				? 'bg-green-50 hover:bg-green-50 dark:bg-green-400/15 dark:hover:bg-green-400/15 text-green-800 border-green-200 dark:border-green-300/60 dark:text-green-400 '
-				: 'hover:bg-violet-50 border-violet-100 dark:hover:bg-violet-400/15 dark:border-violet-400/20'
-		)
-	}
-</script>
-
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
@@ -31,6 +20,7 @@
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { copilotInfo } from '$lib/aiStore'
+	import { flowAIBtnClasses } from './chat/flow/FlowAIButton.svelte'
 
 	let generatedContent = $state('')
 	let loading = $state(false)
@@ -248,9 +238,9 @@ Only return the expression without any wrapper.`
 	>
 		<Button
 			size="xs"
-			color="light"
+			variant="default"
 			btnClasses={twMerge(
-				stepInputGenButtonClasses(!loading && generatedContent.length > 0),
+				flowAIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'default'),
 				btnClass
 			)}
 			on:click={() => {

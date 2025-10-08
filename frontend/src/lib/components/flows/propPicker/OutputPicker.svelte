@@ -144,7 +144,7 @@
 			variant === 'virtual'
 				? `${virtualItemClasses.bar} ${bottomBarOpen ? 'bg-slate-300 dark:bg-[#525d6f]' : ''}`
 				: `${defaultClasses.bar} ${bottomBarOpen ? 'bg-surface-hover dark:bg-[#576278]' : ''}`,
-			'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-sm',
+			'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-md',
 			'group transition-all duration-100',
 			'flex flex-row items-center justify-center',
 			'h-1 hover:h-[20px]',

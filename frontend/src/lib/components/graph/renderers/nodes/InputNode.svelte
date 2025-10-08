@@ -37,7 +37,7 @@
 <NodeWrapper>
 	{#snippet children({ darkMode })}
 		{#if data.insertable && !data.hasPreprocessor}
-			<div class="absolute bottom-full left-0 right-0 flex center-center mb-3.5">
+			<div class="absolute bottom-full left-0 right-0 center-center mb-3.5">
 				<InsertModulePopover
 					disableAi={data.disableAi}
 					allowTrigger
