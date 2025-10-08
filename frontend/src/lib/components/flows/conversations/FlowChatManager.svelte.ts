@@ -109,7 +109,6 @@ class FlowChatManager {
 		const pageToFetch = reset ? 1 : this.page + 1
 
 		try {
-			console.log('loadMessages', this.#conversationId, pageToFetch)
 			const previousScrollHeight = this.messagesContainer?.scrollHeight || 0
 
 			const response = await FlowConversationService.listConversationMessages({
