@@ -161,7 +161,7 @@
 			{@render menu?.()}
 		{:else}
 			<div
-				class="bg-surface border border-gray-200 dark:border-gray-700 w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
+				class="bg-surface-tertiary dark:border-gray-700 w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
 				style={customWidth ? `width: ${customWidth}px` : ''}
 			>
 				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} />

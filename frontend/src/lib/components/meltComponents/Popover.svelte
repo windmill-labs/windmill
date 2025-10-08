@@ -171,7 +171,7 @@
 		use:melt={$content}
 		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
 		class={twMerge(
-			'relative border rounded-md bg-surface shadow-lg',
+			'relative border rounded-md bg-surface-tertiary shadow-lg',
 			fullScreen
 				? `fixed !top-1/2 !left-1/2 !-translate-x-1/2 !-translate-y-1/2 !resize-none`
 				: 'w-fit',
