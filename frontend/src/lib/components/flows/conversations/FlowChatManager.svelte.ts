@@ -344,6 +344,7 @@ class FlowChatManager {
 		// Track stream state for this message
 		let accumulatedContent = ''
 		let assistantMessageId = ''
+		let isCompleted = false
 
 		try {
 			// Encode the payload as base64
@@ -441,6 +442,7 @@ class FlowChatManager {
 
 						// Handle completion
 						if (data.completed) {
+							isCompleted = true
 							// Do a final poll to get all messages from database
 							if (this.#conversationId) {
 								await this.pollConversationMessages(this.#conversationId)
@@ -454,6 +456,7 @@ class FlowChatManager {
 			}
 
 			eventSource.onerror = (error) => {
+				if (isCompleted) return
 				console.error('EventSource error:', error)
 				sendUserToast('Stream error occurred', true)
 				this.cleanup()
