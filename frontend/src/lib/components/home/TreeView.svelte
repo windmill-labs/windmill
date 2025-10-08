@@ -40,13 +40,11 @@
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
 				style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
 			>
-				<div
-					class=" rounded-md p-1 flex justify-center items-center border bg-gray-50 border-gray-200 dark:bg-transparent dark:border-gray-900"
-				>
+				<div class="flex justify-center items-center">
 					{#if depth === 0}
-						<Folder size={20} color="#aaa" />
+						<Folder size={16} class="text-secondary" />
 					{:else}
-						<FolderTree size={20} color="#aaa" />
+						<FolderTree size={16} class="text-secondary" />
 					{/if}
 				</div>
 
@@ -61,9 +59,9 @@
 			</div>
 			<button class="w-full flex flex-row-reverse">
 				{#if opened}
-					<ChevronUp size={20} />
+					<ChevronUp size={16} />
 				{:else}
-					<ChevronDown size={20} />
+					<ChevronDown size={16} />
 				{/if}
 			</button>
 		</div>
@@ -113,10 +111,8 @@
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
 				style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
 			>
-				<div
-					class=" rounded-md p-1 flex justify-center items-center border bg-gray-50 border-gray-200 dark:bg-transparent dark:border-gray-900"
-				>
-					<User size={20} color="#aaa" />
+				<div class="flex justify-center items-center">
+					<User size={16} class="text-secondary" />
 				</div>
 
 				<div>
@@ -128,9 +124,9 @@
 			</div>
 			<div class="w-full flex flex-row-reverse">
 				{#if opened}
-					<ChevronUp size={20} />
+					<ChevronUp size={16} />
 				{:else}
-					<ChevronDown size={20} />
+					<ChevronDown size={16} />
 				{/if}
 			</div>
 		</div>

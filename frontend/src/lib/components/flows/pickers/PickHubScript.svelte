@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { Alert, Badge, Skeleton } from '$lib/components/common'
-	import { capitalize, classNames } from '$lib/utils'
+	import { capitalize } from '$lib/utils'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
@@ -116,14 +116,14 @@
 	})
 </script>
 
-<div class="w-full flex mt-1 items-center gap-2">
+<div class="w-full flex items-center gap-2">
 	{@render children?.()}
 	<div class="relative w-full">
 		<input
 			type="text"
 			placeholder="Search Hub Scripts"
 			bind:value={filter}
-			class="text-2xl grow !pr-9"
+			class="grow !pr-9 !h-10"
 		/>
 		{#if loading}
 			<Loader2 class="animate-spin text-gray-400 absolute right-2 top-2.5" />
@@ -132,7 +132,6 @@
 </div>
 
 {#if hubNotAvailable}
-	<div class="mt-2"></div>
 	<Alert type="error" title="Hub not available" />
 {:else if items.length > 0 && apps.length > 0}
 	<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
@@ -147,12 +146,7 @@
 						onclick={() => dispatch('pick', item)}
 					>
 						<div class="flex items-center gap-4">
-							<div
-								class={classNames(
-									'rounded-md p-1 flex justify-center items-center border',
-									'bg-surface border'
-								)}
-							>
+							<div class="flex justify-center items-center">
 								{#if item['app'] in APP_TO_ICON_COMPONENT}
 									{@const SvelteComponent = APP_TO_ICON_COMPONENT[item['app']]}
 									<SvelteComponent height={18} width={18} />
@@ -160,7 +154,7 @@
 							</div>
 
 							<div class="w-full text-left font-normal">
-								<div class="text-primary flex-wrap text-md font-semibold mb-1">
+								<div class="text-emphasis flex-wrap text-xs font-medium mb-1">
 									{item.summary ?? ''}
 								</div>
 								<div class="text-secondary text-xs">
@@ -177,12 +171,11 @@
 		</ul>
 	{/if}
 	{#if items.length == 40}
-		<div class="text-tertiary text-sm py-4">
+		<div class="text-primary text-xs font-normal py-4">
 			There are more items than being displayed. Refine your search.
 		</div>
 	{/if}
 {:else}
-	<div class="my-2"></div>
 	{#each Array(10).fill(0) as _}
 		<Skeleton layout={[0.5, [4]]} />
 	{/each}

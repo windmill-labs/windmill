@@ -68,14 +68,14 @@
 			<RowIcon {href} {kind} />
 		</div>
 		<div class="grow">
-			<div class="text-primary flex-wrap text-left text-sm font-semibold">
+			<div class="text-emphasis flex-wrap text-left text-xs font-medium">
 				{#if marked}
 					{@html marked}
 				{:else}
 					{!summary || summary.length == 0 ? displayPath : summary}
 				{/if}
 			</div>
-			<div class="text-secondary text-2xs truncate text-left font-light">
+			<div class="text-secondary text-2xs truncate text-left font-normal">
 				{path}
 			</div>
 		</div>
@@ -92,7 +92,7 @@
 	{/if}
 
 	{#if canFavorite}
-		<div class="center-center h-full text-sm font-semibold text-secondary">
+		<div class="center-center h-full text-xs font-medium text-secondary">
 			<Star
 				{kind}
 				{path}

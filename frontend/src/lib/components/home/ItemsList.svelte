@@ -361,7 +361,7 @@
 
 <CenteredPage>
 	<div
-		class="flex flex-wrap gap-2 items-center justify-between w-full mt-2"
+		class="flex flex-wrap gap-2 items-center justify-between w-full"
 		use:triggerableByAI={{
 			id: 'home-items-list',
 			description: 'Lists of scripts, flows, and apps'
@@ -379,20 +379,14 @@
 				class="h-10"
 			>
 				{#snippet children({ item })}
-					<ToggleButton value="all" label="All" class="text-sm px-4 py-2" {item} />
-					<ToggleButton
-						value="script"
-						icon={Code2}
-						label="Scripts"
-						class="text-sm px-4 py-2"
-						{item}
-					/>
+					<ToggleButton value="all" label="All" class="px-4 py-2" {item} />
+					<ToggleButton value="script" icon={Code2} label="Scripts" class="px-4 py-2" {item} />
 					{#if HOME_SEARCH_SHOW_FLOW}
 						<ToggleButton
 							value="flow"
 							label="Flows"
 							icon={FlowIcon}
-							class="text-sm px-4 py-2"
+							class="px-4 py-2"
 							selectedColor="#14b8a6"
 							{item}
 						/>
@@ -401,7 +395,7 @@
 						value="app"
 						label="Apps"
 						icon={LayoutDashboard}
-						class="text-sm px-4 py-2"
+						class="px-4 py-2"
 						selectedColor="#fb923c"
 						{item}
 					/>
@@ -415,7 +409,7 @@
 				autofocus
 				placeholder={HOME_SEARCH_PLACEHOLDER}
 				bind:value={filter}
-				class="bg-surface !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
+				class="bg-surface !h-10 !px-4 !pr-10 !rounded-lg text-xs font-normal focus:outline-none"
 			/>
 			<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-3 mr-4">
 				<svg
@@ -480,7 +474,7 @@
 					{/snippet}
 					{#snippet content()}
 						<div class="p-4">
-							<span class="text-sm font-semibold">Filters</span>
+							<span class="text-sm font-semibold text-emphasis">Filters</span>
 							<div class="flex flex-col gap-2 mt-2">
 								<Toggle size="xs" bind:checked={archived} options={{ right: 'Only archived' }} />
 								{#if $userStore && !$userStore.operator}
@@ -572,9 +566,12 @@
 				{/each}
 			</div>
 			{#if items && items?.length > 15 && nbDisplayed < items.length}
-				<span class="text-xs"
+				<span class="text-xs font-normal text-secondary"
 					>{nbDisplayed} items out of {items.length}
-					<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
+					<button
+						class="ml-4 text-xs font-normal text-primary hover:text-emphasis"
+						onclick={() => (nbDisplayed += 30)}>load 30 more</button
+					></span
 				>
 			{/if}
 		{/if}

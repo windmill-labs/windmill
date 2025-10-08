@@ -2,6 +2,9 @@
 	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import FlowIcon from '$lib/components/home/FlowIcon.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import CreateActionsFlow from '$lib/components/flows/CreateActionsFlow.svelte'
 	import CreateActionsScript from '$lib/components/scripts/CreateActionsScript.svelte'
@@ -10,7 +13,15 @@
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Building, ExternalLink, GitFork, Globe2, Loader2 } from 'lucide-svelte'
+	import {
+		Building,
+		ExternalLink,
+		GitFork,
+		Globe2,
+		Loader2,
+		Code,
+		LayoutDashboard
+	} from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
 
@@ -213,91 +224,102 @@
 	</DrawerContent>
 </Drawer>
 
-<div>
-	<div class="max-w-7xl mx-auto px-4 sm:px-8 md:px-8 h-fit-content">
-		{#if $workspaceStore == 'admins'}
-			<div class="my-4"></div>
+<div class="max-w-7xl mx-auto px-4 sm:px-8 md:px-8 h-fit">
+	{#if $workspaceStore == 'admins'}
+		<div class="my-4"></div>
 
-			<Alert title="Admins workspace">
-				The Admins workspace is for admins only and contains scripts whose purpose is to manage your
-				Windmill instance, such as keeping resource types up to date.
-			</Alert>
-		{/if}
-		<PageHeader title="Home">
-			<div class="flex flex-row gap-4 flex-wrap justify-end items-center">
-				{#if !$userStore?.operator}
-					<span class="text-xs text-primary">Create a</span>
-					<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
-					{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
-					{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
+		<Alert title="Admins workspace">
+			The Admins workspace is for admins only and contains scripts whose purpose is to manage your
+			Windmill instance, such as keeping resource types up to date.
+		</Alert>
+	{/if}
+	<PageHeader title="Home">
+		<div class="flex flex-row gap-4 flex-wrap justify-end items-center">
+			{#if !$userStore?.operator}
+				<span class="text-xs font-normal text-primary">Create a</span>
+				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
+				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
+				{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
+			{/if}
+		</div>
+	</PageHeader>
+
+	{#if !$userStore?.operator}
+		<div class="w-full overflow-auto scrollbar-hidden pb-2">
+			<Tabs values={['hub', 'workspace']} hashNavigation bind:selected={tab}>
+				<Tab value="workspace" label="Workspace" icon={Building} />
+				{#if HOME_SHOW_HUB}
+					<Tab value="hub" label="Hub" icon={Globe2} />
 				{/if}
-			</div>
-		</PageHeader>
-
-		{#if !$userStore?.operator}
-			<div class="w-full overflow-auto scrollbar-hidden">
-				<Tabs values={['hub', 'workspace']} hashNavigation bind:selected={tab}>
-					<Tab value="workspace" label="Workspace" icon={Building} />
-					{#if HOME_SHOW_HUB}
-						<Tab value="hub" label="Hub" icon={Globe2} />
-					{/if}
-				</Tabs>
-			</div>
-		{/if}
-		<div class="my-2"></div>
+			</Tabs>
+		</div>
+	{/if}
+	{#if tab == 'hub'}
 		<div class="flex flex-col gap-y-16">
-			<div class="flex flex-col">
-				{#if tab == 'hub'}
-					<Tabs
+			<div class="flex flex-col pb-8">
+				{#snippet toggleKinds()}
+					<ToggleButtonGroup
 						bind:selected={subtab}
-						on:selected={() => {
-							setQuery($page.url, 'kind', subtab, window.location.hash)
+						onSelected={(v) => {
+							setQuery($page.url, 'kind', v, window.location.hash)
 						}}
+						class="w-fit h-10"
 					>
-						<Tab value="script" label="Scripts" />
-						<Tab value="flow" label="Flows" />
-						<Tab value="app" label="Apps" />
-					</Tabs>
-					<div class="my-2"></div>
+						{#snippet children({ item })}
+							<ToggleButton value="script" label="Scripts" icon={Code} class="px-4 py-2" {item} />
+							<ToggleButton
+								value="flow"
+								label="Flows"
+								icon={FlowIcon}
+								class="px-4 py-2"
+								selectedColor="#14b8a6"
+								{item}
+							/>
+							<ToggleButton
+								value="app"
+								label="Apps"
+								icon={LayoutDashboard}
+								class="px-4 py-2"
+								selectedColor="#fb923c"
+								{item}
+							/>
+						{/snippet}
+					</ToggleButtonGroup>
+					<Button
+						startIcon={{ icon: ExternalLink }}
+						target="_blank"
+						href={$hubBaseUrlStore}
+						variant="border"
+						color="light"
+						size="sm"
+						wrapperClasses="h-10"
+					>
+						Hub
+					</Button>
+				{/snippet}
 
-					{#if subtab == 'script'}
-						<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>
-							<Button
-								startIcon={{ icon: ExternalLink }}
-								target="_blank"
-								href={$hubBaseUrlStore}
-								variant="border"
-								color="light"
-							>
-								Hub
-							</Button>
-						</PickHubScript>
-					{:else if subtab == 'flow'}
-						<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}>
-							<Button
-								startIcon={{ icon: ExternalLink }}
-								target="_blank"
-								href={$hubBaseUrlStore}
-								variant="border"
-								color="light"
-								>Hub
-							</Button>
-						</PickHubFlow>
-					{:else if subtab == 'app'}
-						<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}>
-							<Button
-								startIcon={{ icon: ExternalLink }}
-								target="_blank"
-								href={$hubBaseUrlStore}
-								variant="border"
-								color="light">Hub</Button
-							>
-						</PickHubApp>
-					{/if}
+				{#if subtab == 'script'}
+					<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>
+						{#snippet children()}
+							{@render toggleKinds?.()}
+						{/snippet}
+					</PickHubScript>
+				{:else if subtab == 'flow'}
+					<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}>
+						{#snippet children()}
+							{@render toggleKinds?.()}
+						{/snippet}
+					</PickHubFlow>
+				{:else if subtab == 'app'}
+					<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}>
+						{#snippet children()}
+							{@render toggleKinds?.()}
+						{/snippet}
+					</PickHubApp>
 				{/if}
 			</div>
 		</div>
-	</div>
+	{/if}
 </div>
 
 {#if tab == 'workspace'}

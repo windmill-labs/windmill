@@ -7,19 +7,24 @@
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import { loadHubApps } from '$lib/hub'
 
-	export let filter = ''
-	export let syncQuery = false
+	interface Props {
+		filter?: string
+		syncQuery?: boolean
+		children?: import('svelte').Snippet
+	}
+
+	let { filter = $bindable(''), syncQuery = false, children }: Props = $props()
 
 	type Item = { apps: string[]; summary: string; path: string }
-	let hubApps: any[] | undefined = undefined
-	let filteredItems: (Item & { marked?: string })[] = []
-	let appFilter: string | undefined = undefined
+	let hubApps: any[] | undefined = $state(undefined)
+	let filteredItems: (Item & { marked?: string })[] = $state([])
+	let appFilter: string | undefined = $state(undefined)
 
-	$: prefilteredItems = appFilter
-		? (hubApps ?? []).filter((i) => i.apps.includes(appFilter))
-		: hubApps ?? []
+	const prefilteredItems = $derived(
+		appFilter ? (hubApps ?? []).filter((i: Item) => i.apps.includes(appFilter!)) : (hubApps ?? [])
+	)
 
-	$: apps = Array.from(new Set(filteredItems?.flatMap((x) => x.apps) ?? [])).sort()
+	const apps = $derived(Array.from(new Set(filteredItems?.flatMap((x) => x.apps) ?? [])).sort())
 
 	const dispatch = createEventDispatcher()
 
@@ -34,9 +39,9 @@
 	bind:filteredItems
 	f={(x) => x.summary + ' (' + x.apps.join(', ') + ')'}
 />
-<div class="w-full flex mt-1 items-center gap-2">
-	<slot />
-	<input type="text" placeholder="Search Hub Apps" bind:value={filter} class="text-2xl grow" />
+<div class="w-full flex items-center gap-2">
+	{@render children?.()}
+	<input type="text" placeholder="Search Hub Apps" bind:value={filter} class="grow !h-[34px]" />
 </div>
 <ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 
@@ -55,7 +60,7 @@
 							<RowIcon kind="app" />
 
 							<div class="w-full text-left font-normal">
-								<div class="text-primary flex-wrap text-md font-semibold">
+								<div class="text-emphasis flex-wrap text-xs font-medium">
 									{#if item.marked}
 										{@html item.marked ?? ''}
 									{:else}
@@ -75,7 +80,6 @@
 		</ul>
 	{/if}
 {:else}
-	<div class="my-2"></div>
 	{#each Array(10).fill(0) as _}
 		<Skeleton layout={[[4], 0.5]} />
 	{/each}

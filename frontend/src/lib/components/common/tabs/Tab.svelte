@@ -71,10 +71,10 @@
 		}
 	}}
 	class={twMerge(
-		'border-b-2 py-1 px-2 cursor-pointer transition-all z-10 ease-linear font-medium text-xs',
+		'border-b-2 py-1 px-2 cursor-pointer transition-all z-10 ease-linear text-primary font-normal text-xs',
 		isSelected
-			? 'wm-tab-active font-main text-emphasis'
-			: 'border-gray-300 dark:border-gray-600 border-opacity-0 hover:border-opacity-100 text-secondary',
+			? 'wm-tab-active text-emphasis font-medium'
+			: 'border-gray-300 dark:border-gray-600 border-opacity-0 hover:border-opacity-100',
 		c,
 		isSelected ? selectedClass : '',
 		disabled ? 'cursor-not-allowed text-disabled' : ''
