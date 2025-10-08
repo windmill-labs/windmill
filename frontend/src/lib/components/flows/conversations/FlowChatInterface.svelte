@@ -48,8 +48,6 @@
 	let inputElement: HTMLTextAreaElement | undefined = $state()
 	let currentEventSource: EventSource | undefined = $state()
 	let pollingInterval: ReturnType<typeof setInterval> | undefined = $state()
-	let streamingJobId: string | undefined = $state()
-	let isFlowComplete = $state(false)
 	let isWaitingForResponse = $state(false)
 
 	const conversationsCache = $state<Record<string, ChatMessage[]>>({})
@@ -81,7 +79,7 @@
 		page = 1
 	}
 
-	export async function loadConversationMessages(convId: string) {
+	export async function loadConversationMessages() {
 		page = 1
 		await loadMessages(true)
 	}
@@ -212,7 +210,6 @@
 				if (parsed.type === 'tool_result') {
 					type = 'tool_result'
 					const toolName = parsed.function_name
-					console.log('parsed', parsed, typeof parsed.success)
 					error = !parsed.success
 					content = error ? `Failed to use ${toolName} tool` : `Used ${toolName} tool`
 				}
@@ -232,7 +229,6 @@
 
 		try {
 			const lastId = messages[messages.length - 1].id
-			console.log('lastId', lastId)
 			const response = await FlowConversationService.listConversationMessages({
 				workspace: $workspaceStore,
 				conversationId: conversationId,
@@ -241,21 +237,10 @@
 				afterId: lastId
 			})
 
-			// Filter out the streaming job's message and user messages
-			const newMessages = response.filter(
-				(msg) => msg.message_type !== 'user' && msg.job_id !== streamingJobId
-			)
-
-			// Update existing messages
-			messages = messages.map((msg) => {
-				if (msg.id && response.find((r) => r.id === msg.id)) {
-					return response.find((r) => r.id === msg.id)!
-				}
-				return msg
-			})
+			const filteredResponse = response.filter((msg) => msg.message_type !== 'user')
 
 			// Add any new intermediate messages not already present
-			for (const msg of newMessages) {
+			for (const msg of filteredResponse) {
 				if (!messages.find((m) => m.id === msg.id)) {
 					// Insert in chronological order
 					const insertIndex = messages.findIndex(
@@ -268,17 +253,6 @@
 					}
 				}
 			}
-
-			// Check if streaming job's message appeared (flow complete)
-			if (streamingJobId && response.find((r) => r.job_id === streamingJobId)) {
-				// set step name to the last message
-				messages = [
-					...messages.slice(0, messages.length - 1),
-					{ ...messages[messages.length - 1], step_name: response[response.length - 1].step_name }
-				]
-				stopPolling()
-				isFlowComplete = true
-			}
 		} catch (error) {
 			console.error('Polling error:', error)
 		}
@@ -288,7 +262,7 @@
 		if (pollingInterval) return
 		pollingInterval = setInterval(() => {
 			pollConversationMessages(conversationId)
-		}, 1500) // Poll every 1.5 seconds
+		}, 500) // Poll every 0.5 seconds
 	}
 
 	function stopPolling() {
@@ -304,8 +278,6 @@
 		const isNewConversation = messages.length === 0
 
 		// Reset state for new message
-		streamingJobId = undefined
-		isFlowComplete = false
 		stopPolling()
 
 		// Generate a new conversation ID if we don't have one
@@ -403,7 +375,7 @@
 												created_at: new Date().toISOString(),
 												message_type: 'tool',
 												conversation_id: currentConversationId,
-												job_id: streamingJobId,
+												job_id: '',
 												loading: false,
 												streaming: false,
 												error
@@ -430,7 +402,7 @@
 												created_at: new Date().toISOString(),
 												message_type: 'assistant',
 												conversation_id: currentConversationId,
-												job_id: streamingJobId,
+												job_id: '',
 												loading: false,
 												streaming: true
 											}
@@ -462,7 +434,7 @@
 												created_at: new Date().toISOString(),
 												message_type: 'assistant',
 												conversation_id: currentConversationId,
-												job_id: streamingJobId,
+												job_id: '',
 												loading: false,
 												streaming: false
 											}
@@ -475,7 +447,7 @@
 														content: finalContent,
 														loading: false,
 														streaming: false,
-														job_id: streamingJobId
+														job_id: ''
 													}
 												: msg
 										)

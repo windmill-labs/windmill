@@ -1183,7 +1183,7 @@
 				selectedForLoopSetManually: false
 			})
 		}
-		if (selectedNode?.startsWith(AI_TOOL_CALL_PREFIX)) {
+		if (selectedNode?.startsWith(AI_TOOL_CAL / modL_PREFIX)) {
 			const [, agentModuleId, toolCallIndex, _] = selectedNode.split('-')
 			const parentLoopsPrefix = getParentLoopsPrefix(agentModuleId)
 			toolCallStore?.addToolCallToLoad(parentLoopsPrefix + agentModuleId + '-' + toolCallIndex)

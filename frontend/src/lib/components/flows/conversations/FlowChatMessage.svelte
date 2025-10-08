@@ -37,7 +37,11 @@
 				<span>Processing...</span>
 			</div>
 		{:else if message.content}
-			<div class="flex flex-row items-center gap-2 px-3 pb-3 {!message.step_name ? 'pt-3' : ''}">
+			<div
+				class="flex flex-row items-center gap-2 px-3 pb-3 text-sm {!message.step_name
+					? 'pt-3'
+					: ''}"
+			>
 				{#if message.message_type === 'tool'}
 					<CheckCircle2 class="w-3.5 h-3.5 text-green-500" />
 				{:else if message.error}
