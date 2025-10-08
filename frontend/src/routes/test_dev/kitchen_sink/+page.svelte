@@ -2,6 +2,8 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import {
 		Pen,
 		GitFork,
@@ -19,10 +21,14 @@
 		Save,
 		Search,
 		Moon,
-		Sun
+		Sun,
+		X
 	} from 'lucide-svelte'
 
 	let darkMode: boolean = $state(false)
+	let selectedToggle1: string = $state('option1')
+	let selectedToggle2: string = $state('small')
+	let selectedToggle3: string = $state('view')
 
 	function toggleTheme() {
 		if (!document.documentElement.classList.contains('dark')) {
@@ -223,6 +229,68 @@
 		</div>
 	</div>
 
+	<!-- Destructive Buttons -->
+	<div class="flex flex-col gap-6 mt-8">
+		<h3 class="text-sm font-semibold text-emphasis">Destructive buttons</h3>
+		<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-medium text-emphasis">Destructive Default</h4>
+					<p class="text-xs text-secondary">Delete actions (subtle)</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<Button variant="default" size="sm" destructive>Delete Item</Button>
+					<Button variant="default" size="xs" startIcon={{ icon: Trash }} destructive>Remove</Button>
+					<Button variant="default" size="xs" disabled destructive>Disabled</Button>
+				</div>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-medium text-emphasis">Destructive Accent</h4>
+					<p class="text-xs text-secondary">Critical delete actions</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<Button variant="accent" size="sm" destructive>Delete Forever</Button>
+					<Button variant="accent" size="xs" startIcon={{ icon: Trash }} destructive>Remove All</Button>
+					<Button variant="accent" size="xs" disabled destructive>Disabled</Button>
+				</div>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-medium text-emphasis">Destructive Accent Secondary</h4>
+					<p class="text-xs text-secondary">Important delete actions</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<Button variant="accent-secondary" size="sm" destructive>Archive</Button>
+					<Button variant="accent-secondary" size="xs" startIcon={{ icon: Archive }} destructive>Archive Item</Button>
+					<Button variant="accent-secondary" size="xs" disabled destructive>Disabled</Button>
+				</div>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-medium text-emphasis">Destructive Subtle</h4>
+					<p class="text-xs text-secondary">Minimal delete actions</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<Button variant="subtle" size="sm" destructive>Remove</Button>
+					<Button variant="subtle" size="xs" startIcon={{ icon: X }} destructive>Clear</Button>
+					<Button variant="subtle" size="xs" disabled destructive>Disabled</Button>
+				</div>
+			</div>
+		</div>
+	</div>
+
 	<!-- Button Sizes -->
 	<div class="flex flex-col gap-6 mt-8">
 		<h3 class="text-sm font-semibold text-emphasis">Button sizes</h3>
@@ -272,47 +340,166 @@
 	<div class="flex flex-col gap-6 mt-8">
 		<h3 class="text-sm font-semibold text-emphasis">Buttons with dropdown</h3>
 		<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-			<div class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface">
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
 				<div class="space-y-1">
 					<h4 class="text-xs font-medium text-emphasis">Default with dropdown</h4>
 					<p class="text-xs text-secondary">Standard actions with menu</p>
 				</div>
 				<div class="flex flex-col space-y-2">
 					<Button variant="default" size="sm" dropdownItems={buttonDropdownItems}>Actions</Button>
-					<Button variant="default" size="xs" dropdownItems={buttonDropdownItems} startIcon={{ icon: Settings }}>Options</Button>
+					<Button
+						variant="default"
+						size="xs"
+						dropdownItems={buttonDropdownItems}
+						startIcon={{ icon: Settings }}>Options</Button
+					>
 				</div>
 			</div>
 
-			<div class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface">
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
 				<div class="space-y-1">
 					<h4 class="text-xs font-medium text-emphasis">Accent with dropdown</h4>
 					<p class="text-xs text-secondary">Primary actions with menu</p>
 				</div>
 				<div class="flex flex-col space-y-2">
 					<Button variant="accent" size="sm" dropdownItems={buttonDropdownItems}>Actions</Button>
-					<Button variant="accent" size="xs" dropdownItems={buttonDropdownItems} startIcon={{ icon: Play }}>Run</Button>
+					<Button
+						variant="accent"
+						size="xs"
+						dropdownItems={buttonDropdownItems}
+						startIcon={{ icon: Play }}>Run</Button
+					>
 				</div>
 			</div>
 
-			<div class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface">
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
 				<div class="space-y-1">
 					<h4 class="text-xs font-medium text-emphasis">Accent Secondary with dropdown</h4>
 					<p class="text-xs text-secondary">Secondary actions with menu</p>
 				</div>
 				<div class="flex flex-col space-y-2">
-					<Button variant="accent-secondary" size="sm" dropdownItems={buttonDropdownItems}>Actions</Button>
-					<Button variant="accent-secondary" size="xs" dropdownItems={buttonDropdownItems} startIcon={{ icon: GitFork }}>Fork</Button>
+					<Button variant="accent-secondary" size="sm" dropdownItems={buttonDropdownItems}
+						>Actions</Button
+					>
+					<Button
+						variant="accent-secondary"
+						size="xs"
+						dropdownItems={buttonDropdownItems}
+						startIcon={{ icon: GitFork }}>Fork</Button
+					>
 				</div>
 			</div>
 
-			<div class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface">
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
 				<div class="space-y-1">
 					<h4 class="text-xs font-medium text-emphasis">Subtle with dropdown</h4>
 					<p class="text-xs text-secondary">Utility actions with menu</p>
 				</div>
 				<div class="flex flex-col space-y-2">
 					<Button variant="subtle" size="sm" dropdownItems={buttonDropdownItems}>Actions</Button>
-					<Button variant="subtle" size="xs" dropdownItems={buttonDropdownItems} startIcon={{ icon: Eye }}>View</Button>
+					<Button
+						variant="subtle"
+						size="xs"
+						dropdownItems={buttonDropdownItems}
+						startIcon={{ icon: Eye }}>View</Button
+					>
+				</div>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-medium text-emphasis">Destructive with dropdown</h4>
+					<p class="text-xs text-secondary">Delete actions with menu</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<Button variant="accent" size="sm" dropdownItems={buttonDropdownItems} destructive>Delete</Button>
+					<Button
+						variant="default"
+						size="xs"
+						dropdownItems={buttonDropdownItems}
+						startIcon={{ icon: Trash }}
+						destructive>Remove</Button
+					>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- TOGGLE SECTION HEADER -->
+	<header class="flex flex-col gap-2 border-b border-gray-200 dark:border-gray-700 pb-4 mt-12">
+		<h2 class="text-lg font-semibold text-emphasis">Toggle Buttons</h2>
+		<p class="text-xs text-secondary"> Toggle button groups for selection and filtering. </p>
+	</header>
+
+	<!-- Toggle Examples -->
+	<div class="flex flex-col gap-6">
+		<h3 class="text-sm font-semibold text-emphasis">Toggle button groups</h3>
+
+		<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-medium text-emphasis">Basic Toggle</h4>
+					<p class="text-xs text-secondary">Simple option selection</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<ToggleButtonGroup bind:selected={selectedToggle1}>
+						{#snippet children({ item })}
+							<ToggleButton value="option1" label="Option 1" {item} />
+							<ToggleButton value="option2" label="Option 2" {item} />
+							<ToggleButton value="option3" label="Option 3" {item} />
+						{/snippet}
+					</ToggleButtonGroup>
+					<p class="text-2xs text-tertiary">Selected: {selectedToggle1}</p>
+				</div>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-medium text-emphasis">With Icons</h4>
+					<p class="text-xs text-secondary">Toggle with icon variants</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<ToggleButtonGroup bind:selected={selectedToggle2}>
+						{#snippet children({ item })}
+							<ToggleButton value="small" label="Small" icon={Search} {item} small />
+							<ToggleButton value="medium" label="Medium" icon={Settings} {item} small />
+							<ToggleButton value="large" label="Large" icon={Plus} {item} small />
+						{/snippet}
+					</ToggleButtonGroup>
+					<p class="text-2xs text-tertiary">Selected: {selectedToggle2}</p>
+				</div>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-medium text-emphasis">Icon Only</h4>
+					<p class="text-xs text-secondary">Compact icon-only toggles</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<ToggleButtonGroup bind:selected={selectedToggle3}>
+						{#snippet children({ item })}
+							<ToggleButton value="view" icon={Eye} {item} iconOnly tooltip="View mode" />
+							<ToggleButton value="edit" icon={Pen} {item} iconOnly tooltip="Edit mode" />
+							<ToggleButton value="share" icon={Share} {item} iconOnly tooltip="Share mode" />
+						{/snippet}
+					</ToggleButtonGroup>
+					<p class="text-2xs text-tertiary">Selected: {selectedToggle3}</p>
 				</div>
 			</div>
 		</div>

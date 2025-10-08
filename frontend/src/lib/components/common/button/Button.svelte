@@ -48,6 +48,7 @@
 		download?: string | undefined
 		startIcon?: ButtonType.Icon | undefined
 		endIcon?: ButtonType.Icon | undefined
+		destructive?: boolean
 		shortCut?: { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean } | undefined
 		tooltipPopover?:
 			| {
@@ -94,6 +95,7 @@
 		download = undefined,
 		startIcon = undefined,
 		endIcon = undefined,
+		destructive = false,
 		shortCut = undefined,
 		tooltipPopover = undefined,
 		dropdownBtnClasses = '',
@@ -144,7 +146,9 @@
 	function getStyleClass(color, variant) {
 		// Check if using new design system variants
 		if (['accent-secondary', 'accent', 'default', 'subtle'].includes(variant)) {
-			let style = ButtonType.VariantStyles[variant]
+			let style = destructive
+				? ButtonType.DestructiveVariantStyles[variant]
+				: ButtonType.VariantStyles[variant]
 			// For default variant with dropdowns, remove border from button since it's on wrapper
 			if (variant === 'default' && dropdownItems && dropdownItems.length > 0) {
 				style = style.replace('border border-border-light', '')

@@ -177,6 +177,20 @@ export namespace ButtonType {
 				'bg-transparent hover:bg-surface-hover text-primary focus-visible:bg-surface-hover focus-visible:ring-luminance-blue-300'
 		}
 
+	export const DestructiveVariantStyles: Record<
+		'accent-secondary' | 'accent' | 'default' | 'subtle',
+		string
+	> = {
+		'accent-secondary':
+			'bg-red-500 hover:bg-red-600 focus-visible:bg-red-700 text-white focus-visible:ring-red-300',
+		accent:
+			'bg-red-500 hover:bg-red-600 focus-visible:bg-red-700 text-white focus-visible:ring-red-300',
+		default:
+			'border border-border-light bg-transparent hover:bg-red-500 hover:text-white dark:hover:bg-red-900/20 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300',
+		subtle:
+			'bg-transparent hover:bg-red-500 hover:text-white dark:hover:bg-red-900/20 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300'
+	}
+
 	export const VariantSpacingClasses: Record<ButtonType.Size, string> = {
 		xs3: 'px-0.5 py-[1px]',
 		xs2: 'px-2 py-[4px]',
