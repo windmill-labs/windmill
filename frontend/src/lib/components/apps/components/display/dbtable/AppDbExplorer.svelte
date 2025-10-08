@@ -39,6 +39,7 @@
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import InsertRowDrawerButton from '../InsertRowDrawerButton.svelte'
 	import { assert } from '$lib/utils'
+	import { getDucklakeSchema } from '$lib/components/dbOps'
 
 	interface Props {
 		id: string
@@ -133,6 +134,17 @@
 	let componentContainerHeight: number | undefined = $state(undefined)
 	let buttonContainerHeight: number | undefined = $state(undefined)
 
+	let resource = () =>
+		resolvedConfig.type.selected !== 'ducklake'
+			? resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
+			: undefined
+	let ducklake = () =>
+		resolvedConfig.type.selected === 'ducklake'
+			? resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.ducklake
+			: undefined
+	let dbtype = () =>
+		resolvedConfig.type.selected === 'ducklake' ? 'duckdb' : resolvedConfig.type.selected
+
 	function onUpdate(
 		e: CustomEvent<{
 			row: number
@@ -146,7 +158,7 @@
 		const { columnDef, value, data, oldValue } = e.detail
 
 		updateCell?.triggerUpdate(
-			resolvedConfig.type.configuration[resolvedConfig.type.selected].resource,
+			resolvedConfig.type.selected === 'ducklake' ? ducklake() : resource(),
 			resolvedConfig.type.configuration[resolvedConfig.type.selected].table ?? 'unknown',
 			columnDef,
 			resolvedConfig.columnDefs,
@@ -193,12 +205,10 @@
 	}
 
 	async function listTables() {
-		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
+		if (!resource()) return
 
-		if (!resource) return
-
-		if (lastResource === resource) return
-		lastResource = resource
+		if (lastResource === resource()) return
+		lastResource = resource()
 		const gridItem = findGridItem($app, id)
 
 		if (!gridItem) {
@@ -216,21 +226,31 @@
 			}
 		)
 
-		if (!resolvedConfig.type?.configuration?.[resolvedConfig.type.selected]?.resource) {
-			$app = $app
-			return
-		}
-
 		try {
 			const dbSchemas: DBSchemas = {}
 
-			await getDbSchemas(
-				resolvedConfig?.type?.selected,
-				resolvedConfig.type.configuration[resolvedConfig?.type?.selected].resource.split(':')[1],
-				$workspaceStore,
-				dbSchemas,
-				() => {}
-			)
+			if (resolvedConfig?.type?.selected === 'ducklake') {
+				if (!ducklake()) {
+					$app = $app
+					return
+				}
+				dbSchemas[ducklake()] = await getDucklakeSchema({
+					workspace: $workspaceStore!,
+					ducklake: ducklake().split('ducklake://')[1]
+				})
+			} else {
+				if (!resource()) {
+					$app = $app
+					return
+				}
+				await getDbSchemas(
+					resolvedConfig?.type?.selected,
+					resource().split(':')[1],
+					$workspaceStore,
+					dbSchemas,
+					() => {}
+				)
+			}
 
 			updateOneOfConfiguration(
 				gridItem.data.configuration.type as OneOfConfiguration,
@@ -241,7 +261,7 @@
 							? await getTablesByResource(
 									dbSchemas,
 									resolvedConfig?.type?.selected,
-									resource.split(':')[1],
+									resource().split(':')[1],
 									$workspaceStore!
 								)
 							: [],
@@ -366,12 +386,11 @@
 		gridItem.data = gridItem.data
 		$app = $app
 
-		let resource = resolvedConfig.type.configuration[selected].resource
-		assert('resource starts with $res:', resource?.startsWith('$res:'), resource)
+		assert('resource starts with $res:', resource?.startsWith('$res:'), resource())
 		let tableMetadata = await loadTableMetaData(
 			{
 				type: 'database',
-				resourcePath: resource.substring(5),
+				resourcePath: resource().substring(5),
 				resourceType: selected
 			},
 			$workspaceStore,
@@ -505,7 +524,7 @@
 			const selected = resolvedConfig.type.selected
 
 			await insertRowRunnable?.insertRow(
-				resolvedConfig.type.configuration[selected].resource,
+				resource(),
 				$workspaceStore,
 				resolvedConfig.type.configuration[selected].table,
 				resolvedConfig.columnDefs,
@@ -530,14 +549,12 @@
 		const data = { ...e.detail }
 		delete data['__index']
 
-		const selected = resolvedConfig.type.selected
-
 		deleteRow?.triggerDelete(
-			resolvedConfig.type.configuration[selected].resource,
-			resolvedConfig.type.configuration[selected].table ?? 'unknown',
+			resource(),
+			resolvedConfig.type.configuration[resolvedConfig.type.selected].table ?? 'unknown',
 			resolvedConfig.columnDefs,
 			data,
-			selected
+			dbtype()
 		)
 	}
 
@@ -555,18 +572,14 @@
 		resolvedConfig.type.selected &&
 			render &&
 			untrack(() => {
-				computeInput(
-					resolvedConfig.columnDefs,
-					resolvedConfig.whereClause,
-					resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
-				)
+				computeInput(resolvedConfig.columnDefs, resolvedConfig.whereClause, resource())
 			})
 	})
 	$effect(() => {
 		editorContext != undefined &&
 			$mode == 'dnd' &&
 			resolvedConfig.type &&
-			resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource &&
+			resource() &&
 			untrack(() => listTables())
 	})
 	$effect(() => {
@@ -628,7 +641,7 @@
 		{id}
 		{quicksearch}
 		{table}
-		resource={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.resource}
+		resource={resource()}
 		resourceType={resolvedConfig?.type?.selected}
 		columnDefs={resolvedConfig?.columnDefs}
 		whereClause={resolvedConfig?.whereClause}
@@ -679,7 +692,7 @@
 				</div>
 			</div>
 		{/if}
-		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
+		{#if resource() && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
 			<!-- {JSON.stringify(lastInput)} -->
 			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
 			{#key renderCount && render}
