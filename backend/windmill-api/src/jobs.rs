@@ -3985,7 +3985,7 @@ async fn handle_chat_conversation_messages(
         &user_message,
         MessageType::User,
         None,
-        false,
+        true,
     )
     .await?;
 
