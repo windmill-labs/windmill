@@ -7,6 +7,7 @@
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import FlowAIButton from '$lib/components/copilot/chat/flow/FlowAIButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import { type IconType } from '$lib/utils'
 
 	interface Props {
 		disableSettings?: boolean
@@ -29,52 +30,42 @@
 	}: Props = $props()
 
 	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
-
-	const nodeClass =
-		'border w-fit rounded p-1 px-2 bg-surface text-sm cursor-pointer flex items-center h-[28px] hover:!bg-surface-secondary active:!bg-surface'
-	const nodeSelectedClass =
-		'outline outline-offset-1 outline-2 outline-slate-800 dark:bg-white/5 dark:outline-slate-400/60 dark:outline-gray-400'
 </script>
 
-<div class="flex flex-row gap-2 p-1 rounded shadow-md bg-surface">
+<div class="flex flex-row gap-1 p-1 rounded-md bg-surface">
 	{#if !disableSettings}
-		<button
-			onclick={() => ($selectedId = 'settings-metadata')}
-			class={twMerge(nodeClass, $selectedId?.startsWith('settings') ? nodeSelectedClass : '')}
-			title="Settings"
-		>
-			<Settings size={14} />
-			<span
-				class="font-bold flex flex-row justify-between w-fit gap-2 items-center truncate ml-1.5"
-			>
-				<span class="text-xs">Settings</span>
-				<span class="h-[18px] flex items-center">
-					{#if flowStore.val.value.same_worker}
-						<Badge color="blue" baseClass="truncate">./shared</Badge>
-					{/if}
-				</span>
-			</span>
-		</button>
+		{@render btn({
+			selected: $selectedId?.startsWith('settings'),
+			onPress: () => ($selectedId = 'settings'),
+			title: 'Settings',
+			Icon: Settings
+		})}
 	{/if}
+	<Popover>
+		<FlowErrorHandlerItem
+			{disableAi}
+			small={smallErrorHandler}
+			on:generateStep
+			clazz={'border w-fit rounded p-1 px-2 bg-surface text-sm cursor-pointer flex items-center h-[28px] hover:!bg-surface-secondary active:!bg-surface'}
+		/>
+		{#snippet text()}
+			Error Handler
+		{/snippet}
+	</Popover>
 	{#if !disableStaticInputs}
 		<Popover>
-			<button
-				onclick={() => ($selectedId = 'constants')}
-				class={twMerge(nodeClass, $selectedId == 'constants' ? nodeSelectedClass : '')}
-			>
-				<DollarSign size={14} />
-			</button>
+			{@render btn({
+				selected: $selectedId == 'constants',
+				onPress: () => ($selectedId = 'constants'),
+				title: 'Static Inputs',
+				Icon: DollarSign,
+				iconOnly: true
+			})}
 			{#snippet text()}
 				Static Inputs
 			{/snippet}
 		</Popover>
 	{/if}
-	<Popover>
-		<FlowErrorHandlerItem {disableAi} small={smallErrorHandler} on:generateStep clazz={nodeClass} />
-		{#snippet text()}
-			Error Handler
-		{/snippet}
-	</Popover>
 	{#if showFlowAiButton}
 		<Popover>
 			<FlowAIButton
@@ -89,3 +80,35 @@
 		</Popover>
 	{/if}
 </div>
+
+{#snippet btn({
+	selected,
+	onPress,
+	title,
+	iconOnly,
+	Icon
+}: {
+	selected?: boolean
+	onPress?: () => void
+	title: string
+	iconOnly?: boolean
+	Icon: IconType
+})}
+	<button
+		onclick={onPress}
+		class={twMerge(
+			'flex gap-2 items-center font-normal border rounded-md justify-center px-2 h-8',
+			selected ? '' : '',
+			iconOnly ? 'w-8' : 'min-w-36'
+		)}
+		{title}
+	>
+		<Icon size={14} />
+		{#if !iconOnly}
+			<span class="text-xs">{title}</span>
+		{/if}
+		{#if flowStore.val.value.same_worker}
+			<Badge color="blue" wrapperClass="h-[18px]" baseClass="truncate">./shared</Badge>
+		{/if}
+	</button>
+{/snippet}

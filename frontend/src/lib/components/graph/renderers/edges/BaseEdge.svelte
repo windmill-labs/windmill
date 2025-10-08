@@ -1,5 +1,5 @@
 <script lang="ts">
-	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import { getBezierPath, BaseEdge, type EdgeProps, EdgeLabel } from '@xyflow/svelte'
 	import { ClipboardCopy, Hourglass } from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -12,6 +12,7 @@
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
 	import type { Job } from '$lib/gen'
 	import type { GraphModuleState } from '../../model'
+	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 
 	const { useDataflow } = getContext<{
 		useDataflow: Writable<boolean | undefined>
@@ -91,9 +92,9 @@
 		>
 			<!-- <pre class="text-2xs">A{JSON.stringify(data.branch)}, {data.sourceId}, {data.targetId}</pre> -->
 			<!-- {data.targetId} B -->
-			<InsertModuleButton
+			<InsertModulePopover
 				disableAi={data.disableAi}
-				index={data.index ?? 0}
+				allowTrigger={data.index == 0}
 				on:new={(e) => {
 					data?.eventHandlers.insert({
 						sourceId: data.sourceId,
@@ -125,7 +126,15 @@
 						flow: e.detail
 					})
 				}}
-			/>
+			>
+				{#snippet trigger({ toggleOpen })}
+					<InsertModuleButton
+						onPress={toggleOpen}
+						title={`Add step`}
+						id={`flow-editor-add-step-${data.index ?? 0}`}
+					/>
+				{/snippet}
+			</InsertModulePopover>
 		</div>
 	{/if}
 

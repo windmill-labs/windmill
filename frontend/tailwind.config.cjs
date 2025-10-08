@@ -558,9 +558,8 @@ const config = {
 			'border-ai': 'rgb(var(--color-border-ai) / <alpha-value>)',
 
 			// Component colors (semantic)
-			'button-accent-secondary':
-				'rgb(var(--color-component-button-accent-secondary) / <alpha-value>)',
-			'virtual-node': 'rgb(var(--color-component-virtual-node) / <alpha-value>)',
+			'button-accent-secondary': 'rgb(var(--color-button-accent-secondary) / <alpha-value>)',
+			'virtual-node': 'rgb(var(--color-virtual-node) / <alpha-value>)',
 
 			// Reserved colors (semantic)
 			ai: 'rgb(var(--color-reserved-ai) / <alpha-value>)',
@@ -691,9 +690,8 @@ const config = {
 					'--color-border-ai': lightTokensRgb.border.ai,
 
 					// Component colors
-					'--color-component-button-accent-secondary':
-						lightTokensRgb.component['button-accent-secondary'],
-					'--color-component-virtual-node': lightTokensRgb.component['virtual-node'],
+					'--color-button-accent-secondary': lightTokensRgb.component['button-accent-secondary'],
+					'--color-virtual-node': lightTokensRgb.component['virtual-node'],
 
 					// Reserved colors
 					'--color-reserved-ai': lightTokensRgb.reserved.ai,
@@ -773,14 +771,13 @@ const config = {
 						'--color-border-ai-inverse': lightTokensRgb.border.ai,
 
 						// Component colors
-						'--color-component-button-accent-secondary':
-							darkTokensRgb.component['button-accent-secondary'],
-						'--color-component-virtual-node': darkTokensRgb.component['virtual-node'],
+						'--color-button-accent-secondary': darkTokensRgb.component['button-accent-secondary'],
+						'--color-virtual-node': darkTokensRgb.component['virtual-node'],
 
 						// Component inverse colors (from light theme)
-						'--color-component-button-accent-secondary-inverse':
+						'--color-button-accent-secondary-inverse':
 							lightTokensRgb.component['button-accent-secondary'],
-						'--color-component-virtual-node-inverse': lightTokensRgb.component['virtual-node'],
+						'--color-virtual-node-inverse': lightTokensRgb.component['virtual-node'],
 
 						// Reserved colors
 						'--color-reserved-ai': darkTokensRgb.reserved.ai,

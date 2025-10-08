@@ -3,7 +3,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { classNames } from '$lib/utils'
 	import { Bug, X } from 'lucide-svelte'
-	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import { insertNewFailureModule } from '$lib/components/flows/flowStateUtils.svelte'
 	import type { RawScript, ScriptLang } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
@@ -18,7 +18,7 @@
 		disableAi
 	}: {
 		small: boolean
-		clazz: string
+		clazz?: string
 		disableAi?: boolean
 	} = $props()
 
@@ -112,9 +112,8 @@
 	</div>
 {:else}
 	<!-- Index 0 is used by the tutorial to identify the first "Add step" -->
-	<InsertModuleButton
+	<InsertModulePopover
 		{disableAi}
-		index="error-handler-button"
 		placement={'bottom-center'}
 		on:new={(e) => {
 			insertFailureModule(e.detail.inlineScript)
@@ -123,6 +122,24 @@
 			insertFailureModule(undefined, e.detail)
 		}}
 		kind="failure"
-		clazz={twMerge(clazz, '!outline-none px-2 py-1.5')}
-	/>
+	>
+		{#snippet trigger({ toggleOpen })}
+			<button
+				title={`Add failure module`}
+				id={`flow-editor-add-step-error-handler-button`}
+				type="button"
+				class={twMerge(
+					'w-[17.5px] h-[17.5px] flex items-center justify-center !outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded',
+					clazz,
+					'!outline-none px-2 py-1.5'
+				)}
+				onpointerdown={() => toggleOpen()}
+			>
+				<div class="flex items-center gap-1">
+					<Bug size={14} />
+					<span class="text-xs w-20">Error Handler</span>
+				</div>
+			</button>
+		{/snippet}
+	</InsertModulePopover>
 {/if}

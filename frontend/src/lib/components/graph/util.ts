@@ -1,4 +1,5 @@
 import type { FlowStatusModule } from '$lib/gen'
+import { getTailwindColor } from '$lib/utils'
 
 export const NODE = {
 	width: 275,
@@ -34,7 +35,7 @@ export function getStateColor(
 			if (nonVirtualItem) {
 				return isDark ? '#2E3440' : 'white'
 			} else {
-				return isDark ? '#313742' : '#dfe6ee'
+				return getTailwindColor('virtual-node')
 			}
 	}
 }

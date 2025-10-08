@@ -1622,3 +1622,13 @@ export function createCache<Keys extends Record<string, any>, T, InitialKeys ext
 export async function wait(ms: number) {
 	return new Promise((resolve) => setTimeout(() => resolve(undefined), ms))
 }
+export function getTailwindColor(className: string): string {
+	const root = document.documentElement
+	const color = getComputedStyle(root)
+		.getPropertyValue('--color-' + className)
+		.trim()
+	console.log('Color for', className, 'is', color)
+	return `rgb(${color})`
+}
+
+export type IconType = typeof import('lucide-svelte').Dot

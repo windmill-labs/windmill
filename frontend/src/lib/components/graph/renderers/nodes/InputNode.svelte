@@ -5,6 +5,7 @@
 	import { getStateColor, getStateHoverColor } from '../../util'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
+	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
@@ -37,9 +38,9 @@
 	{#snippet children({ darkMode })}
 		{#if data.insertable && !data.hasPreprocessor}
 			<div class="absolute bottom-full left-0 right-0 flex center-center mb-3.5">
-				<InsertModuleButton
+				<InsertModulePopover
 					disableAi={data.disableAi}
-					index={0}
+					allowTrigger
 					kind="preprocessor"
 					on:new={(e) => {
 						data?.eventHandlers.insert({
@@ -57,9 +58,15 @@
 							isPreprocessor: true
 						})
 					}}
-					clazz="w-[14px] h-[14px]"
-					iconSize={10}
-				/>
+				>
+					{#snippet trigger({ toggleOpen })}
+						<InsertModuleButton
+							onPress={toggleOpen}
+							title={`Add preprocessor step`}
+							id={`flow-editor-add-step-0`}
+						/>
+					{/snippet}
+				</InsertModulePopover>
 			</div>
 		{/if}
 		<VirtualItem
