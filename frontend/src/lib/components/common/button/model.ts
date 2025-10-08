@@ -1,3 +1,5 @@
+import type { IconType } from '$lib/utils'
+
 export const BUTTON_COLORS = [
 	'blue',
 	'red',
@@ -33,7 +35,7 @@ export namespace ButtonType {
 	export type Target = '_self' | '_blank'
 	export type Element = HTMLButtonElement | HTMLAnchorElement
 	export interface Icon {
-		icon?: any | undefined
+		icon?: IconType | undefined
 		classes?: string
 		faIcon?: any | undefined
 		props?: any
@@ -183,5 +185,15 @@ export namespace ButtonType {
 		md: 'px-3 py-[7px]',
 		lg: 'px-4 py-[9px]',
 		xl: 'px-4 py-[9px]'
+	}
+
+	export const IconOnlyVariantSpacingClasses: Record<ButtonType.Size, string> = {
+		xs3: 'px-0.5 py-[1px]',
+		xs2: 'px-1 py-[4px]',
+		xs: 'px-2 py-[7px]',
+		sm: 'px-2 py-[7px]',
+		md: 'px-2 py-[7px]',
+		lg: 'px-2.5 py-[9px]',
+		xl: 'px-2.5 py-[9px]'
 	}
 }

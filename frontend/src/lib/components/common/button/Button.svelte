@@ -162,6 +162,9 @@
 
 	function getSpacingClass(variant, size, spacingSize) {
 		// Check if using new design system variants
+		if (iconOnly) {
+			return ButtonType.IconOnlyVariantSpacingClasses[spacingSize]
+		}
 		if (['accent-secondary', 'accent', 'default', 'subtle'].includes(variant)) {
 			return ButtonType.VariantSpacingClasses[spacingSize]
 		}
@@ -200,7 +203,6 @@
 			'focus-visible:ring-2 font-medium',
 			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md h-full' : 'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
-			btnClasses,
 			'active:opacity-80 transition-all',
 			disabled
 				? ['accent-secondary', 'accent', 'default', 'subtle'].includes(variant)
@@ -210,7 +212,8 @@
 			loading ? 'cursor-wait' : '',
 			selected && ['default', 'subtle'].includes(variant)
 				? '!bg-surface-accent-selected !text-luminance-blue-500 !border-border-selected'
-				: ''
+				: '',
+			btnClasses
 		)
 	)
 
@@ -222,16 +225,6 @@
 		md: 16,
 		lg: 18,
 		xl: 18
-	}
-
-	const iconOnlyPadding = {
-		xs3: 'm-[0.5px] qhd:m-[1px]',
-		xs2: 'm-[1px] qhd:m-[1.125px]',
-		xs: 'm-[1px] qhd:m-[1.125px]',
-		sm: 'm-[2px] qhd:m-[2.25px]',
-		md: 'm-[2px] qhd:m-[2.25px]',
-		lg: 'm-[5px] qhd:m-[5.625px]',
-		xl: 'm-[5px] qhd:m-[5.625px]'
 	}
 
 	let lucideIconSize = $derived((iconMap[size] ?? 12) * 1)
@@ -305,10 +298,10 @@
 			{style}
 		>
 			{#if loading}
-				<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
+				<Loader2 class={twMerge('animate-spin')} size={lucideIconSize} />
 			{:else if startIcon?.icon}
 				<startIcon.icon
-					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
+					class={twMerge(startIcon?.classes)}
 					size={lucideIconSize}
 					{...startIcon.props}
 				/>
@@ -318,10 +311,7 @@
 				{@render children?.()}
 			{/if}
 			{#if endIcon?.icon}
-				<endIcon.icon
-					class={twMerge(endIcon?.classes, iconOnlyPadding[size])}
-					size={lucideIconSize}
-				/>
+				<endIcon.icon class={twMerge(endIcon?.classes)} size={lucideIconSize} />
 			{/if}
 			{#if shortCut && !shortCut.hide}
 				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
@@ -352,10 +342,10 @@
 			{...$trigger}
 		>
 			{#if loading}
-				<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
+				<Loader2 class={twMerge('animate-spin')} size={lucideIconSize} />
 			{:else if startIcon?.icon}
 				<startIcon.icon
-					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
+					class={twMerge(startIcon?.classes)}
 					size={lucideIconSize}
 					{...startIcon.props}
 				/>
@@ -365,10 +355,7 @@
 				{@render children?.()}
 			{/if}
 			{#if endIcon?.icon}
-				<endIcon.icon
-					class={twMerge(endIcon?.classes, iconOnlyPadding[size])}
-					size={lucideIconSize}
-				/>
+				<endIcon.icon class={twMerge(endIcon?.classes)} size={lucideIconSize} />
 			{/if}
 			{#if shortCut && !shortCut.hide}
 				{@const Icon = shortCut.Icon}
