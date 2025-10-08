@@ -13,7 +13,6 @@
               "Enum": [
                 "user",
                 "assistant",
-                "system",
                 "tool"
               ]
             }
