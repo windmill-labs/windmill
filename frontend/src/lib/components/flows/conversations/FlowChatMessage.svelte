@@ -11,7 +11,6 @@
 	}
 
 	let { message }: Props = $props()
-	$inspect(message)
 </script>
 
 <div
