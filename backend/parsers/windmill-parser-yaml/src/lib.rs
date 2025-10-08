@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::anyhow;
+use serde::Serialize;
 use serde_json::json;
 use windmill_parser::{Arg, MainArgSignature, ObjectProperty, ObjectType, Typ};
 use yaml_rust::{Yaml, YamlEmitter, YamlLoader};
@@ -59,7 +60,21 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                             has_default: inv.default.is_some(),
                             default: inv.default.map(|v| json!(format!("$res:{}", v))),
                             oidx: None,
-                        })
+                        });
+                    }
+                }
+                Yaml::String(key) if key == "additional_inventories" => {
+                    for inv in parse_additional_inventories(value)? {
+                        if let PreexisitingAnsibleInventory::PassedInArgs(i) = inv {
+                            args.push(Arg {
+                                name: i.name,
+                                otyp: None,
+                                typ: Typ::List(Box::new(Typ::Str(i.options))),
+                                has_default: false,
+                                default: None,
+                                oidx: None,
+                            });
+                        }
                     }
                 }
                 _ => (),
@@ -215,11 +230,32 @@ pub struct AnsibleInventory {
 }
 
 #[derive(Debug, Clone)]
+pub enum PreexisitingAnsibleInventory {
+    Static(String),
+    PassedInArgs(InventoryFilenameListDefinition),
+}
+
+#[derive(Debug, Clone)]
+pub struct InventoryFilenameListDefinition {
+    pub options: Option<Vec<String>>,
+    pub name: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct GitRepo {
     pub url: String,
     pub commit: Option<String>,
     pub branch: Option<String>,
     pub target_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DelegateToGitRepoDetails {
+    pub resource: String,
+    pub playbook: Option<String>,
+    pub commit: Option<String>,
+    pub inventories_location: Option<String>,
+    pub vars_location: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -228,6 +264,7 @@ pub struct AnsibleRequirements {
     pub roles_and_collections: Option<String>,
     pub file_resources: Vec<FileResource>,
     pub inventories: Vec<AnsibleInventory>,
+    pub additional_inventories: Vec<PreexisitingAnsibleInventory>,
     pub vars: Vec<(String, String)>,
     pub resources: Vec<(String, String)>,
     pub options: AnsiblePlaybookOptions,
@@ -235,6 +272,7 @@ pub struct AnsibleRequirements {
     pub vault_id: Vec<String>,
     pub git_repos: Vec<GitRepo>,
     pub git_ssh_identity: Vec<String>,
+    pub delegate_to_git_repo: Option<DelegateToGitRepoDetails>,
 }
 
 impl Default for AnsibleRequirements {
@@ -244,6 +282,7 @@ impl Default for AnsibleRequirements {
             roles_and_collections: None,
             file_resources: vec![],
             inventories: vec![],
+            additional_inventories: vec![],
             vars: vec![],
             resources: vec![],
             options: AnsiblePlaybookOptions {
@@ -257,8 +296,55 @@ impl Default for AnsibleRequirements {
             vault_id: vec![],
             git_repos: vec![],
             git_ssh_identity: vec![],
+            delegate_to_git_repo: None,
         }
     }
+}
+
+fn parse_additional_inventories(
+    inventory_yaml: &Yaml,
+) -> anyhow::Result<Vec<PreexisitingAnsibleInventory>> {
+    if let Yaml::Array(arr) = inventory_yaml {
+        let mut ret = vec![];
+        let mut count = -1;
+        for inv in arr {
+            if let Yaml::String(inv_name) = inv {
+                ret.push(PreexisitingAnsibleInventory::Static(inv_name.clone()));
+            } else if let Yaml::Hash(inv) = inv {
+                if let Some(options) = inv.get(&Yaml::String("options".to_string())) {
+                    let options = match options {
+                        Yaml::Null => None,
+                        Yaml::Array(elements) => Some(
+                            elements
+                                .iter()
+                                .filter_map(|s| s.as_str().map(|s| s.to_string()))
+                                .collect(),
+                        ),
+                        _ => continue,
+                    };
+
+                    let name = inv
+                        .get(&Yaml::String("name".to_string()))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| {
+                            count += 1;
+                            if count == 0 {
+                                "Additional inventories".to_string()
+                            } else {
+                                format!("Additional inventories ({count})")
+                            }
+                        });
+
+                    ret.push(PreexisitingAnsibleInventory::PassedInArgs(
+                        InventoryFilenameListDefinition { options, name },
+                    ))
+                }
+            }
+        }
+        return Ok(ret);
+    }
+    return Err(anyhow!("Invalid inventory definition"));
 }
 
 fn parse_inventories(inventory_yaml: &Yaml) -> anyhow::Result<Vec<AnsibleInventory>> {
@@ -306,6 +392,20 @@ fn parse_inventories(inventory_yaml: &Yaml) -> anyhow::Result<Vec<AnsibleInvento
     return Err(anyhow!("Invalid inventory definition"));
 }
 
+pub fn parse_delegate_to_git_repo(
+    inner_content: &str,
+) -> anyhow::Result<Option<DelegateToGitRepoDetails>> {
+    let docs = YamlLoader::load_from_str(inner_content)
+        .map_err(|e| anyhow!("Failed to parse yaml: {}", e))?;
+
+    if let Yaml::Hash(doc) = &docs[0] {
+        if let Some(v) = doc.get(&Yaml::String("delegate_to_git_repo".to_string())) {
+            return Ok(extract_delegate_to_git_repo_details(v));
+        }
+    }
+    return Ok(None);
+}
+
 pub fn parse_ansible_reqs(
     inner_content: &str,
 ) -> anyhow::Result<(String, Option<AnsibleRequirements>, String)> {
@@ -318,6 +418,16 @@ pub fn parse_ansible_reqs(
     }
 
     let mut ret = AnsibleRequirements::default();
+
+    if let Yaml::Hash(doc) = &docs[0] {
+        if let Some(v) = doc.get(&Yaml::String("delegate_to_git_repo".to_string())) {
+            ret.delegate_to_git_repo = extract_delegate_to_git_repo_details(v);
+        }
+    }
+
+    if ret.delegate_to_git_repo.is_none() && docs.len() < 2 {
+        return Ok((logs, None, inner_content.to_string()));
+    }
 
     if let Yaml::Hash(doc) = &docs[0] {
         for (key, value) in doc {
@@ -370,7 +480,11 @@ pub fn parse_ansible_reqs(
                     }
                 }
                 Yaml::String(key) if key == "inventory" => {
-                    ret.inventories = parse_inventories(value)?;
+                    ret.inventories.extend(parse_inventories(value)?);
+                }
+                Yaml::String(key) if key == "additional_inventories" => {
+                    ret.additional_inventories
+                        .extend(parse_additional_inventories(value)?);
                 }
                 Yaml::String(key) if key == "vault_password" => {
                     let Yaml::String(filename) = value else {
@@ -426,11 +540,13 @@ pub fn parse_ansible_reqs(
                         ret.git_ssh_identity.push(file_name.clone());
                     }
                 }
+                Yaml::String(key) if key == "delegate_to_git_repo" => {}
                 Yaml::String(key) => logs.push_str(&format!("\nUnknown field `{}`. Ignoring", key)),
                 _ => (),
             }
         }
     }
+
     let mut out_str = String::new();
     let mut emitter = YamlEmitter::new(&mut out_str);
 
@@ -438,6 +554,42 @@ pub fn parse_ansible_reqs(
         emitter.dump(&docs[i])?;
     }
     Ok((logs, Some(ret), out_str))
+}
+
+fn extract_delegate_to_git_repo_details(value: &Yaml) -> Option<DelegateToGitRepoDetails> {
+    if let Yaml::Hash(v) = value {
+        if let Some(resource) = v
+            .get(&Yaml::String("resource".to_string()))
+            .and_then(|s| s.as_str())
+            .map(|s| s.to_string())
+        {
+            let playbook = v
+                .get(&Yaml::String("playbook".to_string()))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string());
+            let commit = v
+                .get(&Yaml::String("commit".to_string()))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string());
+            let inventories_location = v
+                .get(&Yaml::String("inventories_location".to_string()))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string());
+            let vars_location = v
+                .get(&Yaml::String("vars_location".to_string()))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string());
+
+            return Some(DelegateToGitRepoDetails {
+                resource,
+                playbook,
+                commit,
+                inventories_location,
+                vars_location,
+            });
+        }
+    }
+    return None;
 }
 
 fn parse_git_repo(r: &Yaml) -> anyhow::Result<GitRepo> {
@@ -682,7 +834,7 @@ pub fn add_versions_to_requirements_yaml(
     input: &str,
     role_versions: &HashMap<String, String>,
     collection_versions: &HashMap<String, String>,
-) -> anyhow::Result<(String,String)> {
+) -> anyhow::Result<(String, String)> {
     let mut docs =
         YamlLoader::load_from_str(input).map_err(|e| anyhow!("YAML parse error: {}", e))?;
     let doc = &mut docs[0];

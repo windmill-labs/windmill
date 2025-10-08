@@ -150,6 +150,16 @@ pub fn parse_ansible(code: &str) -> String {
     wrap_sig(windmill_parser_yaml::parse_ansible_sig(code))
 }
 
+#[cfg(feature = "ansible-parser")]
+#[wasm_bindgen]
+pub fn parse_ansible_delegate(code: &str) -> String {
+    if let Ok(r) = windmill_parser_yaml::parse_delegate_to_git_repo(code) {
+        return serde_json::to_string(&r).unwrap();
+    } else {
+        return "Invalid".to_string();
+    }
+}
+
 #[cfg(feature = "csharp-parser")]
 #[wasm_bindgen]
 pub fn parse_csharp(code: &str) -> String {

@@ -1,49 +1,52 @@
-use anyhow::anyhow;
-use windmill_parser::{
-    asset_parser::{
-        merge_assets, parse_asset_syntax, AssetKind, AssetUsageAccessType, ParseAssetsResult,
-    },
-    MainArgSignature,
-};
-use yaml_rust::{yaml::YamlIter, Yaml, YamlLoader};
+use windmill_parser::asset_parser::{
+        merge_assets, AssetKind, AssetUsageAccessType, ParseAssetsResult,
+    };
+
+use crate::{parse_ansible_reqs, ResourceOrVariablePath};
 
 pub fn parse_assets(input: &str) -> anyhow::Result<Vec<ParseAssetsResult<String>>> {
-    let docs =
-        YamlLoader::load_from_str(input).map_err(|e| anyhow!("Failed to parse yaml: {}", e))?;
+    let mut assets = vec![];
+    if let (_, Some(ansible_reqs), _) = parse_ansible_reqs(input)? {
+        if let Some(delegate_to_git_repo_details) = ansible_reqs.delegate_to_git_repo {
+            assets.push(ParseAssetsResult {
+                kind: AssetKind::Resource,
+                path: delegate_to_git_repo_details.resource,
+                access_type: Some(AssetUsageAccessType::R),
+            })
+        }
 
-    if docs.len() < 2 {
-        return Ok(vec![]);
+        for i in ansible_reqs.inventories {
+            if let Some(pinned_res) = i.pinned_resource {
+                assets.push(ParseAssetsResult {
+                    kind: AssetKind::Resource,
+                    path: pinned_res,
+                    access_type: Some(AssetUsageAccessType::R),
+                })
+            }
+        }
+
+        for file in ansible_reqs.file_resources {
+            if let ResourceOrVariablePath::Resource(resource) = file.resource_path {
+                assets.push(ParseAssetsResult {
+                    kind: AssetKind::Resource,
+                    path: resource,
+                    access_type: Some(AssetUsageAccessType::R),
+                })
+            }
+        }
     }
-
-    let assets = get_assets(&docs[0])?;
-
 
     Ok(merge_assets(assets))
 }
 
-fn get_assets(doc: &Yaml) -> anyhow::Result<Vec<ParseAssetsResult<String>>> {
-    let mut assets = vec![]; if let Yaml::Hash(doc) = doc {
-        if let Some(Yaml::String(delegate)) =
-            doc.get(&Yaml::String("delegate_to_git_repo".to_string()))
-        {
-            assets.push(ParseAssetsResult {
-                kind: AssetKind::Resource,
-                path: delegate.to_string(),
-                access_type: Some(AssetUsageAccessType::R),
-            })
-        }
-    }
-
-    Ok(assets)
-}
-
 mod tests {
+    use crate::{parse_ansible_sig, parse_delegate_to_git_repo};
+
     use super::*;
 
     #[test]
     fn test_parse_ansible_assets() {
-        let a = parse_assets(
-            r#"
+        let p = r#"
 ---
 inventory:
   - resource_type: ansible_inventory
@@ -55,16 +58,20 @@ inventory:
 options:
   - verbosity: vvv
 
-delegate_to_git_repo: u/admin/git_reporino
+delegate_to_git_repo:
+  resource: u/admin/git_reportino
+  playbook: ./playbooks/playbook.yml
+  commit: 7sh7dh73h7dhd299d91hd1hdh3d3hygh4372
+
 
 # File resources will be written in the relative `target` location before
 # running the playbook
-# files:
-  # - resource: u/user/fabulous_jinja_template
-  #   target:  ./config_template.j2
-  # - variable: u/user/ssh_key
-  #   target:  ./ssh_key
-  #   mode: '0600'
+files:
+  - resource: u/user/fabulous_jinja_template
+    target:  ./config_template.j2
+  - variable: u/user/ssh_key
+    target:  ./ssh_key
+    mode: '0600'
 
 # Define the arguments of the windmill script
 extra_vars:
@@ -101,10 +108,17 @@ dependencies:
     copy:
       content: "{{ my_result | to_json }}"
       dest: result.json
-"#,
-        )
-        .unwrap();
-
+"#;
+        let a = parse_assets(p).unwrap();
         println!("The resulting assets are: {}", a.len());
+
+        let a = parse_ansible_reqs(p).unwrap();
+        println!("The resulting reqs are: {:#?}", a);
+
+        let a = parse_ansible_sig(p).unwrap();
+        println!("The resulting sig is: {:#?}", a);
+
+        let a = parse_delegate_to_git_repo(p).unwrap();
+        println!("The resulting delegate_to_kit_repo is: {:#?}", a);
     }
 }
