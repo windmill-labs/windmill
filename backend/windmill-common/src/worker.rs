@@ -1352,7 +1352,11 @@ pub async fn update_job_ping_query(
         if let Some(i) = r {
             Ok(i)
         } else {
-            Err(anyhow::anyhow!("Job not found"))
+            Ok(PingJobStatusResponse {
+                canceled_by: None,
+                canceled_reason: None,
+                already_completed: true,
+            })
         }
     } else {
         Err(to_anyhow(ro.unwrap_err()))
