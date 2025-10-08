@@ -169,7 +169,10 @@
 				)}
 				style="height: {uiState.visible ? dropdownPos.height : 0}px;"
 			>
-				<div bind:this={listEl} class="flex flex-col max-h-64 border rounded-md overflow-clip">
+				<div
+					bind:this={listEl}
+					class="flex flex-col max-h-64 rounded-md overflow-clip bg-surface-tertiary"
+				>
 					{@render header?.()}
 					{#if processedItems?.length === 0}
 						<div class="py-8 px-4 text-center text-primary">{noItemsMsg}</div>
@@ -179,7 +182,7 @@
 							{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
 								<li
 									class={twMerge(
-										'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b',
+										'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b border-border-light',
 										itemIndex === 0 ? 'mt-3' : 'mt-6'
 									)}
 								>
@@ -189,7 +192,7 @@
 							<li>
 								<button
 									class={twMerge(
-										'py-2 px-4 w-full font-normal text-left text-primary',
+										'py-2 px-4 w-full font-normal text-left text-primary text-xs',
 										itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
 										item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover',
 										itemButtonWrapperClasses

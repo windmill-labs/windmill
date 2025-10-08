@@ -123,11 +123,16 @@
 		</div>
 	{:else if clearable && !disabled && value}
 		<div class="absolute z-10 right-2 h-full flex items-center">
-			<CloseButton class="bg-transparent text-hint" noBg small on:close={clearValue} />
+			<CloseButton
+				class="bg-transparent text-secondary hover:text-primary"
+				noBg
+				small
+				on:close={clearValue}
+			/>
 		</div>
 	{:else if RightIcon}
 		<div class="absolute z-10 right-2 h-full flex items-center">
-			<RightIcon size={18} class="text-tertiary/35" />
+			<RightIcon size={18} class="text-secondary" />
 		</div>
 	{/if}
 	<!-- svelte-ignore a11y_autofocus -->
@@ -135,17 +140,22 @@
 		{autofocus}
 		{disabled}
 		type="text"
-		bind:value={() => filterText, (v) => (filterText = v)}
-		placeholder={loading && !value
-			? 'Loading...'
-			: (valueEntry?.label ?? getLabel({ value }) ?? placeholder)}
+		bind:value={
+			() => (open ? filterText : (valueEntry?.label ?? getLabel({ value }) ?? '')),
+			(v) => {
+				if (open) {
+					filterText = v
+				}
+			}
+		}
+		placeholder={loading && !value ? 'Loading...' : !value ? placeholder : ''}
 		style={containerStyle}
 		class={twMerge(
 			inputBaseClass,
 			inputBorderClass({ error, forceFocus: open }),
 			'w-full',
 			open ? '' : 'cursor-pointer',
-			!loading && value && !disabled ? '!placeholder-secondary' : 'placeholder-hint',
+			'placeholder-hint',
 			(clearable || RightIcon) && !disabled && value ? 'pr-8' : '',
 			inputClass ?? ''
 		)}
