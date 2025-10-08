@@ -2590,7 +2590,7 @@ pub async fn handle_queued_job(
             },
             JobKind::AppDependencies => match conn {
                 Connection::Sql(db) => handle_app_dependency_job(
-                    &job,
+                    (*job).clone(),
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,

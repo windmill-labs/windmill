@@ -2341,7 +2341,7 @@ pub async fn pull(
             bench,
         )
         .await?;
-        let Some(job) = job else {
+        let Some(mut job) = job else {
             return Ok(PulledJobResult { job: None, suspended, missing_concurrency_key: false });
         };
 
@@ -4219,7 +4219,7 @@ pub async fn push<'c, 'd>(
     // TODO: use parent_job in the match.
     match (job_kind.is_dependency(), script_path.clone()) {
         (true, Some(obj_path)) => {
-            let debounce_key = format!("admins:{obj_path}:dependency");
+            let debounce_key = format!("{workspace_id}:{obj_path}:dependency");
             if let Some(debounce_job_id) = sqlx::query_scalar!(
                 "SELECT job_id FROM debounce_key WHERE key = $1::text",
                 &debounce_key

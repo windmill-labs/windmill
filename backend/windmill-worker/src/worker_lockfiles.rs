@@ -661,15 +661,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             .map_err(to_anyhow).map(Option::flatten);
 
             match r {
-                // TODO: Fallback - remove eventually.
-                Ok(Some(version)) if *WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ => {
-                    tracing::warn!("WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ usually should not be used. Behavior might be unstable. Please contact Windmill Team for support.");
-                    JobPayload::FlowDependencies {
-                        path: s.importer_path.clone(),
-                        dedicated_worker: None,
-                        version,
-                    }
-                }
                 // Get current version of current flow.
                 Ok(Some(cur_version)) => {
                     // NOTE: Temporary solution. See the usage for more details.
@@ -748,12 +739,13 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         to_raw_value(&()),
                     );
 
+                    // if triggered_by_relative_import {
                     let new_version = sqlx::query_scalar!(
                         "INSERT INTO app_version
-                            (app_id, value, created_by, raw_app)
-                        SELECT app_id, value, created_by, raw_app
-                        FROM app_version WHERE id = $1
-                        RETURNING id",
+                (app_id, value, created_by, raw_app)
+            SELECT app_id, value, created_by, raw_app
+            FROM app_version WHERE id = $1
+            RETURNING id",
                         cur_version
                     )
                     .fetch_one(&mut *tx)
@@ -764,6 +756,8 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         ))
                     })?;
 
+                    // job.runnable_id.replace(ScriptHash(new_version));
+                    // }
                     // Commit the transaction.
                     // NOTE:
                     // We do not append app.versions with new version.
@@ -2181,7 +2175,7 @@ async fn lock_modules_app(
 }
 
 pub async fn handle_app_dependency_job(
-    job: &MiniPulledJob,
+    mut job: MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -2220,6 +2214,26 @@ pub async fn handle_app_dependency_job(
         .map(|x| x.get("triggered_by_relative_import").is_some())
         .unwrap_or_default();
 
+    // if triggered_by_relative_import {
+    //     let new_version = sqlx::query_scalar!(
+    //         "INSERT INTO app_version
+    //             (app_id, value, created_by, raw_app)
+    //         SELECT app_id, value, created_by, raw_app
+    //         FROM app_version WHERE id = $1
+    //         RETURNING id",
+    //         cur_version
+    //     )
+    //     .fetch_one(&mut *tx)
+    //     .await
+    //     .map_err(|e| {
+    //         error::Error::internal_err(format!(
+    //             "Error updating App due to App history insert: {e:#}"
+    //         ))
+    //     })?;
+
+    //     job.runnable_id.replace(ScriptHash(new_version));
+    // }
+
     sqlx::query!(
         "DELETE FROM workspace_runnable_dependencies WHERE app_path = $1 AND workspace_id = $2",
         job_path,
@@ -2248,7 +2262,7 @@ pub async fn handle_app_dependency_job(
     if let Some((app_id, value)) = record {
         let value = lock_modules_app(
             value,
-            job,
+            &job,
             mem_peak,
             canceled_by,
             job_dir,
