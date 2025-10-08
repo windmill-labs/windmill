@@ -50,10 +50,10 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING,
-        OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
         POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
@@ -65,7 +65,7 @@ use windmill_common::{
     server::load_smtp_config,
     tracing_init::JSON_FMT,
     users::truncate_token,
-    utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode},
+    utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode, HUB_API_SECRET},
     worker::{
         load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
@@ -284,6 +284,8 @@ pub async fn initial_load(
     if let Some(db) = conn.as_sql() {
         reload_smtp_config(db).await;
     }
+
+    reload_hub_api_secret_setting(&conn).await;
 
     if server_mode {
         reload_retention_period_setting(&conn).await;
@@ -1185,6 +1187,16 @@ pub async fn reload_ruby_repos_setting(conn: &Connection) {
     .await;
 }
 
+pub async fn reload_hub_api_secret_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        HUB_API_SECRET_SETTING,
+        "HUB_API_SECRET",
+        HUB_API_SECRET.clone(),
+    )
+    .await;
+}
+
 pub async fn reload_retention_period_setting(conn: &Connection) {
     if let Err(e) = reload_setting(
         conn,
@@ -2035,7 +2047,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
                 LEFT JOIN zombie_job_counter zjc ON zjc.job_id = q.id
                 WHERE ping < now() - ($1 || ' seconds')::interval
                     AND running = true
-                    AND kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow')
+                    AND kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')
                     AND same_worker = false
                     AND (zjc.counter IS NULL OR zjc.counter <= $2)
                 FOR UPDATE of q SKIP LOCKED
@@ -2211,7 +2223,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         vec![]
     } else {
         sqlx::query_as::<_, QueuedJob>("SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval
-    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false")
+    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') AND same_worker = false")
         .bind(ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
         .await

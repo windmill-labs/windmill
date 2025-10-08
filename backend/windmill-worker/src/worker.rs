@@ -776,6 +776,7 @@ pub async fn handle_all_job_kind_error(
                         token: authed_client.token.clone(),
                         duration: None,
                         has_stream: Some(false),
+                        from_cache: None,
                     },
                     false,
                 )
@@ -1721,6 +1722,7 @@ pub async fn run_worker(
                                 canceled_by: None,
                                 duration: None,
                                 has_stream: Some(false),
+                                from_cache: None,
                             },
                             true,
                         )
@@ -2391,7 +2393,8 @@ pub async fn handle_queued_job(
             | JobKind::Dependencies
             | JobKind::FlowPreview
             | JobKind::Flow
-            | JobKind::FlowDependencies,
+            | JobKind::FlowDependencies
+            | JobKind::SingleStepFlow,
             x,
         ) => {
             if x.map(|x| x.0).is_none_or(|x| is_special_codebase_hash(x)) {
@@ -2448,6 +2451,7 @@ pub async fn handle_queued_job(
                             token: client.token.clone(),
                             duration: None,
                             has_stream: Some(false),
+                            from_cache: Some(true),
                         },
                         true,
                     )
@@ -2810,7 +2814,7 @@ async fn try_validate_schema(
                 JobKind::Script_Hub => 3,
                 JobKind::Preview => 4,
                 JobKind::DeploymentCallback => 5,
-                JobKind::SingleScriptFlow => 6,
+                JobKind::SingleStepFlow => 6,
                 JobKind::Dependencies => 7,
                 JobKind::Flow => 8,
                 JobKind::FlowPreview => 9,

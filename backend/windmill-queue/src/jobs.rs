@@ -49,6 +49,7 @@ use windmill_common::{
     },
     flows::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
+        StopAfterIf,
     },
     jobs::{get_payload_tag_from_prefixed_path, JobKind, JobPayload, QueuedJob, RawCode},
     schedule::Schedule,
@@ -143,6 +144,7 @@ pub struct JobCompleted {
     pub canceled_by: Option<CanceledBy>,
     pub duration: Option<i64>,
     pub has_stream: Option<bool>,
+    pub from_cache: Option<bool>,
 }
 
 pub async fn cancel_single_job<'c>(
@@ -736,6 +738,7 @@ pub async fn add_completed_job_error(
         flow_is_done,
         duration,
         false,
+        false,
     )
     .await?;
     Ok(result)
@@ -758,6 +761,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     flow_is_done: bool,
     duration: Option<i64>,
     has_stream: bool,
+    from_cache: bool,
 ) -> Result<(Uuid, i64), Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
@@ -783,6 +787,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             flow_is_done,
             duration,
             has_stream,
+            from_cache,
         )
     })
     .retry(
@@ -881,6 +886,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     flow_is_done: bool,
     duration: Option<i64>,
     has_stream: bool,
+    from_cache: bool,
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool)> {
     // let start = std::time::Instant::now();
 
@@ -1061,9 +1067,11 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 }
 
                 // for scripts, always try to schedule next tick
-                // for flows, only try to schedule next tick here if flow failed and because first handle_flow failed (step = 0, modules[0] = {type: 'Failure', 'job': uuid::nil()}) or job was cancelled before first handle_flow was called (step = 0, modules = [] OR modules[0].type == 'WaitingForPriorSteps')
+                // for flows, only try to schedule next tick here if flow failed and because first handle_flow failed (step = 0, modules[0] = {type: 'Failure', 'job': uuid::nil()})
+                // or job was cancelled before first handle_flow was called (step = 0, modules = [] OR modules[0].type == 'WaitingForPriorSteps')
                 // otherwise flow rescheduling is done inside handle_flow
                 let schedule_next_tick = !queued_job.is_flow()
+                    || from_cache
                     || !success
                         && sqlx::query_scalar!(
                             "SELECT 
@@ -2218,6 +2226,7 @@ impl PulledJobResult {
                     canceled_by: None,
                     duration: None,
                     has_stream: Some(false),
+                    from_cache: None,
                 }),
             ),
             PulledJobResult { job, .. } => Ok(job),
@@ -3664,12 +3673,14 @@ pub async fn push<'c, 'd>(
                 priority,
             )
         }
-        JobPayload::SingleScriptFlow {
+        JobPayload::SingleStepFlow {
             path,
             hash,
+            flow_version,
             retry,
             error_handler_path,
             error_handler_args,
+            skip_handler,
             args,
             custom_concurrency_key,
             concurrent_limit,
@@ -3680,10 +3691,75 @@ pub async fn push<'c, 'd>(
             trigger_path,
             apply_preprocessor,
         } => {
-            let mut input_transforms = HashMap::<String, InputTransform>::new();
-            for (arg_name, arg_value) in args {
-                input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+            // Determine if this is a flow or a script
+            let is_flow = flow_version.is_some();
+
+            // Build modules list
+            let mut modules = vec![];
+
+            // Add skip validation module if provided
+            if let Some(skip_handler) = skip_handler {
+                let mut skip_input_transforms = HashMap::<String, InputTransform>::new();
+                for (arg_name, arg_value) in skip_handler.args {
+                    skip_input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+                }
+
+                modules.push(FlowModule {
+                    id: "skip_validation".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Script {
+                        input_transforms: skip_input_transforms,
+                        path: skip_handler.path,
+                        hash: None,
+                        tag_override: None,
+                        is_trigger: None,
+                        pass_flow_input_directly: None,
+                    }),
+                    stop_after_if: Some(StopAfterIf {
+                        expr: skip_handler.stop_condition,
+                        skip_if_stopped: true,
+                        error_message: Some(skip_handler.stop_message),
+                    }),
+                    ..Default::default()
+                });
             }
+
+            // Add main module (script or flow)
+            let mut main_input_transforms = HashMap::<String, InputTransform>::new();
+            for (arg_name, arg_value) in args {
+                main_input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+            }
+
+            let main_module = if is_flow {
+                FlowModule {
+                    id: "a".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Flow {
+                        path: path.clone(),
+                        input_transforms: main_input_transforms,
+                        pass_flow_input_directly: None,
+                    }),
+                    retry,
+                    pass_flow_input_directly: Some(true),
+                    ..Default::default()
+                }
+            } else {
+                FlowModule {
+                    id: "a".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Script {
+                        input_transforms: main_input_transforms,
+                        path: path.clone(),
+                        hash,
+                        tag_override,
+                        is_trigger: None,
+                        pass_flow_input_directly: None,
+                    }),
+                    retry,
+                    apply_preprocessor: Some(apply_preprocessor),
+                    ..Default::default()
+                }
+            };
+            modules.push(main_module);
+
+            // Build failure module if error handler is provided
             let failure_module = if let Some(error_handler_path) = error_handler_path {
                 let mut input_transforms = HashMap::<String, InputTransform>::new();
                 input_transforms.insert(
@@ -3696,7 +3772,7 @@ pub async fn push<'c, 'd>(
                 );
                 input_transforms.insert(
                     "is_flow".to_string(),
-                    InputTransform::Static { value: to_raw_value(&false) },
+                    InputTransform::Static { value: to_raw_value(&is_flow) },
                 );
                 input_transforms.insert(
                     "trigger_path".to_string(),
@@ -3735,6 +3811,7 @@ pub async fn push<'c, 'd>(
                         hash: None,
                         tag_override: None,
                         is_trigger: None,
+                        pass_flow_input_directly: None,
                     }),
                     ..Default::default()
                 }))
@@ -3743,19 +3820,7 @@ pub async fn push<'c, 'd>(
             };
 
             let flow_value = FlowValue {
-                modules: vec![FlowModule {
-                    id: "a".to_string(),
-                    value: to_raw_value(&FlowModuleValue::Script {
-                        input_transforms,
-                        path: path.clone(),
-                        hash: Some(hash),
-                        tag_override,
-                        is_trigger: None,
-                    }),
-                    retry,
-                    apply_preprocessor: Some(apply_preprocessor),
-                    ..Default::default()
-                }],
+                modules,
                 failure_module,
                 concurrency_time_window_s,
                 concurrent_limit,
@@ -3771,10 +3836,10 @@ pub async fn push<'c, 'd>(
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
             (
-                None,
+                None,  // No version needed - flow is stored in raw_flow like FlowPreview
                 Some(path),
                 None,
-                JobKind::Flow,
+                JobKind::SingleStepFlow,
                 Some(flow_value),
                 Some(flow_status),
                 None,
@@ -4336,7 +4401,7 @@ pub async fn push<'c, 'd>(
             }
             JobKind::Flow => "jobs.run.flow",
             JobKind::FlowPreview => "jobs.run.flow_preview",
-            JobKind::SingleScriptFlow => "jobs.run.single_script_flow",
+            JobKind::SingleStepFlow => "jobs.run.single_step_flow",
             JobKind::Script_Hub => "jobs.run.script_hub",
             JobKind::Dependencies => "jobs.run.dependencies",
             JobKind::Identity => "jobs.run.identity",
