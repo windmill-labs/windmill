@@ -4,58 +4,136 @@ const {
 } = require('./src/lib/components/apps/editor/componentsPanel/tailwindUtils')
 const { zIndexes } = require('./src/lib/zIndexes')
 
-const lightTheme = {
-	surface: '#ffffff',
-	surfaceSecondary: '#f3f4f6',
-	surfaceSunken: '#e8e8f0',
-	surfaceHover: '#e5e7eb',
-	surfaceDisabled: '#f9fafb',
-	surfaceSelected: '#d1d5db',
-
-	textPrimary: '#4a5568',
-	textSecondary: '#718096',
-	textTertiary: '#505c70',
-	textHint: '#757e8f',
-	textDisabled: '#a0aec0',
-	textEmphasis: '#2d3748',
-
-	border: '#dddddd',
-	borderHover: '#cccccc'
-}
-
-const lightThemeRgb = makeRgb(lightTheme)
-
-const darkTheme = {
-	surface: '#2e3440',
-	surfaceSecondary: '#3b4252',
-	surfaceSunken: '#2e3440',
-	surfaceHover: '#454F64',
-	surfaceDisabled: '#212732',
-	surfaceSelected: '#434c5e',
-
-	textPrimary: '#d4d8dd',
-	textSecondary: '#aab0bb',
-	textTertiary: '#A8AEB7',
-	textHint: '#b3bac9',
-	textDisabled: '#727c88',
-	textEmphasis: '#f3f4f6',
-
-	border: '#3e4c60',
-	borderHover: '#3e4c60'
-}
-
-const darkThemeRgb = makeRgb(darkTheme)
-
-function makeRgb(theme) {
-	return Object.fromEntries(
-		Object.entries(theme).map(([key, value]) => {
-			if (typeof value === 'string' && value.startsWith('#')) {
-				return [key, hexToRgb(value)]
+// Design tokens from Figma export
+const designTokens = {
+	tokens: {
+		light: {
+			surface: {
+				primary: '#fbfbfd',
+				secondary: '#efeff4',
+				sunken: '#e8e8f0',
+				tertiary: '#ffffff',
+				hover: '#eeeef5',
+				disabled: '#d8d8e4',
+				selected: '#ffffff',
+				'accent-primary': '#758ff8',
+				'accent-hover': '#5074f6',
+				'accent-clicked': '#2c5beb',
+				'accent-secondary': '#293676',
+				'accent-secondary-hover': '#1e255f',
+				'accent-secondary-clicked': '#303f82',
+				'accent-selected': 'rgba(191, 219, 254, 0.3000)'
+			},
+			text: {
+				primary: '#4a5568',
+				secondary: '#718096',
+				hint: '#757e8f',
+				tertiary: '#505c70',
+				disabled: '#a0aec0',
+				emphasis: '#2d3748',
+				accent: '#758ff8'
+			},
+			border: {
+				light: '#e5e7eb',
+				normal: '#9ca3af',
+				accent: '#758ff8',
+				selected: '#a0affa',
+				ai: '#f2cefb'
+			},
+			component: {
+				'button-accent-secondary': '#ffffff',
+				'virtual-node': '#dde1f1'
+			},
+			reserved: {
+				ai: '#de75f8'
 			}
+		},
+		dark: {
+			surface: {
+				primary: '#3b4252',
+				secondary: '#2e3440',
+				sunken: '#2e3440',
+				tertiary: '#434c5e',
+				hover: '#454f64',
+				disabled: '#212732',
+				selected: '#434c5e',
+				'accent-primary': '#758ff8',
+				'accent-hover': '#5074f6',
+				'accent-clicked': '#2c5beb',
+				'accent-secondary': '#e8ebfb',
+				'accent-secondary-hover': '#c3c9df',
+				'accent-secondary-clicked': '#9da6ca',
+				'accent-selected': 'rgba(103, 144, 196, 0.3000)'
+			},
+			text: {
+				primary: '#d4d8dd',
+				secondary: '#aab0bb',
+				hint: '#b3bac9',
+				tertiary: '#A8AEB7',
+				disabled: '#727c88',
+				emphasis: '#f3f4f6',
+				accent: '#e9ecfe'
+			},
+			border: {
+				light: '#495a72',
+				normal: '#aab0bb',
+				accent: '#a0affa',
+				selected: '#758ff8',
+				ai: '#8e6b96'
+			},
+			component: {
+				'button-accent-secondary': '#f3f4f6',
+				'virtual-node': '#4c566a'
+			},
+			reserved: {
+				ai: '#de75f8'
+			}
+		}
+	},
+	primitives: {
+		'light-blue': '#bcd4fc',
+		blue: '#5e81ac',
+		'dark-blue': '#394a6d',
+		accent_blue: '#758ff8',
+		'deep-blue-900': '#1e255f',
+		'deep-blue-800': '#293676',
+		'luminance-blue-900': '#1e3a8a',
+		'luminance-blue-800': '#0d3cc5',
+		'luminance-blue-700': '#1847d2',
+		'luminance-blue-600': '#2652df',
+		'luminance-blue-500': '#2c5beb',
+		'luminance-blue-400': '#5074f6',
+		'luminance-blue-300': '#758ff8',
+		'luminance-blue-200': '#a0affa',
+		'luminance-blue-100': '#c7cefc',
+		'luminance-blue-50': '#e9ecfe',
+		'deep-blue-700': '#303f82',
+		'deep-blue-600': '#39498e',
+		'deep-blue-500': '#3f5097',
+		'deep-blue-400': '#5b6aa5',
+		'deep-blue-300': '#7784b4',
+		'deep-blue-200': '#9da6ca',
+		'deep-blue-100': '#c3c9df',
+		'deep-blue-50': '#e7eaf2'
+	}
+}
 
-			return [key, value]
-		})
-	)
+// Helper function to convert design tokens to RGB format for CSS variables
+const lightTokensRgb = makeRgb(designTokens.tokens.light)
+const darkTokensRgb = makeRgb(designTokens.tokens.dark)
+
+function makeRgb(obj) {
+	const result = {}
+	for (const [key, value] of Object.entries(obj)) {
+		if (typeof value === 'object' && value !== null) {
+			result[key] = makeRgb(value)
+		} else if (typeof value === 'string' && value.startsWith('#')) {
+			result[key] = hexToRgb(value)
+		} else {
+			result[key] = value
+		}
+	}
+	return result
 }
 
 function hexToRgb(hex) {
@@ -100,6 +178,33 @@ const config = {
 			transparent: 'transparent',
 			white: '#ffffff',
 			black: '#000000',
+
+			// Design token colors
+			'light-blue': designTokens.primitives['light-blue'],
+			'deep-blue': {
+				50: designTokens.primitives['deep-blue-50'],
+				100: designTokens.primitives['deep-blue-100'],
+				200: designTokens.primitives['deep-blue-200'],
+				300: designTokens.primitives['deep-blue-300'],
+				400: designTokens.primitives['deep-blue-400'],
+				500: designTokens.primitives['deep-blue-500'],
+				600: designTokens.primitives['deep-blue-600'],
+				700: designTokens.primitives['deep-blue-700'],
+				800: designTokens.primitives['deep-blue-800'],
+				900: designTokens.primitives['deep-blue-900']
+			},
+			'luminance-blue': {
+				50: designTokens.primitives['luminance-blue-50'],
+				100: designTokens.primitives['luminance-blue-100'],
+				200: designTokens.primitives['luminance-blue-200'],
+				300: designTokens.primitives['luminance-blue-300'],
+				400: designTokens.primitives['luminance-blue-400'],
+				500: designTokens.primitives['luminance-blue-500'],
+				600: designTokens.primitives['luminance-blue-600'],
+				700: designTokens.primitives['luminance-blue-700'],
+				800: designTokens.primitives['luminance-blue-800'],
+				900: designTokens.primitives['luminance-blue-900']
+			},
 			slate: {
 				50: '#f8fafc',
 				100: '#f1f5f9',
@@ -410,32 +515,62 @@ const config = {
 				950: '#5E81AC'
 			},
 
-			surface: 'rgb(var(--color-surface) / <alpha-value>)',
+			// Surface colors (semantic)
+			surface: 'rgb(var(--color-surface-primary) / <alpha-value>)',
 			'surface-secondary': 'rgb(var(--color-surface-secondary) / <alpha-value>)',
 			'surface-sunken': 'rgb(var(--color-surface-sunken) / <alpha-value>)',
+			'surface-tertiary': 'rgb(var(--color-surface-tertiary) / <alpha-value>)',
 			'surface-hover': 'rgb(var(--color-surface-hover) / <alpha-value>)',
 			'surface-disabled': 'rgb(var(--color-surface-disabled) / <alpha-value>)',
 			'surface-selected': 'rgb(var(--color-surface-selected) / <alpha-value>)',
+			'surface-accent-primary': 'rgb(var(--color-surface-accent-primary) / <alpha-value>)',
+			'surface-accent-hover': 'rgb(var(--color-surface-accent-hover) / <alpha-value>)',
+			'surface-accent-clicked': 'rgb(var(--color-surface-accent-clicked) / <alpha-value>)',
+			'surface-accent-secondary': 'rgb(var(--color-surface-accent-secondary) / <alpha-value>)',
+			'surface-accent-secondary-hover':
+				'rgb(var(--color-surface-accent-secondary-hover) / <alpha-value>)',
+			'surface-accent-secondary-clicked':
+				'rgb(var(--color-surface-accent-secondary-clicked) / <alpha-value>)',
+			'surface-accent-selected': 'var(--color-surface-accent-selected)',
 
+			// Text colors (semantic)
 			primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
 			secondary: 'rgb(var(--color-text-secondary) / <alpha-value>)',
 			tertiary: 'rgb(var(--color-text-tertiary) / <alpha-value>)',
 			hint: 'rgb(var(--color-text-hint) / <alpha-value>)',
 			disabled: 'rgb(var(--color-text-disabled) / <alpha-value>)',
 			emphasis: 'rgb(var(--color-text-emphasis) / <alpha-value>)',
+			accent: 'rgb(var(--color-text-accent) / <alpha-value>)',
 
-			'surface-inverse': 'rgb(var(--color-surface-inverse) / <alpha-value>)',
-			'surface-secondary-inverse': 'rgb(var(--color-surface-secondary-inverse) / <alpha-value>)',
-			'surface-hover-inverse': 'rgb(var(--color-surface-hover-inverse) / <alpha-value>)',
-			'surface-disabled-inverse': 'rgb(var(--color-surface-disabled-inverse) / <alpha-value>)',
-			'surface-selected-inverse': 'rgb(var(--color-surface-selected-inverse) / <alpha-value>)',
-
+			// Inverse colors (computed from opposite theme)
 			'primary-inverse': 'rgb(var(--color-text-primary-inverse) / <alpha-value>)',
 			'secondary-inverse': 'rgb(var(--color-text-secondary-inverse) / <alpha-value>)',
 			'tertiary-inverse': 'rgb(var(--color-text-tertiary-inverse) / <alpha-value>)',
+			'emphasis-inverse': 'rgb(var(--color-text-emphasis-inverse) / <alpha-value>)',
 			'hint-inverse': 'rgb(var(--color-text-hint-inverse) / <alpha-value>)',
 			'disabled-inverse': 'rgb(var(--color-text-disabled-inverse) / <alpha-value>)',
-			'emphasis-inverse': 'rgb(var(--color-text-emphasis-inverse) / <alpha-value>)'
+
+			// Border colors (semantic)
+			'border-light': 'rgb(var(--color-border-light) / <alpha-value>)',
+			'border-normal': 'rgb(var(--color-border-normal) / <alpha-value>)',
+			'border-accent': 'rgb(var(--color-border-accent) / <alpha-value>)',
+			'border-selected': 'rgb(var(--color-border-selected) / <alpha-value>)',
+			'border-ai': 'rgb(var(--color-border-ai) / <alpha-value>)',
+
+			// Component colors (semantic)
+			'button-accent-secondary':
+				'rgb(var(--color-component-button-accent-secondary) / <alpha-value>)',
+			'virtual-node': 'rgb(var(--color-component-virtual-node) / <alpha-value>)',
+
+			// Reserved colors (semantic)
+			ai: 'rgb(var(--color-reserved-ai) / <alpha-value>)',
+
+			// Surface inverse colors (computed from opposite theme)
+			'surface-inverse': 'rgb(var(--color-surface-primary-inverse) / <alpha-value>)',
+			'surface-secondary-inverse': 'rgb(var(--color-surface-secondary-inverse) / <alpha-value>)',
+			'surface-hover-inverse': 'rgb(var(--color-surface-hover-inverse) / <alpha-value>)',
+			'surface-disabled-inverse': 'rgb(var(--color-surface-disabled-inverse) / <alpha-value>)',
+			'surface-selected-inverse': 'rgb(var(--color-surface-selected-inverse) / <alpha-value>)'
 		},
 		fontFamily: {
 			// add double quotes if there is space in font name
@@ -519,38 +654,67 @@ const config = {
 					fontSize: theme('fontSize.base'),
 					fontWeight: theme('fontWeight.normal'),
 
-					backgroundColor: 'rgb(var(--color-surface))',
-					color: lightTheme.textPrimary,
-					'--color-surface': lightThemeRgb.surface,
-					'--color-surface-secondary': lightThemeRgb.surfaceSecondary,
-					'--color-surface-sunken': lightThemeRgb.surfaceSunken,
-					'--color-surface-hover': lightThemeRgb.surfaceHover,
-					'--color-surface-disabled': lightThemeRgb.surfaceDisabled,
-					'--color-surface-selected': lightThemeRgb.surfaceSelected,
+					backgroundColor: 'rgb(var(--color-surface-primary))',
+					color: designTokens.tokens.light.text.primary,
 
-					'--color-text-primary': lightThemeRgb.textPrimary,
-					'--color-text-secondary': lightThemeRgb.textSecondary,
-					'--color-text-tertiary': lightThemeRgb.textTertiary,
-					'--color-text-hint': lightThemeRgb.textHint,
-					'--color-text-disabled': lightThemeRgb.textDisabled,
-					'--color-text-emphasis': lightThemeRgb.textEmphasis,
+					// Surface colors
+					'--color-surface-primary': lightTokensRgb.surface.primary,
+					'--color-surface-secondary': lightTokensRgb.surface.secondary,
+					'--color-surface-sunken': lightTokensRgb.surface.sunken,
+					'--color-surface-tertiary': lightTokensRgb.surface.tertiary,
+					'--color-surface-hover': lightTokensRgb.surface.hover,
+					'--color-surface-disabled': lightTokensRgb.surface.disabled,
+					'--color-surface-selected': lightTokensRgb.surface.selected,
 
-					'--color-surface-inverse': darkThemeRgb.surface,
-					'--color-surface-secondary-inverse': darkThemeRgb.surfaceSecondary,
-					'--color-surface-sunken-inverse': darkThemeRgb.surfaceSunken,
-					'--color-surface-hover-inverse': darkThemeRgb.surfaceHover,
-					'--color-surface-disabled-inverse': darkThemeRgb.surfaceDisabled,
-					'--color-surface-selected-inverse': darkThemeRgb.surfaceSelected,
+					// Text colors
+					'--color-text-primary': lightTokensRgb.text.primary,
+					'--color-text-secondary': lightTokensRgb.text.secondary,
+					'--color-text-hint': lightTokensRgb.text.hint,
+					'--color-text-tertiary': lightTokensRgb.text.tertiary,
+					'--color-text-disabled': lightTokensRgb.text.disabled,
+					'--color-text-emphasis': lightTokensRgb.text.emphasis,
+					'--color-text-accent': lightTokensRgb.text.accent,
 
-					'--color-text-primary-inverse': darkThemeRgb.textPrimary,
-					'--color-text-secondary-inverse': darkThemeRgb.textSecondary,
-					'--color-text-tertiary-inverse': darkThemeRgb.textTertiary,
-					'--color-text-hint-inverse': darkThemeRgb.textHint,
-					'--color-text-disabled-inverse': darkThemeRgb.textDisabled,
-					'--color-text-emphasis-inverse': darkThemeRgb.textEmphasis,
+					// Text inverse colors (from dark theme)
+					'--color-text-primary-inverse': darkTokensRgb.text.primary,
+					'--color-text-secondary-inverse': darkTokensRgb.text.secondary,
+					'--color-text-tertiary-inverse': darkTokensRgb.text.tertiary,
+					'--color-text-emphasis-inverse': darkTokensRgb.text.emphasis,
+					'--color-text-hint-inverse': darkTokensRgb.text.hint,
+					'--color-text-disabled-inverse': darkTokensRgb.text.disabled,
 
-					'--color-border': lightThemeRgb.border,
-					'--color-border-hover': lightThemeRgb.borderHover,
+					// Border colors
+					'--color-border-light': lightTokensRgb.border.light,
+					'--color-border-normal': lightTokensRgb.border.normal,
+					'--color-border-accent': lightTokensRgb.border.accent,
+					'--color-border-selected': lightTokensRgb.border.selected,
+					'--color-border-ai': lightTokensRgb.border.ai,
+
+					// Component colors
+					'--color-component-button-accent-secondary':
+						lightTokensRgb.component['button-accent-secondary'],
+					'--color-component-virtual-node': lightTokensRgb.component['virtual-node'],
+
+					// Reserved colors
+					'--color-reserved-ai': lightTokensRgb.reserved.ai,
+
+					// Surface accent colors
+					'--color-surface-accent-primary': lightTokensRgb.surface['accent-primary'],
+					'--color-surface-accent-hover': lightTokensRgb.surface['accent-hover'],
+					'--color-surface-accent-clicked': lightTokensRgb.surface['accent-clicked'],
+					'--color-surface-accent-secondary': lightTokensRgb.surface['accent-secondary'],
+					'--color-surface-accent-secondary-hover':
+						lightTokensRgb.surface['accent-secondary-hover'],
+					'--color-surface-accent-secondary-clicked':
+						lightTokensRgb.surface['accent-secondary-clicked'],
+					'--color-surface-accent-selected': designTokens.tokens.light.surface['accent-selected'],
+
+					// Surface inverse colors (from dark theme)
+					'--color-surface-primary-inverse': darkTokensRgb.surface.primary,
+					'--color-surface-secondary-inverse': darkTokensRgb.surface.secondary,
+					'--color-surface-hover-inverse': darkTokensRgb.surface.hover,
+					'--color-surface-disabled-inverse': darkTokensRgb.surface.disabled,
+					'--color-surface-selected-inverse': darkTokensRgb.surface.selected,
 
 					'--vscode-editorSuggestWidget-background': '#f3f3f3',
 					'--vscode-editorHoverWidget-foreground': '#616161',
@@ -565,39 +729,93 @@ const config = {
 					},
 
 					'&.dark': {
-						backgroundColor: darkTheme.surface,
-						color: darkTheme.textPrimary,
+						backgroundColor: designTokens.tokens.dark.surface.primary,
+						color: designTokens.tokens.dark.text.primary,
 
-						'--color-surface': darkThemeRgb.surface,
-						'--color-surface-secondary': darkThemeRgb.surfaceSecondary,
-						'--color-surface-sunken': darkThemeRgb.surfaceSunken,
-						'--color-surface-hover': darkThemeRgb.surfaceHover,
-						'--color-surface-disabled': darkThemeRgb.surfaceDisabled,
-						'--color-surface-selected': darkThemeRgb.surfaceSelected,
+						// Surface colors
+						'--color-surface-primary': darkTokensRgb.surface.primary,
+						'--color-surface-secondary': darkTokensRgb.surface.secondary,
+						'--color-surface-sunken': darkTokensRgb.surface.sunken,
+						'--color-surface-tertiary': darkTokensRgb.surface.tertiary,
+						'--color-surface-hover': darkTokensRgb.surface.hover,
+						'--color-surface-disabled': darkTokensRgb.surface.disabled,
+						'--color-surface-selected': darkTokensRgb.surface.selected,
 
-						'--color-text-primary': darkThemeRgb.textPrimary,
-						'--color-text-secondary': darkThemeRgb.textSecondary,
-						'--color-text-tertiary': darkThemeRgb.textTertiary,
-						'--color-text-hint': darkThemeRgb.textHint,
-						'--color-text-disabled': darkThemeRgb.textDisabled,
-						'--color-text-emphasis': darkThemeRgb.textEmphasis,
+						// Text colors
+						'--color-text-primary': darkTokensRgb.text.primary,
+						'--color-text-secondary': darkTokensRgb.text.secondary,
+						'--color-text-hint': darkTokensRgb.text.hint,
+						'--color-text-tertiary': darkTokensRgb.text.tertiary,
+						'--color-text-disabled': darkTokensRgb.text.disabled,
+						'--color-text-emphasis': darkTokensRgb.text.emphasis,
+						'--color-text-accent': darkTokensRgb.text.accent,
 
-						'--color-surface-inverse': lightThemeRgb.surface,
-						'--color-surface-secondary-inverse': lightThemeRgb.surfaceSecondary,
-						'--color-surface-sunken-inverse': lightThemeRgb.surfaceSunken,
-						'--color-surface-hover-inverse': lightThemeRgb.surfaceHover,
-						'--color-surface-disabled-inverse': lightThemeRgb.surfaceDisabled,
-						'--color-surface-selected-inverse': lightThemeRgb.surfaceSelected,
+						// Text inverse colors (from light theme)
+						'--color-text-primary-inverse': lightTokensRgb.text.primary,
+						'--color-text-secondary-inverse': lightTokensRgb.text.secondary,
+						'--color-text-tertiary-inverse': lightTokensRgb.text.tertiary,
+						'--color-text-emphasis-inverse': lightTokensRgb.text.emphasis,
+						'--color-text-hint-inverse': lightTokensRgb.text.hint,
+						'--color-text-disabled-inverse': lightTokensRgb.text.disabled,
 
-						'--color-text-primary-inverse': lightThemeRgb.textPrimary,
-						'--color-text-secondary-inverse': lightThemeRgb.textSecondary,
-						'--color-text-tertiary-inverse': lightThemeRgb.textTertiary,
-						'--color-text-hint-inverse': lightThemeRgb.textHint,
-						'--color-text-disabled-inverse': lightThemeRgb.textDisabled,
-						'--color-text-emphasis-inverse': lightThemeRgb.textEmphasis,
+						// Border colors
+						'--color-border-light': darkTokensRgb.border.light,
+						'--color-border-normal': darkTokensRgb.border.normal,
+						'--color-border-accent': darkTokensRgb.border.accent,
+						'--color-border-selected': darkTokensRgb.border.selected,
+						'--color-border-ai': darkTokensRgb.border.ai,
 
-						'--color-border': darkThemeRgb.border,
-						'--color-border-hover': darkThemeRgb.borderHover,
+						// Border inverse colors (from light theme)
+						'--color-border-light-inverse': lightTokensRgb.border.light,
+						'--color-border-normal-inverse': lightTokensRgb.border.normal,
+						'--color-border-accent-inverse': lightTokensRgb.border.accent,
+						'--color-border-selected-inverse': lightTokensRgb.border.selected,
+						'--color-border-ai-inverse': lightTokensRgb.border.ai,
+
+						// Component colors
+						'--color-component-button-accent-secondary':
+							darkTokensRgb.component['button-accent-secondary'],
+						'--color-component-virtual-node': darkTokensRgb.component['virtual-node'],
+
+						// Component inverse colors (from light theme)
+						'--color-component-button-accent-secondary-inverse':
+							lightTokensRgb.component['button-accent-secondary'],
+						'--color-component-virtual-node-inverse': lightTokensRgb.component['virtual-node'],
+
+						// Reserved colors
+						'--color-reserved-ai': darkTokensRgb.reserved.ai,
+
+						// Reserved inverse colors (from light theme)
+						'--color-reserved-ai-inverse': lightTokensRgb.reserved.ai,
+
+						// Surface accent colors
+						'--color-surface-accent-primary': darkTokensRgb.surface['accent-primary'],
+						'--color-surface-accent-hover': darkTokensRgb.surface['accent-hover'],
+						'--color-surface-accent-clicked': darkTokensRgb.surface['accent-clicked'],
+						'--color-surface-accent-secondary': darkTokensRgb.surface['accent-secondary'],
+						'--color-surface-accent-secondary-hover':
+							darkTokensRgb.surface['accent-secondary-hover'],
+						'--color-surface-accent-secondary-clicked':
+							darkTokensRgb.surface['accent-secondary-clicked'],
+						'--color-surface-accent-selected': darkTokensRgb.surface['accent-selected'],
+
+						// Surface inverse colors (from light theme)
+						'--color-surface-primary-inverse': lightTokensRgb.surface.primary,
+						'--color-surface-secondary-inverse': lightTokensRgb.surface.secondary,
+						'--color-surface-sunken-inverse': lightTokensRgb.surface.sunken,
+						'--color-surface-tertiary-inverse': lightTokensRgb.surface.tertiary,
+						'--color-surface-hover-inverse': lightTokensRgb.surface.hover,
+						'--color-surface-disabled-inverse': lightTokensRgb.surface.disabled,
+						'--color-surface-selected-inverse': lightTokensRgb.surface.selected,
+						'--color-surface-accent-primary-inverse': lightTokensRgb.surface['accent-primary'],
+						'--color-surface-accent-hover-inverse': lightTokensRgb.surface['accent-hover'],
+						'--color-surface-accent-clicked-inverse': lightTokensRgb.surface['accent-clicked'],
+						'--color-surface-accent-secondary-inverse': lightTokensRgb.surface['accent-secondary'],
+						'--color-surface-accent-secondary-hover-inverse':
+							lightTokensRgb.surface['accent-secondary-hover'],
+						'--color-surface-accent-secondary-clicked-inverse':
+							lightTokensRgb.surface['accent-secondary-clicked'],
+						'--color-surface-accent-selected-inverse': lightTokensRgb.surface['accent-selected'],
 
 						'--vscode-editorSuggestWidget-background': '#252526',
 						'--vscode-editorHoverWidget-foreground': '#cccccc',
@@ -845,19 +1063,19 @@ const config = {
 					)})`
 				},
 				'.splitpanes__pane': {
-					backgroundColor: lightTheme.surface + ' !important',
+					backgroundColor: designTokens.tokens.light.surface.primary + ' !important',
 					overflow: 'auto !important'
 				},
 				'.dark .splitpanes__pane': {
-					backgroundColor: darkTheme.surface + ' !important',
+					backgroundColor: designTokens.tokens.dark.surface.primary + ' !important',
 					overflow: 'auto !important'
 				},
 				'.splitpanes__splitter': {
-					backgroundColor: lightTheme.border + ' !important',
+					backgroundColor: designTokens.tokens.light.border.light + ' !important',
 					margin: '0 !important',
 					border: 'none !important',
 					'&::after': {
-						backgroundColor: lightTheme.border + ' !important',
+						backgroundColor: designTokens.tokens.light.border.light + ' !important',
 						margin: '0 !important',
 						transform: 'none !important',
 						transition: 'opacity 200ms !important',
@@ -871,9 +1089,9 @@ const config = {
 					}
 				},
 				'.dark .splitpanes__splitter': {
-					backgroundColor: darkTheme.border + ' !important',
+					backgroundColor: designTokens.tokens.dark.border.light + ' !important',
 					'&::after': {
-						backgroundColor: darkTheme.border + ' !important'
+						backgroundColor: designTokens.tokens.dark.border.light + ' !important'
 					}
 				},
 				'.splitpanes--vertical>.splitpanes__splitter': {
@@ -907,22 +1125,22 @@ const config = {
 				// Windmill Tab classes
 
 				'.wm-tab-active': {
-					borderColor: darkTheme.border,
-					color: lightTheme.textPrimary
+					borderColor: designTokens.tokens.dark.border.light,
+					color: designTokens.tokens.light.text.primary
 				},
 
 				'.dark .wm-tab-active': {
-					borderColor: lightTheme.border,
-					color: darkTheme.textPrimary
+					borderColor: designTokens.tokens.light.border.light,
+					color: designTokens.tokens.dark.text.primary
 				}
 			})
 
 			addUtilities({
 				'.separator': {
-					backgroundColor: `${lightTheme.border} !important`
+					backgroundColor: `${designTokens.tokens.light.border.light} !important`
 				},
 				'.dark .separator': {
-					backgroundColor: `${darkTheme.border} !important`
+					backgroundColor: `${designTokens.tokens.dark.border.light} !important`
 				},
 				'.center-center': {
 					display: 'flex',
@@ -930,10 +1148,10 @@ const config = {
 					alignItems: 'center'
 				},
 				'.inner-border': {
-					boxShadow: `inset 0 0 0 1px ${lightTheme.border}`
+					boxShadow: `inset 0 0 0 1px ${designTokens.tokens.light.border.light}`
 				},
 				'.dark .inner-border': {
-					boxShadow: `inset 0 0 0 1px ${darkTheme.border}`
+					boxShadow: `inset 0 0 0 1px ${designTokens.tokens.dark.border.light}`
 				},
 				'.z5000': {
 					zIndex: '5000 !important'
