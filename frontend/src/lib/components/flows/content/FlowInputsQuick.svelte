@@ -168,8 +168,9 @@
 		['While loop', 'whileloop'],
 		['Branch to one', 'branchone'],
 		['Branch to all', 'branchall'],
-		['AI Agent', 'aiagent']
+		...(customUi?.aiAgent != false ? ([['AI Agent', 'aiagent']] as [string, string][]) : [])
 	]
+
 	let topLevelNodes: [string, string][] = $state([])
 	function computeToplevelNodeChoices(funcDesc: string, preFilter: 'all' | 'workspace' | 'hub') {
 		if (funcDesc.length > 0 && preFilter == 'all' && kind == 'script') {
