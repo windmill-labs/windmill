@@ -2035,7 +2035,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
                 LEFT JOIN zombie_job_counter zjc ON zjc.job_id = q.id
                 WHERE ping < now() - ($1 || ' seconds')::interval
                     AND running = true
-                    AND kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow')
+                    AND kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')
                     AND same_worker = false
                     AND (zjc.counter IS NULL OR zjc.counter <= $2)
                 FOR UPDATE of q SKIP LOCKED
@@ -2211,7 +2211,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         vec![]
     } else {
         sqlx::query_as::<_, QueuedJob>("SELECT *, null as workflow_as_code_status FROM v2_as_queue WHERE last_ping < now() - ($1 || ' seconds')::interval
-    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND same_worker = false")
+    AND running = true  AND job_kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') AND same_worker = false")
         .bind(ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
         .await

@@ -60,6 +60,8 @@ pub struct Schedule {
     pub paused_until: Option<DateTime<chrono::Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cron_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dynamic_skip: Option<String>,
 }
 
 impl Schedule {

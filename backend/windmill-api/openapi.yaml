@@ -15299,7 +15299,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
-              "singlescriptflow",
+              "singlestepflow",
               "flowscript",
               "flownode",
               "appscript",
@@ -15409,7 +15409,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
-              "singlescriptflow",
+              "singlestepflow",
               "flowscript",
               "flownode",
               "appscript",
@@ -16278,6 +16278,9 @@ components:
           format: date-time
         cron_version:
           type: string
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - path
         - edited_by
@@ -16396,6 +16399,9 @@ components:
         cron_version:
           type: string
           description: The version of the cron schedule to use (last is v2)
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - path
         - schedule
@@ -16469,6 +16475,9 @@ components:
         cron_version:
           type: string
           description: The version of the cron schedule to use (last is v2)
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - schedule
         - timezone
