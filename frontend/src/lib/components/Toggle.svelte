@@ -19,7 +19,7 @@
 	export let disabled = false
 	export let textClass = ''
 	export let textStyle = ''
-	export let color: 'blue' | 'red' | 'nord' = 'nord'
+	export let color: 'luminance' | 'red' | 'nord' = 'luminance'
 	export let id = (Math.random() + 1).toString(36).substring(10)
 	export let lightMode: boolean = false
 	export let eeOnly: boolean = false
@@ -89,11 +89,11 @@
 		/>
 		<div
 			class={classNames(
-				"transition-all bg-surface-selected rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute  after:bg-surface after:border-white after:border after:rounded-full after:transition-all items-center",
+				"transition-all bg-surface-sunken rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute  after:bg-surface after:border-white after:border after:rounded-full after:transition-all items-center",
 				color == 'red'
 					? 'peer-checked:bg-red-600'
-					: color == 'blue'
-						? 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500'
+					: color == 'luminance'
+						? 'peer-checked:bg-luminance-blue-400 '
 						: 'peer-checked:bg-nord-950 dark:peer-checked:bg-nord-900',
 				size === 'sm'
 					? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
