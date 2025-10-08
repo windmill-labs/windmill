@@ -693,7 +693,7 @@
 										dispatch('change', { argName, arg })
 									}}
 									loadAsync
-									class="bg-surface-secondary"
+									class="bg-surface-tertiary"
 								/>
 							{/if}
 							{#if argName && schema?.properties?.[argName]?.description}
@@ -763,7 +763,7 @@
 						</ArgInput>
 					{:else if arg.expr != undefined}
 						<div
-							class={`bg-surface-secondary rounded-md flex flex-col pl-4 ${inputBorderClass({ forceFocus: focused })}`}
+							class={`bg-surface-tertiary rounded-md flex flex-col pl-4 ${inputBorderClass({ forceFocus: focused })}`}
 						>
 							<SimpleEditor
 								bind:this={monaco}

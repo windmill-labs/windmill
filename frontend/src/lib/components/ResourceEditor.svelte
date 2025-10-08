@@ -323,7 +323,7 @@
 				{#if !emptyString(jsonError)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 						>{jsonError}</span
 					>{:else}<div class="py-2"></div>{/if}
-				<div class="bg-surface-secondary rounded-md border py-2.5">
+				<div class="bg-surface-tertiary rounded-md border py-2.5">
 					<SimpleEditor autoHeight lang="json" bind:code={rawCode} />
 				</div>
 			{/if}

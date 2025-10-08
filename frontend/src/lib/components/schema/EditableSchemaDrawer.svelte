@@ -223,7 +223,7 @@
 		{/snippet}
 	</Drawer>
 {:else}
-	<div class="mt-2 bg-surface-secondary rounded-md border py-2.5">
+	<div class="mt-2 bg-surface-tertiary rounded-md border py-2.5">
 		<SimpleEditor
 			bind:this={editor}
 			small

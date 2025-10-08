@@ -7,13 +7,11 @@
 		forceFocus?: boolean
 	} = {}) {
 		return twMerge(
-			'transition-colors border',
+			'transition-colors border border-border-light',
 			forceFocus
-				? '!border-nord-900 dark:!border-nord-900'
-				: '!border-nord-400 dark:!border-nord-300 hover:!border-nord-900/50 hover:dark:!border-nord-900/50 focus:!border-nord-900 dark:focus:!border-nord-900',
-			error
-				? '!border-red-300 focus:!border-red-400 hover:!border-red-500 dark:!border-red-400/40 dark:hover:!border-red-600/40'
-				: ''
+				? '!border-border-selected'
+				: '!border-nord-400 hover:!border-border-selected/50 focus:!border-border-selected',
+			error ? '!border-red-300 focus:!border-red-400 hover:!border-red-500' : ''
 		)
 	}
 
