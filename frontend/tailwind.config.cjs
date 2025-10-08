@@ -906,34 +906,23 @@ const config = {
 					{
 						display: 'block',
 						fontSize: theme('fontSize.xs'),
-						boxShadow: theme('boxShadow.sm'),
 						width: '100%',
 						padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
-						border: `1px solid ${theme('colors.gray.300')}`,
+						backgroundColor: 'rgb(var(--color-surface-tertiary))' + ' !important',
+						border: '1px solid rgb(var(--color-border-light))',
 						borderRadius: theme('borderRadius.md'),
+						'&:hover': {
+							borderColor: 'rgb(var(--color-border-normal))'
+						},
 						'&:focus': {
-							'--tw-ring-color': theme('colors.frost.100'),
-							'--tw-ring-offset-shadow':
-								'var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color)',
-							'--tw-ring-shadow':
-								'var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color)',
-							boxShadow:
-								'var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000)'
+							borderColor: 'rgb(var(--color-border-selected))',
+							outline: 'none'
 						},
 						'&:disabled,[disabled]': {
 							backgroundColor: theme('colors.gray.100') + ' !important',
 							'.dark &': {
 								backgroundColor: theme('colors.gray.700') + ' !important'
 							}
-						}
-					},
-				'.dark input:not(.windmillapp):not(.no-default-style),.dark input[type="text"]:not(.windmillapp):not(.no-default-style),.dark input[type="email"]:not(.windmillapp):not(.no-default-style),.dark input[type="url"]:not(.windmillapp):not(.no-default-style),.dark input[type="password"]:not(.windmillapp):not(.no-default-style),.dark input[type="number"]:not(.windmillapp):not(.no-default-style),.dark input[type="date"]:not(.windmillapp):not(.no-default-style),.dark input[type="datetime-local"]:not(.windmillapp):not(.no-default-style),.dark input[type="month"]:not(.windmillapp):not(.no-default-style),.dark input[type="search"]:not(.windmillapp):not(.no-default-style),.dark input[type="tel"]:not(.windmillapp):not(.no-default-style),.dark input[type="time"]:not(.windmillapp):not(.no-default-style),.dark input[type="week"]:not(.windmillapp):not(.no-default-style),.dark textarea:not(.windmillapp):not(.no-default-style):not(.monaco-mouse-cursor-text),.dark select:not(.windmillapp):not(.no-default-style)':
-					{
-						backgroundColor: theme('colors.gray.700'),
-						color: theme('colors.gray.200'),
-						borderColor: theme('colors.gray.600'),
-						'&:focus': {
-							'--tw-ring-color': theme('colors.frost.700')
 						}
 					},
 
