@@ -200,7 +200,7 @@
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
 			getSpacingClass(variant, size, spacingSize),
-			'focus-visible:ring-2 font-medium',
+			'focus-visible:ring-2 font-normal',
 			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md h-full' : 'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
 			'active:opacity-80 transition-all',

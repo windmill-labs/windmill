@@ -18,8 +18,10 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	let {
-		disableAi
+		disableAi,
+		small
 	}: {
+		small: boolean
 		disableAi?: boolean
 	} = $props()
 
@@ -60,6 +62,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<Button
 		variant="default"
+		wrapperClasses={twMerge('min-w-36', small ? 'max-w-52' : 'max-w-64')}
 		btnClasses={twMerge(
 			aiModuleActionToBgColor(action),
 			aiModuleActionToBorderColor(action),
@@ -75,9 +78,7 @@
 	>
 		<ModuleAcceptReject id="failure" {action} placement="bottom" />
 
-		<div class="flex items-center grow-0 min-w-0 gap-2">
-			<Bug size={16} />
-		</div>
+		<Bug size={16} class="shrink-0" />
 
 		<div class="truncate grow min-w-0 text-center text-xs">
 			{flowStore.val.value.failure_module?.summary ||
