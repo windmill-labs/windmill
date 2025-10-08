@@ -241,15 +241,7 @@
 			// Add any new intermediate messages not already present
 			for (const msg of filteredResponse) {
 				if (!messages.find((m) => m.id === msg.id)) {
-					// Insert in chronological order
-					const insertIndex = messages.findIndex(
-						(m) => new Date(m.created_at) > new Date(msg.created_at)
-					)
-					if (insertIndex === -1) {
-						messages = [...messages, msg]
-					} else {
-						messages = [...messages.slice(0, insertIndex), msg, ...messages.slice(insertIndex)]
-					}
+					messages = [...messages, msg]
 				}
 			}
 		} catch (error) {
@@ -455,10 +447,6 @@
 									eventSource.close()
 									currentEventSource = undefined
 									isLoading = false
-
-									// Do one final poll to ensure we have all messages
-									// await pollConversationMessages(currentConversationId)
-									// stopPolling()
 								}
 							}
 						} catch (error) {

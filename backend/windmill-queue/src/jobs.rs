@@ -33,6 +33,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
+use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
@@ -882,16 +883,18 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     };
 
                     // Insert new assistant message
-                    let _ = sqlx::query!(
-                        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, error)
-                         VALUES ($1, 'assistant', $2, $3, $4)",
+                    let mut tx = db.begin().await?;
+                    add_message_to_conversation_tx(
+                        &mut tx,
                         conversation_id,
-                        content,
-                        queued_job.id,
+                        Some(queued_job.id),
+                        &content,
+                        MessageType::Assistant,
+                        None,
                         success == false,
                     )
-                    .execute(db)
-                    .await;
+                    .await?;
+                    tx.commit().await?;
                 }
             }
         }

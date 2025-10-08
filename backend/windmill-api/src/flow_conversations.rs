@@ -251,27 +251,3 @@ async fn list_messages(
     tx.commit().await?;
     Ok(Json(messages))
 }
-
-// Helper function to create a message using an existing transaction
-pub async fn create_message(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    conversation_id: Uuid,
-    message_type: MessageType,
-    content: &str,
-    job_id: Option<Uuid>,
-    workspace_id: &str,
-    step_name: Option<&str>,
-    error: bool,
-) -> windmill_common::error::Result<()> {
-    windmill_common::flow_conversations::add_message_to_conversation_tx(
-        tx,
-        workspace_id,
-        conversation_id,
-        job_id,
-        content,
-        message_type,
-        step_name,
-        error,
-    )
-    .await
-}

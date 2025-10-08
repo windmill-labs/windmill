@@ -17,7 +17,6 @@ pub enum MessageType {
 /// Add a message to a conversation using an existing transaction
 pub async fn add_message_to_conversation_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    workspace_id: &str,
     conversation_id: Uuid,
     job_id: Option<Uuid>,
     content: &str,
@@ -25,21 +24,6 @@ pub async fn add_message_to_conversation_tx(
     step_name: Option<&str>,
     error: bool,
 ) -> Result<()> {
-    // Verify the conversation exists
-    let conversation_exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1 AND workspace_id = $2)",
-        conversation_id,
-        workspace_id
-    )
-    .fetch_one(&mut **tx)
-    .await?
-    .unwrap_or(false);
-
-    if !conversation_exists {
-        // Conversation doesn't exist yet, silently skip
-        return Ok(());
-    }
-
     // Insert the message
     sqlx::query!(
         "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id, step_name, error)

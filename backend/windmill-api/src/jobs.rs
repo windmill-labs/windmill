@@ -30,6 +30,7 @@ use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
+use windmill_common::flow_conversations::add_message_to_conversation_tx;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
@@ -3978,15 +3979,14 @@ async fn handle_chat_conversation_messages(
     .await?;
 
     // Create user message
-    flow_conversations::create_message(
+    add_message_to_conversation_tx(
         tx,
         memory_id,
-        MessageType::User,
+        None,
         &user_message,
-        None, // No job_id for user message
-        w_id,
-        None,  // No step_name for user message
-        false, // User messages are not errors
+        MessageType::User,
+        None,
+        false,
     )
     .await?;
 

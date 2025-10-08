@@ -682,7 +682,6 @@ pub async fn run_agent(
                                 if let Ok(Some(memory_id)) =
                                     get_memory_id_from_flow_status(db, parent_job).await
                                 {
-                                    let workspace_id = job.workspace_id.clone();
                                     let agent_job_id = job.id;
                                     let db_clone = db.clone();
                                     let message_content = response_content.clone();
@@ -697,7 +696,6 @@ pub async fn run_agent(
                                             Ok(mut tx) => {
                                                 if let Err(e) = add_message_to_conversation_tx(
                                                     &mut tx,
-                                                    &workspace_id,
                                                     memory_id,
                                                     Some(agent_job_id),
                                                     &message_content,
@@ -1068,7 +1066,6 @@ pub async fn run_agent(
                                                 get_memory_id_from_flow_status(db, parent_job).await
                                             {
                                                 let error_text = error_message;
-                                                let workspace_id = job.workspace_id.clone();
                                                 let tool_job_id = job_id;
                                                 let db_clone = db.clone();
                                                 let tool_name = tool_call.function.name.clone();
@@ -1084,7 +1081,6 @@ pub async fn run_agent(
                                                             if let Err(e) =
                                                                 add_message_to_conversation_tx(
                                                                     &mut tx,
-                                                                    &workspace_id,
                                                                     memory_id,
                                                                     Some(tool_job_id),
                                                                     &format!(
@@ -1193,7 +1189,6 @@ pub async fn run_agent(
                                             if let Ok(Some(memory_id)) =
                                                 get_memory_id_from_flow_status(db, parent_job).await
                                             {
-                                                let workspace_id = job.workspace_id.clone();
                                                 let tool_job_id = job_id;
                                                 let db_clone = db.clone();
                                                 let tool_name = tool_call.function.name.clone();
@@ -1214,7 +1209,6 @@ pub async fn run_agent(
                                                             if let Err(e) =
                                                                 add_message_to_conversation_tx(
                                                                     &mut tx,
-                                                                    &workspace_id,
                                                                     memory_id,
                                                                     Some(tool_job_id),
                                                                     &content,
