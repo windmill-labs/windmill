@@ -100,19 +100,31 @@ pub async fn get_flow_job_runnable_and_raw_flow(
     Ok(job)
 }
 
-/// Get memory_id from root flow's flow_status
-/// For nested AI agents (e.g., inside branches), memory_id is stored in the root flow,
-/// so we need to query using the root_job instead of parent_job
-async fn get_memory_id_from_flow_status(db: &DB, job: &MiniPulledJob) -> Option<Uuid> {
+#[derive(Debug, Clone, Default)]
+struct FlowChatSettings {
+    memory_id: Option<Uuid>,
+    chat_input_enabled: bool,
+}
+
+/// Get chat settings (memory_id and chat_input_enabled) from root flow's flow_status
+/// For nested AI agents (e.g., inside branches), both values are stored in the root flow,
+/// so we query using root_job instead of parent_job. Fetches both in a single query.
+async fn get_flow_chat_settings(db: &DB, job: &MiniPulledJob) -> FlowChatSettings {
     // Get the actual root job ID using the same logic as get_root_job_id
     // Fallback: root_job -> flow_innermost_root_job -> parent_job
     let root_job_id = job
         .root_job
         .or(job.flow_innermost_root_job)
-        .or(job.parent_job)?;
+        .or(job.parent_job);
 
-    match sqlx::query_scalar!(
-        "SELECT (flow_status->>'memory_id')::uuid as memory_id
+    let Some(root_job_id) = root_job_id else {
+        return FlowChatSettings::default();
+    };
+
+    match sqlx::query!(
+        "SELECT
+            (flow_status->>'memory_id')::uuid as memory_id,
+            (flow_status->>'chat_input_enabled')::boolean as chat_input_enabled
          FROM v2_job_status
          WHERE id = $1",
         root_job_id
@@ -120,11 +132,14 @@ async fn get_memory_id_from_flow_status(db: &DB, job: &MiniPulledJob) -> Option<
     .fetch_optional(db)
     .await
     {
-        Ok(Some(memory_id)) => memory_id,
-        Ok(None) => None,
+        Ok(Some(row)) => FlowChatSettings {
+            memory_id: row.memory_id,
+            chat_input_enabled: row.chat_input_enabled.unwrap_or(false),
+        },
+        Ok(None) => FlowChatSettings::default(),
         Err(e) => {
-            tracing::warn!("Failed to get memory id from flow status for job {}: {}", job.id, e);
-            None
+            tracing::warn!("Failed to get chat settings from flow status for job {}: {}", job.id, e);
+            FlowChatSettings::default()
         }
     }
 }
@@ -514,14 +529,16 @@ pub async fn run_agent(
             vec![]
         };
 
-    let mut memory_id: Option<Uuid> = None;
+    // Lazy-loaded chat settings (fetched from root flow's flow_status only when needed)
+    let mut chat_settings: Option<FlowChatSettings> = None;
+
     // Load previous messages from memory for text output mode (only if context length is set)
     if matches!(output_type, OutputType::Text) {
         if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
             if let Some(step_id) = job.flow_step_id.as_deref() {
-                // Get memory_id from root flow's flow_status
-                memory_id = get_memory_id_from_flow_status(db, job).await;
-                if let Some(memory_id) = memory_id {
+                // Fetch chat settings from root flow (memory_id + chat_input_enabled)
+                chat_settings = Some(get_flow_chat_settings(db, job).await);
+                if let Some(memory_id) = chat_settings.as_ref().and_then(|s| s.memory_id) {
                     // Read messages from memory
                     match read_from_memory(&job.workspace_id, memory_id, step_id).await {
                         Ok(Some(loaded_messages)) => {
@@ -718,15 +735,14 @@ pub async fn run_agent(
                             content = Some(OpenAIContent::Text(response_content.clone()));
 
                             // Add assistant message to conversation if chat_input_enabled
-                            if flow_value.chat_input_enabled.unwrap_or(false)
-                                && !response_content.is_empty()
-                            {
-                                if memory_id.is_none() {
-                                    memory_id =
-                                        get_memory_id_from_flow_status(db, job).await;
-                                }
+                            // Lazy-load chat settings if not already fetched
+                            if chat_settings.is_none() {
+                                chat_settings = Some(get_flow_chat_settings(db, job).await);
+                            }
+                            let chat_enabled = chat_settings.as_ref().map(|s| s.chat_input_enabled).unwrap_or(false);
 
-                                if let Some(mid) = memory_id {
+                            if chat_enabled && !response_content.is_empty() {
+                                if let Some(mid) = chat_settings.as_ref().and_then(|s| s.memory_id) {
                                     let agent_job_id = job.id;
                                     let db_clone = db.clone();
                                     let message_content = response_content.clone();
@@ -1085,14 +1101,13 @@ pub async fn run_agent(
                                         .await?;
 
                                         // Add tool message to conversation if chat_input_enabled (error case)
-                                        if flow_value.chat_input_enabled.unwrap_or(false) {
-                                            if memory_id.is_none() {
-                                                memory_id =
-                                                    get_memory_id_from_flow_status(db, job)
-                                                        .await;
-                                            }
+                                        if chat_settings.is_none() {
+                                            chat_settings = Some(get_flow_chat_settings(db, job).await);
+                                        }
+                                        let chat_enabled = chat_settings.as_ref().map(|s| s.chat_input_enabled).unwrap_or(false);
 
-                                            if let Some(mid) = memory_id {
+                                        if chat_enabled {
+                                            if let Some(mid) = chat_settings.as_ref().and_then(|s| s.memory_id) {
                                                 let tool_job_id = job_id;
                                                 let db_clone = db.clone();
                                                 let step_name = get_step_name_from_flow(
@@ -1186,14 +1201,13 @@ pub async fn run_agent(
                                         .await?;
 
                                         // Add tool message to conversation if chat_input_enabled
-                                        if flow_value.chat_input_enabled.unwrap_or(false) {
-                                            if memory_id.is_none() {
-                                                memory_id =
-                                                    get_memory_id_from_flow_status(db, job)
-                                                        .await;
-                                            }
+                                        if chat_settings.is_none() {
+                                            chat_settings = Some(get_flow_chat_settings(db, job).await);
+                                        }
+                                        let chat_enabled = chat_settings.as_ref().map(|s| s.chat_input_enabled).unwrap_or(false);
 
-                                            if let Some(mid) = memory_id {
+                                        if chat_enabled {
+                                            if let Some(mid) = chat_settings.as_ref().and_then(|s| s.memory_id) {
                                                 let tool_job_id = job_id;
                                                 let db_clone = db.clone();
                                                 let tool_name = tool_call.function.name.clone();
@@ -1305,7 +1319,7 @@ pub async fn run_agent(
                     let start_idx = all_messages.len().saturating_sub(context_length);
                     let messages_to_persist = all_messages[start_idx..].to_vec();
 
-                    if let Some(memory_id) = memory_id {
+                    if let Some(memory_id) = chat_settings.as_ref().and_then(|s| s.memory_id) {
                         if let Err(e) = write_to_memory(
                             &job.workspace_id,
                             memory_id,
