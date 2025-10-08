@@ -23,7 +23,7 @@ import initPythonParser, { parse_assets_py, parse_python } from 'windmill-parser
 import initGoParser, { parse_go } from 'windmill-parser-wasm-go'
 import initPhpParser, { parse_php } from 'windmill-parser-wasm-php'
 import initRustParser, { parse_rust } from 'windmill-parser-wasm-rust'
-import initYamlParser, { parse_assets_ansible, parse_ansible } from 'windmill-parser-wasm-yaml'
+import initYamlParser, { parse_assets_ansible, parse_ansible, parse_ansible_delegate } from 'windmill-parser-wasm-yaml'
 import initCSharpParser, { parse_csharp } from 'windmill-parser-wasm-csharp'
 import initNuParser, { parse_nu } from 'windmill-parser-wasm-nu'
 import initJavaParser, { parse_java } from 'windmill-parser-wasm-java'
@@ -112,6 +112,16 @@ export async function inferAssets(
 		return []
 	}
 	return []
+}
+
+export async function inferAnsibleExecutionMode(code: string) {
+	try {
+		await initWasmYaml()
+		return JSON.parse(parse_ansible_delegate(code))
+	} catch (e) {
+		console.error('error parsing git repo for ansible', e)
+		return undefined
+	}
 }
 
 const SQL_LANGUAGES = [

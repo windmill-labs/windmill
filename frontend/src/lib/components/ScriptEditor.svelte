@@ -6,7 +6,7 @@
 	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
-	import { inferArgs, inferAssets } from '$lib/infer'
+	import { inferArgs, inferAssets, inferAnsibleExecutionMode } from '$lib/infer'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
@@ -51,7 +51,6 @@
 	import { editor as meditor } from 'monaco-editor'
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
 	import S3FilePicker from './S3FilePicker.svelte'
-	import S3FilePickerInner from './S3FilePickerInner.svelte'
 	import GitRepoViewer from './GitRepoViewer.svelte'
 
 	interface Props {
@@ -157,6 +156,19 @@
 				}
 				assets = newAssets
 			})
+
+			if (lang === 'ansible') {
+				inferAnsibleExecutionMode(code).then((v) => {
+					if (
+						v !== undefined &&
+						(v === null ||
+							v.resource !== ansibleAlternativeExecutionMode?.resource ||
+							v.commit !== ansibleAlternativeExecutionMode?.commit)
+					) {
+						ansibleAlternativeExecutionMode = v
+					}
+				})
+			}
 		})
 	})
 
@@ -178,6 +190,8 @@
 	let yContent: Y.Text | undefined = $state(undefined)
 	let peers: { name: string }[] = $state([])
 	let showCollabPopup = $state(false)
+
+	let ansibleAlternativeExecutionMode = $state()
 
 	const url = new URL(window.location.toString())
 	let initialCollab = /true|1/i.test(url.searchParams.get('collab') ?? '0')
@@ -244,12 +258,14 @@
 		let nschema = schema ?? emptySchema()
 
 		try {
+			console.log("inferring args")
 			const result = await inferArgs(
 				nlang ?? lang,
 				code,
 				nschema,
 				selectedTab === 'preprocessor' || kind === 'preprocessor' ? 'preprocessor' : undefined
 			)
+			console.log("result is" , result)
 
 			if (kind === 'preprocessor') {
 				hasPreprocessor = false
@@ -273,6 +289,8 @@
 			validCode = false
 		}
 	}
+
+	let gitRepoViewer: GitRepoViewer | undefined = $state()
 
 	onMount(() => {
 		inferSchema(code)
@@ -542,7 +560,7 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
-			{#if lang === 'ansible' && assets?.length && assets.length > 0}
+			{#if lang === 'ansible' && ansibleAlternativeExecutionMode != null}
 				<!-- Vertical split for ansible with assets -->
 				<Splitpanes horizontal class="!overflow-visible h-full">
 					<Pane size={60} minSize={30} class="!overflow-visible">
@@ -554,7 +572,9 @@
 								<h4 class="text-sm font-semibold text-primary">File Browser</h4>
 							</div>
 								<GitRepoViewer
-									gitRepoResourcePath={assets[0].path}
+									bind:this={gitRepoViewer}
+									gitRepoResourcePath={ansibleAlternativeExecutionMode.resource}
+									commitHashInput={ansibleAlternativeExecutionMode.commit}
 								/>
 						</div>
 					</Pane>

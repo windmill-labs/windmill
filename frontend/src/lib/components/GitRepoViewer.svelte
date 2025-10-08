@@ -18,10 +18,22 @@
 
 	interface Props {
 		gitRepoResourcePath: string
-		commitHash?: string
+		commitHashInput?: string
 	}
 
-	let { gitRepoResourcePath, commitHash }: Props = $props()
+	let { gitRepoResourcePath, commitHashInput }: Props = $props()
+
+	let commitHash = $derived(commitHashInput);
+
+	export async function enhanceInferredArgs(nschema: any) {
+		const invs = nschema?.properties["Additional inventories"]
+		if (invs) {
+
+		}
+
+		return nschema
+
+	}
 
 	async function populateS3WithGitRepo() {
 		const workspace = $workspaceStore
@@ -72,8 +84,9 @@
 		}
 	}
 
-	onMount(async () => {
+	async function fetchGitRepoData() {
 		try {
+			error = null
 			// Step 1: Fetch commit hash if not provided
 			if (!commitHash) {
 				isLoadingCommitHash = true
@@ -107,6 +120,14 @@
 			isLoadingCommitHash = false
 			isCheckingPathExists = false
 		}
+	}
+
+	$effect(() => {
+		;[commitHashInput, gitRepoResourcePath]
+		untrack(() => {
+			fetchGitRepoData()
+		})
+
 	})
 
 	$effect(() => {
