@@ -84,7 +84,7 @@ pub enum JobKind {
     Dependencies,
     Flow,
     FlowPreview,
-    SingleScriptFlow,
+    SingleStepFlow,
     Identity,
     FlowDependencies,
     AppDependencies,
@@ -100,7 +100,7 @@ impl JobKind {
     pub fn is_flow(&self) -> bool {
         matches!(
             self,
-            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleStepFlow | JobKind::FlowNode
         )
     }
 
@@ -400,13 +400,15 @@ pub enum JobPayload {
         path: Option<String>,
         restarted_from: Option<RestartedFrom>,
     },
-    SingleScriptFlow {
+    SingleStepFlow {
         path: String,
-        hash: ScriptHash,
+        hash: Option<ScriptHash>,
+        flow_version: Option<i64>,
         args: HashMap<String, Box<serde_json::value::RawValue>>,
         retry: Option<Retry>,
         error_handler_path: Option<String>,
         error_handler_args: Option<HashMap<String, Box<RawValue>>>,
+        skip_handler: Option<SkipHandler>,
         custom_concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
@@ -424,6 +426,14 @@ pub enum JobPayload {
     AIAgent {
         path: String,
     },
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct SkipHandler {
+    pub path: String,
+    pub args: HashMap<String, Box<RawValue>>,
+    pub stop_condition: String,
+    pub stop_message: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]

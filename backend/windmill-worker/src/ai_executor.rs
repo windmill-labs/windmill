@@ -201,6 +201,7 @@ pub async fn handle_ai_agent_job(
                     tag_override,
                     input_transforms,
                     is_trigger,
+                    pass_flow_input_directly,
                 }) => match hash {
                     Some(hash) => {
                         let (_, metadata) = cache::script::fetch(conn, hash.clone()).await?;
@@ -232,6 +233,7 @@ pub async fn handle_ai_agent_job(
                                 tag_override: tag_override.clone(),
                                 input_transforms: input_transforms.clone(),
                                 is_trigger: *is_trigger,
+                                pass_flow_input_directly: *pass_flow_input_directly,
                             });
                             let (_, metadata) = cache::script::fetch(conn, hash).await?;
                             Ok(metadata

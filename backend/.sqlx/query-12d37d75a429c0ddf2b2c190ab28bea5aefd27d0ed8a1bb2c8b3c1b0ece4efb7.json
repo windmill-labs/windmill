@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH to_update AS (\n                SELECT q.id, q.workspace_id, r.ping, COALESCE(zjc.counter, 0) as counter\n                FROM v2_job_queue q\n                JOIN v2_job j ON j.id = q.id\n                JOIN v2_job_runtime r ON r.id = j.id\n                LEFT JOIN zombie_job_counter zjc ON zjc.job_id = q.id\n                WHERE ping < now() - ($1 || ' seconds')::interval\n                    AND running = true\n                    AND kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')\n                    AND same_worker = false\n                    AND (zjc.counter IS NULL OR zjc.counter <= $2)\n                FOR UPDATE of q SKIP LOCKED\n            ),\n            zombie_jobs AS (\n                UPDATE v2_job_queue q\n                SET running = false, started_at = null\n                FROM to_update tu\n                WHERE q.id = tu.id AND (tu.counter IS NULL OR tu.counter < $2)\n                RETURNING q.id, q.workspace_id, ping, tu.counter\n            ),\n            update_ping AS (\n                UPDATE v2_job_runtime r\n                SET ping = null\n                FROM zombie_jobs zj\n                WHERE r.id = zj.id\n            ),\n            increment_counter AS (\n                INSERT INTO zombie_job_counter (job_id, counter)\n                SELECT id, 1 FROM to_update WHERE counter < $2\n                ON CONFLICT (job_id) DO UPDATE\n                SET counter = zombie_job_counter.counter + 1\n            ),\n            update_concurrency AS (\n                UPDATE concurrency_counter cc\n                SET job_uuids = job_uuids - zj.id::text\n                FROM zombie_jobs zj\n                INNER JOIN concurrency_key ck ON ck.job_id = zj.id\n                WHERE cc.concurrency_id = ck.key\n            )\n            SELECT id AS \"id!\", workspace_id AS \"workspace_id!\", ping, counter + 1 AS counter FROM to_update",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "ping",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "counter",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "12d37d75a429c0ddf2b2c190ab28bea5aefd27d0ed8a1bb2c8b3c1b0ece4efb7"
+}

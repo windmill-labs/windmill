@@ -169,7 +169,8 @@ export async function saveScheduleFromCfg(
 		no_flow_overlap: scheduleCfg.no_flow_overlap,
 		tag: scheduleCfg.tag,
 		paused_until: scheduleCfg.paused_until,
-		cron_version: scheduleCfg.cron_version
+		cron_version: scheduleCfg.cron_version,
+		dynamic_skip: scheduleCfg.dynamic_skip
 	}
 	try {
 		if (edit) {
