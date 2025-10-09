@@ -30,6 +30,7 @@ use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
+use windmill_common::flow_conversations::add_message_to_conversation_tx;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
@@ -102,7 +103,8 @@ use windmill_queue::{
     PushArgsOwned, PushIsolationLevel,
 };
 
-use crate::flow_conversations::{self, MessageType};
+use crate::flow_conversations;
+use windmill_common::flow_conversations::MessageType;
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -3943,7 +3945,6 @@ async fn handle_chat_conversation_messages(
     flow_path: &str,
     run_query: &RunJobQuery,
     user_message_raw: Option<&Box<serde_json::value::RawValue>>,
-    uuid: Uuid,
 ) -> error::Result<()> {
     let memory_id = run_query.memory_id.ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
@@ -3958,10 +3959,12 @@ async fn handle_chat_conversation_messages(
     })?;
 
     // Deserialize the RawValue to get the actual string without quotes
-    let user_message: String = serde_json::from_str(user_message_raw.get())
-        .map_err(|e| windmill_common::error::Error::BadRequest(
-            format!("Failed to deserialize user_message: {}", e)
-        ))?;
+    let user_message: String = serde_json::from_str(user_message_raw.get()).map_err(|e| {
+        windmill_common::error::Error::BadRequest(format!(
+            "Failed to deserialize user_message: {}",
+            e
+        ))
+    })?;
 
     // Create conversation with provided ID (or get existing one)
     flow_conversations::get_or_create_conversation_with_id(
@@ -3975,24 +3978,14 @@ async fn handle_chat_conversation_messages(
     .await?;
 
     // Create user message
-    flow_conversations::create_message(
+    add_message_to_conversation_tx(
         tx,
         memory_id,
-        MessageType::User,
+        None,
         &user_message,
-        None, // No job_id for user message
-        w_id,
-    )
-    .await?;
-
-    // Create placeholder assistant message in the same transaction as the job
-    flow_conversations::create_message(
-        tx,
-        memory_id,
-        MessageType::Assistant,
-        "",         // Empty content, will be updated when job completes
-        Some(uuid), // Associate with the job
-        w_id,
+        MessageType::User,
+        None,
+        true,
     )
     .await?;
 
@@ -4125,7 +4118,6 @@ pub async fn run_flow_by_path_inner(
             &flow_path.to_string(),
             &run_query,
             args.args.get("user_message"),
-            uuid,
         )
         .await?;
     }
@@ -5624,7 +5616,6 @@ pub async fn run_wait_result_flow_by_path_internal(
             &flow_path.to_string(),
             &run_query,
             args.args.get("user_message"),
-            uuid,
         )
         .await?;
     }
