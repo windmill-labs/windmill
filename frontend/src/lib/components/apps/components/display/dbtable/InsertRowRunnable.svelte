@@ -5,9 +5,10 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { type ColumnDef, type DbType } from './utils'
+	import { type ColumnDef } from './utils'
 	import { sendUserToast } from '$lib/toast'
 	import { getInsertInput } from './queries/insert'
+	import type { DbInput } from '$lib/components/dbOps'
 
 	interface Props {
 		id: string
@@ -30,18 +31,22 @@
 	const dispatch = createEventDispatcher()
 
 	export async function insertRow(
-		resource: string,
+		dbInput: DbInput,
 		workspace: string | undefined,
 		table: string | undefined,
 		columns: ColumnDef[],
-		values: Record<string, any>,
-		resourceType: string
+		values: Record<string, any>
 	): Promise<boolean> {
-		if (!resource || !table || !workspace) {
+		if (
+			(dbInput.type == 'ducklake' && !dbInput.ducklake) ||
+			(dbInput.type == 'database' && !dbInput.resourcePath) ||
+			!table ||
+			!workspace
+		) {
 			return false
 		}
 
-		input = getInsertInput(table, columns, resource, resourceType as DbType)
+		input = getInsertInput(dbInput, table, columns)
 
 		await tick()
 
