@@ -347,7 +347,7 @@ pub enum JobPayload {
     FlowScript {
         id: FlowNodeId, // flow_node(id).
         language: ScriptLang,
-        /// Overide default concurrency key
+        /// Override default concurrency key
         custom_concurrency_key: Option<String>,
         /// How many jobs can ran at the same time
         concurrent_limit: Option<i32>,
