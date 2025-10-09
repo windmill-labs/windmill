@@ -91,6 +91,7 @@ pub struct ToolDef {
 pub struct Tool {
     pub module: FlowModule,
     pub def: ToolDef,
+    pub mcp_source: Option<crate::mcp_client::McpToolSource>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]

@@ -19,6 +19,7 @@ mod ruby_executor;
 mod ai;
 mod ai_executor;
 mod bun_executor;
+mod mcp_client;
 pub mod common;
 mod config;
 mod csharp_executor;

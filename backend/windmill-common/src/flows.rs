@@ -726,6 +726,8 @@ pub enum FlowModuleValue {
     AIAgent {
         input_transforms: HashMap<String, InputTransform>,
         tools: Vec<FlowModule>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        mcp_tools: Option<Vec<serde_json::Value>>,
     },
 }
 
@@ -764,6 +766,7 @@ struct UntaggedFlowModuleValue {
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Vec<FlowModule>>,
     pass_flow_input_directly: Option<bool>,
+    mcp_tools: Option<Vec<serde_json::Value>>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -863,6 +866,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 tools: untagged
                     .tools
                     .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
+                mcp_tools: untagged.mcp_tools,
             }),
             other => Err(serde::de::Error::unknown_variant(
                 other,

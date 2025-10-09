@@ -169,6 +169,179 @@ async fn add_message_to_conversation(
     Ok(())
 }
 
+// Cache for MCP clients to avoid reconnecting on every invocation
+lazy_static::lazy_static! {
+    static ref MCP_CLIENT_CACHE: std::sync::Arc<tokio::sync::RwLock<HashMap<String, Arc<crate::mcp_client::McpClient>>>> =
+        std::sync::Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+}
+
+/// Load tools from MCP servers
+async fn load_mcp_tools(
+    db: &DB,
+    workspace_id: &str,
+    mcp_tool_configs: Vec<serde_json::Value>,
+) -> Result<Vec<Tool>, Error> {
+    use crate::mcp_client::{mcp_tool_to_tooldef, McpClient, McpResource, McpToolConfig};
+
+    let mut all_mcp_tools = Vec::new();
+
+    for config_value in mcp_tool_configs {
+        let config: McpToolConfig =
+            serde_json::from_value(config_value).context("Failed to parse MCP tool config")?;
+
+        tracing::debug!(
+            "Loading MCP tools from resource: {}",
+            config.mcp_resource_path
+        );
+
+        // Check cache first
+        let cache_key = format!("{}:{}", workspace_id, config.mcp_resource_path);
+        let mut cache = MCP_CLIENT_CACHE.write().await;
+
+        let mcp_client = if let Some(cached_client) = cache.get(&cache_key) {
+            tracing::debug!("Using cached MCP client for {}", config.mcp_resource_path);
+            cached_client.clone()
+        } else {
+            // Fetch the resource from database
+            let resource_value = sqlx::query_scalar!(
+                "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2",
+                workspace_id,
+                config.mcp_resource_path
+            )
+            .fetch_optional(db)
+            .await?;
+
+            let Some(resource_value) = resource_value else {
+                return Err(Error::NotFound(format!(
+                    "MCP resource not found: {}",
+                    config.mcp_resource_path
+                )));
+            };
+
+            let Some(val) = resource_value else {
+                return Err(Error::NotFound(format!(
+                    "MCP resource not found: {}",
+                    config.mcp_resource_path
+                )));
+            };
+
+            let mcp_resource: McpResource =
+                serde_json::from_value(val).context("Failed to parse MCP resource")?;
+
+            // Create new MCP client
+            let client = McpClient::from_resource(mcp_resource, config.mcp_resource_path.clone())
+                .await
+                .context("Failed to create MCP client")?;
+
+            let client = Arc::new(client);
+            cache.insert(cache_key.clone(), client.clone());
+            client
+        };
+
+        drop(cache); // Release the lock
+
+        // Get available tools
+        let available_tools = mcp_client.available_tools();
+
+        // Filter tools if selected_tools is specified
+        let tools_to_add: Vec<_> = if let Some(selected) = &config.selected_tools {
+            available_tools
+                .iter()
+                .filter(|t| selected.contains(&t.name.to_string()))
+                .collect()
+        } else {
+            available_tools.iter().collect()
+        };
+
+        // Convert MCP tools to Windmill tools
+        for mcp_tool in tools_to_add.clone() {
+            let tooldef = mcp_tool_to_tooldef(mcp_tool, &config.mcp_resource_path)?;
+
+            // Create a dummy FlowModule for MCP tools
+            // These won't be executed as regular flow modules
+            let dummy_module = windmill_common::flows::FlowModule {
+                id: format!("mcp_{}", mcp_tool.name),
+                value: to_raw_value(&serde_json::json!({
+                    "type": "identity"
+                })),
+                stop_after_if: None,
+                stop_after_all_iters_if: None,
+                summary: Some(tooldef.function.name.clone()),
+                suspend: None,
+                mock: None,
+                retry: None,
+                sleep: None,
+                cache_ttl: None,
+                timeout: None,
+                priority: None,
+                delete_after_use: None,
+                apply_preprocessor: None,
+                continue_on_error: None,
+                skip_if: None,
+                pass_flow_input_directly: None,
+            };
+
+            all_mcp_tools.push(Tool {
+                def: tooldef,
+                module: dummy_module,
+                mcp_source: Some(mcp_client.create_tool_source(&mcp_tool.name)),
+            });
+        }
+
+        tracing::info!(
+            "Loaded {} MCP tools from {}",
+            tools_to_add.len(),
+            config.mcp_resource_path
+        );
+    }
+
+    Ok(all_mcp_tools)
+}
+
+/// Execute an MCP tool by routing the call to the appropriate MCP client
+async fn execute_mcp_tool(
+    db: &DB,
+    workspace_id: &str,
+    mcp_source: &crate::mcp_client::McpToolSource,
+    arguments_str: &str,
+) -> Result<serde_json::Value, Error> {
+    use crate::mcp_client::openai_args_to_mcp_args;
+
+    tracing::debug!(
+        "Executing MCP tool {} from resource {}",
+        mcp_source.original_tool_name,
+        mcp_source.resource_path
+    );
+
+    // Get the cached MCP client
+    let cache_key = format!("{}:{}", workspace_id, mcp_source.resource_path);
+    let cache = MCP_CLIENT_CACHE.read().await;
+
+    let mcp_client = cache
+        .get(&cache_key)
+        .ok_or_else(|| {
+            Error::internal_err(format!(
+                "MCP client not found in cache for resource: {}",
+                mcp_source.resource_path
+            ))
+        })?
+        .clone();
+
+    drop(cache); // Release the lock
+
+    // Convert OpenAI-style arguments to MCP format
+    let mcp_args =
+        openai_args_to_mcp_args(arguments_str).context("Failed to parse tool arguments")?;
+
+    // Call the MCP tool
+    let result = mcp_client
+        .call_tool(&mcp_source.original_tool_name, mcp_args)
+        .await
+        .context("MCP tool call failed")?;
+
+    Ok(result)
+}
+
 pub async fn handle_ai_agent_job(
     // connection
     conn: &Connection,
@@ -232,7 +405,7 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    let FlowModuleValue::AIAgent { tools, .. } = module.get_value()? else {
+    let FlowModuleValue::AIAgent { tools, mcp_tools, .. } = module.get_value()? else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
         ));
@@ -334,10 +507,18 @@ pub async fn handle_ai_agent_job(
                     },
                 },
                 module: t,
+                mcp_source: None,
             })
         }
     }))
     .await?;
+
+    // Load MCP tools if configured
+    let mut tools = tools;
+    if let Some(mcp_tool_configs) = mcp_tools {
+        let mcp_tools = load_mcp_tools(db, &job.workspace_id, mcp_tool_configs).await?;
+        tools.extend(mcp_tools);
+    }
 
     let mut inner_occupancy_metrics = occupancy_metrics.clone();
 
@@ -835,6 +1016,80 @@ pub async fn run_agent(
                                 .iter()
                                 .find(|t| t.def.function.name == tool_call.function.name);
                             if let Some(tool) = tool {
+                                // Check if this is an MCP tool
+                                if let Some(mcp_source) = &tool.mcp_source {
+                                    // Execute MCP tool
+                                    let tool_result = execute_mcp_tool(
+                                        db,
+                                        &job.workspace_id,
+                                        mcp_source,
+                                        &tool_call.function.arguments,
+                                    )
+                                    .await;
+
+                                    match tool_result {
+                                        Ok(result) => {
+                                            let result_str = serde_json::to_string_pretty(&result)
+                                                .unwrap_or_else(|_| result.to_string());
+
+                                            messages.push(OpenAIMessage {
+                                                role: "tool".to_string(),
+                                                content: Some(OpenAIContent::Text(
+                                                    result_str.clone(),
+                                                )),
+                                                tool_call_id: Some(tool_call.id.clone()),
+                                                agent_action: None, // MCP tools don't have job IDs
+                                                ..Default::default()
+                                            });
+
+                                            // Stream tool result
+                                            if let Some(ref stream_event_processor) =
+                                                stream_event_processor
+                                            {
+                                                let event = StreamingEvent::ToolResult {
+                                                    call_id: tool_call.id.clone(),
+                                                    function_name: tool_call.function.name.clone(),
+                                                    result: result.to_string(),
+                                                    success: true,
+                                                };
+                                                stream_event_processor
+                                                    .send(event, &mut final_events_str)
+                                                    .await?;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            let error_msg = format!("MCP tool error: {}", e);
+                                            tracing::error!("{}", error_msg);
+
+                                            messages.push(OpenAIMessage {
+                                                role: "tool".to_string(),
+                                                content: Some(OpenAIContent::Text(
+                                                    error_msg.clone(),
+                                                )),
+                                                tool_call_id: Some(tool_call.id.clone()),
+                                                agent_action: None, // MCP tools don't have job IDs
+                                                ..Default::default()
+                                            });
+
+                                            // Stream tool error
+                                            if let Some(ref stream_event_processor) =
+                                                stream_event_processor
+                                            {
+                                                let event = StreamingEvent::ToolResult {
+                                                    call_id: tool_call.id.clone(),
+                                                    function_name: tool_call.function.name.clone(),
+                                                    result: error_msg,
+                                                    success: false,
+                                                };
+                                                stream_event_processor
+                                                    .send(event, &mut final_events_str)
+                                                    .await?;
+                                            }
+                                        }
+                                    }
+
+                                    continue; // Skip regular tool execution
+                                }
                                 let job_id = ulid::Ulid::new().into();
                                 actions.push(AgentAction::ToolCall {
                                     job_id,
