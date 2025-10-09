@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT hash FROM script WHERE path = 'f/dre_script/script' AND archived = true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "77f33de1d95e38a44968ea7f026476226c66fe42c9f992bd4c6c232a68ade2bd"
+}
