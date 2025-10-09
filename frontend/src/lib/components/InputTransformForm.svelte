@@ -311,6 +311,7 @@
 		}
 	}
 
+	// This only works if every fields are static, as we can't eval javascript
 	function handleFieldVisibility(
 		schema: Schema | any,
 		arg: InputTransform | any,
@@ -326,15 +327,20 @@
 				[argName]: currentValue
 			}
 
+			let hasJavascript = false
+
 			// Extract values from InputTransform objects in otherArgs
 			Object.keys(otherArgs ?? {}).forEach((key) => {
+				if (otherArgs[key].type === 'javascript') {
+					hasJavascript = true
+				}
 				const otherArg = otherArgs[key]
 				const otherArgValue = otherArg.type === 'static' ? otherArg.value : otherArg.expr
 				contextArgs[key] = otherArgValue
 			})
 
 			const shouldShow = computeShow(argName, schemaProperty.showExpr, contextArgs)
-			if (shouldShow) {
+			if (shouldShow || hasJavascript) {
 				hidden = false
 			} else if (!hidden) {
 				hidden = true
@@ -443,7 +449,7 @@
 	)
 </script>
 
-{#if arg != undefined}
+{#if arg != undefined && !hidden}
 	<div class={twMerge('pt-2 pb-2 relative group', className)}>
 		<div class="flex flex-row justify-between gap-1 pb-1">
 			<div class="flex flex-wrap grow min-h-7 items-end">
