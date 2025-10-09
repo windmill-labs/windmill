@@ -252,7 +252,7 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 			}
 
 			// Look for options: field (should be directly under additional_inventories)
-			if (trimmedLine.startsWith('options:') && currentIndentation > sectionIndentation) {
+			if (trimmedLine.startsWith('- options:') && currentIndentation > sectionIndentation) {
 				optionsIndex = i
 
 				// Check if it's inline format: options: [...]
@@ -294,7 +294,7 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 		// Format the new options content
 		const optionsIndentation = '  ' // Standard 2-space indentation under additional_inventories
 		const formattedPaths = inventoryPaths.map(path => `"${path}"`)
-		const inlineFormat = `${optionsIndentation}options: [${formattedPaths.join(', ')}]`
+		const inlineFormat = `${optionsIndentation}- options: [${formattedPaths.join(', ')}]`
 
 		let newOptionsContent: string[]
 		if (inlineFormat.length <= 100) {
@@ -302,7 +302,7 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 			newOptionsContent = [inlineFormat]
 		} else {
 			// Use dash format
-			newOptionsContent = [`${optionsIndentation}options:`]
+			newOptionsContent = [`${optionsIndentation}- options:`]
 			inventoryPaths.forEach(path => {
 				newOptionsContent.push(`${optionsIndentation}  - "${path}"`)
 			})
@@ -334,7 +334,7 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 		// Use dash format with each item on new line
 		inventorySection = [
 			'additional_inventories:',
-			'  options:'
+			'  - options:'
 		]
 		inventoryPaths.forEach(path => {
 			inventorySection.push(`    - "${path}"`)
@@ -383,50 +383,3 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 	return lines.join('\n')
 }
 
-/**
- * Dummy endpoint function for getting inventory files from git repository
- * TODO: Replace with actual API call when endpoint is implemented
- * @param resourcePath - The git repository resource path
- * @param inventoriesPath - The path to inventories directory in the repo
- * @returns Promise with array of inventory file paths
- */
-export async function getInventoryFiles(resourcePath: string, inventoriesPath: string): Promise<string[]> {
-	// Simulate API call delay
-	await new Promise(resolve => setTimeout(resolve, 500))
-
-	let files = await HelpersSerivce.listGitRepoFiles({
-		workspace: $workspaceStore!,
-
-	})
-
-	// Return dummy data for testing
-	return [
-		'production.yml',
-		'staging.yml',
-		'development.yml',
-		'production.yml',
-		'production.yml',
-		'production.yml',
-		'production.yml',
-		'production.yml',
-		'production.yml',
-		'production.yml',
-		'production.yml',
-		'staging.yml',
-		'development.yml',
-		'staging.yml',
-		'development.yml',
-		'staging.yml',
-		'development.yml',
-		'staging.yml',
-		'development.yml',
-		'staging.yml',
-		'development.yml',
-		'staging.yml',
-		'development.yml',
-		'staging.yml',
-		'development.yml',
-		'staging.yml',
-		'development.yml'
-	]
-}

@@ -293,6 +293,7 @@
 
 	let gitRepoViewer: GitRepoViewer | undefined = $state()
 	let gitRepoResourcePickerOpen = $state(false)
+	let commitHashForGitRepo = $state<string | undefined>(ansibleAlternativeExecutionMode?.commit)
 
 	// Check if delegate_to_git_repo exists in the code
 	let hasDelegateToGitRepo = $derived(
@@ -618,7 +619,7 @@
 								<GitRepoViewer
 									bind:this={gitRepoViewer}
 									gitRepoResourcePath={ansibleAlternativeExecutionMode.resource}
-									commitHashInput={ansibleAlternativeExecutionMode.commit}
+									bind:commitHashInput={commitHashForGitRepo}
 								/>
 						</div>
 					</Pane>
@@ -921,6 +922,7 @@
 	bind:open={gitRepoResourcePickerOpen}
 	currentResource={ansibleAlternativeExecutionMode?.resource}
 	currentCode={code}
+	currentCommit={commitHashForGitRepo || ansibleAlternativeExecutionMode?.commit}
 	on:selected={handleDelegateConfigUpdate}
 	on:addInventories={handleAddInventories}
 />

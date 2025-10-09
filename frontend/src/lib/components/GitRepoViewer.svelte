@@ -21,7 +21,7 @@
 		commitHashInput?: string
 	}
 
-	let { gitRepoResourcePath, commitHashInput }: Props = $props()
+	let { gitRepoResourcePath, commitHashInput = $bindable() }: Props = $props()
 
 	let commitHash = $derived(commitHashInput);
 
@@ -97,7 +97,7 @@
 					path: gitRepoResourcePath
 				})
 
-				commitHash = result.commit_hash
+				commitHashInput = result.commit_hash
 				isLoadingCommitHash = false
 			}
 

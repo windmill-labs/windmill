@@ -1,31 +1,34 @@
 <script lang="ts">
-	import { ResourceService } from '$lib/gen'
+	import { HelpersService, ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { GitBranch, Loader2, FolderOpen } from 'lucide-svelte'
 	import Select from './select/Select.svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { extractDelegateToGitRepoConfig, getInventoryFiles } from '$lib/ansibleUtils'
 
 	interface Props {
 		open: boolean
 		currentResource?: string
+		currentCode?: string
+		currentCommit?: string
 	}
 
 	let {
 		open = $bindable(),
-		currentResource = undefined
+		currentResource = undefined,
+		currentCode = undefined,
+		currentCommit = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
 		selected: {
-			resourcePath: string;
-			playbook?: string;
-			inventoriesLocation?: string;
-		};
+			resourcePath: string
+			playbook?: string
+			inventoriesLocation?: string
+		}
 		addInventories: {
-			inventoryPaths: string[];
-		};
+			inventoryPaths: string[]
+		}
 	}>()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -85,65 +88,62 @@
 		open = false
 	}
 
-	export async function getInventoryFiles(resourcePath: string, inventoriesPath: string, commitHash): Promise<string[]> {
-		// Simulate API call delay
-		await new Promise(resolve => setTimeout(resolve, 500))
+	export async function getInventoryFiles(
+		resourcePath: string,
+		inventoriesPath: string,
+		commitHash: string
+	): Promise<string[]> {
+		const rootPath = `gitrepos/${$workspaceStore}/${resourcePath}/${commitHash}/`
 
-		const rootPath= `gitrepos/${$workspaceStore}/${resourcePath}/${commitHash}/`
-		let files = await HelpersSerivce.listGitRepoFiles({
+		if (inventoriesPath.startsWith('./')) inventoriesPath = inventoriesPath.slice(2)
+
+		let files = await HelpersService.listGitRepoFiles({
 			workspace: $workspaceStore!,
 			maxKeys: 100,
 			marker: undefined,
 			prefix: `${rootPath}/${inventoriesPath}`
-
-
 		})
 
-		console.log(files)
+		console.log(rootPath, inventoriesPath, files)
+
+		const fileNames = files.windmill_large_files.map((f) =>
+			f.s3.slice(rootPath.length)
+		)
 
 		// Return dummy data for testing
-		return [
-			'production.yml',
-			'staging.yml',
-			'development.yml',
-			'production.yml',
-			'production.yml',
-			'production.yml',
-			'production.yml',
-			'production.yml',
-			'production.yml',
-			'production.yml',
-			'production.yml',
-			'staging.yml',
-			'development.yml',
-			'staging.yml',
-			'development.yml',
-			'staging.yml',
-			'development.yml',
-			'staging.yml',
-			'development.yml',
-			'staging.yml',
-			'development.yml',
-			'staging.yml',
-			'development.yml',
-			'staging.yml',
-			'development.yml',
-			'staging.yml',
-			'development.yml'
-		]
+		return fileNames
 	}
 	async function handleAddInventories() {
 		if (!selectedResource || !inventoriesLocation.trim()) return
-		
+
 		loadingInventories = true
 		try {
-			const inventoryFiles = await getInventoryFiles(selectedResource, inventoriesLocation.trim())
-			
+			// Get commit hash if not provided
+			let commitHash = currentCommit
+			if (!commitHash) {
+				try {
+					const result = await ResourceService.getGitCommitHash({
+						workspace: $workspaceStore!,
+						path: selectedResource
+					})
+					commitHash = result.hash
+				} catch (err) {
+					console.error('Failed to get commit hash:', err)
+					throw new Error('Could not get commit hash for repository')
+				}
+			}
+
+			const inventoryFiles = await getInventoryFiles(
+				selectedResource,
+				inventoriesLocation.trim(),
+				commitHash
+			)
+
 			// Dispatch event to update the script with additional_inventories
 			dispatch('addInventories', {
 				inventoryPaths: inventoryFiles
 			})
-			
+
 			// TODO: Add success feedback
 			console.log('Added inventories:', inventoryFiles)
 		} catch (error) {
@@ -163,12 +163,12 @@
 	>
 		<div class="flex flex-col gap-4 p-4">
 			<div class="flex flex-col gap-2">
-				<div class="text-sm font-medium text-primary">
-					Git Repository Resource
-				</div>
+				<div class="text-sm font-medium text-primary"> Git Repository Resource </div>
 
 				{#if currentResource}
-					<div class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md">
+					<div
+						class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md"
+					>
 						<div class="flex items-center gap-2">
 							<GitBranch size={16} class="text-blue-600 dark:text-blue-400 flex-shrink-0" />
 							<div class="flex-1 min-w-0">
@@ -238,7 +238,7 @@
 				<p class="text-xs text-tertiary">
 					Specify the directory containing your inventory files relative to the git repository root
 				</p>
-				
+
 				{#if inventoriesLocation.trim() && selectedResource}
 					<div class="mt-2">
 						<Button
@@ -261,13 +261,7 @@
 			</div>
 
 			<div class="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
-				<Button
-					color="light"
-					variant="border"
-					on:click={handleClose}
-				>
-					Cancel
-				</Button>
+				<Button color="light" variant="border" on:click={handleClose}>Cancel</Button>
 				<Button
 					color="dark"
 					disabled={!selectedResource || loading}
