@@ -349,7 +349,7 @@ pub enum JobPayload {
         language: ScriptLang,
         /// Override default concurrency key
         custom_concurrency_key: Option<String>,
-        /// How many jobs can ran at the same time
+        /// How many jobs can run at the same time
         concurrent_limit: Option<i32>,
         /// In seconds
         concurrency_time_window_s: Option<i32>,
