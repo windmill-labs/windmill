@@ -8,10 +8,12 @@
 
 	interface Props {
 		open: boolean
+		currentResource?: string
 	}
 
 	let {
-		open = $bindable()
+		open = $bindable(),
+		currentResource = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -48,6 +50,8 @@
 	$effect(() => {
 		if (open && $workspaceStore) {
 			loadGitRepoResources()
+			// Set current resource as selected when opening
+			selectedResource = currentResource
 			drawer?.openDrawer?.()
 		} else if (!open) {
 			drawer?.closeDrawer?.()
@@ -76,9 +80,25 @@
 	>
 		<div class="flex flex-col gap-4 p-4">
 			<div class="flex flex-col gap-2">
-				<label class="text-sm font-medium text-primary">
+				<div class="text-sm font-medium text-primary">
 					Git Repository Resource
-				</label>
+				</div>
+				
+				{#if currentResource}
+					<div class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md">
+						<div class="flex items-center gap-2">
+							<GitBranch size={16} class="text-blue-600 dark:text-blue-400 flex-shrink-0" />
+							<div class="flex-1 min-w-0">
+								<div class="text-sm font-medium text-blue-800 dark:text-blue-200">
+									Currently delegating to:
+								</div>
+								<div class="text-sm text-blue-600 dark:text-blue-300 truncate">
+									{currentResource}
+								</div>
+							</div>
+						</div>
+					</div>
+				{/if}
 				
 				{#if loading}
 					<div class="flex items-center gap-2 p-2">
