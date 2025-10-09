@@ -234,15 +234,17 @@
 						if (pg && dbType) {
 							const { table, resource, ducklake } = pg
 							const tableValue = table.value
-							const dbPath = resource?.value ?? (ducklake?.value as string | undefined)
+							const dbPath =
+								resource?.value.split('$res:')[1] ??
+								(ducklake?.value as string | undefined)?.split('ducklake://')[1]
 							const columnDefs = (c.configuration.columnDefs as any).value as ColumnDef[]
 							const whereClause = (c.configuration.whereClause as any).value as unknown as
 								| string
 								| undefined
 							if (tableValue && dbPath && columnDefs) {
 								let dbInput: DbInput = ducklake
-									? { type: 'ducklake', ducklake: ducklake.value }
-									: { type: 'database', resourcePath: resource?.value, resourceType: dbType }
+									? { type: 'ducklake', ducklake: dbPath }
+									: { type: 'database', resourcePath: dbPath, resourceType: dbType }
 								r.push({
 									input: getSelectInput(dbInput, tableValue, columnDefs, whereClause),
 									id: x.id
