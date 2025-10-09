@@ -2411,7 +2411,7 @@ pub async fn pull(
             if let Some(to_relock_field) = match &job.kind {
                 JobKind::FlowDependencies => Some("nodes_to_relock"),
                 JobKind::AppDependencies => Some("components_to_relock"),
-                // We don't about stale data if it is a script
+                // We don't care about stale data if it is a script
                 _ => None,
             } {
                 // Retrieve and merge accumulated stale data for debounced requests.
