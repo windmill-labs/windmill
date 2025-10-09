@@ -33,6 +33,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
+use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
@@ -828,44 +829,79 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     restart_job_if_perpetual(db, queued_job, &canceled_by).await?;
 
-    // Update conversation message if it's a flow and it's done (both success and error cases)
+    // Create assistant message if it's a flow and it's done, but only if last module is not an AI agent
     if !skipped && flow_is_done {
         let chat_input_enabled = queued_job.parse_chat_input_enabled();
-        let value = serde_json::to_value(result.0)
-            .map_err(|e| Error::internal_err(format!("Failed to serialize result: {e}")))?;
         if chat_input_enabled.unwrap_or(false) {
-            let content = match value {
-                // If it's an Object with "output" key AND the output is a String, return it
-                serde_json::Value::Object(mut map)
-                    if map.contains_key("output")
-                        && matches!(map.get("output"), Some(serde_json::Value::String(_))) =>
-                {
-                    if let Some(serde_json::Value::String(s)) = map.remove("output") {
-                        s
-                    } else {
-                        // prettify the whole result
-                        serde_json::to_string_pretty(&map)
-                            .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
-                    }
-                }
-                // Otherwise, if the whole value is a String, return it
-                serde_json::Value::String(s) => s,
-                // Otherwise, prettify the whole result
-                v => serde_json::to_string_pretty(&v)
-                    .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
-            };
+            // Get conversation_id from flow_status.memory_id
+            let flow_status = queued_job.parse_flow_status();
+            let conversation_id = flow_status.and_then(|fs| fs.memory_id);
 
-            // Update the assistant message
-            let _ = sqlx::query!(
-                "UPDATE flow_conversation_message
-                    SET content = $1
-                    WHERE job_id = $2
-                ",
-                content,
-                queued_job.id,
-            )
-            .execute(db)
-            .await;
+            if let Some(conversation_id) = conversation_id {
+                // get flow value
+                let parent_job = queued_job.parent_job.unwrap_or(queued_job.id);
+                let flow_value = sqlx::query!(
+                    "SELECT f.value as \"value: Json<FlowValue>\" FROM v2_job j JOIN flow_version f ON f.id = j.runnable_id WHERE j.id = $1 AND j.workspace_id = $2",
+                    parent_job,
+                    &queued_job.workspace_id
+                )
+                .fetch_optional(db)
+                .await?
+                .map(|row| row.value.0);
+
+                let last_module_is_ai_agent = flow_value
+                    .as_ref()
+                    .and_then(|flow_value| {
+                        flow_value.modules.last().and_then(|m| m.get_value().ok())
+                    })
+                    .map(|v| matches!(v, FlowModuleValue::AIAgent { .. }))
+                    .unwrap_or(false);
+
+                // Only create assistant message if last module is NOT an AI agent, or there was an error
+                if !last_module_is_ai_agent || success == false {
+                    let value = serde_json::to_value(result.0).map_err(|e| {
+                        Error::internal_err(format!("Failed to serialize result: {e}"))
+                    })?;
+
+                    let content = match value {
+                        // If it's an Object with "output" key AND the output is a String, return it
+                        serde_json::Value::Object(mut map)
+                            if map.contains_key("output")
+                                && matches!(
+                                    map.get("output"),
+                                    Some(serde_json::Value::String(_))
+                                ) =>
+                        {
+                            if let Some(serde_json::Value::String(s)) = map.remove("output") {
+                                s
+                            } else {
+                                // prettify the whole result
+                                serde_json::to_string_pretty(&map)
+                                    .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
+                            }
+                        }
+                        // Otherwise, if the whole value is a String, return it
+                        serde_json::Value::String(s) => s,
+                        // Otherwise, prettify the whole result
+                        v => serde_json::to_string_pretty(&v)
+                            .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+                    };
+
+                    // Insert new assistant message
+                    let mut tx = db.begin().await?;
+                    add_message_to_conversation_tx(
+                        &mut tx,
+                        conversation_id,
+                        Some(queued_job.id),
+                        &content,
+                        MessageType::Assistant,
+                        None,
+                        success,
+                    )
+                    .await?;
+                    tx.commit().await?;
+                }
+            }
         }
     }
 
