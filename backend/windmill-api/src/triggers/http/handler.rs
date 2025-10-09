@@ -634,7 +634,8 @@ pub fn http_route_trigger_handler() -> Router {
                 .delete(route_job)
                 .put(route_job)
                 .patch(route_job)
-                .head(|| async { "" }),
+                .head(|| async { "" })
+                .options(|| async { "" }),
         )
         .layer(axum::middleware::from_fn(conditional_cors_middleware))
 }
