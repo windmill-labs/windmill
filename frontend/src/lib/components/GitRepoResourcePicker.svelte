@@ -17,13 +17,19 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
-		selected: { resourcePath: string }
+		selected: {
+			resourcePath: string;
+			playbook?: string;
+			inventoriesLocation?: string;
+		}
 	}>()
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let loading = $state(false)
 	let gitRepoResources = $state<{ value: string; label: string }[]>([])
 	let selectedResource = $state<string | undefined>(undefined)
+	let playbook = $state('')
+	let inventoriesLocation = $state('')
 
 	async function loadGitRepoResources() {
 		if (!$workspaceStore) return
@@ -60,7 +66,7 @@
 
 	function handleSelect() {
 		if (selectedResource) {
-			dispatch('selected', { resourcePath: selectedResource })
+			dispatch('selected', { resourcePath: selectedResource, playbook, inventoriesLocation })
 			selectedResource = undefined
 			open = false
 		}
@@ -83,7 +89,7 @@
 				<div class="text-sm font-medium text-primary">
 					Git Repository Resource
 				</div>
-				
+
 				{#if currentResource}
 					<div class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-md">
 						<div class="flex items-center gap-2">
@@ -99,7 +105,7 @@
 						</div>
 					</div>
 				{/if}
-				
+
 				{#if loading}
 					<div class="flex items-center gap-2 p-2">
 						<Loader2 size={16} class="animate-spin" />
@@ -123,6 +129,40 @@
 				{/if}
 			</div>
 
+			<!-- Playbook Configuration -->
+			<div class="flex flex-col gap-2">
+				<div class="text-sm font-medium text-primary">
+					Playbook Path
+					<span class="text-xs text-tertiary font-normal ml-1">(optional)</span>
+				</div>
+				<input
+					type="text"
+					bind:value={playbook}
+					placeholder="e.g., ./playbooks/site.yml"
+					class="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+				/>
+				<p class="text-xs text-tertiary">
+					Specify the path to your main playbook file relative to the git repository root
+				</p>
+			</div>
+
+			<!-- Inventories Location Configuration -->
+			<div class="flex flex-col gap-2">
+				<div class="text-sm font-medium text-primary">
+					Inventories Location
+					<span class="text-xs text-tertiary font-normal ml-1">(optional)</span>
+				</div>
+				<input
+					type="text"
+					bind:value={inventoriesLocation}
+					placeholder="e.g., ./inventories"
+					class="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+				/>
+				<p class="text-xs text-tertiary">
+					Specify the directory containing your inventory files relative to the git repository root
+				</p>
+			</div>
+
 			<div class="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
 				<Button
 					color="light"
@@ -137,7 +177,7 @@
 					on:click={handleSelect}
 					startIcon={{ icon: GitBranch }}
 				>
-					Select Resource
+					Apply Configuration
 				</Button>
 			</div>
 		</div>

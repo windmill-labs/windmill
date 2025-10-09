@@ -54,7 +54,7 @@
 	import S3FilePicker from './S3FilePicker.svelte'
 	import GitRepoViewer from './GitRepoViewer.svelte'
 	import GitRepoResourcePicker from './GitRepoResourcePicker.svelte'
-	import { insertDelegateToGitRepoInCode } from '$lib/ansibleUtils'
+	import { insertDelegateToGitRepoInCode, updateDelegateToGitRepoConfig } from '$lib/ansibleUtils'
 
 	interface Props {
 		// Exported
@@ -261,14 +261,12 @@
 		let nschema = schema ?? emptySchema()
 
 		try {
-			console.log("inferring args")
 			const result = await inferArgs(
 				nlang ?? lang,
 				code,
 				nschema,
 				selectedTab === 'preprocessor' || kind === 'preprocessor' ? 'preprocessor' : undefined
 			)
-			console.log("result is" , result)
 
 			if (kind === 'preprocessor') {
 				hasPreprocessor = false
@@ -306,6 +304,21 @@
 
 		const currentCode = editor.getCode()
 		const newCode = insertDelegateToGitRepoInCode(currentCode, resourcePath)
+		editor.setCode(newCode)
+
+		// Trigger schema inference to update assets
+		inferSchema(newCode)
+	}
+
+	function handleDelegateConfigUpdate(event: { detail: { resourcePath: string; playbook?: string; inventoriesLocation?: string } }) {
+		if (!editor) return
+
+		const currentCode = editor.getCode()
+		const newCode = updateDelegateToGitRepoConfig(currentCode, {
+			resource: event.detail.resourcePath,
+			playbook: event.detail.playbook,
+			inventories_location: event.detail.inventoriesLocation
+		})
 		editor.setCode(newCode)
 
 		// Trigger schema inference to update assets
@@ -896,5 +909,6 @@
 <GitRepoResourcePicker
 	bind:open={gitRepoResourcePickerOpen}
 	currentResource={ansibleAlternativeExecutionMode?.resource}
-	on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
+	currentCode={code}
+	on:selected={handleDelegateConfigUpdate}
 />
