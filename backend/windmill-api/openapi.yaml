@@ -6529,6 +6529,8 @@ paths:
         - flow_conversation
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: conversation_id
           description: conversation id
           in: path
@@ -6536,8 +6538,13 @@ paths:
           schema:
             type: string
             format: uuid
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - name: after_id
+          description: id to fetch only the messages after that id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: conversation messages
@@ -14805,7 +14812,7 @@ components:
           description: The conversation this message belongs to
         message_type:
           type: string
-          enum: [user, assistant, system]
+          enum: [user, assistant, system, tool]
           description: Type of the message
         content:
           type: string
@@ -14819,6 +14826,12 @@ components:
           type: string
           format: date-time
           description: When the message was created
+        step_name:
+          type: string
+          description: The step name that produced that message
+        success:
+          type: boolean
+          description: Whether the message is a success
 
     EndpointTool:
       type: object
@@ -17341,7 +17354,7 @@ components:
         - OK
         - SKIP
         - FAIL
-    
+
     DucklakeInstanceCatalogDbStatusLogs:
       type: object
       properties:
@@ -17376,7 +17389,6 @@ components:
           nullable: true
           description: Error message if the operation failed
           example: "Connection timeout"
-
 
     NewSqsTrigger:
       type: object
