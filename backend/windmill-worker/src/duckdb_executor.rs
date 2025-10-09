@@ -488,6 +488,15 @@ async fn transform_attach_ducklake(
     let storage = ducklake.storage.storage.as_deref().unwrap_or("_default_");
     let data_path = ducklake.storage.path;
 
+    // Ducklake 0.3 only requires DATA_PATH at creation and then stores it internally in the catalog
+    // But it will fail if DATA_PATH changes afterwards which is annoying for us
+    // So we always enable override
+    let extra_args = if extra_args.contains("OVERRIDE_DATA_PATH") {
+        extra_args
+    } else {
+        format!(", OVERRIDE_DATA_PATH TRUE{extra_args}")
+    };
+
     let attach_str = format!(
         "ATTACH 'ducklake:{db_type}:{db_conn_str}' AS {alias_name} (DATA_PATH 's3://{storage}/{data_path}'{extra_args});",
     );
