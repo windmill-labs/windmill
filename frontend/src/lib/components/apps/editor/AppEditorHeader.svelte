@@ -52,7 +52,7 @@
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
-	import { type ColumnDef, getPrimaryKeys } from '../components/display/dbtable/utils'
+	import { type ColumnDef, type DbType, getPrimaryKeys } from '../components/display/dbtable/utils'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 	import { getCountInput } from '../components/display/dbtable/queries/count'
 	import { getSelectInput } from '../components/display/dbtable/queries/select'
@@ -76,6 +76,7 @@
 	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
 	import AppEditorHeaderDeployInitialDraft from './AppEditorHeaderDeployInitialDraft.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
+	import type { DbInput } from '$lib/components/dbOps'
 
 	async function hash(message) {
 		try {
@@ -227,30 +228,35 @@
 						let nr: { id: string; input: AppInput }[] = []
 						let config = c.configuration as any
 
-						const dbType = config?.type?.selected
+						const dbType = config?.type?.selected as DbType
 						let pg = config?.type?.configuration?.[dbType]
 
 						if (pg && dbType) {
-							const { table, resource } = pg
+							const { table, resource, ducklake } = pg
 							const tableValue = table.value
-							const resourceValue = resource.value
+							const dbPath =
+								resource?.value.split('$res:')[1] ??
+								(ducklake?.value as string | undefined)?.split('ducklake://')[1]
 							const columnDefs = (c.configuration.columnDefs as any).value as ColumnDef[]
 							const whereClause = (c.configuration.whereClause as any).value as unknown as
 								| string
 								| undefined
-							if (tableValue && resourceValue && columnDefs) {
+							if (tableValue && dbPath && columnDefs) {
+								let dbInput: DbInput = ducklake
+									? { type: 'ducklake', ducklake: dbPath }
+									: { type: 'database', resourcePath: dbPath, resourceType: dbType }
 								r.push({
-									input: getSelectInput(resourceValue, tableValue, columnDefs, whereClause, dbType),
+									input: getSelectInput(dbInput, tableValue, columnDefs, whereClause),
 									id: x.id
 								})
 
 								r.push({
-									input: getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
+									input: getCountInput(dbInput, tableValue, columnDefs, whereClause),
 									id: x.id + '_count'
 								})
 
 								r.push({
-									input: getInsertInput(tableValue, columnDefs, resourceValue, dbType),
+									input: getInsertInput(dbInput, tableValue, columnDefs),
 									id: x.id + '_insert'
 								})
 
@@ -258,7 +264,7 @@
 								let columns = columnDefs?.filter((x) => primaryColumns.includes(x.field))
 
 								r.push({
-									input: getDeleteInput(resourceValue, tableValue, columns, dbType),
+									input: getDeleteInput(dbInput, tableValue, columns),
 									id: x.id + '_delete'
 								})
 
@@ -266,7 +272,7 @@
 									.filter((col) => col.editable || config.allEditable.value)
 									.forEach((column) => {
 										r.push({
-											input: getUpdateInput(resourceValue, tableValue, column, columns, dbType),
+											input: getUpdateInput(dbInput, tableValue, column, columns),
 											id: x.id + '_update'
 										})
 									})

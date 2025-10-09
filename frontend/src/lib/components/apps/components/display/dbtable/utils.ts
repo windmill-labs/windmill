@@ -697,7 +697,7 @@ export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 				case 'duckdb':
 					return `"${column?.field}"` // DuckDB uses double quotes for identifiers
 				default:
-					throw new Error('Unsupported database type')
+					throw new Error('Unsupported database type: ' + dbType)
 			}
 		})
 }
@@ -753,7 +753,7 @@ export function getPrimaryKeys(tableMetadata?: TableMetadata): string[] {
 export async function getTablesByResource(
 	schema: Partial<Record<string, DBSchema>>,
 	dbType: DbType | undefined,
-	resourcePath: string,
+	dbPath: string,
 	workspace: string
 ): Promise<string[]> {
 	const s = Object.values(schema)?.[0]
@@ -772,7 +772,7 @@ export async function getTablesByResource(
 		case 'mysql': {
 			const resourceObj = (await ResourceService.getResourceValue({
 				workspace,
-				path: resourcePath
+				path: dbPath.split('$res:')[1]
 			})) as any
 			const paths: string[] = []
 			for (const key in s?.schema) {
@@ -821,7 +821,16 @@ export async function getTablesByResource(
 			}
 			return paths
 		}
+		case 'duckdb': {
+			const paths: string[] = []
+			for (const key in s?.schema) {
+				for (const subKey in s.schema[key]) {
+					paths.push(`${subKey}`)
+				}
+			}
 
+			return paths
+		}
 		default:
 			return []
 	}

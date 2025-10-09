@@ -1400,7 +1400,8 @@ export const components = {
 					type: 'static',
 					value: false,
 					fieldType: 'boolean',
-					tooltip: 'Run the job in the background without blocking the button. Multiple clicks will trigger multiple jobs.'
+					tooltip:
+						'Run the job in the background without blocking the button. Multiple clicks will trigger multiple jobs.'
 				},
 
 				onSuccess: onSuccessClick,
@@ -3953,7 +3954,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						ms_sql_server: 'MS SQL Server',
 						snowflake: 'Snowflake',
 						bigquery: 'BigQuery',
-						snowflake_oauth: 'Snowflake OAuth'
+						snowflake_oauth: 'Snowflake OAuth',
+						ducklake: 'Ducklake'
 					},
 					configuration: {
 						postgresql: {
@@ -4023,6 +4025,21 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'bigquery',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subFieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						ducklake: {
+							ducklake: {
+								type: 'static',
+								fieldType: 'ducklake',
+								subFieldType: 'ducklake',
 								value: ''
 							} as StaticAppInput,
 							table: {
