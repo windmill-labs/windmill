@@ -605,44 +605,44 @@ async fn conditional_cors_middleware(
 
     let headers = response.headers_mut();
 
-    // Check existing headers first to determine what needs to be inserted
-    let mut needs_origin = true;
-    let mut needs_methods = true;
-    let mut needs_headers = true;
+    // Check existing headers first to determine what not to insert
+    let mut not_insert_origin = false;
+    let mut not_insert_methods = false;
+    let mut not_insert_headers = false;
 
     for key in headers.keys() {
-        if needs_origin && key == http::header::ACCESS_CONTROL_ALLOW_ORIGIN {
-            needs_origin = false;
+        if !not_insert_origin && key == http::header::ACCESS_CONTROL_ALLOW_ORIGIN {
+            not_insert_origin = true;
         }
-        if needs_methods && key == http::header::ACCESS_CONTROL_ALLOW_METHODS {
-            needs_methods = false;
+        if !not_insert_methods && key == http::header::ACCESS_CONTROL_ALLOW_METHODS {
+            not_insert_methods = true;
         }
-        if needs_headers && key == http::header::ACCESS_CONTROL_ALLOW_HEADERS {
-            needs_headers = false;
+        if !not_insert_headers && key == http::header::ACCESS_CONTROL_ALLOW_HEADERS {
+            not_insert_headers = true;
         }
 
         // Early exit if all headers are already present
-        if !needs_origin && !needs_methods && !needs_headers {
+        if not_insert_origin && not_insert_methods && not_insert_headers {
             break;
         }
     }
 
     // Insert only the missing headers
-    if needs_origin {
+    if !not_insert_origin {
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
             http::HeaderValue::from_static("*"),
         );
     }
 
-    if needs_methods {
+    if !not_insert_methods {
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_METHODS,
             http::HeaderValue::from_static("GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS"),
         );
     }
 
-    if needs_headers {
+    if !not_insert_headers {
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_HEADERS,
             http::HeaderValue::from_static("content-type, authorization"),
