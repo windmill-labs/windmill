@@ -33,7 +33,6 @@ use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
-use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
@@ -598,17 +597,35 @@ impl TriggerCrud for HttpTrigger {
     }
 }
 
+async fn conditional_cors_middleware(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let mut response = next.run(req).await;
+
+    // Only add CORS headers if Access-Control-Allow-Origin is not already present
+    if !response.headers().contains_key(http::header::ACCESS_CONTROL_ALLOW_ORIGIN) {
+        let headers = response.headers_mut();
+
+        // Add wildcard CORS headers
+        headers.insert(
+            http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            http::HeaderValue::from_static("*"),
+        );
+        headers.insert(
+            http::header::ACCESS_CONTROL_ALLOW_METHODS,
+            http::HeaderValue::from_static("GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS"),
+        );
+        headers.insert(
+            http::header::ACCESS_CONTROL_ALLOW_HEADERS,
+            http::HeaderValue::from_static("content-type, authorization"),
+        );
+    }
+
+    response
+}
+
 pub fn http_route_trigger_handler() -> Router {
-    let cors = CorsLayer::new()
-        .allow_methods([
-            http::Method::GET,
-            http::Method::POST,
-            http::Method::DELETE,
-            http::Method::PUT,
-            http::Method::PATCH,
-        ])
-        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
-        .allow_origin(tower_http::cors::Any);
     Router::new()
         .route(
             "/*path",
@@ -619,7 +636,7 @@ pub fn http_route_trigger_handler() -> Router {
                 .patch(route_job)
                 .head(|| async { "" }),
         )
-        .layer(cors)
+        .layer(axum::middleware::from_fn(conditional_cors_middleware))
 }
 
 async fn get_http_route_trigger(
