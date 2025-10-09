@@ -9,6 +9,7 @@ import {
 	getEnhancedMonacoEnvironment,
 	MonacoVscodeApiWrapper
 } from 'monaco-languageclient/vscodeApiWrapper'
+import getLanguagesServiceOverride from '@codingame/monaco-vscode-languages-service-override'
 
 export function buildWorkerDefinition() {
 	const envEnhanced = getEnhancedMonacoEnvironment()
@@ -134,6 +135,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 					// ...getTextmateServiceOverride()
 					// ...getConfigurationServiceOverride(),
 					// ...getKeybindingsServiceOverride()
+					...getLanguagesServiceOverride()
 				},
 				userConfiguration: {
 					json: JSON.stringify({
