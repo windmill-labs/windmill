@@ -688,6 +688,7 @@ fn convert_val(
                 .unwrap_or(vec![]);
             Ok(Box::new(bytes))
         }
+        Value::Array(_) if arg_t == "jsonb" || arg_t == "json" => Ok(Box::new(value.clone())),
         Value::Object(_) if arg_t == "text" || arg_t == "varchar" => {
             Ok(Box::new(serde_json::to_string(value).map_err(|err| {
                 Error::ExecutionErr(format!("Failed to convert JSON to text: {}", err))
