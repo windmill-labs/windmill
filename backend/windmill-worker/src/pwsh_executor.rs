@@ -18,9 +18,6 @@ lazy_static::lazy_static! {
     static ref RE_POWERSHELL_IMPORTS: Regex = Regex::new(r#"^Import-Module\s+(?:-Name\s+)?"?([^\s"]+)"?(?:\s+-RequiredVersion\s+"?([^\s"]+)"?)?"#).unwrap();
 }
 
-#[cfg(feature = "dind")]
-use crate::handle_child::run_future_with_polling_update_job_poller;
-
 use crate::{
     common::{
         build_args_map, get_reserved_variables, read_file, read_file_content, start_child_process,
