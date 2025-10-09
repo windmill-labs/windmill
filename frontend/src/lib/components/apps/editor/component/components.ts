@@ -185,22 +185,26 @@ export type TableComponent = BaseComponent<'tablecomponent'> & {
 export type AggridComponent = BaseComponent<'aggridcomponent'> & {
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 export type AggridComponentEe = BaseComponent<'aggridcomponentee'> & {
 	license: string
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type AggridInfiniteComponent = BaseComponent<'aggridinfinitecomponent'> & {
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee'> & {
 	actions: TableAction[]
 	license: string
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>
@@ -289,6 +293,7 @@ export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'> & {
 	columns: RichConfiguration
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type S3FileInputComponent = BaseComponent<'s3fileinputcomponent'> & {

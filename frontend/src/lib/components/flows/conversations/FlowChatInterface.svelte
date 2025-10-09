@@ -1,13 +1,10 @@
 <script lang="ts">
 	import { Button, Alert } from '$lib/components/common'
 	import { MessageCircle, Loader2, ArrowUp } from 'lucide-svelte'
-	import { FlowConversationService, type FlowConversationMessage } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/toast'
 	import autosize from '$lib/autosize'
-	import { waitJob } from '$lib/components/waitJob'
-	import { tick } from 'svelte'
 	import FlowChatMessage from './FlowChatMessage.svelte'
+	import { createFlowChatManager } from './FlowChatManager.svelte'
 
 	interface Props {
 		onRunFlow: (userMessage: string, conversationId: string) => Promise<string | undefined>
@@ -17,11 +14,6 @@
 		deploymentInProgress?: boolean
 		createConversation: (options: { clearMessages?: boolean }) => Promise<string>
 		path?: string
-	}
-
-	interface ChatMessage extends FlowConversationMessage {
-		loading?: boolean
-		streaming?: boolean
 	}
 
 	let {
@@ -34,383 +26,49 @@
 		path
 	}: Props = $props()
 
-	let messages = $state<ChatMessage[]>([])
-	let inputMessage = $state('')
-	let isLoading = $state(false)
-	let isLoadingMessages = $state(false)
-	let messagesContainer: HTMLDivElement | undefined = $state()
-	let page = $state(1)
-	let perPage = 50
-	let hasMoreMessages = $state(false)
-	let loadingMoreMessages = $state(false)
-	let scrollTimeout: ReturnType<typeof setTimeout> | undefined = undefined
-	let inputElement: HTMLTextAreaElement | undefined = $state()
-	let currentEventSource: EventSource | undefined = $state()
+	const manager = createFlowChatManager()
 
-	const conversationsCache = $state<Record<string, ChatMessage[]>>({})
-
-	// Cleanup EventSource on unmount
+	// Initialize manager when component mounts
 	$effect(() => {
+		if ($workspaceStore) {
+			manager.initialize(
+				{
+					onRunFlow,
+					createConversation,
+					refreshConversations,
+					conversationId,
+					useStreaming,
+					path
+				},
+				$workspaceStore
+			)
+		}
+
 		return () => {
-			if (currentEventSource) {
-				currentEventSource.close()
-			}
+			manager.cleanup()
 		}
 	})
 
+	// Update conversation ID when it changes
+	$effect(() => {
+		manager.updateConversationId(conversationId)
+	})
+
+	// Public API for parent components
 	export function fillInputMessage(message: string) {
-		inputMessage = message
+		manager.fillInputMessage(message)
 	}
 
 	export function focusInput() {
-		inputElement?.focus()
+		manager.focusInput()
 	}
 
 	export function clearMessages() {
-		messages = []
-		inputMessage = ''
-		page = 1
+		manager.clearMessages()
 	}
 
-	export async function loadConversationMessages(convId: string) {
-		page = 1
-		await loadMessages(true)
-	}
-
-	async function loadMessages(reset: boolean) {
-		if (!$workspaceStore || !conversationId) return
-
-		if (reset) {
-			if (conversationsCache[conversationId]) {
-				messages = conversationsCache[conversationId]
-				return
-			}
-			isLoadingMessages = true
-		} else {
-			loadingMoreMessages = true
-		}
-
-		const pageToFetch = reset ? 1 : page + 1
-
-		try {
-			const previousScrollHeight = messagesContainer?.scrollHeight || 0
-
-			const response = await FlowConversationService.listConversationMessages({
-				workspace: $workspaceStore,
-				conversationId: conversationId,
-				page: pageToFetch,
-				perPage: perPage
-			})
-
-			if (reset) {
-				conversationsCache[conversationId] = response
-				messages = response
-				isLoadingMessages = false
-				await new Promise((resolve) => setTimeout(resolve, 100))
-				scrollToBottom()
-			} else {
-				messages = [...response, ...messages]
-				page = pageToFetch
-				// Restore scroll position
-				await new Promise((resolve) => setTimeout(resolve, 50))
-				if (messagesContainer) {
-					messagesContainer.scrollTop = messagesContainer.scrollHeight - previousScrollHeight
-				}
-			}
-
-			hasMoreMessages = response.length === perPage
-		} catch (error) {
-			console.error('Failed to load messages:', error)
-			sendUserToast('Failed to load messages: ' + error)
-		} finally {
-			isLoadingMessages = false
-			loadingMoreMessages = false
-		}
-	}
-
-	function handleScroll() {
-		if (scrollTimeout) clearTimeout(scrollTimeout)
-
-		scrollTimeout = setTimeout(() => {
-			if (!messagesContainer || !hasMoreMessages || loadingMoreMessages) return
-
-			if (messagesContainer.scrollTop <= 10) {
-				loadMessages(false)
-			}
-		}, 200)
-	}
-
-	function scrollToBottom() {
-		if (messagesContainer) {
-			messagesContainer.scrollTop = messagesContainer.scrollHeight
-		}
-	}
-
-	function scrollToUserMessage(messageId: string) {
-		if (!messagesContainer) return
-		const messageElement = messagesContainer.querySelector(`[data-message-id="${messageId}"]`)
-		if (messageElement) {
-			messageElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
-		}
-	}
-
-	async function pollJobResult(jobId: string, messageId: string) {
-		try {
-			const result = await waitJob(jobId)
-
-			// Job completed successfully, update the message with the result
-			messages = messages.map((msg) =>
-				msg.id === messageId
-					? {
-							...msg,
-							loading: false,
-							content: formatJobResult(result)
-						}
-					: msg
-			)
-		} catch (error) {
-			console.error('Error polling job result:', error)
-
-			// Job failed, update the message with error
-			messages = messages.map((msg) =>
-				msg.id === messageId
-					? {
-							...msg,
-							loading: false,
-							content: 'Error: ' + (error?.message || String(error))
-						}
-					: msg
-			)
-		}
-	}
-
-	function formatJobResult(result: any): string {
-		if (result === null || result === undefined) {
-			return 'No result returned'
-		}
-
-		// If result is an object with an output field, use that
-		if (typeof result === 'object' && result.output !== undefined) {
-			if (typeof result.output === 'string') {
-				return result.output
-			}
-			return JSON.stringify(result.output, null, 2)
-		}
-
-		if (typeof result === 'string') {
-			return result
-		}
-
-		if (typeof result === 'object') {
-			return JSON.stringify(result, null, 2)
-		}
-
-		return String(result)
-	}
-
-	function parseStreamDeltas(streamData: string): string {
-		const lines = streamData.trim().split('\n')
-		let content = ''
-		for (const line of lines) {
-			if (!line.trim()) continue
-			try {
-				const parsed = JSON.parse(line)
-				if (parsed.type === 'token_delta' && parsed.content) {
-					content += parsed.content
-				}
-			} catch (e) {
-				console.error('Failed to parse stream line:', line, e)
-			}
-		}
-		return content
-	}
-
-	async function sendMessage() {
-		if (!inputMessage.trim() || isLoading) return
-
-		const isNewConversation = messages.length === 0
-
-		// Generate a new conversation ID if we don't have one
-		let currentConversationId = conversationId
-		if (!conversationId) {
-			const newConversationId = await createConversation?.({ clearMessages: false })
-			currentConversationId = newConversationId
-		}
-
-		if (!currentConversationId) {
-			console.error('No conversation ID found')
-			return
-		}
-
-		// Invalidate the conversation cache
-		delete conversationsCache[currentConversationId]
-
-		const userMessage: ChatMessage = {
-			id: crypto.randomUUID(),
-			content: inputMessage.trim(),
-			created_at: new Date().toISOString(),
-			message_type: 'user',
-			conversation_id: currentConversationId
-		}
-
-		messages = [...messages, userMessage]
-		const messageContent = inputMessage.trim()
-		inputMessage = ''
-		isLoading = true
-
-		try {
-			// Add assistant message placeholder
-			const assistantMessageId = crypto.randomUUID()
-			const assistantMessage: ChatMessage = {
-				id: assistantMessageId,
-				content: '',
-				created_at: new Date().toISOString(),
-				message_type: 'assistant',
-				conversation_id: currentConversationId,
-				job_id: '',
-				loading: true,
-				streaming: Boolean(useStreaming && path)
-			}
-
-			messages = [...messages, assistantMessage]
-
-			await tick()
-			scrollToUserMessage(userMessage.id)
-
-			if (useStreaming && path) {
-				// Close any existing EventSource
-				if (currentEventSource) {
-					currentEventSource.close()
-				}
-
-				// Track stream state for this message
-				let accumulatedContent = ''
-
-				try {
-					// Encode the payload as base64
-					const payload = { user_message: messageContent }
-					const payloadBase64 = btoa(JSON.stringify(payload))
-
-					// Build the EventSource URL
-					const streamUrl = `/api/w/${$workspaceStore}/jobs/run_and_stream/f/${path}`
-					const url = new URL(streamUrl, window.location.origin)
-					url.searchParams.set('payload', payloadBase64)
-					url.searchParams.set('memory_id', currentConversationId)
-					url.searchParams.set('poll_delay_ms', '50')
-
-					// Create EventSource connection
-					const eventSource = new EventSource(url.toString())
-					currentEventSource = eventSource
-
-					eventSource.onmessage = (event) => {
-						try {
-							const data = JSON.parse(event.data)
-
-							if (data.type === 'update') {
-								// Process new stream content
-								if (data.new_result_stream) {
-									const newContent = parseStreamDeltas(data.new_result_stream)
-									accumulatedContent += newContent
-									// Update message content
-									messages = messages.map((msg) =>
-										msg.id === assistantMessageId
-											? {
-													...msg,
-													content: accumulatedContent,
-													loading: accumulatedContent.length === 0
-												}
-											: msg
-									)
-								}
-
-								// Handle completion
-								if (data.completed && data.only_result) {
-									const finalContent =
-										data.only_result.output ||
-										accumulatedContent ||
-										JSON.stringify(data.only_result.error)
-									messages = messages.map((msg) =>
-										msg.id === assistantMessageId
-											? {
-													...msg,
-													content: finalContent,
-													loading: false,
-													streaming: false
-												}
-											: msg
-									)
-									eventSource.close()
-									currentEventSource = undefined
-									isLoading = false
-								}
-							}
-						} catch (error) {
-							console.error('Error processing stream event:', error)
-						}
-					}
-
-					eventSource.onerror = (error) => {
-						console.error('EventSource error:', error)
-						messages = messages.map((msg) =>
-							msg.id === assistantMessageId
-								? {
-										...msg,
-										content: accumulatedContent || 'Stream error occurred',
-										loading: false,
-										streaming: false
-									}
-								: msg
-						)
-						eventSource.close()
-						currentEventSource = undefined
-						isLoading = false
-						sendUserToast('Stream error occurred', true)
-					}
-				} catch (error) {
-					console.error('Stream connection error:', error)
-					messages = messages.map((msg) =>
-						msg.id === assistantMessageId
-							? {
-									...msg,
-									content: 'Failed to connect to stream',
-									loading: false,
-									streaming: false
-								}
-							: msg
-					)
-					isLoading = false
-					sendUserToast('Failed to connect to stream', true)
-				}
-			} else {
-				const jobId = await onRunFlow(messageContent, currentConversationId)
-				if (!jobId) {
-					console.error('No jobId returned from onRunFlow')
-					return
-				}
-				pollJobResult(jobId, assistantMessageId)
-			}
-		} catch (error) {
-			console.error('Error running flow:', error)
-			sendUserToast('Failed to run flow: ' + error, true)
-		} finally {
-			if (!useStreaming) {
-				isLoading = false
-			}
-		}
-
-		if (isNewConversation) {
-			await refreshConversations?.()
-		}
-
-		await tick()
-		focusInput()
-	}
-
-	function handleKeyDown(event: KeyboardEvent) {
-		if (event.key === 'Enter' && !event.shiftKey) {
-			event.preventDefault()
-			sendMessage()
-		}
+	export async function loadConversationMessages(conversationId?: string) {
+		await manager.loadConversationMessages(conversationId)
 	}
 </script>
 
@@ -418,18 +76,18 @@
 	<div class="flex-1 flex flex-col min-h-0 w-full">
 		<!-- Messages Container -->
 		<div
-			bind:this={messagesContainer}
+			bind:this={manager.messagesContainer}
 			class="flex-1 overflow-y-auto p-4 bg-background"
-			onscroll={handleScroll}
+			onscroll={manager.handleScroll}
 		>
 			{#if deploymentInProgress}
 				<Alert type="warning" title="Deployment in progress" size="xs" />
 			{/if}
-			{#if isLoadingMessages}
+			{#if manager.isLoadingMessages}
 				<div class="flex items-center justify-center h-full">
 					<Loader2 size={32} class="animate-spin" />
 				</div>
-			{:else if messages.length === 0}
+			{:else if manager.messages.length === 0}
 				<div class="text-center text-tertiary flex items-center justify-center flex-col h-full">
 					<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
 					<p class="text-lg font-medium">Start a conversation</p>
@@ -437,9 +95,15 @@
 				</div>
 			{:else}
 				<div class="max-w-7xl mx-auto space-y-4">
-					{#each messages as message (message.id)}
+					{#each manager.messages as message (message.id)}
 						<FlowChatMessage {message} />
 					{/each}
+					{#if manager.isWaitingForResponse}
+						<div class="flex items-center gap-2 text-tertiary">
+							<Loader2 size={16} class="animate-spin" />
+							<span class="text-sm">Processing...</span>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -451,15 +115,12 @@
 				class:opacity-50={deploymentInProgress}
 			>
 				<textarea
-					bind:this={inputElement}
-					bind:value={inputMessage}
+					bind:this={manager.inputElement}
+					bind:value={manager.inputMessage}
 					use:autosize
-					onkeydown={handleKeyDown}
-					placeholder={deploymentInProgress
-						? 'Chat is disabled during deployment...'
-						: 'Type your message here...'}
+					onkeydown={manager.handleKeyDown}
+					placeholder="Type your message here..."
 					class="flex-1 min-h-[24px] max-h-32 resize-none !border-0 !bg-transparent text-sm placeholder-gray-400 !outline-none !ring-0 p-0 !shadow-none focus:!border-0 focus:!outline-none focus:!ring-0 focus:!shadow-none"
-					disabled={deploymentInProgress}
 					rows={3}
 				></textarea>
 				<div class="flex-shrink-0 pr-2">
@@ -468,8 +129,8 @@
 						size="xs2"
 						btnClasses="!rounded-full !p-1.5"
 						startIcon={{ icon: ArrowUp }}
-						disabled={!inputMessage?.trim() || isLoading || deploymentInProgress}
-						on:click={sendMessage}
+						disabled={!manager.inputMessage?.trim() || manager.isLoading || deploymentInProgress}
+						on:click={() => manager.sendMessage()}
 						iconOnly
 						title={deploymentInProgress ? 'Deployment in progress' : 'Send message (Enter)'}
 					/>
