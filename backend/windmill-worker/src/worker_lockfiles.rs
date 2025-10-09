@@ -150,7 +150,10 @@ pub async fn handle_dependency_job(
 ) -> error::Result<Box<RawValue>> {
     // Processing a dependency job - these jobs handle lockfile generation and dependency updates
     // for scripts, flows, and apps when their dependencies or imported scripts change
-    tracing::debug!("Processing dependency job for path: {:?}", job.runnable_path());
+    tracing::debug!(
+        "Processing dependency job for path: {:?}",
+        job.runnable_path()
+    );
     let script_path = job.runnable_path();
     let raw_deps = job
         .args
@@ -569,9 +572,11 @@ pub async fn trigger_dependents_to_recompute_dependencies(
     .fetch_all(db)
     .await?;
 
-    tracing::debug!("Triggering dependents to recompute dependencies for: {}", &script_path);
+    tracing::debug!(
+        "Triggering dependents to recompute dependencies for: {}",
+        &script_path
+    );
 
-    // TODO: Do we need already visited?
     already_visited.push(script_path.to_string());
     for s in script_importers.iter() {
         tracing::trace!("Processing dependency: {:?}", &s);
@@ -600,7 +605,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             to_raw_value(&already_visited),
         );
 
-        let debounce_key = format!("{w_id}:{}", &s.importer_path);
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
             let r =
@@ -628,22 +632,9 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 }
             }
         } else if kind == "flow" {
-            // Unlike 'script', 'flow' will not delegate redeployment of new flow to the Dep Job Handler.
-            // We will create new flow in-place.
-            // It would be harder to do otherwise.
-
             tracing::debug!("Handling flow dependency update for: {}", s.importer_path);
             // Create transaction to make operation atomic.
             let mut flow_tx = db.begin().await?;
-
-            // TODO: Is this true?
-            // We row lock here. So pull will have to wait until commited at the end.
-            // let debounce_job_id = sqlx::query_scalar!(
-            //     "SELECT job_id FROM debounce_key WHERE key = $1::text",
-            //     &debounce_key
-            // )
-            // .fetch_optional(&mut *flow_tx)
-            // .await?;
 
             // Note: Duplicate items in to_relock are handled by the accumulate_debounce_stale_data
             // function which uses DISTINCT when merging arrays
@@ -651,14 +642,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 "nodes_to_relock".to_string(),
                 to_raw_value(&s.importer_node_ids),
             );
-
-            // if let Some(id) = sqlx::query_scalar!(
-            //     "SELECT job_id FROM debounce_key WHERE key = $1",
-            //     &debounce_key
-            // )
-            // .fetch_optional(&mut *flow_tx)
-            // .await?
-            // {}
 
             let r = sqlx::query_scalar!(
                 "SELECT versions[array_upper(versions, 1)] FROM flow WHERE path = $1 AND workspace_id = $2",
@@ -709,7 +692,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         .commit()
                         .await?;
                     }
-                    tracing::error!("Failed to process flow version");
                     continue;
                 }
                 Err(err) => {
@@ -717,7 +699,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         "error getting latest deployed flow version for path {path}: {err}",
                         path = s.importer_path,
                     );
-                    tracing::error!("Failed to process flow version");
                     // Do not commit the transaction. It will be dropped and rollbacked
                     continue;
                 }
@@ -750,30 +731,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         to_raw_value(&()),
                     );
 
-                    // if triggered_by_relative_import {
-                    //         let new_version = sqlx::query_scalar!(
-                    //             "INSERT INTO app_version
-                    //     (app_id, value, created_by, raw_app)
-                    // SELECT app_id, value, created_by, raw_app
-                    // FROM app_version WHERE id = $1
-                    // RETURNING id",
-                    //             cur_version
-                    //         )
-                    //         .fetch_one(&mut *tx)
-                    //         .await
-                    //         .map_err(|e| {
-                    //             error::Error::internal_err(format!(
-                    //                 "Error updating App due to App history insert: {e:#}"
-                    //             ))
-                    //         })?;
-
-                    // job.runnable_id.replace(ScriptHash(new_version));
-                    // }
-                    // Commit the transaction.
-                    // NOTE:
-                    // We do not append app.versions with new version.
-                    // We will do this in the end of the dependency job handler.
-                    // Otherwise it might become a source of race-conditions.
                     tx.commit().await?;
                     JobPayload::AppDependencies {
                         path: s.importer_path.clone(),
@@ -809,7 +766,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         path = s.importer_path,
                     );
                     // Do not commit the transaction. It will be dropped and rollbacked
-                    tracing::error!("Failed to process flow version");
                     continue;
                 }
             }
@@ -819,7 +775,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 kind = kind,
                 path = s.importer_path
             );
-            tracing::warn!("Unexpected importer kind: {:?}", kind);
             continue;
         };
 
@@ -835,7 +790,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             permissioned_as.to_string(),
             Some("trigger.dependents.to.recompute.dependencies"),
             // Schedule for future for debouncing.
-            // TODO: make it configurable.
             Some(Utc::now() + Duration::seconds(*DEPENDENCY_JOB_DEBOUNCE_DELAY as i64)),
             None,
             None,

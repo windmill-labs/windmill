@@ -111,6 +111,9 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse().ok())
         .unwrap_or(false);
+
+    // TODO: Remove
+    static ref WMDEBUG_NO_DJOB_DEBOUNCING: bool = std::env::var("WMDEBUG_NO_DJOB_DEBOUNCING").is_ok();
 }
 
 #[cfg(feature = "cloud")]
@@ -2329,7 +2332,7 @@ pub async fn pull(
                     Some(job)
                         if job.concurrent_limit.is_some()
                             // Concurrency limit is available for either enterprise job or dependency job
-                            && (cfg!(feature = "enterprise") || job.is_dependency()) =>
+                            && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)) =>
                     {
                         let job = crate::jobs_ee::apply_concurrency_limit(
                             db,
@@ -2391,7 +2394,7 @@ pub async fn pull(
         };
 
         // Handle dependency job debouncing cleanup when a job is pulled for execution
-        if job.kind.is_dependency() {
+        if job.kind.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING {
             tracing::debug!(
                 "Processing debounce cleanup for dependency job {} at path {:?}",
                 &job.id,
@@ -2449,7 +2452,8 @@ pub async fn pull(
 
         #[cfg(not(feature = "enterprise"))]
         let has_concurent_limit = false
-            || (job.is_dependency() && /* if we don't have private flag, we don't have concurrency limit */ cfg!(feature = "private"));
+            || (job.is_dependency() && cfg!(feature = "private") && !*WMDEBUG_NO_DJOB_DEBOUNCING);
+        // if we don't have private flag, we don't have concurrency limit
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
         let pulled_job = job;
@@ -2469,7 +2473,9 @@ pub async fn pull(
         }
 
         #[cfg(feature = "private")]
-        if cfg!(feature = "enterprise") || pulled_job.is_dependency() {
+        if cfg!(feature = "enterprise")
+            || (pulled_job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)
+        {
             if let Some(pulled_job) =
                 crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, pulled_job)
                     .await?
@@ -3513,8 +3519,8 @@ pub async fn push<'c, 'd>(
         raw_flow,
         flow_status,
         language,
-        custom_concurrency_key,
-        concurrent_limit,
+        mut custom_concurrency_key,
+        mut concurrent_limit,
         concurrency_time_window_s,
         cache_ttl,
         dedicated_worker,
@@ -3691,21 +3697,15 @@ pub async fn push<'c, 'd>(
             None,
             None,
             Some(language),
-            if cfg!(feature = "private") {
-                Some(format!("dependency:{workspace_id}/script/{path}"))
-            } else {
-                None
-            },
-            if cfg!(feature = "private") {
-                Some(1)
-            } else {
-                None
-            },
+            None,
+            None,
             None,
             None,
             dedicated_worker,
             None,
         ),
+
+        // CLI usage, is not modifying db, no need for debouncing.
         JobPayload::RawScriptDependencies { script_path, content, language } => (
             None,
             Some(script_path),
@@ -3717,12 +3717,12 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
-            // TODO: debouncing
             None,
             None,
             None,
         ),
 
+        // CLI usage, is not modifying db, no need for debouncing.
         JobPayload::RawFlowDependencies { path, flow_value } => (
             None,
             Some(path),
@@ -3734,7 +3734,6 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
-            // TODO: debouncing
             None,
             None,
             None,
@@ -3760,16 +3759,8 @@ pub async fn push<'c, 'd>(
                 value_o,
                 None,
                 None,
-                if cfg!(feature = "private") {
-                    Some(format!("dependency:{workspace_id}/flow/{path}"))
-                } else {
-                    None
-                },
-                if cfg!(feature = "private") {
-                    Some(1)
-                } else {
-                    None
-                },
+                None,
+                None,
                 None,
                 None,
                 dedicated_worker,
@@ -3784,16 +3775,8 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
-            if cfg!(feature = "private") {
-                Some(format!("dependency:{workspace_id}/app/{path}"))
-            } else {
-                None
-            },
-            if cfg!(feature = "private") {
-                Some(1)
-            } else {
-                None
-            },
+            None,
+            None,
             None,
             None,
             None,
@@ -4246,6 +4229,14 @@ pub async fn push<'c, 'd>(
         ),
     };
 
+    if let (Some(path), true) = (
+        &script_path,
+        cfg!(feature = "private") && job_kind.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING,
+    ) {
+        custom_concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
+        concurrent_limit = Some(1);
+    }
+
     let final_priority: Option<i16>;
     #[cfg(not(feature = "enterprise"))]
     {
@@ -4385,12 +4376,14 @@ pub async fn push<'c, 'd>(
         scheduled_for_o.is_some(),
         job_kind.is_dependency(),
         script_path.clone(),
+        *WMDEBUG_NO_DJOB_DEBOUNCING,
     ) {
         // For this to work we need:
         // 1. schedule job in future - this will correspond to debounce delay
         // 2. job should be dependency job
         // 3. object path should be provided
-        (true, true, Some(obj_path)) => {
+        // 4. fallback is disabled
+        (true, true, Some(obj_path), false) => {
             // Generate a unique key for this dependency job based on workspace and object path
             let debounce_key = format!("{workspace_id}:{obj_path}:dependency");
 
@@ -4624,7 +4617,6 @@ pub async fn push<'c, 'd>(
         } else {
             None
         },
-        // TODO: Add debounce_delay
         custom_timeout,
         flow_step_id,
         cache_ttl,

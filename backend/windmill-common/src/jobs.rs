@@ -323,13 +323,11 @@ impl CompletedJob {
 
 #[derive(Debug, Clone)]
 pub enum JobPayload {
-    /// ???
     ScriptHub {
         path: String,
         apply_preprocessor: bool,
     },
 
-    /// ???
     ScriptHash {
         hash: ScriptHash,
         path: String,
@@ -343,7 +341,6 @@ pub enum JobPayload {
         apply_preprocessor: bool,
     },
 
-    /// Inline Flow Script?
     FlowScript {
         id: FlowNodeId, // flow_node(id).
         language: ScriptLang,
@@ -358,13 +355,11 @@ pub enum JobPayload {
         path: String,
     },
 
-    /// ???
     FlowNode {
         id: FlowNodeId, // flow_node(id).
         path: String,   // flow node inner path (e.g. `outer/branchall-42`).
     },
 
-    /// Inline App Script?
     AppScript {
         id: AppScriptId, // app_script(id).
         path: Option<String>,
@@ -372,7 +367,6 @@ pub enum JobPayload {
         cache_ttl: Option<i32>,
     },
 
-    /// ???
     Code(RawCode),
 
     /// Script Dependency Job
