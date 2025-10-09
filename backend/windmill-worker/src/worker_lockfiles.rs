@@ -600,7 +600,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             to_raw_value(&already_visited),
         );
 
-        let debounce_key = format!("{w_id}:{}", &s.importer_path);
+        let _debounce_key = format!("{w_id}:{}", &s.importer_path);
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
             let r =

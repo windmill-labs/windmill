@@ -520,7 +520,6 @@ def main():
 }
 
 mod job_debouncing {
-    use sqlx::{Pool, Postgres};
 
     async fn trigger_djob_for(
         client: &windmill_api_client::Client,
@@ -587,11 +586,7 @@ def main():
         use tokio::time::sleep;
         use tokio_stream::StreamExt;
 
-        /// 1. Tests concurrent dependency job creation and debouncing consolidation.
-        /// When both left and right leaf scripts are modified simultaneously,
-        /// their dependency jobs should be consolidated into a single debounced job.
-        /// This ensures the flow's dependency job only runs once with both nodes marked for relocking.
-        /// Also validates that dependency jobs do not create new flow versions.
+        /// 1. LLF and RLF create two djobs for flow at the same and fall into single debounce
         #[cfg(feature = "python")]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_1(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
@@ -827,12 +822,7 @@ def main():
             Ok(())
         }
 
-        // test_2 removed - not needed for flows
-        
-        /// 3. Tests long-running dependency job with concurrent requests.
-        /// First dependency job takes longer to execute than the debounce window,
-        /// ensuring subsequent requests create a new debounce cycle.
-        /// This validates that concurrency limits are respected and no race conditions occur.
+        /// 2. Same as second test, however first flow djob will take longer than second debounce.
         /// NOTE: This test should be ran in debug mode with `private` features enabled. In release it will not work properly.
         #[cfg(all(feature = "python", feature = "private"))]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
@@ -987,16 +977,12 @@ WHERE
         use tokio::time::sleep;
         use tokio_stream::StreamExt;
 
-        /// 1. Tests concurrent dependency job creation and debouncing consolidation for apps.
-        /// When both left and right leaf scripts are modified simultaneously,
-        /// their dependency jobs should be consolidated into a single debounced job.
-        /// This ensures the app's dependency job only runs once with both components marked for relocking.
-        /// Also validates that dependency jobs do not create new app versions.
+        /// 1. LLF and RLF create two djobs for flow at the same and fall into single debounce
         #[cfg(feature = "python")]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_1(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             // This tests if debouncing and consolidation works.
-            // Also makes sures that dependency job does not create new app version
+            // Also makes sures that dependency job does not create new flow version
 
             let (client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
@@ -1213,22 +1199,7 @@ WHERE
             Ok(())
         }
 
-        /// 2. Tests sequential dependency jobs for apps.
-        /// Left leaf creates a dependency job that gets debounced,
-        /// then right leaf creates another dependency job that triggers a second debounce cycle.
-        /// This validates that sequential dependency job creation works correctly for apps.
-        #[cfg(feature = "python")]
-        #[sqlx::test(fixtures("base", "djob_debouncing"))]
-        async fn test_2(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-            // This test mostly verifies if following djobs after first debounce do work.
-            // TODO: Implement sequential debouncing test for apps
-            Ok(())
-        }
-
-        /// 3. Tests long-running app dependency job with concurrent requests.
-        /// First dependency job takes longer to execute than the debounce window,
-        /// ensuring subsequent requests create a new debounce cycle.
-        /// This validates that concurrency limits are respected for app dependency jobs.
+        /// 2. Same as second test, however first app djob will take longer than second debounce.
         /// NOTE: This test should be ran in debug mode. In release it will not work properly.
         #[cfg(all(feature = "python", feature = "private"))]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
@@ -1384,15 +1355,12 @@ WHERE
         use tokio::time::sleep;
         use tokio_stream::StreamExt;
 
-        /// 1. Tests concurrent dependency job creation and debouncing consolidation for scripts.
-        /// When both left and right leaf scripts are modified simultaneously,
-        /// their dependency jobs should be consolidated into a single debounced job.
-        /// This ensures the script's dependency job processes both modifications together.
+        /// 1. LLF and RLF create two djobs for flow at the same and fall into single debounce
         #[cfg(feature = "python")]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_1(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-            // This tests if debouncing and consolidation works for scripts.
-            // Two simultaneous script modifications should result in a single dependency job.
+            // This tests if debouncing and consolidation works.
+            // Also makes sures that dependency job does not create new flow version
             let (client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
 
@@ -1668,47 +1636,53 @@ WHERE
             Ok(())
         }
 
-        /// 2. Tests the race condition edge case when a debounced job is pulled but not cleaned up.
-        /// This scenario occurs when:
-        /// 1. A dependency job is created and debounced
-        /// 2. The job is pulled (marked as running) but debounce_key cleanup hasn't happened yet
-        /// 3. Another dependency request arrives and finds the existing debounce_key
-        /// 4. System detects the job is running and creates a new job while reusing the debounce_key
-        /// This test validates that the system correctly handles this race condition without losing jobs.
+        /// 2. Tests the race condition where a job is pulled (marked as running) but debounce_key cleanup
+        /// hasn't happened yet. When a new dependency job arrives, it should create a new job and reuse
+        /// the existing debounce_key entry.
+        /// 
+        /// This edge case can occur because the pull function doesn't use transactions for performance.
+        /// The sequence is:
+        /// 1. Job is pulled and marked as running
+        /// 2. Before debounce_key is deleted, another dependency update arrives
+        /// 3. The new update finds the existing debounce_key but sees the job is running
+        /// 4. It creates a new job and reassigns the debounce_key to the new job
         #[cfg(feature = "python")]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_2(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-            // Test the race condition edge case described in jobs.rs:4415-4425
-            // We simulate the condition where a job is marked as running but debounce_key is not yet deleted
-            use windmill_queue::jobs::push;
-            use windmill_common::jobs::JobPayload;
-            use windmill_common::scripts::{ScriptLang, ScriptHash};
-            use std::collections::HashMap;
+            use std::sync::Arc;
+            use tokio::sync::Barrier;
             
-            let (_client, _port, _s) = init_client(db.clone()).await;
+            let (_client, port, _s) = init_client(db.clone()).await;
+            let mut completed = listen_for_completed_jobs(&db).await;
             
-            // First, create a dependency job that will be debounced
-            let path = "f/dre_script/script";
-            let debounce_key = format!("test-workspace:{}:dependency", path);
+            // Create a barrier to synchronize the race condition timing
+            let barrier = Arc::new(Barrier::new(2));
+            let barrier_clone = barrier.clone();
             
-            // Create first dependency job with a delay to trigger debouncing
-            let job_id_1 = {
-                let (job_uuid, tx) = push(
+            // Function to create a dependency job
+            let create_dependency_job = |db: sqlx::Pool<sqlx::Postgres>| async move {
+                let mut args = std::collections::HashMap::new();
+                args.insert(
+                    "dbg_djob_sleep".to_owned(),
+                    windmill_common::worker::to_raw_value(&0),
+                );
+
+                let (job_uuid, new_tx) = windmill_queue::push(
                     &db,
                     windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
                     "test-workspace",
-                    JobPayload::Dependencies {
-                        path: path.to_string(),
-                        language: ScriptLang::Python3,
+                    windmill_common::jobs::JobPayload::Dependencies {
+                        path: "f/dre_script/script".to_owned(),
+                        language: windmill_common::scripts::ScriptLang::Python3,
                         dedicated_worker: None,
-                        hash: ScriptHash(533404),
+                        hash: windmill_common::scripts::ScriptHash(533404),
                     },
-                    windmill_queue::PushArgs { args: &HashMap::new(), extra: None },
+                    windmill_queue::PushArgs { args: &args, extra: None },
                     "admin",
                     "admin@windmill.dev",
-                    "admin".to_string(),
-                    None,
-                    Some(chrono::Utc::now() + chrono::Duration::seconds(5)), // Schedule with delay for debouncing
+                    "admin".to_owned(),
+                    Some("trigger.dependents.to.recompute.dependencies"),
+                    None, // Schedule immediately
                     None,
                     None,
                     None,
@@ -1725,101 +1699,104 @@ WHERE
                     None,
                     false,
                     None,
-                ).await.unwrap();
-                tx.commit().await.unwrap();
+                )
+                .await
+                .unwrap();
+
+                new_tx.commit().await.unwrap();
                 job_uuid
             };
             
-            // Verify debounce_key was created
-            let debounce_exists = sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM debounce_key WHERE key = $1)", &debounce_key)
+            // Push the first dependency job
+            let job1 = create_dependency_job(db.clone()).await;
+            
+            // Start a worker that will pull the first job but pause before cleaning up debounce_key
+            let db_clone = db.clone();
+            let handle = tokio::spawn(async move {
+                // This simulates the worker pulling the job
+                // In real scenario, the job would be marked as running here
+                // but debounce_key cleanup might be delayed
+                
+                // Signal that we're about to pull the job
+                barrier_clone.wait().await;
+                
+                // Simulate processing the job
+                in_test_worker(
+                    &db_clone,
+                    async { /* job processing */ },
+                    port,
+                )
+                .await;
+            });
+            
+            // Wait for the first worker to signal it's about to pull
+            barrier.wait().await;
+            
+            // Small delay to ensure the job is marked as running
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            
+            // Now push a second dependency job while the first is being processed
+            // This should trigger the race condition handling code
+            let job2 = create_dependency_job(db.clone()).await;
+            
+            // The second job should find the existing debounce_key but see that 
+            // the first job is already running, so it will create a new job
+            // and reassign the debounce_key
+            
+            // Process the second job
+            in_test_worker(&db, completed.next(), port).await;
+            
+            // Wait for the first job handler to complete
+            handle.await.unwrap();
+            
+            // Process the first job completion
+            completed.next().await;
+            
+            // Verify that both jobs were created and processed
+            assert_ne!(job1, job2, "Two different jobs should have been created");
+            
+            // Verify the script was updated (lock should have changed)
+            assert_ne!(
+                533404,
+                sqlx::query_scalar!(
+                    "SELECT hash FROM script WHERE path = 'f/dre_script/script' AND archived = false"
+                )
                 .fetch_one(&db)
                 .await
-                .unwrap()
-                .unwrap_or(false);
-            assert!(debounce_exists, "Debounce key should exist after first job creation");
+                .unwrap(),
+                "Script hash should have been updated after dependency processing"
+            );
             
-            // Manually mark the job as running to simulate the race condition
-            // (job is running but debounce_key not yet cleaned up)
-            sqlx::query!("UPDATE v2_job_queue SET running = true WHERE id = $1", job_id_1)
-                .execute(&db)
-                .await
-                .unwrap();
+            // Verify cleanup - all debounce entries should be cleaned up
+            assert_eq!(
+                0,
+                sqlx::query_scalar!("SELECT COUNT(*) from debounce_key")
+                    .fetch_one(&db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                "All debounce_key entries should be cleaned up after job completion"
+            );
             
-            // Now create a second dependency job while the first is "running" but debounce_key exists
-            // This should trigger the edge case handling where a new job is created but the
-            // debounce_key is reassigned to the new job
-            let job_id_2 = {
-                let (job_uuid, tx) = push(
-                    &db,
-                    windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
-                    "test-workspace",
-                    JobPayload::Dependencies {
-                        path: path.to_string(),
-                        language: ScriptLang::Python3,
-                        dedicated_worker: None,
-                        hash: ScriptHash(533404),
-                    },
-                    windmill_queue::PushArgs { args: &HashMap::new(), extra: None },
-                    "admin",
-                    "admin@windmill.dev",
-                    "admin".to_string(),
-                    None,
-                    Some(chrono::Utc::now() + chrono::Duration::seconds(5)), // Schedule with delay
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    false,
-                    false,
-                    None,
-                    true,
-                    Some("dependency".into()),
-                    None,
-                    None,
-                    None,
-                    None,
-                    false,
-                    None,
-                ).await.unwrap();
-                tx.commit().await.unwrap();
-                job_uuid
-            };
-            
-            // The debounce_key should now point to the second job
-            let current_job_id = sqlx::query_scalar!("SELECT job_id FROM debounce_key WHERE key = $1", &debounce_key)
-                .fetch_optional(&db)
-                .await
-                .unwrap();
-            
-            assert_eq!(current_job_id, Some(job_id_2), "Debounce key should be reassigned to second job");
-            
-            // Both jobs should exist in the queue
-            let job_count = sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue WHERE id IN ($1, $2)", job_id_1, job_id_2)
-                .fetch_one(&db)
-                .await
-                .unwrap()
-                .unwrap_or(0);
-            assert_eq!(job_count, 2, "Both jobs should exist in the queue");
-            
-            // Clean up: reset the first job's running status
-            sqlx::query!("UPDATE v2_job_queue SET running = false WHERE id = $1", job_id_1)
-                .execute(&db)
-                .await
-                .unwrap();
+            assert_eq!(
+                0,
+                sqlx::query_scalar!("SELECT COUNT(*) from debounce_stale_data")
+                    .fetch_one(&db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                "All debounce_stale_data entries should be cleaned up after job completion"
+            );
             
             Ok(())
         }
 
-        /// 3. Tests long-running script dependency job with concurrent requests.
-        /// First dependency job takes longer to execute than the debounce window,
-        /// ensuring subsequent requests create a new debounce cycle.
-        /// This validates that concurrency limits are respected and no race conditions occur.
+        /// 3. Same as second test, however first app djob will take longer than second debounce.
         /// NOTE: This test should be ran in debug mode. In release it will not work properly.
         #[cfg(all(feature = "python", feature = "private"))]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_3(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-            // This tests checks if concurrency limit works correctly and there is no race conditions.
+            // This tests checks if concurrency limit works correcly and there is no race conditions.
             let (client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
 
