@@ -53,19 +53,6 @@ mod dependency_map {
     async fn init(db: Pool<Postgres>) -> (windmill_api_client::Client, u16, ApiServer) {
         init_client(db).await
     }
-    async fn rebuild_dmap(client: &windmill_api_client::Client) -> bool {
-        client
-            .client()
-            .post(format!(
-                "{}/w/test-workspace/workspaces/rebuild_dependency_map",
-                client.baseurl()
-            ))
-            .send()
-            .await
-            .unwrap()
-            .status()
-            .is_success()
-    }
 
     async fn _clear_dmap(db: &Pool<Postgres>) {
         sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = 'test-workspace'")
@@ -850,7 +837,7 @@ def main():
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_3(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             // This tests checks if concurrency limit works correcly and there is no race conditions.
-            let (client, port, _s) = init_client(db.clone()).await;
+            let (_client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
 
             // At this point we should have two

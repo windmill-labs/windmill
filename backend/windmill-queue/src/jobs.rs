@@ -2361,7 +2361,7 @@ pub async fn pull(
                 &job.id,
                 &job.runnable_path
             );
-            
+
             // IMPORTANT: We delete by job_id and NOT by debounce_key to avoid race conditions.
             // The debounce_key entry may be reused if the job it points to is already running,
             // in which case we reassign a different job_id to it (see push logic above).
@@ -2371,45 +2371,36 @@ pub async fn pull(
                 .execute(db)
                 .await?;
 
-            // Retrieve and merge accumulated stale data for debounced requests.
-            // This ensures that all nodes/components that need relocking are processed,
-            // even from requests that were debounced and didn't create their own jobs.
-            if let Some(stale_data) = sqlx::query_scalar!(
-                "DELETE FROM debounce_stale_data WHERE job_id = $1 RETURNING to_relock",
-                &job.id
-            )
-            .fetch_optional(db)
-            .await?
-            .flatten()
-            {
-                tracing::debug!(
-                    "Retrieved {} accumulated nodes/components to relock for job {}",
-                    stale_data.len(),
+            // Determine which field to update based on job type (flows vs apps)
+            if let Some(to_relock_field) = match &job.kind {
+                JobKind::FlowDependencies => Some("nodes_to_relock"),
+                JobKind::AppDependencies => Some("components_to_relock"),
+                // We don't about stale data if it is a script
+                _ => None,
+            } {
+                // Retrieve and merge accumulated stale data for debounced requests.
+                // This ensures that all nodes/components that need relocking are processed,
+                // even from requests that were debounced and didn't create their own jobs.
+                if let Some(stale_data) = sqlx::query_scalar!(
+                    "DELETE FROM debounce_stale_data WHERE job_id = $1 RETURNING to_relock",
                     &job.id
-                );
-                
-                // Determine which field to update based on job type (flows vs apps)
-                let to_relock_field = if job
-                    .args
-                    .as_ref()
-                    .map(|args| args.contains_key("nodes_to_relock"))
-                    .unwrap_or_default()
+                )
+                .fetch_optional(db)
+                .await?
+                .flatten()
                 {
-                    "nodes_to_relock"
-                } else {
-                    "components_to_relock"
-                };
+                    tracing::debug!(
+                        "Retrieved {} accumulated nodes/components to relock for job {}",
+                        stale_data.len(),
+                        &job.id
+                    );
 
-                // Replace the original relock list with the accumulated one
-                job.args.as_mut().map(|args| {
-                    if let Some(to_relock) = args.get_mut(to_relock_field) {
-                        *to_relock = to_raw_value(&stale_data);
-                        tracing::debug!(
-                            "Updated {} field with accumulated data",
-                            to_relock_field
-                        );
-                    }
-                });
+                    // Replace the original relock list with the accumulated one
+                    job.args.as_mut().map(|args| {
+                        args.insert(to_relock_field.to_owned(), to_raw_value(&stale_data));
+                        tracing::debug!("Updated {} field with accumulated data", to_relock_field);
+                    });
+                }
             }
         }
 
@@ -2597,8 +2588,8 @@ pub async fn custom_debounce_key(
 /// Helper function to extract nodes/components to relock from job arguments
 /// Returns the list of nodes to relock if present in either nodes_to_relock (flows) or components_to_relock (apps)
 fn extract_to_relock_from_args(args: &HashMap<String, Box<RawValue>>) -> Option<Vec<String>> {
-    args.get("nodes_to_relock")  // For flows
-        .or(args.get("components_to_relock"))  // For apps
+    args.get("nodes_to_relock") // For flows
+        .or(args.get("components_to_relock")) // For apps
         .and_then(|rv| serde_json::from_str::<Vec<String>>(&rv.to_string()).ok())
 }
 
@@ -4347,20 +4338,27 @@ pub async fn push<'c, 'd>(
 
     // Dependency job debouncing: When multiple dependency jobs are scheduled for the same script/flow/app,
     // we want to deduplicate them to avoid redundant work. The debouncing mechanism works by:
-    // 1. Creating a unique debounce key for each dependency target (workspace:path:dependency)
-    // 2. Reusing existing job IDs when possible, or creating new ones when the existing job is already running
+    // 1. Creating a unique debounce key for each dependency target (dependency:workspace/type/path)
+    // 2. Reusing existing jobs when possible, or creating new ones when the existing job is already running
     // 3. Accumulating the nodes/components that need relocking across all debounced requests
     match (
         scheduled_for_o.is_some(),
         job_kind.is_dependency(),
         script_path.clone(),
     ) {
+        // For this to work we need:
+        // 1. schedule job in future - this will correspond to debounce delay
+        // 2. job should be dependency job
+        // 3. object path should be provided
         (true, true, Some(obj_path)) => {
             // Generate a unique key for this dependency job based on workspace and object path
             let debounce_key = format!("{workspace_id}:{obj_path}:dependency");
-            
-            tracing::debug!("Checking for existing debounce job with key: {}", &debounce_key);
-            
+
+            tracing::debug!(
+                "Checking for existing debounce job with key: {}",
+                &debounce_key
+            );
+
             // Check if there's already a job registered for this debounce key
             if let Some(debounce_job_id) = sqlx::query_scalar!(
                 "SELECT job_id FROM debounce_key WHERE key = $1::text",
@@ -4370,9 +4368,21 @@ pub async fn push<'c, 'd>(
             .await?
             {
                 tracing::debug!("Found existing debounce job: {}", &debounce_job_id);
-                
+
                 // If the existing job is already running, we need to create a new job
                 // but reuse the debounce_key entry to maintain continuity
+                //
+                // This covers and edge case with race condition
+                // so this will normally never execute.
+                //
+                // On every pull debounce_key is always cleaned up.
+                // however we are not using transaction in pull for maximum perf.
+                //
+                // bc of that job is being marked as running before debounce_key is removed
+                // in this case we already know that job has been pulled and we missed debounce
+                // that's why we create new debounce.
+                //
+                // we will just reuse existing entry for another debounce.
                 if sqlx::query_scalar!(
                     "SELECT running FROM v2_job_queue WHERE id = $1",
                     &debounce_job_id
@@ -4381,7 +4391,10 @@ pub async fn push<'c, 'd>(
                 .await?
                     == Some(true)
                 {
-                    tracing::debug!("Existing job is running, assigning new job_id {} to debounce_key", job_id);
+                    tracing::debug!(
+                        "You are lucky. Job has been pulled but debounce key hasn't been cleaned up yet, assigning new job_id {} to debounce_key",
+                        job_id
+                    );
                     sqlx::query!(
                         "UPDATE debounce_key SET job_id = $2 WHERE key = $1",
                         &debounce_key,
@@ -4390,13 +4403,16 @@ pub async fn push<'c, 'd>(
                     .execute(&mut *tx)
                     .await?;
                 }
-                
+
                 // Accumulate the nodes/components that need relocking from this request
                 // This ensures all dependency updates are handled even if jobs are debounced
                 if let Some(to_relock) = extract_to_relock_from_args(&args.args) {
-                    tracing::debug!("Accumulating {} nodes/components to relock for job {}", 
-                                   to_relock.len(), &debounce_job_id);
-                    
+                    tracing::debug!(
+                        "Accumulating {} nodes/components to relock for job {}",
+                        to_relock.len(),
+                        &debounce_job_id
+                    );
+
                     accumulate_debounce_stale_data(&mut tx, &debounce_job_id, &to_relock).await?;
                 }
 
@@ -4405,7 +4421,7 @@ pub async fn push<'c, 'd>(
             } else {
                 // No existing debounce entry, create a new one
                 tracing::debug!("Creating new debounce entry for key: {}", &debounce_key);
-                
+
                 sqlx::query!(
                     "INSERT INTO debounce_key (key, job_id) VALUES ($1, $2)",
                     &debounce_key,
@@ -4413,12 +4429,15 @@ pub async fn push<'c, 'd>(
                 )
                 .execute(&mut *tx)
                 .await?;
-                
+
                 // Store initial nodes/components to relock if provided
                 if let Some(to_relock) = extract_to_relock_from_args(&args.args) {
-                    tracing::debug!("Storing initial {} nodes/components to relock for new job {}", 
-                                   to_relock.len(), job_id);
-                    
+                    tracing::debug!(
+                        "Storing initial {} nodes/components to relock for new job {}",
+                        to_relock.len(),
+                        job_id
+                    );
+
                     accumulate_debounce_stale_data(&mut tx, &job_id, &to_relock).await?;
                 }
             }
@@ -4426,9 +4445,6 @@ pub async fn push<'c, 'd>(
         _ => {}
     };
 
-    // TODO: This thing should create if does not exist.
-    // And do nothing if debounced
-    // TODO: Write test the verify this is not the case
     if concurrent_limit.is_some() {
         insert_concurrency_key(
             workspace_id,
