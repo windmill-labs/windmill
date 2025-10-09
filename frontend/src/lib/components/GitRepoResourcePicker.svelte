@@ -2,9 +2,10 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button, Drawer, DrawerContent } from './common'
-	import { GitBranch, Loader2 } from 'lucide-svelte'
+	import { GitBranch, Loader2, FolderOpen } from 'lucide-svelte'
 	import Select from './select/Select.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { extractDelegateToGitRepoConfig, getInventoryFiles } from '$lib/ansibleUtils'
 
 	interface Props {
 		open: boolean
@@ -21,7 +22,10 @@
 			resourcePath: string;
 			playbook?: string;
 			inventoriesLocation?: string;
-		}
+		};
+		addInventories: {
+			inventoryPaths: string[];
+		};
 	}>()
 
 	let drawer: Drawer | undefined = $state(undefined)
@@ -30,6 +34,7 @@
 	let selectedResource = $state<string | undefined>(undefined)
 	let playbook = $state('')
 	let inventoriesLocation = $state('')
+	let loadingInventories = $state(false)
 
 	async function loadGitRepoResources() {
 		if (!$workspaceStore) return
@@ -74,7 +79,79 @@
 
 	function handleClose() {
 		selectedResource = undefined
+		playbook = ''
+		inventoriesLocation = ''
+		loadingInventories = false
 		open = false
+	}
+
+	export async function getInventoryFiles(resourcePath: string, inventoriesPath: string, commitHash): Promise<string[]> {
+		// Simulate API call delay
+		await new Promise(resolve => setTimeout(resolve, 500))
+
+		const rootPath= `gitrepos/${$workspaceStore}/${resourcePath}/${commitHash}/`
+		let files = await HelpersSerivce.listGitRepoFiles({
+			workspace: $workspaceStore!,
+			maxKeys: 100,
+			marker: undefined,
+			prefix: `${rootPath}/${inventoriesPath}`
+
+
+		})
+
+		console.log(files)
+
+		// Return dummy data for testing
+		return [
+			'production.yml',
+			'staging.yml',
+			'development.yml',
+			'production.yml',
+			'production.yml',
+			'production.yml',
+			'production.yml',
+			'production.yml',
+			'production.yml',
+			'production.yml',
+			'production.yml',
+			'staging.yml',
+			'development.yml',
+			'staging.yml',
+			'development.yml',
+			'staging.yml',
+			'development.yml',
+			'staging.yml',
+			'development.yml',
+			'staging.yml',
+			'development.yml',
+			'staging.yml',
+			'development.yml',
+			'staging.yml',
+			'development.yml',
+			'staging.yml',
+			'development.yml'
+		]
+	}
+	async function handleAddInventories() {
+		if (!selectedResource || !inventoriesLocation.trim()) return
+		
+		loadingInventories = true
+		try {
+			const inventoryFiles = await getInventoryFiles(selectedResource, inventoriesLocation.trim())
+			
+			// Dispatch event to update the script with additional_inventories
+			dispatch('addInventories', {
+				inventoryPaths: inventoryFiles
+			})
+			
+			// TODO: Add success feedback
+			console.log('Added inventories:', inventoryFiles)
+		} catch (error) {
+			console.error('Failed to load inventory files:', error)
+			// TODO: Add error feedback
+		} finally {
+			loadingInventories = false
+		}
 	}
 </script>
 
@@ -161,6 +238,26 @@
 				<p class="text-xs text-tertiary">
 					Specify the directory containing your inventory files relative to the git repository root
 				</p>
+				
+				{#if inventoriesLocation.trim() && selectedResource}
+					<div class="mt-2">
+						<Button
+							color="light"
+							variant="border"
+							size="xs"
+							disabled={loadingInventories}
+							startIcon={{ icon: loadingInventories ? Loader2 : FolderOpen }}
+							onclick={handleAddInventories}
+							btnClasses={loadingInventories ? 'animate-pulse' : ''}
+						>
+							{#if loadingInventories}
+								Loading inventories...
+							{:else}
+								Add available inventories to script
+							{/if}
+						</Button>
+					</div>
+				{/if}
 			</div>
 
 			<div class="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">

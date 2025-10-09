@@ -54,7 +54,7 @@
 	import S3FilePicker from './S3FilePicker.svelte'
 	import GitRepoViewer from './GitRepoViewer.svelte'
 	import GitRepoResourcePicker from './GitRepoResourcePicker.svelte'
-	import { insertDelegateToGitRepoInCode, updateDelegateToGitRepoConfig } from '$lib/ansibleUtils'
+	import { insertDelegateToGitRepoInCode, updateDelegateToGitRepoConfig, insertAdditionalInventories } from '$lib/ansibleUtils'
 
 	interface Props {
 		// Exported
@@ -319,6 +319,17 @@
 			playbook: event.detail.playbook,
 			inventories_location: event.detail.inventoriesLocation
 		})
+		editor.setCode(newCode)
+
+		// Trigger schema inference to update assets
+		inferSchema(newCode)
+	}
+
+	function handleAddInventories(event: { detail: { inventoryPaths: string[] } }) {
+		if (!editor) return
+
+		const currentCode = editor.getCode()
+		const newCode = insertAdditionalInventories(currentCode, event.detail.inventoryPaths)
 		editor.setCode(newCode)
 
 		// Trigger schema inference to update assets
@@ -911,4 +922,5 @@
 	currentResource={ansibleAlternativeExecutionMode?.resource}
 	currentCode={code}
 	on:selected={handleDelegateConfigUpdate}
+	on:addInventories={handleAddInventories}
 />
