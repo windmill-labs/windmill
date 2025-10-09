@@ -2626,7 +2626,11 @@ pub async fn custom_debounce_key(
 fn extract_to_relock_from_args(args: &HashMap<String, Box<RawValue>>) -> Option<Vec<String>> {
     args.get("nodes_to_relock") // For flows
         .or(args.get("components_to_relock")) // For apps
-        .and_then(|rv| serde_json::from_str::<Vec<String>>(&rv.to_string()).ok())
+        .and_then(|rv| {
+            serde_json::from_str::<Vec<String>>(&rv.to_string())
+                .map_err(|e| tracing::warn!("Failed to deserialize relock data: {}", e))
+                .ok()
+        })
 }
 
 /// Helper function to accumulate nodes/components to relock for a debounced job
