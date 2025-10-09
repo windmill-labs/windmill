@@ -9,6 +9,7 @@ mod agent_workers;
 #[cfg(feature = "python")]
 mod ansible_executor;
 mod bash_executor;
+mod pwsh_executor;
 
 #[cfg(feature = "java")]
 mod java_executor;
