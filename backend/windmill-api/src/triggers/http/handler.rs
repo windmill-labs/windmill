@@ -603,19 +603,24 @@ async fn conditional_cors_middleware(
 ) -> Response {
     let mut response = next.run(req).await;
 
-    // Only add CORS headers if Access-Control-Allow-Origin is not already present
-    if !response.headers().contains_key(http::header::ACCESS_CONTROL_ALLOW_ORIGIN) {
-        let headers = response.headers_mut();
+    let headers = response.headers_mut();
 
-        // Add wildcard CORS headers
+    // Add each CORS header only if not already present
+    if !headers.contains_key(http::header::ACCESS_CONTROL_ALLOW_ORIGIN) {
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
             http::HeaderValue::from_static("*"),
         );
+    }
+
+    if !headers.contains_key(http::header::ACCESS_CONTROL_ALLOW_METHODS) {
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_METHODS,
             http::HeaderValue::from_static("GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS"),
         );
+    }
+
+    if !headers.contains_key(http::header::ACCESS_CONTROL_ALLOW_HEADERS) {
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_HEADERS,
             http::HeaderValue::from_static("content-type, authorization"),
