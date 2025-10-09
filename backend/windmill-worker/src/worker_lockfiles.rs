@@ -13,7 +13,6 @@ use serde_json::value::RawValue;
 use serde_json::{from_value, json, Value};
 use sha2::Digest;
 use sqlx::types::Json;
-use tokio::time::sleep;
 use uuid::Uuid;
 use windmill_common::assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind};
 use windmill_common::error::Error;
@@ -48,6 +47,9 @@ lazy_static::lazy_static! {
     static ref WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_FLOW_VERSION_ON_DJ").is_ok();
     static ref WMDEBUG_NO_NEW_APP_VERSION_ON_DJ: bool = std::env::var("WMDEBUG_NO_NEW_APP_VERSION_ON_DJ").is_ok();
     static ref WMDEBUG_NO_COMPONENTS_TO_RELOCK: bool = std::env::var("WMDEBUG_NO_COMPONENTS_TO_RELOCK").is_ok();
+    static ref DEPENDENCY_JOB_DEBOUNCE_DELAY: usize = std::env::var("DEPENDENCY_JOB_DEBOUNCE_DELAY").ok().and_then(|flag| flag.parse().ok()).unwrap_or(
+        if cfg!(test) { /* if test we want increased debouncing delay */ 15 } else { 5 }
+    );
 }
 
 use crate::common::OccupancyMetrics;
@@ -567,11 +569,14 @@ pub async fn trigger_dependents_to_recompute_dependencies(
     .fetch_all(db)
     .await?;
 
+    dbg!("trigger dependents for", &script_path);
+
     // TODO: Do we need already visited?
     already_visited.push(script_path.to_string());
     for s in script_importers.iter() {
         dbg!(&s);
         if already_visited.contains(&s.importer_path) {
+            dbg!("skip");
             continue;
         }
 
@@ -618,6 +623,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         path = s.importer_path,
                         err = err
                     );
+                    dbg!("err");
                     continue;
                 }
             }
@@ -626,17 +632,18 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             // We will create new flow in-place.
             // It would be harder to do otherwise.
 
+            dbg!("handle flow");
             // Create transaction to make operation atomic.
             let mut flow_tx = db.begin().await?;
 
             // TODO: Is this true?
             // We row lock here. So pull will have to wait until commited at the end.
-            let debounce_job_id = sqlx::query_scalar!(
-                "SELECT job_id FROM debounce_key WHERE key = $1::text",
-                &debounce_key
-            )
-            .fetch_optional(&mut *flow_tx)
-            .await?;
+            // let debounce_job_id = sqlx::query_scalar!(
+            //     "SELECT job_id FROM debounce_key WHERE key = $1::text",
+            //     &debounce_key
+            // )
+            // .fetch_optional(&mut *flow_tx)
+            // .await?;
 
             // TODO: What if to_relock has repeating items?
             args.insert(
@@ -701,6 +708,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         .commit()
                         .await?;
                     }
+                    dbg!("err");
                     continue;
                 }
                 Err(err) => {
@@ -708,11 +716,13 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         "error getting latest deployed flow version for path {path}: {err}",
                         path = s.importer_path,
                     );
+                    dbg!("err");
                     // Do not commit the transaction. It will be dropped and rollbacked
                     continue;
                 }
             }
         } else if kind == "app" && !*WMDEBUG_NO_NEW_APP_VERSION_ON_DJ {
+            dbg!("handle flow");
             // Create transaction to make operation atomic.
             let mut tx = db.begin().await?;
 
@@ -740,21 +750,21 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                     );
 
                     // if triggered_by_relative_import {
-                    let new_version = sqlx::query_scalar!(
-                        "INSERT INTO app_version
-                (app_id, value, created_by, raw_app)
-            SELECT app_id, value, created_by, raw_app
-            FROM app_version WHERE id = $1
-            RETURNING id",
-                        cur_version
-                    )
-                    .fetch_one(&mut *tx)
-                    .await
-                    .map_err(|e| {
-                        error::Error::internal_err(format!(
-                            "Error updating App due to App history insert: {e:#}"
-                        ))
-                    })?;
+                    //         let new_version = sqlx::query_scalar!(
+                    //             "INSERT INTO app_version
+                    //     (app_id, value, created_by, raw_app)
+                    // SELECT app_id, value, created_by, raw_app
+                    // FROM app_version WHERE id = $1
+                    // RETURNING id",
+                    //             cur_version
+                    //         )
+                    //         .fetch_one(&mut *tx)
+                    //         .await
+                    //         .map_err(|e| {
+                    //             error::Error::internal_err(format!(
+                    //                 "Error updating App due to App history insert: {e:#}"
+                    //             ))
+                    //         })?;
 
                     // job.runnable_id.replace(ScriptHash(new_version));
                     // }
@@ -768,7 +778,8 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         path: s.importer_path.clone(),
                         // Point Dep Job to the new version.
                         // We do this since we want to assume old ones are immutable.
-                        version: new_version,
+                        // version: new_version,
+                        version: cur_version,
                     }
                 }
                 Ok(None) => {
@@ -788,6 +799,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         .commit()
                         .await?;
                     }
+                    dbg!("err");
                     continue;
                 }
                 Err(err) => {
@@ -796,6 +808,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         path = s.importer_path,
                     );
                     // Do not commit the transaction. It will be dropped and rollbacked
+                    dbg!("err");
                     continue;
                 }
             }
@@ -805,30 +818,24 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 kind = kind,
                 path = s.importer_path
             );
+            dbg!("unexpected importer kind");
             continue;
         };
 
-        // let j = Value::String("test".to_owned());
-        // let rv = RawValue::from(j);
-        let (job_uuid, mut new_tx) = windmill_queue::push(
+        dbg!("PUSH DEPENDENTS TO RECOMPUTE");
+        let (job_uuid, new_tx) = windmill_queue::push(
             db,
             tx,
             &w_id,
             job_payload,
-            windmill_queue::PushArgs {
-                args: &args,
-                extra: None,
-                // extra: Some(HashMap::from([(
-                //     "debounce_key".to_owned(),
-                //     to_raw_value(&debounce_key),
-                // )])),
-            },
+            windmill_queue::PushArgs { args: &args, extra: None },
             &created_by,
             email,
             permissioned_as.to_string(),
             Some("trigger.dependents.to.recompute.dependencies"),
-            Some(Utc::now() + Duration::seconds(5)),
-            // None,
+            // Schedule for future for debouncing.
+            // TODO: make it configurable.
+            Some(Utc::now() + Duration::seconds(*DEPENDENCY_JOB_DEBOUNCE_DELAY as i64)),
             None,
             None,
             None,
@@ -848,18 +855,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             None,
         )
         .await?;
-
-        // sqlx::query!(
-        //     // "
-        //     //     UPDATE v2_job_queue SET suspend = 1, suspend_until = NULL WHERE id = $1
-        //     // ",
-        //     "
-        //         UPDATE v2_job_queue SET suspend = 1, suspend_until = (now() + INTERVAL '25 seconds'), running = true WHERE id = $1
-        //     ",
-        //     &job_uuid
-        // )
-        // .execute(&mut *new_tx)
-        // .await?;
 
         tracing::info!(
             "pushed dependency job due to common python path: {job_uuid} for path {path}",
@@ -902,22 +897,6 @@ pub async fn handle_flow_dependency_job(
         })
         .flatten()
         .unwrap_or(false);
-
-    // Only used for testing in tests/relative_imports.rs
-    // Give us some space to work with.
-    #[cfg(debug_assertions)]
-    if let Some(dbg_djob_sleep) = job
-        .args
-        .as_ref()
-        .map(|x| {
-            x.get("dbg_djob_sleep")
-                .map(|v| serde_json::from_str::<u32>(v.get()).ok())
-                .flatten()
-        })
-        .flatten()
-    {
-        sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
-    }
 
     let triggered_by_relative_import = job
         .args
@@ -2192,7 +2171,7 @@ pub async fn handle_app_dependency_job(
         )
     })?;
 
-    let id = job
+    let mut id = job
         .runnable_id
         .clone()
         .ok_or_else(|| Error::internal_err("App Dependency requires script hash".to_owned()))?
@@ -2214,25 +2193,29 @@ pub async fn handle_app_dependency_job(
         .map(|x| x.get("triggered_by_relative_import").is_some())
         .unwrap_or_default();
 
-    // if triggered_by_relative_import {
-    //     let new_version = sqlx::query_scalar!(
-    //         "INSERT INTO app_version
-    //             (app_id, value, created_by, raw_app)
-    //         SELECT app_id, value, created_by, raw_app
-    //         FROM app_version WHERE id = $1
-    //         RETURNING id",
-    //         cur_version
-    //     )
-    //     .fetch_one(&mut *tx)
-    //     .await
-    //     .map_err(|e| {
-    //         error::Error::internal_err(format!(
-    //             "Error updating App due to App history insert: {e:#}"
-    //         ))
-    //     })?;
+    if let Some(runnable_id) = &mut job.runnable_id {
+        if triggered_by_relative_import {
+            let new_version = sqlx::query_scalar!(
+                "INSERT INTO app_version
+                (app_id, value, created_by, raw_app)
+            SELECT app_id, value, created_by, raw_app
+            FROM app_version WHERE id = $1
+            RETURNING id",
+                **runnable_id
+            )
+            .fetch_one(db)
+            .await
+            .map_err(|e| {
+                error::Error::internal_err(format!(
+                    "Error updating App due to App history insert: {e:#}"
+                ))
+            })?;
 
-    //     job.runnable_id.replace(ScriptHash(new_version));
-    // }
+            // Update version, so downstream code will use new one.
+            *runnable_id = ScriptHash(new_version);
+            id = new_version;
+        }
+    }
 
     sqlx::query!(
         "DELETE FROM workspace_runnable_dependencies WHERE app_path = $1 AND workspace_id = $2",

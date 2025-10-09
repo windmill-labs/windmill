@@ -2288,9 +2288,13 @@ pub async fn pull(
                     (job, false)
                 };
 
-                #[cfg(all(feature = "enterprise", feature = "private"))]
                 let pulled_job_result = match job {
-                    Some(job) if job.concurrent_limit.is_some() => {
+                    #[cfg(feature = "private")]
+                    Some(job)
+                        if job.concurrent_limit.is_some()
+                            // Concurrency limit is available for either enterprise job or dependency job
+                            && (cfg!(feature = "enterprise") || job.is_dependency()) =>
+                    {
                         let job = crate::jobs_ee::apply_concurrency_limit(
                             db,
                             pull_loop_count,
@@ -2306,10 +2310,6 @@ pub async fn pull(
                     }
                     _ => PulledJobResult { job, suspended, missing_concurrency_key: false },
                 };
-
-                #[cfg(not(all(feature = "enterprise", feature = "private")))]
-                let pulled_job_result =
-                    PulledJobResult { job, suspended, missing_concurrency_key: false };
 
                 Ok::<_, Error>(pulled_job_result)
             }?;
@@ -2356,6 +2356,7 @@ pub async fn pull(
 
         if job.kind.is_dependency() {
             dbg!("WE DELETE debounce key and stuff");
+            dbg!(&job.runnable_path);
             // IMPORTANT:
             // we remove by job_id and NOT by debounce_key.
             // see how we [push] jobs for more context.
@@ -2408,7 +2409,8 @@ pub async fn pull(
         }
 
         #[cfg(not(feature = "enterprise"))]
-        let has_concurent_limit = false || job.is_dependency();
+        let has_concurent_limit = false
+            || (job.is_dependency() && /* if we don't have private flag, we don't have concurrency limit */ cfg!(feature = "private"));
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
         let pulled_job = job;
@@ -2427,12 +2429,14 @@ pub async fn pull(
             });
         }
 
-        #[cfg(all(feature = "enterprise", feature = "private"))]
-        if let Some(pulled_job) =
-            crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, pulled_job)
-                .await?
-        {
-            return Ok(pulled_job);
+        #[cfg(feature = "private")]
+        if cfg!(feature = "enterprise") || pulled_job.is_dependency() {
+            if let Some(pulled_job) =
+                crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, pulled_job)
+                    .await?
+            {
+                return Ok(pulled_job);
+            }
         }
     }
 }
@@ -2576,21 +2580,6 @@ pub async fn custom_debounce_key(
         );
     })
     .await
-}
-
-async fn debounce_key(
-    db: &Pool<Postgres>,
-    id: &Uuid,
-) -> windmill_common::error::Result<Option<String>> {
-    custom_debounce_key(db, id)
-        .await
-        .map(|x| {
-            if x.is_none() {
-                tracing::info!("No debounce key found for job {id}, defaulting to empty string");
-            }
-            return x;
-        })
-        .map_err(|e| Error::internal_err(format!("Could not get debounce key for job {id}: {e:#}")))
 }
 
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
@@ -3617,14 +3606,22 @@ pub async fn push<'c, 'd>(
         ),
         JobPayload::Dependencies { hash, language, path, dedicated_worker } => (
             Some(hash.0),
-            Some(path),
+            Some(path.clone()),
             None,
             JobKind::Dependencies,
             None,
             None,
             Some(language),
-            None,
-            None,
+            if cfg!(feature = "private") {
+                Some(format!("dependency:{workspace_id}/script/{path}"))
+            } else {
+                None
+            },
+            if cfg!(feature = "private") {
+                Some(1)
+            } else {
+                None
+            },
             None,
             None,
             dedicated_worker,
@@ -3641,10 +3638,12 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
+            // TODO: debouncing
             None,
             None,
             None,
         ),
+
         JobPayload::RawFlowDependencies { path, flow_value } => (
             None,
             Some(path),
@@ -3656,6 +3655,7 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
+            // TODO: debouncing
             None,
             None,
             None,
@@ -3675,15 +3675,23 @@ pub async fn push<'c, 'd>(
             };
             (
                 Some(version),
-                Some(path),
+                Some(path.clone()),
                 None,
                 JobKind::FlowDependencies,
                 value_o,
                 None,
                 None,
-                Some("dependency_job_concurrency_key".into()),
-                Some(1),
-                Some(3), // In seconds?
+                if cfg!(feature = "private") {
+                    Some(format!("dependency:{workspace_id}/flow/{path}"))
+                } else {
+                    None
+                },
+                if cfg!(feature = "private") {
+                    Some(1)
+                } else {
+                    None
+                },
+                None,
                 None,
                 dedicated_worker,
                 None,
@@ -3691,14 +3699,22 @@ pub async fn push<'c, 'd>(
         }
         JobPayload::AppDependencies { path, version } => (
             Some(version),
-            Some(path),
+            Some(path.clone()),
             None,
             JobKind::AppDependencies,
             None,
             None,
             None,
-            None,
-            None,
+            if cfg!(feature = "private") {
+                Some(format!("dependency:{workspace_id}/app/{path}"))
+            } else {
+                None
+            },
+            if cfg!(feature = "private") {
+                Some(1)
+            } else {
+                None
+            },
             None,
             None,
             None,
@@ -3799,7 +3815,8 @@ pub async fn push<'c, 'd>(
             if let Some(skip_handler) = skip_handler {
                 let mut skip_input_transforms = HashMap::<String, InputTransform>::new();
                 for (arg_name, arg_value) in skip_handler.args {
-                    skip_input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+                    skip_input_transforms
+                        .insert(arg_name, InputTransform::Static { value: arg_value });
                 }
 
                 modules.push(FlowModule {
@@ -3934,7 +3951,7 @@ pub async fn push<'c, 'd>(
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
             (
-                None,  // No version needed - flow is stored in raw_flow like FlowPreview
+                None, // No version needed - flow is stored in raw_flow like FlowPreview
                 Some(path),
                 None,
                 JobKind::SingleStepFlow,
@@ -4282,9 +4299,14 @@ pub async fn push<'c, 'd>(
 
     // TODO: if enable_debounce
     // TODO: use parent_job in the match.
-    match (job_kind.is_dependency(), script_path.clone()) {
-        (true, Some(obj_path)) => {
+    match (
+        scheduled_for_o.is_some(),
+        job_kind.is_dependency(),
+        script_path.clone(),
+    ) {
+        (true, true, Some(obj_path)) => {
             let debounce_key = format!("{workspace_id}:{obj_path}:dependency");
+            dbg!(&debounce_key);
             if let Some(debounce_job_id) = sqlx::query_scalar!(
                 "SELECT job_id FROM debounce_key WHERE key = $1::text",
                 &debounce_key
@@ -4388,6 +4410,9 @@ pub async fn push<'c, 'd>(
         _ => {}
     };
 
+    // TODO: This thing should create if does not exist.
+    // And do nothing if debounced
+    // TODO: Write test the verify this is not the case
     if concurrent_limit.is_some() {
         insert_concurrency_key(
             workspace_id,
@@ -4400,7 +4425,6 @@ pub async fn push<'c, 'd>(
         )
         .await?;
     }
-
     let stringified_args = if *JOB_ARGS_AUDIT_LOGS {
         Some(serde_json::to_string(&args).map_err(|e| {
             Error::internal_err(format!(

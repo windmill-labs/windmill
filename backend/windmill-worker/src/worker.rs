@@ -11,6 +11,7 @@
 
 use anyhow::anyhow;
 use futures::TryFutureExt;
+use tokio::time::sleep;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::scripts::hash_to_codebase_id;
@@ -954,6 +955,7 @@ pub async fn run_worker(
         );
     }
 
+    dbg!("start");
     let start_time = Instant::now();
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
@@ -994,12 +996,16 @@ pub async fn run_worker(
         });
     }
 
+    dbg!("python stuff is done");
+
     if let Some(ref netrc) = *NETRC {
         tracing::info!(worker = %worker_name, hostname = %hostname, "Writing netrc at {}/.netrc", HOME_ENV.as_str());
         write_file(&HOME_ENV, ".netrc", netrc).expect("could not write netrc");
     }
 
     create_directory_async(&worker_dir).await;
+
+    dbg!("worker dir created");
 
     if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -1383,6 +1389,7 @@ pub async fn run_worker(
 
     let mut killpill_rx2 = killpill_rx.resubscribe();
 
+    dbg!("starting loop");
     loop {
         let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst);
         if last_processing_duration_secs > 5 {
@@ -2533,6 +2540,22 @@ pub async fn handle_queued_job(
             logs.push_str("---\n");
             logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
             logs.push_str("---\n");
+        }
+
+        // Only used for testing in tests/relative_imports.rs
+        // Give us some space to work with.
+        #[cfg(debug_assertions)]
+        if let Some(dbg_djob_sleep) = job
+            .args
+            .as_ref()
+            .map(|x| {
+                x.get("dbg_djob_sleep")
+                    .map(|v| serde_json::from_str::<u32>(v.get()).ok())
+                    .flatten()
+            })
+            .flatten()
+        {
+            sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
         }
 
         tracing::debug!(

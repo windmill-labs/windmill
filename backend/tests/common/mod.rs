@@ -683,6 +683,10 @@ pub async fn run_preview_relative_imports(
     Ok(())
 }
 
+/// IMPORTANT!:
+/// Do not run parallel in tests!
+///
+/// No tests can run this at the same time, will result into conflicts!!!
 pub async fn rebuild_dmap(client: &windmill_api_client::Client) -> bool {
     client
         .client()

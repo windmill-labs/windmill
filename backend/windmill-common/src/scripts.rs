@@ -9,6 +9,7 @@
 use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
+    ops::Deref,
     str::FromStr,
 };
 
@@ -131,6 +132,13 @@ impl FromStr for ScriptLang {
 #[sqlx(transparent)]
 pub struct ScriptHash(pub i64);
 
+impl Deref for ScriptHash {
+    type Target = i64;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl Into<u64> for ScriptHash {
     fn into(self) -> u64 {
         self.0 as u64
@@ -217,7 +225,10 @@ const PREVIEW_IS_ESM_CODEBASE_HASH: i64 = -44;
 const PREVIEW_IS_TAR_ESM_CODEBASE_HASH: i64 = -45;
 
 pub fn is_special_codebase_hash(hash: i64) -> bool {
-    hash == PREVIEW_IS_CODEBASE_HASH || hash == PREVIEW_IS_TAR_CODEBASE_HASH || hash == PREVIEW_IS_ESM_CODEBASE_HASH || hash == PREVIEW_IS_TAR_ESM_CODEBASE_HASH
+    hash == PREVIEW_IS_CODEBASE_HASH
+        || hash == PREVIEW_IS_TAR_CODEBASE_HASH
+        || hash == PREVIEW_IS_ESM_CODEBASE_HASH
+        || hash == PREVIEW_IS_TAR_ESM_CODEBASE_HASH
 }
 
 pub fn codebase_to_hash(is_tar: bool, is_esm: bool) -> i64 {
@@ -236,7 +247,6 @@ pub fn codebase_to_hash(is_tar: bool, is_esm: bool) -> i64 {
     }
 }
 
-
 pub fn hash_to_codebase_id(job_id: &str, hash: i64) -> Option<String> {
     match hash {
         PREVIEW_IS_CODEBASE_HASH => Some(job_id.to_string()),
@@ -246,7 +256,6 @@ pub fn hash_to_codebase_id(job_id: &str, hash: i64) -> Option<String> {
         _ => None,
     }
 }
-
 
 pub struct CodebaseInfo {
     pub is_tar: bool,

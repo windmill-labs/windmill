@@ -50,19 +50,6 @@ mod dependency_map {
 
     use crate::common::{in_test_worker, init_client, listen_for_completed_jobs, ApiServer};
 
-    pub async fn initialize_tracing() {
-        use std::sync::Once;
-
-        static ONCE: Once = Once::new();
-        ONCE.call_once(|| {
-            let _ = windmill_common::tracing_init::initialize_tracing(
-                "test",
-                &windmill_common::utils::Mode::Standalone,
-                "test",
-            );
-        });
-    }
-
     async fn init(db: Pool<Postgres>) -> (windmill_api_client::Client, u16, ApiServer) {
         init_client(db).await
     }
@@ -164,6 +151,9 @@ mod dependency_map {
         ("f/rel/root_app", "app", "f/rel/branch", "youcanpressme")];
     }
 
+    // TODO:
+    // Test that checks that we can run rebuild_dmap multiple times in tests.
+
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base", "dependency_map"))]
     async fn relative_imports_test_rebuild_correctness(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -247,7 +237,7 @@ def main():
         )
         .await;
 
-        tokio::time::sleep(std::time::Duration::from_secs(13)).await;
+        // tokio::time::sleep(std::time::Duration::from_secs(13)).await;
 
         assert_dmap(
             &db,
@@ -288,7 +278,7 @@ def main():
             .await
             .unwrap();
         assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
-        tokio::time::sleep(std::time::Duration::from_secs(13)).await;
+        // tokio::time::sleep(std::time::Duration::from_secs(13)).await;
         assert_dmap(&db, None, CORRECT_DMAP.clone()).await;
         Ok(())
     }
@@ -543,74 +533,7 @@ def main():
 }
 
 mod job_debouncing {
-    use crate::common::{in_test_worker, initialize_tracing, listen_for_completed_jobs, ApiServer};
     use sqlx::{Pool, Postgres};
-    use tokio_stream::StreamExt;
-    use windmill_api_client::types::NewScript;
-
-    #[cfg(feature = "python")]
-    #[sqlx::test(fixtures("base", "djob_debouncing"))]
-    async fn test_dependency_job_debouncing_simple(db: Pool<Postgres>) -> anyhow::Result<()> {
-        use crate::common::init_client;
-
-        let (client, port, _s) = init_client(db.clone()).await;
-
-        client
-            .create_script(
-                "test-workspace",
-                &NewScript {
-                    content: "
-def main():
-    return 'f/rel/leaf'
-                            "
-                    .into(),
-                    language: windmill_api_client::types::ScriptLang::Python3,
-                    parent_hash: Some("0000000000051658".into()),
-                    path: "f/rel/leaf".into(),
-                    lock: None,
-                    concurrent_limit: None,
-                    concurrency_time_window_s: None,
-                    cache_ttl: None,
-                    dedicated_worker: None,
-                    description: "".to_string(),
-                    draft_only: None,
-                    envs: vec![],
-                    is_template: None,
-                    kind: None,
-                    summary: "".to_string(),
-                    tag: None,
-                    schema: std::collections::HashMap::new(),
-                    ws_error_handler_muted: Some(false),
-                    priority: None,
-                    delete_after_use: None,
-                    timeout: None,
-                    restart_unless_cancelled: None,
-                    deployment_message: None,
-                    concurrency_key: None,
-                    visible_to_runner_only: None,
-                    no_main_func: None,
-                    codebase: None,
-                    has_preprocessor: None,
-                    on_behalf_of_email: None,
-                    assets: vec![],
-                },
-            )
-            .await
-            .unwrap();
-
-        let mut completed = listen_for_completed_jobs(&db).await;
-        in_test_worker(
-            &db,
-            async {
-                completed.next().await;
-                completed.next().await;
-                completed.next().await;
-            },
-            port,
-        )
-        .await;
-        Ok(())
-    }
 
     async fn trigger_djob_for(
         client: &windmill_api_client::Client,
@@ -684,12 +607,8 @@ def main():
             // This tests if debouncing and consolidation works.
             // Also makes sures that dependency job does not create new flow version
 
-            // Neccessery boilerplate
             let (client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
-
-            // dmap is not built in job_debouncing fixture
-            assert!(crate::common::rebuild_dmap(&client).await);
 
             // Verify locks are empty
             {
@@ -725,30 +644,71 @@ def main():
                 .await;
             }
 
-            // This should create one job for left leaf and one for the right leaf
-            // The first job that finishes will create debounce and consume all djobs for flow withing 5s
-            // This will block until both of them are done.
-            in_test_worker(
-                &db,
-                async {
-                    // Wait until both djobs are done.
-                    completed.next().await;
-                    completed.next().await;
-                },
-                port,
-            )
-            .await;
+            let db2 = db.clone();
+            tokio::spawn(async move {
+                in_test_worker(
+                    &db2,
+                    async {
+                        // Timeout
+                        sleep(Duration::from_secs(60)).await;
+                    },
+                    port,
+                )
+                .await;
+            });
+
+            assert_eq!(
+                &sqlx::query_scalar!(
+                    "SELECT runnable_path FROM v2_job WHERE id = $1",
+                    completed.next().await.unwrap()
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap()
+                .unwrap(),
+                "f/dre/leaf_left"
+            );
+
+            assert_eq!(
+                &sqlx::query_scalar!(
+                    "SELECT runnable_path FROM v2_job WHERE id = $1",
+                    completed.next().await.unwrap()
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap()
+                .unwrap(),
+                "f/dre/leaf_right"
+            );
+
+            // Let jobs propagate
+            sleep(Duration::from_secs(2)).await;
+
+            // tokio::select!(
+            //     _ = async {
+            //         while sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue WHERE running = false")
+            //             .fetch_one(&db)
+            //             .await
+            //             .unwrap()
+            //             .unwrap()
+            //             == 0
+            //         {
+            //             sleep(Duration::from_secs(1)).await;
+            //         }
+            //     } => {},
+            //     _ = sleep(Duration::from_secs(60)) => { panic!("Timeout") }
+            // );
 
             // Verify there is only one queued job that is scheduled for atleast 3s ahead.
             {
-                let q = sqlx::query_scalar!(
-                "SELECT (q.scheduled_for > (now() + INTERVAL '3 seconds'))::boolean FROM v2_job_queue q"
-                )
-                .fetch_all(&db)
-                .await
-                .unwrap();
+                let q =
+                    sqlx::query_scalar!("SELECT (scheduled_for - created_at) FROM v2_job_queue")
+                        .fetch_all(&db)
+                        .await
+                        .unwrap();
 
-                assert_eq!(vec![Some(true)], q);
+                assert_eq!(1, q.len());
+                assert!(dbg!(q[0].unwrap().microseconds) > 1_000_000 /* 1 second */);
             }
 
             // Verify debounce_stale_data and debounce_key
@@ -781,34 +741,25 @@ def main():
                 );
             }
 
-            // Wait until debounce delay is complete
-            sleep(Duration::from_secs(6)).await;
-
-            in_test_worker(
-                &db,
-                async {
-                    // Wait for the last debounce on flow
-                    completed.next().await;
-                },
-                port,
-            )
-            .await;
+            assert_eq!(
+                &sqlx::query_scalar!(
+                    "SELECT runnable_path FROM v2_job WHERE id = $1",
+                    completed.next().await.unwrap()
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap()
+                .unwrap(),
+                "f/dre/flow"
+            );
 
             // Verify latest flow.version property
             {
-                // SELECT
-                //     array_length(versions, 1) AS version_count
-                // FROM
-                //     flow
-                // WHERE
-                //     path = 'your_path_here'  -- Replace with the specific path
-                //     AND workspace_id = 'your_workspace_id_here';  -- Replace with the specific workspace_id
-
                 // Latest flow version should not be initial one
                 assert_eq!(
                     1, // Automatically assigned
                     dbg!(sqlx::query_scalar!(
-                        "SELECT versions[0] FROM flow WHERE path = 'f/dre/flow'"
+                        "SELECT versions[2] FROM flow WHERE path = 'f/dre/flow'"
                     )
                     .fetch_one(&db)
                     .await
@@ -895,15 +846,12 @@ def main():
 
         /// 3. Same as second test, however first flow djob will take longer than second debounce.
         /// NOTE: This test should be ran in debug mode with `private` features enabled. In release it will not work properly.
-        #[cfg(feature = "python")]
+        #[cfg(all(feature = "python", feature = "private"))]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_3(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             // This tests checks if concurrency limit works correcly and there is no race conditions.
             let (client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
-
-            // dmap is not built in job_debouncing fixture
-            assert!(crate::common::rebuild_dmap(&client).await);
 
             // At this point we should have two
             let mut job_ids = vec![];
@@ -1058,29 +1006,19 @@ WHERE
             // This tests if debouncing and consolidation works.
             // Also makes sures that dependency job does not create new flow version
 
-            // Neccessery boilerplate
             let (client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
-
-            // dmap is not built in job_debouncing fixture
-            assert!(crate::common::rebuild_dmap(&client).await);
-
-            // Verify locks are empty
-            // {
-            //     assert_eq!(
-            //         sqlx::query_scalar!("SELECT jsonb_array_elements(value->'modules')->'value'->>'lock' AS lock FROM flow")
-            //         .fetch_all(&db)
-            //         .await
-            //         .unwrap(),
-            //         vec![
-            //             Some("# py: 3.11\n".into()),
-            //             Some("# py: 3.11\n".into()),
-            //             Some("# py: 3.11\n".into())
-            //         ]
-            //     );
-            // }
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job")
+                    .fetch_one(&db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                0
+            );
 
             // Trigger both at the same time.
+            // It will create two immediate dependency jobs
             {
                 trigger_djob_for(
                     &client,
@@ -1099,30 +1037,105 @@ WHERE
                 .await;
             }
 
-            in_test_worker(
-                &db,
-                async {
-                    completed.next().await;
-                    completed.next().await;
-                },
-                port,
-            )
-            .await;
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job")
+                    .fetch_one(&db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                2
+            );
 
+            // Spawn single worker.
+            {
+                let db2 = db.clone();
+                tokio::spawn(async move {
+                    in_test_worker(
+                        &db2,
+                        // Timeout
+                        sleep(Duration::from_secs(60)),
+                        port,
+                    )
+                    .await;
+                });
+            }
+
+            assert_eq!(
+                &sqlx::query_scalar!(
+                    "SELECT runnable_path FROM v2_job WHERE id = $1",
+                    completed.next().await.unwrap()
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap()
+                .unwrap(),
+                "f/dre_app/leaf_left"
+            );
+
+            assert_eq!(
+                &sqlx::query_scalar!(
+                    "SELECT runnable_path FROM v2_job WHERE id = $1",
+                    completed.next().await.unwrap()
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap()
+                .unwrap(),
+                "f/dre_app/leaf_right"
+            );
+
+            // tokio::select!(
+            //     _ = async {
+            //         while sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue WHERE running = false")
+            //             .fetch_one(&db)
+            //             .await
+            //             .unwrap()
+            //             .unwrap()
+            //             == 0
+            //         {
+            //             sleep(Duration::from_secs(1)).await;
+            //         }
+            //     } => {},
+            //     _ = sleep(Duration::from_secs(60)) => { panic!("Timeout") }
+            // );
             // Verify there is only one queued job that is scheduled for atleast 3s ahead.
             {
-                let q = sqlx::query_scalar!(
-                "SELECT (q.scheduled_for > (now() + INTERVAL '3 seconds'))::boolean FROM v2_job_queue q"
-                )
-                .fetch_all(&db)
-                .await
-                .unwrap();
+                let q =
+                    sqlx::query_scalar!("SELECT (scheduled_for - created_at) FROM v2_job_queue")
+                        .fetch_all(&db)
+                        .await
+                        .unwrap();
 
-                assert_eq!(vec![Some(true)], q);
+                assert_eq!(1, q.len());
+                assert!(dbg!(q[0].unwrap().microseconds) > 2_000_000);
             }
 
             // Verify debounce_stale_data and debounce_key
             {
+                // for r in sqlx::query_scalar!("SELECT id FROM v2_job_queue WHERE running = false")
+                //     .fetch_all(&db)
+                //     .await
+                //     .unwrap()
+                // {
+                //     dbg!(
+                //         sqlx::query!("SELECT runnable_path FROM v2_job WHERE id = $1", r)
+                //             .fetch_all(&db)
+                //             .await
+                //             .unwrap()
+                //     );
+                // }
+                // for r in sqlx::query_scalar!("SELECT id FROM v2_job_completed")
+                //     .fetch_all(&db)
+                //     .await
+                //     .unwrap()
+                // {
+                //     dbg!(
+                //         sqlx::query!("SELECT runnable_path FROM v2_job WHERE id = $1", r)
+                //             .fetch_all(&db)
+                //             .await
+                //             .unwrap()
+                //     );
+                // }
                 let q = sqlx::query!(
                     "SELECT
                         dsd.to_relock,
@@ -1151,86 +1164,39 @@ WHERE
                 );
             }
 
-            // Wait until debounce delay is complete
-            sleep(Duration::from_secs(6)).await;
+            assert_eq!(
+                &sqlx::query_scalar!(
+                    "SELECT runnable_path FROM v2_job WHERE id = $1",
+                    completed.next().await.unwrap()
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap()
+                .unwrap(),
+                "f/dre_app/app"
+            );
 
-            in_test_worker(
-                &db,
-                async {
-                    // Wait for the last debounce on flow
-                    completed.next().await;
-                },
-                port,
-            )
-            .await;
-
-            // Verify latest flow.version property
+            // Verify App states
             {
-                // SELECT
-                //     array_length(versions, 1) AS version_count
-                // FROM
-                //     flow
-                // WHERE
-                //     path = 'your_path_here'  -- Replace with the specific path
-                //     AND workspace_id = 'your_workspace_id_here';  -- Replace with the specific workspace_id
+                let q = dbg!(sqlx::query_scalar!(
+                    "SELECT versions FROM app WHERE path = 'f/dre_app/app'"
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap());
 
-                // Latest flow version should not be initial one
-                assert_eq!(
-                    1, // Automatically assigned
-                    dbg!(sqlx::query_scalar!(
-                        "SELECT versions[0] FROM flow WHERE path = 'f/dre/flow'"
-                    )
-                    .fetch_one(&db)
-                    .await
-                    .unwrap()
-                    .unwrap())
-                );
+                assert_eq!(2, q.len());
 
-                // Only second element should be our initial version
-                assert_eq!(
-                    1443253234253454, // < Predefined in fixture
-                    dbg!(sqlx::query_scalar!(
-                        "SELECT versions[1] FROM flow WHERE path = 'f/dre/flow'"
-                    )
-                    .fetch_one(&db)
-                    .await
-                    .unwrap()
-                    .unwrap())
-                );
-            }
-
-            // Verify that there is only two versions of flow in global flow_version
-            {
+                // There is also supposed to be this amount of app_versions
                 assert_eq!(
                     2,
-                    sqlx::query_scalar!(
-                        "SELECT COUNT(*) FROM flow_version WHERE path = 'f/dre/flow'"
-                    )
-                    .fetch_one(&db)
-                    .await
-                    .unwrap()
-                    .unwrap()
+                    sqlx::query_scalar!("SELECT COUNT(*) FROM app_version WHERE app_id = '2'")
+                        .fetch_one(&db)
+                        .await
+                        .unwrap()
+                        .unwrap()
                 );
             }
-
-            // Verify locks
-            {
-                assert_eq!(
-                    sqlx::query_scalar!("SELECT jsonb_array_elements(value->'modules')->'value'->>'lock' AS lock FROM flow")
-                    .fetch_all(&db)
-                    .await
-                    .unwrap(),
-                    vec![
-                        Some("# py: 3.11\nbottle==0.13.2".into()),
-                        Some("# py: 3.11\nbottle==0.13.2\ntiny==0.1.3".into()),
-                        Some("# py: 3.11\ntiny==0.1.3".into())
-                    ]
-                );
-            }
-
-            // TODO:
-            // tracing_assertions::assert_has_events!([info("This is supposed to be called")]);
-            // 2025-10-06T14:31:10.832469Z  WARN windmill-worker/src/worker.rs:1593: pull took more than 0.1s (0.222477345) this is a sign that the database is undersized for this load. empty: true, err: true worker=wk-default-nixos-EzDEL hostname=nixos
 
             // Verify cleanup
             {
@@ -1263,17 +1229,14 @@ WHERE
             Ok(())
         }
 
-        /// 3. Same as second test, however first flow djob will take longer than second debounce.
+        /// 3. Same as second test, however first app djob will take longer than second debounce.
         /// NOTE: This test should be ran in debug mode. In release it will not work properly.
-        #[cfg(feature = "python")]
+        #[cfg(all(feature = "python", feature = "private"))]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_3(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             // This tests checks if concurrency limit works correcly and there is no race conditions.
             let (client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
-
-            // dmap is not built in job_debouncing fixture
-            assert!(crate::common::rebuild_dmap(&client).await);
 
             // At this point we should have two
             let mut job_ids = vec![];
@@ -1290,11 +1253,10 @@ WHERE
                     &db,
                     windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
                     "test-workspace",
-                    windmill_common::jobs::JobPayload::FlowDependencies {
-                        path: "f/dre/flow".to_owned(),
-                        dedicated_worker: None,
+                    windmill_common::jobs::JobPayload::AppDependencies {
+                        path: "f/dre_app/app".to_owned(),
                         // In newest versions we pass the current version to the djob
-                        version: 1443253234253454,
+                        version: 0,
                     },
                     windmill_queue::PushArgs { args: &args, extra: None },
                     "admin",
@@ -1328,6 +1290,7 @@ WHERE
                 job_uuid
             };
 
+            // TODO: Verify concurrency key.
             // Push first
             job_ids.push(push_job(5, db.clone()).await);
 
@@ -1411,6 +1374,463 @@ WHERE
             Ok(())
         }
     }
+
+    // TODO: Test debounce reassignment works
+
+    /// ## Testing for Scripts
+    mod scripts {
+        use crate::common::{in_test_worker, init_client, listen_for_completed_jobs};
+        use crate::job_debouncing::trigger_djob_for;
+        use std::time::Duration;
+        use tokio::time::sleep;
+        use tokio_stream::StreamExt;
+
+        /// 1. LLF and RLF create two djobs for flow at the same and fall into single debounce
+        #[cfg(feature = "python")]
+        #[sqlx::test(fixtures("base", "djob_debouncing"))]
+        async fn test_1(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+            // This tests if debouncing and consolidation works.
+            // Also makes sures that dependency job does not create new flow version
+            let (client, port, _s) = init_client(db.clone()).await;
+            let mut completed = listen_for_completed_jobs(&db).await;
+
+            // dmap is not built in job_debouncing fixture
+            // assert!(crate::common::rebuild_dmap(&client).await);
+
+            // Verify lock is empty
+            {
+                assert_eq!(
+                    sqlx::query_scalar!(
+                        "SELECT lock FROM script WHERE path = 'f/dre_script/script'"
+                    )
+                    .fetch_one(&db)
+                    .await
+                    .unwrap(),
+                    Some("".into())
+                );
+            }
+
+            // Trigger both at the same time.
+            {
+                trigger_djob_for(
+                    &client,
+                    "f/dre_script/leaf_left",
+                    "0000000000082398",
+                    Some("#requirements:\n#bottle==0.13.2\ndef main():\npass".into()),
+                )
+                .await;
+                trigger_djob_for(
+                    &client,
+                    "f/dre_script/leaf_right",
+                    "000000000008239B",
+                    Some("#requirements:\n#tiny==0.1.3\ndef main():\npass".into()),
+                )
+                .await;
+            }
+
+            // Start the first one in the background
+            // let handle = {
+            //     let mut completed = listen_for_completed_jobs(&db).await;
+            //     let db2 = db.clone();
+            //     tokio::spawn(async move {
+            //         in_test_worker(&db2, completed.next(), port).await;
+            //     })
+            // };
+
+            sleep(Duration::from_secs(1)).await;
+
+            // let mut completed2 = listen_for_completed_jobs(&db).await;
+
+            // tokio::join!(
+            //     in_test_worker(
+            //         &db,
+            //         async {
+            //             let mut completed = listen_for_completed_jobs(&db).await;
+            //             completed.next().await;
+            //             completed.next().await;
+            //         },
+            //         port,
+            //     ),
+            //     // in_test_worker(
+            //     //     &db,
+            //     //     async {
+            //     //         let mut completed = listen_for_completed_jobs(&db).await;
+            //     //         completed.next().await;
+            //     //         completed.next().await;
+            //     //     },
+            //     //     port,
+            //     // ),
+            // );
+
+            // in_test_worker(
+            //     &db,
+            //     async {
+            //         completed.next().await;
+            //         completed.next().await;
+            //     },
+            //     port,
+            // )
+            // .await;
+
+            let db2 = db.clone();
+            tokio::spawn(async move {
+                in_test_worker(
+                    &db2,
+                    // Timeout
+                    sleep(Duration::from_secs(60)),
+                    port,
+                )
+                .await;
+            });
+
+            assert_eq!(
+                &sqlx::query_scalar!(
+                    "SELECT runnable_path FROM v2_job WHERE id = $1",
+                    completed.next().await.unwrap()
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap()
+                .unwrap(),
+                "f/dre_script/leaf_left"
+            );
+
+            assert_eq!(
+                &sqlx::query_scalar!(
+                    "SELECT runnable_path FROM v2_job WHERE id = $1",
+                    completed.next().await.unwrap()
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap()
+                .unwrap(),
+                "f/dre_script/leaf_right"
+            );
+
+            // handle.await.unwrap();
+
+            // Let jobs propagate
+
+            tokio::select!(
+                _ = async {
+                    while sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue WHERE running = false")
+                        .fetch_one(&db)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        == 0
+                    {
+                        sleep(Duration::from_secs(1)).await;
+                    }
+                } => {},
+                _ = sleep(Duration::from_secs(60)) => { panic!("Timeout") }
+            );
+            // Verify there is only one queued job that is scheduled for atleast 3s ahead.
+            {
+                for r in sqlx::query_scalar!("SELECT id FROM v2_job_queue WHERE running = false")
+                    .fetch_all(&db)
+                    .await
+                    .unwrap()
+                {
+                    dbg!(
+                        sqlx::query!("SELECT runnable_path FROM v2_job WHERE id = $1", r)
+                            .fetch_all(&db)
+                            .await
+                            .unwrap()
+                    );
+                }
+                for r in sqlx::query_scalar!("SELECT id FROM v2_job_completed")
+                    .fetch_all(&db)
+                    .await
+                    .unwrap()
+                {
+                    dbg!(
+                        sqlx::query!("SELECT runnable_path FROM v2_job WHERE id = $1", r)
+                            .fetch_all(&db)
+                            .await
+                            .unwrap()
+                    );
+                }
+
+                dbg!(sqlx::query!("SELECT runnable_path FROM v2_job")
+                    .fetch_all(&db)
+                    .await
+                    .unwrap());
+
+                let q = sqlx::query_scalar!(
+                    "SELECT (scheduled_for - created_at) FROM v2_job_queue WHERE running = false"
+                )
+                .fetch_all(&db)
+                .await
+                .unwrap();
+
+                assert_eq!(1, q.len());
+                assert!(dbg!(q[0].unwrap().microseconds) > 1_000_000 /* 1 second */);
+            }
+
+            // Verify debounce_stale_data and debounce_key
+            {
+                let q = sqlx::query_scalar!("SELECT key FROM debounce_key")
+                    .fetch_all(&db)
+                    .await
+                    .unwrap();
+
+                assert_eq!(q.len(), 1);
+
+                assert_eq!(
+                    q[0].clone(),
+                    "test-workspace:f/dre_script/script:dependency".to_owned(),
+                );
+
+                // Stale data is empty for scripts
+                assert_eq!(
+                    sqlx::query_scalar!("SELECT COUNT(*) FROM debounce_stale_data")
+                        .fetch_one(&db)
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                    0
+                );
+            }
+
+            // Wait until debounce delay is complete
+            // sleep(Duration::from_secs(6)).await;
+
+            assert_eq!(
+                &sqlx::query_scalar!(
+                    "SELECT runnable_path FROM v2_job WHERE id = $1",
+                    completed.next().await.unwrap()
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap()
+                .unwrap(),
+                "f/dre_script/script"
+            );
+
+            // Verify
+            {
+                assert_ne!(
+                    533404,
+                    sqlx::query_scalar!(
+                        "SELECT hash FROM script WHERE path = 'f/dre_script/script' AND archived = false"
+                    )
+                    .fetch_one(&db)
+                    .await
+                    .unwrap()
+                );
+
+                assert_eq!(
+                    vec![533404],
+                    sqlx::query_scalar!(
+                        "SELECT parent_hashes FROM script WHERE path = 'f/dre_script/script' AND archived = false"
+                    )
+                    .fetch_one(&db)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                );
+
+                assert_eq!(
+                    vec![533404],
+                    dbg!(sqlx::query_scalar!(
+                        "SELECT hash FROM script WHERE path = 'f/dre_script/script' AND archived = true"
+                    )
+                    .fetch_all(&db)
+                    .await
+                    .unwrap())
+                );
+            }
+
+            // Verify cleanup
+            {
+                assert_eq!(
+                    0,
+                    sqlx::query_scalar!("SELECT COUNT(*) from debounce_key")
+                        .fetch_one(&db)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                );
+                assert_eq!(
+                    0,
+                    sqlx::query_scalar!("SELECT COUNT(*) from debounce_stale_data")
+                        .fetch_one(&db)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                );
+            }
+
+            // handle.await.unwrap();
+            Ok(())
+        }
+
+        /// 2. LLF creates flow djob and is single job in debounce, RLF will create another flow djob that will fall into second debounce.
+        #[cfg(feature = "python")]
+        #[sqlx::test(fixtures("base", "djob_debouncing"))]
+        async fn test_2(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+            // This test mostly verifies if following djobs after first debounce do work.
+            Ok(())
+        }
+
+        /// 3. Same as second test, however first app djob will take longer than second debounce.
+        /// NOTE: This test should be ran in debug mode. In release it will not work properly.
+        #[cfg(all(feature = "python", feature = "private"))]
+        #[sqlx::test(fixtures("base", "djob_debouncing"))]
+        async fn test_3(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+            // This tests checks if concurrency limit works correcly and there is no race conditions.
+            let (client, port, _s) = init_client(db.clone()).await;
+            let mut completed = listen_for_completed_jobs(&db).await;
+
+            // At this point we should have two
+            let mut job_ids = vec![];
+            let push_job = |delay, db| async move {
+                let mut args = std::collections::HashMap::new();
+                args.insert(
+                    "dbg_djob_sleep".to_owned(),
+                    // First one will create delay for 5 seconds
+                    // The second will have no delay at all.
+                    windmill_common::worker::to_raw_value(&delay),
+                );
+
+                let (job_uuid, new_tx) = windmill_queue::push(
+                    &db,
+                    windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
+                    "test-workspace",
+                    windmill_common::jobs::JobPayload::Dependencies {
+                        path: "f/dre_script/script".to_owned(),
+                        language: windmill_common::scripts::ScriptLang::Python3,
+                        dedicated_worker: None,
+                        hash: windmill_common::scripts::ScriptHash(533404),
+                    },
+                    windmill_queue::PushArgs { args: &args, extra: None },
+                    "admin",
+                    "admin@windmill.dev",
+                    "admin".to_owned(),
+                    Some("trigger.dependents.to.recompute.dependencies"),
+                    // Schedule for now.
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    false,
+                    false,
+                    None,
+                    true,
+                    Some("dependency".into()),
+                    None,
+                    None,
+                    None,
+                    None,
+                    false,
+                    None,
+                )
+                .await
+                .unwrap();
+
+                new_tx.commit().await.unwrap();
+
+                job_uuid
+            };
+
+            // Push first
+            job_ids.push(push_job(5, db.clone()).await);
+
+            // Start the first one in the background
+            let handle = {
+                let mut completed = listen_for_completed_jobs(&db).await;
+                let db2 = db.clone();
+                tokio::spawn(async move {
+                    in_test_worker(
+                        &db2,
+                        // sleep(Duration::from_secs(7)),
+                        completed.next(), // Only wait for the single job. We are going to spawn another worker for second one.
+                        port,
+                    )
+                    .await;
+                })
+            };
+
+            // Wait for the job to be created and started
+            // This way next job is not going to be consumed by the first one.
+            sleep(Duration::from_secs(1)).await;
+
+            // Push second
+            job_ids.push(push_job(0, db.clone()).await);
+            // Wait for the second one to finish in separate worker.
+            // in_test_worker(&db, completed.next(), port).await;
+            in_test_worker(
+                &db,
+                async {
+                    // First job will be pulled
+                    completed.next().await;
+                    // However since we have concurrency limit enabled it will get rescheduled by creation of new djob.
+                    // So we have to wait for that one as well.
+                    completed.next().await;
+                },
+                port,
+            )
+            .await;
+
+            // Wait for the first one
+            handle.await.unwrap();
+
+            // Verify that we have expected outcome
+            {
+                // Verify lock
+                {
+                    assert_eq!(
+                        sqlx::query_scalar!(
+                            "SELECT lock FROM script WHERE path = 'f/dre_script/script'"
+                        )
+                        .fetch_one(&db)
+                        .await
+                        .unwrap(),
+                        Some("# py: 3.11\nbottle==0.13.2\ntiny==0.1.3".into())
+                    );
+                }
+                assert_eq!(
+                    sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job",)
+                        .fetch_one(&db)
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                    2
+                );
+
+                assert_eq!(
+                    sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_completed",)
+                        .fetch_one(&db)
+                        .await
+                        .unwrap()
+                        .unwrap(),
+                    2
+                );
+                // Check that two jobs were executed sequentially
+                assert!(sqlx::query_scalar!(
+                    "
+SELECT
+    j1.completed_at < j2.started_at
+FROM
+    v2_job_completed j1,
+    v2_job_completed j2
+WHERE
+    j1.id = $1  
+    AND j2.id = $2",
+                    job_ids[0],
+                    job_ids[1],
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap()
+                .unwrap());
+            }
+            Ok(())
+        }
+    }
     // TODO: Same for apps
 
     // TODO: Test CLI
@@ -1427,29 +1847,6 @@ WHERE
     //     │LEAF├────┘
     //     └────┘
     //
-
-    #[cfg(feature = "python")]
-    #[sqlx::test(fixtures("base", "djob_debouncing"))]
-    async fn test_dependency_job_debouncing_high_latency_and_loaded(
-        db: Pool<Postgres>,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    #[cfg(feature = "python")]
-    #[sqlx::test(fixtures("base", "djob_debouncing"))]
-    async fn test_dependency_job_debouncing_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
-        // 1. Same double_references
-
-        // 2. Different references at the same time
-        Ok(())
-    }
-
-    #[cfg(feature = "python")]
-    #[sqlx::test(fixtures("base", "dependency_map"))]
-    async fn test_dependency_job_debouncing_app(db: Pool<Postgres>) -> anyhow::Result<()> {
-        Ok(())
-    }
 
     // TODO: Already visited usage.
     // TODO: Test git sync

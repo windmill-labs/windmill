@@ -182,3 +182,61 @@ $tag${"grid":[{"3":{"fixed":true,"x":0,"y":0,"fullHeight":false,"w":6,"h":2},"12
 'system'
 );
 
+-- SCRIPTS -- 
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'test-user',
+'#requirements:
+#bottle==0.13.2
+def main():
+    pass
+',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
+'',
+'',
+'f/dre_script/leaf_left', 533400, 'python3', '');
+-- Padded Hex: 0000000000082398
+ 
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'test-user',
+'#requirements:
+#tiny==0.1.3
+def main():
+    pass
+',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
+'',
+'',
+'f/dre_script/leaf_right', 533403, 'python3', '');
+-- Padded Hex: 000000000008239B
+
+INSERT INTO public.script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
+'test-workspace',
+'test-user',
+'
+import f.dre_script.leaf_left
+import f.dre_script.leaf_right
+
+def main():
+    pass
+',
+'{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{},"required":[],"type":"object"}',
+'',
+'',
+'f/dre_script/script', 533404, 'python3', '');
+-- Padded Hex: 000000000008239C
+
+-- Create dependency map
+INSERT INTO dependency_map (workspace_id, imported_path, importer_kind, importer_path, importer_node_id) VALUES ('test-workspace', 'f/dre/leaf_left', 'flow', 'f/dre/flow', 'a');
+INSERT INTO dependency_map (workspace_id, imported_path, importer_kind, importer_path, importer_node_id) VALUES ('test-workspace', 'f/dre/leaf_left', 'flow', 'f/dre/flow', 'b');
+INSERT INTO dependency_map (workspace_id, imported_path, importer_kind, importer_path, importer_node_id) VALUES ('test-workspace', 'f/dre/leaf_right', 'flow', 'f/dre/flow', 'b');
+INSERT INTO dependency_map (workspace_id, imported_path, importer_kind, importer_path, importer_node_id) VALUES ('test-workspace', 'f/dre/leaf_right', 'flow', 'f/dre/flow', 'c');
+
+INSERT INTO dependency_map (workspace_id, imported_path, importer_kind, importer_path, importer_node_id) VALUES ('test-workspace', 'f/dre_app/leaf_left', 'app', 'f/dre_app/app', 'a');
+INSERT INTO dependency_map (workspace_id, imported_path, importer_kind, importer_path, importer_node_id) VALUES ('test-workspace', 'f/dre_app/leaf_left', 'app', 'f/dre_app/app', 'b');
+INSERT INTO dependency_map (workspace_id, imported_path, importer_kind, importer_path, importer_node_id) VALUES ('test-workspace', 'f/dre_app/leaf_right', 'app', 'f/dre_app/app', 'b');
+INSERT INTO dependency_map (workspace_id, imported_path, importer_kind, importer_path, importer_node_id) VALUES ('test-workspace', 'f/dre_app/leaf_right', 'app', 'f/dre_app/app', 'c');
+
+INSERT INTO dependency_map (workspace_id, imported_path, importer_kind, importer_path, importer_node_id) VALUES ('test-workspace', 'f/dre_script/leaf_left', 'script', 'f/dre_script/script', '');
+INSERT INTO dependency_map (workspace_id, imported_path, importer_kind, importer_path, importer_node_id) VALUES ('test-workspace', 'f/dre_script/leaf_right', 'script', 'f/dre_script/script', '');

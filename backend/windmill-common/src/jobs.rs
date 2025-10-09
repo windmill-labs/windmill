@@ -396,13 +396,13 @@ pub enum JobPayload {
         version: i64,
     },
 
-    /// Flow Dependency Job, but requirements are partially or fully predefined
+    /// Flow Dependency Job, exposed with API. Requirements can be partially or fully predefined
     RawFlowDependencies {
         path: String,
         flow_value: FlowValue,
     },
 
-    /// Dependency Job, but requirements are predefined
+    /// Dependency Job, exposed with API. Requirements can be predefined
     RawScriptDependencies {
         script_path: String,
         /// Will reflect raw requirements content (e.g. requirements.txt)
@@ -429,7 +429,7 @@ pub enum JobPayload {
     },
 
     /// Flow consisting of single script
-    SingleScriptFlow {
+    SingleStepFlow {
         path: String,
         hash: Option<ScriptHash>,
         flow_version: Option<i64>,
