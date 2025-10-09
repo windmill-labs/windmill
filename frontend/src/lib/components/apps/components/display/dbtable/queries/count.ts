@@ -1,4 +1,5 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
+import { wrapDucklakeQuery, type DbInput } from '$lib/components/dbOps'
 import { buildParameters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
@@ -141,35 +142,41 @@ export function makeCountQuery(
 }
 
 export function getCountInput(
-	resource: string,
+	dbInput: DbInput,
 	table: string,
-	resourceType: DbType,
 	columnDefs: ColumnDef[],
 	whereClause: string | undefined
 ): AppInput | undefined {
-	if (!resource || !table || !columnDefs) {
-		// Return undefined if resource or table is not defined
-
+	if (
+		(dbInput.type == 'ducklake' && !dbInput.ducklake) ||
+		(dbInput.type == 'database' && !dbInput.resourcePath) ||
+		!table ||
+		!columnDefs?.length
+	) {
 		return undefined
 	}
-
-	const query = makeCountQuery(resourceType, table, whereClause, columnDefs)
+	const dbType = dbInput.type === 'ducklake' ? 'duckdb' : dbInput.resourceType
+	let query = makeCountQuery(dbType, table, whereClause, columnDefs)
+	if (dbInput.type === 'ducklake') query = wrapDucklakeQuery(query, dbInput.ducklake)
 
 	const updateRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
 			content: query,
-			language: getLanguageByResourceType(resourceType),
+			language: getLanguageByResourceType(dbType),
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				properties: {
-					database: {
-						description: 'Database name',
-						type: 'object',
-						format: `resource-${resourceType}`
-					}
-				},
+				properties:
+					dbInput.type === 'database'
+						? {
+								database: {
+									description: 'Database name',
+									type: 'object',
+									format: `resource-${dbType}`
+								}
+							}
+						: {},
 				required: ['database'],
 				type: 'object'
 			}
@@ -178,14 +185,17 @@ export function getCountInput(
 
 	const updateQuery: AppInput = {
 		runnable: updateRunnable,
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: `resource-${resourceType}`
-			}
-		},
+		fields:
+			dbInput.type === 'database'
+				? {
+						database: {
+							type: 'static',
+							value: dbInput.resourcePath,
+							fieldType: 'object',
+							format: `resource-${dbType}`
+						}
+					}
+				: {},
 		type: 'runnable',
 		fieldType: 'object'
 	}
