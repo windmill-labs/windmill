@@ -127,7 +127,7 @@ export function getInsertInput(dbInput: DbInput, table: string, columns: ColumnD
 				? {
 						database: {
 							type: 'static',
-							value: dbInput.resourcePath,
+							value: `$res:${dbInput.resourcePath}`,
 							fieldType: 'object',
 							format: `resource-${dbType}`
 						}

@@ -190,7 +190,7 @@ export function getCountInput(
 				? {
 						database: {
 							type: 'static',
-							value: dbInput.resourcePath,
+							value: `$res:${dbInput.resourcePath}`,
 							fieldType: 'object',
 							format: `resource-${dbType}`
 						}
