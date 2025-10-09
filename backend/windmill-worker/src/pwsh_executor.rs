@@ -11,6 +11,9 @@ use windmill_queue::{
     append_logs, CanceledBy, MiniPulledJob, INIT_SCRIPT_PATH_PREFIX, PERIODIC_SCRIPT_PATH_PREFIX,
 };
 
+#[cfg(windows)]
+use crate::SYSTEM_ROOT;
+
 const NSJAIL_CONFIG_RUN_POWERSHELL_CONTENT: &str =
     include_str!("../nsjail/run.powershell.config.proto");
 

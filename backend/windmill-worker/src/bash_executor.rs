@@ -43,9 +43,6 @@ use crate::{
 };
 use windmill_common::client::AuthedClient;
 
-#[cfg(windows)]
-use crate::SYSTEM_ROOT;
-
 lazy_static::lazy_static! {
 
     pub static ref ANSI_ESCAPE_RE: Regex = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
