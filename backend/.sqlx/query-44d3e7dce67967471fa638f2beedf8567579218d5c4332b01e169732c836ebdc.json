@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2",
+  "query": "SELECT hash FROM script WHERE path = 'f/dre_script/script' AND archived = false",
   "describe": {
     "columns": [
       {
@@ -10,14 +10,11 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Text",
-        "Text"
-      ]
+      "Left": []
     },
     "nullable": [
       false
     ]
   },
-  "hash": "16e4b1bead9fc77fd98658b8cb8cc6d6bf1df758b30e99bd661da866062ef14f"
+  "hash": "44d3e7dce67967471fa638f2beedf8567579218d5c4332b01e169732c836ebdc"
 }

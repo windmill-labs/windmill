@@ -11,6 +11,7 @@
 
 use anyhow::anyhow;
 use futures::TryFutureExt;
+use tokio::time::sleep;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::scripts::hash_to_codebase_id;
@@ -814,6 +815,7 @@ pub fn start_interactive_worker_shell(
 
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
+                        // TODO: Test if suspend works in this branch.
                         let job = pull(
                             &db,
                             false,
@@ -954,6 +956,7 @@ pub async fn run_worker(
         );
     }
 
+    dbg!("start");
     let start_time = Instant::now();
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
@@ -994,12 +997,16 @@ pub async fn run_worker(
         });
     }
 
+    dbg!("python stuff is done");
+
     if let Some(ref netrc) = *NETRC {
         tracing::info!(worker = %worker_name, hostname = %hostname, "Writing netrc at {}/.netrc", HOME_ENV.as_str());
         write_file(&HOME_ENV, ".netrc", netrc).expect("could not write netrc");
     }
 
     create_directory_async(&worker_dir).await;
+
+    dbg!("worker dir created");
 
     if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -1383,6 +1390,7 @@ pub async fn run_worker(
 
     let mut killpill_rx2 = killpill_rx.resubscribe();
 
+    dbg!("starting loop");
     loop {
         let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst);
         if last_processing_duration_secs > 5 {
@@ -1502,6 +1510,7 @@ pub async fn run_worker(
 
                 match &conn {
                     Connection::Sql(db) => {
+                        // TODO: Test if suspend works in this branch.
                         let job = get_same_worker_job(db, &same_worker_job).await;
                         // tracing::error!("r: {:?}", r);
                         if job.is_err() && !same_worker_job.recoverable {
@@ -1518,6 +1527,7 @@ pub async fn run_worker(
                             job.map(|x| x.map(NextJob::Sql))
                         }
                     }
+                    // TODO: Test if suspend works in this branch.
                     Connection::Http(client) => client
                         .post(
                             &format!(
@@ -1559,6 +1569,8 @@ pub async fn run_worker(
                     Connection::Sql(db) => {
                         let pull_time = Instant::now();
                         let likelihood_of_suspend = last_30jobs_suspended as f64 / 30.0;
+
+                        // TODO: WAT?
                         let suspend_first = suspend_first_success
                             || rand::random::<f64>() < likelihood_of_suspend
                             || last_suspend_first.elapsed().as_secs_f64() > 5.0;
@@ -1567,6 +1579,8 @@ pub async fn run_worker(
                             last_suspend_first = Instant::now();
                         }
 
+                        // TODO: Test if suspend works in dedicated worker.
+                        // TODO: Test if suspend works in this branch.
                         let job = match timeout(
                             Duration::from_secs(10),
                             pull(
@@ -1658,6 +1672,8 @@ pub async fn run_worker(
                             Err(err) => Err(err),
                         }
                     }
+
+                    // TODO: Test if suspend works in this branch.
                     Connection::Http(client) => crate::agent_workers::pull_job(&client, None, None)
                         .await
                         .map_err(|e| error::Error::InternalErr(e.to_string()))
@@ -2527,6 +2543,22 @@ pub async fn handle_queued_job(
             logs.push_str("---\n");
         }
 
+        // Only used for testing in tests/relative_imports.rs
+        // Give us some space to work with.
+        #[cfg(debug_assertions)]
+        if let Some(dbg_djob_sleep) = job
+            .args
+            .as_ref()
+            .map(|x| {
+                x.get("dbg_djob_sleep")
+                    .map(|v| serde_json::from_str::<u32>(v.get()).ok())
+                    .flatten()
+            })
+            .flatten()
+        {
+            sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
+        }
+
         tracing::debug!(
             workspace_id = %job.workspace_id,
             "handling job {}",
@@ -2564,7 +2596,7 @@ pub async fn handle_queued_job(
             JobKind::FlowDependencies => match conn {
                 Connection::Sql(db) => {
                     handle_flow_dependency_job(
-                        &job,
+                        (*job).clone(),
                         preview_data.as_ref(),
                         &mut mem_peak,
                         &mut canceled_by,
@@ -2586,7 +2618,7 @@ pub async fn handle_queued_job(
             },
             JobKind::AppDependencies => match conn {
                 Connection::Sql(db) => handle_app_dependency_job(
-                    &job,
+                    (*job).clone(),
                     &mut mem_peak,
                     &mut canceled_by,
                     job_dir,

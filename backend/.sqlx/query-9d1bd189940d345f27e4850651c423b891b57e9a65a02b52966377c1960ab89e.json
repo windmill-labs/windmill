@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT versions[1] FROM flow WHERE path = 'f/dre/flow'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "versions",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9d1bd189940d345f27e4850651c423b891b57e9a65a02b52966377c1960ab89e"
+}

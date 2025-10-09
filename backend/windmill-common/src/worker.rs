@@ -375,6 +375,9 @@ fn format_pull_query(peek: String) -> String {
             UPDATE v2_job_runtime SET
                 ping = now()
             WHERE id = (SELECT id FROM peek)
+        ), d AS NOT MATERIALIZED (
+            DELETE FROM debounce_key
+            WHERE job_id = (SELECT id FROM peek)
         ), j AS NOT MATERIALIZED (
             SELECT
                 id, workspace_id, parent_job, created_by, created_at, runnable_id,

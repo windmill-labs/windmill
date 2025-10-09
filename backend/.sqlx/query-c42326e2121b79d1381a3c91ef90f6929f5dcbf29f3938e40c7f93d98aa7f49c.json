@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT runnable_path FROM v2_job",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "c42326e2121b79d1381a3c91ef90f6929f5dcbf29f3938e40c7f93d98aa7f49c"
+}
