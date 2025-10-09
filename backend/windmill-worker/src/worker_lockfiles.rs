@@ -148,9 +148,9 @@ pub async fn handle_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    dbg!("DEPENDENCY_JOB!");
-    tracing::error!("DEPENDENCY_JOB: {:?}", &job);
-    dbg!(&job);
+    // Processing a dependency job - these jobs handle lockfile generation and dependency updates
+    // for scripts, flows, and apps when their dependencies or imported scripts change
+    tracing::debug!("Processing dependency job for path: {:?}", job.runnable_path());
     let script_path = job.runnable_path();
     let raw_deps = job
         .args
@@ -569,14 +569,14 @@ pub async fn trigger_dependents_to_recompute_dependencies(
     .fetch_all(db)
     .await?;
 
-    dbg!("trigger dependents for", &script_path);
+    tracing::debug!("Triggering dependents to recompute dependencies for: {}", &script_path);
 
     // TODO: Do we need already visited?
     already_visited.push(script_path.to_string());
     for s in script_importers.iter() {
-        dbg!(&s);
+        tracing::trace!("Processing dependency: {:?}", &s);
         if already_visited.contains(&s.importer_path) {
-            dbg!("skip");
+            tracing::trace!("Skipping already visited dependency");
             continue;
         }
 
@@ -623,7 +623,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         path = s.importer_path,
                         err = err
                     );
-                    dbg!("err");
+                    // Skip this dependency if we can't find its script hash
                     continue;
                 }
             }
@@ -632,7 +632,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             // We will create new flow in-place.
             // It would be harder to do otherwise.
 
-            dbg!("handle flow");
+            tracing::debug!("Handling flow dependency update for: {}", s.importer_path);
             // Create transaction to make operation atomic.
             let mut flow_tx = db.begin().await?;
 
@@ -645,7 +645,8 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             // .fetch_optional(&mut *flow_tx)
             // .await?;
 
-            // TODO: What if to_relock has repeating items?
+            // Note: Duplicate items in to_relock are handled by the accumulate_debounce_stale_data
+            // function which uses DISTINCT when merging arrays
             args.insert(
                 "nodes_to_relock".to_string(),
                 to_raw_value(&s.importer_node_ids),
@@ -708,7 +709,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         .commit()
                         .await?;
                     }
-                    dbg!("err");
+                    tracing::error!("Failed to process flow version");
                     continue;
                 }
                 Err(err) => {
@@ -716,13 +717,13 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         "error getting latest deployed flow version for path {path}: {err}",
                         path = s.importer_path,
                     );
-                    dbg!("err");
+                    tracing::error!("Failed to process flow version");
                     // Do not commit the transaction. It will be dropped and rollbacked
                     continue;
                 }
             }
         } else if kind == "app" && !*WMDEBUG_NO_NEW_APP_VERSION_ON_DJ {
-            dbg!("handle flow");
+            tracing::debug!("Handling flow dependency update for: {}", s.importer_path);
             // Create transaction to make operation atomic.
             let mut tx = db.begin().await?;
 
@@ -799,7 +800,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         .commit()
                         .await?;
                     }
-                    dbg!("err");
+                    tracing::error!("Failed to process flow version");
                     continue;
                 }
                 Err(err) => {
@@ -808,7 +809,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         path = s.importer_path,
                     );
                     // Do not commit the transaction. It will be dropped and rollbacked
-                    dbg!("err");
+                    tracing::error!("Failed to process flow version");
                     continue;
                 }
             }
@@ -818,11 +819,11 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 kind = kind,
                 path = s.importer_path
             );
-            dbg!("unexpected importer kind");
+            tracing::warn!("Unexpected importer kind: {:?}", kind);
             continue;
         };
 
-        dbg!("PUSH DEPENDENTS TO RECOMPUTE");
+        tracing::debug!("Pushing dependency job for: {}", s.importer_path);
         let (job_uuid, new_tx) = windmill_queue::push(
             db,
             tx,
@@ -878,9 +879,9 @@ pub async fn handle_flow_dependency_job(
     token: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<serde_json::value::RawValue>> {
-    dbg!("FLOW DJOB");
-    dbg!(&job);
-    dbg!(&preview_data);
+    tracing::debug!("Processing flow dependency job");
+    tracing::trace!("Job details: {:?}", &job);
+    tracing::trace!("Preview data: {:?}", &preview_data);
     let job_path = job.runnable_path.clone().ok_or_else(|| {
         error::Error::internal_err(
             "Cannot resolve flow dependencies for flow without path".to_string(),
@@ -955,7 +956,7 @@ pub async fn handle_flow_dependency_job(
         }
     };
 
-    dbg!(&job);
+    tracing::trace!("Job details: {:?}", &job);
     let (deployment_message, parent_path) =
         get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
@@ -969,7 +970,7 @@ pub async fn handle_flow_dependency_job(
         })
         .flatten();
 
-    dbg!(&nodes_to_relock);
+    tracing::debug!("Nodes to relock: {:?}", &nodes_to_relock);
     let raw_deps = job
         .args
         .as_ref()
@@ -1155,8 +1156,8 @@ pub async fn handle_flow_dependency_job(
                 &job_path,
                 &job.workspace_id,
             ).execute(&mut *tx).await?;
-            dbg!("marked flow versions as latest");
-            dbg!(version);
+            tracing::debug!("Marked flow version as latest");
+            tracing::debug!("Flow version: {}", version);
         }
 
         tx.commit().await?;
