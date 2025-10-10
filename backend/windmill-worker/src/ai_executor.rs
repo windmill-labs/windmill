@@ -1,4 +1,11 @@
-use crate::ai::mcp_client::{McpClient, McpResource, McpToolSource};
+use crate::ai::mcp_client::McpClient;
+use crate::ai::utils::{
+    add_message_to_conversation, cleanup_mcp_clients, execute_mcp_tool, find_unique_tool_name,
+    get_flow_chat_settings, get_flow_job_runnable_and_raw_flow, get_step_name_from_flow,
+    is_anthropic_provider, load_mcp_tools, parse_raw_script_schema,
+    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
+    FlowChatSettings,
+};
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use anyhow::Context;
 use async_recursion::async_recursion;
@@ -8,23 +15,23 @@ use std::{collections::HashMap, sync::Arc};
 use ulid;
 use uuid::Uuid;
 use windmill_common::{
-    ai_providers::{AIProvider, AZURE_API_VERSION},
+    ai_providers::AZURE_API_VERSION,
     cache,
     client::AuthedClient,
     db::DB,
     error::{self, to_anyhow, Error},
-    flow_conversations::{add_message_to_conversation_tx, MessageType},
+    flow_conversations::MessageType,
     flow_status::AgentAction,
-    flows::{FlowModuleValue, FlowValue, InputTransform, Step},
+    flows::{FlowModuleValue, FlowValue, InputTransform},
     get_latest_hash_for_path,
     jobs::JobKind,
-    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
+    scripts::get_full_hub_script_by_path,
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
 };
 use windmill_queue::{
-    flow_status::get_step_of_flow_status, get_mini_pulled_job, push, CanceledBy, JobCompleted,
-    MiniPulledJob, PushArgs, PushIsolationLevel,
+    get_mini_pulled_job, push, CanceledBy, JobCompleted, MiniPulledJob, PushArgs,
+    PushIsolationLevel,
 };
 
 use crate::{
@@ -40,7 +47,7 @@ use crate::{
     },
     create_job_dir,
     handle_child::run_future_with_polling_update_job_poller,
-    handle_queued_job, parse_sig_of_lang,
+    handle_queued_job,
     result_processor::handle_non_flow_job_error,
     worker_flow::{raw_script_to_payload, script_to_payload},
     JobCompletedSender, SendResult, SendResultPayload,
@@ -51,198 +58,6 @@ lazy_static::lazy_static! {
 }
 
 const MAX_AGENT_ITERATIONS: usize = 10;
-
-fn parse_raw_script_schema(content: &str, language: &ScriptLang) -> Result<Box<RawValue>, Error> {
-    let main_arg_signature = parse_sig_of_lang(content, Some(&language), None)?.unwrap(); // safe to unwrap as langauge is some
-
-    let schema = OpenAPISchema {
-        r#type: Some(SchemaType::default()),
-        properties: Some(
-            main_arg_signature
-                .args
-                .iter()
-                .map(|arg| {
-                    let name = arg.name.clone();
-                    let typ = OpenAPISchema::from_typ(&arg.typ);
-                    (name, Box::new(typ))
-                })
-                .collect(),
-        ),
-        required: Some(
-            main_arg_signature
-                .args
-                .iter()
-                .map(|arg| arg.name.clone())
-                .collect(),
-        ),
-        ..Default::default()
-    };
-
-    Ok(to_raw_value(&schema))
-}
-
-pub struct FlowJobRunnableIdAndRawFlow {
-    pub runnable_id: Option<ScriptHash>,
-    pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
-    pub kind: JobKind,
-}
-
-pub async fn get_flow_job_runnable_and_raw_flow(
-    db: &DB,
-    job_id: &uuid::Uuid,
-) -> windmill_common::error::Result<FlowJobRunnableIdAndRawFlow> {
-    let job = sqlx::query_as!(
-        FlowJobRunnableIdAndRawFlow,
-        "SELECT runnable_id as \"runnable_id: ScriptHash\", raw_flow as \"raw_flow: _\", kind as \"kind: _\" FROM v2_job WHERE id = $1",
-        job_id
-    )
-    .fetch_one(db)
-    .await?;
-    Ok(job)
-}
-
-#[derive(Debug, Clone, Default)]
-struct FlowChatSettings {
-    memory_id: Option<Uuid>,
-    chat_input_enabled: bool,
-}
-
-/// Get chat settings (memory_id and chat_input_enabled) from root flow's flow_status
-async fn get_flow_chat_settings(db: &DB, job: &MiniPulledJob) -> FlowChatSettings {
-    let root_job_id = job
-        .root_job
-        .or(job.flow_innermost_root_job)
-        .or(job.parent_job);
-
-    let Some(root_job_id) = root_job_id else {
-        return FlowChatSettings::default();
-    };
-
-    match sqlx::query!(
-        "SELECT
-            (flow_status->>'memory_id')::uuid as memory_id,
-            (flow_status->>'chat_input_enabled')::boolean as chat_input_enabled
-         FROM v2_job_status
-         WHERE id = $1",
-        root_job_id
-    )
-    .fetch_optional(db)
-    .await
-    {
-        Ok(Some(row)) => FlowChatSettings {
-            memory_id: row.memory_id,
-            chat_input_enabled: row.chat_input_enabled.unwrap_or(false),
-        },
-        Ok(None) => FlowChatSettings::default(),
-        Err(e) => {
-            tracing::warn!(
-                "Failed to get chat settings from flow status for job {}: {}",
-                job.id,
-                e
-            );
-            FlowChatSettings::default()
-        }
-    }
-}
-
-// Add message to conversation
-async fn add_message_to_conversation(
-    db: &DB,
-    conversation_id: &Uuid,
-    job_id: &Uuid,
-    message_content: &str,
-    message_type: MessageType,
-    step_name: &Option<String>,
-    success: bool,
-) -> Result<(), Error> {
-    let mut tx = db.begin().await?;
-    add_message_to_conversation_tx(
-        &mut tx,
-        *conversation_id,
-        Some(*job_id),
-        &message_content,
-        message_type,
-        step_name.as_deref(),
-        success,
-    )
-    .await?;
-    tx.commit().await?;
-    Ok(())
-}
-
-/// Load tools from MCP servers and return both the clients and tools
-/// Returns a map of resource name -> client, and a vector of tools
-async fn load_mcp_tools(
-    db: &DB,
-    workspace_id: &str,
-    mcp_resource_paths: Vec<String>,
-) -> Result<(HashMap<String, Arc<McpClient>>, Vec<Tool>), Error> {
-    let mut all_mcp_tools = Vec::new();
-    let mut mcp_clients = HashMap::new();
-
-    for resource_path in mcp_resource_paths {
-        tracing::debug!("Loading MCP tools from resource: {}", resource_path);
-
-        let mcp_resource = {
-            // Fetch the resource from database
-            let resource= sqlx::query_scalar!(
-                "SELECT value as \"value: sqlx::types::Json<Box<RawValue>>\" FROM resource WHERE path = $1 AND workspace_id = $2",
-                &resource_path.trim_start_matches("$res:"),
-                &workspace_id
-            )
-            .fetch_optional(db)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("Could not find the resource {}, update the resource path in the workspace settings", resource_path)))?
-            .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", resource_path)))?;
-
-            serde_json::from_str::<McpResource>(resource.0.get())
-                .context("Failed to parse MCP resource")?
-        };
-
-        let resource_name = mcp_resource.name.clone();
-
-        // Create new MCP client for this execution
-        tracing::debug!("Creating fresh MCP client for {}", resource_name);
-        let client = McpClient::from_resource(mcp_resource)
-            .await
-            .context("Failed to create MCP client")?;
-
-        let mcp_client = Arc::new(client);
-
-        // Get all available tools
-        let available_tools = mcp_client.available_tools();
-
-        all_mcp_tools.extend(available_tools.iter().cloned());
-
-        // Store client for later use and cleanup
-        mcp_clients.insert(resource_name, mcp_client);
-    }
-
-    Ok((mcp_clients, all_mcp_tools))
-}
-
-/// Execute an MCP tool by routing the call to the appropriate MCP client
-async fn execute_mcp_tool(
-    mcp_clients: &HashMap<String, Arc<McpClient>>,
-    mcp_source: &McpToolSource,
-    arguments_str: &str,
-) -> Result<serde_json::Value, Error> {
-    // Get the MCP client from the provided map
-    let mcp_client = mcp_clients.get(&mcp_source.name).ok_or_else(|| {
-        Error::internal_err(format!(
-            "MCP client not found for resource: {}",
-            mcp_source.name
-        ))
-    })?;
-
-    // Call the MCP tool
-    let result = mcp_client
-        .call_tool(&mcp_source.tool_name, arguments_str)
-        .await
-        .context("MCP tool call failed")?;
-
-    Ok(result)
-}
 
 pub async fn handle_ai_agent_job(
     // connection
@@ -478,140 +293,6 @@ pub async fn handle_ai_agent_job(
     .await?;
 
     Ok(result)
-}
-
-/// Find a unique tool name for structured output tool to avoid collisions with user-provided tools
-fn find_unique_tool_name(base_name: &str, existing_tools: Option<&[ToolDef]>) -> String {
-    let Some(tools) = existing_tools else {
-        return base_name.to_string();
-    };
-
-    if !tools.iter().any(|t| t.function.name == base_name) {
-        return base_name.to_string();
-    }
-
-    for i in 1..100 {
-        let candidate = format!("{}_{}", base_name, i);
-        if !tools.iter().any(|t| t.function.name == candidate) {
-            return candidate;
-        }
-    }
-
-    // Fallback with process id if somehow we can't find a unique name
-    format!("{}_{}_fallback", base_name, std::process::id())
-}
-
-async fn update_flow_status_module_with_actions(
-    db: &DB,
-    parent_job: &Uuid,
-    actions: &[AgentAction],
-) -> Result<(), Error> {
-    let step = get_step_of_flow_status(db, parent_job.to_owned()).await?;
-    match step {
-        Step::Step { idx: step, .. } => {
-            sqlx::query!(
-                r#"
-                UPDATE v2_job_status SET
-                    flow_status = jsonb_set(
-                        flow_status,
-                        array['modules', $3::TEXT, 'agent_actions'],
-                        $2
-                    )
-                WHERE id = $1
-                "#,
-                parent_job,
-                sqlx::types::Json(actions) as _,
-                step as i32
-            )
-            .execute(db)
-            .await?;
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
-async fn update_flow_status_module_with_actions_success(
-    db: &DB,
-    parent_job: &Uuid,
-    action_success: bool,
-) -> Result<(), Error> {
-    let step = get_step_of_flow_status(db, parent_job.to_owned()).await?;
-    match step {
-        Step::Step { idx: step, .. } => {
-            // Append the new bool to the existing array, or create a new array if it doesn't exist
-            sqlx::query!(
-                r#"
-                UPDATE v2_job_status SET
-                    flow_status = jsonb_set(
-                        flow_status,
-                        array['modules', $2::TEXT, 'agent_actions_success'],
-                        COALESCE(
-                            flow_status->'modules'->$2->'agent_actions_success',
-                            to_jsonb(ARRAY[]::bool[])
-                        ) || to_jsonb(ARRAY[$3::bool])
-                    )
-                WHERE id = $1
-                "#,
-                parent_job,
-                step as i32,
-                action_success
-            )
-            .execute(db)
-            .await?;
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
-/// Get step name from the flow module (summary if exists, else id)
-fn get_step_name_from_flow(flow_value: &FlowValue, flow_step_id: Option<&str>) -> Option<String> {
-    let flow_step_id = flow_step_id?;
-    let module = flow_value.modules.iter().find(|m| m.id == flow_step_id)?;
-    Some(
-        module
-            .summary
-            .clone()
-            .unwrap_or_else(|| format!("AI Agent Step {}", module.id)),
-    )
-}
-
-/// Check if the provider is Anthropic (either direct or through OpenRouter)
-fn is_anthropic_provider(provider: &ProviderWithResource) -> bool {
-    let provider_is_anthropic = provider.kind.is_anthropic();
-    let is_openrouter_anthropic =
-        provider.kind == AIProvider::OpenRouter && provider.model.starts_with("anthropic/");
-    provider_is_anthropic || is_openrouter_anthropic
-}
-
-/// Cleanup MCP clients by gracefully shutting down connections
-async fn cleanup_mcp_clients(mcp_clients: HashMap<String, Arc<McpClient>>) {
-    if mcp_clients.is_empty() {
-        return;
-    }
-
-    tracing::debug!("Cleaning up {} MCP client(s)", mcp_clients.len());
-
-    for (resource_name, client) in mcp_clients {
-        // Try to unwrap the Arc to get the McpClient
-        match Arc::try_unwrap(client) {
-            Ok(client) => {
-                tracing::debug!("Shutting down MCP client for {}", resource_name);
-                if let Err(e) = client.shutdown().await {
-                    tracing::warn!("Failed to shutdown MCP client for {}: {}", resource_name, e);
-                }
-            }
-            Err(arc) => {
-                // Other references still exist (shouldn't happen in normal flow)
-                tracing::warn!(
-                    "MCP client for {} still has {} references, dropping without graceful shutdown",
-                    resource_name,
-                    Arc::strong_count(&arc)
-                );
-            }
-        }
-    }
 }
 
 #[async_recursion]

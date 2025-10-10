@@ -7,3 +7,4 @@ pub mod providers;
 pub mod query_builder;
 pub mod sse;
 pub mod types;
+pub mod utils;
