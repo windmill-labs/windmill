@@ -207,7 +207,7 @@ async fn load_mcp_tools(
             let mcp_resource = if config.mcp_resource_path == "test_mcp" {
                 tracing::warn!("Using HARDCODED test MCP URL - remove before production!");
                 McpResource {
-                    url: "https://app.windmill.dev/api/mcp/w/test1245/sse?token=rWqKm7SOX6FHxFAOSXkOxQLnhWVL7Rc0".to_string(), // Change this to your test MCP server
+                    url: "https://app.windmill.dev/api/mcp/w/test1245/sse?token=".to_string(), // Change this to your test MCP server
                     api_key: None,
                 }
             } else {

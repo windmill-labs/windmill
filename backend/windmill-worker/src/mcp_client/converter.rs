@@ -3,8 +3,66 @@
 use crate::ai::types::{ToolDef, ToolDefFunction};
 use anyhow::{Context, Result};
 use rmcp::model::Tool as McpTool;
+use serde_json::{json, Value};
 use serde_json::value::RawValue;
 use windmill_common::worker::to_raw_value;
+
+/// Fix array schemas to ensure they have the required 'items' property
+///
+/// OpenAI requires all array types to have an 'items' field. MCP servers may
+/// return schemas without this field, so we add a default.
+fn fix_array_schemas(schema: Value) -> Value {
+    match schema {
+        Value::Object(mut obj) => {
+            // Check if this is an array type
+            if let Some(type_val) = obj.get("type") {
+                let is_array = match type_val {
+                    Value::String(s) => s == "array",
+                    Value::Array(arr) => arr.iter().any(|v| v.as_str() == Some("array")),
+                    _ => false,
+                };
+
+                // If it's an array and missing 'items', add a default
+                if is_array && !obj.contains_key("items") {
+                    obj.insert("items".to_string(), json!({}));
+                }
+            }
+
+            // Recursively fix nested schemas
+            if let Some(properties) = obj.get_mut("properties") {
+                if let Value::Object(props) = properties {
+                    for (_key, value) in props.iter_mut() {
+                        *value = fix_array_schemas(value.clone());
+                    }
+                }
+            }
+
+            // Fix items if present (for nested arrays)
+            if let Some(items) = obj.get_mut("items") {
+                *items = fix_array_schemas(items.clone());
+            }
+
+            // Fix oneOf, anyOf, allOf schemas
+            for key in &["oneOf", "anyOf", "allOf"] {
+                if let Some(Value::Array(schemas)) = obj.get_mut(*key) {
+                    for schema in schemas.iter_mut() {
+                        *schema = fix_array_schemas(schema.clone());
+                    }
+                }
+            }
+
+            // Fix additionalProperties if it's a schema
+            if let Some(additional) = obj.get_mut("additionalProperties") {
+                if additional.is_object() {
+                    *additional = fix_array_schemas(additional.clone());
+                }
+            }
+
+            Value::Object(obj)
+        }
+        other => other,
+    }
+}
 
 /// Convert an MCP tool to Windmill's ToolDef format
 ///
@@ -29,9 +87,13 @@ pub fn mcp_tool_to_tooldef(mcp_tool: &McpTool, resource_path: &str) -> Result<To
         format!("mcp_{}_{}", sanitized_resource, mcp_tool.name)
     };
 
-    // Convert the input schema to RawValue
-    // MCP uses JSON Schema which is compatible with OpenAPI schema
-    let parameters: Box<RawValue> = to_raw_value(&mcp_tool.input_schema);
+    // Convert the input schema to JSON Value, fix array schemas, then to RawValue
+    // MCP uses JSON Schema which is compatible with OpenAPI schema, but we need
+    // to ensure all arrays have 'items' property for OpenAI compatibility
+    let schema_value = serde_json::to_value(&*mcp_tool.input_schema)
+        .context("Failed to convert MCP schema to JSON value")?;
+    let fixed_schema = fix_array_schemas(schema_value);
+    let parameters: Box<RawValue> = to_raw_value(&fixed_schema);
 
     // Build the description from title and description
     let description = if let Some(title) = &mcp_tool.title {
@@ -138,5 +200,79 @@ mod tests {
     fn test_openai_args_empty() {
         let result = openai_args_to_mcp_args("").unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_fix_array_schemas_missing_items() {
+        // Array without items should get a default items property
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "attachments": {
+                    "type": "array"
+                }
+            }
+        });
+
+        let fixed = super::fix_array_schemas(schema);
+        let attachments = &fixed["properties"]["attachments"];
+        assert!(attachments["items"].is_object());
+    }
+
+    #[test]
+    fn test_fix_array_schemas_nested() {
+        // Nested arrays should all get items
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "parsed_email": {
+                    "type": "object",
+                    "properties": {
+                        "attachments": {
+                            "type": "array"
+                        }
+                    }
+                }
+            }
+        });
+
+        let fixed = super::fix_array_schemas(schema);
+        let attachments = &fixed["properties"]["parsed_email"]["properties"]["attachments"];
+        assert!(attachments["items"].is_object());
+    }
+
+    #[test]
+    fn test_fix_array_schemas_with_existing_items() {
+        // Arrays with existing items should not be modified
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        });
+
+        let fixed = super::fix_array_schemas(schema.clone());
+        assert_eq!(fixed["properties"]["tags"]["items"]["type"], "string");
+    }
+
+    #[test]
+    fn test_fix_array_schemas_union_type() {
+        // Array in union type should get items
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": {
+                    "type": ["array", "null"]
+                }
+            }
+        });
+
+        let fixed = super::fix_array_schemas(schema);
+        assert!(fixed["properties"]["value"]["items"].is_object());
     }
 }
