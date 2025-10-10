@@ -170,19 +170,15 @@ async fn add_message_to_conversation(
     Ok(())
 }
 
-// Cache for MCP clients to avoid reconnecting on every invocation
-lazy_static::lazy_static! {
-    static ref MCP_CLIENT_CACHE: std::sync::Arc<tokio::sync::RwLock<HashMap<String, Arc<crate::mcp_client::McpClient>>>> =
-        std::sync::Arc::new(tokio::sync::RwLock::new(HashMap::new()));
-}
-
-/// Load tools from MCP servers
+/// Load tools from MCP servers and return both the clients and tools
+/// Returns a map of resource name -> client, and a vector of tools
 async fn load_mcp_tools(
     db: &DB,
     workspace_id: &str,
     mcp_resource_paths: Vec<String>,
-) -> Result<Vec<Tool>, Error> {
+) -> Result<(HashMap<String, Arc<McpClient>>, Vec<Tool>), Error> {
     let mut all_mcp_tools = Vec::new();
+    let mut mcp_clients = HashMap::new();
 
     for resource_path in mcp_resource_paths {
         tracing::debug!("Loading MCP tools from resource: {}", resource_path);
@@ -205,25 +201,13 @@ async fn load_mcp_tools(
 
         let resource_name = mcp_resource.name.clone();
 
-        // Check cache first
-        let cache_key = format!("{}:{}", workspace_id, resource_name);
-        let mut cache = MCP_CLIENT_CACHE.write().await;
+        // Create new MCP client for this execution
+        tracing::debug!("Creating fresh MCP client for {}", resource_name);
+        let client = McpClient::from_resource(mcp_resource)
+            .await
+            .context("Failed to create MCP client")?;
 
-        let mcp_client = if let Some(cached_client) = cache.get(&cache_key) {
-            tracing::debug!("Using cached MCP client for {}", resource_name);
-            cached_client.clone()
-        } else {
-            // Create new MCP client
-            let client = McpClient::from_resource(mcp_resource)
-                .await
-                .context("Failed to create MCP client")?;
-
-            let client = Arc::new(client);
-            cache.insert(cache_key.clone(), client.clone());
-            client
-        };
-
-        drop(cache); // Release the lock
+        let mcp_client = Arc::new(client);
 
         // Get all available tools
         let available_tools = mcp_client.available_tools();
@@ -244,14 +228,17 @@ async fn load_mcp_tools(
             available_tools.len(),
             resource_name
         );
+
+        // Store client for later use and cleanup
+        mcp_clients.insert(resource_name, mcp_client);
     }
 
-    Ok(all_mcp_tools)
+    Ok((mcp_clients, all_mcp_tools))
 }
 
 /// Execute an MCP tool by routing the call to the appropriate MCP client
 async fn execute_mcp_tool(
-    workspace_id: &str,
+    mcp_clients: &HashMap<String, Arc<McpClient>>,
     mcp_source: &crate::mcp_client::McpToolSource,
     arguments_str: &str,
 ) -> Result<serde_json::Value, Error> {
@@ -263,21 +250,15 @@ async fn execute_mcp_tool(
         mcp_source.name
     );
 
-    // Get the cached MCP client
-    let cache_key = format!("{}:{}", workspace_id, mcp_source.name);
-    let cache = MCP_CLIENT_CACHE.read().await;
-
-    let mcp_client = cache
-        .get(&cache_key)
+    // Get the MCP client from the provided map
+    let mcp_client = mcp_clients
+        .get(&mcp_source.name)
         .ok_or_else(|| {
             Error::internal_err(format!(
-                "MCP client not found in cache for resource: {}",
+                "MCP client not found for resource: {}",
                 mcp_source.name
             ))
-        })?
-        .clone();
-
-    drop(cache); // Release the lock
+        })?;
 
     // Convert OpenAI-style arguments to MCP format
     let mcp_args =
@@ -477,10 +458,13 @@ pub async fn handle_ai_agent_job(
 
     // Load MCP tools if configured
     let mut tools = tools;
-    if !mcp_resources.is_empty() {
-        let mcp_tools = load_mcp_tools(db, &job.workspace_id, mcp_resources).await?;
+    let mcp_clients = if !mcp_resources.is_empty() {
+        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_resources).await?;
         tools.extend(mcp_tools);
-    }
+        clients
+    } else {
+        HashMap::new()
+    };
 
     let mut inner_occupancy_metrics = occupancy_metrics.clone();
 
@@ -497,6 +481,7 @@ pub async fn handle_ai_agent_job(
         parent_job,
         &args,
         &tools,
+        &mcp_clients,
         value,
         client,
         &mut inner_occupancy_metrics,
@@ -631,6 +616,35 @@ fn is_anthropic_provider(provider: &ProviderWithResource) -> bool {
     provider_is_anthropic || is_openrouter_anthropic
 }
 
+/// Cleanup MCP clients by gracefully shutting down connections
+async fn cleanup_mcp_clients(mcp_clients: HashMap<String, Arc<McpClient>>) {
+    if mcp_clients.is_empty() {
+        return;
+    }
+
+    tracing::debug!("Cleaning up {} MCP client(s)", mcp_clients.len());
+
+    for (resource_name, client) in mcp_clients {
+        // Try to unwrap the Arc to get the McpClient
+        match Arc::try_unwrap(client) {
+            Ok(client) => {
+                tracing::debug!("Shutting down MCP client for {}", resource_name);
+                if let Err(e) = client.shutdown().await {
+                    tracing::warn!("Failed to shutdown MCP client for {}: {}", resource_name, e);
+                }
+            }
+            Err(arc) => {
+                // Other references still exist (shouldn't happen in normal flow)
+                tracing::warn!(
+                    "MCP client for {} still has {} references, dropping without graceful shutdown",
+                    resource_name,
+                    Arc::strong_count(&arc)
+                );
+            }
+        }
+    }
+}
+
 #[async_recursion]
 pub async fn run_agent(
     // connection
@@ -642,6 +656,7 @@ pub async fn run_agent(
     parent_job: &Uuid,
     args: &AIAgentArgs,
     tools: &[Tool],
+    mcp_clients: &HashMap<String, Arc<McpClient>>,
     flow_value: &FlowValue,
 
     // job execution context
@@ -982,7 +997,7 @@ pub async fn run_agent(
                                 if let Some(mcp_source) = &tool.mcp_source {
                                     // Execute MCP tool
                                     let tool_result = execute_mcp_tool(
-                                        &job.workspace_id,
+                                        mcp_clients,
                                         mcp_source,
                                         &tool_call.function.arguments,
                                     )
@@ -1581,6 +1596,9 @@ pub async fn run_agent(
             }
         }
     }
+
+    // Cleanup MCP clients before returning (takes ownership to properly shutdown)
+    cleanup_mcp_clients(mcp_clients.clone()).await;
 
     Ok(to_raw_value(&AIAgentResult {
         output: output_value,

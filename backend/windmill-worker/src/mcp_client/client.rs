@@ -94,11 +94,6 @@ impl McpClient {
         &self.available_tools
     }
 
-    /// Get the name of this MCP resource
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
     /// Call a tool on the MCP server
     ///
     /// # Arguments
