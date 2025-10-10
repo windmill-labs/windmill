@@ -179,66 +179,63 @@ lazy_static::lazy_static! {
 async fn load_mcp_tools(
     db: &DB,
     workspace_id: &str,
-    mcp_tool_configs: Vec<serde_json::Value>,
+    mcp_resource_paths: Vec<String>,
 ) -> Result<Vec<Tool>, Error> {
-    use crate::mcp_client::{mcp_tool_to_tooldef, McpClient, McpResource, McpToolConfig};
+    use crate::mcp_client::{mcp_tool_to_tooldef, McpClient, McpResource};
 
     let mut all_mcp_tools = Vec::new();
 
-    for config_value in mcp_tool_configs {
-        let config: McpToolConfig =
-            serde_json::from_value(config_value).context("Failed to parse MCP tool config")?;
+    for resource_path in mcp_resource_paths {
+        tracing::debug!("Loading MCP tools from resource: {}", resource_path);
 
-        tracing::debug!(
-            "Loading MCP tools from resource: {}",
-            config.mcp_resource_path
-        );
+        // TESTING: Hardcoded MCP configuration for quick testing
+        // TODO: Remove this before production
+        let mcp_resource = if resource_path == "test_mcp" {
+            tracing::warn!("Using HARDCODED test MCP configuration - remove before production!");
+            McpResource {
+                name: "test_mcp".to_string(),
+                url: "https://app.windmill.dev/api/mcp/w/test1245/sse?token=".to_string(),
+                api_key: None,
+            }
+        } else {
+            // Fetch the resource from database
+            let resource_value = sqlx::query_scalar!(
+                "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2",
+                workspace_id,
+                resource_path
+            )
+            .fetch_optional(db)
+            .await?;
+
+            let Some(resource_value) = resource_value else {
+                return Err(Error::NotFound(format!(
+                    "MCP resource not found: {}",
+                    resource_path
+                )));
+            };
+
+            let Some(val) = resource_value else {
+                return Err(Error::NotFound(format!(
+                    "MCP resource not found: {}",
+                    resource_path
+                )));
+            };
+
+            serde_json::from_value(val).context("Failed to parse MCP resource")?
+        };
+
+        let resource_name = mcp_resource.name.clone();
 
         // Check cache first
-        let cache_key = format!("{}:{}", workspace_id, config.mcp_resource_path);
+        let cache_key = format!("{}:{}", workspace_id, resource_name);
         let mut cache = MCP_CLIENT_CACHE.write().await;
 
         let mcp_client = if let Some(cached_client) = cache.get(&cache_key) {
-            tracing::debug!("Using cached MCP client for {}", config.mcp_resource_path);
+            tracing::debug!("Using cached MCP client for {}", resource_name);
             cached_client.clone()
         } else {
-            // TESTING: Hardcoded MCP URL for quick testing
-            // TODO: Remove this before production
-            let mcp_resource = if config.mcp_resource_path == "test_mcp" {
-                tracing::warn!("Using HARDCODED test MCP URL - remove before production!");
-                McpResource {
-                    url: "https://app.windmill.dev/api/mcp/w/test1245/sse?token=".to_string(), // Change this to your test MCP server
-                    api_key: None,
-                }
-            } else {
-                // Fetch the resource from database
-                let resource_value = sqlx::query_scalar!(
-                    "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2",
-                    workspace_id,
-                    config.mcp_resource_path
-                )
-                .fetch_optional(db)
-                .await?;
-
-                let Some(resource_value) = resource_value else {
-                    return Err(Error::NotFound(format!(
-                        "MCP resource not found: {}",
-                        config.mcp_resource_path
-                    )));
-                };
-
-                let Some(val) = resource_value else {
-                    return Err(Error::NotFound(format!(
-                        "MCP resource not found: {}",
-                        config.mcp_resource_path
-                    )));
-                };
-
-                serde_json::from_value(val).context("Failed to parse MCP resource")?
-            };
-
             // Create new MCP client
-            let client = McpClient::from_resource(mcp_resource, config.mcp_resource_path.clone())
+            let client = McpClient::from_resource(mcp_resource)
                 .await
                 .context("Failed to create MCP client")?;
 
@@ -249,58 +246,24 @@ async fn load_mcp_tools(
 
         drop(cache); // Release the lock
 
-        // Get available tools
+        // Get all available tools
         let available_tools = mcp_client.available_tools();
 
-        // Filter tools if selected_tools is specified
-        let tools_to_add: Vec<_> = if let Some(selected) = &config.selected_tools {
-            available_tools
-                .iter()
-                .filter(|t| selected.contains(&t.name.to_string()))
-                .collect()
-        } else {
-            available_tools.iter().collect()
-        };
-
         // Convert MCP tools to Windmill tools
-        for mcp_tool in tools_to_add.clone() {
-            let tooldef = mcp_tool_to_tooldef(mcp_tool, &config.mcp_resource_path)?;
-
-            // Create a dummy FlowModule for MCP tools
-            // These won't be executed as regular flow modules
-            let dummy_module = windmill_common::flows::FlowModule {
-                id: format!("mcp_{}", mcp_tool.name),
-                value: to_raw_value(&serde_json::json!({
-                    "type": "identity"
-                })),
-                stop_after_if: None,
-                stop_after_all_iters_if: None,
-                summary: Some(tooldef.function.name.clone()),
-                suspend: None,
-                mock: None,
-                retry: None,
-                sleep: None,
-                cache_ttl: None,
-                timeout: None,
-                priority: None,
-                delete_after_use: None,
-                apply_preprocessor: None,
-                continue_on_error: None,
-                skip_if: None,
-                pass_flow_input_directly: None,
-            };
+        for mcp_tool in available_tools {
+            let tooldef = mcp_tool_to_tooldef(mcp_tool, &resource_name)?;
 
             all_mcp_tools.push(Tool {
                 def: tooldef,
-                module: dummy_module,
+                module: None,
                 mcp_source: Some(mcp_client.create_tool_source(&mcp_tool.name)),
             });
         }
 
         tracing::info!(
             "Loaded {} MCP tools from {}",
-            tools_to_add.len(),
-            config.mcp_resource_path
+            available_tools.len(),
+            resource_name
         );
     }
 
@@ -309,7 +272,6 @@ async fn load_mcp_tools(
 
 /// Execute an MCP tool by routing the call to the appropriate MCP client
 async fn execute_mcp_tool(
-    db: &DB,
     workspace_id: &str,
     mcp_source: &crate::mcp_client::McpToolSource,
     arguments_str: &str,
@@ -319,11 +281,11 @@ async fn execute_mcp_tool(
     tracing::debug!(
         "Executing MCP tool {} from resource {}",
         mcp_source.original_tool_name,
-        mcp_source.resource_path
+        mcp_source.name
     );
 
     // Get the cached MCP client
-    let cache_key = format!("{}:{}", workspace_id, mcp_source.resource_path);
+    let cache_key = format!("{}:{}", workspace_id, mcp_source.name);
     let cache = MCP_CLIENT_CACHE.read().await;
 
     let mcp_client = cache
@@ -331,7 +293,7 @@ async fn execute_mcp_tool(
         .ok_or_else(|| {
             Error::internal_err(format!(
                 "MCP client not found in cache for resource: {}",
-                mcp_source.resource_path
+                mcp_source.name
             ))
         })?
         .clone();
@@ -414,7 +376,7 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    let FlowModuleValue::AIAgent { tools, mcp_tools, .. } = module.get_value()? else {
+    let FlowModuleValue::AIAgent { tools, mcp_resources, .. } = module.get_value()? else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
         ));
@@ -515,7 +477,7 @@ pub async fn handle_ai_agent_job(
                         }),
                     },
                 },
-                module: t,
+                module: Some(t),
                 mcp_source: None,
             })
         }
@@ -524,8 +486,8 @@ pub async fn handle_ai_agent_job(
 
     // Load MCP tools if configured
     let mut tools = tools;
-    if let Some(mcp_tool_configs) = mcp_tools {
-        let mcp_tools = load_mcp_tools(db, &job.workspace_id, mcp_tool_configs).await?;
+    if !mcp_resources.is_empty() {
+        let mcp_tools = load_mcp_tools(db, &job.workspace_id, mcp_resources).await?;
         tools.extend(mcp_tools);
     }
 
@@ -1029,7 +991,6 @@ pub async fn run_agent(
                                 if let Some(mcp_source) = &tool.mcp_source {
                                     // Execute MCP tool
                                     let tool_result = execute_mcp_tool(
-                                        db,
                                         &job.workspace_id,
                                         mcp_source,
                                         &tool_call.function.arguments,
@@ -1099,11 +1060,20 @@ pub async fn run_agent(
 
                                     continue; // Skip regular tool execution
                                 }
+
+                                // Regular Windmill tools must have a module
+                                let tool_module = tool.module.as_ref().ok_or_else(|| {
+                                    Error::internal_err(format!(
+                                        "Tool {} has no module (MCP tools should be handled above)",
+                                        tool_call.function.name
+                                    ))
+                                })?;
+
                                 let job_id = ulid::Ulid::new().into();
                                 actions.push(AgentAction::ToolCall {
                                     job_id,
                                     function_name: tool_call.function.name.clone(),
-                                    module_id: tool.module.id.clone(),
+                                    module_id: tool_module.id.clone(),
                                 });
 
                                 update_flow_status_module_with_actions(db, parent_job, &actions)
@@ -1126,7 +1096,7 @@ pub async fn run_agent(
                                     )
                                     })?;
 
-                                let job_payload = match tool.module.get_value()? {
+                                let job_payload = match tool_module.get_value()? {
                                     FlowModuleValue::Script {
                                         path: script_path,
                                         hash: script_hash,
@@ -1138,9 +1108,9 @@ pub async fn run_agent(
                                             script_path,
                                             db,
                                             job,
-                                            &tool.module,
+                                            tool_module,
                                             tag_override,
-                                            tool.module.apply_preprocessor,
+                                            tool_module.apply_preprocessor,
                                         )
                                         .await?;
                                         payload
@@ -1160,7 +1130,7 @@ pub async fn run_agent(
                                             format!(
                                                 "{}/tools/{}",
                                                 job.runnable_path(),
-                                                tool.module.id
+                                                tool_module.id
                                             )
                                         });
 
@@ -1172,9 +1142,9 @@ pub async fn run_agent(
                                             custom_concurrency_key,
                                             concurrent_limit,
                                             concurrency_time_window_s,
-                                            &tool.module,
+                                            tool_module,
                                             tag,
-                                            tool.module.delete_after_use.unwrap_or(false),
+                                            tool_module.delete_after_use.unwrap_or(false),
                                         );
                                         payload
                                     }
@@ -1203,7 +1173,7 @@ pub async fn run_agent(
                                         (&job.permissioned_as_email, job.permissioned_as.to_owned())
                                     };
 
-                                let job_priority = tool.module.priority.or(job.priority);
+                                let job_priority = tool_module.priority.or(job.priority);
 
                                 let tx = PushIsolationLevel::Transaction(tx);
                                 let (uuid, tx) = push(
@@ -1344,7 +1314,7 @@ pub async fn run_agent(
                                             agent_action: Some(AgentAction::ToolCall {
                                                 job_id,
                                                 function_name: tool_call.function.name.clone(),
-                                                module_id: tool.module.id.clone(),
+                                                module_id: tool_module.id.clone(),
                                             }),
                                             ..Default::default()
                                         });
@@ -1449,7 +1419,7 @@ pub async fn run_agent(
                                             agent_action: Some(AgentAction::ToolCall {
                                                 job_id,
                                                 function_name: tool_call.function.name.clone(),
-                                                module_id: tool.module.id.clone(),
+                                                module_id: tool_module.id.clone(),
                                             }),
                                             ..Default::default()
                                         });

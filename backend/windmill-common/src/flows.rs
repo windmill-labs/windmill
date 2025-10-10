@@ -726,8 +726,8 @@ pub enum FlowModuleValue {
     AIAgent {
         input_transforms: HashMap<String, InputTransform>,
         tools: Vec<FlowModule>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        mcp_tools: Option<Vec<serde_json::Value>>,
+        #[serde(default)]
+        mcp_resources: Vec<String>,
     },
 }
 
@@ -766,7 +766,7 @@ struct UntaggedFlowModuleValue {
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Vec<FlowModule>>,
     pass_flow_input_directly: Option<bool>,
-    mcp_tools: Option<Vec<serde_json::Value>>,
+    mcp_resources: Option<Vec<String>>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -866,12 +866,9 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 tools: untagged
                     .tools
                     .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
-                // TESTING: Auto-inject test MCP if not already configured
-                // TODO: Remove before production!
-                mcp_tools: untagged.mcp_tools.or_else(|| Some(vec![serde_json::json!({
-                    "mcp_resource_path": "test_mcp",
-                    "selected_tools": null
-                })])),
+                mcp_resources: untagged
+                    .mcp_resources
+                    .unwrap_or(vec!["test_mcp".to_string()]),
             }),
             other => Err(serde::de::Error::unknown_variant(
                 other,

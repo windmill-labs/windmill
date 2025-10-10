@@ -68,23 +68,23 @@ fn fix_array_schemas(schema: Value) -> Value {
 ///
 /// # Arguments
 /// * `mcp_tool` - The MCP tool to convert
-/// * `resource_path` - The resource path to use as a prefix for the tool name
+/// * `name` - The MCP resource name to use as a prefix for the tool name
 ///
 /// # Returns
 /// A ToolDef that can be used in Windmill's AI agent system
-pub fn mcp_tool_to_tooldef(mcp_tool: &McpTool, resource_path: &str) -> Result<ToolDef> {
-    // Create a unique tool name by prefixing with a sanitized resource path
+pub fn mcp_tool_to_tooldef(mcp_tool: &McpTool, name: &str) -> Result<ToolDef> {
+    // Create a unique tool name by prefixing with the resource name
     // This prevents naming conflicts between different MCP servers
-    let sanitized_resource = resource_path
+    let sanitized_name = name
         .replace('/', "_")
         .replace('.', "_")
         .trim_start_matches('_')
         .to_string();
 
-    let tool_name = if sanitized_resource.is_empty() {
+    let tool_name = if sanitized_name.is_empty() {
         mcp_tool.name.to_string()
     } else {
-        format!("mcp_{}_{}", sanitized_resource, mcp_tool.name)
+        format!("mcp_{}_{}", sanitized_name, mcp_tool.name)
     };
 
     // Convert the input schema to JSON Value, fix array schemas, then to RawValue
@@ -176,9 +176,9 @@ mod tests {
             annotations: None,
         };
 
-        let tooldef = mcp_tool_to_tooldef(&mcp_tool, "f/team/server").unwrap();
+        let tooldef = mcp_tool_to_tooldef(&mcp_tool, "myserver").unwrap();
 
-        assert_eq!(tooldef.function.name, "mcp_f_team_server_search");
+        assert_eq!(tooldef.function.name, "mcp_myserver_search");
         assert_eq!(
             tooldef.function.description.as_deref(),
             Some("Search Tool: Search for information")

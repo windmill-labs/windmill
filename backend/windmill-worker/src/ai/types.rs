@@ -89,7 +89,7 @@ pub struct ToolDef {
 }
 
 pub struct Tool {
-    pub module: FlowModule,
+    pub module: Option<FlowModule>,
     pub def: ToolDef,
     pub mcp_source: Option<crate::mcp_client::McpToolSource>,
 }

@@ -18,13 +18,13 @@ pub struct McpClient {
     client: Arc<RunningService<RoleClient, InitializeRequestParam>>,
     /// Cached list of available tools from the server
     available_tools: Vec<Tool>,
-    /// Resource path for tracking tool sources
-    resource_path: String,
+    /// Name of the MCP resource for tracking tool sources
+    name: String,
 }
 
 impl McpClient {
     /// Create a new MCP client from a resource configuration
-    pub async fn from_resource(resource: McpResource, resource_path: String) -> Result<Self> {
+    pub async fn from_resource(resource: McpResource) -> Result<Self> {
         tracing::debug!("Initializing MCP client for {}", resource.url);
 
         // Create the HTTP transport with reqwest client
@@ -61,7 +61,7 @@ impl McpClient {
 
         tracing::debug!("Discovered {} tools from MCP server", available_tools.len());
 
-        Ok(Self { client: Arc::new(client), available_tools, resource_path })
+        Ok(Self { client: Arc::new(client), available_tools, name: resource.name })
     }
 
     /// Get the list of available tools from the MCP server
@@ -69,9 +69,9 @@ impl McpClient {
         &self.available_tools
     }
 
-    /// Get the resource path for this client
-    pub fn resource_path(&self) -> &str {
-        &self.resource_path
+    /// Get the name of this MCP resource
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// Call a tool on the MCP server
@@ -108,7 +108,7 @@ impl McpClient {
     /// Create metadata for tracking this tool's source
     pub fn create_tool_source(&self, tool_name: &str) -> McpToolSource {
         McpToolSource {
-            resource_path: self.resource_path.clone(),
+            name: self.name.clone(),
             original_tool_name: tool_name.to_string(),
         }
     }
@@ -134,6 +134,6 @@ impl McpClient {
 
 impl Drop for McpClient {
     fn drop(&mut self) {
-        tracing::debug!("Dropping MCP client for {}", self.resource_path);
+        tracing::debug!("Dropping MCP client for {}", self.name);
     }
 }

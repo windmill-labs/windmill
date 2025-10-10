@@ -9,4 +9,4 @@ pub mod types;
 
 pub use client::McpClient;
 pub use converter::{mcp_tool_to_tooldef, openai_args_to_mcp_args};
-pub use types::{McpResource, McpToolConfig, McpToolSource};
+pub use types::{McpResource, McpToolSource};
