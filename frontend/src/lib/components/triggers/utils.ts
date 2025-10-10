@@ -26,6 +26,7 @@ import { saveGcpTriggerFromCfg } from './gcp/utils'
 import type { Triggers } from './triggers.svelte'
 import { emptyString } from '$lib/utils'
 import { saveEmailTriggerFromCfg } from './email/utils'
+import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
 
 export const CLOUD_DISABLED_TRIGGER_TYPES = [
 	'nats',
@@ -53,6 +54,7 @@ export type TriggerType =
 	| 'email'
 	| 'poll'
 	| 'cli'
+	| 'nextcloud'
 
 export type Trigger = {
 	type: TriggerType
@@ -83,7 +85,8 @@ export const triggerIconMap = {
 	gcp: GoogleCloudIcon,
 	primary_schedule: Calendar,
 	poll: SchedulePollIcon,
-	cli: Terminal
+	cli: Terminal,
+	nextcloud: NextcloudIcon
 }
 
 /**
@@ -137,7 +140,8 @@ export function updateTriggersCount(
 		gcp: 'gcp_count',
 		email: 'email_count',
 		poll: undefined,
-		cli: undefined
+		cli: undefined,
+		nextcloud: undefined
 	}
 
 	const countProperty = countPropertyMap[type]
@@ -319,7 +323,8 @@ export async function deployTriggers(
 				usedTriggerKinds
 			),
 		poll: undefined,
-		cli: undefined
+		cli: undefined,
+		nextcloud: undefined
 	}
 
 	await Promise.all(
