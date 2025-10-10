@@ -13,19 +13,14 @@ use crate::{
     resources::try_get_resource_from_db_as,
 };
 
-#[derive(Deserialize)]
-struct EventsQuery {
-    resource_path: String,
-}
-
 pub async fn get_available_events(auth: &NextCloudResource) -> Result<Vec<NextCloudEventType>> {
     let response = Client::new()
-        .get(format!(
-            "{}/ocs/v2.php/apps/webhook/api/v1/events",
-            auth.base_url
-        ))
+        .get(
+            "https://windmill.ltd4.nextcloud.com/ocs/v2.php/apps/integration_windmill/api/v1/list/events",
+        )
         .basic_auth(&auth.username, Some(&auth.password))
         .header("OCS-APIRequest", "true")
+        .header("accept", "application/json")
         .send()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to get NextCloud events: {}", e)))?;
@@ -46,7 +41,7 @@ pub async fn get_available_events(auth: &NextCloudResource) -> Result<Vec<NextCl
 
     #[derive(Deserialize)]
     struct OcsData {
-        data: Vec<NextCloudEventType>,
+        data: String, // NextCloud returns this as a JSON string, not a parsed array
     }
 
     let ocs_response: OcsResponse = response
@@ -54,15 +49,18 @@ pub async fn get_available_events(auth: &NextCloudResource) -> Result<Vec<NextCl
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to parse NextCloud response: {}", e)))?;
 
-    Ok(ocs_response.ocs.data)
+    // Parse the JSON string in the data field
+    let events: Vec<NextCloudEventType> = serde_json::from_str(&ocs_response.ocs.data)
+        .map_err(|e| Error::InternalErr(format!("Failed to parse NextCloud events data: {}", e)))?;
+
+    Ok(events)
 }
 
 async fn list_available_events(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Path(workspace_id): Path<String>,
-    Path(resource_path): Path<String>,
+    Path((workspace_id, resource_path)): Path<(String, String)>,
 ) -> JsonResult<Vec<NextCloudEventType>> {
     let auth = try_get_resource_from_db_as::<NextCloudResource>(
         &authed,
@@ -78,5 +76,5 @@ async fn list_available_events(
 }
 
 pub fn nextcloud_routes() -> Router {
-    Router::new().route("/events/:workspace_id/*resource_path", get(list_available_events))
+    Router::new().route("/events/*resource_path", get(list_available_events))
 }

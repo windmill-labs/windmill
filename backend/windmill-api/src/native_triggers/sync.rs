@@ -203,14 +203,14 @@ async fn sync_workspace_triggers(db: &DB, workspace_id: &str) -> Result<()> {
 async fn delete_stale_trigger(
     db: &DB,
     workspace_id: &str,
-    path: &str,
+    id: i64,
     service_name: ServiceName,
 ) -> Result<()> {
     use crate::native_triggers::delete_native_trigger;
 
     let mut tx = db.begin().await?;
 
-    delete_native_trigger(&mut *tx, workspace_id, path, service_name).await?;
+    delete_native_trigger(&mut *tx, workspace_id, id, service_name).await?;
 
     // Also log this deletion
     sqlx::query!(
@@ -233,7 +233,7 @@ async fn delete_stale_trigger(
         "#,
         workspace_id,
         format!("native_triggers.{}.auto_delete", service_name.as_str()),
-        path,
+        None::<String>,
         serde_json::json!({
             "reason": "trigger_no_longer_exists_on_external_service",
             "service": service_name.as_str(),

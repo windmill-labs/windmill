@@ -12,10 +12,10 @@ pub struct NextCloudResource {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NextCloudEventType {
-    pub id: String,
     pub name: String,
     pub description: Option<String>,
-    pub category: Option<String>,
+    pub path: Option<String>,
+    pub parameters: Option<serde_json::Value>,
 }
 
 #[derive(Copy, Clone)]
@@ -23,19 +23,31 @@ pub struct NextCloud;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NextCloudPayload {
-    pub event_type: String,
-    pub nextcloud_resource_path: String,
-    pub file_path: Option<String>,
-    pub config: Option<serde_json::Value>,
+    pub event: String,
+    #[serde(default)]
+    #[serde(rename(serialize = "eventFilter"))]
+    pub event_filter: Option<Box<serde_json::value::RawValue>>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename(serialize = "userIdFilter")
+    )]
+    pub user_id_filter: Option<String>,
+    #[serde(default)]
+    pub headers: Option<Box<serde_json::value::RawValue>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NextCloudTriggerData {
     pub id: String,
-    pub event_type: String,
-    pub resource_path: Option<String>,
-    pub config: Option<serde_json::Value>,
-    pub status: String,
-    pub created_at: String,
-    pub updated_at: String,
+    pub uri: String,
+    pub event: String,
+    #[serde(rename(deserialize = "eventFilter"))]
+    pub event_filter: Option<Box<serde_json::value::RawValue>>,
+    #[serde(rename(deserialize = "userIdFilter"))]
+    pub user_id_filter: Option<String>,
+    pub headers: Option<Box<serde_json::value::RawValue>>,
+    #[serde(rename(deserialize = "authMethod"))]
+    pub auth_method: String,
+    #[serde(rename(deserialize = "authData"))]
+    pub auth_data: Option<Box<serde_json::value::RawValue>>,
 }

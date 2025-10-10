@@ -10,6 +10,8 @@
 	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
 	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
+	import { getAvailableNativeTriggerServices, getServiceConfig, getServiceIcon } from '$lib/components/triggers/native/utils'
+	import type { NativeServiceName } from '$lib/gen/types.gen'
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
 	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
 
@@ -42,31 +44,67 @@
 	}: Props = $props()
 
 	let menuOpen = $state(false)
+	let availableNativeServices = $state<Array<{ service: NativeServiceName; icon: any; config: any }>>([])
 
-	const triggerTypeConfig: {
-		[key in TriggerType]: {
-			icon: ComponentType | Component<any, {}, ''>
-			countKey?: string
-			disabled?: boolean
+	// Load available native trigger services
+	async function loadAvailableNativeTriggers() {
+		try {
+			const services = await getAvailableNativeTriggerServices()
+			const serviceData = await Promise.all(
+				services.map(async (service) => ({
+					service,
+					icon: await getServiceIcon(service),
+					config: getServiceConfig(service)
+				}))
+			)
+			availableNativeServices = serviceData
+		} catch (err) {
+			console.error('Failed to load available native trigger services:', err)
+			availableNativeServices = []
 		}
-	} = {
-		webhook: { icon: Webhook, countKey: 'webhook_count' },
-		schedule: { icon: Calendar, countKey: 'schedule_count' },
-		http: { icon: Route, countKey: 'http_routes_count' },
-		websocket: { icon: Unplug, countKey: 'websocket_count' },
-		postgres: { icon: Database, countKey: 'postgres_count' },
-		kafka: { icon: KafkaIcon, countKey: 'kafka_count', disabled: !$enterpriseLicense },
-		default_email: { icon: Mail, countKey: 'default_email_count' },
-		email: { icon: Mail, countKey: 'email_count' },
-		nats: { icon: NatsIcon, countKey: 'nats_count', disabled: !$enterpriseLicense },
-		mqtt: { icon: MqttIcon, countKey: 'mqtt_count', disabled: !$enterpriseLicense },
-		sqs: { icon: AwsIcon, countKey: 'sqs_count', disabled: !$enterpriseLicense },
-		gcp: { icon: GoogleCloudIcon, countKey: 'gcp_count', disabled: !$enterpriseLicense },
-		poll: { icon: SchedulePollIcon },
-		cli: { icon: Terminal }
 	}
 
-	const allTypes = [
+	loadAvailableNativeTriggers()
+
+	let triggerTypeConfig = $derived(() => {
+		const baseConfig: {
+			[key in TriggerType]?: {
+				icon: ComponentType | Component<any, {}, ''>
+				countKey?: string
+				disabled?: boolean
+			}
+		} = {
+			webhook: { icon: Webhook, countKey: 'webhook_count' },
+			schedule: { icon: Calendar, countKey: 'schedule_count' },
+			http: { icon: Route, countKey: 'http_routes_count' },
+			websocket: { icon: Unplug, countKey: 'websocket_count' },
+			postgres: { icon: Database, countKey: 'postgres_count' },
+			kafka: { icon: KafkaIcon, countKey: 'kafka_count', disabled: !$enterpriseLicense },
+			default_email: { icon: Mail, countKey: 'default_email_count' },
+			email: { icon: Mail, countKey: 'email_count' },
+			nats: { icon: NatsIcon, countKey: 'nats_count', disabled: !$enterpriseLicense },
+			mqtt: { icon: MqttIcon, countKey: 'mqtt_count', disabled: !$enterpriseLicense },
+			sqs: { icon: AwsIcon, countKey: 'sqs_count', disabled: !$enterpriseLicense },
+			gcp: { icon: GoogleCloudIcon, countKey: 'gcp_count', disabled: !$enterpriseLicense },
+			poll: { icon: SchedulePollIcon },
+			cli: { icon: Terminal }
+		}
+
+		// Add native trigger services that are available
+		for (const { service, icon } of availableNativeServices) {
+			baseConfig[service as TriggerType] = { icon }
+		}
+
+		return baseConfig as {
+			[key in TriggerType]: {
+				icon: ComponentType | Component<any, {}, ''>
+				countKey?: string
+				disabled?: boolean
+			}
+		}
+	})
+
+	let allTypes = $derived([
 		'webhook',
 		'schedule',
 		'http',
@@ -80,8 +118,9 @@
 		'gcp',
 		'email',
 		'poll',
-		'cli'
-	]
+		'cli',
+		...availableNativeServices.map(({ service }) => service)
+	])
 
 	function camelCaseToWords(s: string) {
 		const result = s.replace(/([A-Z])/g, ' $1')
@@ -124,10 +163,10 @@
 		return types.filter(
 			(type) =>
 				(!showOnlyTriggersWithCount ||
-					((triggerTypeConfig[type].countKey &&
-						($triggersCount?.[triggerTypeConfig[type].countKey] ?? 0)) ||
+					((triggerTypeConfig()[type]?.countKey &&
+						($triggersCount?.[triggerTypeConfig()[type].countKey] ?? 0)) ||
 						0) > 0) &&
-				!triggerTypeConfig[type].disabled
+				!triggerTypeConfig()[type]?.disabled
 		)
 	})
 	let triggersToDisplay = $derived(limit ? allTriggerTypes.slice(0, limit) : allTriggerTypes)
@@ -240,7 +279,7 @@
 </Menubar>
 
 {#snippet triggerButton({ type, isSelected, meltElement = undefined, singleItem = false })}
-	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig[type]}
+	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig()[type] || { icon: Database, countKey: undefined }}
 
 	<MeltButton
 		aiId={`trigger-button-${type}`}
@@ -281,7 +320,7 @@
 {/snippet}
 
 {#snippet simpleTriggerItem({ item, type })}
-	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig[type]}
+	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig()[type] || { icon: Database, countKey: undefined }}
 	<MenuItem {item} class={itemClass}>
 		<div class="flex flex-row items-center gap-2">
 			<SvelteComponent size={14} />

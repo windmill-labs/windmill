@@ -10487,7 +10487,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/native_triggers/{service_name}/update/{path}:
+  /w/{workspace}/native_triggers/{service_name}/update/{id}:
     post:
       summary: update native trigger
       operationId: updateNativeTrigger
@@ -10500,7 +10500,12 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/NativeServiceName"
-        - $ref: "#/components/parameters/Path"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
       requestBody:
         description: updated native trigger
         required: true
@@ -10516,7 +10521,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/native_triggers/{service_name}/get/{path}:
+  /w/{workspace}/native_triggers/{service_name}/get/{id}/{path}:
     get:
       summary: get native trigger
       operationId: getNativeTrigger
@@ -10529,6 +10534,12 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/NativeServiceName"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
         - $ref: "#/components/parameters/Path"
       responses:
         "200":
@@ -10538,7 +10549,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/NativeTrigger"
 
-  /w/{workspace}/native_triggers/{service_name}/delete/{path}:
+  /w/{workspace}/native_triggers/{service_name}/delete:
     delete:
       summary: delete native trigger
       operationId: deleteNativeTrigger
@@ -10551,7 +10562,6 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/NativeServiceName"
-        - $ref: "#/components/parameters/Path"
       responses:
         "200":
           description: native trigger deleted
@@ -10586,7 +10596,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/NativeTrigger"
 
-  /w/{workspace}/native_triggers/{service_name}/exists/{path}:
+  /w/{workspace}/native_triggers/{service_name}/exists:
     get:
       summary: does native trigger exist
       operationId: existsNativeTrigger
@@ -10599,7 +10609,6 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/NativeServiceName"
-        - $ref: "#/components/parameters/Path"
       responses:
         "200":
           description: native trigger exists
@@ -10608,7 +10617,7 @@ paths:
               schema:
                 type: boolean
 
-  /native_triggers/nextcloud/events/{workspace}/{resource_path}:
+  /w/{workspace}/native_triggers/nextcloud/events/{resource_path}:
     get:
       summary: list available NextCloud events
       operationId: listNextCloudEvents
@@ -19418,16 +19427,21 @@ components:
     NativeTrigger:
       type: object
       properties:
+        id:
+          type: integer
+          format: int64
         service_name:
           $ref: "#/components/schemas/NativeServiceName"
         external_id:
-          type: string
-        path:
           type: string
         workspace_id:
           type: string
         resource_path:
           type: string
+        runnable_path:
+          type: string
+        runnable_kind:
+          $ref: "#/components/schemas/RunnableKind"
         summary:
           type: string
         metadata:
@@ -19439,16 +19453,14 @@ components:
         edited_at:
           type: string
           format: date-time
-        extra_perms:
-          type: object
-          additionalProperties:
-            type: boolean
       required:
+        - id
         - service_name
         - external_id
-        - path
         - workspace_id
         - resource_path
+        - runnable_path
+        - runnable_kind
         - summary
         - edited_by
         - email
@@ -19457,22 +19469,22 @@ components:
     NativeTriggerData:
       type: object
       properties:
-        path:
+        runnable_path:
+          type: string
+        runnable_kind:
+          $ref: "#/components/schemas/RunnableKind"
+        resource_path:
           type: string
         summary:
           type: string
-        event_type:
+        external_id:
           type: string
-        nextcloud_resource_path:
-          type: string
-        file_path:
-          type: string
-        config:
-          type: object
       required:
-        - path
-        - event_type
-        - nextcloud_resource_path
+        - runnable_path
+        - runnable_kind
+        - resource_path
+        - external_id
+      additionalProperties: true
 
     NextCloudEventType:
       type: object
