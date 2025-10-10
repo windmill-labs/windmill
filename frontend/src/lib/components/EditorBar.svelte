@@ -135,7 +135,14 @@
 			'csharp',
 			'nu',
 			'java',
-			'ruby'
+			'ruby',
+			'postgresql',
+			'mysql',
+			'bigquery',
+			'mssql',
+			'oracledb',
+			'snowflake',
+			'duckdb'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -443,6 +450,12 @@
 			// for related places search: ADD_NEW_LANG
 		} else if (lang == 'ruby') {
 			editor.insertAtCursor(`ENV['${name}']`)
+		} else if (
+			['postgresql', 'mysql', 'bigquery', 'mssql', 'oracledb', 'snowflake', 'duckdb'].includes(
+				lang ?? ''
+			)
+		) {
+			editor.insertAtCursor(`%%${name}%%`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
