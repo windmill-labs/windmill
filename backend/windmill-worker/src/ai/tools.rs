@@ -120,6 +120,7 @@ pub async fn execute_tool_calls(
                     tool_call,
                     mcp_clients,
                     mcp_source,
+                    actions,
                     &mut messages,
                     final_events_str,
                 )
@@ -154,11 +155,20 @@ async fn execute_mcp_tool_call(
     tool_call: &OpenAIToolCall,
     mcp_clients: &HashMap<String, Arc<McpClient>>,
     mcp_source: &crate::ai::mcp_client::McpToolSource,
+    actions: &mut Vec<AgentAction>,
     messages: &mut Vec<OpenAIMessage>,
     final_events_str: &mut String,
 ) -> Result<(), Error> {
     let tool_result =
         execute_mcp_tool(mcp_clients, mcp_source, &tool_call.function.arguments).await;
+
+    let call_id = ulid::Ulid::new().into();
+
+    actions.push(AgentAction::McpToolCall {
+        call_id,
+        function_name: mcp_source.tool_name.clone(),
+        resource_path: mcp_source.resource_path.clone(),
+    });
 
     match tool_result {
         Ok(result) => {
@@ -169,7 +179,11 @@ async fn execute_mcp_tool_call(
                 role: "tool".to_string(),
                 content: Some(OpenAIContent::Text(result_str.clone())),
                 tool_call_id: Some(tool_call.id.clone()),
-                agent_action: None, // MCP tools don't have job IDs
+                agent_action: Some(AgentAction::McpToolCall {
+                    call_id,
+                    function_name: mcp_source.tool_name.clone(),
+                    resource_path: mcp_source.resource_path.clone(),
+                }),
                 ..Default::default()
             });
 
@@ -196,7 +210,11 @@ async fn execute_mcp_tool_call(
                 role: "tool".to_string(),
                 content: Some(OpenAIContent::Text(error_msg.clone())),
                 tool_call_id: Some(tool_call.id.clone()),
-                agent_action: None, // MCP tools don't have job IDs
+                agent_action: Some(AgentAction::McpToolCall {
+                    call_id,
+                    function_name: mcp_source.tool_name.clone(),
+                    resource_path: mcp_source.resource_path.clone(),
+                }),
                 ..Default::default()
             });
 

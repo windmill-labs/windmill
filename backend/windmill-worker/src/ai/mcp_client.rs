@@ -41,6 +41,8 @@ pub struct McpToolSource {
     pub name: String,
     /// Original tool name in the MCP server
     pub tool_name: String,
+    /// Path of the MCP resource
+    pub resource_path: String,
 }
 
 /// MCP client for communicating with external MCP servers
@@ -53,7 +55,7 @@ pub struct McpClient {
 
 impl McpClient {
     /// Create a new MCP client from a resource configuration
-    pub async fn from_resource(resource: McpResource) -> Result<Self> {
+    pub async fn from_resource(resource: McpResource, resource_path: &str) -> Result<Self> {
         // Build custom reqwest client with headers if provided
         let mut headers = HeaderMap::new();
         if let Some(resource_headers) = &resource.headers {
@@ -118,6 +120,7 @@ impl McpClient {
                     mcp_source: Some(McpToolSource {
                         name: resource.name.clone(),
                         tool_name: mcp_tool.name.to_string(),
+                        resource_path: resource_path.to_string(),
                     }),
                 })
             })

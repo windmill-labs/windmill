@@ -289,11 +289,12 @@ pub async fn load_mcp_tools(
     for resource_path in mcp_resource_paths {
         tracing::debug!("Loading MCP tools from resource: {}", resource_path);
 
+        let path = resource_path.trim_start_matches("$res:");
         let mcp_resource = {
             // Fetch the resource from database
             let resource= sqlx::query_scalar!(
                 "SELECT value as \"value: sqlx::types::Json<Box<RawValue>>\" FROM resource WHERE path = $1 AND workspace_id = $2",
-                &resource_path.trim_start_matches("$res:"),
+                &path,
                 &workspace_id
             )
             .fetch_optional(db)
@@ -309,7 +310,7 @@ pub async fn load_mcp_tools(
 
         // Create new MCP client for this execution
         tracing::debug!("Creating fresh MCP client for {}", resource_name);
-        let client = McpClient::from_resource(mcp_resource)
+        let client = McpClient::from_resource(mcp_resource, &path)
             .await
             .context("Failed to create MCP client")?;
 
