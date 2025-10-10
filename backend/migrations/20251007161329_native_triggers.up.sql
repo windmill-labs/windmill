@@ -14,7 +14,7 @@ CREATE TABLE native_triggers (
     runnable_kind RUNNABLE_KIND NOT NULL,
     workspace_id VARCHAR(50) NOT NULL,
     resource_path VARCHAR(255) NOT NULL,
-    summary TEXT NOT NULL,
+    summary TEXT,
     metadata JSONB NULL,
     edited_by VARCHAR(50) NOT NULL,
     email VARCHAR(255) NOT NULL,
@@ -30,7 +30,7 @@ CREATE INDEX idx_native_triggers_service_workspace_external
     ON native_triggers (service_name, workspace_id, external_id);
 
 CREATE INDEX idx_native_triggers_workspace_and_id
-    ON native_triggers (workspace_id, id);
+    ON native_triggers (service_name, workspace_id, id);
 
 -- Grant permissions
 GRANT ALL ON native_triggers TO windmill_user;

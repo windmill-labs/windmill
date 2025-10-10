@@ -1909,7 +1909,6 @@ pub async fn load_base_url(conn: &Connection) -> error::Result<String> {
     } else {
         std_base_url
     };
-
     {
         let mut l = BASE_URL.write().await;
         *l = base_url.clone();

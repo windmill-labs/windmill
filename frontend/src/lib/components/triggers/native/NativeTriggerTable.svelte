@@ -1,29 +1,28 @@
 <script lang="ts">
 	import { NativeTriggerService } from '$lib/gen/services.gen'
 	import type { NativeServiceName } from '$lib/gen/types.gen'
-	import type { NativeTriggerWithWrite, ExtendedNativeTrigger } from './utils'
+	import type { ExtendedNativeTrigger } from './utils'
 	import { getServiceConfig } from './utils'
 	import { displayDate, sendUserToast } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import { Eye, Pen, Trash, Download, Share, RefreshCw } from 'lucide-svelte'
+	import { Eye, Pen, Trash, Download, Share } from 'lucide-svelte'
 	import { base } from '$app/paths'
 	import { NextcloudIcon } from '$lib/components/icons'
 
 	interface Props {
 		service: NativeServiceName
-		triggers: NativeTriggerWithWrite[]
+		triggers: ExtendedNativeTrigger[]
 		loading?: boolean
 		onEdit?: (trigger: ExtendedNativeTrigger) => void
 		onSync?: () => Promise<void>
 		shareModal?: any
 	}
 
-	let { service, triggers = [], loading = false, onEdit, onSync, shareModal }: Props = $props()
+	let { service, triggers = [], loading = false, onEdit, shareModal }: Props = $props()
 
 	const serviceConfig = $derived(getServiceConfig(service))
 
@@ -32,24 +31,15 @@
 			await NativeTriggerService.deleteNativeTrigger({
 				workspace: $workspaceStore!,
 				serviceName: service,
-				
+				requestBody: {
+					id: trigger.id,
+					runnable_path: trigger.runnable_path
+				}
 			})
 			sendUserToast(`${serviceConfig?.serviceDisplayName} trigger deleted`)
-			// Trigger reload
-			window.location.reload()
+			triggers = triggers.filter((native_trigger) => native_trigger.id !== trigger.id)
 		} catch (err: any) {
 			sendUserToast(`Failed to delete trigger: ${err.body || err.message}`, true)
-		}
-	}
-
-	async function syncTriggers() {
-		if (onSync) {
-			try {
-				await onSync()
-				sendUserToast(`${serviceConfig?.serviceDisplayName} triggers synced`)
-			} catch (err: any) {
-				sendUserToast(`Failed to sync triggers: ${err.body || err.message}`, true)
-			}
 		}
 	}
 
@@ -64,26 +54,24 @@
 			sendUserToast('Configuration fetched from external service')
 			return fullTrigger
 		} catch (err: any) {
-			sendUserToast(`Failed to fetch config: ${err.body || err.message}`, true)
+			const errorMessage = err.body || err.message || ''
+
+			if (
+				errorMessage.includes('no longer exists on external service') &&
+				errorMessage.includes('automatically deleted')
+			) {
+				sendUserToast(
+					`Trigger was automatically deleted because it no longer exists on ${serviceConfig?.serviceDisplayName}. The page will refresh.`,
+					true
+				)
+			} else {
+				sendUserToast(`Failed to fetch config: ${errorMessage}`, true)
+			}
 		}
 	}
 </script>
 
 <div class="w-full">
-	{#if serviceConfig?.supportsSync}
-		<div class="mb-4 flex justify-end">
-			<Button
-				size="xs"
-				color="light"
-				startIcon={{ icon: RefreshCw }}
-				on:click={syncTriggers}
-				disabled={loading}
-			>
-				Sync with {serviceConfig.serviceDisplayName}
-			</Button>
-		</div>
-	{/if}
-
 	{#if loading}
 		{#each new Array(6) as _}
 			<Skeleton layout={[[6], 0.4]} />
@@ -126,21 +114,17 @@
 							</div>
 						</a>
 
-						<div class="hidden lg:flex flex-row gap-1 items-center">
-							<SharedBadge canWrite={trigger.canWrite} extraPerms={trigger.extra_perms || {}} />
-						</div>
-
 						<div class="flex gap-2 items-center justify-end">
 							<Button {href} size="xs" startIcon={{ icon: Eye }} color="light" variant="border">
 								View {isFlow ? 'Flow' : 'Script'}
 							</Button>
 							<Button
 								size="xs"
-								startIcon={trigger.canWrite ? { icon: Pen } : { icon: Eye }}
+								startIcon={{ icon: Pen }}
 								color="dark"
 								on:click={() => onEdit?.(trigger)}
 							>
-								{trigger.canWrite ? 'Edit' : 'View'}
+								Edit
 							</Button>
 							<Dropdown
 								items={[
@@ -149,7 +133,6 @@
 												{
 													displayName: 'Fetch Config',
 													icon: Download,
-													disabled: !trigger.canWrite,
 													action: () => fetchConfig(trigger)
 												}
 											]
@@ -158,7 +141,6 @@
 										displayName: 'Delete',
 										type: 'delete' as const,
 										icon: Trash,
-										disabled: !trigger.canWrite,
 										action: () => deleteTrigger(trigger)
 									},
 									{
@@ -167,7 +149,7 @@
 										href: `${base}/audit_logs?resource=${trigger.external_id}`
 									},
 									{
-										displayName: trigger.canWrite ? 'Share' : 'See Permissions',
+										displayName: 'Share',
 										icon: Share,
 										action: () => shareModal?.openDrawer(trigger.external_id, 'native_trigger')
 									}
@@ -178,9 +160,6 @@
 
 					<div class="text-2xs text-tertiary text-left w-full flex justify-between items-center">
 						<span>edited by {trigger.edited_by} • {displayDate(trigger.edited_at)}</span>
-						<div class="lg:hidden">
-							<SharedBadge canWrite={trigger.canWrite} extraPerms={trigger.extra_perms || {}} />
-						</div>
 					</div>
 				</div>
 			{/each}

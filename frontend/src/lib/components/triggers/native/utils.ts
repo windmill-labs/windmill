@@ -9,6 +9,10 @@ export interface NativeTriggerConfig {
 	readonly supportsSync: boolean
 	readonly supportsFetchConfig: boolean
 	readonly isCloudCompatible: boolean
+	readonly templates?: {
+		script?: string
+		flow?: string
+	}
 }
 
 export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerConfig> = {
@@ -18,7 +22,11 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 		resourceType: 'nextcloud',
 		supportsSync: true,
 		supportsFetchConfig: true,
-		isCloudCompatible: true
+		isCloudCompatible: true,
+		templates: {
+			script: 'hub/19824/nextcloud-script-with-preprocessor-template-windmill',
+			flow: 'hub/19824/nextcloud-flow-with-preprocessor-template-windmill'
+		}
 	}
 }
 
@@ -70,10 +78,6 @@ export interface ExtendedNativeTrigger extends NativeTrigger {
 	runnable_kind: 'script' | 'flow'
 }
 
-export interface NativeTriggerWithWrite extends ExtendedNativeTrigger {
-	canWrite: boolean
-	extra_perms?: Record<string, any>
-}
 
 export interface ServiceFormProps {
 	config: Record<string, any>
@@ -118,4 +122,14 @@ export async function getServiceIcon(service: NativeServiceName): Promise<any> {
 		case 'nextcloud':
 			return (await import('$lib/components/icons/NextcloudIcon.svelte')).default
 	}
+}
+
+export function getServiceTemplates(service: NativeServiceName): { script?: string; flow?: string } | undefined {
+	const config = getServiceConfig(service)
+	return config?.templates
+}
+
+export function getTemplateUrl(service: NativeServiceName, type: 'script' | 'flow'): string | undefined {
+	const templates = getServiceTemplates(service)
+	return templates?.[type]
 }

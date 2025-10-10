@@ -1,6 +1,5 @@
 use axum::{extract::Path, routing::get, Extension, Json, Router};
 use reqwest::Client;
-use serde::Deserialize;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
@@ -9,15 +8,16 @@ use windmill_common::{
 
 use crate::{
     db::ApiAuthed,
-    native_triggers::nextcloud::{NextCloudEventType, NextCloudResource},
+    native_triggers::nextcloud::{NextCloudEventType, NextCloudResource, OcsResponse},
     resources::try_get_resource_from_db_as,
 };
 
 pub async fn get_available_events(auth: &NextCloudResource) -> Result<Vec<NextCloudEventType>> {
     let response = Client::new()
-        .get(
-            "https://windmill.ltd4.nextcloud.com/ocs/v2.php/apps/integration_windmill/api/v1/list/events",
-        )
+        .get(format!(
+            "{}/ocs/v2.php/apps/integration_windmill/api/v1/list/events",
+            &auth.base_url,
+        ))
         .basic_auth(&auth.username, Some(&auth.password))
         .header("OCS-APIRequest", "true")
         .header("accept", "application/json")
@@ -34,23 +34,12 @@ pub async fn get_available_events(auth: &NextCloudResource) -> Result<Vec<NextCl
         )));
     }
 
-    #[derive(Deserialize)]
-    struct OcsResponse {
-        ocs: OcsData,
-    }
-
-    #[derive(Deserialize)]
-    struct OcsData {
-        data: String, // NextCloud returns this as a JSON string, not a parsed array
-    }
-
-    let ocs_response: OcsResponse = response
-        .json()
+    let ocs_response = response
+        .json::<OcsResponse>()
         .await
         .map_err(|e| Error::InternalErr(format!("Failed to parse NextCloud response: {}", e)))?;
 
-    // Parse the JSON string in the data field
-    let events: Vec<NextCloudEventType> = serde_json::from_str(&ocs_response.ocs.data)
+    let events = serde_json::from_str(&ocs_response.ocs.data)
         .map_err(|e| Error::InternalErr(format!("Failed to parse NextCloud events data: {}", e)))?;
 
     Ok(events)

@@ -2,19 +2,16 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{FromRow, PgConnection};
-use std::fmt::Debug;
-use windmill_common::{
-    error::{Error, Result},
-    utils::RunnableKind,
-    DB,
-};
-use windmill_queue::{PushArgs, PushArgsOwned};
+use std::{collections::HashMap, fmt::Debug};
+use windmill_common::{error::Result, utils::RunnableKind, DB};
+use windmill_queue::PushArgsOwned;
 
 use crate::db::ApiAuthed;
-
 pub mod handler;
-pub mod nextcloud;
 pub mod sync;
+
+#[cfg(feature = "nextcloud_trigger")]
+pub mod nextcloud;
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[sqlx(type_name = "native_trigger_service", rename_all = "lowercase")]
@@ -27,13 +24,6 @@ impl ServiceName {
     pub fn as_str(&self) -> &'static str {
         match self {
             ServiceName::Nextcloud => "nextcloud",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Result<Self> {
-        match s.to_lowercase().as_str() {
-            "nextcloud" => Ok(ServiceName::Nextcloud),
-            _ => Err(Error::BadRequest(format!("Unknown service name: {}", s))),
         }
     }
 }
@@ -57,7 +47,7 @@ pub struct NativeTrigger {
     pub resource_path: String,
     pub runnable_path: String,
     pub runnable_kind: RunnableKind,
-    pub summary: String,
+    pub summary: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub edited_by: String,
     pub email: String,
@@ -71,8 +61,21 @@ pub struct NativeTriggerData<P> {
     pub runnable_kind: RunnableKind,
     pub resource_path: String,
     pub summary: Option<String>,
-    #[serde(flatten)]
     pub payload: P,
+}
+
+impl<P> NativeTriggerData<P> {
+    fn into_payload_and_metadata(self) -> (P, TriggerMetadata) {
+        let trigger_metadata = TriggerMetadata {
+            external_id: self.external_id,
+            resource_path: self.resource_path,
+            summary: self.summary,
+            runnable_kind: self.runnable_kind,
+            runnable_path: self.runnable_path,
+            metadata: None,
+        };
+        (self.payload, trigger_metadata)
+    }
 }
 
 impl<P> Into<TriggerMetadata> for NativeTriggerData<P> {
@@ -98,19 +101,6 @@ pub struct TriggerMetadata {
     pub metadata: Option<serde_json::Value>,
 }
 
-impl TriggerMetadata {
-    pub fn new<P>(external_id: String, native_trigger: NativeTriggerData<P>) -> TriggerMetadata {
-        TriggerMetadata {
-            external_id: external_id,
-            resource_path: native_trigger.resource_path,
-            summary: native_trigger.summary,
-            runnable_kind: native_trigger.runnable_kind,
-            runnable_path: native_trigger.runnable_path,
-            metadata: None,
-        }
-    }
-}
-
 #[async_trait]
 pub trait External: Send + Sync + 'static {
     type Payload: Debug + DeserializeOwned + Serialize + Send + Sync;
@@ -126,7 +116,7 @@ pub trait External: Send + Sync + 'static {
     async fn create(
         &self,
         w_id: &str,
-        runnable_path: &str,
+        internal_id: i64,
         resource: &Self::Resource,
         payload: &Self::Payload,
     ) -> Result<Self::CreateResponse>;
@@ -134,7 +124,7 @@ pub trait External: Send + Sync + 'static {
     async fn update(
         &self,
         w_id: &str,
-        runnable_path: &str,
+        internal_id: i64,
         resource: &Self::Resource,
         external_id: &str,
         payload: &Self::Payload,
@@ -144,18 +134,29 @@ pub trait External: Send + Sync + 'static {
 
     async fn delete(&self, resource: &Self::Resource, external_id: &str) -> Result<()>;
 
+    #[allow(unused)]
     async fn exists(&self, resource: &Self::Resource, external_id: &str) -> Result<bool>;
 
     async fn list_all(&self, resource: &Self::Resource) -> Result<Vec<Self::TriggerData>>;
 
-    async fn prepare_webhook() -> Option<Result<PushArgsOwned>> {
-        None
+    async fn prepare_webhook(
+        &self,
+        _db: &DB,
+        _w_id: &str,
+        _header: HashMap<String, String>,
+        _body: String,
+        _runnable_path: &str,
+        _is_flow: bool,
+    ) -> Result<PushArgsOwned> {
+        Ok(PushArgsOwned { extra: None, args: HashMap::new() })
     }
 
     fn external_id_and_metadata_from_response(
         &self,
         resp: &Self::CreateResponse,
     ) -> (String, Option<serde_json::Value>);
+
+    fn get_external_id_from_trigger_data(&self, data: &Self::TriggerData) -> String;
 
     fn additional_routes(&self) -> axum::Router {
         axum::Router::new()
@@ -168,8 +169,8 @@ pub async fn store_native_trigger(
     workspace_id: &str,
     service_name: ServiceName,
     metadata: TriggerMetadata,
-) -> Result<()> {
-    sqlx::query!(
+) -> Result<i64> {
+    let row = sqlx::query!(
         r#"
         INSERT INTO native_triggers (
             service_name,
@@ -186,6 +187,7 @@ pub async fn store_native_trigger(
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now()
         )
+        RETURNING id
         "#,
         service_name as ServiceName,
         metadata.external_id,
@@ -198,10 +200,10 @@ pub async fn store_native_trigger(
         authed.username,
         authed.email,
     )
-    .execute(&mut *tx)
+    .fetch_one(&mut *tx)
     .await?;
 
-    Ok(())
+    Ok(row.id)
 }
 
 pub async fn update_native_trigger(
@@ -214,25 +216,24 @@ pub async fn update_native_trigger(
 ) -> Result<()> {
     sqlx::query!(
         r#"
-        UPDATE native_triggers
+        UPDATE 
+            native_triggers
         SET
             runnable_path = $1,
             runnable_kind = $2,
-            external_id = $3,
-            resource_path = $4,
-            summary = $5,
-            metadata = $6,
-            edited_by = $7,
-            email = $8,
+            resource_path = $3,
+            summary = $4,
+            metadata = $5,
+            edited_by = $6,
+            email = $7,
             edited_at = now()
         WHERE
-            workspace_id = $9
-            AND id = $10
-            AND service_name = $11
+            workspace_id = $8
+            AND id = $9
+            AND service_name = $10
         "#,
         metadata.runnable_path,
         metadata.runnable_kind as RunnableKind,
-        metadata.external_id,
         metadata.resource_path,
         metadata.summary,
         metadata.metadata,
@@ -246,46 +247,6 @@ pub async fn update_native_trigger(
     .await?;
 
     Ok(())
-}
-
-pub async fn get_native_trigger(
-    tx: &mut PgConnection,
-    workspace_id: &str,
-    id: i64,
-    service_name: ServiceName,
-) -> Result<NativeTrigger> {
-    let native_trigger = sqlx::query_as!(
-        NativeTrigger,
-        r#"
-        SELECT
-            id,
-            runnable_path,
-            runnable_kind AS "runnable_kind!: RunnableKind",
-            service_name AS "service_name!: ServiceName",
-            external_id,
-            workspace_id,
-            resource_path,
-            summary,
-            metadata,
-            edited_by,
-            email,
-            edited_at
-        FROM
-            native_triggers
-        WHERE
-            workspace_id = $1
-            AND id = $2
-            AND service_name = $3
-        "#,
-        workspace_id,
-        id,
-        service_name as ServiceName
-    )
-    .fetch_optional(tx)
-    .await?
-    .ok_or_else(|| Error::NotFound(format!("Native trigger not found")));
-
-    native_trigger
 }
 
 pub async fn delete_native_trigger(
@@ -313,37 +274,7 @@ pub async fn delete_native_trigger(
 
     Ok(deleted > 0)
 }
-
-pub async fn exists_native_trigger(
-    db: &DB,
-    workspace_id: &str,
-    id: i64,
-    service_name: ServiceName,
-) -> Result<bool> {
-    let exists = sqlx::query_scalar!(
-        r#"
-        SELECT EXISTS(
-            SELECT 
-                1
-            FROM 
-                native_triggers
-            WHERE 
-                workspace_id = $1 AND 
-                id = $2 AND 
-                service_name = $3
-        )
-        "#,
-        workspace_id,
-        id,
-        service_name as ServiceName
-    )
-    .fetch_one(db)
-    .await?
-    .unwrap_or(false);
-
-    Ok(exists)
-}
-
+#[allow(unused)]
 pub async fn get_native_trigger_by_external_id(
     tx: &mut PgConnection,
     workspace_id: &str,
@@ -432,14 +363,10 @@ pub async fn list_native_triggers(
     Ok(triggers)
 }
 
-#[derive(Debug, Clone)]
-pub struct ClientWithAuth<T> {
-    pub client: reqwest::Client,
-    pub auth_data: T,
-}
-
-impl<T> ClientWithAuth<T> {
-    pub fn new(auth_data: T) -> Self {
-        Self { client: reqwest::Client::new(), auth_data }
-    }
+#[inline]
+pub fn generate_webhook_service_url(base_url: &str, w_id: &str, internal_id: &str) -> String {
+    format!(
+        "{}/api/native_triggers/nextcloud/w/{}/webhook/{}",
+        base_url, w_id, internal_id
+    )
 }

@@ -1,20 +1,18 @@
 <script lang="ts">
 	import { NativeTriggerService } from '$lib/gen/services.gen'
-	import type { NativeServiceName, RunnableKind, NextCloudEventType } from '$lib/gen/types.gen'
+	import type { NativeServiceName, RunnableKind } from '$lib/gen/types.gen'
 	import type { ExtendedNativeTrigger } from './utils'
-	import { validateCommonFields, getServiceConfig } from './utils'
+	import { validateCommonFields, getServiceConfig, getTemplateUrl } from './utils'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { Button, Drawer } from '$lib/components/common'
-	import { X, Save } from 'lucide-svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
+	import { X, Save, Pipette } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import CodeEditor from '$lib/components/SimpleEditor.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Required from '$lib/components/Required.svelte'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import NextcloudTriggerForm from './services/nextcloud/NextcloudTriggerForm.svelte'
 
 	interface Props {
 		service: NativeServiceName
@@ -24,117 +22,103 @@
 	let { service, onUpdate }: Props = $props()
 
 	const serviceConfig = $derived(getServiceConfig(service))
+	const scriptTemplateUrl = $derived.by(() => {
+		const templateId = getTemplateUrl(service, 'script')
+		return templateId ? `/scripts/add?hub=${encodeURIComponent(templateId)}` : undefined
+	})
+	const flowTemplateUrl = $derived.by(() => {
+		const templateId = getTemplateUrl(service, 'flow')
+		return templateId ? `/flows/add?hub=${encodeURIComponent(templateId)}` : undefined
+	})
 
-	// Get schema for the service - dynamic schema based on available events
-	function getServiceSchema(serviceName: NativeServiceName) {
-		switch (serviceName) {
+	let serviceFormRef = $state<any>(null)
+
+	const ServiceFormComponent = $derived.by(() => {
+		switch (service) {
 			case 'nextcloud':
-				return {
-					type: 'object',
-					properties: {
-						event: {
-							type: 'string',
-							title: 'Event',
-							description: 'The type of Nextcloud event to listen for',
-							enum: availableEvents.map((e) => e.name),
-							enumNames: availableEvents.map((e) => e.description || e.name)
-						},
-						event_filter: {
-							type: 'object',
-							title: 'Event Filter',
-							description: 'Optional filter criteria for the event (JSON object)'
-						},
-						user_id_filter: {
-							type: 'string',
-							title: 'User ID Filter',
-							description: 'Filter events by specific user ID'
-						},
-						headers: {
-							type: 'object',
-							title: 'Headers',
-							description: 'Optional HTTP headers to include (JSON object)'
-						}
-					},
-					required: ['event']
-				}
+				return NextcloudTriggerForm
 			default:
 				return null
 		}
-	}
+	})
 
-	// Load available events from the NextCloud instance
-	async function loadAvailableEvents() {
-		if (!resourcePath || !$workspaceStore) {
-			availableEvents = []
-			return
-		}
-
-		loadingEvents = true
-		try {
-			const events = await NativeTriggerService.listNextCloudEvents({
-				workspace: $workspaceStore,
-				resourcePath: resourcePath
-			})
-			availableEvents = events
-			// Update schema after events are loaded
-			serviceSchema = getServiceSchema(service)
-		} catch (err: any) {
-			console.error('Failed to load NextCloud events:', err)
-			sendUserToast(`Failed to load available events: ${err.body || err.message}`, true)
-			availableEvents = []
-		} finally {
-			loadingEvents = false
-		}
-	}
-
-	// State
 	let isOpen = $state(false)
 	let isNew = $state(false)
 	let loading = $state(false)
+	let loadingConfig = $state(false)
 	let config = $state<Record<string, any>>({})
+	let externalData = $state<any>(null)
 	let errors = $state<Record<string, string>>({})
 	let showCustomRawEditor = $state(false)
 	let customRawConfig = $state('')
-	let serviceSchema = $state<any>(null)
-	let availableEvents = $state<NextCloudEventType[]>([])
-	let loadingEvents = $state(false)
 
-	// Form fields
 	let runnablePath = $state('')
 	let runnableKind = $state<RunnableKind>('script')
 	let resourcePath = $state('')
 	let summary = $state('')
+	let triggerId = $state<number | null>(null)
 
 	export function openNew() {
 		isNew = true
 		config = {}
+		externalData = null
 		errors = {}
 		runnablePath = ''
 		runnableKind = 'script'
 		resourcePath = ''
 		summary = ''
+		triggerId = null
 		showCustomRawEditor = false
 		customRawConfig = ''
-		availableEvents = []
-		loadingEvents = false
-		serviceSchema = getServiceSchema(service)
+		loadingConfig = false
 		isOpen = true
 	}
 
-	export function openEdit(trigger: ExtendedNativeTrigger) {
+	export async function openEdit(trigger: ExtendedNativeTrigger) {
 		isNew = false
 		config = trigger.metadata || {}
+		externalData = null
 		errors = {}
 		runnablePath = trigger.runnable_path
 		runnableKind = trigger.runnable_kind === 'flow' ? 'flow' : 'script'
 		resourcePath = trigger.resource_path
 		summary = trigger.summary
+		triggerId = trigger.id
 		showCustomRawEditor = false
 		customRawConfig = JSON.stringify(config, null, 2)
-		availableEvents = []
-		loadingEvents = false
-		serviceSchema = getServiceSchema(service)
+		loadingConfig = true
 		isOpen = true
+
+		try {
+			const fullTrigger = await NativeTriggerService.getNativeTrigger({
+				workspace: $workspaceStore!,
+				serviceName: service,
+				path: trigger.runnable_path,
+				id: trigger.id
+			})
+			
+			externalData = fullTrigger.external_data
+			
+			if (fullTrigger.external_data) {
+				customRawConfig = JSON.stringify(fullTrigger.external_data, null, 2)
+			}
+		} catch (err: any) {
+			const errorMessage = err.body || err.message || ''
+			
+			if (errorMessage.includes('no longer exists on external service') && errorMessage.includes('automatically deleted')) {
+				sendUserToast(
+					`Trigger was automatically deleted because it no longer exists on ${serviceConfig?.serviceDisplayName}. The editor will close.`,
+					true
+				)
+				close()
+				onUpdate?.()
+			} else {
+				sendUserToast(`Failed to load trigger configuration: ${errorMessage}`, true)
+				externalData = null
+			}
+		} finally {
+			loadingConfig = false
+		}
 	}
 
 	function close() {
@@ -147,26 +131,9 @@
 			resource_path: resourcePath
 		})
 
-		// Schema-based validation for service-specific fields
 		let serviceErrors: Record<string, string> = {}
-		if (serviceSchema && serviceSchema.required) {
-			for (const requiredField of serviceSchema.required) {
-				if (!config[requiredField]) {
-					const fieldTitle = serviceSchema.properties?.[requiredField]?.title || requiredField
-					serviceErrors[requiredField] = `${fieldTitle} is required`
-				}
-			}
-		}
-
-		// Add specific validation for event field if events haven't loaded yet
-		if (
-			service === 'nextcloud' &&
-			!config.event &&
-			availableEvents.length === 0 &&
-			!loadingEvents
-		) {
-			serviceErrors.event =
-				'Unable to load available events. Please check your resource configuration.'
+		if (serviceFormRef?.validate) {
+			serviceErrors = serviceFormRef.validate()
 		}
 
 		errors = { ...commonErrors, ...serviceErrors }
@@ -187,8 +154,11 @@
 				runnable_kind: runnableKind,
 				resource_path: resourcePath,
 				summary: summary || undefined,
-				...config
+				payload: config
 			}
+
+			// Debug: log the payload being sent
+			console.log('Sending payload:', JSON.stringify(payload, null, 2))
 
 			if (isNew) {
 				await NativeTriggerService.createNativeTrigger({
@@ -198,9 +168,18 @@
 				})
 				sendUserToast(`${serviceConfig?.serviceDisplayName} trigger created`)
 			} else {
-				// TODO: Update functionality needs trigger ID from parent component
-				sendUserToast('Update functionality not available in this view')
-				return
+				if (!triggerId) {
+					sendUserToast('No trigger ID available for update', true)
+					return
+				}
+
+				await NativeTriggerService.updateNativeTrigger({
+					workspace: $workspaceStore!,
+					serviceName: service,
+					id: triggerId,
+					requestBody: payload
+				})
+				sendUserToast(`${serviceConfig?.serviceDisplayName} trigger updated`)
 			}
 
 			close()
@@ -211,33 +190,7 @@
 			loading = false
 		}
 	}
-
-	function updateCustomRawConfig() {
-		if (showCustomRawEditor) {
-			customRawConfig = JSON.stringify(config, null, 2)
-		}
-	}
-
-	function parseCustomRawConfig() {
-		try {
-			const parsed = JSON.parse(customRawConfig)
-			config = parsed
-			errors = {}
-			sendUserToast('Configuration loaded from JSON')
-		} catch (err) {
-			sendUserToast('Invalid JSON format', true)
-		}
-	}
-
-	$effect(() => {
-		updateCustomRawConfig()
-	})
-
-	$effect(() => {
-		if (resourcePath && $workspaceStore) {
-			loadAvailableEvents()
-		}
-	})
+	let templateUrl = $derived(runnableKind === 'script' ? scriptTemplateUrl : flowTemplateUrl)
 </script>
 
 <Drawer bind:open={isOpen} size="900px">
@@ -252,7 +205,6 @@
 
 			<div class="flex gap-2">
 				<Button
-					size="xs"
 					color="blue"
 					startIcon={{ icon: Save }}
 					on:click={save}
@@ -268,20 +220,30 @@
 
 		<div class="flex-1 overflow-y-auto p-4">
 			<div class="space-y-4">
-				<div class="bg-surface-secondary rounded-md p-4 space-y-4">
-					<h3 class="text-md font-medium text-primary">Common Configuration</h3>
-
+				<div class="rounded-md p-4 space-y-4">
 					<Section label="Runnable">
 						<p class="text-xs text-tertiary">
 							Pick a script or flow to be triggered <Required required={true} />
 						</p>
-						<ScriptPicker
-							bind:scriptPath={runnablePath}
-							bind:itemKind={runnableKind}
-							kinds={['script']}
-							allowFlow={true}
-							clearable
-						/>
+						<div class="flex gap-2 items-end">
+							<div class="flex-1">
+								<ScriptPicker
+									bind:scriptPath={runnablePath}
+									bind:itemKind={runnableKind}
+									kinds={['script']}
+									allowFlow={true}
+									clearable
+								/>
+							</div>
+							<Button
+								href={templateUrl}
+								target="_blank"
+								startIcon={{ icon: Pipette }}
+								disabled={loading}
+							>
+								Create from {serviceConfig?.serviceDisplayName} template
+							</Button>
+						</div>
 						{#if errors.runnable_path}
 							<div class="text-red-500 text-xs mt-1">{errors.runnable_path}</div>
 						{/if}
@@ -305,63 +267,44 @@
 					</div>
 				</div>
 
-				<!-- Service Configuration -->
-				{#if serviceSchema}
-					<div class="bg-surface-secondary rounded-md p-4 space-y-4">
-						<div class="flex items-center justify-between">
-							<h3 class="text-md font-medium text-primary">
-								{serviceConfig?.serviceDisplayName} Configuration
-							</h3>
-							<Toggle
-								bind:checked={showCustomRawEditor}
-								options={{ right: 'JSON Editor' }}
-								size="xs"
-							/>
+				{#if loadingConfig}
+					<div class="rounded-md p-4 space-y-4">
+						<h3 class="text-md font-medium text-primary">
+							{serviceConfig?.serviceDisplayName} Configuration
+						</h3>
+						<div class="flex items-center gap-2 text-tertiary">
+							<div class="animate-spin h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full"></div>
+							Loading configuration from {serviceConfig?.serviceDisplayName}...
 						</div>
-
-						{#if showCustomRawEditor}
-							<!-- Custom JSON Editor -->
-							<div class="space-y-2">
-								<Label label="Custom Configuration (JSON)" />
-								<CodeEditor
-									bind:code={customRawConfig}
-									lang="json"
-									fixedOverflowWidgets={false}
-									class="h-64"
-								/>
-								<Button size="xs" color="blue" on:click={parseCustomRawConfig}>Parse JSON</Button>
-							</div>
-						{:else}
-							<!-- Schema Form -->
-							{#if loadingEvents}
-								<div class="flex items-center gap-2 text-tertiary">
-									<div
-										class="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"
-									></div>
-									Loading available events...
-								</div>
-							{:else if availableEvents.length === 0 && resourcePath}
-								<div class="text-red-500 text-sm space-y-2">
-									<div>No events available. Please check your NextCloud resource configuration.</div
-									>
-									<Button size="xs" color="blue" on:click={loadAvailableEvents}>
-										Retry Loading Events
-									</Button>
-								</div>
-							{:else if serviceSchema}
-								<SchemaForm
-									schema={serviceSchema}
-									bind:args={config}
-									isValid={true}
-									compact={true}
-									prettifyHeader={true}
-								/>
-							{:else}
-								<div class="text-tertiary">
-									Please select a resource to load available configuration options.
-								</div>
-							{/if}
-						{/if}
+					</div>
+				{:else if ServiceFormComponent}
+					<ServiceFormComponent
+						bind:this={serviceFormRef}
+						bind:config
+						bind:errors
+						bind:showCustomRawEditor
+						bind:customRawConfig
+						bind:resourcePath
+						{externalData}
+						disabled={loading || loadingConfig}
+					/>
+				{:else if resourcePath}
+					<div class="rounded-md p-4 space-y-4">
+						<h3 class="text-md font-medium text-primary">
+							{serviceConfig?.serviceDisplayName} Configuration
+						</h3>
+						<div class="text-red-500 text-sm">
+							Failed to load service configuration component for {service}.
+						</div>
+					</div>
+				{:else}
+					<div class="rounded-md p-4 space-y-4">
+						<h3 class="text-md font-medium text-primary">
+							{serviceConfig?.serviceDisplayName} Configuration
+						</h3>
+						<div class="text-tertiary">
+							Please select a resource to load configuration options.
+						</div>
 					</div>
 				{/if}
 			</div>

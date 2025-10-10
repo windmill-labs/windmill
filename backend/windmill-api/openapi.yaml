@@ -10483,9 +10483,9 @@ paths:
         "201":
           description: native trigger created
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/CreateTriggerResponse"
 
   /w/{workspace}/native_triggers/{service_name}/update/{id}:
     post:
@@ -10543,11 +10543,11 @@ paths:
         - $ref: "#/components/parameters/Path"
       responses:
         "200":
-          description: native trigger
+          description: native trigger with external configuration
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/NativeTrigger"
+                $ref: "#/components/schemas/FullTriggerResponse"
 
   /w/{workspace}/native_triggers/{service_name}/delete:
     delete:
@@ -10562,6 +10562,13 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/NativeServiceName"
+      requestBody:
+        description: trigger id and runnable path
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdAndRunnablePath"
       responses:
         "200":
           description: native trigger deleted
@@ -10597,7 +10604,7 @@ paths:
                   $ref: "#/components/schemas/NativeTrigger"
 
   /w/{workspace}/native_triggers/{service_name}/exists:
-    get:
+    post:
       summary: does native trigger exist
       operationId: existsNativeTrigger
       tags:
@@ -10609,6 +10616,13 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/NativeServiceName"
+      requestBody:
+        description: trigger id and runnable path
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdAndRunnablePath"
       responses:
         "200":
           description: native trigger exists
@@ -10616,6 +10630,23 @@ paths:
             application/json:
               schema:
                 type: boolean
+
+  /w/{workspace}/native_triggers/{service_name}/sync:
+    post:
+      summary: sync native triggers with external service
+      operationId: syncNativeTriggers
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      responses:
+        "200":
+          description: sync completed successfully
 
   /w/{workspace}/native_triggers/nextcloud/events/{resource_path}:
     get:
@@ -10643,6 +10674,49 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/NextCloudEventType"
+
+  /native_triggers/{service_name}/w/{workspace_id}/webhook/{internal_id}:
+    post:
+      summary: receive webhook from external native trigger service
+      operationId: nativeTriggerWebhook
+      tags:
+        - native_trigger
+      parameters:
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: internal_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: The internal database ID of the trigger
+      requestBody:
+        description: webhook payload from external service
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+          text/plain:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: webhook received successfully
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/mqtt_triggers/create:
     post:
@@ -19466,6 +19540,20 @@ components:
         - email
         - edited_at
 
+    FullTriggerResponse:
+      type: object
+      description: Full trigger response containing both Windmill data and external service data
+      allOf:
+        - $ref: "#/components/schemas/NativeTrigger"
+        - type: object
+          properties:
+            external_data:
+              type: object
+              description: Configuration data from the external service
+              additionalProperties: true
+          required:
+            - external_data
+
     NativeTriggerData:
       type: object
       properties:
@@ -19479,12 +19567,60 @@ components:
           type: string
         external_id:
           type: string
+        payload:
+          type: object
+          description: Service-specific configuration payload
+          additionalProperties: true
       required:
         - runnable_path
         - runnable_kind
         - resource_path
         - external_id
-      additionalProperties: true
+        - payload
+
+    CreateTriggerResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The internal database ID of the created trigger
+      required:
+        - id
+
+    IdAndRunnablePath:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        runnable_path:
+          type: string
+      required:
+        - id
+        - runnable_path
+
+    SyncResult:
+      type: object
+      properties:
+        already_in_sync:
+          type: boolean
+        added_count:
+          type: integer
+        added_triggers:
+          type: array
+          items:
+            type: string
+        total_external:
+          type: integer
+        total_windmill:
+          type: integer
+      required:
+        - already_in_sync
+        - added_count
+        - added_triggers
+        - total_external
+        - total_windmill
 
     NextCloudEventType:
       type: object
@@ -19497,9 +19633,12 @@ components:
           type: string
         category:
           type: string
+        path:
+          type: string
       required:
         - id
         - name
+        - path
 
     NextCloudTriggerData:
       type: object
