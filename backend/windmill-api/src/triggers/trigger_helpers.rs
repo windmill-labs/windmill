@@ -684,7 +684,8 @@ pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
         error_handler_path,
         error_handler_args,
         trigger_path,
-    ).await?;
+    )
+    .await?;
 
     if !success {
         Err(windmill_common::error::Error::internal_err(format!(
@@ -807,13 +808,15 @@ async fn trigger_script_with_retry_and_error_handler(
             priority,
             apply_preprocessor,
             ..
-        } => JobPayload::SingleScriptFlow {
+        } => JobPayload::SingleStepFlow {
             path,
-            hash,
+            hash: Some(hash),
+            flow_version: None,
             args: HashMap::from(&push_args),
             retry,
             error_handler_path,
             error_handler_args,
+            skip_handler: None,
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
@@ -857,6 +860,7 @@ async fn trigger_script_with_retry_and_error_handler(
         None,
         push_authed.as_ref(),
         false,
+        None,
     )
     .await?;
     tx.commit().await?;

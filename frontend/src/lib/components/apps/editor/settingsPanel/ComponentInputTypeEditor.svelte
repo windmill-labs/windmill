@@ -56,6 +56,29 @@
 {#if componentInput.fieldType !== 'any'}
 	<div class="w-full">
 		<div class="flex gap-2 justify-end" bind:clientWidth>
+			<div class="flex">
+				<ConnectionButton
+					closeConnection={() => {
+						$connectingInput = {
+							opened: false,
+							hoveredComponent: undefined,
+							input: undefined,
+							onConnect: () => {}
+						}
+						dispatch('select', true)
+					}}
+					openConnection={() => {
+						$connectingInput = {
+							opened: true,
+							input: undefined,
+							hoveredComponent: undefined,
+							onConnect: applyConnection
+						}
+					}}
+					isOpen={!!$connectingInput.opened}
+				/>
+			</div>
+
 			<ToggleButtonGroup
 				on:selected={() => {
 					onchange?.()
@@ -121,29 +144,6 @@
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
-
-			<div class="flex">
-				<ConnectionButton
-					closeConnection={() => {
-						$connectingInput = {
-							opened: false,
-							hoveredComponent: undefined,
-							input: undefined,
-							onConnect: () => {}
-						}
-						dispatch('select', true)
-					}}
-					openConnection={() => {
-						$connectingInput = {
-							opened: true,
-							input: undefined,
-							hoveredComponent: undefined,
-							onConnect: applyConnection
-						}
-					}}
-					isOpen={!!$connectingInput.opened}
-				/>
-			</div>
 		</div>
 	</div>
 {/if}

@@ -33,6 +33,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
+use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
@@ -49,6 +50,7 @@ use windmill_common::{
     },
     flows::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
+        StopAfterIf,
     },
     jobs::{get_payload_tag_from_prefixed_path, JobKind, JobPayload, QueuedJob, RawCode},
     schedule::Schedule,
@@ -143,6 +145,7 @@ pub struct JobCompleted {
     pub canceled_by: Option<CanceledBy>,
     pub duration: Option<i64>,
     pub has_stream: Option<bool>,
+    pub from_cache: Option<bool>,
 }
 
 pub async fn cancel_single_job<'c>(
@@ -446,6 +449,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         false,
+        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -500,6 +504,7 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         false,
+        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -734,6 +739,7 @@ pub async fn add_completed_job_error(
         flow_is_done,
         duration,
         false,
+        false,
     )
     .await?;
     Ok(result)
@@ -742,11 +748,6 @@ pub async fn add_completed_job_error(
 lazy_static::lazy_static! {
     pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
     pub static ref MAX_RESULT_SIZE_MB: usize = std::env::var("MAX_RESULT_SIZE_MB").unwrap_or("500".to_string()).parse().unwrap_or(500);
-}
-
-#[derive(Deserialize)]
-struct OutputWrapper {
-    output: String,
 }
 
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
@@ -761,6 +762,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     flow_is_done: bool,
     duration: Option<i64>,
     has_stream: bool,
+    from_cache: bool,
 ) -> Result<(Uuid, i64), Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
@@ -786,6 +788,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             flow_is_done,
             duration,
             has_stream,
+            from_cache,
         )
     })
     .retry(
@@ -826,55 +829,78 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     restart_job_if_perpetual(db, queued_job, &canceled_by).await?;
 
-    // Update conversation message if it's a flow and it's done (both success and error cases)
+    // Create assistant message if it's a flow and it's done, but only if last module is not an AI agent
     if !skipped && flow_is_done {
         let chat_input_enabled = queued_job.parse_chat_input_enabled();
         if chat_input_enabled.unwrap_or(false) {
-            let content = if let Ok(wrapper) = serde_json::from_value::<OutputWrapper>(
-                serde_json::to_value(result.0).unwrap_or(serde_json::Value::Null),
-            ) {
-                // Successfully deserialized to OutputWrapper, use the output field
-                wrapper.output
-            } else {
-                // No string output field, use the whole result
-                serde_json::to_value(result.0)
-                    .ok()
-                    .and_then(|v| {
-                        if let serde_json::Value::String(s) = v {
-                            Some(s)
-                        } else {
-                            serde_json::to_string_pretty(&v).ok()
-                        }
-                    })
-                    .unwrap_or_else(|| {
-                        if success {
-                            "Job completed successfully".to_string()
-                        } else {
-                            "Job failed".to_string()
-                        }
-                    })
-            };
+            // Get conversation_id from flow_status.memory_id
+            let flow_status = queued_job.parse_flow_status();
+            let conversation_id = flow_status.and_then(|fs| fs.memory_id);
 
-            // check if flow_conversation_message exists
-            let flow_conversation_message_exists = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM flow_conversation_message WHERE job_id = $1 AND message_type = 'assistant')",
-            queued_job.id
-        )
-        .fetch_one(db)
-        .await?;
-
-            if flow_conversation_message_exists.unwrap_or(false) {
-                // Update the assistant message using direct DB access
-                let _ = sqlx::query!(
-                    "UPDATE flow_conversation_message
-                    SET content = $1
-                    WHERE job_id = $2
-                ",
-                    content,
-                    queued_job.id,
+            if let Some(conversation_id) = conversation_id {
+                // get flow value
+                let parent_job = queued_job.parent_job.unwrap_or(queued_job.id);
+                let flow_value = sqlx::query!(
+                    "SELECT f.value as \"value: Json<FlowValue>\" FROM v2_job j JOIN flow_version f ON f.id = j.runnable_id WHERE j.id = $1 AND j.workspace_id = $2",
+                    parent_job,
+                    &queued_job.workspace_id
                 )
-                .execute(db)
-                .await;
+                .fetch_optional(db)
+                .await?
+                .map(|row| row.value.0);
+
+                let last_module_is_ai_agent = flow_value
+                    .as_ref()
+                    .and_then(|flow_value| {
+                        flow_value.modules.last().and_then(|m| m.get_value().ok())
+                    })
+                    .map(|v| matches!(v, FlowModuleValue::AIAgent { .. }))
+                    .unwrap_or(false);
+
+                // Only create assistant message if last module is NOT an AI agent, or there was an error
+                if !last_module_is_ai_agent || success == false {
+                    let value = serde_json::to_value(result.0).map_err(|e| {
+                        Error::internal_err(format!("Failed to serialize result: {e}"))
+                    })?;
+
+                    let content = match value {
+                        // If it's an Object with "output" key AND the output is a String, return it
+                        serde_json::Value::Object(mut map)
+                            if map.contains_key("output")
+                                && matches!(
+                                    map.get("output"),
+                                    Some(serde_json::Value::String(_))
+                                ) =>
+                        {
+                            if let Some(serde_json::Value::String(s)) = map.remove("output") {
+                                s
+                            } else {
+                                // prettify the whole result
+                                serde_json::to_string_pretty(&map)
+                                    .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
+                            }
+                        }
+                        // Otherwise, if the whole value is a String, return it
+                        serde_json::Value::String(s) => s,
+                        // Otherwise, prettify the whole result
+                        v => serde_json::to_string_pretty(&v)
+                            .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+                    };
+
+                    // Insert new assistant message
+                    let mut tx = db.begin().await?;
+                    add_message_to_conversation_tx(
+                        &mut tx,
+                        conversation_id,
+                        Some(queued_job.id),
+                        &content,
+                        MessageType::Assistant,
+                        None,
+                        success,
+                    )
+                    .await?;
+                    tx.commit().await?;
+                }
             }
         }
     }
@@ -896,6 +922,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     flow_is_done: bool,
     duration: Option<i64>,
     has_stream: bool,
+    from_cache: bool,
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool)> {
     // let start = std::time::Instant::now();
 
@@ -1076,9 +1103,11 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 }
 
                 // for scripts, always try to schedule next tick
-                // for flows, only try to schedule next tick here if flow failed and because first handle_flow failed (step = 0, modules[0] = {type: 'Failure', 'job': uuid::nil()}) or job was cancelled before first handle_flow was called (step = 0, modules = [] OR modules[0].type == 'WaitingForPriorSteps')
+                // for flows, only try to schedule next tick here if flow failed and because first handle_flow failed (step = 0, modules[0] = {type: 'Failure', 'job': uuid::nil()})
+                // or job was cancelled before first handle_flow was called (step = 0, modules = [] OR modules[0].type == 'WaitingForPriorSteps')
                 // otherwise flow rescheduling is done inside handle_flow
                 let schedule_next_tick = !queued_job.is_flow()
+                    || from_cache
                     || !success
                         && sqlx::query_scalar!(
                             "SELECT 
@@ -1371,6 +1400,7 @@ async fn restart_job_if_perpetual_inner(
             queued_job.priority,
             None,
             false,
+            None,
         )
         .await?;
         tx.commit().await?;
@@ -1858,6 +1888,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         priority,
         None,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1913,6 +1944,7 @@ pub struct MiniPulledJob {
     pub trigger: Option<String>,
     pub trigger_kind: Option<JobTriggerKind>,
     pub visible_to_owner: bool,
+    pub permissioned_as_end_user_email: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1989,6 +2021,7 @@ impl MiniPulledJob {
                 None
             },
             visible_to_owner: job.visible_to_owner.clone(),
+            permissioned_as_end_user_email: None,
         }
     }
     pub fn is_flow(&self) -> bool {
@@ -2189,7 +2222,8 @@ pub async fn get_mini_pulled_job<'c>(
         script_entrypoint_override,
         trigger,
         trigger_kind as \"trigger_kind: JobTriggerKind\",
-        visible_to_owner
+        visible_to_owner,
+        NULL as permissioned_as_end_user_email
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
         job_id,
     )
@@ -2228,6 +2262,7 @@ impl PulledJobResult {
                     canceled_by: None,
                     duration: None,
                     has_stream: Some(false),
+                    from_cache: None,
                 }),
             ),
             PulledJobResult { job, .. } => Ok(job),
@@ -3147,6 +3182,7 @@ pub async fn push<'c, 'd>(
     _priority_override: Option<i16>,
     authed: Option<&Authed>,
     running: bool, // whether the job is already running: only set this to true if you don't want the job to be picked up by a worker from the queue. It will also set started_at to now.
+    end_user_email: Option<String>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -3673,12 +3709,14 @@ pub async fn push<'c, 'd>(
                 priority,
             )
         }
-        JobPayload::SingleScriptFlow {
+        JobPayload::SingleStepFlow {
             path,
             hash,
+            flow_version,
             retry,
             error_handler_path,
             error_handler_args,
+            skip_handler,
             args,
             custom_concurrency_key,
             concurrent_limit,
@@ -3689,10 +3727,75 @@ pub async fn push<'c, 'd>(
             trigger_path,
             apply_preprocessor,
         } => {
-            let mut input_transforms = HashMap::<String, InputTransform>::new();
-            for (arg_name, arg_value) in args {
-                input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+            // Determine if this is a flow or a script
+            let is_flow = flow_version.is_some();
+
+            // Build modules list
+            let mut modules = vec![];
+
+            // Add skip validation module if provided
+            if let Some(skip_handler) = skip_handler {
+                let mut skip_input_transforms = HashMap::<String, InputTransform>::new();
+                for (arg_name, arg_value) in skip_handler.args {
+                    skip_input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+                }
+
+                modules.push(FlowModule {
+                    id: "skip_validation".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Script {
+                        input_transforms: skip_input_transforms,
+                        path: skip_handler.path,
+                        hash: None,
+                        tag_override: None,
+                        is_trigger: None,
+                        pass_flow_input_directly: None,
+                    }),
+                    stop_after_if: Some(StopAfterIf {
+                        expr: skip_handler.stop_condition,
+                        skip_if_stopped: true,
+                        error_message: Some(skip_handler.stop_message),
+                    }),
+                    ..Default::default()
+                });
             }
+
+            // Add main module (script or flow)
+            let mut main_input_transforms = HashMap::<String, InputTransform>::new();
+            for (arg_name, arg_value) in args {
+                main_input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+            }
+
+            let main_module = if is_flow {
+                FlowModule {
+                    id: "a".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Flow {
+                        path: path.clone(),
+                        input_transforms: main_input_transforms,
+                        pass_flow_input_directly: None,
+                    }),
+                    retry,
+                    pass_flow_input_directly: Some(true),
+                    ..Default::default()
+                }
+            } else {
+                FlowModule {
+                    id: "a".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Script {
+                        input_transforms: main_input_transforms,
+                        path: path.clone(),
+                        hash,
+                        tag_override,
+                        is_trigger: None,
+                        pass_flow_input_directly: None,
+                    }),
+                    retry,
+                    apply_preprocessor: Some(apply_preprocessor),
+                    ..Default::default()
+                }
+            };
+            modules.push(main_module);
+
+            // Build failure module if error handler is provided
             let failure_module = if let Some(error_handler_path) = error_handler_path {
                 let mut input_transforms = HashMap::<String, InputTransform>::new();
                 input_transforms.insert(
@@ -3705,7 +3808,7 @@ pub async fn push<'c, 'd>(
                 );
                 input_transforms.insert(
                     "is_flow".to_string(),
-                    InputTransform::Static { value: to_raw_value(&false) },
+                    InputTransform::Static { value: to_raw_value(&is_flow) },
                 );
                 input_transforms.insert(
                     "trigger_path".to_string(),
@@ -3744,6 +3847,7 @@ pub async fn push<'c, 'd>(
                         hash: None,
                         tag_override: None,
                         is_trigger: None,
+                        pass_flow_input_directly: None,
                     }),
                     ..Default::default()
                 }))
@@ -3752,19 +3856,7 @@ pub async fn push<'c, 'd>(
             };
 
             let flow_value = FlowValue {
-                modules: vec![FlowModule {
-                    id: "a".to_string(),
-                    value: to_raw_value(&FlowModuleValue::Script {
-                        input_transforms,
-                        path: path.clone(),
-                        hash: Some(hash),
-                        tag_override,
-                        is_trigger: None,
-                    }),
-                    retry,
-                    apply_preprocessor: Some(apply_preprocessor),
-                    ..Default::default()
-                }],
+                modules,
                 failure_module,
                 concurrency_time_window_s,
                 concurrent_limit,
@@ -3780,10 +3872,10 @@ pub async fn push<'c, 'd>(
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
             (
-                None,
+                None,  // No version needed - flow is stored in raw_flow like FlowPreview
                 Some(path),
                 None,
-                JobKind::Flow,
+                JobKind::SingleStepFlow,
                 Some(flow_value),
                 Some(flow_status),
                 None,
@@ -4233,8 +4325,8 @@ pub async fn push<'c, 'd>(
             INSERT INTO v2_job_runtime (id, ping) VALUES ($1, null)
         ),
         inserted_job_perms AS (
-            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id) 
-            values ($1, $32, $33, $34, $35, $36, $37, $2) 
+            INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email) 
+            values ($1, $32, $33, $34, $35, $36, $37, $2, $41) 
             ON CONFLICT (job_id) DO UPDATE SET email = $32, username = $33, is_admin = $34, is_operator = $35, folders = $36, groups = $37, workspace_id = $2
         )
         INSERT INTO v2_job_queue
@@ -4284,6 +4376,7 @@ pub async fn push<'c, 'd>(
         root_job,
         trigger_kind as Option<JobTriggerKind>,
         running,
+        end_user_email,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
@@ -4344,7 +4437,7 @@ pub async fn push<'c, 'd>(
             }
             JobKind::Flow => "jobs.run.flow",
             JobKind::FlowPreview => "jobs.run.flow_preview",
-            JobKind::SingleScriptFlow => "jobs.run.single_script_flow",
+            JobKind::SingleStepFlow => "jobs.run.single_step_flow",
             JobKind::Script_Hub => "jobs.run.script_hub",
             JobKind::Dependencies => "jobs.run.dependencies",
             JobKind::Identity => "jobs.run.identity",
@@ -4697,7 +4790,7 @@ pub async fn get_same_worker_job(
                     v2_job.raw_flow,
                     pj.runnable_path as parent_runnable_path,
                     p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
-                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
+                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
                     FROM v2_job_queue
                     INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
                     LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id

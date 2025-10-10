@@ -1,4 +1,4 @@
-import { FlowModule } from "../gen/types.gen";
+import { FlowModule } from "../gen/types.gen.ts";
 
 /**
  * Replaces inline script references with actual file content from the filesystem.

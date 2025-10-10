@@ -8,7 +8,7 @@ import type {
 	ChatCompletionFunctionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
-import { type DBSchema, dbSchemas, getCurrentModel } from '$lib/stores'
+import { type DBSchema, dbSchemas } from '$lib/stores'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
@@ -22,6 +22,7 @@ import {
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
 import type { ReviewChangesOpts } from '../monaco-adapter'
+import { getCurrentModel } from '$lib/aiStore'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -217,9 +218,9 @@ export function getLangContext(
 		(isPreprocessor
 			? TS_PREPROCESSOR_INSTRUCTION
 			: TS_RESOURCE_TYPE_SYSTEM +
-				(allowResourcesFetch
-					? `To query the RT namespace, you can use the \`search_resource_types\` tool.\n`
-					: '')) + TS_WINDMILL_CLIENT_CONTEXT
+			(allowResourcesFetch
+				? `To query the RT namespace, you can use the \`search_resource_types\` tool.\n`
+				: '')) + TS_WINDMILL_CLIENT_CONTEXT
 
 	const mainFunctionName = isPreprocessor ? 'preprocessor' : 'main'
 
@@ -247,7 +248,7 @@ export function getLangContext(
 				(isPreprocessor
 					? PYTHON_PREPROCESSOR_INSTRUCTION
 					: PYTHON_RESOURCE_TYPE_SYSTEM +
-						`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}`) +
+					`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}`) +
 				PYTHON_WINDMILL_CLIENT_CONTEXT
 			)
 		case 'php':
@@ -774,7 +775,7 @@ export async function fetchNpmPackageTypes(
 						typeDefinitions.set(path, code)
 					}
 				},
-				localFile: () => {}
+				localFile: () => { }
 			}
 		})
 

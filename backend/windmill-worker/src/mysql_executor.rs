@@ -26,7 +26,10 @@ use windmill_queue::CanceledBy;
 use windmill_queue::MiniPulledJob;
 
 use crate::{
-    common::{build_args_values, s3_mode_args_to_worker_data, OccupancyMetrics, S3ModeWorkerData},
+    common::{
+        build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, OccupancyMetrics,
+        S3ModeWorkerData,
+    },
     handle_child::run_future_with_polling_update_job_poller,
     sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
 };
@@ -149,6 +152,7 @@ pub async fn do_mysql(
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    parent_runnable_path: Option<String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let job_args = build_args_values(job, client, conn).await?;
 
@@ -198,7 +202,11 @@ pub async fn do_mysql(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
-    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+
+    let (query, args_to_skip) =
+        &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args, &reserved_variables)?;
 
     let using_named_params = RE_ARG_MYSQL_NAMED.captures_iter(query).count() > 0;
 

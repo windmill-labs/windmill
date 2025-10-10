@@ -106,7 +106,7 @@ use crate::ai_executor::handle_ai_agent_job;
 use crate::common::StreamNotifier;
 use crate::{
     agent_workers::{queue_init_job, queue_periodic_job},
-    bash_executor::{handle_bash_job, handle_powershell_job},
+    bash_executor::handle_bash_job,
     bun_executor::handle_bun_job,
     common::{
         build_args_map, cached_result_path, error_to_value, get_cached_resource_value_if_valid,
@@ -121,6 +121,7 @@ use crate::{
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
+    pwsh_executor::handle_powershell_job,
     result_processor::{process_result, start_background_processor},
     schema::schema_validator_from_main_arg_sig,
     worker_flow::handle_flow,
@@ -160,7 +161,7 @@ use crate::mysql_executor::do_mysql;
 #[cfg(feature = "duckdb")]
 use crate::duckdb_executor::do_duckdb;
 
-#[cfg(feature = "oracledb")]
+#[cfg(all(feature = "enterprise", feature = "oracledb"))]
 use crate::oracledb_executor::do_oracledb;
 
 #[cfg(feature = "enterprise")]
@@ -776,6 +777,7 @@ pub async fn handle_all_job_kind_error(
                         token: authed_client.token.clone(),
                         duration: None,
                         has_stream: Some(false),
+                        from_cache: None,
                     },
                     false,
                 )
@@ -1721,6 +1723,7 @@ pub async fn run_worker(
                                 canceled_by: None,
                                 duration: None,
                                 has_stream: Some(false),
+                                from_cache: None,
                             },
                             true,
                         )
@@ -2391,7 +2394,8 @@ pub async fn handle_queued_job(
             | JobKind::Dependencies
             | JobKind::FlowPreview
             | JobKind::Flow
-            | JobKind::FlowDependencies,
+            | JobKind::FlowDependencies
+            | JobKind::SingleStepFlow,
             x,
         ) => {
             if x.map(|x| x.0).is_none_or(|x| is_special_codebase_hash(x)) {
@@ -2448,6 +2452,7 @@ pub async fn handle_queued_job(
                             token: client.token.clone(),
                             duration: None,
                             has_stream: Some(false),
+                            from_cache: Some(true),
                         },
                         true,
                     )
@@ -2810,7 +2815,7 @@ async fn try_validate_schema(
                 JobKind::Script_Hub => 3,
                 JobKind::Preview => 4,
                 JobKind::DeploymentCallback => 5,
-                JobKind::SingleScriptFlow => 6,
+                JobKind::SingleStepFlow => 6,
                 JobKind::Dependencies => 7,
                 JobKind::Flow => 8,
                 JobKind::FlowPreview => 9,
@@ -3011,6 +3016,7 @@ async fn handle_code_execution_job(
             worker_name,
             column_order,
             occupancy_metrics,
+            parent_runnable_path,
         )
         .await;
     } else if language == Some(ScriptLang::Mysql) {
@@ -3030,6 +3036,7 @@ async fn handle_code_execution_job(
             worker_name,
             column_order,
             occupancy_metrics,
+            parent_runnable_path,
         )
         .await;
     } else if language == Some(ScriptLang::Bigquery) {
@@ -3060,6 +3067,7 @@ async fn handle_code_execution_job(
                 worker_name,
                 column_order,
                 occupancy_metrics,
+                parent_runnable_path,
             )
             .await;
         }
@@ -3083,6 +3091,7 @@ async fn handle_code_execution_job(
                 worker_name,
                 column_order,
                 occupancy_metrics,
+                parent_runnable_path,
             )
             .await;
         }
@@ -3114,6 +3123,7 @@ async fn handle_code_execution_job(
                 worker_name,
                 occupancy_metrics,
                 job_dir,
+                parent_runnable_path,
             )
             .await;
         }
@@ -3145,6 +3155,7 @@ async fn handle_code_execution_job(
                 worker_name,
                 column_order,
                 occupancy_metrics,
+                parent_runnable_path,
             )
             .await;
         }
@@ -3169,6 +3180,7 @@ async fn handle_code_execution_job(
                 worker_name,
                 column_order,
                 occupancy_metrics,
+                parent_runnable_path,
             )
             .await;
         }

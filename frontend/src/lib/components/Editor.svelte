@@ -30,7 +30,6 @@
 	import {
 		dbSchemas,
 		type DBSchema,
-		copilotInfo,
 		codeCompletionSessionEnabled,
 		lspTokenStore,
 		formatOnSave,
@@ -91,6 +90,7 @@
 	import { getDbSchemas } from './apps/components/display/dbtable/utils'
 	import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
+	import { copilotInfo } from '$lib/aiStore'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -1677,8 +1677,8 @@
 	})
 	$effect(() => {
 		if (yContent && awareness && model && editor) {
-			monacoBinding && monacoBinding.destroy()
 			untrack(() => {
+				monacoBinding && monacoBinding.destroy()
 				monacoBinding = new MonacoBinding(
 					yContent,
 					model!,

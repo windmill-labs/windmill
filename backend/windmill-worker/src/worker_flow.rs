@@ -372,7 +372,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .as_ref()
                         .and_then(|x| x.skip_failures)
                         .unwrap_or(false),
-                    value.as_ref().and_then(|x| x.parallelism),
+                    value.and_then(|x| x.parallelism),
                     *parallel,
                 )
             } else {
@@ -734,7 +734,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     }
 
                     let new_status = if
-                        !(stop_early && stop_early_err_msg.is_some()) // if stop_early with error message, we want to set the job as failure and trigger the error handler if it exists
+                        !(stop_early && stop_early_err_msg.is_some() && !skip_if_stop_early) // if stop_early with error and NOT skip_if_stopped, mark as failure
                         && (
                                 skip_loop_failures
                                 || sqlx::query_scalar!(
@@ -762,7 +762,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                              branch_chosen: None,
                              approvers: vec![],
                              failed_retries: vec![],
-                             skipped: false,
+                             skipped: stop_early && skip_if_stop_early,
                              agent_actions: None,
                              agent_actions_success: None,
                          }
@@ -956,10 +956,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                     flow_jobs_duration.set(position, &flow_job_duration);
                 }
 
-                // if stop_early with error message, we want to set the job as failure and trigger the error handler if it exists
+                // if stop_early with error message and NOT skip_if_stopped, mark as failure
+                // if skip_if_stopped=true, we want to mark as success (skipped), not failure
                 if (success
                     || (flow_jobs.is_some() && (skip_loop_failures || skip_seq_branch_failure)))
-                    && !(stop_early && stop_early_err_msg.is_some())
+                    && !(stop_early && stop_early_err_msg.is_some() && !skip_if_stop_early)
                 {
                     let is_skipped = if current_module.as_ref().is_some_and(|m| m.skip_if.is_some())
                     {
@@ -974,7 +975,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         })?
                         .unwrap_or(false)
                     } else {
-                        false
+                        stop_early && skip_if_stop_early // Mark as skipped when stop_after_if with skip_if_stopped=true
                     };
                     success = true;
                     (
@@ -1474,6 +1475,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     true,
                     None,
                     false,
+                    false,
                 )
                 .await?;
                 duration
@@ -1493,6 +1495,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     None,
                     true,
                     None,
+                    false,
                     false,
                 )
                 .await?;
@@ -2744,6 +2747,9 @@ async fn push_next_flow_job(
             to_raw_value(&"preprocessor"),
         );
         Ok(Marc::new(hm))
+    } else if module.pass_flow_input_directly.unwrap_or(false) {
+        // If pass_flow_input_directly is set, use flow args directly
+        Ok(arc_flow_job_args.clone())
     } else {
         let value = module.get_value();
         match &value {
@@ -3153,6 +3159,7 @@ async fn push_next_flow_job(
             new_job_priority_override,
             job_perms.as_ref(),
             false,
+            None,
         )
         .warn_after_seconds(2)
         .await?;
@@ -3171,17 +3178,32 @@ async fn push_next_flow_job(
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
         if value_with_parallel.type_ == "forloopflow" {
-            if let Some(p) = value_with_parallel.parallelism {
-                tracing::debug!(id = %flow_job.id, root_id = %job_root, "updating suspend for forloopflow job {uuid}");
+            if let Some(parallelism_transform) = &value_with_parallel.parallelism {
+                tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
 
-                if i as u16 >= p {
+                let ctx = get_transform_context(&flow_job, &previous_id, &status)
+                    .warn_after_seconds(3)
+                    .await?;
+
+                let evaluated_parallelism = evaluate_input_transform::<u16>(
+                    parallelism_transform,
+                    arc_last_job_result.clone(),
+                    Some(arc_flow_job_args.clone()),
+                    Some(client),
+                    Some(&ctx),
+                )
+                .await?;
+
+                tracing::debug!(id = %flow_job.id, root_id = %job_root, "updating suspend for forloopflow job {uuid} with parallelism {evaluated_parallelism}");
+
+                if i as u16 >= evaluated_parallelism {
                     sqlx::query!(
                         "UPDATE v2_job_queue SET
                              suspend = $1,
                              suspend_until = now() + interval '14 day',
                              running = true
                          WHERE id = $2",
-                        (i as u16 - p + 1) as i32,
+                        (i as u16 - evaluated_parallelism + 1) as i32,
                         uuid,
                     )
                     .execute(&mut *inner_tx)
@@ -4510,9 +4532,9 @@ pub async fn script_to_payload(
         };
         (
             // We only apply the preprocessor if it's explicitly set to true in the module,
-            // which can only happen if the the flow is a SingleScriptFlow triggered by a trigger with retries or error handling.
+            // which can only happen if the the flow is a SingleStepFlow triggered by a trigger with retries or error handling.
             // In that case, apply_preprocessor is still only set to true if the script has a preprocesor.
-            // We only check for script hash because SingleScriptFlow triggers specifies the script hash
+            // We only check for script hash because SingleStepFlow triggers specifies the script hash
             JobPayload::ScriptHash {
                 hash,
                 path: script_path,

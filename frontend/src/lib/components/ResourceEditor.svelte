@@ -182,7 +182,7 @@
 		}
 	})
 	run(() => {
-		canSave = can_write && isValid && jsonError == ''
+		canSave = (can_write && isValid && jsonError == '') || (viewJsonSchema && jsonError == '')
 	})
 	$effect(() => {
 		onChange && onChange({ path, args, description })

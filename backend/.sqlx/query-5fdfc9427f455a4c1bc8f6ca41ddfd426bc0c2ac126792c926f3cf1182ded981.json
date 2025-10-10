@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT trim(both '\"' from value::text) FROM global_settings WHERE name = 'ducklake_user_pg_pwd';",
+  "query": "SELECT value->>'ducklake_user_pg_pwd' FROM global_settings WHERE name = 'ducklake_settings';",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "btrim",
+        "name": "?column?",
         "type_info": "Text"
       }
     ],
@@ -16,5 +16,5 @@
       null
     ]
   },
-  "hash": "a22e166746ee10943c737668aafd548e3adefe5847d2e35331edb61442d0dd92"
+  "hash": "5fdfc9427f455a4c1bc8f6ca41ddfd426bc0c2ac126792c926f3cf1182ded981"
 }

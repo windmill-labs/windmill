@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.554.1
+  version: 1.558.1
   title: Windmill API
 
   contact:
@@ -770,34 +770,26 @@ paths:
               schema:
                 type: boolean
 
-  /settings/databases_exist:
+  /settings/get_ducklake_instance_catalog_db_status:
     post:
-      summary: checks that all given databases exist or else return the ones that don't
-      operationId: databasesExist
+      summary: Returns the set-up statuses of ducklake instance catalog dbs
+      operationId: getDucklakeInstanceCatalogDbStatus
       tags:
         - setting
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                type: string
       responses:
         "200":
-          description: databases that do not exist
+          description: Statuses of all ducklake instance catalog dbs
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: string
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
 
-  /settings/create_ducklake_database/{name}:
+  /settings/setup_ducklake_catalog_db/{name}:
     post:
       summary: Runs CREATE DATABASE on the Windmill Postgres and grants access to the ducklake_user
-      operationId: createDucklakeDatabase
+      operationId: setupDucklakeCatalogDb
       tags:
         - setting
       parameters:
@@ -812,7 +804,8 @@ paths:
           description: status
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
 
   /settings/global/{key}:
     get:
@@ -1725,6 +1718,11 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: only_delete_forks
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: status
@@ -6536,6 +6534,8 @@ paths:
         - flow_conversation
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: conversation_id
           description: conversation id
           in: path
@@ -6543,8 +6543,13 @@ paths:
           schema:
             type: string
             format: uuid
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - name: after_id
+          description: id to fetch only the messages after that id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: conversation messages
@@ -6990,6 +6995,23 @@ paths:
     get:
       summary: get public secret of app
       operationId: getPublicSecretOfApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: app secret
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/secret_of_latest_version/{path}:
+    get:
+      summary: get public secret of latest version of an app bundle
+      operationId: getPublicSecretOfLatestVersionOfApp
       tags:
         - app
       parameters:
@@ -15054,7 +15076,7 @@ components:
           description: The conversation this message belongs to
         message_type:
           type: string
-          enum: [user, assistant, system]
+          enum: [user, assistant, system, tool]
           description: Type of the message
         content:
           type: string
@@ -15068,6 +15090,12 @@ components:
           type: string
           format: date-time
           description: When the message was created
+        step_name:
+          type: string
+          description: The step name that produced that message
+        success:
+          type: boolean
+          description: Whether the message is a success
 
     EndpointTool:
       type: object
@@ -15548,7 +15576,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
-              "singlescriptflow",
+              "singlestepflow",
               "flowscript",
               "flownode",
               "appscript",
@@ -15658,7 +15686,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
-              "singlescriptflow",
+              "singlestepflow",
               "flowscript",
               "flownode",
               "appscript",
@@ -16527,6 +16555,9 @@ components:
           format: date-time
         cron_version:
           type: string
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - path
         - edited_by
@@ -16645,6 +16676,9 @@ components:
         cron_version:
           type: string
           description: The version of the cron schedule to use (last is v2)
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - path
         - schedule
@@ -16718,6 +16752,9 @@ components:
         cron_version:
           type: string
           description: The version of the cron schedule to use (last is v2)
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - schedule
         - timezone
@@ -17575,6 +17612,48 @@ components:
         - enabled
         - aws_auth_resource_type
 
+    LoggedWizardStatus:
+      type: string
+      enum:
+        - OK
+        - SKIP
+        - FAIL
+
+    DucklakeInstanceCatalogDbStatusLogs:
+      type: object
+      properties:
+        super_admin:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        database_credentials:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        valid_dbname:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        created_database:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+          description: Created database status log
+        db_connect:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        grant_permissions:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+
+    DucklakeInstanceCatalogDbStatus:
+      type: object
+      required:
+        - logs
+        - success
+      properties:
+        logs:
+          $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatusLogs"
+        success:
+          type: boolean
+          description: Whether the operation completed successfully
+          example: true
+        error:
+          type: string
+          nullable: true
+          description: Error message if the operation failed
+          example: "Connection timeout"
+
     NewSqsTrigger:
       type: object
       properties:
@@ -18269,11 +18348,14 @@ components:
               created_by:
                 type: string
                 nullable: true
+              disabled:
+                type: boolean
             required:
               - id
               - name
               - username
               - color
+              - disabled
       required:
         - email
         - workspaces

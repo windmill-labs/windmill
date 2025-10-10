@@ -17,8 +17,8 @@
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import FlowChatInterface from '$lib/components/flows/FlowChatInterface.svelte'
-	import FlowConversationsSidebar from '$lib/components/flows/FlowConversationsSidebar.svelte'
+	import FlowChatInterface from '$lib/components/flows/conversations/FlowChatInterface.svelte'
+	import FlowConversationsSidebar from '$lib/components/flows/conversations/FlowConversationsSidebar.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -424,6 +424,8 @@
 			flowChatInterface.clearMessages()
 		}
 
+		flowChatInterface?.focusInput()
+
 		return newConversationId
 	}
 
@@ -508,6 +510,7 @@
 	bind:selected={rightPaneSelected}
 	isOperator={$userStore?.operator}
 	forceSmallScreen={chatInputEnabled}
+	isChatMode={chatInputEnabled}
 	flow_json={{
 		value: flow?.value,
 		summary: flow?.summary,
@@ -583,7 +586,9 @@
 		{#if flow}
 			<div class="flex flex-col h-full justify-between">
 				<div
-					class="w-full {chatInputEnabled ? 'p-4 mt-8' : 'max-w-3xl p-8'} mx-auto gap-2 bg-surface"
+					class="w-full {chatInputEnabled
+						? 'p-3 flex flex-col h-full'
+						: 'max-w-3xl p-8'} mx-auto gap-2 bg-surface"
 				>
 					{#if flow?.archived}
 						<Alert type="error" title="Archived">This flow was archived</Alert>
@@ -612,8 +617,7 @@
 					{#if chatInputEnabled}
 						<!-- Chat Layout with Sidebar -->
 						<div
-							class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
-							style="height: 600px;"
+							class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1"
 						>
 							<div class="flex-shrink-0">
 								<FlowConversationsSidebar
@@ -625,7 +629,7 @@
 									onDeleteConversation={handleDeleteConversation}
 								/>
 							</div>
-							<div class="flex-1 min-h-0">
+							<div class="flex-1">
 								<FlowChatInterface
 									bind:this={flowChatInterface}
 									onRunFlow={runFlowForChat}
@@ -704,27 +708,29 @@
 						</div>
 					{/if}
 				</div>
-				<div class="mt-8">
-					<FlowGraphViewer
-						triggerNode={true}
-						download
-						{flow}
-						overflowAuto
-						noSide={true}
-						on:select={(e) => {
-							if (e.detail) {
-								stepDetail = e.detail
-								rightPaneSelected = 'flow_step'
-							} else {
-								stepDetail = undefined
-								rightPaneSelected = 'saved_inputs'
-							}
-						}}
-						on:triggerDetail={(e) => {
-							rightPaneSelected = 'triggers'
-						}}
-					/>
-				</div>
+				{#if !chatInputEnabled}
+					<div class="mt-8">
+						<FlowGraphViewer
+							triggerNode={true}
+							download
+							{flow}
+							overflowAuto
+							noSide={true}
+							on:select={(e) => {
+								if (e.detail) {
+									stepDetail = e.detail
+									rightPaneSelected = 'flow_step'
+								} else {
+									stepDetail = undefined
+									rightPaneSelected = 'saved_inputs'
+								}
+							}}
+							on:triggerDetail={(e) => {
+								rightPaneSelected = 'triggers'
+							}}
+						/>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	{/snippet}

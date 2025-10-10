@@ -45,6 +45,7 @@
 	import { Button } from '$lib/components/common'
 	import InputValue from '../../helpers/InputValue.svelte'
 	import { stateSnapshot, withProps } from '$lib/svelte5Utils.svelte'
+	import { get } from 'svelte/store'
 
 	interface Props {
 		// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
@@ -56,6 +57,7 @@
 		customCss?: ComponentCustomCSS<'aggridcomponent'> | undefined
 		actions?: TableAction[] | undefined
 		actionsOrder?: RichConfiguration | undefined
+		onChange?: string[] | undefined
 	}
 
 	let {
@@ -66,7 +68,8 @@
 		render,
 		customCss = undefined,
 		actions = undefined,
-		actionsOrder = undefined
+		actionsOrder = undefined,
+		onChange = undefined
 	}: Props = $props()
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
@@ -188,6 +191,13 @@
 	let clientHeight: number = $state(0)
 	let clientWidth: number = $state(0)
 
+	function fireOnChange() {
+		let runnableComponents = get(context.runnableComponents)
+		if (onChange) {
+			onChange.forEach((id) => runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+		}
+	}
+
 	function onCellValueChanged(event) {
 		if (result) {
 			let dataCell = event.newValue
@@ -207,6 +217,7 @@
 			let data = { ...result[idx] }
 			outputs?.selectedRow?.set(data)
 			resolvedConfig?.extraConfig?.['defaultColDef']?.['onCellValueChanged']?.(event)
+			fireOnChange()
 		}
 	}
 
@@ -326,7 +337,7 @@
 				const agColumnDefs = transformColumnDefs({
 					columnDefs:
 						Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-							? [...resolvedConfig?.columnDefs] as WindmillColumnDef[]
+							? ([...resolvedConfig?.columnDefs] as WindmillColumnDef[])
 							: [],
 					actions,
 					customActionsHeader: resolvedConfig?.customActionsHeader,
@@ -474,7 +485,7 @@
 			const agColumnDefs = transformColumnDefs({
 				columnDefs:
 					Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-						? [...resolvedConfig?.columnDefs] as WindmillColumnDef[]
+						? ([...resolvedConfig?.columnDefs] as WindmillColumnDef[])
 						: [],
 				actions,
 				customActionsHeader: resolvedConfig?.customActionsHeader,

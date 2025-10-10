@@ -236,7 +236,8 @@ pub async fn transform_json_value(
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
-            if path.split("/").count() < 2 {
+
+            if path.split("/").count() < 2 && !path.starts_with("INSTANCE_DUCKLAKE_CATALOG/") {
                 return Err(Error::internal_err(format!(
                     "Argument `{name}` is an invalid resource path: {path}",
                 )));
@@ -452,6 +453,7 @@ pub async fn get_reserved_variables(
         Some(get_root_job_id(job).to_string()),
         Some(job.scheduled_for.clone()),
         job.runnable_id,
+        job.permissioned_as_end_user_email.clone(),
     )
     .await
     .to_vec();
