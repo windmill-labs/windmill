@@ -202,31 +202,40 @@ async fn load_mcp_tools(
             tracing::debug!("Using cached MCP client for {}", config.mcp_resource_path);
             cached_client.clone()
         } else {
-            // Fetch the resource from database
-            let resource_value = sqlx::query_scalar!(
-                "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2",
-                workspace_id,
-                config.mcp_resource_path
-            )
-            .fetch_optional(db)
-            .await?;
-
-            let Some(resource_value) = resource_value else {
-                return Err(Error::NotFound(format!(
-                    "MCP resource not found: {}",
+            // TESTING: Hardcoded MCP URL for quick testing
+            // TODO: Remove this before production
+            let mcp_resource = if config.mcp_resource_path == "test_mcp" {
+                tracing::warn!("Using HARDCODED test MCP URL - remove before production!");
+                McpResource {
+                    url: "https://app.windmill.dev/api/mcp/w/test1245/sse?token=rWqKm7SOX6FHxFAOSXkOxQLnhWVL7Rc0".to_string(), // Change this to your test MCP server
+                    api_key: None,
+                }
+            } else {
+                // Fetch the resource from database
+                let resource_value = sqlx::query_scalar!(
+                    "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2",
+                    workspace_id,
                     config.mcp_resource_path
-                )));
-            };
+                )
+                .fetch_optional(db)
+                .await?;
 
-            let Some(val) = resource_value else {
-                return Err(Error::NotFound(format!(
-                    "MCP resource not found: {}",
-                    config.mcp_resource_path
-                )));
-            };
+                let Some(resource_value) = resource_value else {
+                    return Err(Error::NotFound(format!(
+                        "MCP resource not found: {}",
+                        config.mcp_resource_path
+                    )));
+                };
 
-            let mcp_resource: McpResource =
-                serde_json::from_value(val).context("Failed to parse MCP resource")?;
+                let Some(val) = resource_value else {
+                    return Err(Error::NotFound(format!(
+                        "MCP resource not found: {}",
+                        config.mcp_resource_path
+                    )));
+                };
+
+                serde_json::from_value(val).context("Failed to parse MCP resource")?
+            };
 
             // Create new MCP client
             let client = McpClient::from_resource(mcp_resource, config.mcp_resource_path.clone())

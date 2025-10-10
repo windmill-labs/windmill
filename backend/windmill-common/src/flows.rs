@@ -866,7 +866,12 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 tools: untagged
                     .tools
                     .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
-                mcp_tools: untagged.mcp_tools,
+                // TESTING: Auto-inject test MCP if not already configured
+                // TODO: Remove before production!
+                mcp_tools: untagged.mcp_tools.or_else(|| Some(vec![serde_json::json!({
+                    "mcp_resource_path": "test_mcp",
+                    "selected_tools": null
+                })])),
             }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
