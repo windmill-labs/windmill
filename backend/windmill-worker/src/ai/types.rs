@@ -1,3 +1,5 @@
+use crate::ai::mcp_client::McpToolSource;
+use crate::ai::providers::openai::OpenAIToolCall;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
@@ -6,10 +8,6 @@ use windmill_common::{
     s3_helpers::S3Object,
 };
 use windmill_parser::Typ;
-
-use crate::ai::providers::openai::OpenAIToolCall;
-
-// Shared types used across multiple providers
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -88,10 +86,11 @@ pub struct ToolDef {
     pub function: ToolDefFunction,
 }
 
+#[derive(Serialize, Clone, Debug)]
 pub struct Tool {
     pub module: Option<FlowModule>,
     pub def: ToolDef,
-    pub mcp_source: Option<crate::mcp_client::McpToolSource>,
+    pub mcp_source: Option<McpToolSource>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]

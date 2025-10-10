@@ -1,4 +1,4 @@
-use crate::mcp_client::{mcp_tool_to_tooldef, McpClient, McpResource};
+use crate::ai::mcp_client::{McpClient, McpResource, McpToolSource};
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use anyhow::Context;
 use async_recursion::async_recursion;
@@ -212,22 +212,7 @@ async fn load_mcp_tools(
         // Get all available tools
         let available_tools = mcp_client.available_tools();
 
-        // Convert MCP tools to Windmill tools
-        for mcp_tool in available_tools {
-            let tooldef = mcp_tool_to_tooldef(mcp_tool, &resource_name)?;
-
-            all_mcp_tools.push(Tool {
-                def: tooldef,
-                module: None,
-                mcp_source: Some(mcp_client.create_tool_source(&mcp_tool.name)),
-            });
-        }
-
-        tracing::info!(
-            "Loaded {} MCP tools from {}",
-            available_tools.len(),
-            resource_name
-        );
+        all_mcp_tools.extend(available_tools.iter().cloned());
 
         // Store client for later use and cleanup
         mcp_clients.insert(resource_name, mcp_client);
@@ -239,34 +224,20 @@ async fn load_mcp_tools(
 /// Execute an MCP tool by routing the call to the appropriate MCP client
 async fn execute_mcp_tool(
     mcp_clients: &HashMap<String, Arc<McpClient>>,
-    mcp_source: &crate::mcp_client::McpToolSource,
+    mcp_source: &McpToolSource,
     arguments_str: &str,
 ) -> Result<serde_json::Value, Error> {
-    use crate::mcp_client::openai_args_to_mcp_args;
-
-    tracing::debug!(
-        "Executing MCP tool {} from resource {}",
-        mcp_source.original_tool_name,
-        mcp_source.name
-    );
-
     // Get the MCP client from the provided map
-    let mcp_client = mcp_clients
-        .get(&mcp_source.name)
-        .ok_or_else(|| {
-            Error::internal_err(format!(
-                "MCP client not found for resource: {}",
-                mcp_source.name
-            ))
-        })?;
-
-    // Convert OpenAI-style arguments to MCP format
-    let mcp_args =
-        openai_args_to_mcp_args(arguments_str).context("Failed to parse tool arguments")?;
+    let mcp_client = mcp_clients.get(&mcp_source.name).ok_or_else(|| {
+        Error::internal_err(format!(
+            "MCP client not found for resource: {}",
+            mcp_source.name
+        ))
+    })?;
 
     // Call the MCP tool
     let result = mcp_client
-        .call_tool(&mcp_source.original_tool_name, mcp_args)
+        .call_tool(&mcp_source.tool_name, arguments_str)
         .await
         .context("MCP tool call failed")?;
 
