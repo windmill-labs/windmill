@@ -1,3 +1,4 @@
+use crate::mcp_client::{mcp_tool_to_tooldef, McpClient, McpResource};
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use anyhow::Context;
 use async_recursion::async_recursion;
@@ -14,7 +15,7 @@ use windmill_common::{
     error::{self, to_anyhow, Error},
     flow_conversations::{add_message_to_conversation_tx, MessageType},
     flow_status::AgentAction,
-    flows::{FlowModuleValue, FlowValue, Step},
+    flows::{FlowModuleValue, FlowValue, InputTransform, Step},
     get_latest_hash_for_path,
     jobs::JobKind,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
@@ -181,47 +182,25 @@ async fn load_mcp_tools(
     workspace_id: &str,
     mcp_resource_paths: Vec<String>,
 ) -> Result<Vec<Tool>, Error> {
-    use crate::mcp_client::{mcp_tool_to_tooldef, McpClient, McpResource};
-
     let mut all_mcp_tools = Vec::new();
 
     for resource_path in mcp_resource_paths {
         tracing::debug!("Loading MCP tools from resource: {}", resource_path);
 
-        // TESTING: Hardcoded MCP configuration for quick testing
-        // TODO: Remove this before production
-        let mcp_resource = if resource_path == "test_mcp" {
-            tracing::warn!("Using HARDCODED test MCP configuration - remove before production!");
-            McpResource {
-                name: "test_mcp".to_string(),
-                url: "https://app.windmill.dev/api/mcp/w/test1245/sse?token=".to_string(),
-                api_key: None,
-            }
-        } else {
+        let mcp_resource = {
             // Fetch the resource from database
-            let resource_value = sqlx::query_scalar!(
-                "SELECT value FROM resource WHERE workspace_id = $1 AND path = $2",
-                workspace_id,
-                resource_path
+            let resource= sqlx::query_scalar!(
+                "SELECT value as \"value: sqlx::types::Json<Box<RawValue>>\" FROM resource WHERE path = $1 AND workspace_id = $2",
+                &resource_path.trim_start_matches("$res:"),
+                &workspace_id
             )
             .fetch_optional(db)
-            .await?;
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Could not find the resource {}, update the resource path in the workspace settings", resource_path)))?
+            .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", resource_path)))?;
 
-            let Some(resource_value) = resource_value else {
-                return Err(Error::NotFound(format!(
-                    "MCP resource not found: {}",
-                    resource_path
-                )));
-            };
-
-            let Some(val) = resource_value else {
-                return Err(Error::NotFound(format!(
-                    "MCP resource not found: {}",
-                    resource_path
-                )));
-            };
-
-            serde_json::from_value(val).context("Failed to parse MCP resource")?
+            serde_json::from_str::<McpResource>(resource.0.get())
+                .context("Failed to parse MCP resource")?
         };
 
         let resource_name = mcp_resource.name.clone();
@@ -376,11 +355,23 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    let FlowModuleValue::AIAgent { tools, mcp_resources, .. } = module.get_value()? else {
+    let FlowModuleValue::AIAgent { tools, input_transforms, .. } = module.get_value()? else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
         ));
     };
+
+    // Extract mcp_resources from input_transforms
+    let mcp_resources: Vec<String> = input_transforms
+        .get("mcp_resources")
+        .and_then(|it| match it {
+            InputTransform::Static { value } => Some(value),
+            _ => None,
+        })
+        .and_then(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
+        .unwrap_or_default();
+
+    println!("HERE mcp_resources: {:?}", mcp_resources);
 
     let tools = futures::future::try_join_all(tools.into_iter().map(|mut t| {
         let conn = conn;

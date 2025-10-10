@@ -1,5 +1,7 @@
 //! Types for MCP client configuration and metadata
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 /// MCP server resource configuration
@@ -11,7 +13,7 @@ pub struct McpResource {
     pub url: String,
     /// Optional API key for authentication
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub api_key: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
 }
 
 /// Metadata for tracking MCP tool sources

@@ -2,8 +2,10 @@
 
 use crate::mcp_client::types::{McpResource, McpToolSource};
 use anyhow::{Context, Result};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use rmcp::model::InitializeRequestParam;
 use rmcp::service::RunningService;
+use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::RoleClient;
 use rmcp::{
     model::{CallToolRequestParam, ClientCapabilities, ClientInfo, Implementation, Tool},
@@ -27,9 +29,32 @@ impl McpClient {
     pub async fn from_resource(resource: McpResource) -> Result<Self> {
         tracing::debug!("Initializing MCP client for {}", resource.url);
 
-        // Create the HTTP transport with reqwest client
-        // The reqwest feature provides a from_uri convenience method
-        let transport = StreamableHttpClientTransport::from_uri(resource.url.as_str());
+        // Build custom reqwest client with headers if provided
+        let mut headers = HeaderMap::new();
+        if let Some(resource_headers) = &resource.headers {
+            for (key, value) in resource_headers {
+                match (
+                    HeaderName::from_bytes(key.as_bytes()),
+                    HeaderValue::from_str(value),
+                ) {
+                    (Ok(name), Ok(value)) => {
+                        headers.insert(name, value);
+                    }
+                    _ => {
+                        tracing::warn!("Invalid header: {}={}", key, value);
+                    }
+                }
+            }
+        }
+
+        let reqwest_client = reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .context("Failed to build HTTP client")?;
+
+        // Create the HTTP transport with custom client
+        let config = StreamableHttpClientTransportConfig::with_uri(resource.url.as_str());
+        let transport = StreamableHttpClientTransport::with_client(reqwest_client, config);
 
         // Set up client info
         let client_info = ClientInfo {
@@ -107,10 +132,7 @@ impl McpClient {
 
     /// Create metadata for tracking this tool's source
     pub fn create_tool_source(&self, tool_name: &str) -> McpToolSource {
-        McpToolSource {
-            name: self.name.clone(),
-            original_tool_name: tool_name.to_string(),
-        }
+        McpToolSource { name: self.name.clone(), original_tool_name: tool_name.to_string() }
     }
 
     /// Cleanup and close the connection
