@@ -73,7 +73,7 @@
 	}
 
 	async function deleteFork() {
-		await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
+		await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '', onlyDeleteForks: true })
 		sendUserToast('You deleted the workspace')
 		clearStores()
 		goto('/user/workspaces')
@@ -364,7 +364,7 @@
 							}
 						]
 					: []),
-				...($workspaceStore?.startsWith('wm-fork')
+				...($workspaceStore?.startsWith('wm-fork-')
 					? [
 							{
 								label: 'Delete Forked Workspace',
