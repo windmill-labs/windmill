@@ -118,7 +118,7 @@ pub async fn get_flow_chat_settings(db: &DB, job: &MiniPulledJob) -> FlowChatSet
 pub async fn add_message_to_conversation(
     db: &DB,
     conversation_id: &Uuid,
-    job_id: &Uuid,
+    job_id: Option<Uuid>,
     message_content: &str,
     message_type: MessageType,
     step_name: &Option<String>,
@@ -128,7 +128,7 @@ pub async fn add_message_to_conversation(
     add_message_to_conversation_tx(
         &mut tx,
         *conversation_id,
-        Some(*job_id),
+        job_id,
         &message_content,
         message_type,
         step_name.as_deref(),

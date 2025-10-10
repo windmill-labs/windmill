@@ -1,25 +1,24 @@
 use crate::ai::mcp_client::McpClient;
+use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
 use crate::ai::utils::{
-    add_message_to_conversation, cleanup_mcp_clients, execute_mcp_tool, find_unique_tool_name,
+    add_message_to_conversation, cleanup_mcp_clients, find_unique_tool_name,
     get_flow_chat_settings, get_flow_job_runnable_and_raw_flow, get_step_name_from_flow,
     is_anthropic_provider, load_mcp_tools, parse_raw_script_schema,
     update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
     FlowChatSettings,
 };
 use crate::memory_oss::{read_from_memory, write_to_memory};
-use anyhow::Context;
 use async_recursion::async_recursion;
 use regex::Regex;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
-use ulid;
 use uuid::Uuid;
 use windmill_common::{
     ai_providers::AZURE_API_VERSION,
     cache,
     client::AuthedClient,
     db::DB,
-    error::{self, to_anyhow, Error},
+    error::{self, Error},
     flow_conversations::MessageType,
     flow_status::AgentAction,
     flows::{FlowModuleValue, FlowValue, InputTransform},
@@ -29,10 +28,7 @@ use windmill_common::{
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
 };
-use windmill_queue::{
-    get_mini_pulled_job, push, CanceledBy, JobCompleted, MiniPulledJob, PushArgs,
-    PushIsolationLevel,
-};
+use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::{
     ai::{
@@ -42,15 +38,9 @@ use crate::{
         },
         types::*,
     },
-    common::{
-        build_args_map, error_to_value, resolve_job_timeout, OccupancyMetrics, StreamNotifier,
-    },
-    create_job_dir,
+    common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
     handle_child::run_future_with_polling_update_job_poller,
-    handle_queued_job,
-    result_processor::handle_non_flow_job_error,
-    worker_flow::{raw_script_to_payload, script_to_payload},
-    JobCompletedSender, SendResult, SendResultPayload,
+    JobCompletedSender,
 };
 
 lazy_static::lazy_static! {
@@ -291,6 +281,9 @@ pub async fn handle_ai_agent_job(
         Box::pin(futures::stream::once(async { 0 })),
     )
     .await?;
+
+    // Cleanup MCP clients
+    cleanup_mcp_clients(mcp_clients).await;
 
     Ok(result)
 }
@@ -568,7 +561,7 @@ pub async fn run_agent(
                                         if let Err(e) = add_message_to_conversation(
                                             &db_clone,
                                             &mid,
-                                            &agent_job_id,
+                                            Some(agent_job_id),
                                             &message_content,
                                             MessageType::Assistant,
                                             &step_name,
@@ -598,561 +591,42 @@ pub async fn run_agent(
                             ..Default::default()
                         });
 
-                        // Handle tool calls (keeping existing tool execution logic)
-                        for tool_call in tool_calls.iter() {
-                            // Stream tool call progress
-                            if let Some(ref stream_event_processor) = stream_event_processor {
-                                let event = StreamingEvent::ToolExecution {
-                                    call_id: tool_call.id.clone(),
-                                    function_name: tool_call.function.name.clone(),
-                                };
-                                stream_event_processor
-                                    .send(event, &mut final_events_str)
-                                    .await?;
-                            }
+                        // Handle tool calls using extracted tools module
+                        let tool_execution_ctx = ToolExecutionContext {
+                            db,
+                            conn,
+                            job,
+                            parent_job,
+                            flow_value,
+                            client,
+                            worker_dir,
+                            base_internal_url,
+                            worker_name,
+                            hostname,
+                            occupancy_metrics,
+                            job_completed_tx,
+                            killpill_rx,
+                            stream_event_processor: stream_event_processor.as_ref(),
+                            chat_settings: &mut chat_settings,
+                        };
 
-                            // Check if this is the structured output tool
-                            if structured_output_tool_name
-                                .as_ref()
-                                .map_or(false, |name| tool_call.function.name == *name)
-                            {
-                                used_structured_output_tool = true;
-                                messages.push(OpenAIMessage {
-                                    role: "tool".to_string(),
-                                    content: Some(OpenAIContent::Text(
-                                        "Successfully ran structured_output tool".to_string(),
-                                    )),
-                                    tool_call_id: Some(tool_call.id.clone()),
-                                    ..Default::default()
-                                });
-                                messages.push(OpenAIMessage {
-                                    role: "assistant".to_string(),
-                                    content: Some(OpenAIContent::Text(
-                                        tool_call.function.arguments.clone(),
-                                    )),
-                                    agent_action: Some(AgentAction::Message {}),
-                                    ..Default::default()
-                                });
-                                content =
-                                    Some(OpenAIContent::Text(tool_call.function.arguments.clone()));
-                                break;
-                            }
+                        let (tool_messages, tool_content, tool_used_structured_output) =
+                            execute_tool_calls(
+                                tool_execution_ctx,
+                                &tool_calls,
+                                &tools,
+                                mcp_clients,
+                                &mut actions,
+                                &mut final_events_str,
+                                &structured_output_tool_name,
+                            )
+                            .await?;
 
-                            let tool = tools
-                                .iter()
-                                .find(|t| t.def.function.name == tool_call.function.name);
-                            if let Some(tool) = tool {
-                                // Check if this is an MCP tool
-                                if let Some(mcp_source) = &tool.mcp_source {
-                                    // Execute MCP tool
-                                    let tool_result = execute_mcp_tool(
-                                        mcp_clients,
-                                        mcp_source,
-                                        &tool_call.function.arguments,
-                                    )
-                                    .await;
-
-                                    match tool_result {
-                                        Ok(result) => {
-                                            let result_str = serde_json::to_string_pretty(&result)
-                                                .unwrap_or_else(|_| result.to_string());
-
-                                            messages.push(OpenAIMessage {
-                                                role: "tool".to_string(),
-                                                content: Some(OpenAIContent::Text(
-                                                    result_str.clone(),
-                                                )),
-                                                tool_call_id: Some(tool_call.id.clone()),
-                                                agent_action: None, // MCP tools don't have job IDs
-                                                ..Default::default()
-                                            });
-
-                                            // Stream tool result
-                                            if let Some(ref stream_event_processor) =
-                                                stream_event_processor
-                                            {
-                                                let event = StreamingEvent::ToolResult {
-                                                    call_id: tool_call.id.clone(),
-                                                    function_name: tool_call.function.name.clone(),
-                                                    result: result.to_string(),
-                                                    success: true,
-                                                };
-                                                stream_event_processor
-                                                    .send(event, &mut final_events_str)
-                                                    .await?;
-                                            }
-                                        }
-                                        Err(e) => {
-                                            let error_msg = format!("MCP tool error: {}", e);
-                                            tracing::error!("{}", error_msg);
-
-                                            messages.push(OpenAIMessage {
-                                                role: "tool".to_string(),
-                                                content: Some(OpenAIContent::Text(
-                                                    error_msg.clone(),
-                                                )),
-                                                tool_call_id: Some(tool_call.id.clone()),
-                                                agent_action: None, // MCP tools don't have job IDs
-                                                ..Default::default()
-                                            });
-
-                                            // Stream tool error
-                                            if let Some(ref stream_event_processor) =
-                                                stream_event_processor
-                                            {
-                                                let event = StreamingEvent::ToolResult {
-                                                    call_id: tool_call.id.clone(),
-                                                    function_name: tool_call.function.name.clone(),
-                                                    result: error_msg,
-                                                    success: false,
-                                                };
-                                                stream_event_processor
-                                                    .send(event, &mut final_events_str)
-                                                    .await?;
-                                            }
-                                        }
-                                    }
-
-                                    continue; // Skip regular tool execution
-                                }
-
-                                // Regular Windmill tools must have a module
-                                let tool_module = tool.module.as_ref().ok_or_else(|| {
-                                    Error::internal_err(format!(
-                                        "Tool {} has no module (MCP tools should be handled above)",
-                                        tool_call.function.name
-                                    ))
-                                })?;
-
-                                let job_id = ulid::Ulid::new().into();
-                                actions.push(AgentAction::ToolCall {
-                                    job_id,
-                                    function_name: tool_call.function.name.clone(),
-                                    module_id: tool_module.id.clone(),
-                                });
-
-                                update_flow_status_module_with_actions(db, parent_job, &actions)
-                                    .await?;
-
-                                let raw_tool_call_args = if tool_call.function.arguments.is_empty()
-                                {
-                                    "{}".to_string()
-                                } else {
-                                    tool_call.function.arguments.clone()
-                                };
-                                let tool_call_args =
-                                    serde_json::from_str::<HashMap<String, Box<RawValue>>>(
-                                        &raw_tool_call_args,
-                                    )
-                                    .with_context(|| {
-                                        format!(
-                                        "Failed to parse tool call arguments for tool call {}: {}",
-                                        tool_call.function.name, tool_call.function.arguments
-                                    )
-                                    })?;
-
-                                let job_payload = match tool_module.get_value()? {
-                                    FlowModuleValue::Script {
-                                        path: script_path,
-                                        hash: script_hash,
-                                        tag_override,
-                                        ..
-                                    } => {
-                                        let payload = script_to_payload(
-                                            script_hash,
-                                            script_path,
-                                            db,
-                                            job,
-                                            tool_module,
-                                            tag_override,
-                                            tool_module.apply_preprocessor,
-                                        )
-                                        .await?;
-                                        payload
-                                    }
-                                    FlowModuleValue::RawScript {
-                                        path,
-                                        content,
-                                        language,
-                                        lock,
-                                        tag,
-                                        custom_concurrency_key,
-                                        concurrent_limit,
-                                        concurrency_time_window_s,
-                                        ..
-                                    } => {
-                                        let path = path.unwrap_or_else(|| {
-                                            format!(
-                                                "{}/tools/{}",
-                                                job.runnable_path(),
-                                                tool_module.id
-                                            )
-                                        });
-
-                                        let payload = raw_script_to_payload(
-                                            path,
-                                            content,
-                                            language,
-                                            lock,
-                                            custom_concurrency_key,
-                                            concurrent_limit,
-                                            concurrency_time_window_s,
-                                            tool_module,
-                                            tag,
-                                            tool_module.delete_after_use.unwrap_or(false),
-                                        );
-                                        payload
-                                    }
-                                    _ => {
-                                        return Err(Error::internal_err(format!(
-                                            "Unsupported tool: {}",
-                                            tool_call.function.name
-                                        )));
-                                    }
-                                };
-
-                                let mut tx = db.begin().await?;
-
-                                let job_perms = windmill_common::auth::get_job_perms(
-                                    &mut *tx,
-                                    &job.id,
-                                    &job.workspace_id,
-                                )
-                                .await?
-                                .map(|x| x.into());
-
-                                let (email, permissioned_as) =
-                                    if let Some(on_behalf_of) = job_payload.on_behalf_of.as_ref() {
-                                        (&on_behalf_of.email, on_behalf_of.permissioned_as.clone())
-                                    } else {
-                                        (&job.permissioned_as_email, job.permissioned_as.to_owned())
-                                    };
-
-                                let job_priority = tool_module.priority.or(job.priority);
-
-                                let tx = PushIsolationLevel::Transaction(tx);
-                                let (uuid, tx) = push(
-                                    db,
-                                    tx,
-                                    &job.workspace_id,
-                                    job_payload.payload,
-                                    PushArgs { args: &tool_call_args, extra: None },
-                                    &job.created_by,
-                                    email,
-                                    permissioned_as,
-                                    Some(&format!("job-span-{}", job.id)),
-                                    None,
-                                    job.schedule_path(),
-                                    Some(job.id),
-                                    None,
-                                    None,
-                                    Some(job_id),
-                                    false,
-                                    false,
-                                    None,
-                                    job.visible_to_owner,
-                                    Some(job.tag.clone()),
-                                    job_payload.timeout,
-                                    None,
-                                    job_priority,
-                                    job_perms.as_ref(),
-                                    true,
-                                    None,
-                                )
-                                .await?;
-
-                                tx.commit().await?;
-
-                                let tool_job = get_mini_pulled_job(db, &uuid).await?;
-
-                                let Some(tool_job) = tool_job else {
-                                    return Err(Error::internal_err(
-                                        "Tool job not found".to_string(),
-                                    ));
-                                };
-
-                                let tool_job = Arc::new(tool_job);
-
-                                let (inner_job_completed_tx, inner_job_completed_rx) =
-                                    JobCompletedSender::new(&conn, 1);
-
-                                let inner_job_completed_rx = inner_job_completed_rx.expect(
-                                     "inner_job_completed_tx should be set as agent jobs are not supported on agent workers",
-                                 );
-
-                                // Spawn handle_queued_job on separate task to prevent tokio stack overflow
-                                // Clone everything needed for the spawned task
-                                let tool_job_spawn = tool_job.clone();
-                                let conn_spawn = conn.clone();
-                                let client_spawn = client.clone();
-                                let hostname_spawn = hostname.to_string();
-                                let worker_name_spawn = worker_name.to_string();
-                                let worker_dir_spawn = worker_dir.to_string();
-                                let base_internal_url_spawn = base_internal_url.to_string();
-                                let inner_job_completed_tx_spawn = inner_job_completed_tx.clone();
-                                let mut occupancy_metrics_spawn = occupancy_metrics.clone();
-                                let mut killpill_rx_spawn = killpill_rx.resubscribe();
-
-                                // Spawn on separate tokio task with fresh stack
-                                let join_handle = tokio::task::spawn(async move {
-                                    #[cfg(feature = "benchmark")]
-                                    let mut bench_spawn =
-                                        windmill_common::bench::BenchmarkIter::new();
-
-                                    let job_dir =
-                                        create_job_dir(&worker_dir_spawn, tool_job_spawn.id).await;
-
-                                    let result = handle_queued_job(
-                                        tool_job_spawn,
-                                        None,
-                                        None,
-                                        None,
-                                        None,
-                                        &conn_spawn,
-                                        &client_spawn,
-                                        &hostname_spawn,
-                                        &worker_name_spawn,
-                                        &worker_dir_spawn,
-                                        &job_dir,
-                                        None,
-                                        &base_internal_url_spawn,
-                                        inner_job_completed_tx_spawn,
-                                        &mut occupancy_metrics_spawn,
-                                        &mut killpill_rx_spawn,
-                                        None,
-                                        #[cfg(feature = "benchmark")]
-                                        &mut bench_spawn,
-                                    )
-                                    .await;
-
-                                    // Return both result and updated metrics
-                                    (result, occupancy_metrics_spawn)
-                                });
-
-                                // Await the spawned task
-                                let (handle_result, updated_occupancy) =
-                                    join_handle.await.map_err(|e| {
-                                        Error::internal_err(format!(
-                                            "Tool execution task failed: {}",
-                                            e
-                                        ))
-                                    })?;
-
-                                // Merge occupancy metrics back
-                                occupancy_metrics.total_duration_of_running_jobs =
-                                    updated_occupancy.total_duration_of_running_jobs;
-
-                                // Continue with match on handle_result
-                                match handle_result {
-                                    Err(err) => {
-                                        let err_string =
-                                            format!("{}: {}", err.name(), err.to_string());
-                                        let err_json = error_to_value(&err);
-                                        let _ = handle_non_flow_job_error(
-                                            db,
-                                            &tool_job,
-                                            0,
-                                            None,
-                                            err_string.clone(),
-                                            err_json,
-                                            worker_name,
-                                        )
-                                        .await;
-                                        let error_message =
-                                            format!("Error running tool: {}", err_string);
-                                        messages.push(OpenAIMessage {
-                                            role: "tool".to_string(),
-                                            content: Some(OpenAIContent::Text(
-                                                error_message.clone(),
-                                            )),
-                                            tool_call_id: Some(tool_call.id.clone()),
-                                            agent_action: Some(AgentAction::ToolCall {
-                                                job_id,
-                                                function_name: tool_call.function.name.clone(),
-                                                module_id: tool_module.id.clone(),
-                                            }),
-                                            ..Default::default()
-                                        });
-                                        // Stream tool result (error case)
-                                        if let Some(ref stream_event_processor) =
-                                            stream_event_processor
-                                        {
-                                            let tool_result_event = StreamingEvent::ToolResult {
-                                                call_id: tool_call.id.clone(),
-                                                function_name: tool_call.function.name.clone(),
-                                                result: error_message.clone(),
-                                                success: false,
-                                            };
-                                            stream_event_processor
-                                                .send(tool_result_event, &mut final_events_str)
-                                                .await?;
-                                        }
-
-                                        update_flow_status_module_with_actions_success(
-                                            db, parent_job, false,
-                                        )
-                                        .await?;
-
-                                        // Add tool message to conversation if chat_input_enabled (error case)
-                                        if chat_settings.is_none() {
-                                            chat_settings =
-                                                Some(get_flow_chat_settings(db, job).await);
-                                        }
-                                        let chat_enabled = chat_settings
-                                            .as_ref()
-                                            .map(|s| s.chat_input_enabled)
-                                            .unwrap_or(false);
-
-                                        if chat_enabled {
-                                            if let Some(mid) =
-                                                chat_settings.as_ref().and_then(|s| s.memory_id)
-                                            {
-                                                let tool_job_id = job_id;
-                                                let db_clone = db.clone();
-                                                let step_name = get_step_name_from_flow(
-                                                    flow_value,
-                                                    job.flow_step_id.as_deref(),
-                                                );
-
-                                                // Spawn task because we do not need to wait for the result
-                                                tokio::spawn(async move {
-                                                    if let Err(e) = add_message_to_conversation(
-                                                        &db_clone,
-                                                        &mid,
-                                                        &tool_job_id,
-                                                        &error_message,
-                                                        MessageType::Tool,
-                                                        &step_name,
-                                                        false,
-                                                    )
-                                                    .await
-                                                    {
-                                                        tracing::warn!("Failed to add tool error message to conversation {}: {}", mid, e);
-                                                    }
-                                                });
-                                            }
-                                        }
-                                    }
-                                    Ok(success) => {
-                                        let send_result =
-                                            inner_job_completed_rx.bounded_rx.try_recv().ok();
-
-                                        let result = if let Some(SendResult {
-                                            result:
-                                                SendResultPayload::JobCompleted(JobCompleted {
-                                                    result,
-                                                    ..
-                                                }),
-                                            ..
-                                        }) = send_result.as_ref()
-                                        {
-                                            job_completed_tx
-                                                .send(
-                                                    send_result.as_ref().unwrap().result.clone(),
-                                                    true,
-                                                )
-                                                .await
-                                                .map_err(to_anyhow)?;
-                                            result
-                                        } else {
-                                            if let Some(send_result) = send_result {
-                                                job_completed_tx
-                                                    .send(send_result.result, true)
-                                                    .await
-                                                    .map_err(to_anyhow)?;
-                                            }
-                                            return Err(Error::internal_err(
-                                                "Tool job completed but no result".to_string(),
-                                            ));
-                                        };
-                                        messages.push(OpenAIMessage {
-                                            role: "tool".to_string(),
-                                            content: Some(OpenAIContent::Text(
-                                                result.get().to_string(),
-                                            )),
-                                            tool_call_id: Some(tool_call.id.clone()),
-                                            agent_action: Some(AgentAction::ToolCall {
-                                                job_id,
-                                                function_name: tool_call.function.name.clone(),
-                                                module_id: tool_module.id.clone(),
-                                            }),
-                                            ..Default::default()
-                                        });
-
-                                        // Stream tool result (success case)
-                                        if let Some(ref stream_event_processor) =
-                                            stream_event_processor
-                                        {
-                                            let tool_result_event = StreamingEvent::ToolResult {
-                                                call_id: tool_call.id.clone(),
-                                                function_name: tool_call.function.name.clone(),
-                                                result: result.get().to_string(),
-                                                success: true,
-                                            };
-                                            stream_event_processor
-                                                .send(tool_result_event, &mut final_events_str)
-                                                .await?;
-                                        }
-
-                                        update_flow_status_module_with_actions_success(
-                                            db, parent_job, success,
-                                        )
-                                        .await?;
-
-                                        // Add tool message to conversation if chat_input_enabled
-                                        if chat_settings.is_none() {
-                                            chat_settings =
-                                                Some(get_flow_chat_settings(db, job).await);
-                                        }
-                                        let chat_enabled = chat_settings
-                                            .as_ref()
-                                            .map(|s| s.chat_input_enabled)
-                                            .unwrap_or(false);
-
-                                        if chat_enabled {
-                                            if let Some(mid) =
-                                                chat_settings.as_ref().and_then(|s| s.memory_id)
-                                            {
-                                                let tool_job_id = job_id;
-                                                let db_clone = db.clone();
-                                                let tool_name = tool_call.function.name.clone();
-                                                let step_name = get_step_name_from_flow(
-                                                    flow_value,
-                                                    job.flow_step_id.as_deref(),
-                                                );
-                                                let content = if success {
-                                                    format!("Used {} tool", tool_name)
-                                                } else {
-                                                    format!("Error executing {}", tool_name)
-                                                };
-
-                                                // Spawn task because we do not need to wait for the result
-                                                tokio::spawn(async move {
-                                                    if let Err(e) = add_message_to_conversation(
-                                                        &db_clone,
-                                                        &mid,
-                                                        &tool_job_id,
-                                                        &content,
-                                                        MessageType::Tool,
-                                                        &step_name,
-                                                        success,
-                                                    )
-                                                    .await
-                                                    {
-                                                        tracing::warn!("Failed to add tool message to conversation {}: {}", mid, e);
-                                                    }
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                return Err(Error::internal_err(format!(
-                                    "Tool not found: {}",
-                                    tool_call.function.name
-                                )));
-                            }
+                        messages.extend(tool_messages);
+                        if let Some(tc) = tool_content {
+                            content = Some(tc);
                         }
+                        used_structured_output_tool = tool_used_structured_output;
                     }
                     ParsedResponse::Image { base64_data } => {
                         // For image output with tools, we got an image response
@@ -1245,9 +719,6 @@ pub async fn run_agent(
             }
         }
     }
-
-    // Cleanup MCP clients before returning (takes ownership to properly shutdown)
-    cleanup_mcp_clients(mcp_clients.clone()).await;
 
     Ok(to_raw_value(&AIAgentResult {
         output: output_value,
