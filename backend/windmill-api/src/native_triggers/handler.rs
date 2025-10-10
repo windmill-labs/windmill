@@ -290,7 +290,6 @@ async fn get_native_trigger_handler<T: External>(
         external_data: native_trigger_config,
     });
 
-    println!("{:#?}", &full_resp);
     Ok(full_resp)
 }
 
@@ -439,7 +438,6 @@ async fn handle_webhook_native_trigger_handler<T: External>(
 
     let is_flow = trigger.runnable_kind == RunnableKind::Flow;
 
-    println!("Body: {}", &body_str);
 
     let job_args = handler
         .prepare_webhook(
