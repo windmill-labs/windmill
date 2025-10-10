@@ -33,7 +33,7 @@ pub struct McpResource {
     pub name: String,
     /// HTTP URL for the MCP server endpoint
     pub url: String,
-    /// Optional API key for authentication
+    /// Optional headers for authentication
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<HashMap<String, String>>,
 }
@@ -53,8 +53,6 @@ pub struct McpClient {
     client: Arc<RunningService<RoleClient, InitializeRequestParam>>,
     /// Cached list of available tools from the server, already converted to Windmill tools
     available_tools: Vec<Tool>,
-    /// Name of the MCP resource for tracking tool sources
-    name: String,
 }
 
 impl McpClient {
@@ -129,7 +127,7 @@ impl McpClient {
             })
             .collect::<Result<Vec<Tool>>>()?;
 
-        Ok(Self { client: Arc::new(client), available_tools, name: resource.name })
+        Ok(Self { client: Arc::new(client), available_tools })
     }
 
     /// Get the list of available tools from the MCP server
@@ -278,11 +276,5 @@ impl McpClient {
                     .collect(),
             )),
         }
-    }
-}
-
-impl Drop for McpClient {
-    fn drop(&mut self) {
-        tracing::debug!("Dropping MCP client for {}", self.name);
     }
 }

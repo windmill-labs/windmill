@@ -323,8 +323,6 @@ pub async fn handle_ai_agent_job(
         .and_then(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
         .unwrap_or_default();
 
-    println!("HERE mcp_resources: {:?}", mcp_resources);
-
     let tools = futures::future::try_join_all(tools.into_iter().map(|mut t| {
         let conn = conn;
         let db = db;
