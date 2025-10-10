@@ -1158,7 +1158,12 @@
 						<div class="relative flex flex-col h-full"></div>
 					{:else}
 						<Pane bind:size={rightPanelSize} minSize={15} maxSize={33}>
-							<div bind:clientWidth={$runnableJob.width} class="relative flex flex-col h-full">
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div
+								bind:clientWidth={$runnableJob.width}
+								class="relative flex flex-col h-full"
+								onkeydown={(e) => e.stopPropagation()}
+							>
 								<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
 									<Popover disappearTimeout={0} notClickable placement="bottom">
 										{#snippet text()}

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.555.2
+  version: 1.558.1
   title: Windmill API
 
   contact:
@@ -6529,6 +6529,8 @@ paths:
         - flow_conversation
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: conversation_id
           description: conversation id
           in: path
@@ -6536,8 +6538,13 @@ paths:
           schema:
             type: string
             format: uuid
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - name: after_id
+          description: id to fetch only the messages after that id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: conversation messages
@@ -14805,7 +14812,7 @@ components:
           description: The conversation this message belongs to
         message_type:
           type: string
-          enum: [user, assistant, system]
+          enum: [user, assistant, system, tool]
           description: Type of the message
         content:
           type: string
@@ -14819,6 +14826,12 @@ components:
           type: string
           format: date-time
           description: When the message was created
+        step_name:
+          type: string
+          description: The step name that produced that message
+        success:
+          type: boolean
+          description: Whether the message is a success
 
     EndpointTool:
       type: object
@@ -15299,7 +15312,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
-              "singlescriptflow",
+              "singlestepflow",
               "flowscript",
               "flownode",
               "appscript",
@@ -15409,7 +15422,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
-              "singlescriptflow",
+              "singlestepflow",
               "flowscript",
               "flownode",
               "appscript",
@@ -16278,6 +16291,9 @@ components:
           format: date-time
         cron_version:
           type: string
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - path
         - edited_by
@@ -16396,6 +16412,9 @@ components:
         cron_version:
           type: string
           description: The version of the cron schedule to use (last is v2)
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - path
         - schedule
@@ -16469,6 +16488,9 @@ components:
         cron_version:
           type: string
           description: The version of the cron schedule to use (last is v2)
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - schedule
         - timezone
@@ -17332,7 +17354,7 @@ components:
         - OK
         - SKIP
         - FAIL
-    
+
     DucklakeInstanceCatalogDbStatusLogs:
       type: object
       properties:
@@ -17367,7 +17389,6 @@ components:
           nullable: true
           description: Error message if the operation failed
           example: "Connection timeout"
-
 
     NewSqsTrigger:
       type: object

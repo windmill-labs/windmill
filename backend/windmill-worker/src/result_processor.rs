@@ -430,6 +430,7 @@ pub async fn process_result(
                     token: token.to_string(),
                     duration,
                     has_stream: Some(has_stream),
+                    from_cache: None,
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -493,6 +494,7 @@ pub async fn process_result(
                     token: token.to_string(),
                     duration,
                     has_stream: Some(has_stream),
+                    from_cache: None,
                 },
             )
             .with_context(windmill_common::otel_oss::otel_ctx())
@@ -568,6 +570,7 @@ pub async fn process_completed_job(
         result_columns,
         preprocessed_args,
         has_stream,
+        from_cache,
         ..
     }: JobCompleted,
     client: &AuthedClient,
@@ -633,6 +636,7 @@ pub async fn process_completed_job(
             false,
             duration,
             has_stream.unwrap_or(false),
+            from_cache.unwrap_or(false),
         )
         .await?;
         drop(job);
@@ -691,10 +695,12 @@ pub async fn process_completed_job(
                     &job.workspace_id,
                     false,
                     Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
-                    duration.and_then(|d| job.started_at.map(|started_at| FlowJobDuration {
-                        started_at: started_at,
-                        duration_ms: d,
-                    })),
+                    duration.and_then(|d| {
+                        job.started_at.map(|started_at| FlowJobDuration {
+                            started_at: started_at,
+                            duration_ms: d,
+                        })
+                    }),
                     false,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,

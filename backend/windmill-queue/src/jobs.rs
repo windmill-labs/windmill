@@ -33,6 +33,7 @@ use windmill_common::add_time;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
+use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::now_from_db;
 use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
@@ -49,6 +50,7 @@ use windmill_common::{
     },
     flows::{
         add_virtual_items_if_necessary, FlowModule, FlowModuleValue, FlowValue, InputTransform,
+        StopAfterIf,
     },
     jobs::{get_payload_tag_from_prefixed_path, JobKind, JobPayload, QueuedJob, RawCode},
     schedule::Schedule,
@@ -143,6 +145,7 @@ pub struct JobCompleted {
     pub canceled_by: Option<CanceledBy>,
     pub duration: Option<i64>,
     pub has_stream: Option<bool>,
+    pub from_cache: Option<bool>,
 }
 
 pub async fn cancel_single_job<'c>(
@@ -736,6 +739,7 @@ pub async fn add_completed_job_error(
         flow_is_done,
         duration,
         false,
+        false,
     )
     .await?;
     Ok(result)
@@ -758,6 +762,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     flow_is_done: bool,
     duration: Option<i64>,
     has_stream: bool,
+    from_cache: bool,
 ) -> Result<(Uuid, i64), Error> {
     // tracing::error!("Start");
     // let start = tokio::time::Instant::now();
@@ -783,6 +788,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             flow_is_done,
             duration,
             has_stream,
+            from_cache,
         )
     })
     .retry(
@@ -823,44 +829,79 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     restart_job_if_perpetual(db, queued_job, &canceled_by).await?;
 
-    // Update conversation message if it's a flow and it's done (both success and error cases)
+    // Create assistant message if it's a flow and it's done, but only if last module is not an AI agent
     if !skipped && flow_is_done {
         let chat_input_enabled = queued_job.parse_chat_input_enabled();
-        let value = serde_json::to_value(result.0)
-            .map_err(|e| Error::internal_err(format!("Failed to serialize result: {e}")))?;
         if chat_input_enabled.unwrap_or(false) {
-            let content = match value {
-                // If it's an Object with "output" key AND the output is a String, return it
-                serde_json::Value::Object(mut map)
-                    if map.contains_key("output")
-                        && matches!(map.get("output"), Some(serde_json::Value::String(_))) =>
-                {
-                    if let Some(serde_json::Value::String(s)) = map.remove("output") {
-                        s
-                    } else {
-                        // prettify the whole result
-                        serde_json::to_string_pretty(&map)
-                            .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
-                    }
-                }
-                // Otherwise, if the whole value is a String, return it
-                serde_json::Value::String(s) => s,
-                // Otherwise, prettify the whole result
-                v => serde_json::to_string_pretty(&v)
-                    .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
-            };
+            // Get conversation_id from flow_status.memory_id
+            let flow_status = queued_job.parse_flow_status();
+            let conversation_id = flow_status.and_then(|fs| fs.memory_id);
 
-            // Update the assistant message
-            let _ = sqlx::query!(
-                "UPDATE flow_conversation_message
-                    SET content = $1
-                    WHERE job_id = $2
-                ",
-                content,
-                queued_job.id,
-            )
-            .execute(db)
-            .await;
+            if let Some(conversation_id) = conversation_id {
+                // get flow value
+                let parent_job = queued_job.parent_job.unwrap_or(queued_job.id);
+                let flow_value = sqlx::query!(
+                    "SELECT f.value as \"value: Json<FlowValue>\" FROM v2_job j JOIN flow_version f ON f.id = j.runnable_id WHERE j.id = $1 AND j.workspace_id = $2",
+                    parent_job,
+                    &queued_job.workspace_id
+                )
+                .fetch_optional(db)
+                .await?
+                .map(|row| row.value.0);
+
+                let last_module_is_ai_agent = flow_value
+                    .as_ref()
+                    .and_then(|flow_value| {
+                        flow_value.modules.last().and_then(|m| m.get_value().ok())
+                    })
+                    .map(|v| matches!(v, FlowModuleValue::AIAgent { .. }))
+                    .unwrap_or(false);
+
+                // Only create assistant message if last module is NOT an AI agent, or there was an error
+                if !last_module_is_ai_agent || success == false {
+                    let value = serde_json::to_value(result.0).map_err(|e| {
+                        Error::internal_err(format!("Failed to serialize result: {e}"))
+                    })?;
+
+                    let content = match value {
+                        // If it's an Object with "output" key AND the output is a String, return it
+                        serde_json::Value::Object(mut map)
+                            if map.contains_key("output")
+                                && matches!(
+                                    map.get("output"),
+                                    Some(serde_json::Value::String(_))
+                                ) =>
+                        {
+                            if let Some(serde_json::Value::String(s)) = map.remove("output") {
+                                s
+                            } else {
+                                // prettify the whole result
+                                serde_json::to_string_pretty(&map)
+                                    .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
+                            }
+                        }
+                        // Otherwise, if the whole value is a String, return it
+                        serde_json::Value::String(s) => s,
+                        // Otherwise, prettify the whole result
+                        v => serde_json::to_string_pretty(&v)
+                            .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+                    };
+
+                    // Insert new assistant message
+                    let mut tx = db.begin().await?;
+                    add_message_to_conversation_tx(
+                        &mut tx,
+                        conversation_id,
+                        Some(queued_job.id),
+                        &content,
+                        MessageType::Assistant,
+                        None,
+                        success,
+                    )
+                    .await?;
+                    tx.commit().await?;
+                }
+            }
         }
     }
 
@@ -881,6 +922,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     flow_is_done: bool,
     duration: Option<i64>,
     has_stream: bool,
+    from_cache: bool,
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool)> {
     // let start = std::time::Instant::now();
 
@@ -1061,9 +1103,11 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 }
 
                 // for scripts, always try to schedule next tick
-                // for flows, only try to schedule next tick here if flow failed and because first handle_flow failed (step = 0, modules[0] = {type: 'Failure', 'job': uuid::nil()}) or job was cancelled before first handle_flow was called (step = 0, modules = [] OR modules[0].type == 'WaitingForPriorSteps')
+                // for flows, only try to schedule next tick here if flow failed and because first handle_flow failed (step = 0, modules[0] = {type: 'Failure', 'job': uuid::nil()})
+                // or job was cancelled before first handle_flow was called (step = 0, modules = [] OR modules[0].type == 'WaitingForPriorSteps')
                 // otherwise flow rescheduling is done inside handle_flow
                 let schedule_next_tick = !queued_job.is_flow()
+                    || from_cache
                     || !success
                         && sqlx::query_scalar!(
                             "SELECT 
@@ -2218,6 +2262,7 @@ impl PulledJobResult {
                     canceled_by: None,
                     duration: None,
                     has_stream: Some(false),
+                    from_cache: None,
                 }),
             ),
             PulledJobResult { job, .. } => Ok(job),
@@ -3664,12 +3709,14 @@ pub async fn push<'c, 'd>(
                 priority,
             )
         }
-        JobPayload::SingleScriptFlow {
+        JobPayload::SingleStepFlow {
             path,
             hash,
+            flow_version,
             retry,
             error_handler_path,
             error_handler_args,
+            skip_handler,
             args,
             custom_concurrency_key,
             concurrent_limit,
@@ -3680,10 +3727,75 @@ pub async fn push<'c, 'd>(
             trigger_path,
             apply_preprocessor,
         } => {
-            let mut input_transforms = HashMap::<String, InputTransform>::new();
-            for (arg_name, arg_value) in args {
-                input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+            // Determine if this is a flow or a script
+            let is_flow = flow_version.is_some();
+
+            // Build modules list
+            let mut modules = vec![];
+
+            // Add skip validation module if provided
+            if let Some(skip_handler) = skip_handler {
+                let mut skip_input_transforms = HashMap::<String, InputTransform>::new();
+                for (arg_name, arg_value) in skip_handler.args {
+                    skip_input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+                }
+
+                modules.push(FlowModule {
+                    id: "skip_validation".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Script {
+                        input_transforms: skip_input_transforms,
+                        path: skip_handler.path,
+                        hash: None,
+                        tag_override: None,
+                        is_trigger: None,
+                        pass_flow_input_directly: None,
+                    }),
+                    stop_after_if: Some(StopAfterIf {
+                        expr: skip_handler.stop_condition,
+                        skip_if_stopped: true,
+                        error_message: Some(skip_handler.stop_message),
+                    }),
+                    ..Default::default()
+                });
             }
+
+            // Add main module (script or flow)
+            let mut main_input_transforms = HashMap::<String, InputTransform>::new();
+            for (arg_name, arg_value) in args {
+                main_input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+            }
+
+            let main_module = if is_flow {
+                FlowModule {
+                    id: "a".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Flow {
+                        path: path.clone(),
+                        input_transforms: main_input_transforms,
+                        pass_flow_input_directly: None,
+                    }),
+                    retry,
+                    pass_flow_input_directly: Some(true),
+                    ..Default::default()
+                }
+            } else {
+                FlowModule {
+                    id: "a".to_string(),
+                    value: to_raw_value(&FlowModuleValue::Script {
+                        input_transforms: main_input_transforms,
+                        path: path.clone(),
+                        hash,
+                        tag_override,
+                        is_trigger: None,
+                        pass_flow_input_directly: None,
+                    }),
+                    retry,
+                    apply_preprocessor: Some(apply_preprocessor),
+                    ..Default::default()
+                }
+            };
+            modules.push(main_module);
+
+            // Build failure module if error handler is provided
             let failure_module = if let Some(error_handler_path) = error_handler_path {
                 let mut input_transforms = HashMap::<String, InputTransform>::new();
                 input_transforms.insert(
@@ -3696,7 +3808,7 @@ pub async fn push<'c, 'd>(
                 );
                 input_transforms.insert(
                     "is_flow".to_string(),
-                    InputTransform::Static { value: to_raw_value(&false) },
+                    InputTransform::Static { value: to_raw_value(&is_flow) },
                 );
                 input_transforms.insert(
                     "trigger_path".to_string(),
@@ -3735,6 +3847,7 @@ pub async fn push<'c, 'd>(
                         hash: None,
                         tag_override: None,
                         is_trigger: None,
+                        pass_flow_input_directly: None,
                     }),
                     ..Default::default()
                 }))
@@ -3743,19 +3856,7 @@ pub async fn push<'c, 'd>(
             };
 
             let flow_value = FlowValue {
-                modules: vec![FlowModule {
-                    id: "a".to_string(),
-                    value: to_raw_value(&FlowModuleValue::Script {
-                        input_transforms,
-                        path: path.clone(),
-                        hash: Some(hash),
-                        tag_override,
-                        is_trigger: None,
-                    }),
-                    retry,
-                    apply_preprocessor: Some(apply_preprocessor),
-                    ..Default::default()
-                }],
+                modules,
                 failure_module,
                 concurrency_time_window_s,
                 concurrent_limit,
@@ -3771,10 +3872,10 @@ pub async fn push<'c, 'd>(
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
             (
-                None,
+                None,  // No version needed - flow is stored in raw_flow like FlowPreview
                 Some(path),
                 None,
-                JobKind::Flow,
+                JobKind::SingleStepFlow,
                 Some(flow_value),
                 Some(flow_status),
                 None,
@@ -4336,7 +4437,7 @@ pub async fn push<'c, 'd>(
             }
             JobKind::Flow => "jobs.run.flow",
             JobKind::FlowPreview => "jobs.run.flow_preview",
-            JobKind::SingleScriptFlow => "jobs.run.single_script_flow",
+            JobKind::SingleStepFlow => "jobs.run.single_step_flow",
             JobKind::Script_Hub => "jobs.run.script_hub",
             JobKind::Dependencies => "jobs.run.dependencies",
             JobKind::Identity => "jobs.run.identity",

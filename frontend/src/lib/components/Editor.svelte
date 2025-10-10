@@ -1677,8 +1677,8 @@
 	})
 	$effect(() => {
 		if (yContent && awareness && model && editor) {
-			monacoBinding && monacoBinding.destroy()
 			untrack(() => {
+				monacoBinding && monacoBinding.destroy()
 				monacoBinding = new MonacoBinding(
 					yContent,
 					model!,
