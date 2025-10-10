@@ -30,6 +30,12 @@
 							function_name: z.string()
 						}),
 						z.object({
+							type: z.literal('mcp_tool_call'),
+							call_id: z.string(),
+							function_name: z.string(),
+							resource_path: z.string()
+						}),
+						z.object({
 							type: z.literal('message')
 						})
 					])
@@ -69,6 +75,14 @@
 					job_id: toolCall.job_id
 				}
 				onToolJobLoaded?.(job, idx)
+			} else if (toolCall.type === 'mcp_tool_call') {
+				console.log('mcp_tool_call', toolCall)
+				fakeModuleStates[idx.toString()] = {
+					type: 'Success',
+					args: {},
+					logs: '',
+					result: toolCall.content
+				}
 			} else {
 				fakeModuleStates[idx.toString()] = {
 					type: 'Success',
@@ -104,7 +118,15 @@
 									module_id: m.agent_action.module_id,
 									function_name: m.agent_action.function_name
 								}
-							: undefined) as AgentActionWithContent | undefined
+							: m.agent_action?.type === 'mcp_tool_call'
+								? {
+										type: 'mcp_tool_call',
+										content: m.content,
+										call_id: m.agent_action.call_id,
+										function_name: m.agent_action.function_name,
+										resource_path: m.agent_action.resource_path
+									}
+								: undefined) as AgentActionWithContent | undefined
 			)
 			.filter((m) => m !== undefined)
 
@@ -121,6 +143,14 @@
 								value: {
 									type: 'identity' as const
 								}
+							}
+						} else if (toolCall.type === 'mcp_tool_call') {
+							return {
+								id: idx.toString(),
+								value: {
+									type: 'identity' as const
+								},
+								summary: toolCall.function_name
 							}
 						} else {
 							const module = tools.find((m) => m.summary === toolCall.function_name)

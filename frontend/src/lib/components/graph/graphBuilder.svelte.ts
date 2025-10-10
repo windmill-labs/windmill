@@ -309,6 +309,7 @@ export type AiToolN = {
 		moduleId: string
 		insertable: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
+		mcpResourcePath?: string
 	}
 }
 

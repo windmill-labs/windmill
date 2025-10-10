@@ -43,6 +43,7 @@
 	import {
 		AI_TOOL_CALL_PREFIX,
 		AI_TOOL_MESSAGE_PREFIX,
+		AI_MCP_TOOL_CALL_PREFIX,
 		getToolCallId
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
@@ -1805,6 +1806,13 @@
 								{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
 									<div class="pt-2 px-4 pb-4">
 										<Alert type="info" title="Message output is available on the AI agent node" />
+									</div>
+								{:else if selectedNode?.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
+									<div class="pt-2 px-4 pb-4">
+										<Alert
+											type="info"
+											title="MCP tool call output is available on the AI agent node"
+										/>
 									</div>
 								{:else if selectedNode}
 									{@const node = localModuleStates[selectedNode]}

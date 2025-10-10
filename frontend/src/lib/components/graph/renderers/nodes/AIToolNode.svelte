@@ -8,6 +8,7 @@
 	export const BELOW_ADDITIONAL_OFFSET = 19
 
 	export const AI_TOOL_CALL_PREFIX = '_wm_ai_agent_tool_call'
+	export const AI_MCP_TOOL_CALL_PREFIX = '_wm_ai_mcp_tool_call'
 	export const AI_TOOL_MESSAGE_PREFIX = '_wm_ai_agent_message'
 
 	const ROW_WIDTH = 275
@@ -80,6 +81,7 @@
 				id: string
 				name: string
 				stateType?: GraphModuleState['type']
+				mcpResourcePath?: string
 			}[] = node.data.module.value.tools.map((t) => ({
 				id: t.id,
 				name: t.summary ?? ''
@@ -96,6 +98,13 @@
 						return {
 							id,
 							name: a.function_name
+						}
+					} else if (a.type === 'mcp_tool_call') {
+						const id = AI_MCP_TOOL_CALL_PREFIX + '-' + node.id + '-' + idx
+						return {
+							id,
+							name: a.function_name,
+							mcpResourcePath: a.resource_path
 						}
 					} else {
 						return {
@@ -134,7 +143,8 @@
 						eventHandlers,
 						moduleId: tool.id,
 						insertable,
-						flowModuleStates
+						flowModuleStates,
+						mcpResourcePath: tool.mcpResourcePath
 					},
 					id: `${node.id}-tool-${tool.id}`,
 					width: inputToolWidth,
@@ -232,7 +242,7 @@
 		NewAiToolN,
 		NodeLayout
 	} from '../../graphBuilder.svelte'
-	import { MessageCircle, Play, Wrench, X } from 'lucide-svelte'
+	import { MessageCircle, Play, Wrench, X, Server } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getContext } from 'svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
@@ -271,9 +281,12 @@
 				)}
 				style={`background-color: ${hover ? bgHoverColor : bgColor};`}
 				onclick={() => data.eventHandlers.select(data.moduleId)}
+				title={data.mcpResourcePath ? `MCP Tool: ${data.tool}\nResource: ${data.mcpResourcePath}` : undefined}
 			>
 				{#if data.moduleId.startsWith(AI_TOOL_MESSAGE_PREFIX)}
 					<MessageCircle size={16} class="ml-1 shrink-0" />
+				{:else if data.moduleId.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
+					<Server size={16} class="ml-1 shrink-0" />
 				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX)}
 					<Play size={16} class="ml-1 shrink-0" />
 				{:else}

@@ -646,6 +646,23 @@ components:
                   - module_id
               - type: object
                 properties:
+                  call_id:
+                    type: string
+                    format: uuid
+                  function_name:
+                    type: string
+                  resource_path:
+                    type: string
+                  type:
+                    type: string
+                    enum: [mcp_tool_call]
+                required:
+                  - call_id
+                  - function_name
+                  - resource_path
+                  - type
+              - type: object
+                properties:
                   type:
                     type: string
                     enum: [message]
