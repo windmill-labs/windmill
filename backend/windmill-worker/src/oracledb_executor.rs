@@ -23,11 +23,11 @@ use windmill_queue::CanceledBy;
 
 use crate::{
     common::{
-        build_args_values, check_executor_binary_exists, s3_mode_args_to_worker_data,
-        OccupancyMetrics, S3ModeWorkerData,
+        build_args_values, check_executor_binary_exists, get_reserved_variables,
+        s3_mode_args_to_worker_data, OccupancyMetrics, S3ModeWorkerData,
     },
     handle_child::run_future_with_polling_update_job_poller,
-    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args
+    sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args,
 };
 use windmill_common::client::AuthedClient;
 
@@ -343,6 +343,7 @@ pub async fn do_oracledb(
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    parent_runnable_path: Option<String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     check_executor_binary_exists(
         "the Oracle client lib",
@@ -381,7 +382,11 @@ pub async fn do_oracledb(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
-    let (query, args_to_skip) = sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+
+    let (query, args_to_skip) =
+        sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args, &reserved_variables)?;
 
     let (statement_values, errors) = get_statement_values(sig.clone(), &job_args, &args_to_skip);
 

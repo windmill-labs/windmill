@@ -18,7 +18,7 @@ use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::agent_workers::get_ducklake_from_agent_http;
-use crate::common::{build_args_values, OccupancyMetrics};
+use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::MysqlDatabase;
@@ -37,6 +37,7 @@ pub async fn do_duckdb(
     // TODO
     #[allow(unused_variables)] column_order_ref: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    parent_runnable_path: Option<String>,
 ) -> Result<Box<RawValue>> {
     let token = client.token.clone();
     let hidden_passwords = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -48,7 +49,11 @@ pub async fn do_duckdb(
         let sig = parse_duckdb_sig(query)?.args;
         let mut job_args = build_args_values(job, client, conn).await?;
 
-        let (query, _) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
+        let reserved_variables =
+            get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+
+        let (query, _) =
+            &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args, &reserved_variables)?;
         let query = transform_s3_uris(query).await?;
 
         let job_args = {

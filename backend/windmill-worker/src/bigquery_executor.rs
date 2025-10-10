@@ -19,7 +19,8 @@ use serde::Deserialize;
 
 use crate::common::{build_args_values, resolve_job_timeout};
 use crate::common::{
-    build_http_client, s3_mode_args_to_worker_data, OccupancyMetrics, S3ModeWorkerData,
+    build_http_client, get_reserved_variables, s3_mode_args_to_worker_data, OccupancyMetrics,
+    S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
@@ -313,6 +314,7 @@ pub async fn do_bigquery(
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    parent_runnable_path: Option<String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let bigquery_args = build_args_values(job, client, conn).await?;
 
@@ -364,8 +366,15 @@ pub async fn do_bigquery(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
-    let (query, args_to_skip) =
-        &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &bigquery_args)?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+
+    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(
+        query,
+        &sig,
+        &bigquery_args,
+        &reserved_variables,
+    )?;
 
     let queries = parse_sql_blocks(query);
 
