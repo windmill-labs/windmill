@@ -1,7 +1,3 @@
-//! Core MCP client implementation
-
-use std::sync::Arc;
-
 use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{json, value::RawValue, Value};
@@ -50,7 +46,7 @@ pub struct McpToolSource {
 /// MCP client for communicating with external MCP servers
 pub struct McpClient {
     /// The underlying rmcp client
-    client: Arc<RunningService<RoleClient, InitializeRequestParam>>,
+    client: RunningService<RoleClient, InitializeRequestParam>,
     /// Cached list of available tools from the server, already converted to Windmill tools
     available_tools: Vec<Tool>,
 }
@@ -127,7 +123,7 @@ impl McpClient {
             })
             .collect::<Result<Vec<Tool>>>()?;
 
-        Ok(Self { client: Arc::new(client), available_tools })
+        Ok(Self { client, available_tools })
     }
 
     /// Get the list of available tools from the MCP server
@@ -155,21 +151,9 @@ impl McpClient {
         Ok(result_json)
     }
 
-    /// Cleanup and close the connection
-    /// Note: This consumes self, so Drop won't be called
+    /// Close the connection
     pub async fn shutdown(self) -> Result<()> {
-        // Clone the Arc to avoid moving out of self
-        let client_clone = self.client.clone();
-        // Drop self to release one reference
-        drop(self);
-
-        // Try to unwrap the Arc, if we're the only owner we can cancel
-        if let Ok(client) = Arc::try_unwrap(client_clone) {
-            client
-                .cancel()
-                .await
-                .context("Failed to cancel MCP client")?;
-        }
+        self.client.cancel().await?;
         Ok(())
     }
 

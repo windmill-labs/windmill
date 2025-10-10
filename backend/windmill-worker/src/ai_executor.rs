@@ -957,7 +957,6 @@ pub async fn run_agent(
                                 break;
                             }
 
-                            // Execute regular tool
                             let tool = tools
                                 .iter()
                                 .find(|t| t.def.function.name == tool_call.function.name);
