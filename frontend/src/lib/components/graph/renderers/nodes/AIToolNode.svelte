@@ -242,7 +242,7 @@
 		NewAiToolN,
 		NodeLayout
 	} from '../../graphBuilder.svelte'
-	import { MessageCircle, Play, Wrench, X, Server } from 'lucide-svelte'
+	import { MessageCircle, Play, Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getContext } from 'svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
@@ -281,13 +281,10 @@
 				)}
 				style={`background-color: ${hover ? bgHoverColor : bgColor};`}
 				onclick={() => data.eventHandlers.select(data.moduleId)}
-				title={data.mcpResourcePath ? `MCP Tool: ${data.tool}\nResource: ${data.mcpResourcePath}` : undefined}
 			>
 				{#if data.moduleId.startsWith(AI_TOOL_MESSAGE_PREFIX)}
 					<MessageCircle size={16} class="ml-1 shrink-0" />
-				{:else if data.moduleId.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
-					<Server size={16} class="ml-1 shrink-0" />
-				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX)}
+				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX) || data.moduleId.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
 					<Play size={16} class="ml-1 shrink-0" />
 				{:else}
 					<Wrench size={16} class="ml-1 shrink-0" />

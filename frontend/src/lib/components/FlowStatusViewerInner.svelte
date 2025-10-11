@@ -47,6 +47,7 @@
 		getToolCallId
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
+	import McpToolCallDetails from './McpToolCallDetails.svelte'
 
 	let {
 		flowState: flowStateStore,
@@ -678,6 +679,14 @@
 								setModuleState(toolCallId, {
 									job_id: action.job_id,
 									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
+								})
+							} else if (action.type == 'mcp_tool_call') {
+								const mcpToolCallId = AI_MCP_TOOL_CALL_PREFIX + '-' + mod.id + '-' + idx
+								const success = mod.agent_actions_success?.[idx]
+								setModuleState(mcpToolCallId, {
+									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress',
+									mcpCallId: action.call_id,
+									mcpResourcePath: action.resource_path
 								})
 							} else if (action.type == 'message') {
 								const toolCallId = getToolCallId(idx, mod.id)
@@ -1808,12 +1817,28 @@
 										<Alert type="info" title="Message output is available on the AI agent node" />
 									</div>
 								{:else if selectedNode?.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
-									<div class="pt-2 px-4 pb-4">
-										<Alert
-											type="info"
-											title="MCP tool call output is available on the AI agent node"
+									{@const [, agentModuleId, toolCallIndex] = selectedNode.split('-')}
+									{@const agentNode = localModuleStates?.[agentModuleId]}
+									{@const agentActions = agentNode?.agent_actions}
+									{@const mcpActionIndex = parseInt(toolCallIndex)}
+									{@const mcpAction =
+										agentActions && mcpActionIndex >= 0 && mcpActionIndex < agentActions.length
+											? agentActions[mcpActionIndex]
+											: undefined}
+									{#if mcpAction?.type === 'mcp_tool_call' && agentNode?.result?.messages}
+										{@const message = agentNode.result.messages.find(
+											(m) => m.agent_action?.call_id === mcpAction.call_id
+										)}
+										<McpToolCallDetails
+											functionName={mcpAction.function_name}
+											resourcePath={mcpAction.resource_path}
+											args={mcpAction.arguments ?? {}}
+											result={message?.content}
+											type="Success"
+											workspaceId={job?.workspace_id}
+											jobId={job?.id}
 										/>
-									</div>
+									{/if}
 								{:else if selectedNode}
 									{@const node = localModuleStates[selectedNode]}
 									{#if selectedNode == 'end'}

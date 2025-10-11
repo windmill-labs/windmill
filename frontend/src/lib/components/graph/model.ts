@@ -66,6 +66,8 @@ export type GraphModuleState = {
 	isListJob?: boolean
 	skipped?: boolean
 	agent_actions?: FlowStatusModule['agent_actions']
+	mcpResourcePath?: string
+	mcpCallId?: string
 }
 
 export type NestedNodes = GraphItem[]
