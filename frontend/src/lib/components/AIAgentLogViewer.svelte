@@ -81,9 +81,7 @@
 					type: 'Success',
 					args: toolCall.arguments ?? {},
 					logs: '',
-					result: toolCall.content,
-					mcpResourcePath: toolCall.resource_path,
-					mcpCallId: toolCall.call_id
+					result: toolCall.content
 				}
 			} else {
 				fakeModuleStates[idx.toString()] = {
@@ -126,7 +124,6 @@
 										content: m.content,
 										call_id: m.agent_action.call_id,
 										function_name: m.agent_action.function_name,
-										resource_path: m.agent_action.resource_path,
 										arguments: m.agent_action.arguments
 									}
 								: undefined) as AgentActionWithContent | undefined
@@ -154,7 +151,6 @@
 									type: 'identity' as const
 								},
 								summary: toolCall.function_name,
-								mcp_resource_path: toolCall.resource_path,
 								arguments: toolCall.arguments
 							}
 						} else {

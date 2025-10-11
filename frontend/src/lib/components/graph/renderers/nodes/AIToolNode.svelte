@@ -81,7 +81,6 @@
 				id: string
 				name: string
 				stateType?: GraphModuleState['type']
-				mcpResourcePath?: string
 			}[] = node.data.module.value.tools.map((t) => ({
 				id: t.id,
 				name: t.summary ?? ''
@@ -93,18 +92,14 @@
 				baseOffset = BELOW_ADDITIONAL_OFFSET + AI_TOOL_BASE_OFFSET
 				rowOffset = AI_TOOL_ROW_OFFSET
 				tools = agentActions.map((a, idx) => {
-					if (a.type === 'tool_call') {
-						const id = getToolCallId(idx, node.id, a.module_id)
+					if (a.type === 'tool_call' || a.type === 'mcp_tool_call') {
+						const id =
+							a.type === 'tool_call'
+								? getToolCallId(idx, node.id, a.module_id)
+								: AI_MCP_TOOL_CALL_PREFIX + '-' + node.id + '-' + idx
 						return {
 							id,
 							name: a.function_name
-						}
-					} else if (a.type === 'mcp_tool_call') {
-						const id = AI_MCP_TOOL_CALL_PREFIX + '-' + node.id + '-' + idx
-						return {
-							id,
-							name: a.function_name,
-							mcpResourcePath: a.resource_path
 						}
 					} else {
 						return {
@@ -143,8 +138,7 @@
 						eventHandlers,
 						moduleId: tool.id,
 						insertable,
-						flowModuleStates,
-						mcpResourcePath: tool.mcpResourcePath
+						flowModuleStates
 					},
 					id: `${node.id}-tool-${tool.id}`,
 					width: inputToolWidth,

@@ -684,9 +684,7 @@
 								const mcpToolCallId = AI_MCP_TOOL_CALL_PREFIX + '-' + mod.id + '-' + idx
 								const success = mod.agent_actions_success?.[idx]
 								setModuleState(mcpToolCallId, {
-									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress',
-									mcpCallId: action.call_id,
-									mcpResourcePath: action.resource_path
+									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
 								})
 							} else if (action.type == 'message') {
 								const toolCallId = getToolCallId(idx, mod.id)
@@ -1831,12 +1829,10 @@
 										)}
 										<McpToolCallDetails
 											functionName={mcpAction.function_name}
-											resourcePath={mcpAction.resource_path}
 											args={mcpAction.arguments ?? {}}
 											result={message?.content}
 											type="Success"
 											workspaceId={job?.workspace_id}
-											jobId={job?.id}
 										/>
 									{/if}
 								{:else if selectedNode}
