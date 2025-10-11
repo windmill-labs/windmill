@@ -15,14 +15,11 @@
 		yaml
 	} from 'svelte-highlight/languages'
 	import { aiChatManager, AIMode } from '../AIChatManager.svelte'
-	import { getCurrentModel } from '$lib/aiStore'
-	import Button from '$lib/components/common/button/Button.svelte'
-	import type { AIProvider } from '$lib/gen/types.gen'
+	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
+	import { DIFF_BASED_EDIT_PROVIDERS } from './core'
+	import { Check, Play } from 'lucide-svelte'
 
 	const astNode = getAstNode()
-
-	// Providers that support diff-based editing
-	const DIFF_BASED_EDIT_PROVIDERS: AIProvider[] = ['openai', 'anthropic', 'googleai', 'azure_openai']
 
 	function getSmartLang(lang: string) {
 		switch (lang) {
@@ -89,19 +86,18 @@
 
 	// Check if the apply button should be shown
 	let showApplyButton = $derived.by(() => {
-		// Only show in script mode
-		if (aiChatManager.mode !== AIMode.SCRIPT) {
-			return false
-		}
-
-		// Only show if we have an applyCode function available
-		if (!aiChatManager.scriptEditorApplyCode) {
+		if (
+			aiChatManager.mode !== AIMode.SCRIPT ||
+			!aiChatManager.scriptEditorApplyCode ||
+			code === aiChatManager.scriptEditorOptions?.code
+		) {
 			return false
 		}
 
 		// Only show for non-diff-based providers
 		try {
-			const currentModel = getCurrentModel()
+			const currentModel =
+				$copilotSessionModel ?? $copilotInfo.defaultModel ?? $copilotInfo.aiModels[0]
 			return !DIFF_BASED_EDIT_PROVIDERS.includes(currentModel.provider)
 		} catch (e) {
 			return false
@@ -110,30 +106,23 @@
 
 	function handleApplyCode() {
 		if (code && aiChatManager.scriptEditorApplyCode) {
-			aiChatManager.scriptEditorApplyCode(code, { applyAll: true, mode: 'apply' })
+			aiChatManager.scriptEditorApplyCode(code, { mode: 'apply' })
 		}
 	}
 </script>
 
-<div
-	class="flex flex-col not-prose relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
->
-	{#if showApplyButton}
-		<div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-300 dark:border-gray-600">
-			<span class="text-xs text-gray-600 dark:text-gray-400">Code</span>
-			<Button
-				size="xs"
-				color="green"
-				onclick={handleApplyCode}
-			>
-				Apply code
-			</Button>
-		</div>
-	{/if}
-	<HighlightCode
-		class="p-1"
-		code={code ?? ''}
-		highlightLanguage={SMART_LANG_TO_HIGHLIGHT_LANG[getSmartLang(language as string)]}
-		language={undefined}
-	/>
+<div class="flex flex-col gap-0.5 rounded-lg relative not-prose">
+	<div
+		class="relative w-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden"
+	>
+		<HighlightCode
+			className="p-1"
+			code={code ?? ''}
+			highlightLanguage={SMART_LANG_TO_HIGHLIGHT_LANG[getSmartLang(language as string)]}
+			language={undefined}
+			onApplyCode={handleApplyCode}
+			{showApplyButton}
+			applyButtonIcon={aiChatManager.pendingNewCode ? Check : Play}
+		/>
+	</div>
 </div>
