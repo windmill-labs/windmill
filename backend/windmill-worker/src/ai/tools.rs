@@ -163,11 +163,15 @@ async fn execute_mcp_tool_call(
         execute_mcp_tool(mcp_clients, mcp_source, &tool_call.function.arguments).await;
 
     let call_id = ulid::Ulid::new().into();
+    let resource_path = &mcp_source.resource_path;
+    let tool_name = &tool_call.function.name;
+    let arguments = serde_json::from_str(&tool_call.function.arguments).ok();
 
     actions.push(AgentAction::McpToolCall {
         call_id,
-        function_name: mcp_source.tool_name.clone(),
-        resource_path: mcp_source.resource_path.clone(),
+        function_name: tool_name.clone(),
+        resource_path: resource_path.clone(),
+        arguments: arguments.clone(),
     });
 
     match tool_result {
@@ -181,8 +185,9 @@ async fn execute_mcp_tool_call(
                 tool_call_id: Some(tool_call.id.clone()),
                 agent_action: Some(AgentAction::McpToolCall {
                     call_id,
-                    function_name: mcp_source.tool_name.clone(),
-                    resource_path: mcp_source.resource_path.clone(),
+                    function_name: tool_name.clone(),
+                    resource_path: resource_path.clone(),
+                    arguments: arguments.clone(),
                 }),
                 ..Default::default()
             });
@@ -212,8 +217,9 @@ async fn execute_mcp_tool_call(
                 tool_call_id: Some(tool_call.id.clone()),
                 agent_action: Some(AgentAction::McpToolCall {
                     call_id,
-                    function_name: mcp_source.tool_name.clone(),
-                    resource_path: mcp_source.resource_path.clone(),
+                    function_name: tool_name.clone(),
+                    resource_path: resource_path.clone(),
+                    arguments: arguments.clone(),
                 }),
                 ..Default::default()
             });
@@ -222,7 +228,7 @@ async fn execute_mcp_tool_call(
             if let Some(stream_event_processor) = ctx.stream_event_processor {
                 let event = StreamingEvent::ToolResult {
                     call_id: tool_call.id.clone(),
-                    function_name: tool_call.function.name.clone(),
+                    function_name: tool_name.clone(),
                     result: error_msg.clone(),
                     success: false,
                 };

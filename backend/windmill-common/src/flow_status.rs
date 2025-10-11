@@ -188,7 +188,13 @@ struct UntaggedFlowStatusModule {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentAction {
     ToolCall { job_id: uuid::Uuid, function_name: String, module_id: String },
-    McpToolCall { call_id: uuid::Uuid, function_name: String, resource_path: String },
+    McpToolCall {
+        call_id: uuid::Uuid,
+        function_name: String,
+        resource_path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        arguments: Option<serde_json::Value>,
+    },
     Message {},
 }
 

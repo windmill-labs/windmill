@@ -656,6 +656,8 @@ components:
                   type:
                     type: string
                     enum: [mcp_tool_call]
+                  arguments:
+                    type: object
                 required:
                   - call_id
                   - function_name
