@@ -8,6 +8,7 @@
 	export const BELOW_ADDITIONAL_OFFSET = 19
 
 	export const AI_TOOL_CALL_PREFIX = '_wm_ai_agent_tool_call'
+	export const AI_MCP_TOOL_CALL_PREFIX = '_wm_ai_mcp_tool_call'
 	export const AI_TOOL_MESSAGE_PREFIX = '_wm_ai_agent_message'
 
 	const ROW_WIDTH = 275
@@ -91,8 +92,11 @@
 				baseOffset = BELOW_ADDITIONAL_OFFSET + AI_TOOL_BASE_OFFSET
 				rowOffset = AI_TOOL_ROW_OFFSET
 				tools = agentActions.map((a, idx) => {
-					if (a.type === 'tool_call') {
-						const id = getToolCallId(idx, node.id, a.module_id)
+					if (a.type === 'tool_call' || a.type === 'mcp_tool_call') {
+						const id =
+							a.type === 'tool_call'
+								? getToolCallId(idx, node.id, a.module_id)
+								: AI_MCP_TOOL_CALL_PREFIX + '-' + node.id + '-' + idx
 						return {
 							id,
 							name: a.function_name
@@ -274,7 +278,7 @@
 			>
 				{#if data.moduleId.startsWith(AI_TOOL_MESSAGE_PREFIX)}
 					<MessageCircle size={16} class="ml-1 shrink-0" />
-				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX)}
+				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX) || data.moduleId.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
 					<Play size={16} class="ml-1 shrink-0" />
 				{:else}
 					<Wrench size={16} class="ml-1 shrink-0" />

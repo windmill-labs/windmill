@@ -45,6 +45,14 @@ export const AI_AGENT_SCHEMA = {
 			format: 'json-schema',
 			showExpr: "fields.output_type === 'text'"
 		},
+		mcp_resources: {
+			type: 'array',
+			description: 'Array of MCP resources to use for the AI agent.',
+			items: {
+				type: 'resource' as const,
+				resourceType: 'mcp'
+			}
+		},
 		user_images: {
 			type: 'array',
 			description:
