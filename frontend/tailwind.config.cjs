@@ -89,6 +89,9 @@ const config = {
 			'surface-disabled-inverse': 'rgb(var(--color-surface-disabled-inverse) / <alpha-value>)',
 			'surface-selected-inverse': 'rgb(var(--color-surface-selected-inverse) / <alpha-value>)',
 
+			// Component colors
+			'component-virtual-node': 'rgb(var(--color-component-virtual-node) / <alpha-value>)',
+
 			// Design token colors
 			'light-blue': primitives['light-blue'],
 			'deep-blue': {

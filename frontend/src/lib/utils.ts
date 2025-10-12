@@ -1622,13 +1622,14 @@ export function createCache<Keys extends Record<string, any>, T, InitialKeys ext
 export async function wait(ms: number) {
 	return new Promise((resolve) => setTimeout(() => resolve(undefined), ms))
 }
-export function getTailwindColor(className: string): string {
+
+export type CssColor = keyof (typeof import('../lib/assets/tokens/tokens.json'))['tokens']['light']
+export function getCssColor(color: CssColor, alpha = 1): string {
 	const root = document.documentElement
-	const color = getComputedStyle(root)
-		.getPropertyValue('--color-' + className)
+	const rgb = getComputedStyle(root)
+		.getPropertyValue('--color-' + color)
 		.trim()
-	console.log('Color for', className, 'is', color)
-	return `rgb(${color})`
+	return `rgb(${rgb} / ${alpha})`
 }
 
 export type IconType = typeof import('lucide-svelte').Dot
