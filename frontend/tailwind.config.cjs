@@ -53,7 +53,7 @@ const config = {
 				'rgb(var(--color-surface-accent-secondary-hover) / <alpha-value>)',
 			'surface-accent-secondary-clicked':
 				'rgb(var(--color-surface-accent-secondary-clicked) / <alpha-value>)',
-			'surface-accent-selected': 'var(--color-surface-accent-selected)',
+			'surface-accent-selected': 'rgb(var(--color-surface-accent-selected))',
 
 			// Text colors (semantic)
 			primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
@@ -93,30 +93,30 @@ const config = {
 			'component-virtual-node': 'rgb(var(--color-component-virtual-node) / <alpha-value>)',
 
 			// Design token colors
-			'light-blue': primitives['light-blue'],
+			'light-blue': `rgb(${primitives['light-blue']})`,
 			'deep-blue': {
-				50: primitives['deep-blue-50'],
-				100: primitives['deep-blue-100'],
-				200: primitives['deep-blue-200'],
-				300: primitives['deep-blue-300'],
-				400: primitives['deep-blue-400'],
-				500: primitives['deep-blue-500'],
-				600: primitives['deep-blue-600'],
-				700: primitives['deep-blue-700'],
-				800: primitives['deep-blue-800'],
-				900: primitives['deep-blue-900']
+				50: `rgb(${primitives['deep-blue-50']})`,
+				100: `rgb(${primitives['deep-blue-100']})`,
+				200: `rgb(${primitives['deep-blue-200']})`,
+				300: `rgb(${primitives['deep-blue-300']})`,
+				400: `rgb(${primitives['deep-blue-400']})`,
+				500: `rgb(${primitives['deep-blue-500']})`,
+				600: `rgb(${primitives['deep-blue-600']})`,
+				700: `rgb(${primitives['deep-blue-700']})`,
+				800: `rgb(${primitives['deep-blue-800']})`,
+				900: `rgb(${primitives['deep-blue-900']})`
 			},
 			'luminance-blue': {
-				50: primitives['luminance-blue-50'],
-				100: primitives['luminance-blue-100'],
-				200: primitives['luminance-blue-200'],
-				300: primitives['luminance-blue-300'],
-				400: primitives['luminance-blue-400'],
-				500: primitives['luminance-blue-500'],
-				600: primitives['luminance-blue-600'],
-				700: primitives['luminance-blue-700'],
-				800: primitives['luminance-blue-800'],
-				900: primitives['luminance-blue-900']
+				50: `rgb(${primitives['luminance-blue-50']})`,
+				100: `rgb(${primitives['luminance-blue-100']})`,
+				200: `rgb(${primitives['luminance-blue-200']})`,
+				300: `rgb(${primitives['luminance-blue-300']})`,
+				400: `rgb(${primitives['luminance-blue-400']})`,
+				500: `rgb(${primitives['luminance-blue-500']})`,
+				600: `rgb(${primitives['luminance-blue-600']})`,
+				700: `rgb(${primitives['luminance-blue-700']})`,
+				800: `rgb(${primitives['luminance-blue-800']})`,
+				900: `rgb(${primitives['luminance-blue-900']})`
 			},
 			slate: {
 				50: '#f8fafc',
