@@ -100,7 +100,7 @@
 <div
 	bind:this={wrapperEl}
 	class={twMerge(
-		'relative min-h-10 flex items-center w-full bg-surface-secondary !text-secondary rounded-md',
+		'relative min-h-10 flex items-center w-full bg-surface-tertiary text-primary rounded-md',
 		inputBorderClass({ forceFocus: open && !disabled }),
 		disabled ? 'pointer-events-none' : '',
 		open && !disabled ? 'open' : '',
@@ -116,7 +116,7 @@
 
 	{#if value.length === 0}
 		<span
-			class={twMerge('text-sm ml-4 h-full flex items-center flex-1 text-hint', placeholderClass)}
+			class={twMerge('text-xs ml-4 h-full flex items-center flex-1 text-hint', placeholderClass)}
 		>
 			{placeholder}
 		</span>
