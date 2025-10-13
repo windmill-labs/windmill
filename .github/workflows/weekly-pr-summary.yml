@@ -94,15 +94,13 @@ jobs:
             - Parse JSON responses carefully using `jq` or similar tools
 
             ## Saving the Markdown Output:
-
             After generating the markdown summary, save it to a file, BUT DO NOT COMMIT IT TO THE REPOSITORY.
-            **CRITICAL**: You MUST create the `summary.md` file. The next workflow step will send it to the webhook!
           claude_args: |
             --max-turns 10
             --allowedTools "Bash"
 
       - name: Send Summary to Webhook
-        if: always() && hashFiles('summary.md') != ''
+        if: hashFiles('summary.md') != ''
         env:
           WEBHOOK_URL: ${{ secrets.WEEKLY_SUMMARY_WEBHOOK_URL }}
         run: |
