@@ -42,6 +42,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 	interface Props {
 		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
@@ -405,9 +406,11 @@
 
 		<div class="relative text-tertiary grow min-w-[100px]">
 			<!-- svelte-ignore a11y_autofocus -->
-			<input
-				autofocus
-				placeholder={HOME_SEARCH_PLACEHOLDER}
+			<TextInput
+				inputProps={{
+					autofocus: true,
+					placeholder: HOME_SEARCH_PLACEHOLDER
+				}}
 				bind:value={filter}
 				class="bg-surface !h-10 !px-4 !pr-10 !rounded-lg text-xs font-normal focus:outline-none"
 			/>

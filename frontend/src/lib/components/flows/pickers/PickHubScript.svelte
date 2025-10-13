@@ -7,6 +7,7 @@
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import { IntegrationService, ScriptService, type HubScriptKind } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	interface Props {
 		kind?: HubScriptKind & string
@@ -119,9 +120,10 @@
 <div class="w-full flex items-center gap-2">
 	{@render children?.()}
 	<div class="relative w-full">
-		<input
-			type="text"
-			placeholder="Search Hub Scripts"
+		<TextInput
+			inputProps={{
+				placeholder: 'Search Hub Scripts'
+			}}
 			bind:value={filter}
 			class="grow !pr-9 !h-10"
 		/>

@@ -6,6 +6,7 @@
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import { loadHubApps } from '$lib/hub'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	interface Props {
 		filter?: string
@@ -41,7 +42,13 @@
 />
 <div class="w-full flex items-center gap-2">
 	{@render children?.()}
-	<input type="text" placeholder="Search Hub Apps" bind:value={filter} class="grow !h-[34px]" />
+	<TextInput
+		inputProps={{
+			placeholder: 'Search Hub Apps'
+		}}
+		bind:value={filter}
+		class="grow !pr-9 !h-10"
+	/>
 </div>
 <ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 
