@@ -57,6 +57,7 @@
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 	import { editor as meditor } from 'monaco-editor'
 	import { DynamicInput } from '$lib/utils'
+	import { getActiveAdvancedSettings } from './flowModuleSettingsUtils.svelte'
 
 	const {
 		selectedId,
@@ -137,6 +138,9 @@
 	let scriptProgress = $state(undefined)
 
 	let assets = $derived((flowModule.value.type === 'rawscript' && flowModule.value.assets) || [])
+
+	// Advanced settings detection for indicators
+	let activeSettings = $derived(getActiveAdvancedSettings(flowModule))
 
 	// UI Intent handling for AI tool control
 	useUiIntent(`flow-${flowModule.id}`, {
@@ -613,22 +617,17 @@
 											/>
 										{:else if selected === 'advanced'}
 											<Tabs bind:selected={advancedSelected}>
-												<Tab value="retries" active={flowModule.retry !== undefined}>Retries</Tab>
+												<Tab value="retries" active={activeSettings.retry}>Retries</Tab>
 												{#if !$selectedId.includes('failure')}
-													<Tab value="runtime">Runtime</Tab>
-													<Tab value="cache" active={Boolean(flowModule.cache_ttl)}>Cache</Tab>
-													<Tab
-														value="early-stop"
-														active={Boolean(
-															flowModule.stop_after_if || flowModule.stop_after_all_iters_if
-														)}
-													>
+													<Tab value="runtime" active={activeSettings.runtime}>Runtime</Tab>
+													<Tab value="cache" active={activeSettings.cache}>Cache</Tab>
+													<Tab value="early-stop" active={activeSettings.earlyStop}>
 														Early Stop
 													</Tab>
-													<Tab value="skip" active={Boolean(flowModule.skip_if)}>Skip</Tab>
-													<Tab value="suspend" active={Boolean(flowModule.suspend)}>Suspend</Tab>
-													<Tab value="sleep" active={Boolean(flowModule.sleep)}>Sleep</Tab>
-													<Tab value="mock" active={Boolean(flowModule.mock?.enabled)}>Mock</Tab>
+													<Tab value="skip" active={activeSettings.skip}>Skip</Tab>
+													<Tab value="suspend" active={activeSettings.suspend}>Suspend</Tab>
+													<Tab value="sleep" active={activeSettings.sleep}>Sleep</Tab>
+													<Tab value="mock" active={activeSettings.mock}>Mock</Tab>
 													<Tab value="same_worker">Shared Directory</Tab>
 													{#if flowModule.value['language'] === 'python3' || flowModule.value['language'] === 'deno'}
 														<Tab value="s3">S3</Tab>
@@ -637,10 +636,10 @@
 											</Tabs>
 											{#if advancedSelected === 'runtime'}
 												<Tabs bind:selected={advancedRuntimeSelected}>
-													<Tab value="concurrency">Concurrency</Tab>
-													<Tab value="timeout">Timeout</Tab>
-													<Tab value="priority">Priority</Tab>
-													<Tab value="lifetime">Lifetime</Tab>
+													<Tab value="concurrency" active={activeSettings.concurrency}>Concurrency</Tab>
+													<Tab value="timeout" active={activeSettings.timeout}>Timeout</Tab>
+													<Tab value="priority" active={activeSettings.priority}>Priority</Tab>
+													<Tab value="lifetime" active={activeSettings.deleteAfterUse}>Lifetime</Tab>
 												</Tabs>
 											{/if}
 											<div class="h-[calc(100%-32px)] overflow-auto p-4">
