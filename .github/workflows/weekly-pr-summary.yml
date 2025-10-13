@@ -96,7 +96,6 @@ jobs:
             ## Saving the Markdown Output:
             After generating the markdown summary, save it to a file, BUT DO NOT COMMIT IT TO THE REPOSITORY.
           claude_args: |
-            --max-turns 10
             --allowedTools "Bash"
 
       - name: Send Summary to Windmill
