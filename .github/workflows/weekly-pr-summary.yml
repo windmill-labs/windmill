@@ -95,8 +95,11 @@ jobs:
 
             ## Saving the Markdown Output:
             After generating the markdown summary, save it to a file, BUT DO NOT COMMIT IT TO THE REPOSITORY.
+
+            ## Write tool issue:
+             - If the Write tool returns an error, create the summary.md file with the echo bash command.
           claude_args: |
-            --allowedTools "Bash"
+            --allowedTools "Edit,MultiEdit,Write,Read,Glob,Grep,LS,Bash"
 
       - name: Send Summary to Windmill
         if: hashFiles('summary.md') != ''
