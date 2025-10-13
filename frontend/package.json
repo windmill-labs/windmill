@@ -146,7 +146,7 @@
 		"windmill-parser-wasm-py": "1.538.0",
 		"windmill-parser-wasm-regex": "1.552.1",
 		"windmill-parser-wasm-ruby": "1.526.1",
-		"windmill-parser-wasm-rust": "1.510.1",
+		"windmill-parser-wasm-rust": "1.558.1",
 		"windmill-parser-wasm-ts": "1.538.0",
 		"windmill-parser-wasm-yaml": "1.510.1",
 		"windmill-sql-datatype-parser-wasm": "1.512.0",
