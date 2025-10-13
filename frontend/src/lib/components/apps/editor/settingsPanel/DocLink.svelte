@@ -5,19 +5,23 @@
 	import { BookText, ExternalLink } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let docLink: string
-	export let btnClasses: string | undefined = undefined
-	export let size: ButtonType.Size = 'xs'
+	interface Props {
+		docLink: string
+		btnClasses?: string | undefined
+		size?: ButtonType.Size
+	}
+
+	let { docLink, btnClasses = undefined, size = 'xs' }: Props = $props()
 </script>
 
 <Popover>
-	<svelte:fragment slot="text">
+	{#snippet text()}
 		<div class="flex flex-row gap-1">
 			Open documentation in a new tab
 
 			<ExternalLink size={16} />
 		</div>
-	</svelte:fragment>
+	{/snippet}
 	<Button
 		iconOnly
 		startIcon={{

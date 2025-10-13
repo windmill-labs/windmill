@@ -169,6 +169,7 @@ impl<Key: Eq + Hash + Item + Clone, Val: Export, Root: AsRef<Path>> FsBackedCach
                     ),
                 }
             }
+
             // Cache path doesn't exist or import failed, generate the content.
             let data = Val::resolve(with.await?)?;
             // Try to export data to the file-system.
@@ -538,7 +539,7 @@ pub mod flow {
 }
 
 pub mod script {
-    use crate::{worker::Connection, DB};
+    use crate::{db::DB, worker::Connection};
 
     use super::*;
 
@@ -797,11 +798,12 @@ pub mod job {
     #[track_caller]
     pub fn fetch_script(
         db: DB,
-        kind: JobKind,
+        kind: &JobKind,
         hash: Option<ScriptHash>,
     ) -> impl Future<Output = error::Result<Arc<ScriptData>>> {
         use JobKind::*;
         let loc = Location::caller();
+        let kind = kind.clone();
         async move {
             match (kind, hash.map(|ScriptHash(id)| id)) {
                 (FlowScript, Some(id)) => {
@@ -825,16 +827,17 @@ pub mod job {
     #[track_caller]
     pub fn fetch_flow<'c>(
         db: &'c DB,
-        kind: JobKind,
+        kind: &JobKind,
         hash: Option<ScriptHash>,
     ) -> impl Future<Output = error::Result<Arc<FlowData>>> + 'c {
         use JobKind::*;
         let loc = Location::caller();
+        let kind = kind.clone();
         async move {
             match (kind, hash.map(|ScriptHash(id)| id)) {
                 (FlowDependencies, Some(id)) => flow::fetch_version(db, id).await,
                 (FlowNode, Some(id)) => flow::fetch_flow(db, FlowNodeId(id)).await,
-                (Flow, Some(id)) => match flow::fetch_version_lite(db, id).await {
+                (Flow, Some(id)) | (SingleStepFlow, Some(id)) => match flow::fetch_version_lite(db, id).await {
                     Ok(raw_flow) => Ok(raw_flow),
                     Err(_) => flow::fetch_version(db, id).await,
                 },

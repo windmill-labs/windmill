@@ -7,21 +7,18 @@
 		parse_mysql,
 		parse_bigquery,
 		parse_snowflake,
-		parse_mssql
+		parse_mssql,
+		parse_duckdb
 	} from 'windmill-sql-datatype-parser-wasm'
 	import wasmUrl from 'windmill-sql-datatype-parser-wasm/windmill_sql_datatype_parser_wasm_bg.wasm?url'
 
 	init(wasmUrl)
 
-	import { argSigToJsonSchemaType } from '$lib/inferArgSig'
+	import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-
-	export let args: Record<string, any> = {}
-	export let dbType: DbType = 'postgresql'
-
-	let schema: Schema | undefined = undefined
-
-	export let columnDefs: Array<ColumnDef & ColumnMetadata> = []
+	import { untrack } from 'svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	type FieldMetadata = {
 		type: string
@@ -31,28 +28,6 @@
 		identity: ColumnIdentity
 		nullable: 'YES' | 'NO'
 	}
-
-	$: fields = columnDefs
-		?.filter((t) => {
-			const shouldFilter = t.isidentity === ColumnIdentity.Always || t?.hideInsert === true
-
-			return !shouldFilter
-		})
-		.map((column) => {
-			const type = column.datatype
-			const name = column.field
-			const isPrimaryKey = column.isprimarykey
-			const defaultValue = column.defaultValueNull ? null : column.defaultUserValue
-
-			return {
-				type,
-				name,
-				isPrimaryKey,
-				defaultValue,
-				identity: column.isidentity,
-				nullable: column.isnullable
-			}
-		}) as FieldMetadata[] | undefined
 
 	function parseSQLArgs(field: string, dbType: DbType): string {
 		let rawType = ''
@@ -72,8 +47,9 @@
 			case 'ms_sql_server':
 				rawType = parse_mssql(field)
 				break
-			default:
-				throw new Error('Language not supported')
+			case 'duckdb':
+				rawType = parse_duckdb(field)
+				break
 		}
 
 		return rawType
@@ -92,13 +68,13 @@
 			return typ
 		}
 	}
-	async function builtSchema(fields: FieldMetadata[], dbType: DbType) {
+	async function buildSchema(): Promise<Schema> {
 		const properties: { [name: string]: SchemaProperty } = {}
 		const required: string[] = []
 
 		await init(wasmUrl)
 
-		fields.forEach((field) => {
+		fields?.forEach((field) => {
 			const schemaProperty: SchemaProperty = {
 				type: 'string'
 			}
@@ -120,6 +96,12 @@
 					schemaProperty.default = field.defaultValue
 				}
 			}
+			if (field.type === 'timestamp without time zone' || field.type === 'timestamp') {
+				schemaProperty.format = 'naive-date-time'
+			}
+			if (field.type === 'timestamp with time zone' || field.type === 'timestamptz') {
+				schemaProperty.format = 'date-time'
+			}
 
 			properties[field.name] = schemaProperty
 
@@ -133,28 +115,98 @@
 			}
 		})
 
-		schema = {
+		return {
 			$schema: 'http://json-schema.org/draft-07/schema#',
 			type: 'object',
 			properties,
 			required
-		} as Schema
+		}
 	}
 
-	$: builtSchema(fields ?? [], dbType)
-
-	export let isInsertable: boolean = false
-
-	$: if (schema) {
-		const requiredFields = schema.required ?? []
-		const filledFields = Object.keys(args).filter(
-			(key) => args[key] !== undefined && args[key] !== null && args[key] !== ''
-		)
-
-		isInsertable = requiredFields.every((field) => filledFields.includes(field))
+	interface Props {
+		args?: Record<string, any>
+		dbType?: DbType
+		columnDefs?: Array<ColumnDef & ColumnMetadata>
+		isInsertable?: boolean
 	}
+
+	let {
+		args = $bindable({}),
+		dbType = 'postgresql',
+		columnDefs = [],
+		isInsertable = $bindable(false)
+	}: Props = $props()
+
+	let fields = $derived(
+		columnDefs
+			?.filter((t) => {
+				const shouldFilter =
+					t.isidentity === ColumnIdentity.Always ||
+					t?.hideInsert === true ||
+					t.defaultvalue?.startsWith('nextval(') // exclude postgres serial/auto increment fields
+				return !shouldFilter
+			})
+			.map((column) => {
+				const type = column.datatype
+				const name = column.field
+				const isPrimaryKey = column.isprimarykey
+				const defaultValue = column.defaultValueNull ? null : column.defaultUserValue
+
+				return {
+					type,
+					name,
+					isPrimaryKey,
+					defaultValue,
+					identity: column.isidentity,
+					nullable: column.isnullable
+				}
+			}) as FieldMetadata[] | undefined
+	)
+
+	let schemaPromise = usePromise(buildSchema)
+	let schema = $derived(schemaPromise.value)
+	$effect(() => {
+		fields && dbType && untrack(() => schemaPromise.refresh())
+	})
+	$effect(() => {
+		if (schema) {
+			const requiredFields = schema.required ?? []
+			const filledFields = Object.keys(args).filter(
+				(key) => args[key] !== undefined && args[key] !== null && args[key] !== ''
+			)
+
+			isInsertable = requiredFields.every((field) => filledFields.includes(field))
+		}
+	})
 </script>
 
 {#if schema}
-	<SchemaForm onlyMaskPassword {schema} bind:args />
+	<SchemaForm onlyMaskPassword {schema} bind:args>
+		{#snippet actions({ item })}
+			{@const disabled = fields?.[fields?.findIndex((f) => f.name === item.id)]?.nullable != 'YES'}
+			{#if !disabled}
+				<Toggle
+					options={{ right: 'NULL' }}
+					class="pl-2"
+					textClass="text-tertiary"
+					size="2sm"
+					bind:checked={
+						() => args[item.id] === null,
+						(v) => {
+							if (!schema?.properties[item.id]) return
+							if (v) {
+								schema.properties[item.id].nullable = true
+								schema.properties[item.id].disabled = true
+								args[item.id] = null
+							} else {
+								delete schema.properties[item.id].disabled
+								delete schema.properties[item.id].nullable
+								args[item.id] = schema.properties[item.id].default ?? ''
+							}
+						}
+					}
+				/>
+			{/if}
+		{/snippet}
+	</SchemaForm>
 {/if}

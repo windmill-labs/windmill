@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { stopPropagation, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { classNames } from '$lib/utils'
 	import type { AppViewerContext } from '../types'
 	import { Anchor, ArrowDownFromLine, Bug, Expand, Network, Pen, Plug } from 'lucide-svelte'
@@ -14,29 +17,45 @@
 	import DecisionTreeDebug from './DecisionTreeDebug.svelte'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 
-	export let component: AppComponent
-	export let selected: boolean
-	export let locked: boolean = false
-	export let hover: boolean = false
-	export let connecting: boolean = false
-	export let hasInlineEditor: boolean = false
-	export let inlineEditorOpened: boolean = false
-	export let errorHandledByComponent: boolean = false
-	export let fullHeight: boolean = false
-	export let componentContainerWidth: number
-	//export let willNotDisplay: boolean = false
+	interface Props {
+		component: AppComponent
+		selected: boolean
+		locked?: boolean
+		hover?: boolean
+		connecting?: boolean
+		hasInlineEditor?: boolean
+		inlineEditorOpened?: boolean
+		errorHandledByComponent?: boolean
+		fullHeight?: boolean
+		componentContainerWidth: number
+	}
+
+	let {
+		component,
+		selected,
+		locked = false,
+		hover = false,
+		connecting = false,
+		hasInlineEditor = false,
+		inlineEditorOpened = false,
+		errorHandledByComponent = false,
+		fullHeight = false,
+		componentContainerWidth
+	}: Props = $props()
 
 	const DECISION_TREE_THRESHOLD = 300
 	const STEPPER_THRESHOLD = 180
 	const CONDITIONAL_WRAPPER_THRESHOLD = 200
 	const MINIMUM_WIDTH = 20
 
-	let maxWidth = 10
-	let isManuallySelected = false
-	let componentIsDebugging = false
-	let id_width = 0
+	let maxWidth = $state(10)
+	let isManuallySelected = $state(false)
+	let componentIsDebugging = $state(false)
+	let id_width = $state(0)
 
-	$: maxWidth = Math.max(Math.round(0.2 * componentContainerWidth), MINIMUM_WIDTH)
+	$effect(() => {
+		maxWidth = Math.max(Math.round(0.2 * componentContainerWidth), MINIMUM_WIDTH)
+	})
 
 	const dispatch = createEventDispatcher()
 
@@ -59,12 +78,12 @@
 		return Object.values(componentOptions).some((value) => value)
 	}
 
-	let hoverHeader = false
+	let hoverHeader = $state(false)
 </script>
 
 {#if connecting}
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_mouse_events_have_key_events -->
 	<div
 		class="absolute z-50 overflow-auto -top-[18px]"
 		style="left: {id_width}px;"
@@ -75,7 +94,7 @@
 			closeOnOtherPopoverOpen
 			contentClasses="p-4"
 		>
-			<svelte:fragment slot="trigger">
+			{#snippet trigger()}
 				<AnimatedButton
 					animate={true}
 					baseRadius="9999px"
@@ -90,32 +109,32 @@
 						aria-label="Open output"><Plug size={12} /></div
 					>
 				</AnimatedButton>
-			</svelte:fragment>
-			<svelte:fragment slot="content">
+			{/snippet}
+			{#snippet content()}
 				<ComponentOutputViewer
 					suffix="connect"
 					on:select={({ detail }) =>
 						connectOutput(connectingInput, component.type, component.id, detail)}
 					componentId={component.id}
 				/>
-			</svelte:fragment>
+			{/snippet}
 		</Popover>
 	</div>
 {/if}
 
 {#if selected || hover}
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_mouse_events_have_key_events -->
 	<div class="-top-[18px] -left-[8px] flex flex-row flex-nowrap w-fit h-fit absolute gap-0.5">
 		<div
-			on:mouseover|stopPropagation={() => {
+			onmouseover={stopPropagation(() => {
 				hoverHeader = true
 				dispatch('mouseover')
-			}}
-			on:mouseleave|stopPropagation={() => {
+			})}
+			onmouseleave={stopPropagation(() => {
 				hoverHeader = false
-			}}
-			on:mousedown|stopPropagation|capture
+			})}
+			onmousedowncapture={stopPropagation(bubble('mousedown'))}
 			draggable="false"
 			title={`Id: ${component.id}`}
 			class={twMerge(
@@ -144,8 +163,8 @@
 								? 'bg-blue-300 text-blue-800'
 								: 'text-white hover:bg-blue-400 hover:text-white'
 						)}
-						on:click={() => dispatch('fillHeight')}
-						on:pointerdown|stopPropagation
+						onclick={() => dispatch('fillHeight')}
+						onpointerdown={stopPropagation(bubble('pointerdown'))}
 					>
 						<ArrowDownFromLine aria-label="Full height" size={11} />
 					</button>
@@ -156,8 +175,8 @@
 							'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full',
 							locked ? 'bg-blue-300 text-blue-800' : 'text-white hover:bg-blue-400 hover:text-white'
 						)}
-						on:click={() => dispatch('lock')}
-						on:pointerdown|stopPropagation
+						onclick={() => dispatch('lock')}
+						onpointerdown={stopPropagation(bubble('pointerdown'))}
 					>
 						{#if locked}
 							<Anchor aria-label="Unlock position" size={11} />
@@ -171,8 +190,8 @@
 							class={twMerge(
 								'px-1 py-0.5 text-2xs font-bold rounded cursor-pointer w-fit h-full text-white hover:bg-blue-400 hover:text-white'
 							)}
-							on:click={() => dispatch('expand')}
-							on:pointerdown|stopPropagation
+							onclick={() => dispatch('expand')}
+							onpointerdown={stopPropagation(bubble('pointerdown'))}
 						>
 							<Expand aria-label="Expand" size={11} />
 						</button>
@@ -198,8 +217,8 @@
 								? 'bg-blue-300 text-blue-800'
 								: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 						)}
-						on:click={() => dispatch('triggerInlineEditor')}
-						on:pointerdown|stopPropagation
+						onclick={() => dispatch('triggerInlineEditor')}
+						onpointerdown={stopPropagation(bubble('pointerdown'))}
 					>
 						<Pen aria-label="Edit" size={11} />
 					</button>
@@ -228,13 +247,13 @@
 								? 'text-red-600 hover:bg-red-300 hover:text-red-800'
 								: 'text-blue-600 hover:bg-blue-300 hover:text-blue-800'
 						)}
-						on:click={() => {
+						onclick={() => {
 							const element = document.getElementById(`decision-tree-graph-editor`)
 							if (element) {
 								element.click()
 							}
 						}}
-						on:pointerdown|stopPropagation
+						onpointerdown={stopPropagation(bubble('pointerdown'))}
 					>
 						<Network size={11} />
 					</button>
@@ -264,7 +283,7 @@
 				</Popover>
 			{/if} -->
 
-				<!-- svelte-ignore a11y-no-static-element-interactions -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
 			</div>
 		{/if}
 	</div>
@@ -279,14 +298,14 @@
 		)}
 	>
 		<Popover notClickable placement="bottom" contentClasses="!bg-surface border w-96 p-4">
-			<svelte:fragment slot="trigger">
+			{#snippet trigger()}
 				<Bug size={14} />
-			</svelte:fragment>
-			<svelte:fragment slot="content">
+			{/snippet}
+			{#snippet content()}
 				<div class="bg-surface">
 					<pre class="whitespace-pre-wrap text-red-600 bg-surface border w-full p-4 text-xs mb-2"
 						>{error ?? ''}	
-						</pre>
+							</pre>
 				</div>
 				<Button
 					color="red"
@@ -294,7 +313,7 @@
 					on:click={() => $openDebugRun?.($errorByComponent[component.id]?.id ?? '')}
 					>Open Debug Runs</Button
 				>
-			</svelte:fragment>
+			{/snippet}
 		</Popover>
 	</span>
 {/if}

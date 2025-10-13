@@ -11,16 +11,20 @@
 	import HighlightTheme from './HighlightTheme.svelte'
 	import { filteredContentForExport } from './flows/utils'
 
-	export let flow: {
-		summary: string
-		description?: string
-		value: FlowValue
-		schema?: any
+	interface Props {
+		flow: {
+			summary: string
+			description?: string
+			value: FlowValue
+			schema?: any
+		}
 	}
 
-	$: flowFiltered = filteredContentForExport(flow)
+	let { flow }: Props = $props()
 
-	let rawType: 'json' | 'yaml' = 'yaml'
+	let flowFiltered = $derived(filteredContentForExport(flow))
+
+	let rawType: 'json' | 'yaml' = $state('yaml')
 
 	function trimStringToLines(inputString: string, maxLines: number = 100): string {
 		const lines = inputString?.split('\n') ?? []
@@ -29,7 +33,7 @@
 		return linesToKeep.join('\n')
 	}
 
-	let code: string = ''
+	let code: string = $state('')
 
 	function computeCode() {
 		const str =
@@ -44,11 +48,13 @@
 		code = str
 	}
 
-	let shouldDisplayLoadMore = false
+	let shouldDisplayLoadMore = $state(false)
 
-	$: flowFiltered && rawType && computeCode()
+	$effect(() => {
+		flowFiltered && rawType && computeCode()
+	})
 
-	let maxLines = 100
+	let maxLines = $state(100)
 </script>
 
 <HighlightTheme />
@@ -62,7 +68,7 @@
 	>
 		<Tab value="yaml">YAML</Tab>
 		<Tab value="json">JSON</Tab>
-		<svelte:fragment slot="content">
+		{#snippet content()}
 			<div class="relative pt-2">
 				<Button
 					on:click={() =>
@@ -105,7 +111,7 @@
 					</Button>
 				{/if}
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Tabs>
 </div>
 

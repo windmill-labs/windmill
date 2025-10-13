@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { Alert, Drawer, DrawerContent, UndoRedo } from '$lib/components/common'
+	import { Drawer, DrawerContent, UndoRedo } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 
-	import Path from '$lib/components/Path.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, DraftService, type Policy } from '$lib/gen'
-	import { redo, undo } from '$lib/history'
+	import { redo, undo } from '$lib/history.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import type { Item } from '$lib/utils'
 	import {
 		AlignHorizontalSpaceAround,
 		BellOff,
@@ -18,16 +18,16 @@
 		FormInput,
 		History,
 		Laptop2,
-		Loader2,
 		Save,
 		Smartphone,
 		FileClock,
 		Sun,
 		Moon,
 		SunMoon,
-		Zap
+		Zap,
+		Globe
 	} from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import {
 		cleanValueProperties,
 		orderedJsonStringify,
@@ -45,16 +45,14 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import DeploymentHistory from './DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
 	import { secondaryMenuLeftStore, secondaryMenuRightStore } from './settingsPanel/secondaryMenu'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import AppEditorTutorial from './AppEditorTutorial.svelte'
-	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import AppReportsDrawer from './AppReportsDrawer.svelte'
-	import { type ColumnDef, getPrimaryKeys } from '../components/display/dbtable/utils'
+	import { type ColumnDef, type DbType, getPrimaryKeys } from '../components/display/dbtable/utils'
 	import DebugPanel from './contextPanel/DebugPanel.svelte'
 	import { getCountInput } from '../components/display/dbtable/queries/count'
 	import { getSelectInput } from '../components/display/dbtable/queries/select'
@@ -70,13 +68,15 @@
 		computeWorkspaceS3FileInputPolicy,
 		computeS3ImageViewerPolicy
 	} from './appUtilsS3'
-	import { isCloudHosted } from '$lib/cloud'
-	import { base } from '$lib/base'
-	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import AppJobsDrawer from './AppJobsDrawer.svelte'
 	import { collectStaticFields, type TriggerableV2 } from './commonAppUtils'
 	import LazyModePanel from './contextPanel/LazyModePanel.svelte'
 	import { Sha256 } from '@aws-crypto/sha256-js'
+	import type { DiffDrawerI } from '$lib/components/diff_drawer'
+	import AppEditorHeaderDeploy from './AppEditorHeaderDeploy.svelte'
+	import AppEditorHeaderDeployInitialDraft from './AppEditorHeaderDeployInitialDraft.svelte'
+	import { computeSecretUrl } from './appDeploy.svelte'
+	import type { DbInput } from '$lib/components/dbOps'
 
 	async function hash(message) {
 		try {
@@ -95,32 +95,64 @@
 		}
 	}
 
-	export let policy: Policy
-	export let fromHub: boolean = false
-	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let savedApp:
-		| {
-				value: App
-				draft?: any
-				path: string
-				summary: string
-				policy: any
-				draft_only?: boolean
-				custom_path?: string
-		  }
-		| undefined = undefined
-	export let version: number | undefined = undefined
-	export let leftPanelHidden: boolean = false
-	export let rightPanelHidden: boolean = false
-	export let bottomPanelHidden: boolean = false
-	export let newApp: boolean
-	export let newPath: string = ''
+	interface Props {
+		policy: Policy
+		fromHub?: boolean
+		diffDrawer?: DiffDrawerI | undefined
+		savedApp?:
+			| {
+					value: App
+					draft?: any
+					path: string
+					summary: string
+					policy: any
+					draft_only?: boolean
+					custom_path?: string
+			  }
+			| undefined
+		version?: number | undefined
+		leftPanelHidden?: boolean
+		rightPanelHidden?: boolean
+		bottomPanelHidden?: boolean
+		newApp: boolean
+		newPath?: string
+		unsavedConfirmationModal?: import('svelte').Snippet<[any]>
+		onSavedNewAppPath?: (path: string) => void
+		onShowRightPanel?: () => void
+		onShowLeftPanel?: () => void
+		onShowBottomPanel?: () => void
+		onHideRightPanel?: () => void
+		onHideLeftPanel?: () => void
+		onHideBottomPanel?: () => void
+	}
 
-	let newEditedPath = ''
-	let deployedValue: Value | undefined = undefined // Value to diff against
-	let deployedBy: string | undefined = undefined // Author
-	let confirmCallback: () => void = () => {} // What happens when user clicks `override` in warning
-	let open: boolean = false // Is confirmation modal open
+	let {
+		policy = $bindable(),
+		fromHub = false,
+		diffDrawer = undefined,
+		savedApp = $bindable(undefined),
+		version = $bindable(undefined),
+		leftPanelHidden = false,
+		rightPanelHidden = false,
+		bottomPanelHidden = false,
+		newApp,
+		newPath = '',
+		unsavedConfirmationModal,
+		onSavedNewAppPath,
+		onShowLeftPanel,
+		onShowRightPanel,
+		onShowBottomPanel,
+		onHideLeftPanel,
+		onHideRightPanel,
+		onHideBottomPanel
+	}: Props = $props()
+
+	let newEditedPath = $state('')
+	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
+	let deployedBy: string | undefined = $state(undefined) // Author
+	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
+	let open: boolean = $state(false) // Is confirmation modal open
+	let customPathError: string = $state('')
 
 	const {
 		app,
@@ -139,30 +171,24 @@
 	const { history, jobsDrawerOpen, refreshComponents } =
 		getContext<AppEditorContext>('AppEditorContext')
 
-	const loading = {
+	const loading = $state({
 		publish: false,
 		save: false,
 		saveDraft: false
-	}
+	})
 
-	$: if ($openDebugRun == undefined) {
-		$openDebugRun = (jobId: string) => {
-			$jobsDrawerOpen = true
-			selectedJobId = jobId
-		}
-	}
-	let selectedJobId: string | undefined = undefined
+	let selectedJobId: string | undefined = $state(undefined)
 
-	let pathError: string | undefined = undefined
-	let appExport: AppExportButton
+	let pathError: string = $state('')
+	let appExport: AppExportButton | undefined = $state()
 
-	let draftDrawerOpen = false
-	let saveDrawerOpen = false
-	let inputsDrawerOpen = fromHub
-	let historyBrowserDrawerOpen = false
-	let debugAppDrawerOpen = false
-	let lazyDrawerOpen = false
-	let deploymentMsg: string | undefined = undefined
+	let draftDrawerOpen = $state(false)
+	let saveDrawerOpen = $state(false)
+	let inputsDrawerOpen = $state(fromHub)
+	let historyBrowserDrawerOpen = $state(false)
+	let debugAppDrawerOpen = $state(false)
+	let lazyDrawerOpen = $state(false)
+	let deploymentMsg = $state('')
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -174,8 +200,6 @@
 
 	async function computeTriggerables() {
 		const items = allItems($app.grid, $app.subgrids)
-
-		console.debug('items', items)
 
 		const allTriggers: ([string, TriggerableV2] | undefined)[] = (await Promise.all(
 			items
@@ -204,30 +228,35 @@
 						let nr: { id: string; input: AppInput }[] = []
 						let config = c.configuration as any
 
-						const dbType = config?.type?.selected
+						const dbType = config?.type?.selected as DbType
 						let pg = config?.type?.configuration?.[dbType]
 
 						if (pg && dbType) {
-							const { table, resource } = pg
+							const { table, resource, ducklake } = pg
 							const tableValue = table.value
-							const resourceValue = resource.value
+							const dbPath =
+								resource?.value.split('$res:')[1] ??
+								(ducklake?.value as string | undefined)?.split('ducklake://')[1]
 							const columnDefs = (c.configuration.columnDefs as any).value as ColumnDef[]
 							const whereClause = (c.configuration.whereClause as any).value as unknown as
 								| string
 								| undefined
-							if (tableValue && resourceValue && columnDefs) {
+							if (tableValue && dbPath && columnDefs) {
+								let dbInput: DbInput = ducklake
+									? { type: 'ducklake', ducklake: dbPath }
+									: { type: 'database', resourcePath: dbPath, resourceType: dbType }
 								r.push({
-									input: getSelectInput(resourceValue, tableValue, columnDefs, whereClause, dbType),
+									input: getSelectInput(dbInput, tableValue, columnDefs, whereClause),
 									id: x.id
 								})
 
 								r.push({
-									input: getCountInput(resourceValue, tableValue, dbType, columnDefs, whereClause),
+									input: getCountInput(dbInput, tableValue, columnDefs, whereClause),
 									id: x.id + '_count'
 								})
 
 								r.push({
-									input: getInsertInput(tableValue, columnDefs, resourceValue, dbType),
+									input: getInsertInput(dbInput, tableValue, columnDefs),
 									id: x.id + '_insert'
 								})
 
@@ -235,7 +264,7 @@
 								let columns = columnDefs?.filter((x) => primaryColumns.includes(x.field))
 
 								r.push({
-									input: getDeleteInput(resourceValue, tableValue, columns, dbType),
+									input: getDeleteInput(dbInput, tableValue, columns),
 									id: x.id + '_delete'
 								})
 
@@ -243,7 +272,7 @@
 									.filter((col) => col.editable || config.allEditable.value)
 									.forEach((column) => {
 										r.push({
-											input: getUpdateInput(resourceValue, tableValue, column, columns, dbType),
+											input: getUpdateInput(dbInput, tableValue, column, columns),
 											id: x.id + '_update'
 										})
 									})
@@ -291,16 +320,23 @@
 		if (
 			items.findIndex((x) => {
 				const c = x.data as AppComponent
-				if (c.type === 'schemaformcomponent') {
+				if (
+					c.type === 'schemaformcomponent' ||
+					c.type === 'formbuttoncomponent' ||
+					c.type === 'formcomponent'
+				) {
+					const props =
+						c.type === 'schemaformcomponent'
+							? (c.componentInput as any)?.value?.properties
+							: (c.componentInput as any)?.runnable?.type === 'runnableByName'
+								? (c.componentInput as any)?.runnable?.inlineScript?.schema?.properties
+								: (c.componentInput as any)?.runnable?.schema?.properties
 					return (
-						Object.values((c.componentInput as any)?.value?.properties ?? {}).findIndex(
-							(p: any) => p?.type === 'object' && p?.format === 'resource-s3_object'
-						) !== -1
-					)
-				} else if (c.type === 'formbuttoncomponent' || c.type === 'formcomponent') {
-					return (
-						Object.values((c.componentInput as any)?.fields ?? {}).findIndex(
-							(p: any) => p?.fieldType === 'object' && p?.format === 'resource-s3_object'
+						Object.values(props ?? {}).findIndex(
+							(p: any) =>
+								(p?.type === 'object' && p?.format === 'resource-s3_object') ||
+								(p?.type === 'array' &&
+									(p?.items?.resourceType === 's3object' || p?.items?.resourceType === 's3_object'))
 						) !== -1
 					)
 				} else {
@@ -378,7 +414,7 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($app),
+				value: structuredClone($state.snapshot($app)),
 				path: path,
 				policy: policy,
 				custom_path: customPath
@@ -390,7 +426,7 @@
 			} catch (e) {
 				console.error('error interacting with local storage', e)
 			}
-			dispatch('savedNewAppPath', path)
+			onSavedNewAppPath?.(path)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
 		}
@@ -474,7 +510,7 @@
 		})
 		savedApp = {
 			summary: $summary,
-			value: structuredClone($app),
+			value: structuredClone($state.snapshot($app)),
 			path: npath,
 			policy,
 			custom_path: customPath
@@ -493,19 +529,8 @@
 			} catch (e) {
 				console.error('error interacting with local storage', e)
 			}
-			dispatch('savedNewAppPath', npath)
+			onSavedNewAppPath?.(npath)
 		}
-	}
-
-	let secretUrl: string | undefined = undefined
-
-	$: $appPath && $appPath != '' && secretUrl == undefined && getSecretUrl()
-
-	async function getSecretUrl() {
-		secretUrl = await AppService.getPublicSecretOfApp({
-			workspace: $workspaceStore!,
-			path: $appPath
-		})
 	}
 
 	async function setPublishState() {
@@ -560,13 +585,13 @@
 			})
 			savedApp = {
 				summary: $summary,
-				value: structuredClone($app),
+				value: structuredClone($state.snapshot($app)),
 				path: newEditedPath,
 				policy,
 				draft_only: true,
 				draft: {
 					summary: $summary,
-					value: structuredClone($app),
+					value: structuredClone($state.snapshot($app)),
 					path: newEditedPath,
 					policy,
 					custom_path: customPath
@@ -575,7 +600,7 @@
 			}
 
 			draftDrawerOpen = false
-			dispatch('savedNewAppPath', newEditedPath)
+			onSavedNewAppPath?.(newEditedPath)
 		} catch (e) {
 			sendUserToast('Error saving initial draft', e)
 		}
@@ -648,7 +673,7 @@
 				...(savedApp?.draft_only
 					? {
 							summary: $summary,
-							value: structuredClone($app),
+							value: structuredClone($state.snapshot($app)),
 							path: savedApp.draft_only ? newEditedPath || path : path,
 							policy,
 							draft_only: true,
@@ -657,7 +682,7 @@
 					: savedApp),
 				draft: {
 					summary: $summary,
-					value: structuredClone($app),
+					value: structuredClone($state.snapshot($app)),
 					path: newEditedPath || path,
 					policy,
 					custom_path: customPath
@@ -672,7 +697,7 @@
 			}
 			loading.saveDraft = false
 			if (newApp || savedApp.draft_only) {
-				dispatch('savedNewAppPath', newEditedPath || path)
+				onSavedNewAppPath?.(newEditedPath || path)
 			}
 		} catch (e) {
 			loading.saveDraft = false
@@ -680,7 +705,7 @@
 		}
 	}
 
-	let onLatest = true
+	let onLatest = $state(true)
 	async function compareVersions() {
 		if (version === undefined) {
 			return
@@ -696,10 +721,6 @@
 			onLatest = true
 		}
 	}
-
-	$: saveDrawerOpen && compareVersions()
-
-	$: hasErrors = Object.keys($errorByComponent).length > 0
 
 	let lock = false
 	function onKeyDown(event: KeyboardEvent) {
@@ -718,14 +739,19 @@
 		switch (event.key) {
 			case 'Z':
 				if (event.ctrlKey || event.metaKey) {
-					$app = redo(history)
+					const napp = redo(history)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 					event.preventDefault()
 				}
 				break
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
-					$app = undo(history, $app)
-
+					const napp = undo(history, $app)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 					event.preventDefault()
 				}
 				break
@@ -757,10 +783,7 @@
 		lock = false
 	}
 
-	let dirtyPath = false
-	let path: Path | undefined = undefined
-
-	let moreItems = [
+	let moreItems = $derived([
 		{
 			displayName: 'Deployment history',
 			icon: History,
@@ -773,7 +796,18 @@
 			displayName: 'Export',
 			icon: FileJson,
 			action: () => {
-				appExport.open($app)
+				appExport?.open($app)
+			}
+		},
+		{
+			displayName: 'Public URL',
+			icon: Globe,
+			action: async () => {
+				const secretUrl = await AppService.getPublicSecretOfApp({
+					workspace: $workspaceStore!,
+					path: $appPath
+				})
+				window.open(computeSecretUrl(secretUrl), '_blank')
 			}
 		},
 		// {
@@ -784,13 +818,7 @@
 		// 		window.open(url.toString(), '_blank')
 		// 	}
 		// },
-		{
-			displayName: 'Hub compatible JSON',
-			icon: FileUp,
-			action: () => {
-				appExport.open(toStatic($app, $staticExporter, $summary).app)
-			}
-		},
+
 		{
 			displayName: 'App inputs',
 			icon: FormInput,
@@ -847,22 +875,27 @@
 			action: () => {
 				lazyDrawerOpen = true
 			}
+		},
+		{
+			displayName: 'Hub export',
+			icon: FileUp,
+			action: () => {
+				appExport?.open(toStatic($app, $staticExporter, $summary).app)
+			}
 		}
-	]
+	]) as Item[]
 
-	let appEditorTutorial: AppEditorTutorial | undefined = undefined
+	let appEditorTutorial: AppEditorTutorial | undefined = $state(undefined)
 
 	export function toggleTutorial() {
 		appEditorTutorial?.toggleTutorial()
 	}
 
-	let appReportingDrawerOpen = false
+	let appReportingDrawerOpen = $state(false)
 
 	export function openTroubleshootPanel() {
 		debugAppDrawerOpen = true
 	}
-
-	const dispatch = createEventDispatcher()
 
 	function setTheme(newDarkMode: boolean | undefined) {
 		let globalDarkMode = window.localStorage.getItem('dark-mode')
@@ -879,48 +912,32 @@
 	let priorDarkMode = document.documentElement.classList.contains('dark')
 	setTheme($app?.darkMode)
 
-	let customPath = savedApp?.custom_path
-	let dirtyCustomPath = false
-	let customPathError = ''
-	$: fullCustomUrl = `${window.location.origin}${base}/a/${
-		isCloudHosted() ? $workspaceStore + '/' : ''
-	}${customPath}`
-	async function appExists(customPath: string) {
-		return await AppService.customPathExists({
-			workspace: $workspaceStore!,
-			customPath
-		})
-	}
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
-	async function validateCustomPath(customPath: string): Promise<void> {
-		customPathError = ''
-		if (validateTimeout) {
-			clearTimeout(validateTimeout)
-		}
-		validateTimeout = setTimeout(async () => {
-			if (!/^[\w-]+(\/[\w-]+)*$/.test(customPath)) {
-				customPathError = 'Invalid path'
-			} else if (customPath !== savedApp?.custom_path && (await appExists(customPath))) {
-				customPathError = 'Path already taken'
-			} else {
-				customPathError = ''
+	let customPath = $state(savedApp?.custom_path)
+
+	$effect(() => {
+		if ($openDebugRun == undefined) {
+			$openDebugRun = (jobId: string) => {
+				$jobsDrawerOpen = true
+				selectedJobId = jobId
 			}
-			validateTimeout = undefined
-		}, 500)
-	}
-	$: customPath !== undefined && validateCustomPath(customPath)
+		}
+	})
+
+	$effect(() => {
+		saveDrawerOpen && untrack(() => compareVersions())
+	})
+	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 
-{#if $$slots.unsavedConfirmationModal}
-	<slot
-		name="unsavedConfirmationModal"
-		{diffDrawer}
-		additionalExitAction={() => {
+{#if unsavedConfirmationModal}
+	{@render unsavedConfirmationModal?.({
+		diffDrawer,
+		additionalExitAction: () => {
 			setTheme(priorDarkMode)
-		}}
-		getInitialAndModifiedValues={() => ({
+		},
+		getInitialAndModifiedValues: () => ({
 			savedValue: savedApp,
 			modifiedValue: {
 				summary: $summary,
@@ -929,12 +946,12 @@
 				policy,
 				custom_path: customPath
 			}
-		})}
-	/>
+		})
+	})}
 {/if}
 <DeployOverrideConfirmationModal
-	bind:deployedBy
-	bind:confirmCallback
+	{deployedBy}
+	{confirmCallback}
 	bind:open
 	{diffDrawer}
 	bind:deployedValue
@@ -950,54 +967,19 @@
 {#if $appPath == ''}
 	<Drawer bind:open={draftDrawerOpen} size="800px">
 		<DrawerContent title="Initial draft save" on:close={() => closeDraftDrawer()}>
-			<Alert bgClass="mb-4" title="Require path" type="info">
-				Choose a path to save the initial draft of the app.
-			</Alert>
-			<h3>Summary</h3>
-			<div class="w-full pt-2">
-				<!-- svelte-ignore a11y-autofocus -->
-				<input
-					autofocus
-					type="text"
-					placeholder="App summary"
-					class="text-sm w-full font-semibold"
-					on:keydown|stopPropagation
-					bind:value={$summary}
-					on:keyup={() => {
-						if ($appPath == '' && $summary?.length > 0 && !dirtyPath) {
-							path?.setName(
-								$summary
-									.toLowerCase()
-									.replace(/[^a-z0-9_]/g, '_')
-									.replace(/-+/g, '_')
-									.replace(/^-|-$/g, '')
-							)
-						}
-					}}
-				/>
-			</div>
-			<div class="py-2"></div>
-			<Path
-				autofocus={false}
-				bind:this={path}
-				bind:error={pathError}
-				bind:path={newEditedPath}
-				bind:dirty={dirtyPath}
-				initialPath=""
-				namePlaceholder="app"
-				kind="app"
-			/>
-			<div class="py-4"></div>
+			{#snippet actions()}
+				<div>
+					<Button
+						startIcon={{ icon: Save }}
+						disabled={pathError != ''}
+						on:click={() => saveInitialDraft()}
+					>
+						Save initial draft
+					</Button>
+				</div>
+			{/snippet}
 
-			<div slot="actions">
-				<Button
-					startIcon={{ icon: Save }}
-					disabled={pathError != ''}
-					on:click={() => saveInitialDraft()}
-				>
-					Save initial draft
-				</Button>
-			</div>
+			<AppEditorHeaderDeployInitialDraft {summary} {appPath} bind:pathError bind:newEditedPath />
 		</DrawerContent>
 	</Drawer>
 {/if}
@@ -1020,229 +1002,80 @@
 />
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
-		{#if !onLatest}
-			<Alert title="You're not on the latest app version. " type="warning">
-				By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff.
-			</Alert>
-			<div class="py-2"></div>
-		{/if}
-		<span class="text-secondary text-sm font-bold">Summary</span>
-		<div class="w-full pt-2">
-			<!-- svelte-ignore a11y-autofocus -->
-			<input
-				autofocus
-				type="text"
-				placeholder="App summary"
-				class="text-sm w-full"
-				bind:value={$summary}
-				on:keydown|stopPropagation
-				on:keyup={() => {
-					if ($appPath == '' && $summary?.length > 0 && !dirtyPath) {
-						path?.setName(
-							$summary
-								.toLowerCase()
-								.replace(/[^a-z0-9_]/g, '_')
-								.replace(/-+/g, '_')
-								.replace(/^-|-$/g, '')
-						)
-					}
-				}}
-			/>
-		</div>
-		<div class="py-4"></div>
-		<span class="text-secondary text-sm font-bold">Deployment message</span>
-		<div class="w-full pt-2">
-			<!-- svelte-ignore a11y-autofocus -->
-			<input
-				type="text"
-				placeholder="Optional deployment message"
-				class="text-sm w-full"
-				bind:value={deploymentMsg}
-			/>
-		</div>
-		<div class="py-4"></div>
-		<span class="text-secondary text-sm font-bold">Path</span>
-		<Path
-			bind:this={path}
-			bind:dirty={dirtyPath}
-			bind:error={pathError}
-			bind:path={newEditedPath}
-			initialPath={newPath}
-			namePlaceholder="app"
-			kind="app"
-			autofocus={false}
-		/>
+		{#snippet actions()}
+			<div class="flex flex-row gap-4">
+				<Button
+					variant="border"
+					color="light"
+					disabled={!savedApp || savedApp.draft_only}
+					on:click={async () => {
+						if (!savedApp) {
+							return
+						}
+						// deployedValue should be syncronized when we open Diff
+						await syncWithDeployed()
 
-		<div slot="actions" class="flex flex-row gap-4">
-			<Button
-				variant="border"
-				color="light"
-				disabled={!savedApp || savedApp.draft_only}
-				on:click={async () => {
-					if (!savedApp) {
-						return
-					}
-					// deployedValue should be syncronized when we open Diff
-					await syncWithDeployed()
-
-					saveDrawerOpen = false
-					diffDrawer?.openDrawer()
-					diffDrawer?.setDiff({
-						mode: 'normal',
-						deployed: deployedValue ?? savedApp,
-						draft: savedApp.draft,
-						current: {
-							summary: $summary,
-							value: $app,
-							path: newEditedPath || savedApp.draft?.path || savedApp.path,
-							policy,
-							custom_path: customPath
-						},
-						button: {
-							text: 'Looks good, deploy',
-							onClick: () => {
-								if ($appPath == '') {
-									createApp(newEditedPath)
-								} else {
-									handleUpdateApp(newEditedPath)
+						saveDrawerOpen = false
+						diffDrawer?.openDrawer()
+						diffDrawer?.setDiff({
+							mode: 'normal',
+							deployed: deployedValue ?? savedApp,
+							draft: savedApp.draft,
+							current: {
+								summary: $summary,
+								value: $app,
+								path: newEditedPath || savedApp.draft?.path || savedApp.path,
+								policy,
+								custom_path: customPath
+							},
+							button: {
+								text: 'Looks good, deploy',
+								onClick: () => {
+									if ($appPath == '') {
+										createApp(newEditedPath)
+									} else {
+										handleUpdateApp(newEditedPath)
+									}
 								}
 							}
+						})
+					}}
+				>
+					<div class="flex flex-row gap-2 items-center">
+						<DiffIcon size={14} />
+						Diff
+					</div>
+				</Button>
+				<Button
+					startIcon={{ icon: Save }}
+					disabled={pathError != '' || customPathError != ''}
+					on:click={() => {
+						if ($appPath == '') {
+							createApp(newEditedPath)
+						} else {
+							handleUpdateApp(newEditedPath)
 						}
-					})
-				}}
-			>
-				<div class="flex flex-row gap-2 items-center">
-					<DiffIcon size={14} />
-					Diff
-				</div>
-			</Button>
-			<Button
-				startIcon={{ icon: Save }}
-				disabled={pathError != '' || customPathError != ''}
-				on:click={() => {
-					if ($appPath == '') {
-						createApp(newEditedPath)
-					} else {
-						handleUpdateApp(newEditedPath)
-					}
-				}}
-			>
-				Deploy
-			</Button>
-		</div>
-		<div class="py-2"></div>
-		{#if $appPath == ''}
-			<Alert title="Require saving" type="error">
-				Save this app once before you can publish it
-			</Alert>
-		{:else}
-			<Alert title="App executed on behalf of you">
-				A viewer of the app will execute the runnables of the app on behalf of the publisher (you)
-				<Tooltip>
-					It ensures that all required resources/runnable visible for publisher but not for viewer
-					at time of creating the app would prevent the execution of the app. To guarantee tight
-					security, a policy is computed at time of deployment of the app which only allow the
-					scripts/flows referred to in the app to be called on behalf of. Furthermore, static
-					parameters are not overridable. Hence, users will only be able to use the app as intended
-					by the publisher without risk for leaking resources not used in the app.
-				</Tooltip>
-			</Alert>
-
-			<div class="mt-10"></div>
-
-			<h2>Public URL</h2>
-			<div class="mt-4"></div>
-
-			<div class="flex gap-2 items-center">
-				<Toggle
-					options={{
-						left: `Require login and read-access`,
-						right: `No login required`
 					}}
-					checked={policy.execution_mode == 'anonymous'}
-					on:change={(e) => {
-						policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
-						setPublishState()
-					}}
-				/>
+				>
+					Deploy
+				</Button>
 			</div>
-
-			<div class="my-6 box">
-				<div class="text-secondary">
-					<div>Public URL</div>
-				</div>
-				{#if secretUrl}
-					{@const href = `${window.location.origin}${base}/public/${$workspaceStore}/${secretUrl}`}
-					<ClipboardPanel content={href} size="md" />
-				{:else}<Loader2 class="animate-spin" />
-				{/if}
-				<div class="text-xs text-secondary mt-1">
-					Share this url directly or embed it using an iframe (if requiring login, top-level domain
-					of embedding app must be the same as the one of Windmill)
-				</div>
-
-				<div class="mt-4">
-					{#if !$enterpriseLicense}
-						<Alert title="EE Only" type="warning" size="xs">
-							Custom path is an enterprise only feature.
-						</Alert>
-						<div class="mb-2"></div>
-					{:else if !($userStore?.is_admin || $userStore?.is_super_admin)}
-						<Alert type="warning" title="Admin only" size="xs">
-							Custom path can only be set by workspace admins
-						</Alert>
-						<div class="mb-2"></div>
-					{/if}
-					<Toggle
-						on:change={({ detail }) => {
-							customPath = detail ? '' : undefined
-							if (customPath === undefined) {
-								customPathError = ''
-							}
-						}}
-						checked={customPath !== undefined}
-						options={{
-							right: 'Use a custom URL'
-						}}
-						disabled={!$enterpriseLicense || !($userStore?.is_admin || $userStore?.is_super_admin)}
-					/>
-
-					{#if customPath !== undefined}
-						<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
-							<div>Custom path</div>
-						</div>
-						<input
-							disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
-							type="text"
-							autocomplete="off"
-							bind:value={customPath}
-							class={customPathError === ''
-								? ''
-								: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-							on:input={() => {
-								dirtyCustomPath = true
-							}}
-						/>
-						<div class="text-secondary text-sm flex items-center gap-1 mt-2 w-full justify-between">
-							<div>Custom public URL</div>
-						</div>
-						<ClipboardPanel content={fullCustomUrl} size="md" />
-
-						<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
-							>{dirtyCustomPath ? customPathError : ''}
-						</div>
-					{/if}
-				</div>
-			</div>
-			<Alert type="info" title="Only latest deployed app is publicly available">
-				You will still need to deploy the app to make visible the latest changes
-			</Alert>
-
-			<a
-				href="https://www.windmill.dev/docs/advanced/external_auth_with_jwt#embed-public-apps-using-your-own-authentification"
-				class="mt-4 text-2xs">Embed this app in your own product to be used by your own users</a
-			>
-		{/if}
+		{/snippet}
+		<AppEditorHeaderDeploy
+			{newPath}
+			{policy}
+			{setPublishState}
+			appPath={$appPath}
+			{onLatest}
+			{savedApp}
+			bind:summary={$summary}
+			bind:customPath
+			bind:deploymentMsg
+			bind:customPathError
+			bind:pathError
+			bind:newEditedPath
+			hideSecretUrl={false}
+		/>
 	</DrawerContent>
 </Drawer>
 
@@ -1282,10 +1115,16 @@
 				undoProps={{ disabled: $history?.index === 0 }}
 				redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
 				on:undo={() => {
-					$app = undo(history, $app)
+					const napp = undo(history, $app)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 				}}
 				on:redo={() => {
-					$app = redo(history)
+					const napp = redo(history)
+					for (const key in napp) {
+						$app[key] = napp[key]
+					}
 				}}
 			/>
 
@@ -1296,22 +1135,23 @@
 					on:selected={({ detail }) => {
 						$app.fullscreen = detail === 'true'
 					}}
-					let:item
 				>
-					<ToggleButton
-						icon={AlignHorizontalSpaceAround}
-						value={'false'}
-						tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
-						iconProps={{ size: 16 }}
-						{item}
-					/>
-					<ToggleButton
-						tooltip="The width is of the app if the full width of its container"
-						icon={Expand}
-						value={'true'}
-						iconProps={{ size: 16 }}
-						{item}
-					/>
+					{#snippet children({ item })}
+						<ToggleButton
+							icon={AlignHorizontalSpaceAround}
+							value={'false'}
+							tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
+							iconProps={{ size: 16 }}
+							{item}
+						/>
+						<ToggleButton
+							tooltip="The width is of the app if the full width of its container"
+							icon={Expand}
+							value={'true'}
+							iconProps={{ size: 16 }}
+							{item}
+						/>
+					{/snippet}
 				</ToggleButtonGroup>
 			{/if}
 			{#if $app}
@@ -1322,60 +1162,63 @@
 						setTheme(theme)
 					}}
 					selected={$app.darkMode === undefined ? 'auto' : $app.darkMode ? 'dark' : 'sun'}
-					let:item
 				>
-					<ToggleButton
-						icon={SunMoon}
-						value={'auto'}
-						tooltip="The app mode between dark/light is automatic"
-						iconProps={{ size: 16 }}
-						{item}
-					/>
-					<ToggleButton
-						icon={Sun}
-						value={'sun'}
-						tooltip="Force light mode"
-						iconProps={{ size: 16 }}
-						{item}
-					/>
-					<ToggleButton
-						tooltip="Force dark mode"
-						icon={Moon}
-						value={'dark'}
-						iconProps={{ size: 16 }}
-						{item}
-					/>
+					{#snippet children({ item })}
+						<ToggleButton
+							icon={SunMoon}
+							value={'auto'}
+							tooltip="The app mode between dark/light is automatic"
+							iconProps={{ size: 16 }}
+							{item}
+						/>
+						<ToggleButton
+							icon={Sun}
+							value={'sun'}
+							tooltip="Force light mode"
+							iconProps={{ size: 16 }}
+							{item}
+						/>
+						<ToggleButton
+							tooltip="Force dark mode"
+							icon={Moon}
+							value={'dark'}
+							iconProps={{ size: 16 }}
+							{item}
+						/>
+					{/snippet}
 				</ToggleButtonGroup>
 			{/if}
 			<div class="flex flex-row gap-2">
-				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint} let:item>
-					<ToggleButton
-						tooltip="Computer View"
-						icon={Laptop2}
-						value={'lg'}
-						iconProps={{ size: 16 }}
-						{item}
-					/>
-					<ToggleButton
-						tooltip="Mobile View"
-						icon={Smartphone}
-						value={'sm'}
-						iconProps={{ size: 16 }}
-						{item}
-					/>
-					{#if $breakpoint === 'sm'}
-						<Toggle
-							size="xs"
-							options={{
-								right: 'Enable mobile view for smaller screens',
-								rightTooltip:
-									'Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view'
-							}}
-							textClass="text-2xs whitespace-nowrap white !w-full"
-							bind:checked={$app.mobileViewOnSmallerScreens}
-							class="flex flex-row px-2 items-center"
+				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
+					{#snippet children({ item })}
+						<ToggleButton
+							tooltip="Computer View"
+							icon={Laptop2}
+							value={'lg'}
+							iconProps={{ size: 16 }}
+							{item}
 						/>
-					{/if}
+						<ToggleButton
+							tooltip="Mobile View"
+							icon={Smartphone}
+							value={'sm'}
+							iconProps={{ size: 16 }}
+							{item}
+						/>
+						{#if $breakpoint === 'sm'}
+							<Toggle
+								size="xs"
+								options={{
+									right: 'Enable mobile view for smaller screens',
+									rightTooltip:
+										'Desktop view is enabled by default. Enable this to customize the layout of the components for the mobile view'
+								}}
+								textClass="text-2xs whitespace-nowrap white !w-full"
+								bind:checked={$app.mobileViewOnSmallerScreens}
+								class="flex flex-row px-2 items-center"
+							/>
+						{/if}
+					{/snippet}
 				</ToggleButtonGroup>
 			</div>
 		</div>
@@ -1388,9 +1231,9 @@
 				hidden={leftPanelHidden}
 				on:click={() => {
 					if (leftPanelHidden) {
-						dispatch('showLeftPanel')
+						onShowLeftPanel?.()
 					} else {
-						dispatch('hideLeftPanel')
+						onHideLeftPanel?.()
 					}
 				}}
 			/>
@@ -1399,9 +1242,9 @@
 				direction="bottom"
 				on:click={() => {
 					if (bottomPanelHidden) {
-						dispatch('showBottomPanel')
+						onShowBottomPanel?.()
 					} else {
-						dispatch('hideBottomPanel')
+						onHideBottomPanel?.()
 					}
 				}}
 			/>
@@ -1410,9 +1253,9 @@
 				direction="right"
 				on:click={() => {
 					if (rightPanelHidden) {
-						dispatch('showRightPanel')
+						onShowRightPanel?.()
 					} else {
-						dispatch('hideRightPanel')
+						onHideRightPanel?.()
 					}
 				}}
 			/>

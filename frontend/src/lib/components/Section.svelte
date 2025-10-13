@@ -5,19 +5,45 @@
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
 
-	export let label: string | undefined = undefined
-	export let tooltip: string | undefined = undefined
-	export let documentationLink: string | undefined = undefined
-	export let eeOnly = false
-	export let small: boolean = false
-	export let wrapperClass: string = ''
-	export let headerClass: string = ''
+	interface Props {
+		label?: string | undefined
+		tooltip?: string | undefined
+		documentationLink?: string | undefined
+		eeOnly?: boolean
+		small?: boolean
+		wrapperClass?: string
+		headerClass?: string
+		collapsable?: boolean
+		collapsed?: boolean
+		headless?: boolean
+		animate?: boolean
+		breakAll?: boolean
+		class?: string | undefined
+		header?: import('svelte').Snippet
+		action?: import('svelte').Snippet
+		badge?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+	}
 
-	export let collapsable: boolean = false
-	export let collapsed: boolean = true
-	export let headless: boolean = false
-	export let animate: boolean = false
-	export let breakAll: boolean = false
+	let {
+		label = undefined,
+		tooltip = undefined,
+		documentationLink = undefined,
+		eeOnly = false,
+		small = false,
+		wrapperClass = '',
+		headerClass = '',
+		collapsable = false,
+		collapsed = $bindable(true),
+		headless = false,
+		animate = false,
+		breakAll = false,
+		class: clazz = undefined,
+		header,
+		action,
+		badge,
+		children
+	}: Props = $props()
 </script>
 
 <div class={twMerge('w-full flex flex-col', wrapperClass)}>
@@ -32,7 +58,7 @@
 				)}
 			>
 				{#if collapsable}
-					<button class="flex items-center gap-1" on:click={() => (collapsed = !collapsed)}>
+					<button class="flex items-center gap-1" onclick={() => (collapsed = !collapsed)}>
 						<ChevronRight
 							size={16}
 							class={twMerge(
@@ -47,11 +73,9 @@
 					{label}
 				{/if}
 
-				<slot name="header" />
+				{@render header?.()}
 				{#if tooltip}
 					<Tooltip {documentationLink}>{tooltip}</Tooltip>
-				{:else if $$slots.tooltip}
-					<slot name="tooltip" />
 				{/if}
 				{#if eeOnly}
 					{#if !$enterpriseLicense}
@@ -62,18 +86,18 @@
 					{/if}
 				{/if}
 			</h2>
-			<slot name="action" />
+			{@render action?.()}
 			{#if collapsable && collapsed}
-				<slot name="badge" />
+				{@render badge?.()}
 			{/if}
 		</div>
 	{/if}
 	{#if !collapsable || !collapsed}
 		<div
-			class={twMerge('grow min-h-0', $$props.class)}
+			class={twMerge('grow min-h-0', clazz)}
 			transition:slide={animate ? { duration: 200 } : { duration: 0 }}
 		>
-			<slot />
+			{@render children?.()}
 		</div>
 	{/if}
 </div>

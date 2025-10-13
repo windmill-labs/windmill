@@ -20,17 +20,18 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { Cog, Crown } from 'lucide-svelte'
+	import { Cog, Crown, GitFork } from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { emptyString } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { refreshSuperadmin } from '$lib/refreshUser'
+	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
+	import type { UserWorkspace } from '$lib/stores'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
-	let workspaces:
-		| { id: string; name: string; username: string; color?: string | null }[]
-		| undefined = undefined
+	let workspaces: UserWorkspace[] | undefined = undefined
+	let showAllForks: boolean = false
 
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
@@ -62,13 +63,14 @@
 			}
 		} else {
 			const url = $page.url
+			console.log('logout 1')
 			await logoutWithRedirect(url.href.replace(url.origin, ''))
 		}
 	}
 
 	async function loadWorkspacesAsAdmin() {
 		workspaces = (await WorkspaceService.listWorkspacesAsSuperAdmin({ perPage: 1000 })).map((x) => {
-			return { ...x, username: 'superadmin' }
+			return { ...x, username: 'superadmin', disabled: false }
 		})
 	}
 
@@ -83,8 +85,18 @@
 
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins') || $superadmin
 
-	$: nonAdminWorkspaces = (workspaces ?? []).filter((x) => x.id != 'admins')
-	$: noWorkspaces = $superadmin && nonAdminWorkspaces.length == 0
+	// Complete workspace hierarchy with all forks
+	$: forkedWorkspacesHierarchy = (() => {
+		if (!workspaces) return []
+
+		// Filter out admin workspace
+		const nonAdminWorkspaces = workspaces.filter((x) => x.id !== 'admins')
+
+		return buildWorkspaceHierarchy(nonAdminWorkspaces)
+	})()
+
+	$: groupedNonAdminWorkspaces = forkedWorkspacesHierarchy
+	$: noWorkspaces = $superadmin && groupedNonAdminWorkspaces.length == 0
 
 	async function getCreateWorkspaceRequireSuperadmin() {
 		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
@@ -133,7 +145,7 @@
 				} else {
 					await goto(rd ?? '/')
 				}
-				console.log('Workspace selected going to ' + (rd ? `rd: ${rd}` : 'home')) 
+				console.log('Workspace selected going to ' + (rd ? `rd: ${rd}` : 'home'))
 			} catch (e) {
 				console.error('Error going to', rd, e)
 				window.location.reload()
@@ -163,7 +175,7 @@
 
 	{#if adminsInstance}
 		<Button
-			btnClasses="w-full mt-2 mb-4 truncate"
+			btnClasses="w-full mt-2 mb-4 truncate text-secondary"
 			color="light"
 			size="sm"
 			on:click={async () => {
@@ -189,26 +201,49 @@
 				workspace.
 			</p>
 		{/if}
-		{#each nonAdminWorkspaces as workspace (workspace.id)}
-			<label class="block pb-2">
+		{#each groupedNonAdminWorkspaces as { workspace, depth, isForked, parentName } (workspace.id)}
+			<label class="block pb-2" style:padding-left={`${depth * 24}px`}>
 				<button
-					class="block w-full mx-auto py-1 px-2 rounded-md border
-					shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300"
+					class="w-full mx-auto py-1 px-2 rounded-md border
+					shadow-sm text-sm text-secondary font-normal mt-1 flex items-center"
+					class:opacity-50={workspace.disabled}
+					class:cursor-not-allowed={workspace.disabled}
+					class:hover:ring-1={!workspace.disabled}
+					class:hover:ring-indigo-300={!workspace.disabled}
+					disabled={workspace.disabled}
 					on:click={async () => {
-						speakFriendAndEnterWorkspace(workspace.id)
+						if (!workspace.disabled) {
+							speakFriendAndEnterWorkspace(workspace.id)
+						}
 					}}
 				>
-					{#if workspace.color}
-						<span
-							class="inline-block w-3 h-3 mr-2 rounded-full border border-gray-400"
-							style="background-color: {workspace.color}"
-						></span>
+					{#if isForked}
+						<GitFork size={12} class="text-tertiary mr-2 flex-shrink-0" />
 					{/if}
-					<span class="font-mono">{workspace.id}</span> - {workspace.name} as
-					<span class="font-mono">{workspace.username}</span>
-					{#if workspace['deleted']}
-						<span class="text-red-500"> (archived)</span>
-					{/if}
+					<span class="flex-1">
+						{#if workspace.color}
+							<span
+								class="inline-block w-3 h-3 mr-2 rounded-full border border-gray-400"
+								style="background-color: {workspace.color}"
+							></span>
+						{/if}
+						<span class="font-mono" class:text-secondary={isForked}>{workspace.id}</span> -
+						<span class:text-secondary={isForked}>{workspace.name}</span>
+						as
+						<span class="font-mono" class:text-secondary={isForked}>{workspace.username}</span>
+						{#if workspace['deleted']}
+							<span class="text-red-500"> (archived)</span>
+						{/if}
+						{#if workspace.disabled}
+							<span class="text-red-500"> (user disabled in this workspace)</span>
+						{/if}
+						{#if isForked && parentName}
+							<span class="text-tertiary text-xs mt-1">
+								<br />
+								Fork of {parentName}
+							</span>
+						{/if}
+					</span>
 				</button>
 				{#if $superadmin && workspace['deleted']}
 					<Button
@@ -245,11 +280,13 @@
 		</div>
 	{/if}
 
+	{@const nonForkInvites = invites.filter((invite) => invite.parent_workspace_id == undefined)}
+
 	<h2 class="mt-6 mb-4">Invites to join a Workspace</h2>
-	{#if invites.length == 0}
+	{#if nonForkInvites.length == 0}
 		<p class="text-sm text-tertiary mt-2"> You don't have new invites at the moment. </p>
 	{/if}
-	{#each invites as invite}
+	{#each nonForkInvites as invite}
 		<div
 			class="w-full mx-auto py-1 px-2 rounded-md border shadow-sm
 			text-sm mt-1 flex flex-row justify-between items-center"
@@ -287,6 +324,71 @@
 			</div>
 		</div>
 	{/each}
+
+	{#if showAllForks}
+		{@const allWorkspacesList = workspaces || []}
+		{@const filteredInvites = invites.filter((invite) => invite.parent_workspace_id)}
+
+		<h2 class="mt-6 mb-4">Forks of the workspaces you're in</h2>
+		{#if filteredInvites.length == 0}
+			<p class="text-sm text-tertiary mt-2"> There isn't anything here </p>
+		{/if}
+		{#each filteredInvites as invite}
+			{@const inviteWorkspace = allWorkspacesList.find((w) => w.id === invite.workspace_id)}
+			<div
+				class="w-full mx-auto py-1 px-2 rounded-md border shadow-sm
+			text-sm mt-1 flex flex-row justify-between items-center"
+			>
+				<div class="grow">
+					<div class="flex items-center gap-2">
+						{#if inviteWorkspace?.parent_workspace_id}
+							<GitFork size={12} class="text-tertiary flex-shrink-0" />
+						{/if}
+						<span class="font-mono font-semibold">{invite.workspace_id}</span>
+					</div>
+					{#if invite.is_admin}
+						<span class="text-sm">as an admin</span>
+					{:else if invite.operator}
+						<span class="text-sm">as an operator</span>
+					{/if}
+					{#if invite.parent_workspace_id}
+						<div class="text-tertiary text-xs mt-1">
+							Fork of {invite.parent_workspace_id}
+						</div>
+					{/if}
+				</div>
+				<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
+					<a
+						class="font-bold p-1"
+						href="{base}/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
+							? `&rd=${encodeURIComponent(rd)}`
+							: ''}"
+					>
+						Accept
+					</a>
+
+					<button
+						class="text-red-700 font-bold p-1"
+						on:click={async () => {
+							await UserService.declineInvite({
+								requestBody: { workspace_id: invite.workspace_id }
+							})
+							sendUserToast(`Declined invite to ${invite.workspace_id}`)
+							loadInvites()
+						}}
+					>
+						Decline
+					</button>
+				</div>
+			</div>
+		{/each}
+	{/if}
+	{#if workspaces}
+		<div class="flex flex-row-reverse pt-4 pb-2">
+			<Toggle bind:checked={showAllForks} options={{ right: 'Show workspace forks' }} />
+		</div>
+	{/if}
+
 	<div class="flex justify-between items-center mt-10 flex-wrap gap-2">
 		{#if $superadmin}
 			<Button

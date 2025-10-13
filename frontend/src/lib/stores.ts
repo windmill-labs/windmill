@@ -3,16 +3,14 @@ import { derived, type Readable, writable } from 'svelte/store'
 
 import type { IntrospectionQuery } from 'graphql'
 import {
-	type AIConfig,
-	type AIProvider,
-	type AIProviderModel,
 	type OperatorSettings,
 	type TokenResponse,
 	type UserWorkspaceList,
 	type WorkspaceDefaultScripts,
 	WorkspaceService
 } from './gen'
-import { getLocalSetting } from './utils'
+import { getLocalSetting, type StateStore } from './utils'
+import { createState } from './svelte5Utils.svelte'
 
 export interface UserExt {
 	email: string
@@ -32,8 +30,10 @@ export interface UserWorkspace {
 	id: string
 	name: string
 	username: string
-	color: string | null
+	color?: string
 	operator_settings?: OperatorSettings
+	parent_workspace_id?: string | null
+	disabled: boolean
 }
 
 const persistedWorkspace = BROWSER && getWorkspace()
@@ -85,8 +85,9 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 					id: 'admins',
 					name: 'Admins',
 					username: 'superadmin',
-					color: null,
-					operator_settings: null
+					color: undefined,
+					operator_settings: undefined,
+					disabled: false
 				}
 			]
 		} else {
@@ -94,58 +95,13 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 		}
 	}
 )
-export const copilotInfo = writable<{
-	enabled: boolean
-	codeCompletionModel?: AIProviderModel
-	defaultModel?: AIProviderModel
-	aiModels: AIProviderModel[]
-}>({
-	enabled: false,
-	codeCompletionModel: undefined,
-	defaultModel: undefined,
-	aiModels: []
-})
-
-export function setCopilotInfo(aiConfig: AIConfig) {
-	if (Object.keys(aiConfig.providers ?? {}).length > 0) {
-		const aiModels = Object.entries(aiConfig.providers ?? {}).flatMap(
-			([provider, providerConfig]) =>
-				providerConfig.models.map((m) => ({ model: m, provider: provider as AIProvider }))
-		)
-
-		copilotSessionModel.update((model) => {
-			if (
-				model &&
-				!aiModels.some((m) => m.model === model.model && m.provider === model.provider)
-			) {
-				return undefined
-			}
-			return model
-		})
-
-		copilotInfo.set({
-			enabled: true,
-			codeCompletionModel: aiConfig.code_completion_model,
-			defaultModel: aiConfig.default_model,
-			aiModels: aiModels
-		})
-	} else {
-		copilotSessionModel.set(undefined)
-
-		copilotInfo.set({
-			enabled: false,
-			codeCompletionModel: undefined,
-			defaultModel: undefined,
-			aiModels: []
-		})
-	}
-}
 
 export const codeCompletionLoading = writable<boolean>(false)
 export const metadataCompletionEnabled = writable<boolean>(true)
 export const stepInputCompletionEnabled = writable<boolean>(true)
 export const FORMAT_ON_SAVE_SETTING_NAME = 'formatOnSave'
 export const VIM_MODE_SETTING_NAME = 'vimMode'
+export const RELATIVE_LINE_NUMBERS_SETTING_NAME = 'relativeLineNumbers'
 export const CODE_COMPLETION_SETTING_NAME = 'codeCompletionSessionEnabled'
 export const COPILOT_SESSION_MODEL_SETTING_NAME = 'copilotSessionModel'
 export const COPILOT_SESSION_PROVIDER_SETTING_NAME = 'copilotSessionProvider'
@@ -153,20 +109,14 @@ export const formatOnSave = writable<boolean>(
 	getLocalSetting(FORMAT_ON_SAVE_SETTING_NAME) != 'false'
 )
 export const vimMode = writable<boolean>(getLocalSetting(VIM_MODE_SETTING_NAME) == 'true')
+export const relativeLineNumbers = writable<boolean>(
+	getLocalSetting(RELATIVE_LINE_NUMBERS_SETTING_NAME) == 'true'
+)
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
 )
 
-const sessionModel = getLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME)
-const sessionProvider = getLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME)
-export const copilotSessionModel = writable<AIProviderModel | undefined>(
-	sessionModel && sessionProvider
-		? {
-				model: sessionModel,
-				provider: sessionProvider as AIProvider
-			}
-		: undefined
-)
+
 export const usedTriggerKinds = writable<string[]>([])
 
 type SQLBaseSchema = {
@@ -191,7 +141,7 @@ export const SQLSchemaLanguages = [
 ] as const
 
 export interface SQLSchema {
-	lang: (typeof SQLSchemaLanguages)[number]
+	lang: (typeof SQLSchemaLanguages)[number] | 'ducklake'
 	schema: SQLBaseSchema
 	publicOnly: boolean | undefined
 	stringified: string
@@ -241,6 +191,8 @@ export const workspaceColor: Readable<string | null | undefined> = derived(
 		})
 	}
 )
+
+export const isCurrentlyInTutorial: StateStore<boolean> = createState({ val: false })
 
 export function getFlatTableNamesFromSchema(dbSchema: DBSchema | undefined): string[] {
 	const schema = dbSchema?.schema ?? {}

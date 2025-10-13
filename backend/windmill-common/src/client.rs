@@ -2,11 +2,7 @@ use anyhow::Context;
 use reqwest::{Body, Response};
 use serde::de::DeserializeOwned;
 
-use crate::{
-    error::{self, to_anyhow},
-    s3_helpers::{DuckdbConnectionSettingsQueryV2, DuckdbConnectionSettingsResponse},
-    utils::HTTP_CLIENT,
-};
+use crate::utils::HTTP_CLIENT;
 
 #[derive(Clone)]
 pub struct AuthedClient {
@@ -17,6 +13,15 @@ pub struct AuthedClient {
 }
 
 impl AuthedClient {
+    pub fn new(
+        base_internal_url: String,
+        workspace: String,
+        token: String,
+        force_client: Option<reqwest::Client>,
+    ) -> AuthedClient {
+        AuthedClient { base_internal_url, workspace, token, force_client }
+    }
+
     pub async fn get(&self, url: &str, query: Vec<(&str, String)>) -> anyhow::Result<Response> {
         self.force_client
             .as_ref()
@@ -202,43 +207,41 @@ impl AuthedClient {
         }
     }
 
-    pub async fn get_duckdb_connection_settings(
+    pub async fn download_s3_file(
         &self,
-        s3: &DuckdbConnectionSettingsQueryV2,
-    ) -> error::Result<DuckdbConnectionSettingsResponse> {
-        let url = format!(
-            "{}/api/w/{}/job_helpers/v2/duckdb_connection_settings",
-            self.base_internal_url, &self.workspace
-        );
+        workspace_id: &str,
+        file_key: &str,
+        storage: Option<String>,
+    ) -> anyhow::Result<bytes::Bytes> {
+        let mut query = vec![("file_key", file_key.to_string())];
+        if let Some(storage) = storage {
+            query.push(("storage", storage));
+        }
         let response = self
             .force_client
             .as_ref()
             .unwrap_or(&HTTP_CLIENT)
-            .post(url)
-            .header(
-                reqwest::header::CONTENT_TYPE,
-                reqwest::header::HeaderValue::from_static("application/json"),
-            )
-            .header(
-                reqwest::header::ACCEPT,
-                reqwest::header::HeaderValue::from_static("application/json"),
-            )
+            .get(&format!(
+                "{}/api/w/{}/job_helpers/download_s3_file",
+                self.base_internal_url, workspace_id
+            ))
+            .query(&query)
             .header(
                 reqwest::header::AUTHORIZATION,
                 reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))
-                    .map_err(|e| error::Error::BadConfig(e.to_string()))?,
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?,
             )
-            .body(serde_json::to_string(&s3).map_err(to_anyhow)?)
             .send()
             .await
-            .context(format!("Sent get_duckdb_connection_settings request",))
-            .map_err(error::Error::from)?;
+            .context("Failed to send download_s3_file request")
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+
         match response.status().as_u16() {
             200u16 => Ok(response
-                .json::<DuckdbConnectionSettingsResponse>()
+                .bytes()
                 .await
-                .context("decoding duckdb_connection_settings response as json")?),
-            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default()))?,
+                .context("Failed to read response bytes")?),
+            _ => Err(anyhow::anyhow!(response.text().await.unwrap_or_default())),
         }
     }
 }

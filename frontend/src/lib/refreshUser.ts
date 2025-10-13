@@ -1,7 +1,6 @@
 import { get } from 'svelte/store'
 import { UserService } from '$lib/gen'
 import { superadmin, devopsRole } from './stores.js'
-import { goto } from '$lib/navigation'
 
 export async function refreshSuperadmin(): Promise<void> {
 	if (get(superadmin) == undefined) {
@@ -14,7 +13,7 @@ export async function refreshSuperadmin(): Promise<void> {
 			}
 		} catch {
 			superadmin.set(false)
-			goto('/user/logout')
+			// goto('/user/logout')
 		}
 	}
 
@@ -28,7 +27,7 @@ export async function refreshSuperadmin(): Promise<void> {
 			}
 		} catch {
 			devopsRole.set(false)
-			goto('/user/logout')
+			// goto('/user/logout')
 		}
 	}
 }

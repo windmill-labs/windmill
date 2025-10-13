@@ -4,6 +4,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import Tooltip from './Tooltip.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import { inputBorderClass } from './text_input/TextInput.svelte'
 
 	export let options: {
 		left?: string
@@ -11,15 +13,18 @@
 		right?: string
 		rightTooltip?: string
 		rightDocumentationLink?: string
+		title?: string
 	} = {}
 	export let checked: boolean = false
 	export let disabled = false
 	export let textClass = ''
 	export let textStyle = ''
-	export let color: 'blue' | 'red' | 'nord' = 'blue'
+	export let color: 'blue' | 'red' | 'nord' = 'nord'
 	export let id = (Math.random() + 1).toString(36).substring(10)
 	export let lightMode: boolean = false
 	export let eeOnly: boolean = false
+	export let aiId: string | undefined = undefined
+	export let aiDescription: string | undefined = undefined
 
 	export let size: 'sm' | 'xs' | '2xs' | '2sm' = 'sm'
 
@@ -34,12 +39,17 @@
 	class="{$$props.class || ''} z-auto flex flex-row items-center duration-50 {disabled
 		? 'grayscale opacity-50'
 		: 'cursor-pointer'}"
+	title={options?.title}
 >
 	{#if Boolean(options?.left)}
 		<span
 			class={twMerge(
-				'mr-2 font-medium duration-50 select-none',
-				bothOptions || textDisabled ? (checked ? 'text-disabled' : 'text-primary') : 'text-primary',
+				'mr-2 font-normal duration-50 select-none',
+				bothOptions || textDisabled
+					? checked
+						? 'text-disabled'
+						: 'text-tertiary'
+					: 'text-tertiary',
 				size === 'xs' || size === '2sm' ? 'text-xs' : size === '2xs' ? 'text-[0.5rem]' : 'text-sm',
 				textClass
 			)}
@@ -54,7 +64,17 @@
 
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<div class="relative" on:click|stopPropagation>
+	<div
+		class="relative"
+		on:click|stopPropagation
+		use:triggerableByAI={{
+			id: aiId,
+			description: aiDescription,
+			callback: () => {
+				checked = !checked
+			}
+		}}
+	>
 		<input
 			on:focus
 			on:click
@@ -74,23 +94,28 @@
 					? 'peer-checked:bg-red-600'
 					: color == 'blue'
 						? 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500'
-						: 'peer-checked:bg-nord-950 dark:peer-checked:bg-nord-400',
+						: 'peer-checked:bg-nord-950 dark:peer-checked:bg-nord-900',
 				size === 'sm'
 					? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
 					: size === '2sm'
 						? 'w-9 h-5 after:top-0.5 after:left-[2px] after:h-4 after:w-4'
 						: size === '2xs'
 							? 'w-5 h-3 after:top-0.5 after:left-[2px] after:h-2 after:w-2'
-							: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3'
+							: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3',
+				inputBorderClass()
 			)}
 		></div>
 	</div>
 	{#if Boolean(options?.right)}
 		<span
 			class={twMerge(
-				'ml-2 font-medium duration-50 select-none',
-				bothOptions || textDisabled ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
-				size === 'xs' || size === '2sm' ? 'text-xs' : 'text-sm',
+				'ml-2 font-normal duration-50 select-none',
+				bothOptions || textDisabled
+					? checked
+						? 'text-secondary'
+						: 'text-disabled'
+					: 'text-secondary',
+				size === 'xs' || size === '2sm' ? 'text-xs' : size === '2xs' ? 'text-xs' : 'text-sm',
 				textClass
 			)}
 			style={textStyle}

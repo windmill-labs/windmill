@@ -6,19 +6,22 @@ import type {
 	EditorBreakpoint,
 	FocusedGrid,
 	GeneralAppInput,
-	GridItem
+	GridItem,
+	RichConfiguration
 } from '../types'
 import {
 	ccomponents,
 	components,
 	getRecommendedDimensionsByComponent,
+	presets,
+	processDimension,
 	type AppComponent,
 	type BaseComponent,
 	type InitialAppComponent,
 	type TypedComponent
 } from './component'
 import { gridColumns } from '../gridUtils'
-import { allItems } from '../utils'
+import { allItems, processSubcomponents } from '../utils'
 import type { Output, World } from '../rx'
 import type { FilledItem, Size } from '../svelte-grid/types'
 import type {
@@ -35,6 +38,7 @@ import { sendUserToast } from '$lib/toast'
 import { getNextId } from '$lib/components/flows/idUtils'
 import { enterpriseLicense } from '$lib/stores'
 import gridHelp from '../svelte-grid/utils/helper'
+import { DEFAULT_THEME } from './componentsPanel/themeUtils'
 
 type GridItemLocation =
 	| {
@@ -476,14 +480,71 @@ export function appComponentFromType<T extends keyof typeof components>(
 			),
 			recomputeIds: init.recomputeIds ? [] : undefined,
 			actionButtons: init.actionButtons ? [] : undefined,
-			actions: [],
+			actions: undefined,
 			menuItems: init.menuItems ? [] : undefined,
 			numberOfSubgrids: init.numberOfSubgrids,
 			horizontalAlignment: override?.horizontalAlignment ?? init.horizontalAlignment,
 			verticalAlignment: override?.verticalAlignment ?? init.verticalAlignment,
 			id,
+			datasets:
+				type === 'plotlycomponentv2'
+					? createPlotlyComponentDataset()
+					: type === 'chartjscomponentv2'
+						? createChartjsComponentDataset()
+						: undefined,
+			xData:
+				type === 'plotlycomponentv2' || type === 'chartjscomponentv2'
+					? {
+							type: 'evalv2',
+							fieldType: 'array',
+							expr: '[1, 2, 3, 4]',
+							connections: []
+						}
+					: undefined,
 			...(extra ?? {})
 		}
+	}
+}
+
+export function createChartjsComponentDataset(): RichConfiguration {
+	return {
+		type: 'static',
+		fieldType: 'array',
+		subFieldType: 'chartjs',
+		value: [
+			{
+				value: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'number',
+					value: [25, 25, 50]
+				},
+				name: 'Dataset 1'
+			}
+		]
+	}
+}
+
+export function createPlotlyComponentDataset(): RichConfiguration {
+	return {
+		type: 'static',
+		fieldType: 'array',
+		subFieldType: 'plotly',
+		value: [
+			{
+				value: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'number',
+					value: [1, 2, 3, 4]
+				},
+				name: 'Dataset 1',
+				aggregation_method: 'sum',
+				type: 'bar',
+				tooltip: '',
+				color: '#C8A2C8'
+			}
+		]
 	}
 }
 export function insertNewGridItem(
@@ -572,45 +633,11 @@ export function copyComponent(
 	const newItem = insertNewGridItem(
 		app,
 		(id) => {
-			if (item.data.type === 'tablecomponent') {
-				return {
-					...item.data,
-					id,
-					actionButtons:
-						item.data.actionButtons.map((x) => ({
-							...x,
-							id: x.id.replace(`${item.id}_`, `${id}_`)
-						})) ?? []
-				}
-			} else if (
-				item.data.type === 'aggridcomponent' ||
-				item.data.type === 'aggridcomponentee' ||
-				item.data.type === 'dbexplorercomponent' ||
-				item.data.type === 'aggridinfinitecomponent' ||
-				item.data.type === 'aggridinfinitecomponentee'
-			) {
-				return {
-					...item.data,
-					id,
-					actionButtons:
-						(item.data.actions ?? []).map((x) => ({
-							...x,
-							id: x.id.replace(`${item.id}_`, `${id}_`)
-						})) ?? []
-				}
-			} else if (item.data.type === 'menucomponent') {
-				return {
-					...item.data,
-					id,
-					menuItems:
-						item.data.menuItems.map((x) => ({
-							...x,
-							id: x.id.replace(`${item.id}_`, `${id}_`)
-						})) ?? []
-				}
-			} else {
-				return { ...item.data, id }
-			}
+			let newComponent = { ...item.data, id }
+			processSubcomponents(newComponent, (c) => {
+				c.id = c.id.replace(item.id + '_', id + '_')
+			})
+			return newComponent
 		},
 		parentGrid,
 		Object.fromEntries(gridColumns.map((column) => [column, item[column]]))
@@ -637,23 +664,9 @@ export function getAllSubgridsAndComponentIds(
 ): [string[], string[]] {
 	const subgrids: string[] = []
 	let components: string[] = [component.id]
-	if (component.type === 'tablecomponent') {
-		components.push(...component.actionButtons?.map((x) => x.id))
-	}
-
-	if (
-		component.type === 'aggridcomponent' ||
-		component.type === 'aggridcomponentee' ||
-		component.type === 'dbexplorercomponent' ||
-		component.type === 'aggridinfinitecomponent' ||
-		component.type === 'aggridinfinitecomponentee'
-	) {
-		components.push(...(component.actions?.map((x) => x.id) ?? []))
-	}
-
-	if (component.type === 'menucomponent') {
-		components.push(...component.menuItems?.map((x) => x.id))
-	}
+	processSubcomponents(component, (c) => {
+		components.push(c.id)
+	})
 
 	if (app.subgrids && component.numberOfSubgrids) {
 		for (let i = 0; i < component.numberOfSubgrids; i++) {
@@ -676,21 +689,11 @@ export function getAllGridItems(app: App): GridItem[] {
 	return app.grid
 		.concat(Object.values(app.subgrids ?? {}).flat())
 		.map((x) => {
-			if (x?.data?.type === 'tablecomponent') {
-				return [x, ...x?.data?.actionButtons?.map((x) => ({ data: x, id: x.id }))]
-			} else if (
-				(x?.data?.type === 'aggridcomponent' ||
-					x?.data?.type === 'aggridcomponentee' ||
-					x?.data?.type === 'dbexplorercomponent' ||
-					x?.data?.type === 'aggridinfinitecomponent' ||
-					x?.data?.type === 'aggridinfinitecomponentee') &&
-				Array.isArray(x?.data?.actions)
-			) {
-				return [x, ...x?.data?.actions?.map((x) => ({ data: x, id: x.id }))]
-			} else if (x?.data?.type === 'menucomponent') {
-				return [x, ...x?.data?.menuItems?.map((x) => ({ data: x, id: x.id }))]
-			}
-			return [x]
+			let r: GridItem[] = []
+			processSubcomponents(x.data, (c) => {
+				r.push({ data: c, id: c.id })
+			})
+			return [x, ...r]
 		})
 		.flat()
 }
@@ -1261,6 +1264,7 @@ export function isContainer(type: string): boolean {
 		type === 'horizontalsplitpanescomponent' ||
 		type === 'steppercomponent' ||
 		type === 'listcomponent' ||
+		type === 'carousellistcomponent' ||
 		type === 'decisiontreecomponent'
 	)
 }
@@ -1268,15 +1272,19 @@ export function isContainer(type: string): boolean {
 export function subGridIndexKey(type: string | undefined, id: string, world: World): number {
 	switch (type) {
 		case 'containercomponent':
-		case 'verticalsplitpanescomponent':
-		case 'horizontalsplitpanescomponent':
 		case 'listcomponent':
 			return 0
+		case 'verticalsplitpanescomponent':
+		case 'horizontalsplitpanescomponent':
+			return (world?.outputsById?.[id]?.selectedPaneIndex?.peak() as number) ?? 0
 		case 'tabscomponent': {
 			return (world?.outputsById?.[id]?.selectedTabIndex?.peak() as number) ?? 0
 		}
 		case 'steppercomponent': {
 			return (world?.outputsById?.[id]?.currentStepIndex?.peak() as number) ?? 0
+		}
+		case 'carousellistcomponent': {
+			return (world?.outputsById?.[id]?.currentIndex?.peak() as number) ?? 0
 		}
 		case 'decisiontreecomponent': {
 			return (world?.outputsById?.[id]?.currentNodeIndex?.peak() as number) ?? 0
@@ -1389,4 +1397,46 @@ export function animateTo(start: number, end: number, onUpdate: (newValue: numbe
 
 function easeInOut(t: number) {
 	return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
+}
+
+export function emptyApp(): App {
+	let value: App = {
+		grid: [],
+		fullscreen: false,
+		unusedInlineScripts: [],
+		hiddenInlineScripts: [],
+		theme: {
+			type: 'path',
+			path: DEFAULT_THEME
+		}
+	}
+	const preset = presets['topbarcomponent']
+
+	const id = insertNewGridItem(
+		value,
+		appComponentFromType(preset.targetComponent, preset.configuration, undefined, {
+			customCss: {
+				container: {
+					class: '!p-0' as any,
+					style: ''
+				}
+			}
+		}) as (id: string) => AppComponent,
+		undefined,
+		undefined,
+		'topbar',
+		{ x: 0, y: 0 },
+		{
+			3: processDimension(preset.dims, 3),
+			12: processDimension(preset.dims, 12)
+		},
+		true,
+		true
+	)
+
+	setUpTopBarComponentContent(id, value)
+
+	value.hideLegacyTopBar = true
+	value.mobileViewOnSmallerScreens = false
+	return value
 }

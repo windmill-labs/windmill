@@ -5,11 +5,16 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { getPrimaryKeys, type ColumnDef, type DbType } from './utils'
+	import { getPrimaryKeys, type ColumnDef } from './utils'
 	import { sendUserToast } from '$lib/toast'
 	import { getUpdateInput } from './queries/update'
+	import type { DbInput } from '$lib/components/dbOps'
 
-	export let id: string
+	interface Props {
+		id: string
+	}
+
+	let { id }: Props = $props()
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -19,26 +24,25 @@
 		jobId: undefined
 	})
 
-	let runnableComponent: RunnableComponent
-	let loading = false
-	let input: AppInput | undefined = undefined
+	let runnableComponent: RunnableComponent | undefined = $state(undefined)
+	let loading = $state(false)
+	let input: AppInput | undefined = $state(undefined)
 
 	export async function triggerUpdate(
-		resource: string,
+		dbInput: DbInput,
 		table: string,
 		column: ColumnDef,
 		allColumns: ColumnDef[],
 		valueToUpdate: string,
 		data: Record<string, any>,
-		oldValue: string | undefined = undefined,
-		dbType: DbType
+		oldValue: string | undefined = undefined
 	) {
 		// const datatype = tableMetaData?.find((column) => column.isprimarykey)?.datatype
 
 		let primaryColumns = getPrimaryKeys(allColumns)
 		let columns = allColumns?.filter((x) => primaryColumns.includes(x.field))
 
-		input = getUpdateInput(resource, table, column, columns, dbType)
+		input = getUpdateInput(dbInput, table, column, columns)
 
 		await tick()
 
@@ -54,13 +58,13 @@
 				undefined,
 				{ value_to_update: valueToUpdate, ...ndata },
 				{
-					done: (x) => {
+					onDone: (x) => {
 						sendUserToast('Value updated', false)
 					},
-					cancel: () => {
+					onCancel: () => {
 						sendUserToast('Error updating value', true)
 					},
-					error: () => {
+					onError: () => {
 						sendUserToast('Error updating value', true)
 					}
 				}

@@ -1,24 +1,30 @@
 <script lang="ts">
 	import { debounce } from '$lib/utils'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 
 	import TimelineBar from '$lib/components/TimelineBar.svelte'
 	import type { JobById } from '../types'
 
-	export let jobs: string[]
-	export let jobsById: Record<string, JobById>
+	interface Props {
+		jobs: string[]
+		jobsById: Record<string, JobById>
+	}
 
-	let min: undefined | number = undefined
+	let { jobs, jobsById }: Props = $props()
+
+	let min: undefined | number = $state(undefined)
 	let max: undefined | number = undefined
-	let total: number | undefined = undefined
+	let total: number | undefined = $state(undefined)
 
-	let debounced = debounce(() => computeItems(jobs), 30)
-	$: jobs && jobsById && debounced()
+	let { debounced, clearDebounce } = debounce(() => computeItems(jobs), 30)
+	$effect(() => {
+		jobs && jobsById && untrack(() => debounced())
+	})
 
 	let items: Record<
 		string,
 		{ created_at?: number; started_at?: number; duration_ms?: number; id: string }[]
-	> = {}
+	> = $state({})
 
 	export function reset() {
 		min = undefined
@@ -88,7 +94,7 @@
 		items = nitems
 	}
 
-	let now = Date.now()
+	let now = $state(Date.now())
 
 	let interval = setInterval((x) => {
 		if (!max) {
@@ -101,6 +107,7 @@
 
 	onDestroy(() => {
 		interval && clearInterval(interval)
+		clearDebounce()
 	})
 </script>
 
@@ -132,8 +139,8 @@
 								? b.started_at
 									? b.started_at - b?.created_at
 									: b.duration_ms
-									? 0
-									: now - b?.created_at
+										? 0
+										: now - b?.created_at
 								: 0}
 							<div class="flex w-full">
 								<TimelineBar
@@ -154,7 +161,7 @@
 										{min}
 										concat
 										started_at={b.started_at}
-										len={b.started_at ? b?.duration_ms ?? now - b?.started_at : 0}
+										len={b.started_at ? (b?.duration_ms ?? now - b?.started_at) : 0}
 										running={b?.duration_ms == undefined}
 									/>
 								{/if}

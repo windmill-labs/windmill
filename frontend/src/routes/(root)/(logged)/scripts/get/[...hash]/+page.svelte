@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import {
 		JobService,
@@ -14,14 +13,16 @@
 		emptyString,
 		canWrite,
 		truncateHash,
-		copyToClipboard
+		copyToClipboard,
+		urlParamsToObject
 	} from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
+	import AIFormAssistant from '$lib/components/copilot/AIFormAssistant.svelte'
 
-	import { onDestroy, setContext, tick } from 'svelte'
+	import { onDestroy, setContext, tick, untrack } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import {
 		Tabs,
@@ -82,48 +83,34 @@
 	import TriggersBadge from '$lib/components/graph/renderers/triggers/TriggersBadge.svelte'
 	import TriggersEditor from '$lib/components/triggers/TriggersEditor.svelte'
 	import { Triggers } from '$lib/components/triggers/triggers.svelte'
+	import { page } from '$app/state'
 
-	let script: Script | undefined
-	let topHash: string | undefined
-	let can_write = false
-	let deploymentInProgress = false
-	let intervalId: NodeJS.Timeout
-	let shareModal: ShareModal
-	let runForm: RunForm
+	let script: Script | undefined = $state()
+	let topHash: string | undefined = $state()
+	let can_write = $state(false)
+	let deploymentInProgress = $state(false)
+	let intervalId: number
+	let shareModal: ShareModal | undefined = $state()
+	let runForm: RunForm | undefined = $state()
 
-	let scheduledForStr: string | undefined = undefined
-	let invisible_to_owner: boolean | undefined = undefined
-	let overrideTag: string | undefined = undefined
-	let inputSelected: 'saved' | 'history' | undefined = undefined
-	let jsonView = false
+	let scheduledForStr: string | undefined = $state(undefined)
+	let invisible_to_owner: boolean | undefined = $state(undefined)
+	let overrideTag: string | undefined = $state(undefined)
+	let inputSelected: 'saved' | 'history' | undefined = $state(undefined)
+	let jsonView = $state(false)
 
-	$: {
-		const cliTrigger = triggersState.triggers.find((t) => t.type === 'cli')
-		if (cliTrigger) {
-			cliTrigger.extra = {
-				cliCommand: `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
-			}
-		}
-	}
-
-	$: loading = !script
-
-	let previousHash: string | undefined = undefined
-	$: if ($workspaceStore) {
-		if (previousHash != $page.params.hash) {
-			previousHash = $page.params.hash
-			loadScript($page.params.hash)
-		}
-	}
+	let previousHash: string | undefined = $state(undefined)
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 
 	// Add triggers context store
-	const triggersState = new Triggers([
-		{ type: 'webhook', path: '', isDraft: false },
-		{ type: 'email', path: '', isDraft: false },
-		{ type: 'cli', path: '', isDraft: false }
-	])
+	const triggersState = $state(
+		new Triggers([
+			{ type: 'webhook', path: '', isDraft: false },
+			{ type: 'default_email', path: '', isDraft: false },
+			{ type: 'cli', path: '', isDraft: false }
+		])
+	)
 	setContext<TriggerContext>('TriggerContext', {
 		triggersCount,
 		simplifiedPoll: writable(false),
@@ -175,7 +162,7 @@
 			}
 		}
 	}
-	let starred: boolean | undefined = undefined
+	let starred: boolean | undefined = $state(undefined)
 
 	async function loadTriggers(path: string): Promise<void> {
 		await triggersState.fetchTriggers(
@@ -193,17 +180,23 @@
 			script = await ScriptService.getScriptByHash({
 				workspace: $workspaceStore!,
 				hash,
-				withStarredInfo: true
+				withStarredInfo: true,
+				authed: true
 			})
 			starred = script.starred
 		} catch {
-			script = await ScriptService.getScriptByPath({
-				workspace: $workspaceStore!,
-				path: hash,
-				withStarredInfo: true
-			})
-			starred = script.starred
-			hash = script.hash
+			try {
+				script = await ScriptService.getScriptByPath({
+					workspace: $workspaceStore!,
+					path: hash,
+					withStarredInfo: true
+				})
+				starred = script.starred
+				hash = script.hash
+			} catch (e) {
+				sendUserToast('Could not load script: ' + e.body, true)
+				return
+			}
 		}
 		can_write =
 			script.workspace_id == $workspaceStore &&
@@ -235,9 +228,9 @@
 		intervalId && clearInterval(intervalId)
 	})
 
-	let isValid = true
+	let isValid = $state(true)
 
-	let runLoading = false
+	let runLoading = $state(false)
 	async function runScript(
 		scheduledForStr: string | undefined,
 		args: Record<string, any>,
@@ -263,21 +256,24 @@
 		}
 	}
 
-	let args: Record<string, any> | undefined = undefined
+	let args: Record<string, any> | undefined = $state(undefined)
 	let hash = window.location.hash
 	if (hash.length > 1) {
 		try {
 			let searchParams = new URLSearchParams(hash.slice(1))
-			let params = [...searchParams.entries()].map(([k, v]) => [k, JSON.parse(v)])
+			let params = [...Object.entries(urlParamsToObject(searchParams))].map(([k, v]) => [
+				k,
+				JSON.parse(v)
+			])
 			args = Object.fromEntries(params)
 		} catch (e) {
 			console.error('Was not able to transform hash as args', e)
 		}
 	}
 
-	let moveDrawer: MoveDrawer
-	let deploymentDrawer: DeployWorkspaceDrawer
-	let persistentScriptDrawer: PersistentScriptDrawer
+	let moveDrawer: MoveDrawer | undefined = $state()
+	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
+	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state()
 
 	function getMainButtons(
 		script: Script | undefined,
@@ -353,7 +349,7 @@
 					label: 'Current runs',
 					buttonProps: {
 						onClick: () => {
-							persistentScriptDrawer.open?.(script)
+							persistentScriptDrawer?.open?.(script)
 						},
 						size: 'xs',
 						startIcon: Activity,
@@ -382,9 +378,8 @@
 
 		return buttons
 	}
-	$: mainButtons = getMainButtons(script, args, topHash, can_write)
 
-	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
@@ -408,7 +403,7 @@
 			label: 'Move/Rename',
 			Icon: FolderOpen,
 			onclick: () => {
-				moveDrawer.openDrawer(script?.path ?? '', script?.summary, 'script')
+				moveDrawer?.openDrawer(script?.path ?? '', script?.summary, 'script')
 			}
 		})
 
@@ -424,7 +419,7 @@
 			label: 'Share',
 			Icon: Share,
 			onclick: () => {
-				shareModal.openDrawer(script?.path ?? '', 'script')
+				shareModal?.openDrawer(script?.path ?? '', 'script')
 			}
 		})
 
@@ -433,7 +428,7 @@
 				label: 'Deploy to staging/prod',
 				Icon: ChevronUpSquare,
 				onclick: () => {
-					deploymentDrawer.openDrawer(script?.path ?? '', 'script')
+					deploymentDrawer?.openDrawer(script?.path ?? '', 'script')
 				}
 			})
 		}
@@ -494,7 +489,7 @@
 		return menuItems
 	}
 
-	let versionsDrawerOpen = false
+	let versionsDrawerOpen = $state(false)
 
 	function onKeyDown(event: KeyboardEvent) {
 		switch (event.key) {
@@ -511,28 +506,46 @@
 		}
 	}
 
-	let rightPaneSelected = 'saved_inputs'
+	let rightPaneSelected = $state('saved_inputs')
 
-	let savedInputsV2: SavedInputsV2 | undefined = undefined
+	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
+	$effect(() => {
+		const cliTrigger = triggersState.triggers.find((t) => t.type === 'cli')
+		if (cliTrigger) {
+			cliTrigger.extra = {
+				cliCommand: `wmill script run ${script?.path} -d '${JSON.stringify(args)}'`
+			}
+		}
+	})
+	let loading = $derived(!script)
+	$effect(() => {
+		if ($workspaceStore) {
+			if (previousHash != page.params.hash) {
+				previousHash = page.params.hash
+				untrack(() => loadScript(page.params.hash ?? ''))
+			}
+		}
+	})
+	let mainButtons = $derived(getMainButtons(script, args, topHash, can_write))
 </script>
 
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
 		await goto('/scripts/get/' + e.detail + `?workspace=${$workspaceStore}`)
-		loadScript($page.params.hash)
+		loadScript(page.params.hash ?? '')
 	}}
 />
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <PersistentScriptDrawer bind:this={persistentScriptDrawer} />
 <ShareModal bind:this={shareModal} />
 
-{#if script}
-	<Drawer bind:open={versionsDrawerOpen} size="1200px">
-		<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)} noPadding>
+<Drawer bind:open={versionsDrawerOpen} size="1200px">
+	<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)} noPadding>
+		{#if script}
 			<ScriptVersionHistory
 				scriptPath={script.path}
 				openDetails
@@ -543,82 +556,91 @@
 					versionsDrawerOpen = false
 				}}
 			/>
-		</DrawerContent>
-	</Drawer>
-	{#key script.hash}
-		<DetailPageLayout bind:selected={rightPaneSelected} isOperator={$userStore?.operator}>
-			<svelte:fragment slot="header">
-				<DetailPageHeader
-					{mainButtons}
-					menuItems={getMenuItems(script, deployUiSettings)}
-					title={defaultIfEmptyString(script.summary, script.path)}
-					bind:errorHandlerMuted={script.ws_error_handler_muted}
-					errorHandlerKind="script"
-					scriptOrFlowPath={script.path}
-					tag={script.tag}
-					on:seeTriggers={() => {
-						rightPaneSelected = 'triggers'
-					}}
-				>
-					<svelte:fragment slot="trigger-badges">
-						<TriggersBadge
-							showOnlyWithCount={true}
-							showDraft={false}
-							path={script.path}
-							newItem={false}
-							isFlow={false}
-							selected={rightPaneSelected === 'triggers'}
-							onSelect={async (triggerIndex: number) => {
-								if (rightPaneSelected !== 'triggers') {
-									rightPaneSelected = 'triggers'
-								}
-								await tick()
-								triggersState.selectedTriggerIndex = triggerIndex
-							}}
-						/>
-					</svelte:fragment>
-					{#if $workspaceStore}
-						<Star
-							kind="script"
-							path={script.path}
-							{starred}
-							workspace_id={$workspaceStore}
-							on:starred={() => {
-								starred = !starred
-							}}
-						/>
-					{/if}
-					{#if script.codebase}
-						<Badge
-							>bundle<Tooltip
-								>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
-							></Badge
-						>
-					{/if}
-					{#if script?.priority != undefined}
+		{/if}
+	</DrawerContent>
+</Drawer>
+{#key script?.hash}
+	<DetailPageLayout bind:selected={rightPaneSelected} isOperator={$userStore?.operator}>
+		{#snippet header()}
+			<DetailPageHeader
+				{mainButtons}
+				menuItems={getMenuItems(script, deployUiSettings)}
+				title={defaultIfEmptyString(script?.summary, script?.path ?? '')}
+				bind:errorHandlerMuted={
+					() => script?.ws_error_handler_muted ?? false,
+					(v) => {
+						if (script?.ws_error_handler_muted) {
+							script.ws_error_handler_muted = v
+						}
+					}
+				}
+				errorHandlerKind="script"
+				scriptOrFlowPath={script?.path ?? ''}
+				tag={script?.tag ?? ''}
+				on:seeTriggers={() => {
+					rightPaneSelected = 'triggers'
+				}}
+			>
+				{#snippet trigger_badges()}
+					<TriggersBadge
+						showOnlyWithCount={true}
+						showDraft={false}
+						path={script?.path ?? ''}
+						newItem={false}
+						isFlow={false}
+						selected={rightPaneSelected === 'triggers'}
+						onSelect={async (triggerIndex: number) => {
+							if (rightPaneSelected !== 'triggers') {
+								rightPaneSelected = 'triggers'
+							}
+							await tick()
+							triggersState.selectedTriggerIndex = triggerIndex
+						}}
+					/>
+				{/snippet}
+				{#if $workspaceStore && script}
+					<Star
+						kind="script"
+						path={script.path}
+						{starred}
+						workspace_id={$workspaceStore}
+						on:starred={() => {
+							starred = !starred
+						}}
+					/>
+				{/if}
+				{#if script?.codebase}
+					<Badge
+						>bundle<Tooltip
+							>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
+						></Badge
+					>
+				{/if}
+				{#if script?.priority != undefined}
+					<div class="hidden md:block">
+						<Badge color="blue" variant="outlined" size="xs">
+							{`Priority: ${script.priority}`}
+						</Badge>
+					</div>
+				{/if}
+				{#if script?.restart_unless_cancelled ?? false}
+					<button onclick={() => persistentScriptDrawer?.open?.(script)}>
 						<div class="hidden md:block">
-							<Badge color="blue" variant="outlined" size="xs">
-								{`Priority: ${script.priority}`}
-							</Badge>
+							<Badge color="red" variant="outlined" size="xs">Persistent</Badge>
 						</div>
-					{/if}
-					{#if script?.restart_unless_cancelled ?? false}
-						<button on:click={() => persistentScriptDrawer.open?.(script)}>
-							<div class="hidden md:block">
-								<Badge color="red" variant="outlined" size="xs">Persistent</Badge>
-							</div>
-						</button>
-					{/if}
-					{#if script?.concurrent_limit != undefined && script.concurrency_time_window_s != undefined}
-						<div class="hidden md:block">
-							<Badge color="gray" variant="outlined" size="xs">
-								{`Concurrency limit: ${script.concurrent_limit} runs every ${script.concurrency_time_window_s}s`}
-							</Badge>
-						</div>
-					{/if}
-				</DetailPageHeader>
-			</svelte:fragment>
-			<svelte:fragment slot="form">
+					</button>
+				{/if}
+				{#if script?.concurrent_limit != undefined && script.concurrency_time_window_s != undefined}
+					<div class="hidden md:block">
+						<Badge color="gray" variant="outlined" size="xs">
+							{`Concurrency limit: ${script.concurrent_limit} runs every ${script.concurrency_time_window_s}s`}
+						</Badge>
+					</div>
+				{/if}
+			</DetailPageHeader>
+		{/snippet}
+		{#snippet form()}
+			{#if script}
 				<div class="p-8 w-full max-w-3xl mx-auto">
 					<div class="flex flex-col gap-0.5 mb-1">
 						{#if script.lock_error_logs || topHash || script.archived || script.deleted}
@@ -675,7 +697,7 @@
 					<div class="flex flex-col align-left">
 						<div class="flex flex-row justify-between">
 							<InputSelectedBadge
-								on:click={() => {
+								onReject={() => {
 									savedInputsV2?.resetSelected()
 								}}
 								{inputSelected}
@@ -694,6 +716,16 @@
 								}}
 							/>
 						</div>
+
+						{#if script?.schema?.prompt_for_ai !== undefined}
+							<AIFormAssistant
+								instructions={script.schema?.prompt_for_ai as string}
+								onEditInstructions={() => {
+									goto(`/scripts/edit/${script?.path}?metadata_open=true`)
+								}}
+								runnableType="script"
+							/>
+						{/if}
 
 						<RunForm
 							bind:scheduledForStr
@@ -738,27 +770,31 @@
 						<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
 					</div>
 				</div>
-			</svelte:fragment>
-			<svelte:fragment slot="save_inputs">
-				{#if args}
-					<SavedInputsV2
-						schema={script?.schema}
-						bind:this={savedInputsV2}
-						scriptPath={script?.path}
-						scriptHash={topHash}
-						{isValid}
-						{jsonView}
-						{args}
-						bind:inputSelected
-						on:selected_args={(e) => {
-							const nargs = JSON.parse(JSON.stringify(e.detail))
-							args = nargs
-						}}
-					/>
-				{/if}
-			</svelte:fragment>
-			<svelte:fragment slot="triggers">
+			{/if}
+		{/snippet}
+		{#snippet save_inputs()}
+			{#if args}
+				<SavedInputsV2
+					schema={script?.schema}
+					bind:this={savedInputsV2}
+					scriptPath={script?.path}
+					scriptHash={topHash}
+					{isValid}
+					{jsonView}
+					{args}
+					bind:inputSelected
+					on:selected_args={(e) => {
+						const nargs = JSON.parse(JSON.stringify(e.detail))
+						args = nargs
+					}}
+				/>
+			{/if}
+		{/snippet}
+		{#snippet triggers()}
+			{#if script}
 				<TriggersEditor
+					{args}
+					hash={script.hash}
 					initialPath={script.path}
 					currentPath={script.path}
 					noEditor={true}
@@ -769,22 +805,24 @@
 					noCapture={true}
 					isEditor={false}
 				/>
-			</svelte:fragment>
-			<svelte:fragment slot="script">
-				<div class="h-full">
-					<Skeleton {loading} layout={[[20]]} />
+			{/if}
+		{/snippet}
+		{#snippet scriptRender()}
+			<div class="h-full">
+				<Skeleton {loading} layout={[[20]]} />
 
-					<Tabs selected="code">
-						<Tab value="code" size="xs">Code</Tab>
-						<Tab value="dependencies" size="xs">Lockfile</Tab>
-						<Tab value="schema" size="xs">Schema</Tab>
-						<svelte:fragment slot="content">
+				<Tabs selected="code">
+					<Tab value="code" size="xs">Code</Tab>
+					<Tab value="dependencies" size="xs">Lockfile</Tab>
+					<Tab value="schema" size="xs">Schema</Tab>
+					{#snippet content()}
+						{#if script}
 							<TabContent value="code">
 								<div class="p-2 w-full">
 									<HighlightCode
 										language={script.language}
 										code={script.content}
-										class="whitespace-pre-wrap"
+										className="whitespace-pre-wrap"
 									/>
 								</div>
 							</TabContent>
@@ -816,7 +854,7 @@
 							<TabContent value="schema">
 								<div class="p-1 relative h-full">
 									<button
-										on:click={() => copyToClipboard(JSON.stringify(script?.schema, null, 4))}
+										onclick={() => copyToClipboard(JSON.stringify(script?.schema, null, 4))}
 										class="absolute top-2 right-2"
 									>
 										<ClipboardCopy size={14} />
@@ -824,19 +862,19 @@
 									<Highlight language={json} code={JSON.stringify(script?.schema, null, 4)} />
 								</div>
 							</TabContent>
-						</svelte:fragment>
-					</Tabs>
-				</div>
+						{/if}
+					{/snippet}
+				</Tabs>
+			</div>
 
-				{#if script.envs && script.envs.length > 0}
-					<h3>Static Env Variables</h3>
-					<ul>
-						{#each script.envs as e}
-							<li>{e}</li>
-						{/each}
-					</ul>
-				{/if}
-			</svelte:fragment>
-		</DetailPageLayout>
-	{/key}
-{/if}
+			{#if script?.envs && script.envs.length > 0}
+				<h3>Static Env Variables</h3>
+				<ul>
+					{#each script?.envs as e}
+						<li>{e}</li>
+					{/each}
+				</ul>
+			{/if}
+		{/snippet}
+	</DetailPageLayout>
+{/key}

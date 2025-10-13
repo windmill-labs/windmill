@@ -4,14 +4,22 @@
 	import { X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let noBg = false
-	export let small: boolean = false
-	export let Icon: any | undefined = undefined
+	interface Props {
+		noBg?: boolean
+		small?: boolean
+		Icon?: any | undefined
+		class?: string
+		onClick?: () => void | undefined | any
+	}
+
+	let { noBg = false, small = false, Icon, class: className, onClick }: Props = $props()
+
 	const dispatch = createEventDispatcher()
 </script>
 
 <Button
-	on:click={() => dispatch('close')}
+	on:click={() => (dispatch('close'), onClick?.())}
+	on:pointerdown={(e) => e.stopPropagation()}
 	startIcon={{ icon: Icon ?? X }}
 	iconOnly
 	size="sm"
@@ -19,6 +27,7 @@
 	btnClasses={twMerge(
 		'hover:bg-surface-hover rounded-full p-0',
 		noBg ? '' : 'bg-surface-secondary',
-		small ? 'w-6 h-6' : 'w-8 h-8'
+		small ? 'w-6 h-6' : 'w-8 h-8',
+		className ?? ''
 	)}
 />

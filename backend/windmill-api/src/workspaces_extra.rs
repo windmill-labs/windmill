@@ -1,19 +1,22 @@
 use crate::db::ApiAuthed;
 
-use crate::workspaces::{check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN};
+use crate::workspaces::{check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN, WM_FORK_PREFIX};
 use crate::{db::DB, utils::require_super_admin};
 
+use axum::extract::Query;
 use axum::{
     extract::{Extension, Path},
     Json,
 };
 
-use windmill_audit::audit_ee::audit_log;
+use sqlx::{Postgres, Transaction};
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 
 use windmill_common::worker::CLOUD_HOSTED;
 
 use windmill_common::{
+    auth::is_super_admin_email,
     error::{Error, Result},
     utils::require_admin,
 };
@@ -32,7 +35,7 @@ pub(crate) async fn change_workspace_id(
     Extension(db): Extension<DB>,
     Json(rw): Json<ChangeWorkspaceId>,
 ) -> Result<String> {
-    if *CLOUD_HOSTED {
+    if *CLOUD_HOSTED && !is_super_admin_email(&db, &authed.email).await? {
         return Err(Error::BadRequest(
             "This feature is not available on the cloud".to_string(),
         ));
@@ -191,6 +194,14 @@ pub(crate) async fn change_workspace_id(
 
     sqlx::query!(
         "UPDATE workspace_runnable_dependencies SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE asset SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -405,10 +416,16 @@ pub(crate) async fn change_workspace_id(
     ))
 }
 
+#[derive(Deserialize)]
+pub(crate) struct DeleteWorkspaceQuery {
+    pub(crate) only_delete_forks: Option<bool>,
+}
+
 pub(crate) async fn delete_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     authed: ApiAuthed,
+    Query(dwq): Query<DeleteWorkspaceQuery>,
 ) -> Result<String> {
     let w_id = match w_id.as_str() {
         "starter" => Err(Error::BadRequest(
@@ -419,8 +436,17 @@ pub(crate) async fn delete_workspace(
         )),
         _ => Ok(w_id),
     }?;
+
+    if dwq.only_delete_forks.unwrap_or(false) && !w_id.starts_with(WM_FORK_PREFIX) {
+        return Err(Error::BadRequest(
+            "Cannot delete this workspace because it is not a workspace fork.".to_string(),
+        ));
+    }
+
     let mut tx = db.begin().await?;
-    require_super_admin(&db, &authed.email).await?;
+    if !(w_id.starts_with(WM_FORK_PREFIX) && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
+        require_super_admin(&db, &authed.email).await?;
+    }
 
     sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
@@ -564,4 +590,15 @@ pub(crate) async fn delete_workspace(
     tx.commit().await?;
 
     Ok(format!("Deleted workspace {}", &w_id))
+}
+
+async fn is_workspace_owner(
+    authed: &ApiAuthed,
+    w_id: &str,
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<bool> {
+    let owner = sqlx::query_scalar!("SELECT owner FROM workspace WHERE id = $1", w_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    Ok(owner.map(|o| o == authed.email).unwrap_or(false))
 }

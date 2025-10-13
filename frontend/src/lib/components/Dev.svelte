@@ -1,7 +1,7 @@
 <script lang="ts">
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
-	import { Button, Drawer } from '$lib/components/common'
+	import JobLoader from '$lib/components/JobLoader.svelte'
+	import { Button } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import LogPanel from '$lib/components/scriptEditor/LogPanel.svelte'
 	import {
@@ -11,18 +11,15 @@
 		OpenAPI,
 		type Preview,
 		type OpenFlow,
-		type FlowModule,
 		WorkspaceService,
 		type InputTransform,
-		type RawScript,
-		type PathScript,
 		type TriggersCount
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { setCopilotInfo, userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { emptySchema, readFieldsRecursively, sendUserToast, type StateStore } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { onDestroy, onMount, setContext } from 'svelte'
+	import { onDestroy, onMount, setContext, untrack } from 'svelte'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import { page } from '$app/stores'
 	import { getUserExt } from '$lib/user'
@@ -32,15 +29,14 @@
 	import { deepEqual } from 'fast-equals'
 	import { writable } from 'svelte/store'
 	import type { FlowState } from './flows/flowState'
-	import { initHistory } from '$lib/history'
+	import { initHistory } from '$lib/history.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
 	import { CornerDownLeft, Play } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { setLicense } from '$lib/enterpriseUtils'
-	import type { FlowCopilotContext, FlowCopilotModule } from './copilot/flow'
-	import { pickScript } from './flows/flowStateUtils'
+	import type { FlowCopilotContext } from './copilot/flow'
 	import {
 		approximateFindPythonRelativePath,
 		isTypescriptRelativePath,
@@ -52,22 +48,27 @@
 	import type { FlowPropPickerConfig, PropPickerContext } from './prop_picker'
 	import type { PickableProperties } from './flows/previousResults'
 	import { Triggers } from './triggers/triggers.svelte'
-	$: token = $page.url.searchParams.get('wm_token') ?? undefined
-	$: workspace = $page.url.searchParams.get('workspace') ?? undefined
-	$: themeDarkRaw = $page.url.searchParams.get('activeColorTheme')
-	$: themeDark = themeDarkRaw == '2' || themeDarkRaw == '4'
+	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
+	import { ModulesTestStates } from './modulesTest.svelte'
+	import type { GraphModuleState } from './graph'
+	import { setCopilotInfo } from '$lib/aiStore'
 
-	$: if (token) {
-		OpenAPI.WITH_CREDENTIALS = true
-		OpenAPI.TOKEN = token
-		loadUser()
-	}
+	let {
+		initial = undefined
+	}: {
+		initial?:
+			| {
+					type: 'script'
+					script: LastEditScript
+			  }
+			| {
+					type: 'flow'
+					flow: LastEditFlow
+			  }
+			| undefined
+	} = $props()
 
 	let flowCopilotContext: FlowCopilotContext = {
-		drawerStore: writable<Drawer | undefined>(undefined),
-		modulesStore: writable<FlowCopilotModule[]>([]),
-		currentStepStore: writable<string | undefined>(undefined),
-		genFlow,
 		shouldUpdatePropertyType: writable<{
 			[key: string]: 'static' | 'javascript' | undefined
 		}>({}),
@@ -78,33 +79,6 @@
 			[key: string]: string | undefined
 		}>({}),
 		stepInputsLoading: writable<boolean>(false)
-	}
-	const { modulesStore } = flowCopilotContext
-
-	async function genFlow(idx: number, flowModules: FlowModule[], stepOnly = false) {
-		let module = stepOnly ? $modulesStore[0] : $modulesStore[idx]
-
-		if (module && module.selectedCompletion) {
-			const [hubScriptModule, hubScriptState] = await pickScript(
-				module.selectedCompletion.path,
-				`${module.selectedCompletion.summary} (${module.selectedCompletion.app})`,
-				module.id,
-				undefined
-			)
-			const flowModule: FlowModule & {
-				value: RawScript | PathScript
-			} = {
-				id: module.id,
-				value: hubScriptModule.value,
-				summary: hubScriptModule.summary
-			}
-
-			$flowStateStore[module.id] = hubScriptState
-
-			flowModules.splice(idx, 0, flowModule)
-			$flowStore = $flowStore
-			sendUserToast('Added module', false)
-		}
 	}
 
 	setContext('FlowCopilotContext', flowCopilotContext)
@@ -121,14 +95,6 @@
 			}
 		}
 	}
-	$: if (workspace) {
-		$workspaceStore = workspace
-		setupCopilotInfo()
-	}
-
-	$: if (workspace && token) {
-		loadUser()
-	}
 
 	async function loadUser() {
 		try {
@@ -139,31 +105,32 @@
 		}
 	}
 
-	let darkModeToggle: DarkModeToggle
-	let darkMode: boolean | undefined = undefined
-	let modeInitialized = false
+	let darkModeToggle: DarkModeToggle | undefined = $state()
+	let darkMode: boolean | undefined = $state(undefined)
+	let modeInitialized = $state(false)
 	function initializeMode() {
 		modeInitialized = true
-		darkModeToggle.toggle()
+		darkModeToggle?.toggle()
 	}
-	$: darkModeToggle &&
-		themeDark != darkMode &&
-		darkMode != undefined &&
-		!modeInitialized &&
-		initializeMode()
 
-	let testJobLoader: TestJobLoader
+	let jobLoader: JobLoader | undefined = $state()
 	let socket: WebSocket | undefined = undefined
 
 	// Test args input
-	let args: Record<string, any> = {}
-	let isValid: boolean = true
+	let args: Record<string, any> = $state({})
+	let isValid: boolean = $state(true)
 
 	// Test
-	let testIsLoading = false
-	let testJob: Job | undefined
-	let pastPreviews: CompletedJob[] = []
-	let validCode = true
+	let testIsLoading = $state(false)
+	let testJob: Job | undefined = $state()
+	let pastPreviews: CompletedJob[] = $state([])
+	let validCode = $state(true)
+
+	// Flow preview
+	let flowPreviewButtons: FlowPreviewButtons | undefined = $state()
+	const flowPreviewContent = $derived(flowPreviewButtons?.getFlowPreviewContent())
+	const job: Job | undefined = $derived(flowPreviewContent?.getJob())
+	let showJobStatus = $state(false)
 
 	type LastEditScript = {
 		content: string
@@ -174,24 +141,36 @@
 		tag?: string
 	}
 
-	let currentScript: LastEditScript | undefined = undefined
+	let currentScript: LastEditScript | undefined = $state(undefined)
+	let mode: 'script' | 'flow' = $state('script')
+	let lastPath: string | undefined = undefined
 
-	let schema = emptySchema()
+	let schema = $state(emptySchema())
 	const href = window.location.href
 	const indexQ = href.indexOf('?')
 	const searchParams = indexQ > -1 ? new URLSearchParams(href.substring(indexQ)) : undefined
+	let relativePaths: any[] = $state([])
 
 	if (searchParams?.has('local')) {
 		connectWs()
 	}
 
-	let useLock = false
+	let useLock = $state(false)
 
 	let lockChanges = false
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
-	let loadingCodebaseButton = false
+	let loadingCodebaseButton = $state(false)
 	let lastCommandId = ''
+
+	if (initial) {
+		if (initial.type == 'script') {
+			replaceScript(initial.script)
+		} else if (initial.type == 'flow') {
+			replaceFlow(initial.flow)
+		}
+		modeInitialized = true
+	}
 
 	const el = (event) => {
 		// sendUserToast(`Received message from parent ${event.data.type}`, true)
@@ -202,19 +181,25 @@
 			replaceScript(event.data)
 		} else if (event.data.type == 'testBundle') {
 			if (event.data.id == lastCommandId) {
-				testBundle(event.data.file, event.data.isTar)
+				testBundle(event.data.file, event.data.isTar, event.data.format)
 			} else {
 				sendUserToast(`Bundle received ${lastCommandId} was obsolete, ignoring`, true)
 			}
 		} else if (event.data.type == 'testPreviewBundle') {
 			if (event.data.id == lastCommandId && currentScript) {
-				testJobLoader.runPreview(
+				jobLoader?.runPreview(
 					currentScript.path,
 					event.data.file,
 					currentScript.language,
 					args,
 					currentScript.tag,
-					useLock ? currentScript.lock : undefined
+					useLock ? currentScript.lock : undefined,
+					undefined,
+					{
+						done(x) {
+							loadPastTests()
+						}
+					}
 				)
 			} else {
 				sendUserToast(`Bundle received ${lastCommandId} was obsolete, ignoring`, true)
@@ -268,57 +253,65 @@
 		window.parent?.postMessage({ type: 'refresh' }, '*')
 	})
 
-	async function testBundle(file: string, isTar: boolean) {
-		testJobLoader?.abstractRun(async () => {
-			try {
-				const form = new FormData()
-				form.append(
-					'preview',
-					JSON.stringify({
-						content: currentScript?.content,
-						kind: isTar ? 'tarbundle' : 'bundle',
-						path: currentScript?.path,
-						args,
-						language: currentScript?.language,
-						tag: currentScript?.tag
-					})
-				)
-				// sendUserToast(JSON.stringify(file))
-				if (isTar) {
-					var array: number[] = []
-					file = atob(file)
-					for (var i = 0; i < file.length; i++) {
-						array.push(file.charCodeAt(i))
-					}
-					let blob = new Blob([new Uint8Array(array)], { type: 'application/octet-stream' })
-
-					form.append('file', blob)
-				} else {
-					form.append('file', file)
-				}
-
-				const url = '/api/w/' + workspace + '/jobs/run/preview_bundle'
-
-				const req = await fetch(url, {
-					method: 'POST',
-					body: form,
-					headers: {
-						Authorization: 'Bearer ' + token
-					}
-				})
-				if (req.status != 201) {
-					throw Error(
-						`Script snapshot creation was not successful: ${req.status} - ${
-							req.statusText
-						} - ${await req.text()}`
+	async function testBundle(file: string, isTar: boolean, format: 'cjs' | 'esm' | undefined) {
+		jobLoader?.abstractRun(
+			async () => {
+				try {
+					const form = new FormData()
+					form.append(
+						'preview',
+						JSON.stringify({
+							content: currentScript?.content,
+							kind: isTar ? 'tarbundle' : 'bundle',
+							path: currentScript?.path,
+							args,
+							language: currentScript?.language,
+							tag: currentScript?.tag,
+							format
+						})
 					)
+					// sendUserToast(JSON.stringify(file))
+					if (isTar) {
+						var array: number[] = []
+						file = atob(file)
+						for (var i = 0; i < file.length; i++) {
+							array.push(file.charCodeAt(i))
+						}
+						let blob = new Blob([new Uint8Array(array)], { type: 'application/octet-stream' })
+
+						form.append('file', blob)
+					} else {
+						form.append('file', file)
+					}
+
+					const url = '/api/w/' + workspace + '/jobs/run/preview_bundle'
+
+					const req = await fetch(url, {
+						method: 'POST',
+						body: form,
+						headers: {
+							Authorization: 'Bearer ' + token
+						}
+					})
+					if (req.status != 201) {
+						throw Error(
+							`Script snapshot creation was not successful: ${req.status} - ${
+								req.statusText
+							} - ${await req.text()}`
+						)
+					}
+					return await req.text()
+				} catch (e) {
+					sendUserToast(`Failed to send bundle ${e}`, true)
+					throw Error(e)
 				}
-				return await req.text()
-			} catch (e) {
-				sendUserToast(`Failed to send bundle ${e}`, true)
-				throw Error(e)
+			},
+			{
+				done(x) {
+					loadPastTests()
+				}
 			}
-		})
+		)
 		loadingCodebaseButton = false
 	}
 	onDestroy(() => {
@@ -367,7 +360,7 @@
 		}
 	}
 
-	let typescriptBundlePreviewMode = false
+	let typescriptBundlePreviewMode = $state(false)
 	function runTest() {
 		if (mode == 'script') {
 			if (!currentScript) {
@@ -386,7 +379,7 @@
 					)
 				} else {
 					//@ts-ignore
-					testJobLoader.runPreview(
+					jobLoader.runPreview(
 						currentScript.path,
 						currentScript.content,
 						currentScript.language,
@@ -425,8 +418,6 @@
 		}
 	}
 
-	let relativePaths: any[] = []
-	let lastPath: string | undefined = undefined
 	async function replaceScript(lastEdit: LastEditScript) {
 		mode = 'script'
 		currentScript = lastEdit
@@ -450,14 +441,14 @@
 		}
 	}
 
-	let mode: 'script' | 'flow' = 'script'
-
-	const flowStore = writable({
-		summary: '',
-		value: { modules: [] },
-		extra_perms: {},
-		schema: emptySchema()
-	} as OpenFlow)
+	const flowStore = $state({
+		val: {
+			summary: '',
+			value: { modules: [] },
+			extra_perms: {},
+			schema: emptySchema()
+		} as OpenFlow
+	})
 
 	type LastEditFlow = {
 		flow: OpenFlow
@@ -470,14 +461,14 @@
 		// sendUserToast(JSON.stringify(lastEdit.flow), true)
 		// return
 		try {
-			if (!deepEqual(lastEdit.flow, $flowStore)) {
+			if (!deepEqual(lastEdit.flow, flowStore)) {
 				if (!lastEdit.flow.summary) {
 					lastEdit.flow.summary = 'New flow'
 				}
 				if (!lastEdit.flow.value?.modules) {
 					lastEdit.flow.value = { modules: [] }
 				}
-				$flowStore = lastEdit.flow
+				flowStore.val = lastEdit.flow
 				inferModuleArgs($selectedIdStore)
 			}
 		} catch (e) {
@@ -485,17 +476,21 @@
 		}
 	}
 
-	const flowStateStore = writable({} as FlowState)
+	const flowStateStore = $state({ val: {} }) as StateStore<FlowState>
 
-	const previewArgsStore = writable<Record<string, any>>({})
+	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
-	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
-	const history = initHistory($flowStore)
-
-	const testStepStore = writable<Record<string, any>>({})
+	const moving = writable<{ id: string } | undefined>(undefined)
+	const history = initHistory(flowStore.val)
+	const stepsInputArgs = new StepsInputArgs()
 	const selectedIdStore = writable('settings-metadata')
-
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
+	const modulesTestStates = new ModulesTestStates((moduleId) => {
+		// Update the derived store with test job states
+		showJobStatus = false
+	})
+	const outputPickerOpenFns: Record<string, () => void> = $state({})
+
 	setContext<TriggerContext>('TriggerContext', {
 		triggersCount: triggersCount,
 		simplifiedPoll: writable(false),
@@ -511,7 +506,7 @@
 		pathStore: writable(''),
 		flowStateStore,
 		flowStore,
-		testStepStore,
+		stepsInputArgs,
 		saveDraft: () => {},
 		initialPathStore: writable(''),
 		fakeInitialPath: '',
@@ -523,13 +518,15 @@
 			selectedTab: undefined,
 			editPanelSize: undefined,
 			payloadData: undefined
-		})
+		}),
+		currentEditor: writable(undefined),
+		modulesTestStates,
+		outputPickerOpenFns
 	})
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
-	$: updateFlow($flowStore)
 
 	let lastSent: OpenFlow | undefined = undefined
 	function updateFlow(flow: OpenFlow) {
@@ -537,22 +534,19 @@
 			return
 		}
 		if (!deepEqual(flow, lastSent)) {
-			lastSent = JSON.parse(JSON.stringify(flow))
-			window?.parent.postMessage({ type: 'flow', flow, uriPath: lastUriPath }, '*')
+			lastSent = $state.snapshot(flow)
+			window?.parent.postMessage({ type: 'flow', flow: lastSent, uriPath: lastUriPath }, '*')
 		}
 	}
 
-	$: $selectedIdStore && inferModuleArgs($selectedIdStore)
-
-	let flowPreviewButtons: FlowPreviewButtons
-	let reload = 0
+	let reload = $state(0)
 
 	async function inferModuleArgs(selectedIdStore: string) {
 		if (selectedIdStore == '') {
 			return
 		}
 		//@ts-ignore
-		dfs($flowStore.value.modules, async (mod) => {
+		dfs(flowStore.val.value.modules, async (mod) => {
 			if (mod.id == selectedIdStore) {
 				if (
 					mod.value.type == 'rawscript' ||
@@ -565,11 +559,11 @@
 					}
 
 					mod.value.input_transforms = input_transforms
-					if (!deepEqual(schema, $flowStateStore[mod.id]?.schema)) {
-						if (!$flowStateStore[mod.id]) {
-							$flowStateStore[mod.id] = { schema }
+					if (!deepEqual(schema, flowStateStore.val[mod.id]?.schema)) {
+						if (!flowStateStore.val[mod.id]) {
+							flowStateStore.val[mod.id] = { schema }
 						} else {
-							$flowStateStore[mod.id].schema = schema
+							flowStateStore.val[mod.id].schema = schema
 						}
 						reload++
 					}
@@ -577,20 +571,99 @@
 			}
 		})
 	}
+	let token = $derived($page.url.searchParams.get('wm_token') ?? undefined)
+	let workspace = $derived($page.url.searchParams.get('workspace') ?? undefined)
+	let themeDarkRaw = $derived($page.url.searchParams.get('activeColorTheme'))
+	let themeDark = $derived(themeDarkRaw == '2' || themeDarkRaw == '4')
+
+	$effect.pre(() => {
+		setContext<{ token?: string }>('AuthToken', { token })
+	})
+	$effect.pre(() => {
+		if (token) {
+			OpenAPI.WITH_CREDENTIALS = true
+			OpenAPI.TOKEN = token
+		}
+	})
+	$effect.pre(() => {
+		if (workspace) {
+			$workspaceStore = workspace
+		}
+	})
+	$effect.pre(() => {
+		if (workspace && token) {
+			untrack(() => loadUser())
+			untrack(() => setupCopilotInfo())
+		}
+	})
+	$effect(() => {
+		darkModeToggle &&
+			themeDark != darkMode &&
+			darkMode != undefined &&
+			!modeInitialized &&
+			untrack(() => initializeMode())
+	})
+	$effect(() => {
+		readFieldsRecursively(flowStore.val)
+		flowStore.val && untrack(() => updateFlow(flowStore.val))
+	})
+	$effect(() => {
+		$selectedIdStore && untrack(() => inferModuleArgs($selectedIdStore))
+	})
+
+	let localModuleStates: Record<string, GraphModuleState> = $state({})
+
+	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
+
+	// Create a derived store that only shows the module states when showModuleStatus is true
+	// this store can also be updated
+
+	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
+	function onJobDone() {
+		if (!job) {
+			return
+		}
+		// job was running and is now stopped
+		if (!flowPreviewButtons?.getPreviewOpen()) {
+			if (
+				job.type === 'CompletedJob' &&
+				job.success &&
+				flowPreviewButtons?.getPreviewMode() === 'whole'
+			) {
+				if (flowModuleSchemaMap?.isNodeVisible('result') && $selectedIdStore !== 'Result') {
+					outputPickerOpenFns['Result']?.()
+				}
+			} else {
+				// Find last module with a job in flow_status
+				const lastModuleWithJob = job.flow_status?.modules
+					?.slice()
+					.reverse()
+					.find((module) => 'job' in module)
+				if (
+					lastModuleWithJob &&
+					lastModuleWithJob.id &&
+					flowModuleSchemaMap?.isNodeVisible(lastModuleWithJob.id)
+				) {
+					outputPickerOpenFns[lastModuleWithJob.id]?.()
+				}
+			}
+		}
+	}
+
+	function resetModulesStates() {
+		showJobStatus = false
+	}
+
+	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 
-<TestJobLoader
-	on:done={loadPastTests}
-	bind:this={testJobLoader}
-	bind:isLoading={testIsLoading}
-	bind:job={testJob}
-/>
+<JobLoader noCode={true} bind:this={jobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 
 <main class="h-screen w-full">
 	{#if mode == 'script'}
-		<div class="flex flex-col min-h-full overflow-auto">
+		<div class="flex flex-col min-h-full min-h-screen overflow-auto">
 			<div class="absolute top-0 left-2">
 				<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
 			</div>
@@ -647,7 +720,7 @@
 			{/if}
 			<div class="flex justify-center pt-1">
 				{#if testIsLoading}
-					<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+					<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 						<WindmillIcon
 							white={true}
 							class="mr-2 text-white"
@@ -682,7 +755,7 @@
 					</Button>
 				{/if}
 			</div>
-			<Splitpanes horizontal class="h-full">
+			<Splitpanes horizontal style="height: 1000px;">
 				<Pane size={33}>
 					<div class="px-2">
 						<div class="break-words relative font-sans">
@@ -714,19 +787,42 @@
 					{/if}
 				</div>
 
-				<div class="flex justify-center pt-1 z-50 absolute right-2 top-2 gap-2">
-					<FlowPreviewButtons bind:this={flowPreviewButtons} />
+				<div class="flex justify-center pt-1 z-50 absolute -translate-x-[100%] right-2 top-2 gap-2">
+					<FlowPreviewButtons
+						bind:this={flowPreviewButtons}
+						{onJobDone}
+						onRunPreview={() => {
+							localModuleStates = {}
+							showJobStatus = true
+						}}
+					/>
 				</div>
 				<Splitpanes horizontal class="h-full max-h-screen grow">
 					<Pane size={67}>
-						{#if $flowStore?.value?.modules}
+						{#if flowStore.val?.value?.modules}
 							<div id="flow-editor"></div>
 							<FlowModuleSchemaMap
-								bind:modules={$flowStore.value.modules}
+								bind:this={flowModuleSchemaMap}
 								disableAi
 								disableTutorials
 								smallErrorHandler={true}
 								disableStaticInputs
+								{localModuleStates}
+								onTestUpTo={flowPreviewButtons?.testUpTo}
+								testModuleStates={modulesTestStates}
+								isOwner={flowPreviewContent?.getIsOwner?.()}
+								onTestFlow={flowPreviewButtons?.runPreview}
+								isRunning={flowPreviewContent?.getIsRunning?.()}
+								onCancelTestFlow={flowPreviewContent?.cancelTest}
+								onOpenPreview={flowPreviewButtons?.openPreview}
+								onHideJobStatus={resetModulesStates}
+								flowJob={job}
+								{showJobStatus}
+								onDelete={(id) => {
+									delete localModuleStates[id]
+									delete modulesTestStates.states[id]
+								}}
+								{flowHasChanged}
 							/>
 						{:else}
 							<div class="text-red-400 mt-20">Missing flow modules</div>
@@ -739,13 +835,19 @@
 								noEditor
 								on:applyArgs={(ev) => {
 									if (ev.detail.kind === 'preprocessor') {
-										$testStepStore['preprocessor'] = ev.detail.args ?? {}
+										stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
 										$selectedIdStore = 'preprocessor'
 									} else {
-										$previewArgsStore = ev.detail.args ?? {}
+										previewArgsStore.val = ev.detail.args ?? {}
 										flowPreviewButtons?.openPreview()
 									}
 								}}
+								onTestFlow={flowPreviewButtons?.runPreview}
+								{job}
+								isOwner={flowPreviewContent?.getIsOwner()}
+								{suspendStatus}
+								onOpenDetails={flowPreviewButtons?.openPreview}
+								previewOpen={flowPreviewButtons?.getPreviewOpen()}
 							/>
 						{/key}
 					</Pane>

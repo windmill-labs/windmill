@@ -1,19 +1,48 @@
+<script module lang="ts">
+	let initialWorkspace = get(workspaceStore)
+	let loadItemsCached = createCache(
+		({
+			workspace,
+			kind,
+			isTemplate
+		}: {
+			workspace?: string
+			kind?: string
+			isTemplate?: boolean
+			refreshCount?: number
+		}) =>
+			workspace && get(userStore)
+				? kind == 'flow'
+					? FlowService.listFlows({ workspace })
+					: ScriptService.listScripts({ workspace, kinds: kind, isTemplate })
+				: undefined,
+		initialWorkspace
+			? {
+					initial: {
+						workspace: initialWorkspace,
+						kind: 'script',
+						isTemplate: undefined,
+						refreshCount: 0
+					},
+					invalidateMs: 1000 * 60
+				}
+			: {}
+	)
+</script>
+
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { FlowService, ScriptService } from '$lib/gen'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { Skeleton } from '$lib/components/common'
-	import { emptyString } from '$lib/utils'
+	import { createCache, emptyString } from '$lib/utils'
 	import { Code2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-
-	export let kind: 'script' | 'trigger' | 'approval' | 'failure' | 'flow' | 'preprocessor' =
-		'script'
-	export let isTemplate: boolean | undefined = undefined
-	export let selected: number | undefined = undefined
-	export let displayPath = false
+	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { get } from 'svelte/store'
+	import { userStore } from '$lib/stores'
 
 	type Item = {
 		path: string
@@ -22,54 +51,42 @@
 		hash?: string
 	}
 
-	let items: Item[] | undefined = undefined
+	let items = usePromise(
+		async () =>
+			await loadItemsCached({ workspace: $workspaceStore!, kind, isTemplate, refreshCount }),
+		{ loadInit: false, clearValueOnRefresh: false }
+	)
 
-	let filteredItems: (Item & { marked?: string })[] | undefined = undefined
-	export let filteredWithOwner: (Item & { marked?: string })[] | undefined = undefined
+	let filteredItems: (Item & { marked?: string })[] | undefined = $state(undefined)
 
-	export let filter = ''
-	export let owners: string[] = []
-
-	$: $workspaceStore && kind && loadItems()
-
-	async function loadItems(): Promise<void> {
-		items =
-			kind == 'flow'
-				? await FlowService.listFlows({ workspace: $workspaceStore! })
-				: await ScriptService.listScripts({
-						workspace: $workspaceStore!,
-						kinds: kind,
-						isTemplate
-				  })
+	interface Props {
+		kind?: 'script' | 'trigger' | 'approval' | 'failure' | 'flow' | 'preprocessor'
+		isTemplate?: boolean | undefined
+		selected?: number | undefined
+		displayPath?: boolean
+		filteredWithOwner?: (Item & { marked?: string })[] | undefined
+		filter?: string
+		owners?: string[]
+		ownerFilter?:
+			| { kind: 'inline' | 'owner' | 'integrations'; name: string | undefined }
+			| undefined
+		refreshCount?: number
 	}
 
-	export let ownerFilter:
-		| { kind: 'inline' | 'owner' | 'integrations'; name: string | undefined }
-		| undefined = undefined
-
-	$: if ($workspaceStore) {
-		ownerFilter = undefined
-	}
-
-	$: owners = Array.from(
-		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-	).sort((a, b) => {
-		if (a.startsWith('u/') && !b.startsWith('u/')) return -1
-		if (b.startsWith('u/') && !a.startsWith('u/')) return 1
-
-		if (a.startsWith('f/') && !b.startsWith('f/')) return -1
-		if (b.startsWith('f/') && !a.startsWith('f/')) return 1
-
-		return a.localeCompare(b)
-	})
+	let {
+		kind = 'script',
+		isTemplate = undefined,
+		selected = undefined,
+		displayPath = false,
+		filteredWithOwner = $bindable(undefined),
+		filter = '',
+		owners = $bindable([]),
+		ownerFilter = $bindable(undefined),
+		refreshCount = 0
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 	let lockHash = false
-
-	$: filteredWithOwner =
-		ownerFilter != undefined
-			? filteredItems?.filter((x) => x.path.startsWith(ownerFilter?.name!))
-			: filteredItems
 
 	function onKeyDown(e: KeyboardEvent) {
 		if (
@@ -88,16 +105,46 @@
 			}
 		}
 	}
+	$effect(() => {
+		refreshCount
+		$workspaceStore && kind && untrack(() => items.refresh())
+	})
+	$effect(() => {
+		if ($workspaceStore) {
+			ownerFilter = undefined
+		}
+	})
+	$effect(() => {
+		if (filteredItems) {
+			owners = Array.from(
+				new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+			).sort((a, b) => {
+				if (a.startsWith('u/') && !b.startsWith('u/')) return -1
+				if (b.startsWith('u/') && !a.startsWith('u/')) return 1
+
+				if (a.startsWith('f/') && !b.startsWith('f/')) return -1
+				if (b.startsWith('f/') && !a.startsWith('f/')) return 1
+
+				return a.localeCompare(b)
+			})
+		}
+	})
+	$effect(() => {
+		filteredWithOwner =
+			ownerFilter != undefined
+				? filteredItems?.filter((x) => x.path.startsWith(ownerFilter?.name!))
+				: filteredItems
+	})
 </script>
 
 <SearchItems
 	{filter}
-	{items}
+	items={items.value}
 	bind:filteredItems
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 {#if filteredItems}
 	{#if filteredItems.length == 0}
 		<div class="text-2xs text-tertiary font-light text-center py-2 px-3 items-center">
@@ -108,20 +155,20 @@
 		{#each filteredWithOwner ?? [] as { path, hash, summary, marked }, index}
 			<li class="w-full">
 				<Popover class="w-full " placement="right" forceOpen={index === selected}>
-					<svelte:fragment slot="text">
+					{#snippet text()}
 						<div class="flex flex-col">
 							<div class="text-left text-xs font-normal leading-tight py-0">{summary ?? ''}</div>
 							<div class="text-left text-2xs font-normal">
 								{path ?? ''}
 							</div>
 						</div>
-					</svelte:fragment>
+					{/snippet}
 					<button
 						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
 						selected
 							? 'bg-surface-hover'
 							: ''}"
-						on:click={() => {
+						onclick={() => {
 							if (kind == 'flow') {
 								dispatch('pickFlow', { path: path })
 							} else {

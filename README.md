@@ -332,45 +332,47 @@ you to have it being synced automatically everyday.
 
 ## Environment Variables
 
-| Environment Variable name           | Default                | Description                                                                                                                                                                                        | Api Server/Worker/All |
-| ----------------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| DATABASE_URL                        |                        | The Postgres database url.                                                                                                                                                                         | All                   |
-| WORKER_GROUP                        | default                | The worker group the worker belongs to and get its configuration pulled from                                                                                                                       | Worker                |
-| MODE                                | standalone             | The mode if the binary. Possible values: standalone, worker, server, agent                                                                                                                         | All                   |
-| METRICS_ADDR                        | None                   | (ee only) The socket addr at which to expose Prometheus metrics at the /metrics path. Set to "true" to expose it on port 8001                                                                      | All                   |
-| JSON_FMT                            | false                  | Output the logs in json format instead of logfmt                                                                                                                                                   | All                   |
-| BASE_URL                            | http://localhost:8000  | The base url that is exposed publicly to access your instance. Is overriden by the instance settings if any.                                                                                       | Server                |
-| ZOMBIE_JOB_TIMEOUT                  | 30                     | The timeout after which a job is considered to be zombie if the worker did not send pings about processing the job (every server check for zombie jobs every 30s)                                  | Server                |
-| RESTART_ZOMBIE_JOBS                 | true                   | If true then a zombie job is restarted (in-place with the same uuid and some logs), if false the zombie job is failed                                                                              | Server                |
-| SLEEP_QUEUE                         | 50                     | The number of ms to sleep in between the last check for new jobs in the DB. It is multiplied by NUM_WORKERS such that in average, for one worker instance, there is one pull every SLEEP_QUEUE ms. | Worker                |
-| KEEP_JOB_DIR                        | false                  | Keep the job directory after the job is done. Useful for debugging.                                                                                                                                | Worker                |
-| LICENSE_KEY (EE only)               | None                   | License key checked at startup for the Enterprise Edition of Windmill                                                                                                                              | Worker                |
-| SLACK_SIGNING_SECRET                | None                   | The signing secret of your Slack app. See [Slack documentation](https://api.slack.com/authentication/verifying-requests-from-slack)                                                                | Server                |
-| COOKIE_DOMAIN                       | None                   | The domain of the cookie. If not set, the cookie will be set by the browser based on the full origin                                                                                               | Server                |
-| DENO_PATH                           | /usr/bin/deno          | The path to the deno binary.                                                                                                                                                                       | Worker                |
-| PYTHON_PATH                         |                        | The path to the python binary if wanting to not have it managed by uv.                                                                                                                             | Worker                |
-| GO_PATH                             | /usr/bin/go            | The path to the go binary.                                                                                                                                                                         | Worker                |
-| GOPRIVATE                           |                        | The GOPRIVATE env variable to use private go modules                                                                                                                                               | Worker                |
-| GOPROXY                             |                        | The GOPROXY env variable to use                                                                                                                                                                    | Worker                |
-| NETRC                               |                        | The netrc content to use a private go registry                                                                                                                                                     | Worker                |
-| PY_CONCURRENT_DOWNLOADS             | 20                     | Sets the maximum number of in-flight concurrent python downloads that windmill will perform at any given time.                                                                                     | Worker                |
-| PATH                                | None                   | The path environment variable, usually inherited                                                                                                                                                   | Worker                |
-| HOME                                | None                   | The home directory to use for Go and Bash , usually inherited                                                                                                                                      | Worker                |
-| DATABASE_CONNECTIONS                | 50 (Server)/3 (Worker) | The max number of connections in the database connection pool                                                                                                                                      | All                   |
-| SUPERADMIN_SECRET                   | None                   | A token that would let the caller act as a virtual superadmin superadmin@windmill.dev                                                                                                              | Server                |
-| TIMEOUT_WAIT_RESULT                 | 20                     | The number of seconds to wait before timeout on the 'run_wait_result' endpoint                                                                                                                     | Worker                |
-| QUEUE_LIMIT_WAIT_RESULT             | None                   | The number of max jobs in the queue before rejecting immediately the request in 'run_wait_result' endpoint. Takes precedence on the query arg. If none is specified, there are no limit.           | Worker                |
-| DENO_AUTH_TOKENS                    | None                   | Custom DENO_AUTH_TOKENS to pass to worker to allow the use of private modules                                                                                                                      | Worker                |
-| DISABLE_RESPONSE_LOGS               | false                  | Disable response logs                                                                                                                                                                              | Server                |
-| CREATE_WORKSPACE_REQUIRE_SUPERADMIN | true                   | If true, only superadmins can create new workspaces                                                                                                                                                | Server                |
-| MIN_FREE_DISK_SPACE_MB              | 15000                  | Minimum amount of free space on worker. Sends critical alert if worker has less free space.                                                                                                        | Worker                |
+| Environment Variable name           | Default                          | Description                                                                                                                                                                                        | Api Server/Worker/All |
+| ----------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| DATABASE_URL                        |                                  | The Postgres database url.                                                                                                                                                                         | All                   |
+| WORKER_GROUP                        | default                          | The worker group the worker belongs to and get its configuration pulled from                                                                                                                       | Worker                |
+| MODE                                | standalone                       | The mode if the binary. Possible values: standalone, worker, server, agent                                                                                                                         | All                   |
+| METRICS_ADDR                        | None                             | (ee only) The socket addr at which to expose Prometheus metrics at the /metrics path. Set to "true" to expose it on port 8001                                                                      | All                   |
+| JSON_FMT                            | false                            | Output the logs in json format instead of logfmt                                                                                                                                                   | All                   |
+| BASE_URL                            | http://localhost:8000            | The base url that is exposed publicly to access your instance. Is overriden by the instance settings if any.                                                                                       | Server                |
+| ZOMBIE_JOB_TIMEOUT                  | 30                               | The timeout after which a job is considered to be zombie if the worker did not send pings about processing the job (every server check for zombie jobs every 30s)                                  | Server                |
+| RESTART_ZOMBIE_JOBS                 | true                             | If true then a zombie job is restarted (in-place with the same uuid and some logs), if false the zombie job is failed                                                                              | Server                |
+| SLEEP_QUEUE                         | 50                               | The number of ms to sleep in between the last check for new jobs in the DB. It is multiplied by NUM_WORKERS such that in average, for one worker instance, there is one pull every SLEEP_QUEUE ms. | Worker                |
+| KEEP_JOB_DIR                        | false                            | Keep the job directory after the job is done. Useful for debugging.                                                                                                                                | Worker                |
+| LICENSE_KEY (EE only)               | None                             | License key checked at startup for the Enterprise Edition of Windmill                                                                                                                              | Worker                |
+| SLACK_SIGNING_SECRET                | None                             | The signing secret of your Slack app. See [Slack documentation](https://api.slack.com/authentication/verifying-requests-from-slack)                                                                | Server                |
+| COOKIE_DOMAIN                       | None                             | The domain of the cookie. If not set, the cookie will be set by the browser based on the full origin                                                                                               | Server                |
+| DENO_PATH                           | /usr/bin/deno                    | The path to the deno binary.                                                                                                                                                                       | Worker                |
+| PYTHON_PATH                         |                                  | The path to the python binary if wanting to not have it managed by uv.                                                                                                                             | Worker                |
+| GO_PATH                             | /usr/bin/go                      | The path to the go binary.                                                                                                                                                                         | Worker                |
+| GOPRIVATE                           |                                  | The GOPRIVATE env variable to use private go modules                                                                                                                                               | Worker                |
+| GOPROXY                             |                                  | The GOPROXY env variable to use                                                                                                                                                                    | Worker                |
+| NETRC                               |                                  | The netrc content to use a private go registry                                                                                                                                                     | Worker                |
+| PY_CONCURRENT_DOWNLOADS             | 20                               | Sets the maximum number of in-flight concurrent python downloads that windmill will perform at any given time.                                                                                     | Worker                |
+| PATH                                | None                             | The path environment variable, usually inherited                                                                                                                                                   | Worker                |
+| HOME                                | None                             | The home directory to use for Go and Bash , usually inherited                                                                                                                                      | Worker                |
+| DATABASE_CONNECTIONS                | 50 (Server)/3 (Worker)           | The max number of connections in the database connection pool                                                                                                                                      | All                   |
+| SUPERADMIN_SECRET                   | None                             | A token that would let the caller act as a virtual superadmin superadmin@windmill.dev                                                                                                              | Server                |
+| TIMEOUT_WAIT_RESULT                 | 20                               | The number of seconds to wait before timeout on the 'run_wait_result' endpoint                                                                                                                     | Worker                |
+| QUEUE_LIMIT_WAIT_RESULT             | None                             | The number of max jobs in the queue before rejecting immediately the request in 'run_wait_result' endpoint. Takes precedence on the query arg. If none is specified, there are no limit.           | Worker                |
+| DENO_AUTH_TOKENS                    | None                             | Custom DENO_AUTH_TOKENS to pass to worker to allow the use of private modules                                                                                                                      | Worker                |
+| DISABLE_RESPONSE_LOGS               | false                            | Disable response logs                                                                                                                                                                              | Server                |
+| CREATE_WORKSPACE_REQUIRE_SUPERADMIN | true                             | If true, only superadmins can create new workspaces                                                                                                                                                | Server                |
+| MIN_FREE_DISK_SPACE_MB              | 15000                            | Minimum amount of free space on worker. Sends critical alert if worker has less free space.                                                                                                        | Worker                |
+| RUN_UPDATE_CA_CERTIFICATE_AT_START  | false                            | If true, runs CA certificate update command at startup before other initialization                                                                                                                 | All                   |
+| RUN_UPDATE_CA_CERTIFICATE_PATH      | /usr/sbin/update-ca-certificates | Path to the CA certificate update command/script to run when RUN_UPDATE_CA_CERTIFICATE_AT_START is true                                                                                            | All                   |
 
 ## Run a local dev setup
 
+Using [Nix](./frontend/README_DEV.md#nix) (Recommended).
+
 See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
 running options.
-
-Using [Nix](./frontend/README_DEV.md#nix).
 
 ### only Frontend
 
@@ -397,29 +399,27 @@ npm run generate-backend-client-mac
 See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
 running options.
 
-1. Create a Postgres Database for Windmill and create an admin role inside your
-   Postgres setup. The easiest way to get a working db is to run
+1. Start a local Postgres database using for instance the `start-dev-db.sh` script which will make a database available at `postgres://postgres:changeme@localhost:5432/windmill`
+   Then run the migrations using the following command:
    ```
    cargo install sqlx-cli
    env DATABASE_URL=<YOUR_DATABASE_URL> sqlx migrate run
    ```
-   This will also avoid compile time issue with sqlx's `query!` macro
-2. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
+   This will also avoid compile time issue with sqlx's `query!` macro.
+2. (optional, linux only) Install [nsjail](https://github.com/google/nsjail) and have it accessible in
    your PATH
-3. Install deno and python3, have the bins at `/usr/bin/deno` and
-   `/usr/local/bin/python3`
-4. Install [caddy](https://caddyserver.com)
-5. Install the [lld linker](https://lld.llvm.org/)
-6. Go to `frontend/`:
-   1. `npm install`, `npm run generate-backend-client` then `npm run dev`
+3. Install bun, deno and python3 (+ any languages you want to use), have the bins at `/usr/bin/bun`,`/usr/bin/deno`, and
+   `/usr/local/bin/python3` or set the corresponding environment variables.
+4. (optional) Install the [lld linker](https://lld.llvm.org/)
+5. Go to `frontend/`:
+   1. `npm install`, `npm run generate-backend-client` then `REMOTE=http://localhost:8000 npm run dev`
    2. You might need to set some extra heap space for the node runtime
       `export NODE_OPTIONS="--max-old-space-size=4096"`
-   3. In another shell `npm run build` otherwise the backend will not find the
-      `frontend/build` folder and will not compile.
-   4. In another shell `sudo caddy run --config Caddyfile`
-7. Go to `backend/`:
-   `env DATABASE_URL=<DATABASE_URL_TO_YOUR_WINDMILL_DB> RUST_LOG=info cargo run`
-8. Et voilà, windmill should be available at `http://localhost/`
+   3. Create an empty `frontend/build` folder using `mkdir frontend/build`
+6. Go to `backend/`:
+   1. `env DATABASE_URL=<YOUR_DATABASE_URL> RUST_LOG=info cargo run`
+   2. You can specify any feature flag you want to enable, for example `cargo run --features python` to enable the python executor.
+7. Et voilà, windmill should be available at `http://localhost:3000`
 
 ## Contributors
 

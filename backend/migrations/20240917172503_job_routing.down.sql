@@ -4,4 +4,4 @@ DROP TYPE http_method;
 
 ALTER TABLE script DROP COLUMN has_preprocessor;
 
-DROP FUNCTION prevent_route_path_change();
+DROP FUNCTION prevent_route_path_change(); 

@@ -1,44 +1,47 @@
+<script lang="ts" module>
+	let refreshCount = $state({ val: 0 })
+</script>
+
 <script lang="ts">
 	import { createEventDispatcher, getContext } from 'svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
 	import FlowInputsQuick from '../content/FlowInputsQuick.svelte'
-	import type { FlowModule } from '$lib/gen'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
-
-	// import type { Writable } from 'svelte/store'
+	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 
 	const dispatch = createEventDispatcher()
-	export let stop = false
-	export let index: number = 0
-	export let funcDesc = ''
-	export let modules: FlowModule[] = []
-	export let disableAi = false
-	export let kind: 'script' | 'trigger' | 'preprocessor' | 'failure' = 'script'
-	export let allowTrigger = true
+	interface Props {
+		stop?: boolean
+		funcDesc?: string
+		disableAi?: boolean
+		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
+		allowTrigger?: boolean
+		scriptOnly?: boolean
+	}
+
+	let {
+		stop = false,
+		funcDesc = $bindable(''),
+		disableAi = false,
+		kind = 'script',
+		allowTrigger = true,
+		scriptOnly = false
+	}: Props = $props()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
-	let selectedKind: 'script' | 'trigger' | 'preprocessor' | 'approval' | 'flow' | 'failure' = kind
-	let preFilter: 'all' | 'workspace' | 'hub' = 'all'
-	let loading = false
-	let small = false
+	let selectedKind: 'script' | 'trigger' | 'preprocessor' | 'approval' | 'flow' | 'failure' =
+		$state(kind)
+	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
+	let loading = $state(false)
+	let small = $derived(kind === 'preprocessor' || kind === 'failure')
 
-	let width = 0
-	let height = 0
-
-	$: displayPath = width > 650 || height > 400
-
-	$: small = kind === 'preprocessor' || kind === 'failure'
+	let width = $state(0)
+	let height = $state(0)
+	let owners = $state([])
+	let displayPath = $derived(width > 650 || height > 400)
 </script>
-
-<!-- <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close> -->
-
-<!-- {floatingConfig}
-floatingClasses="mt-2"
-containerClasses="border rounded-lg shadow-lg  bg-surface"
-noTransition
-shouldUsePortal={true} -->
 
 <div
 	id="flow-editor-insert-module"
@@ -47,7 +50,7 @@ shouldUsePortal={true} -->
 		: 'w-[650px]'} pt-1 pr-1 pl-1 gap-1.5 resize overflow-auto {small
 		? 'min-w-[450px]'
 		: 'min-w-[650px]'} min-h-[400px]"
-	on:wheel={(e) => {
+	onwheel={(e) => {
 		e.stopPropagation()
 	}}
 	role="none"
@@ -66,10 +69,11 @@ shouldUsePortal={true} -->
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		{/if}
+		<RefreshButton size="md" light {loading} on:click={() => (refreshCount.val += 1)} />
 	</div>
 
 	<div class="flex flex-row grow min-h-0">
-		{#if kind === 'script'}
+		{#if kind === 'script' && !scriptOnly}
 			<div class="flex-none flex flex-col text-xs text-primary">
 				<TopLevelNode
 					label="Action"
@@ -141,6 +145,15 @@ shouldUsePortal={true} -->
 						dispatch('new', { kind: 'branchall' })
 					}}
 				/>
+				{#if customUi?.aiAgent != false}
+					<TopLevelNode
+						label="AI Agent"
+						on:select={() => {
+							dispatch('close')
+							dispatch('new', { kind: 'aiagent' })
+						}}
+					/>
+				{/if}
 			</div>
 		{/if}
 
@@ -148,11 +161,10 @@ shouldUsePortal={true} -->
 			{selectedKind}
 			bind:loading
 			filter={funcDesc}
-			{modules}
-			{index}
 			{disableAi}
 			{funcDesc}
 			{kind}
+			bind:owners
 			on:close={() => {
 				dispatch('close')
 			}}
@@ -162,6 +174,7 @@ shouldUsePortal={true} -->
 			{preFilter}
 			{small}
 			{displayPath}
+			refreshCount={refreshCount.val}
 		/>
 	</div>
 </div>

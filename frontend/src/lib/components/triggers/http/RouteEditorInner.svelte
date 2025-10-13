@@ -5,7 +5,15 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { HttpTriggerService, VariableService, type AuthenticationMethod } from '$lib/gen'
+	import {
+		HttpTriggerService,
+		VariableService,
+		type AuthenticationMethod,
+		type ErrorHandler,
+		type HttpTrigger,
+		type NewHttpTrigger,
+		type Retry
+	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
@@ -31,7 +39,12 @@
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
-	import { handleConfigChange } from '../utils'
+	import { getHandlerType, handleConfigChange } from '../utils'
+	import autosize from '$lib/autosize'
+	import { untrack } from 'svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 
 	let {
 		useDrawer = true,
@@ -46,7 +59,8 @@
 		onUpdate = undefined,
 		onDelete = undefined,
 		onReset = undefined,
-		trigger = undefined
+		trigger = undefined,
+		customSaveBehavior = undefined
 	} = $props()
 
 	// Form data state
@@ -80,17 +94,22 @@
 	let variable_path = $state('')
 	let signature_options_type = $state<'custom_script' | 'custom_signature'>('custom_signature')
 	let can_write = $state(true)
-	let extraPerms = $state<Record<string, string> | undefined>(undefined)
-
+	let extraPerms = $state<Record<string, boolean> | undefined>(undefined)
+	let summary: string | undefined = $state()
+	let routeDescription: string | undefined = $state()
+	let error_handler_path: string | undefined = $state()
+	let error_handler_args: Record<string, any> = $state({})
+	let retry: Retry | undefined = $state()
 	// Component references
-	let s3FilePicker = $state<S3FilePicker | null>(null)
-	let s3Editor = $state<SimpleEditor | null>(null)
-	let variablePicker = $state<ItemPicker | null>(null)
-	let variableEditor = $state<VariableEditor | null>(null)
-	let drawer = $state<Drawer | null>(null)
-	let initialConfig: Record<string, any> | undefined = undefined
+	let s3FilePicker = $state<S3FilePicker | undefined>(undefined)
+	let s3Editor = $state<SimpleEditor | undefined>(undefined)
+	let variablePicker = $state<ItemPicker | undefined>(undefined)
+	let variableEditor = $state<VariableEditor | undefined>(undefined)
+	let drawer = $state<Drawer | undefined>(undefined)
+	let initialConfig: NewHttpTrigger | undefined = undefined
 	let deploymentLoading = $state(false)
-
+	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
+	let errorHandlerSelected: ErrorHandler = $state('slack')
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const routeConfig = $derived.by(getRouteConfig)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
@@ -159,7 +178,7 @@
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
-		defaultConfig?: Record<string, any>
+		defaultConfig?: Partial<NewHttpTrigger>
 	) {
 		drawerLoading = true
 		let loader = setTimeout(() => {
@@ -190,7 +209,10 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>
+		defaultValues?: Partial<HttpTrigger> & {
+			s3FileUploadRawMode?: boolean
+			signature_options_type?: 'custom_script' | 'custom_signature'
+		}
 	) {
 		drawerLoading = true
 		let loader = setTimeout(() => {
@@ -198,29 +220,35 @@
 		}, 100) // if loading takes less than 100ms, we don't show the loader
 		try {
 			drawer?.openDrawer()
-			is_flow = nis_flow
+			is_flow = defaultValues?.is_flow ?? nis_flow
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
-			is_async = false
-			authentication_method = 'none'
+			is_async = defaultValues?.is_async ?? false
+			authentication_method = defaultValues?.authentication_method ?? 'none'
 			route_path = defaultValues?.route_path ?? ''
 			dirtyRoutePath = false
 			http_method = defaultValues?.http_method ?? 'post'
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
-			static_asset_config = undefined
-			s3FileUploadRawMode = false
+			static_asset_config = defaultValues?.static_asset_config ?? undefined
+			s3FileUploadRawMode = defaultValues?.s3FileUploadRawMode ?? false
 			path = defaultValues?.path ?? ''
 			initialPath = ''
 			dirtyPath = false
-			is_static_website = false
-			workspaced_route = false
-			authentication_resource_path = ''
+			is_static_website = defaultValues?.is_static_website ?? false
+			workspaced_route = defaultValues?.workspaced_route ?? false
+			authentication_resource_path = defaultValues?.authentication_resource_path ?? ''
 			variable_path = ''
-			signature_options_type = 'custom_signature'
+			signature_options_type = defaultValues?.signature_options_type ?? 'custom_signature'
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
+			summary = defaultValues?.summary ?? ''
+			routeDescription = defaultValues?.description ?? ''
+			error_handler_path = defaultValues?.error_handler_path ?? undefined
+			error_handler_args = defaultValues?.error_handler_args ?? {}
+			retry = defaultValues?.retry ?? undefined
+			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
@@ -228,35 +256,41 @@
 		}
 	}
 
-	function loadTriggerConfig(cfg?: Record<string, any>): void {
-		script_path = cfg?.script_path
-		initialScriptPath = cfg?.script_path
-		is_flow = cfg?.is_flow
-		path = cfg?.path
-		route_path = cfg?.route_path
+	function loadTriggerConfig(cfg?: Partial<HttpTrigger>): void {
+		script_path = cfg?.script_path ?? ''
+		initialScriptPath = cfg?.script_path ?? ''
+		is_flow = cfg?.is_flow ?? false
+		path = cfg?.path ?? ''
+		route_path = cfg?.route_path ?? ''
 		http_method = cfg?.http_method ?? 'post'
-		is_async = cfg?.is_async
-		workspaced_route = cfg?.workspaced_route
-		wrap_body = cfg?.wrap_body
-		raw_string = cfg?.raw_string
+		is_async = cfg?.is_async ?? false
+		workspaced_route = cfg?.workspaced_route ?? false
+		wrap_body = cfg?.wrap_body ?? false
+		raw_string = cfg?.raw_string ?? false
+		summary = cfg?.summary ?? ''
+		routeDescription = cfg?.description ?? ''
 		authentication_resource_path = cfg?.authentication_resource_path ?? ''
 		if (cfg?.authentication_method === 'custom_script') {
 			authentication_method = 'signature'
 			signature_options_type = 'custom_script'
 		} else {
-			authentication_method = cfg?.authentication_method
+			authentication_method = cfg?.authentication_method ?? 'none'
 			signature_options_type = 'custom_signature'
 		}
 		if (!isCloudHosted()) {
 			static_asset_config = cfg?.static_asset_config
 			s3FileUploadRawMode = !!cfg?.static_asset_config
-			is_static_website = cfg?.is_static_website
+			is_static_website = cfg?.is_static_website ?? false
 		}
-		extraPerms = cfg?.extra_perms
-		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+		extraPerms = cfg?.extra_perms ?? undefined
+		can_write = canWrite(path, cfg?.extra_perms ?? {}, $userStore)
+		error_handler_path = cfg?.error_handler_path
+		error_handler_args = cfg?.error_handler_args ?? {}
+		retry = cfg?.retry
+		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 	}
 
-	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
+	async function loadTrigger(defaultConfig?: Partial<HttpTrigger>): Promise<void> {
 		if (defaultConfig) {
 			loadTriggerConfig(defaultConfig)
 			return
@@ -271,24 +305,29 @@
 	}
 
 	async function triggerScript(): Promise<void> {
-		deploymentLoading = true
-		const saveCfg = routeConfig
-		const isSaved = await saveHttpRouteFromCfg(
-			initialPath,
-			saveCfg,
-			edit,
-			$workspaceStore!,
-			!!$userStore?.is_admin || !!$userStore?.is_super_admin,
-			usedTriggerKinds
-		)
-		if (isSaved) {
-			onUpdate(saveCfg.path)
+		if (customSaveBehavior) {
+			customSaveBehavior(routeConfig)
 			drawer?.closeDrawer()
+		} else {
+			deploymentLoading = true
+			const saveCfg = routeConfig
+			const isSaved = await saveHttpRouteFromCfg(
+				initialPath,
+				saveCfg,
+				edit,
+				$workspaceStore!,
+				!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+				usedTriggerKinds
+			)
+			if (isSaved) {
+				onUpdate(saveCfg.path)
+				drawer?.closeDrawer()
+			}
+			deploymentLoading = false
 		}
-		deploymentLoading = false
 	}
 
-	function getRouteConfig(): Record<string, any> {
+	function getRouteConfig(): NewHttpTrigger {
 		// If the user selects "signature" with the "custom_script" option,
 		// we explicitly set the authentication method to "custom_script"
 		// (which is a valid enum on its own in the backend)
@@ -296,6 +335,7 @@
 			authentication_method === 'signature' && signature_options_type === 'custom_script'
 				? 'custom_script'
 				: authentication_method
+
 		const nCfg = {
 			script_path,
 			is_flow,
@@ -310,8 +350,14 @@
 			authentication_method: auth_method,
 			static_asset_config,
 			is_static_website,
-			extra_perms: extraPerms
+			extra_perms: extraPerms,
+			summary,
+			description: routeDescription,
+			error_handler_path,
+			error_handler_args,
+			retry
 		}
+
 		return nCfg
 	}
 
@@ -329,7 +375,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {
@@ -360,19 +407,43 @@
 	{:else}
 		<div class="flex flex-col gap-12">
 			<Section label="Metadata">
-				<Label label="Path">
-					<Path
-						bind:dirty={dirtyPath}
-						bind:error={pathError}
-						bind:path
-						{initialPath}
-						checkInitialPathExistence={!edit}
-						namePlaceholder="route"
-						kind="http_trigger"
-						hideUser
-						disableEditing={!can_write}
-					/>
-				</Label>
+				<div class="flex flex-col gap-2">
+					<Label label="Summary">
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							autofocus
+							type="text"
+							placeholder="Short summary to be displayed when listed"
+							class="text-sm w-full"
+							bind:value={summary}
+							disabled={!can_write}
+						/>
+					</Label>
+
+					<Label label="Path">
+						<Path
+							bind:dirty={dirtyPath}
+							bind:error={pathError}
+							bind:path
+							{initialPath}
+							checkInitialPathExistence={!edit}
+							namePlaceholder="route"
+							kind="http_trigger"
+							hideUser
+							disableEditing={!can_write}
+						/>
+					</Label>
+
+					<Label label="Description">
+						<textarea
+							rows="4"
+							use:autosize
+							bind:value={routeDescription}
+							placeholder="Describe the route"
+							disabled={!can_write}
+						></textarea>
+					</Label>
+				</div>
 			</Section>
 
 			{#if !hideTarget}
@@ -402,12 +473,12 @@
 									static_asset_config = undefined
 								}
 							}}
-							let:item
-							let:disabled
 						>
-							<ToggleButton label="Runnable" value="runnable" {item} {disabled} />
-							<ToggleButton label="Static asset" value="static_asset" {item} {disabled} />
-							<ToggleButton label="Static website" value="static_website" {item} {disabled} />
+							{#snippet children({ item, disabled })}
+								<ToggleButton label="Runnable" value="runnable" {item} {disabled} />
+								<ToggleButton label="Static asset" value="static_asset" {item} {disabled} />
+								<ToggleButton label="Static website" value="static_website" {item} {disabled} />
+							{/snippet}
 						</ToggleButtonGroup>
 					{/if}
 
@@ -430,11 +501,10 @@
 										disabled={!can_write}
 									/>
 								{/if}
-								{s3FileUploadRawMode}
 								{#if s3FileUploadRawMode}
 									{#if can_write}
 										<JsonEditor
-											bind:editor={s3Editor as any}
+											bind:editor={s3Editor}
 											code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
 											bind:value={static_asset_config}
 										/>
@@ -496,9 +566,10 @@
 									bind:scriptPath={script_path}
 									allowRefresh={can_write}
 									allowEdit={!$userStore?.operator}
+									clearable
 								/>
 
-								{#if script_path === undefined}
+								{#if emptyString(script_path)}
 									<Button
 										btnClasses="ml-4 mt-2"
 										color="dark"
@@ -525,181 +596,207 @@
 				{can_write}
 				bind:static_asset_config
 				showTestingBadge={isEditor}
-				isDraftOnly={trigger?.isDraft}
+				isDraftOnly={trigger ? trigger.isDraft : false}
 			/>
 
 			{#if !is_static_website}
 				<Section label="Advanced" collapsable>
 					<div class="flex flex-col gap-4">
-						{#if !static_asset_config}
-							<div class="flex flex-row justify-between">
-								<Label label="Request type" class="w-full">
-									<svelte:fragment slot="action">
-										<ToggleButtonGroup
-											class="w-auto h-full"
-											selected={is_async ? 'async' : 'sync'}
-											on:selected={({ detail }) => {
-												is_async = detail === 'async'
-											}}
-											disabled={!can_write || !!static_asset_config}
-											let:item
-											let:disabled
-										>
-											<ToggleButton
-												label="Async"
-												value="async"
-												tooltip="The returning value is the uuid of the job assigned to execute the job."
-												{item}
-												{disabled}
-											/>
-											<ToggleButton
-												label="Sync"
-												value="sync"
-												tooltip="Triggers the execution, wait for the job to complete and return it as a response."
-												{item}
-												{disabled}
-											/>
-										</ToggleButtonGroup>
-									</svelte:fragment>
-								</Label>
-							</div>
-						{/if}
-						<Label label="Authentication" class="w-full">
-							<svelte:fragment slot="action">
-								<ToggleButtonGroup
-									class="w-auto h-full"
-									bind:selected={authentication_method}
-									on:selected={(e) => {
-										if (e.detail === 'signature' && signature_options_type === 'custom_script') {
-											raw_string = true
-										}
-									}}
-									disabled={!can_write}
-									let:item
-									let:disabled
-								>
-									{#each authentication_options as option}
-										{#if option.value === 'signature'}
-											<Popover placement="top-end" usePointerDownOutside>
-												<svelte:fragment slot="trigger">
-													<ToggleButton
-														label={option.label}
-														value={option.value}
-														tooltip={option.tooltip}
-														{item}
-														{disabled}
-													/>
-												</svelte:fragment>
-												<svelte:fragment slot="content">
-													<ToggleButtonGroup
-														class="w-auto h-full"
-														bind:selected={signature_options_type}
-														on:selected={(e) => {
-															if (e.detail === 'custom_script') {
-																if (!raw_string) {
-																	raw_string = true
-																}
-															}
-														}}
-														disabled={!can_write}
-														let:item
-														let:disabled
-													>
-														<ToggleButton
-															label="Signature validation"
-															value="custom_signature"
-															tooltip="Use a predefined or custom signature-based authentication scheme"
-															{item}
-															{disabled}
-														/>
-														<ToggleButton
-															label="Custom script"
-															value="custom_script"
-															tooltip="Use your own script logic"
-															{item}
-															{disabled}
-														/>
-													</ToggleButtonGroup>
-												</svelte:fragment>
-											</Popover>
-										{:else}
-											<ToggleButton
-												label={option.label}
-												value={option.value}
-												tooltip={option.tooltip}
-												{item}
-												{disabled}
-											/>
+						<div class="min-h-96">
+							<Tabs bind:selected={optionTabSelected}>
+								<Tab value="request_options">Request Options</Tab>
+								<Tab value="error_handler">Error Handler</Tab>
+								<Tab value="retries">Retries</Tab>
+							</Tabs>
+							<div class="mt-4">
+								{#if optionTabSelected === 'request_options'}
+									<div class="flex flex-col gap-4">
+										{#if !static_asset_config}
+											<div class="flex flex-row justify-between">
+												<Label label="Request type" class="w-full">
+													{#snippet action()}
+														<ToggleButtonGroup
+															class="w-auto h-full"
+															selected={is_async ? 'async' : 'sync'}
+															on:selected={({ detail }) => {
+																is_async = detail === 'async'
+															}}
+															disabled={!can_write || !!static_asset_config}
+														>
+															{#snippet children({ item, disabled })}
+																<ToggleButton
+																	label="Async"
+																	value="async"
+																	tooltip="The returning value is the uuid of the job assigned to execute the job."
+																	{item}
+																	{disabled}
+																/>
+																<ToggleButton
+																	label="Sync"
+																	value="sync"
+																	tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+																	{item}
+																	{disabled}
+																/>
+															{/snippet}
+														</ToggleButtonGroup>
+													{/snippet}
+												</Label>
+											</div>
 										{/if}
-									{/each}
-								</ToggleButtonGroup>
-							</svelte:fragment>
-						</Label>
+										<Label label="Authentication" class="w-full">
+											{#snippet action()}
+												<ToggleButtonGroup
+													class="w-auto h-full"
+													bind:selected={authentication_method}
+													on:selected={(e) => {
+														if (
+															e.detail === 'signature' &&
+															signature_options_type === 'custom_script'
+														) {
+															raw_string = true
+														}
+													}}
+													disabled={!can_write}
+												>
+													{#snippet children({ item, disabled })}
+														{#each authentication_options as option}
+															{#if option.value === 'signature'}
+																<Popover placement="top-end" usePointerDownOutside>
+																	{#snippet trigger()}
+																		<ToggleButton
+																			label={option.label}
+																			value={option.value}
+																			tooltip={option.tooltip}
+																			{item}
+																			{disabled}
+																		/>
+																	{/snippet}
+																	{#snippet content()}
+																		<ToggleButtonGroup
+																			class="w-auto h-full"
+																			bind:selected={signature_options_type}
+																			on:selected={(e) => {
+																				if (e.detail === 'custom_script') {
+																					if (!raw_string) {
+																						raw_string = true
+																					}
+																				}
+																			}}
+																			disabled={!can_write}
+																		>
+																			{#snippet children({ item, disabled })}
+																				<ToggleButton
+																					label="Signature validation"
+																					value="custom_signature"
+																					tooltip="Use a predefined or custom signature-based authentication scheme"
+																					{item}
+																					{disabled}
+																				/>
+																				<ToggleButton
+																					label="Custom script"
+																					value="custom_script"
+																					tooltip="Use your own script logic"
+																					{item}
+																					{disabled}
+																				/>
+																			{/snippet}
+																		</ToggleButtonGroup>
+																	{/snippet}
+																</Popover>
+															{:else}
+																<ToggleButton
+																	label={option.label}
+																	value={option.value}
+																	tooltip={option.tooltip}
+																	{item}
+																	{disabled}
+																/>
+															{/if}
+														{/each}
+													{/snippet}
+												</ToggleButtonGroup>
+											{/snippet}
+										</Label>
 
-						{#each authentication_options as option}
-							{#if option.resource_type && authentication_method === option.value}
-								<ResourcePicker
-									bind:value={authentication_resource_path}
-									resourceType={option.resource_type}
-									disabled={!can_write}
-								/>
-							{/if}
-						{/each}
+										{#each authentication_options as option}
+											{#if option.resource_type && authentication_method === option.value}
+												<ResourcePicker
+													bind:value={authentication_resource_path}
+													resourceType={option.resource_type}
+													disabled={!can_write}
+												/>
+											{/if}
+										{/each}
 
-						{#if authentication_method === 'signature'}
-							{#if signature_options_type === 'custom_signature'}
-								<ResourcePicker
-									bind:value={authentication_resource_path}
-									resourceType={'signature_auth'}
-									disabled={!can_write}
-								/>
-							{:else if signature_options_type === 'custom_script'}
-								<p class="text-xs mt-3 mb-1 text-tertiary">
-									Pick a secret variable or create one which will be used as a secret key for your
-									custom script/flow<Required required={true} /><br />
-								</p>
-								<div class="flex flex-row gap-2">
-									<div class="flex flex-row gap-2 w-full">
-										<input
-											type="text"
-											autocomplete="off"
-											bind:value={variable_path}
-											readonly
-											disabled={true}
-										/>
-										<Button
-											title="Add variable"
-											on:click={() => variablePicker?.openDrawer()}
-											size="xs"
-											color="dark"
+										{#if authentication_method === 'signature'}
+											{#if signature_options_type === 'custom_signature'}
+												<ResourcePicker
+													bind:value={authentication_resource_path}
+													resourceType={'signature_auth'}
+													disabled={!can_write}
+												/>
+											{:else if signature_options_type === 'custom_script'}
+												<p class="text-xs mt-3 mb-1 text-tertiary">
+													Pick a secret variable or create one which will be used as a secret key
+													for your custom script/flow<Required required={true} /><br />
+												</p>
+												<div class="flex flex-row gap-2">
+													<div class="flex flex-row gap-2 w-full">
+														<input
+															type="text"
+															autocomplete="off"
+															bind:value={variable_path}
+															readonly
+															disabled={true}
+														/>
+														<Button
+															title="Add variable"
+															on:click={() => variablePicker?.openDrawer()}
+															size="xs"
+															color="dark"
+															disabled={!can_write}
+														>
+															Pick variable
+														</Button>
+													</div>
+													<Button
+														disabled={emptyString(variable_path) || !can_write}
+														color="dark"
+														size="xs"
+														href={itemKind === 'flow'
+															? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=${
+																	HubFlow.SIGNATURE_TEMPLATE
+																}`
+															: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(
+																	variable_path
+																)}&hub=hub%2F${HUB_SCRIPT_ID}`}
+														target="_blank">Create from template</Button
+													>
+												</div>
+											{/if}
+										{/if}
+
+										<RouteBodyTransformerOption
+											bind:raw_string
+											bind:wrap_body
 											disabled={!can_write}
-										>
-											Pick variable
-										</Button>
+											{testingBadge}
+										/>
 									</div>
-									<Button
-										disabled={emptyString(variable_path) || !can_write}
-										color="dark"
-										size="xs"
-										href={itemKind === 'flow'
-											? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=${
-													HubFlow.SIGNATURE_TEMPLATE
-												}`
-											: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(
-													variable_path
-												)}&hub=hub%2F${HUB_SCRIPT_ID}`}
-										target="_blank">Create from template</Button
-									>
-								</div>
-							{/if}
-						{/if}
-
-						<RouteBodyTransformerOption
-							bind:raw_string
-							bind:wrap_body
-							disabled={!can_write}
-							{testingBadge}
-						/>
+								{:else}
+									<TriggerRetriesAndErrorHandler
+										{optionTabSelected}
+										{itemKind}
+										{can_write}
+										bind:errorHandlerSelected
+										bind:error_handler_path
+										bind:error_handler_args
+										bind:retry
+									/>
+								{/if}
+							</div>
+						</div>
 					</div>
 				</Section>
 			{/if}
@@ -741,22 +838,22 @@
 				: 'New route'}
 			on:close={() => drawer?.closeDrawer()}
 		>
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				{@render saveButton()}
-			</svelte:fragment>
+			{/snippet}
 			{@render config()}
 		</DrawerContent>
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'HTTP Route' : ''} headerClass="grow min-w-0 h-[30px]">
-		<svelte:fragment slot="header">
+		{#snippet header()}
 			{#if customLabel}
 				{@render customLabel()}
 			{/if}
-		</svelte:fragment>
-		<svelte:fragment slot="action">
+		{/snippet}
+		{#snippet action()}
 			{@render saveButton()}
-		</svelte:fragment>
+		{/snippet}
 		{#if description}
 			{@render description()}
 		{/if}
@@ -776,19 +873,21 @@
 	loadItems={loadVariables}
 	buttons={{ 'Edit/View': (x) => variableEditor?.editVariable(x) }}
 >
-	<div slot="submission" class="flex flex-row">
-		<Button
-			variant="border"
-			color="blue"
-			size="sm"
-			startIcon={{ icon: Plus }}
-			on:click={() => {
-				variableEditor?.initNew()
-			}}
-		>
-			New variable
-		</Button>
-	</div>
+	{#snippet submission()}
+		<div class="flex flex-row">
+			<Button
+				variant="border"
+				color="blue"
+				size="sm"
+				startIcon={{ icon: Plus }}
+				on:click={() => {
+					variableEditor?.initNew()
+				}}
+			>
+				New variable
+			</Button>
+		</div>
+	{/snippet}
 </ItemPicker>
 
 <VariableEditor bind:this={variableEditor} on:create={(e) => variablePicker?.openDrawer()} />

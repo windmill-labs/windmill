@@ -7,11 +7,12 @@
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import { DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
 	import Toggle from './Toggle.svelte'
-	import MultiSelectWrapper from './multiselect/MultiSelectWrapper.svelte'
+	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	let defaultTags: string[] | undefined = undefined
 	export let defaultTagPerWorkspace: boolean | undefined = undefined
-	export let defaultTagWorkspaces: string[] | undefined = undefined
+	export let defaultTagWorkspaces: string[] = []
 	let limitToWorkspaces = false
 
 	let workspaces: string[] = []
@@ -62,7 +63,7 @@
 				</div>
 			{/each}
 		</div>
-		<div id="default-tags-settings" class="py-4 flex flex-col gap-2">
+		<div class="py-4 flex flex-col gap-2">
 			<Toggle
 				bind:checked={defaultTagPerWorkspace}
 				options={{ right: 'workspace specific default tags' }}
@@ -70,9 +71,9 @@
 			{#if defaultTagPerWorkspace}
 				<Toggle bind:checked={limitToWorkspaces} options={{ right: 'only for some workspaces' }} />
 				{#if limitToWorkspaces}
-					<MultiSelectWrapper
-						target="#default-tags-settings"
-						items={workspaces}
+					<MultiSelect
+						disablePortal
+						items={safeSelectItems(workspaces)}
 						bind:value={defaultTagWorkspaces}
 					/>
 				{/if}

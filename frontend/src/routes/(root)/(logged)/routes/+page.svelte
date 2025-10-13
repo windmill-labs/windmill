@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import {
 		HttpTriggerService,
 		WorkspaceService,
@@ -11,7 +13,8 @@
 		displayDate,
 		getLocalSetting,
 		storeLocalSetting,
-		removeTriggerKindIfUnused
+		removeTriggerKindIfUnused,
+		sendUserToast
 	} from '$lib/utils'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -43,14 +46,18 @@
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import { isCloudHosted } from '$lib/cloud'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
+	import RoutesGenerator from '$lib/components/triggers/http/RoutesGenerator.svelte'
+	import OpenApiSpecGenerator from '$lib/components/triggers/http/OpenAPISpecGenerator.svelte'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
-	let triggers: TriggerW[] = []
-	let shareModal: ShareModal
-	let loading = true
-	let deploymentDrawer: DeployWorkspaceDrawer
-	let deployUiSettings: WorkspaceDeployUISettings | undefined = undefined
+	let triggers: TriggerW[] = $state([])
+	let shareModal: ShareModal | undefined = $state()
+	let loading = $state(true)
+	let openAPISpecGenerator: OpenApiSpecGenerator | undefined = $state()
+	let routesGenerator: RoutesGenerator | undefined = $state()
+	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
+	let deployUiSettings: WorkspaceDeployUISettings | undefined = $state(undefined)
 
 	async function getDeployUiSettings() {
 		if (!$enterpriseLicense) {
@@ -71,28 +78,32 @@
 		loading = false
 	}
 
-	$: {
+	run(() => {
 		if ($workspaceStore && $userStore) {
 			loadTriggers()
 		}
-	}
-	let routeEditor: RouteEditor
-
-	let filteredItems: (TriggerW & { marked?: any })[] | undefined = []
-	let items: typeof filteredItems | undefined = []
-	let preFilteredItems: typeof filteredItems | undefined = []
-	let filter = ''
-	let ownerFilter: string | undefined = undefined
-	let nbDisplayed = 15
+	})
+	let routeEditor: RouteEditor | undefined = $state()
+	let filteredItems: (TriggerW & { marked?: any })[] | undefined = $state([])
+	let items: typeof filteredItems | undefined = $state([])
+	let preFilteredItems: typeof filteredItems | undefined = $state([])
+	let filter = $state('')
+	let ownerFilter: string | undefined = $state(undefined)
+	let nbDisplayed = $state(15)
 
 	const TRIGGER_PATH_KIND_FILTER_SETTING = 'filter_path_of'
 	const FILTER_USER_FOLDER_SETTING_NAME = 'user_and_folders_only'
-	let selectedFilterKind =
+	let selectedFilterKind = $state(
 		(getLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING) as 'trigger' | 'script_flow') ?? 'trigger'
-	let filterUserFolders = getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true'
+	)
+	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
 
-	$: storeLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING, selectedFilterKind)
-	$: storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	run(() => {
+		storeLocalSetting(TRIGGER_PATH_KIND_FILTER_SETTING, selectedFilterKind)
+	})
+	run(() => {
+		storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	})
 
 	function filterItemsPathsBaseOnUserFilters(
 		item: TriggerW,
@@ -116,28 +127,32 @@
 		}
 	}
 
-	$: preFilteredItems =
-		ownerFilter != undefined
-			? selectedFilterKind === 'trigger'
-				? triggers?.filter(
-						(x) =>
-							x.path.startsWith(ownerFilter + '/') &&
-							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
+	run(() => {
+		preFilteredItems =
+			ownerFilter != undefined
+				? selectedFilterKind === 'trigger'
+					? triggers?.filter(
+							(x) =>
+								x.path.startsWith(ownerFilter + '/') &&
+								filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
+						)
+					: triggers?.filter(
+							(x) =>
+								x.script_path.startsWith(ownerFilter + '/') &&
+								filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
+						)
+				: triggers?.filter((x) =>
+						filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
 					)
-				: triggers?.filter(
-						(x) =>
-							x.script_path.startsWith(ownerFilter + '/') &&
-							filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-					)
-			: triggers?.filter((x) =>
-					filterItemsPathsBaseOnUserFilters(x, selectedFilterKind, filterUserFolders)
-				)
+	})
 
-	$: if ($workspaceStore) {
-		ownerFilter = undefined
-	}
+	run(() => {
+		if ($workspaceStore) {
+			ownerFilter = undefined
+		}
+	})
 
-	$: owners =
+	let owners = $derived(
 		selectedFilterKind === 'trigger'
 			? Array.from(
 					new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
@@ -149,8 +164,11 @@
 							.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? []
 					)
 				).sort()
+	)
 
-	$: items = filter !== '' ? filteredItems : preFilteredItems
+	run(() => {
+		items = filter !== '' ? filteredItems : preFilteredItems
+	})
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders) {
 		setQuery(
@@ -182,11 +200,16 @@
 		loadQueryFilters()
 	})
 
-	$: updateQueryFilters(selectedFilterKind, filterUserFolders)
+	run(() => {
+		updateQueryFilters(selectedFilterKind, filterUserFolders)
+	})
 </script>
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <RouteEditor onUpdate={loadTriggers} bind:this={routeEditor} />
+
+<RoutesGenerator closeFn={loadTriggers} bind:this={routesGenerator} />
+<OpenApiSpecGenerator bind:this={openAPISpecGenerator} />
 
 <SearchItems
 	{filter}
@@ -208,9 +231,29 @@
 			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing"
 		>
 			{#if $userStore?.is_admin || $userStore?.is_super_admin}
-				<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor.openNew(false)}>
-					New&nbsp;route
-				</Button>
+				<div class="flex flex-row gap-2">
+					<Button
+						size="md"
+						startIcon={{ icon: Plus }}
+						on:click={() => {
+							routesGenerator?.openDrawer()
+						}}
+					>
+						From OpenAPI spec
+					</Button>
+					<Button
+						size="md"
+						startIcon={{ icon: Plus }}
+						on:click={() => {
+							openAPISpecGenerator?.openDrawer()
+						}}
+					>
+						To OpenAPI spec
+					</Button>
+					<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor?.openNew(false)}>
+						New&nbsp;route
+					</Button>
+				</div>
 			{/if}
 		</PageHeader>
 		<div class="w-full h-full flex flex-col">
@@ -218,9 +261,11 @@
 				<input type="text" placeholder="Search routes" bind:value={filter} class="search-item" />
 				<div class="flex flex-row items-center gap-2 mt-6">
 					<div class="text-sm shrink-0"> Filter by path of </div>
-					<ToggleButtonGroup bind:selected={selectedFilterKind} let:item>
-						<ToggleButton small value="trigger" label="Route" icon={Route} {item} />
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+					<ToggleButtonGroup bind:selected={selectedFilterKind}>
+						{#snippet children({ item })}
+							<ToggleButton small value="trigger" label="Route" icon={Route} {item} />
+							<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+						{/snippet}
 					</ToggleButtonGroup>
 				</div>
 				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
@@ -257,7 +302,7 @@
 
 								<a
 									href="#{path}"
-									on:click={() => routeEditor?.openEdit(path, is_flow)}
+									onclick={() => routeEditor?.openEdit(path, is_flow)}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
 									<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
@@ -328,11 +373,16 @@
 												disabled:
 													!canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
 												action: async () => {
-													await HttpTriggerService.deleteHttpTrigger({
-														workspace: $workspaceStore ?? '',
-														path
-													})
-													loadTriggers()
+													try {
+														await HttpTriggerService.deleteHttpTrigger({
+															workspace: $workspaceStore ?? '',
+															path
+														})
+														sendUserToast(`Successfully deleted HTTP route: ${path}`)
+														loadTriggers()
+													} catch (error) {
+														sendUserToast(error.body || error.message, true)
+													}
 												}
 											},
 											{
@@ -348,7 +398,7 @@
 															displayName: 'Deploy to prod/staging',
 															icon: FileUp,
 															action: () => {
-																deploymentDrawer.openDrawer(path, 'trigger', {
+																deploymentDrawer?.openDrawer(path, 'trigger', {
 																	triggers: {
 																		kind: 'routes'
 																	}
@@ -366,7 +416,7 @@
 												displayName: canWrite ? 'Share' : 'See Permissions',
 												icon: Share,
 												action: () => {
-													shareModal.openDrawer(path, 'http_trigger')
+													shareModal?.openDrawer(path, 'http_trigger')
 												}
 											}
 										]}
@@ -391,7 +441,7 @@
 		{#if items && items?.length > 15 && nbDisplayed < items.length}
 			<span class="text-xs"
 				>{nbDisplayed} items out of {items.length}
-				<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
+				<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
 			>
 		{/if}
 	</CenteredPage>

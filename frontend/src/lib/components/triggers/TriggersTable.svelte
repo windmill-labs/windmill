@@ -7,6 +7,7 @@
 	import AddTriggersButton from './AddTriggersButton.svelte'
 	import TriggerLabel from './TriggerLabel.svelte'
 	import DeleteTriggerButton from './DeleteTriggerButton.svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
 	interface Props {
 		// Props
@@ -41,6 +42,8 @@
 	<div class="w-full">
 		<AddTriggersButton {onAddDraftTrigger} setDropdownWidthToButtonWidth class="w-full" {isEditor}>
 			<Button
+				aiId="add-trigger"
+				aiDescription="Add a new trigger"
 				size="xs"
 				color="blue"
 				startIcon={{ icon: Plus }}
@@ -61,6 +64,11 @@
 						selectedTrigger === index ? 'bg-surface-hover ' : ''
 					)}
 					onclick={() => onSelect?.(index)}
+					use:triggerableByAI={{
+						id: `trigger-${trigger.id}`,
+						description: `See ${trigger.type} triggers`,
+						callback: () => onSelect?.(index)
+					}}
 				>
 					<td class="w-12 text-center py-2 px-2">
 						<div class="relative flex justify-center items-center">
@@ -84,7 +92,7 @@
 									>
 										{`${webhookToken} token${webhookToken > 1 ? 's' : ''}`}
 									</span>
-								{:else if trigger.type === 'email' && emailToken}
+								{:else if trigger.type === 'default_email' && emailToken}
 									<span
 										class="ml-2 text-xs rounded-md bg-tertiary/50 group-hover:bg-primary text-primary-inverse px-1.5 py-0.5"
 									>
@@ -93,7 +101,7 @@
 								{/if}
 							</div>
 
-							{#if !['email', 'webhook', 'cli'].includes(trigger.type)}
+							{#if !['default_email', 'webhook', 'cli'].includes(trigger.type)}
 								{#if trigger.isDraft}
 									<DeleteTriggerButton {trigger} onDelete={() => onDeleteDraft?.(index)} small />
 								{:else if !!trigger.draftConfig && !trigger.isDraft}

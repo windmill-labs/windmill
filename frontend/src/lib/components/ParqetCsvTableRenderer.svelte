@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { GridApi, createGrid, type IDatasource } from 'ag-grid-community'
+	import { type GridApi, createGrid, type IDatasource } from 'ag-grid-community'
 
 	import 'ag-grid-community/styles/ag-grid.css'
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
@@ -112,13 +112,13 @@
 							limit: 0,
 							storage: storage,
 							csvSeparator: csvSeparatorChar
-					  })
+						})
 					: await HelpersService.loadParquetPreview({
 							workspace: $workspaceStore!,
 							path: s3resource,
 							limit: 0,
 							storage: storage
-					  })
+						})
 
 				createGrid(
 					eGui,

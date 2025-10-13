@@ -7,7 +7,7 @@
 	import { Pen } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 
-	let { open = false } = $props<{ open?: boolean }>()
+	let { open = false }: { open?: boolean } = $props()
 
 	let colorEnabled = $state(false)
 	let editingColor = $state<string | undefined>(undefined)

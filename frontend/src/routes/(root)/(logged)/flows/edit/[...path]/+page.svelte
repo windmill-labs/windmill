@@ -1,27 +1,33 @@
 <script lang="ts">
 	import { FlowService, type Flow, DraftService } from '$lib/gen'
 
-	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { initialArgsStore, workspaceStore } from '$lib/stores'
-	import { cleanValueProperties, decodeState, emptySchema, orderedJsonStringify } from '$lib/utils'
-	import { initFlow } from '$lib/components/flows/flowStore'
+	import {
+		cleanValueProperties,
+		decodeState,
+		emptySchema,
+		orderedJsonStringify,
+		type StateStore
+	} from '$lib/utils'
+	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
 	import { afterNavigate, replaceState } from '$app/navigation'
-	import { writable } from 'svelte/store'
-	import type { FlowState } from '$lib/components/flows/flowState'
+
 	import { sendUserToast } from '$lib/toast'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import type { ScheduleTrigger } from '$lib/components/triggers'
-	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 	import type { Trigger } from '$lib/components/triggers/utils'
+	import { untrack } from 'svelte'
+	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
+	import { page } from '$app/state'
 
-	let version: undefined | number = undefined
-	let nodraft = $page.url.searchParams.get('nodraft')
-	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${$page.params.path}`)
+	let version: undefined | number = $state(undefined)
+	let nodraft = page.url.searchParams.get('nodraft')
+	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${page.params.path}`)
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
-	let initialArgs = {}
+	let initialArgs = $state({})
 	if ($initialArgsStore) {
 		initialArgs = $initialArgsStore
 		$initialArgsStore = undefined
@@ -31,46 +37,54 @@
 		| (Flow & {
 				draft?: Flow | undefined
 		  })
-		| undefined = undefined
+		| undefined = $state(undefined)
 
 	afterNavigate(() => {
 		if (nodraft) {
-			let url = new URL($page.url.href)
+			let url = new URL(page.url.href)
 			url.search = ''
-			replaceState(url.toString(), $page.state)
+			replaceState(url.toString(), page.state)
 		}
 	})
 
-	export const flowStore = writable<Flow>({
-		summary: '',
-		value: { modules: [] },
-		path: '',
-		edited_at: '',
-		edited_by: '',
-		archived: false,
-		extra_perms: {},
-		schema: emptySchema()
+	export const flowStore: StateStore<Flow> = $state({
+		val: {
+			summary: '',
+			value: { modules: [] },
+			path: '',
+			edited_at: '',
+			edited_by: '',
+			archived: false,
+			extra_perms: {},
+			schema: emptySchema()
+		}
 	})
-	const flowStateStore = writable<FlowState>({})
+	const flowStateStore = $state({ val: {} })
 
-	let loading = false
+	let loading = $state(false)
 
-	let selectedId: string = 'settings-metadata'
+	let selectedId: string = $state('settings-metadata')
 
 	let nobackenddraft = false
 
-	let savedPrimarySchedule: ScheduleTrigger | undefined = stateLoadedFromUrl?.primarySchedule
+	let savedPrimarySchedule: ScheduleTrigger | undefined = $state(
+		stateLoadedFromUrl?.primarySchedule
+	)
 
-	let draftTriggersFromUrl: Trigger[] | undefined = undefined
-	let selectedTriggerIndexFromUrl: number | undefined = undefined
+	let draftTriggersFromUrl: Trigger[] | undefined = $state(undefined)
+	let selectedTriggerIndexFromUrl: number | undefined = $state(undefined)
+	let loadedFromHistoryFromUrl:
+		| { flowJobInitial: boolean | undefined; stepsState: Record<string, stepState> }
+		| undefined = $state(undefined)
 
-	let flowBuilder: FlowBuilder | undefined = undefined
-
+	let flowBuilder: FlowBuilder | undefined = $state(undefined)
+	let notFound = $state(false)
 	async function loadFlow(): Promise<void> {
+		console.log('loadFlow')
 		loading = true
 		let flow: Flow
 		let statePath = stateLoadedFromUrl?.path
-		if (stateLoadedFromUrl != undefined && statePath == $page.params.path) {
+		if (stateLoadedFromUrl != undefined && statePath == page.params.path) {
 			// Currently there is no way to get version of flow with flow.
 			// So we have to request it here
 			version = (
@@ -78,7 +92,13 @@
 					workspace: $workspaceStore!,
 					path: statePath
 				})
-			).id
+			)?.id
+
+			if (version == undefined) {
+				notFound = true
+				sendUserToast(`Flow not found at path ${statePath}`, true)
+				return
+			}
 
 			savedFlow = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
@@ -86,15 +106,19 @@
 			})
 
 			const draftOrDeployed = cleanValueProperties(savedFlow?.draft || savedFlow)
-			const urlScript = cleanValueProperties({
-				...stateLoadedFromUrl.flow,
-				draft_triggers: stateLoadedFromUrl.draft_triggers
-			})
+			const urlScript = cleanValueProperties(
+				$state.snapshot({
+					...stateLoadedFromUrl.flow,
+					draft_triggers: stateLoadedFromUrl.draft_triggers
+				})
+			)
 			flow = stateLoadedFromUrl.flow
 			draftTriggersFromUrl = stateLoadedFromUrl.draft_triggers
 			selectedTriggerIndexFromUrl = stateLoadedFromUrl.selected_trigger
+			loadedFromHistoryFromUrl = stateLoadedFromUrl.loadedFromHistory
 			flowBuilder?.setDraftTriggers(draftTriggersFromUrl)
 			flowBuilder?.setSelectedTriggerIndex(selectedTriggerIndexFromUrl)
+			flowBuilder?.setLoadedFromHistory(loadedFromHistoryFromUrl)
 			const selectedId = stateLoadedFromUrl?.selectedId ?? 'settings-metadata'
 			const reloadAction = () => {
 				stateLoadedFromUrl = undefined
@@ -112,8 +136,8 @@
 					{
 						label: 'Show diff',
 						callback: async () => {
-							diffDrawer.openDrawer()
-							diffDrawer.setDiff({
+							diffDrawer?.openDrawer()
+							diffDrawer?.setDiff({
 								mode: 'simple',
 								original: draftOrDeployed,
 								current: urlScript,
@@ -130,19 +154,19 @@
 			version = (
 				await FlowService.getFlowLatestVersion({
 					workspace: $workspaceStore!,
-					path: $page.params.path
+					path: page.params.path ?? ''
 				})
 			).id
 
 			const flowWithDraft = await FlowService.getFlowByPathWithDraft({
 				workspace: $workspaceStore!,
-				path: $page.params.path
+				path: page.params.path ?? ''
 			})
 			savedFlow = {
-				...structuredClone(flowWithDraft),
+				...structuredClone($state.snapshot(flowWithDraft)),
 				draft: flowWithDraft.draft
 					? {
-							...structuredClone(flowWithDraft.draft),
+							...structuredClone($state.snapshot(flowWithDraft.draft)),
 							path: flowWithDraft.draft.path ?? flowWithDraft.path // backward compatibility for old drafts missing path
 						}
 					: undefined
@@ -178,8 +202,8 @@
 						{
 							label: 'Show diff',
 							callback: async () => {
-								diffDrawer.openDrawer()
-								diffDrawer.setDiff({
+								diffDrawer?.openDrawer()
+								diffDrawer?.setDiff({
 									mode: 'simple',
 									original: deployed,
 									current: draft,
@@ -198,23 +222,24 @@
 
 		await initFlow(flow, flowStore, flowStateStore)
 		loading = false
-		selectedId = stateLoadedFromUrl?.selectedId ?? $page.url.searchParams.get('selected')
+		selectedId = stateLoadedFromUrl?.selectedId ?? page.url.searchParams.get('selected')
+		flowBuilder?.loadFlowState()
 	}
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore) {
-			loadFlow()
+			untrack(() => loadFlow())
 		}
-	}
+	})
 
-	let diffDrawer: DiffDrawer
+	let diffDrawer: DiffDrawer | undefined = $state()
 
 	async function restoreDraft() {
 		if (!savedFlow || !savedFlow.draft) {
 			sendUserToast('Could not restore to draft', true)
 			return
 		}
-		diffDrawer.closeDrawer()
+		diffDrawer?.closeDrawer()
 		stateLoadedFromUrl = undefined
 		goto(`/flows/edit/${savedFlow.draft.path}`)
 		loadFlow()
@@ -225,7 +250,7 @@
 			sendUserToast('Could not restore to deployed', true)
 			return
 		}
-		diffDrawer.closeDrawer()
+		diffDrawer?.closeDrawer()
 		if (savedFlow.draft) {
 			await DraftService.deleteDraft({
 				workspace: $workspaceStore!,
@@ -237,41 +262,49 @@
 		goto(`/flows/edit/${savedFlow.path}`)
 		loadFlow()
 	}
-	let getInitialAndModifiedValues: GetInitialAndModifiedValues | undefined = undefined
 </script>
 
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
-<FlowBuilder
-	on:deploy={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
-	}}
-	on:details={(e) => {
-		goto(`/flows/get/${e.detail}?workspace=${$workspaceStore}`)
-	}}
-	on:saveDraftOnlyAtNewPath={(e) => {
-		const { path, selectedId } = e.detail
-		goto(`/flows/edit/${path}?selected=${selectedId}`)
-	}}
-	on:historyRestore={() => {
-		loadFlow()
-	}}
-	{flowStore}
-	{flowStateStore}
-	initialPath={$page.params.path}
-	newFlow={false}
-	{selectedId}
-	{initialArgs}
-	{loading}
-	bind:this={flowBuilder}
-	bind:savedFlow
-	{diffDrawer}
-	{savedPrimarySchedule}
-	{draftTriggersFromUrl}
-	{selectedTriggerIndexFromUrl}
-	bind:version
-	bind:getInitialAndModifiedValues
->
-	<UnsavedConfirmationModal {diffDrawer} {getInitialAndModifiedValues} />
-</FlowBuilder>
+{#if notFound}
+	<div class="flex flex-col items-center justify-center h-full">
+		<h1 class="text-2xl font-bold">Flow not found at path {page.params.path}</h1>
+		<p class="text-gray-500">The flow you are looking for does not exist.</p>
+	</div>
+{:else}
+	<FlowBuilder
+		onDeploy={(e) => {
+			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
+		}}
+		onDetails={(e) => {
+			goto(`/flows/get/${e.path}?workspace=${$workspaceStore}`)
+		}}
+		onSaveDraftOnlyAtNewPath={(e) => {
+			goto(`/flows/edit/${e.path}?selected=${e.selectedId}`)
+		}}
+		onHistoryRestore={() => {
+			loadFlow()
+		}}
+		{flowStore}
+		{flowStateStore}
+		initialPath={page.params.path ?? ''}
+		newFlow={false}
+		{selectedId}
+		{initialArgs}
+		{loading}
+		bind:this={flowBuilder}
+		bind:savedFlow
+		{diffDrawer}
+		{savedPrimarySchedule}
+		{draftTriggersFromUrl}
+		{selectedTriggerIndexFromUrl}
+		{version}
+		{loadedFromHistoryFromUrl}
+	>
+		<UnsavedConfirmationModal
+			{diffDrawer}
+			getInitialAndModifiedValues={flowBuilder?.getInitialAndModifiedValues}
+		/>
+	</FlowBuilder>
+{/if}

@@ -1,7 +1,11 @@
 <!-- Used under Fair Use: https://fr.wikipedia.org/wiki/Fichier:MySQL.svg -->
 <script lang="ts">
-	export let height = '24px'
-	export let width = '24px'
+	interface Props {
+		height?: string;
+		width?: string;
+	}
+
+	let { height = '24px', width = '24px' }: Props = $props();
 </script>
 
 <svg

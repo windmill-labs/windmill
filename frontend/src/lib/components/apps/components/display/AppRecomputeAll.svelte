@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import {
 		type AppViewerContext,
@@ -14,19 +14,29 @@
 	import RecomputeAllWrapper from '../../editor/RecomputeAllWrapper.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
-	export let id: string
-	export let initializing: boolean | undefined = false
-	export let customCss: ComponentCustomCSS<'jobiddisplaycomponent'> | undefined = undefined
-	export let configuration: RichConfigurations
-	export let render: boolean
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
+	interface Props {
+		id: string
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'jobiddisplaycomponent'> | undefined
+		configuration: RichConfigurations
+		render: boolean
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+	}
+
+	let {
+		id,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		configuration,
+		render,
+		horizontalAlignment = undefined
+	}: Props = $props()
 
 	const { app, worldStore, policy, recomputeAllContext } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['recomputeallcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['recomputeallcomponent'].initialData.configuration, configuration)
 	)
 
 	initOutput($worldStore, id, {
@@ -35,9 +45,7 @@
 
 	initializing = false
 
-	let css = initCss($app.css?.recomputeallcomponent, customCss)
-
-	$: resolvedConfig.defaultRefreshInterval && handleRefreshInterval()
+	let css = $state(initCss($app.css?.recomputeallcomponent, customCss))
 
 	function handleRefreshInterval() {
 		if (resolvedConfig.defaultRefreshInterval !== undefined) {
@@ -51,6 +59,9 @@
 			}
 		}
 	}
+	$effect(() => {
+		resolvedConfig.defaultRefreshInterval && untrack(() => handleRefreshInterval())
+	})
 </script>
 
 {#each Object.keys(components['recomputeallcomponent'].initialData.configuration) as key (key)}

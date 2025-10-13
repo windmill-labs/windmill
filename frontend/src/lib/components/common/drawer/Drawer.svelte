@@ -1,21 +1,49 @@
 <script lang="ts">
-	import { onMount, createEventDispatcher } from 'svelte'
+	import { onMount, createEventDispatcher, untrack } from 'svelte'
 	import { BROWSER } from 'esm-env'
 	import Disposable from './Disposable.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
+	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
 
-	export let open = false
-	export let duration = 0.3
-	export let placement = 'right'
-	export let size = '600px'
-	export let alwaysOpen = false
-	export let shouldUsePortal: boolean = true
-	export let offset: number = 0
-	export let preventEscape = false
+	interface Props {
+		open?: boolean
+		duration?: number
+		placement?: string
+		size?: string
+		alwaysOpen?: boolean
+		shouldUsePortal?: boolean
+		offset?: number
+		preventEscape?: boolean
+		disableChatOffset?: boolean
+		class?: string | undefined
+		positionClass?: string | undefined
+		name?: string
+		children?: import('svelte').Snippet<[any]>
+	}
 
-	let disposable: Disposable | undefined = undefined
+	let {
+		open = $bindable(undefined),
+		duration = 0.3,
+		placement = 'right',
+		size = '600px',
+		alwaysOpen = false,
+		shouldUsePortal = true,
+		offset = 0,
+		preventEscape = false,
+		disableChatOffset = false,
+		class: clazz = '',
+		positionClass = undefined,
+		name = undefined,
+		children: children_render
+	}: Props = $props()
 
-	$: durationMs = duration * 1000
+	if (open === undefined) {
+		open = false
+	}
+
+	let disposable: Disposable | undefined = $state(undefined)
+
+	let durationMs = $derived(duration * 1000)
 
 	export function toggleDrawer() {
 		disposable?.toggleDrawer()
@@ -26,11 +54,12 @@
 	}
 
 	export function closeDrawer() {
+		if (open) {
+			setTimeout(() => {
+				dispatch('afterClose')
+			}, durationMs)
+		}
 		disposable?.closeDrawer()
-
-		setTimeout(() => {
-			dispatch('afterClose')
-		}, durationMs)
 	}
 
 	export function isOpen() {
@@ -40,7 +69,7 @@
 	let mounted = false
 	const dispatch = createEventDispatcher()
 
-	$: style = `--duration: ${duration}s; --size: ${size};`
+	let style = $derived(`--duration: ${duration}s; --size: ${size};`)
 
 	function scrollLock(open: boolean) {
 		if (BROWSER) {
@@ -52,44 +81,56 @@
 		}
 	}
 
-	$: scrollLock(open)
+	$effect(() => {
+		scrollLock(open ?? false)
+	})
 
-	$: open ? openDrawer() : closeDrawer()
+	$effect(() => {
+		open
+		untrack(() => {
+			open ? openDrawer() : closeDrawer()
+		})
+	})
 
-	let timeout = true
-	$: !open ? setTimeout(() => (timeout = true), durationMs) : (timeout = false)
+	let timeout = $state(true)
+	$effect(() => {
+		!open ? setTimeout(() => (timeout = true), durationMs) : (timeout = false)
+	})
 	onMount(() => {
 		mounted = true
 	})
+
+	const aiChatOpen = $derived(chatState.size > 0)
 </script>
 
 <ConditionalPortal condition={shouldUsePortal}>
 	<Disposable
 		initialOffset={offset}
-		let:handleClickAway
-		let:zIndex
 		bind:open
 		bind:this={disposable}
-		on:open
-		on:close
+		onOpen={() => dispatch('open')}
+		onClose={() => dispatch('close')}
 		{preventEscape}
 	>
-		<aside
-			class="drawer windmill-app windmill-drawer {$$props.class ?? ''} {$$props.positionClass ??
-				''}"
-			class:open
-			class:close={!open && timeout}
-			style={`${style}; --zIndex: ${zIndex};`}
-		>
-			<!-- svelte-ignore a11y-click-events-have-key-events -->
-			<!-- svelte-ignore a11y-no-static-element-interactions -->
-			<div class="overlay {$$props.positionClass ?? ''}" on:click={handleClickAway}></div>
-			<div class="panel {placement} {$$props.positionClass}" class:size>
-				{#if open || !timeout || alwaysOpen}
-					<slot {open} />
-				{/if}
-			</div>
-		</aside>
+		{#snippet children({ handleClickAway, zIndex, isTop })}
+			<aside
+				class="drawer windmill-app windmill-drawer {name ? `windmill-drawer-${name}` : ''} {clazz ??
+					''} {positionClass ?? ''} {aiChatOpen ? 'respect-global-chat' : ''}"
+				class:open
+				class:close={!open && timeout}
+				class:global-chat-open={aiChatOpen}
+				style={`${style}; --zIndex: ${zIndex}; --adjusted-offset: calc(${aiChatOpen && placement === 'right' && !disableChatOffset ? chatState.size : 0}% + 4px)`}
+			>
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="overlay {positionClass ?? ''}" onclick={handleClickAway}></div>
+				<div class="panel {placement} {positionClass}" class:size>
+					{#if open || !timeout || alwaysOpen}
+						{@render children_render?.({ open, isTop })}
+					{/if}
+				</div>
+			</aside>
+		{/snippet}
 	</Disposable>
 </ConditionalPortal>
 
@@ -108,8 +149,9 @@
 
 	.drawer.open {
 		height: 100%;
-		width: 100%;
 		z-index: var(--zIndex);
+		right: 0;
+		width: calc(100% - var(--adjusted-offset));
 		transition: z-index var(--duration) step-start;
 		pointer-events: auto;
 	}
@@ -126,6 +168,12 @@
 		transition: opacity var(--duration) ease;
 	}
 
+	.drawer.respect-global-chat.global-chat-open > .overlay {
+		width: 100%;
+		right: var(--adjusted-offset);
+		left: auto;
+	}
+
 	.drawer.open > .overlay {
 		opacity: 1;
 	}
@@ -140,7 +188,9 @@
 		width: 100%;
 		@apply bg-surface;
 		z-index: 3;
-		transition: transform var(--duration) ease, max-width var(--duration) ease,
+		transition:
+			transform var(--duration) ease,
+			max-width var(--duration) ease,
 			max-height var(--duration) ease;
 		height: 100%;
 	}
@@ -153,6 +203,11 @@
 	.panel.right {
 		right: 0;
 		transform: translate(100%, 0);
+	}
+
+	.drawer.respect-global-chat.global-chat-open > .panel.right {
+		right: var(--adjusted-offset);
+		width: calc(100vw - var(--adjusted-offset));
 	}
 
 	.panel.top {

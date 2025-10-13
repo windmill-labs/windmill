@@ -1,10 +1,24 @@
+<!-- @migration-task Error while migrating Svelte code: $$props is used together with named props in a way that cannot be automatically migrated. -->
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { customIcon } from './store'
 
-	export let white = false
-	export let size = '24px'
-	export let color: string | undefined = undefined
-	export let spin: 'slow' | 'medium' | 'fast' | 'veryfast' | undefined = undefined
+	interface Props {
+		white?: boolean
+		size?: string
+		color?: string | undefined
+		spin?: 'slow' | 'medium' | 'fast' | 'veryfast' | undefined
+		class?: string
+	}
+
+	let {
+		white = false,
+		size = '24px',
+		color = undefined,
+		spin = undefined,
+		class: classNames = ''
+	}: Props = $props()
 
 	function hslToHex(h, s, l) {
 		s /= 100
@@ -102,9 +116,11 @@
 		return hslToHex(h, s, l)
 	}
 
-	let lessSaturatedColor: string | undefined
+	let lessSaturatedColor: string | undefined = $state()
 
-	$: color ? (lessSaturatedColor = reduceSaturation(color, -16)) : (lessSaturatedColor = undefined)
+	run(() => {
+		color ? (lessSaturatedColor = reduceSaturation(color, -16)) : (lessSaturatedColor = undefined)
+	})
 </script>
 
 {#if customIcon.white || customIcon.normal}
@@ -114,7 +130,7 @@
 			alt="Windmill Custom icon"
 			width={size}
 			height={size}
-			class={$$props.class}
+			class={classNames}
 		/>
 	{:else}
 		<img
@@ -122,12 +138,12 @@
 			alt="Windmill Custom icon"
 			width={size}
 			height={size}
-			class={$$props.class}
+			class={classNames}
 		/>
 	{/if}
 {:else}
 	<svg
-		class={$$props.class}
+		class={classNames}
 		class:animate-[spin_2s_linear_infinite]={spin === 'veryfast'}
 		class:animate-[spin_5s_linear_infinite]={spin === 'fast'}
 		class:animate-[spin_15s_linear_infinite]={spin === 'medium'}

@@ -1,34 +1,58 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, onMount } from 'svelte'
-	import Select from './apps/svelte-select/lib/index'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
+	import { onMount, untrack } from 'svelte'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 
 	import { Button } from './common'
-	import DBManagerDrawerButton from './DBManagerDrawerButton.svelte'
-	import DarkModeObserver from './DarkModeObserver.svelte'
-	import { Pen, Plus, RotateCw } from 'lucide-svelte'
+	import { Loader2, Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { isDbType } from './apps/components/display/dbtable/utils'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import Select from './select/Select.svelte'
+	import DbManagerDrawer from './DBManagerDrawer.svelte'
+	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import DropdownV2 from './DropdownV2.svelte'
 
-	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
+	interface Props {
+		initialValue?: string | undefined
+		value?: string | undefined
+		valueType?: string | undefined
+		resourceType?: string | undefined
+		disabled?: boolean
+		disablePortal?: boolean
+		showSchemaExplorer?: boolean
+		selectFirst?: boolean
+		expressOAuthSetup?: boolean
+		defaultValues?: Record<string, any> | undefined
+		placeholder?: string | undefined
+		selectInputClass?: string
+		class?: string
+		onClear?: () => void
+		excludedValues?: string[]
+	}
 
-	export let initialValue: string | undefined = undefined
-	export let value: string | undefined = initialValue
-	export let valueType: string | undefined = undefined
-	export let resourceType: string | undefined = undefined
-	export let disabled = false
-	export let disablePortal = false
-	export let showSchemaExplorer = false
-	export let selectFirst = false
-	export let expressOAuthSetup = false
-	export let defaultValues: Record<string, any> | undefined = undefined
-	export let placeholder: string | undefined = undefined
+	let {
+		initialValue = $bindable(undefined),
+		value = $bindable(undefined),
+		valueType = $bindable(undefined),
+		resourceType = undefined,
+		disabled = false,
+		disablePortal = false,
+		showSchemaExplorer = false,
+		selectFirst = false,
+		expressOAuthSetup = false,
+		defaultValues = undefined,
+		placeholder = undefined,
+		selectInputClass = '',
+		class: className = '',
+		onClear = undefined,
+		excludedValues = undefined
+	}: Props = $props()
+
+	if (initialValue && value == undefined) {
+		value = initialValue
+	}
 
 	onMount(() => {
 		setTimeout(() => {
@@ -38,26 +62,35 @@
 		}, 500)
 	})
 
-	let valueSelect =
-		initialValue || value
-			? {
-					value: value ?? initialValue,
-					label: value ?? initialValue,
-					type: valueType
+	// let valueSelect = $state(
+	// 	initialValue || value
+	// 		? {
+	// 				value: value ?? initialValue,
+	// 				label: value ?? initialValue,
+	// 				type: valueType
+	// 			}
+	// 		: undefined
+	// )
+
+	$effect(() => {
+		if (value === undefined) {
+			if (initialValue) {
+				if (initialValue != value) {
+					value = initialValue
 				}
-			: undefined
+			} else {
+			}
+		} else {
+		}
+	})
 
-	$: if (value === undefined && initialValue) {
-		value = initialValue
-	}
-
-	let collection = valueSelect ? [valueSelect] : []
+	let collection = $state(value ? [{ value, label: value, type: valueType }] : [])
 
 	export async function askNewResource() {
 		appConnect?.open?.(resourceType)
 	}
 
-	let loading = true
+	let loading = $state(true)
 	async function loadResources(resourceType: string | undefined) {
 		loading = true
 		try {
@@ -75,6 +108,7 @@
 			const nc = resources
 				.flat()
 				.filter((x) => x.resource_type != 'state' && x.resource_type != 'cache')
+				.filter((x) => !excludedValues || !excludedValues.includes(x.path))
 				.map((x) => ({
 					value: x.path,
 					label: x.path,
@@ -86,10 +120,9 @@
 				nc.push({ value: value ?? initialValue!, label: value ?? initialValue!, type: '' })
 			}
 			collection = nc
-			if (collection.length == 1 && selectFirst && valueSelect == undefined) {
+			if (collection.length == 1 && selectFirst && (value == undefined || value == '')) {
 				value = collection[0].value
 				valueType = collection[0].type
-				valueSelect = collection[0]
 			}
 		} catch (e) {
 			sendUserToast('Failed to load resource types', true)
@@ -98,28 +131,36 @@
 		loading = false
 	}
 
-	$: $workspaceStore && loadResources(resourceType)
+	let previousResourceType = resourceType
 
-	$: dispatchIfMounted('change', value)
+	$effect(() => {
+		$workspaceStore && resourceType
+		untrack(() => {
+			if (previousResourceType != resourceType) {
+				previousResourceType = resourceType
+				value = undefined
+			}
+		})
+		untrack(() => loadResources(resourceType))
+	})
 
-	let appConnect: AppConnect
-	let resourceEditor: ResourceEditorDrawer
+	$effect(() => {
+		excludedValues
+		if ($workspaceStore && resourceType && !disabled) {
+			untrack(() => loadResources(resourceType))
+		}
+	})
 
-	let darkMode: boolean = false
+	let appConnect: AppConnect | undefined = $state()
+	let resourceEditor: ResourceEditorDrawer | undefined = $state()
+	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 </script>
-
-<DarkModeObserver bind:darkMode />
 
 <AppConnect
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
 		value = e.detail
 		valueType = collection.find((x) => x?.value == value)?.type
-		valueSelect = {
-			value: e.detail,
-			label: e.detail,
-			type: valueType ?? ''
-		}
 	}}
 	bind:this={appConnect}
 	{expressOAuthSetup}
@@ -131,98 +172,112 @@
 		if (e.detail) {
 			value = e.detail
 			valueType = collection.find((x) => x?.value == value)?.type
-			valueSelect = { value: e.detail, label: e.detail, type: valueType ?? '' }
+			// valueSelect = { value: e.detail, label: e.detail, type: valueType ?? '' }
 		}
 	}}
 />
-
-<div class="flex flex-col w-full items-start min-h-9">
+<!-- {JSON.stringify({ value, collection })} -->
+<div class="flex flex-col w-full items-start min-h-10 {className}">
 	<div class="flex flex-row w-full items-center">
-		{#if collection?.length > 0}
-			<Select
-				{disabled}
-				portal={!disablePortal}
-				value={valueSelect}
-				on:change={(e) => {
-					value = e.detail.value
-					valueType = e.detail.type
-					valueSelect = e.detail
-				}}
-				on:clear={() => {
-					initialValue = undefined
-					value = undefined
-					valueType = undefined
-					valueSelect = undefined
-					dispatch('clear')
-				}}
-				items={collection}
-				class="text-clip grow min-w-0"
-				placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
-				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={darkMode
-					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-					: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-			/>
-		{:else if !loading}
-			<div class="text-2xs text-tertiary mr-2">0 found</div>
-		{/if}
-		{#if !loading}
-			<div class="mx-0.5"></div>
-			{#if value && value != ''}
+		<Select
+			{disabled}
+			{disablePortal}
+			bind:value={
+				() => value,
+				(v) => {
+					value = v
+					valueType = collection.find((x) => x?.value == v)?.type
+				}
+			}
+			onClear={() => {
+				initialValue = undefined
+				value = undefined
+				valueType = undefined
+				onClear?.()
+			}}
+			items={collection}
+			clearable
+			class="text-clip grow min-w-0"
+			inputClass={twMerge('min-h-10', selectInputClass)}
+			placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
+			itemLabelWrapperClasses="flex-1"
+			itemButtonWrapperClasses="flex"
+		>
+			{#snippet endSnippet({ item, close })}
 				<Button
 					{disabled}
 					color="light"
 					variant="contained"
-					size="sm"
-					btnClasses="w-8 px-0.5 py-1.5"
-					on:click={() => resourceEditor?.initEdit?.(value ?? '')}
+					size="xs3"
+					btnClasses="w-8 px-0.5 py-1.5 bg-transparent hover:bg-surface-secondary"
+					wrapperClasses="-mr-2 pl-1"
+					on:click={() => (resourceEditor?.initEdit?.(item.value ?? ''), close())}
 					startIcon={{ icon: Pen }}
 					iconOnly
 				/>
-			{/if}
-
-			{#if resourceType?.includes(',')}
-				{#each resourceType.split(',') as rt}
+			{/snippet}
+			{#snippet bottomSnippet({ close })}
+				<div class="flex bg-surface border-t divide-x">
+					{#if resourceType?.includes(',')}
+						<DropdownV2
+							enableFlyTransition
+							items={resourceType?.split(',').map((rt) => ({
+								displayName: `${rt} resource`,
+								icon: Plus,
+								action: () => (appConnect?.open?.(rt), close())
+							})) ?? []}
+						>
+							{#snippet buttonReplacement()}
+								<Button
+									{disabled}
+									color="light"
+									variant="contained"
+									wrapperClasses="flex-1"
+									btnClasses="rounded-none mt-0.5"
+									size="sm"
+									startIcon={{ icon: Plus }}
+								>
+									Add a resource
+								</Button>
+							{/snippet}
+						</DropdownV2>
+					{:else}
+						<Button
+							{disabled}
+							color="light"
+							variant="contained"
+							wrapperClasses="flex-1"
+							btnClasses="rounded-none"
+							size="sm"
+							on:click={() => (appConnect?.open?.(resourceType), close())}
+							startIcon={{ icon: Plus }}
+						>
+							Add a {resourceType} resource
+						</Button>
+					{/if}
 					<Button
-						{disabled}
-						color="light"
 						variant="contained"
+						color="light"
+						btnClasses="rounded-none"
 						size="sm"
-						btnClasses="w-8 px-0.5 py-1.5"
-						on:click={() => appConnect?.open?.(rt)}
-						startIcon={{ icon: Plus }}>{rt}</Button
-					>
-				{/each}
-			{:else}
-				<Button
-					{disabled}
-					color="light"
-					variant="border"
-					size="sm"
-					on:click={() => appConnect?.open?.(resourceType)}
-					startIcon={{ icon: Plus }}
-					iconOnly={collection?.length > 0}
-					>{#if collection?.length == 0}
-						Add a {resourceType} resource
-					{/if}</Button
-				>
-				<div class="mx-0.5"></div>
-			{/if}
-		{/if}
-
-		<Button
-			variant="contained"
-			color="light"
-			btnClasses="w-8 px-0.5 py-1.5"
-			size="sm"
-			on:click={() => {
-				loadResources(resourceType)
-			}}
-			startIcon={{ icon: RotateCw }}
-			iconOnly
-		/>
+						on:click={() => {
+							loadResources(resourceType)
+						}}
+						startIcon={loading ? { icon: Loader2, classes: 'animate-spin' } : { icon: RotateCw }}
+						iconOnly
+					/>
+				</div>
+			{/snippet}
+		</Select>
 	</div>
-	{#if showSchemaExplorer && isDbType(resourceType) && value}
-		<DBManagerDrawerButton {resourceType} resourcePath={value} />
+	{#if showSchemaExplorer && value && assetCanBeExplored({ kind: 'resource', path: value }, { resource_type: resourceType })}
+		<ExploreAssetButton
+			class="mt-1"
+			_resourceMetadata={{ resource_type: resourceType }}
+			asset={{ kind: 'resource', path: value }}
+			{dbManagerDrawer}
+		/>
 	{/if}
 </div>
+
+<DbManagerDrawer bind:this={dbManagerDrawer} />

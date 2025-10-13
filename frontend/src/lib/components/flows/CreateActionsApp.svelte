@@ -25,6 +25,8 @@
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<Button
+		aiId="apps-create-actions-app"
+		aiDescription="Create a new low-code app"
 		size="sm"
 		spacingSize="xl"
 		startIcon={{ icon: Plus }}
@@ -73,8 +75,8 @@
 				fixedOverflowWidgets={false}
 			/>
 		{/await}
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button size="sm" on:click={importRaw}>Import</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

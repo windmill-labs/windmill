@@ -14,7 +14,15 @@
 		} catch (err) {
 			console.error(err)
 		}
-		goto(rd ?? '/user/login')
+		if ($page.url.pathname != '/user/logout' && $page.url.pathname != '/user/login') {
+			return
+		}
+
+		if (rd?.startsWith('https://') || rd?.startsWith('http://')) {
+			window.location.href = rd
+		} else {
+			goto(rd ?? '/user/login')
+		}
 	})
 </script>
 

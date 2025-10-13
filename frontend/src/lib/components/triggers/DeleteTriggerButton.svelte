@@ -18,7 +18,7 @@
 </script>
 
 <ConfirmationModal
-	title="Are you sure you want to delete this draft trigger ?"
+	title={`Are you sure you want to delete this ${trigger?.isDraft ? 'draft' : 'deployed'} trigger ?`}
 	confirmationText="Delete"
 	open={confirmationModalOpen}
 	on:canceled={() => {

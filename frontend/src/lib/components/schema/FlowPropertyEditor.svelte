@@ -7,9 +7,7 @@
 	import type VariableEditor from '../VariableEditor.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import ArgInput from '../ArgInput.svelte'
-	import ObjectTypeNarrowing from '../ObjectTypeNarrowing.svelte'
-	import Tabs from '../common/tabs/Tabs.svelte'
-	import { Tab, TabContent } from '../common'
+	import ResourceNarrowing from '../ResourceNarrowing.svelte'
 	import EditableSchemaDrawer from './EditableSchemaDrawer.svelte'
 	import type { SchemaProperty } from '$lib/common'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -17,83 +15,75 @@
 	import Button from '../common/button/Button.svelte'
 	import { Pen, Plus, Trash2 } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { deepEqual } from 'fast-equals'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import ResourcePicker from '../ResourcePicker.svelte'
+	import { DynamicInput } from '$lib/utils'
 
-	export let format: string | undefined = undefined
-	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
-	export let type: string | undefined = undefined
-	export let oneOf: SchemaProperty[] | undefined = undefined
-	export let required = false
-	export let pattern: undefined | string = undefined
-	export let password: undefined | boolean = undefined
-	export let variableEditor: VariableEditor | undefined = undefined
-	export let itemPicker: ItemPicker | undefined = undefined
-	export let nullable: boolean | undefined = undefined
-	export let disabled: boolean | undefined = undefined
-	export let defaultValue: any = undefined
-	export let propsNames: any = []
-	export let showExpr: string | undefined = undefined
-	export let extra: Record<string, any> = {}
-	export let customErrorMessage: string | undefined = undefined
-	export let itemsType:
-		| {
-				type?: 'string' | 'number' | 'bytes' | 'object'
-				contentEncoding?: 'base64'
-				enum?: string[]
-				multiselect?: string[]
-		  }
-		| undefined = undefined
-	export let properties: Record<string, any> | undefined = undefined
-	export let order: string[] | undefined = undefined
-	export let requiredProperty: string[] | undefined = undefined
-	export let displayWebhookWarning: boolean = true
-
-	function getOneOfWithoutLabel(oneOf: SchemaProperty[]) {
-		return oneOf.map((v) => ({
-			...v,
-			properties: Object.fromEntries(
-				Object.entries(v.properties ?? {}).filter(([k, v]) => k !== 'label' && k !== 'kind')
-			)
-		}))
+	interface Props {
+		format?: string | undefined
+		contentEncoding?: 'base64' | 'binary' | undefined
+		type?: string | undefined
+		oneOf?: SchemaProperty[] | undefined
+		required?: boolean
+		pattern?: undefined | string
+		password?: undefined | boolean
+		variableEditor?: VariableEditor | undefined
+		itemPicker?: ItemPicker | undefined
+		nullable?: boolean | undefined
+		disabled?: boolean | undefined
+		defaultValue?: any
+		propsNames?: any
+		showExpr?: string | undefined
+		extra?: Record<string, any>
+		customErrorMessage?: string | undefined
+		itemsType?:
+			| {
+					type?: 'string' | 'number' | 'bytes' | 'object'
+					contentEncoding?: 'base64'
+					enum?: string[]
+					multiselect?: string[]
+			  }
+			| undefined
+		properties?: Record<string, any> | undefined
+		order?: string[] | undefined
+		requiredProperty?: string[] | undefined
+		displayWebhookWarning?: boolean
+		onDrawerClose?: () => void
 	}
 
-	let oneOfSelected: string | undefined = undefined
-	function oneOfUpdate(oneOf: SchemaProperty[] | undefined) {
-		if (oneOf && oneOf.length >= 2) {
-			if (!oneOfSelected) {
-				oneOfSelected = oneOf[0].title
-			}
+	let {
+		format = $bindable(undefined),
+		contentEncoding = undefined,
+		type = undefined,
+		oneOf = $bindable(undefined),
+		required = false,
+		pattern = undefined,
+		password = undefined,
+		variableEditor = undefined,
+		itemPicker = undefined,
+		nullable = $bindable(undefined),
+		disabled = $bindable(undefined),
+		defaultValue = $bindable(undefined),
+		propsNames = [],
+		showExpr = $bindable(undefined),
+		extra = {},
+		customErrorMessage = undefined,
+		itemsType = undefined,
+		properties = $bindable(undefined),
+		order = $bindable(undefined),
+		requiredProperty = $bindable(undefined),
+		displayWebhookWarning = true,
+		onDrawerClose = undefined
+	}: Props = $props()
 
-			if (
-				!schema.oneOf ||
-				!deepEqual(
-					oneOf.map((v) => [v.title, v.order]),
-					schema.oneOf.map((v) => [v.title, v.order])
-				)
-			) {
-				// update schema if not exists or order changed
-				schema.oneOf = getOneOfWithoutLabel(oneOf)
-				schema = schema
-			}
-		} else if (!oneOf) {
-			schema.oneOf = undefined
-			schema = schema
+	let oneOfSelected: string | undefined = $state(oneOf?.[0]?.title)
+
+	$effect(() => {
+		if (oneOf?.length && !oneOfSelected) {
+			oneOfSelected = oneOf[0].title
 		}
-	}
-	$: oneOfUpdate(oneOf)
-
-	function orderUpdate(order) {
-		if (order && !deepEqual(order, schema.order)) {
-			// update from external reordering
-			schema.order = order
-			schema = schema
-		}
-	}
-	$: orderUpdate(order)
+	})
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function getResourceTypesFromFormat(format: string | undefined): string[] {
 		if (format?.startsWith('resource-')) {
@@ -103,58 +93,16 @@
 		return []
 	}
 
-	let schema = {
-		properties,
-		order,
-		required: requiredProperty,
-		oneOf: oneOf ? getOneOfWithoutLabel(oneOf) : undefined
-	}
-
-	function schemaUpdate(changedSchema: typeof schema) {
-		if (
-			!deepEqual(changedSchema, {
-				properties,
-				order,
-				required: requiredProperty,
-				oneOf: oneOf ? getOneOfWithoutLabel(oneOf) : undefined
-			})
-		) {
-			properties = structuredClone(changedSchema.properties)
-			order = structuredClone(changedSchema.order)
-			requiredProperty = structuredClone(changedSchema.required)
-
-			const tagKey = oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
-				? 'kind'
-				: 'label'
-
-			oneOf = changedSchema.oneOf?.map((v) => {
-				return {
-					...v,
-					properties: {
-						...(v.properties ?? {}),
-						[tagKey]: {
-							type: 'string',
-							enum: [v.title ?? '']
-						}
-					}
-				}
-			})
-			dispatchIfMounted('schemaChange', { properties, order, requiredProperty, oneOf })
-		}
-	}
-
-	$: schemaUpdate(schema)
-
-	let variantName = ''
+	let variantName = $state('')
 	function createVariant(name: string) {
-		if (schema.oneOf) {
-			if (schema.oneOf.some((obj) => obj.title === name)) {
+		if (oneOf) {
+			if (oneOf.some((obj) => obj.title === name)) {
 				throw new Error('Variant name already exists')
 			}
-			const idx = schema.oneOf.findIndex((obj) => obj.title === name)
+			const idx = oneOf.findIndex((obj) => obj.title === name)
 			if (idx === -1) {
-				schema.oneOf = [
-					...schema.oneOf,
+				oneOf = [
+					...oneOf,
 					{
 						title: name,
 						type: 'object',
@@ -168,174 +116,247 @@
 	}
 
 	function renameVariant(name: string, selected: string) {
-		if (schema.oneOf) {
-			if (schema.oneOf.some((obj) => obj.title === name)) {
+		if (oneOf) {
+			if (oneOf.some((obj) => obj.title === name)) {
 				throw new Error('Variant name already exists')
 			}
-			const idx = schema.oneOf.findIndex((obj) => obj.title === selected)
+			const idx = oneOf.findIndex((obj) => obj.title === selected)
 			if (idx !== -1) {
-				schema.oneOf[idx].title = name
+				oneOf[idx].title = name
 				oneOfSelected = name
 			}
 			variantName = ''
 		}
 	}
 
-	let initialObjectSelected =
-		Object.keys(schema?.properties ?? {}).length == 0 ? 'resource' : 'custom-object'
+	let initialObjectSelected = $state(
+		format === 'json-schema'
+			? 'json-schema'
+			: format?.startsWith('jsonschema-')
+				? 'custom-object'
+				: Object.keys(properties ?? {}).length == 0
+					? 'resource'
+					: 'custom-object'
+	)
+	let isDyn = $derived(DynamicInput.isDynInputFormat(format))
+
+	let customObjectSelected: 'editor' | 'json-schema-resource' = $state(
+		format?.startsWith('jsonschema-') ? 'json-schema-resource' : 'editor'
+	)
 </script>
 
-<div class="flex flex-col gap-2">
-	{#if type === 'object' && schema.oneOf && schema.oneOf.length >= 2}
-		<div class="flex flex-row gap-1 items-center justify-start">
-			<ToggleButtonGroup
-				bind:selected={oneOfSelected}
-				class="h-auto w-auto"
-				tabListClass="flex-wrap"
-				let:item
-			>
-				{#each schema.oneOf as obj}
-					<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
-				{/each}
-			</ToggleButtonGroup>
+<div class="flex flex-col gap-2 mt-2">
+	{#if type === 'object' && oneOf && oneOf.length >= 2}
+		<Label label="OneOf properties">
+			<div class="flex flex-row gap-1 items-center justify-start pt-2">
+				<ToggleButtonGroup
+					bind:selected={oneOfSelected}
+					class="h-auto w-auto"
+					tabListClass="flex-wrap"
+				>
+					{#snippet children({ item })}
+						{#each oneOf ?? [] as obj}
+							<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
+						{/each}
+					{/snippet}
+				</ToggleButtonGroup>
 
-			<Popover placement="bottom-end" closeButton>
-				<svelte:fragment slot="trigger">
-					<Button size="xs2" color="light" nonCaptureEvent startIcon={{ icon: Plus }} />
-				</svelte:fragment>
-				<svelte:fragment slot="content" let:close>
-					<Label label="Label" class="p-2 flex flex-col gap-2">
-						<input
-							type="text"
-							class="w-full !bg-surface"
-							on:keydown={(event) => {
-								if (event.key === 'Enter') {
+				<Popover placement="bottom-end" closeButton>
+					{#snippet trigger()}
+						<Button size="xs2" color="light" nonCaptureEvent startIcon={{ icon: Plus }} />
+					{/snippet}
+					{#snippet content({ close })}
+						<Label label="Label" class="p-2 flex flex-col gap-2">
+							<input
+								type="text"
+								class="w-full !bg-surface"
+								onkeydown={(event) => {
+									if (event.key === 'Enter') {
+										createVariant(variantName)
+										close()
+									}
+								}}
+								bind:value={variantName}
+							/>
+							<Button
+								variant="border"
+								color="light"
+								size="xs"
+								on:click={() => {
 									createVariant(variantName)
 									close()
+								}}
+								disabled={variantName.length === 0}
+							>
+								Add
+							</Button>
+						</Label>
+					{/snippet}
+				</Popover>
+			</div>
+			<div class="flex flex-row gap-2 items-center ml-1 mt-4 mb-2">
+				<span class="font-semibold text-sm">{oneOfSelected}</span>
+
+				<Popover
+					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+					containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+					closeButton
+				>
+					{#snippet trigger()}
+						<Button
+							size="xs2"
+							color="light"
+							startIcon={{ icon: Pen }}
+							propagateEvent
+							iconOnly={false}
+							on:click={() => {
+								if (oneOfSelected) {
+									variantName = oneOfSelected
 								}
 							}}
-							bind:value={variantName}
 						/>
-						<Button
-							variant="border"
-							color="light"
-							size="xs"
-							on:click={() => {
-								createVariant(variantName)
-								close()
-							}}
-							disabled={variantName.length === 0}
-						>
-							Add
-						</Button>
-					</Label>
-				</svelte:fragment>
-			</Popover>
-		</div>
-		<div class="flex flex-row gap-2 items-center">
-			<span class="font-semibold text-sm">{oneOfSelected}</span>
-
-			<Popover
-				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-				containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
-				closeButton
-			>
-				<svelte:fragment slot="trigger">
-					<Button
-						size="xs2"
-						color="light"
-						startIcon={{ icon: Pen }}
-						propagateEvent
-						iconOnly={false}
-						on:click={() => {
-							if (oneOfSelected) {
-								variantName = oneOfSelected
-							}
-						}}
-					/>
-				</svelte:fragment>
-				<svelte:fragment slot="content" let:close>
-					<Label label="Label" class="p-2 flex flex-col gap-2">
-						<input
-							type="text"
-							class="w-full !bg-surface"
-							on:keydown={(event) => {
-								if (event.key === 'Enter') {
+					{/snippet}
+					{#snippet content({ close })}
+						<Label label="Label" class="p-2 flex flex-col gap-2">
+							<input
+								type="text"
+								class="w-full !bg-surface"
+								onkeydown={(event) => {
+									if (event.key === 'Enter') {
+										if (oneOfSelected) {
+											renameVariant(variantName, oneOfSelected)
+											close()
+										}
+									}
+								}}
+								bind:value={variantName}
+							/>
+							<Button
+								variant="border"
+								color="light"
+								size="xs"
+								on:click={() => {
 									if (oneOfSelected) {
 										renameVariant(variantName, oneOfSelected)
 										close()
 									}
-								}
-							}}
-							bind:value={variantName}
-						/>
-						<Button
-							variant="border"
-							color="light"
-							size="xs"
-							on:click={() => {
-								if (oneOfSelected) {
-									renameVariant(variantName, oneOfSelected)
-									close()
-								}
-							}}
-							disabled={variantName.length === 0}
-						>
-							Rename
-						</Button>
-					</Label>
-				</svelte:fragment>
-			</Popover>
-			<Button
-				size="xs2"
-				color="red"
-				startIcon={{ icon: Trash2 }}
-				iconOnly
-				disabled={schema.oneOf.length <= 2}
-				on:click={() => {
-					if (schema.oneOf && oneOfSelected) {
-						const idx = schema.oneOf.findIndex((obj) => obj.title === oneOfSelected)
-						schema.oneOf = schema.oneOf.filter((_, i) => i !== idx)
-						oneOfSelected = schema.oneOf[0].title
-					}
-				}}
-			/>
-		</div>
-		{#if oneOfSelected && schema.oneOf}
-			{@const idx = schema.oneOf.findIndex((obj) => obj.title === oneOfSelected)}
-			<EditableSchemaDrawer
-				bind:schema={schema.oneOf[idx]}
-				on:change={() => {
-					dispatch('schemaChange')
-				}}
-			/>
-		{/if}
-	{:else if type === 'object' && format !== 'resource-s3_object'}
-		<Tabs
-			bind:selected={initialObjectSelected}
-			on:selected={(e) => {
-				if (e.detail === 'custom-object') {
-					format = ''
-				}
-			}}
-		>
-			<Tab value="resource">Resource</Tab>
-			<Tab value="custom-object">Custom Object</Tab>
-			<svelte:fragment slot="content">
-				<div class="pt-2">
-					<TabContent value="custom-object">
-						<EditableSchemaDrawer bind:schema on:change={() => dispatch('schemaChange')} />
-					</TabContent>
-
-					<TabContent value="resource">
-						<ObjectTypeNarrowing on:change={() => dispatch('schemaChange')} bind:format />
-					</TabContent>
+								}}
+								disabled={variantName.length === 0}
+							>
+								Rename
+							</Button>
+						</Label>
+					{/snippet}
+				</Popover>
+				<Button
+					size="xs2"
+					color="red"
+					startIcon={{ icon: Trash2 }}
+					iconOnly
+					disabled={(oneOf?.length ?? 0) <= 2}
+					on:click={() => {
+						if (oneOf && oneOfSelected) {
+							const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)
+							oneOf = oneOf.filter((_, i) => i !== idx)
+							oneOfSelected = oneOf[0].title
+						}
+					}}
+				/>
+			</div>
+			{#if oneOfSelected && oneOf}
+				{@const idx = oneOf.findIndex((obj) => obj.title === oneOfSelected)}
+				<div class="ml-1">
+					<EditableSchemaDrawer
+						onClose={() => {
+							onDrawerClose?.()
+						}}
+						bind:schema={oneOf[idx]}
+						hiddenArgs={[
+							oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+								? 'kind'
+								: 'label'
+						]}
+					/>
 				</div>
-			</svelte:fragment>
-		</Tabs>
+			{/if}
+		</Label>
+		<div class="py-2"></div>
+	{:else if type === 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object' && !isDyn}
+		<ResourceNarrowing bind:format />
+	{:else if type === 'object' && !format?.startsWith('resource-') && !isDyn}
+		<div class="py-2">
+			<Label label="Object properties">
+				<ToggleButtonGroup
+					bind:selected={customObjectSelected}
+					class="my-2"
+					on:selected={(e) => {
+						if (e.detail === 'editor') {
+							format = undefined
+						} else {
+							properties = undefined
+							order = undefined
+							requiredProperty = undefined
+						}
+					}}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="editor" label="Custom" {item} />
+						<ToggleButton
+							value="json-schema-resource"
+							label="Template"
+							{item}
+							tooltip="Select a JSON schema resource to specify the object's properties"
+							showTooltipIcon
+						/>
+					{/snippet}
+				</ToggleButtonGroup>
+				{#if customObjectSelected === 'editor'}
+					<EditableSchemaDrawer
+						bind:schema={
+							() => {
+								return {
+									properties: properties,
+									order: order,
+									required: requiredProperty
+								}
+							},
+							(v) => {
+								properties = v.properties
+								order = v.order
+								requiredProperty = v.required
+							}
+						}
+					/>
+				{:else if customObjectSelected === 'json-schema-resource'}
+					{#if format == undefined}
+						<div class="text-xs text-tertiary my-1">
+							Select a <code>json_schema</code> resource as a reusable JSON schema template
+						</div>
+					{/if}
+					<ResourcePicker
+						resourceType="json_schema"
+						bind:value={
+							() => {
+								if (format?.startsWith('jsonschema-')) {
+									return format.substring('jsonschema-'.length)
+								}
+								return undefined
+							},
+							(v) => {
+								if (v) {
+									format = 'jsonschema-' + v
+								} else {
+									format = undefined
+								}
+							}
+						}
+					/>
+				{/if}
+			</Label>
+		</div>
 	{/if}
 
-	{#if !(type === 'object' && oneOf && oneOf.length >= 2) && !(type == 'object' && initialObjectSelected == 'custom-object')}
+	{#if !(type === 'object' && oneOf && oneOf.length >= 2) && !(type == 'object' && initialObjectSelected == 'custom-object') && !isDyn}
 		<Label label="Default">
 			<ArgInput
 				noDefaultOnSelectFirst
@@ -429,9 +450,10 @@
 			showExpr = showExpr ? undefined : 'true //fields.foo == 42'
 		}}
 	/>
-	{#if showExpr != undefined}
-		<div class="border">
+	{#if showExpr}
+		<div class="mt-2 bg-surface-secondary rounded-md pl-4">
 			<SimpleEditor
+				yPadding={8}
 				extraLib={`declare const fields: Record<${propsNames
 					?.filter((x) => x != name)
 					.map((x) => `"${x}"`)
@@ -440,6 +462,7 @@
 				bind:code={showExpr}
 				shouldBindKey={false}
 				fixedOverflowWidgets={false}
+				hideLineNumbers
 				autoHeight
 			/>
 		</div>

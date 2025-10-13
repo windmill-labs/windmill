@@ -3,26 +3,37 @@
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { selectOptions } from './apps/editor/component'
+	import Select from './select/Select.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
-	export let min: number | undefined
-	export let max: number | undefined
-	export let currency: string | undefined
-	export let currencyLocale: string | undefined
+	interface Props {
+		min: number | undefined
+		max: number | undefined
+		currency: string | undefined
+		currencyLocale: string | undefined
+	}
 
-	let minChecked: boolean = min != undefined
-	let maxChecked: boolean = max != undefined
+	let {
+		min = $bindable(),
+		max = $bindable(),
+		currency = $bindable(),
+		currencyLocale = $bindable()
+	}: Props = $props()
+
+	let minChecked: boolean = $state(min != undefined)
+	let maxChecked: boolean = $state(max != undefined)
 </script>
 
 <div class="flex flex-col gap-2">
 	<div class="grid grid-cols-2 gap-4">
 		<Label label="Min" class="w-full col-span-1">
-			<svelte:fragment slot="header">
+			{#snippet header()}
 				<Tooltip light small>
 					Set a minimum value for the number. If both min and max are set, the input will render as
 					a range slider.
 				</Tooltip>
-			</svelte:fragment>
-			<svelte:fragment slot="action">
+			{/snippet}
+			{#snippet action()}
 				<Toggle
 					bind:checked={minChecked}
 					on:change={(e) => {
@@ -35,17 +46,21 @@
 					options={{ right: 'Enabled' }}
 					size="xs"
 				/>
-			</svelte:fragment> <input type="number" bind:value={min} disabled={!minChecked} />
+			{/snippet}
+			<TextInput
+				inputProps={{ type: 'number', disabled: !minChecked }}
+				bind:value={() => min?.toString(), (v) => (min = v ? parseInt(v) : undefined)}
+			/>
 		</Label>
 
 		<Label label="Max" class="w-full col-span-1 ">
-			<svelte:fragment slot="header">
+			{#snippet header()}
 				<Tooltip light small>
 					Set a maximum value for the number. If both min and max are set, the input will render as
 					a range slider.
 				</Tooltip>
-			</svelte:fragment>
-			<svelte:fragment slot="action">
+			{/snippet}
+			{#snippet action()}
 				<Toggle
 					bind:checked={maxChecked}
 					on:change={(e) => {
@@ -58,32 +73,42 @@
 					options={{ right: 'Enabled' }}
 					size="xs"
 				/>
-			</svelte:fragment>
-			<input type="number" bind:value={max} disabled={!maxChecked} />
+			{/snippet}
+			<TextInput
+				inputProps={{ type: 'number', disabled: !maxChecked }}
+				bind:value={() => max?.toString(), (v) => (max = v ? parseInt(v) : undefined)}
+			/>
 		</Label>
 	</div>
-	<div class="grid grid-cols-3 gap-4">
-		<Label label="Currency" class="w-full col-span-2">
-			<svelte:fragment slot="header">
+	<div class="flex gap-2">
+		<Label label="Currency" class=" col-span-2">
+			{#snippet header()}
 				<Tooltip light small>
 					Select a currency to display the number in. If a currency is selected, you can also select
 					a locale to format the number according to that locale.
 				</Tooltip>
-			</svelte:fragment>
-			<select bind:value={currency}>
-				<option value={undefined}> No currency </option>
-				{#each selectOptions.currencyOptions as c}
-					<option value={c}>{c}</option>
-				{/each}
-			</select>
+			{/snippet}
+			<Select
+				bind:value={
+					() => currency,
+					(v) => {
+						currency = v
+						if (!v) currencyLocale = undefined
+					}
+				}
+				items={selectOptions.currencyOptions.map((c) => ({ label: c, value: c }))}
+				placeholder="No currency"
+				clearable
+			/>
 		</Label>
 		<Label label="Currency locale" class="w-full">
-			<select bind:value={currencyLocale} disabled={!currency}>
-				<option value={undefined}> No locale </option>
-				{#each selectOptions.localeOptions as c}
-					<option value={c}>{c}</option>
-				{/each}
-			</select>
+			<Select
+				bind:value={currencyLocale}
+				items={selectOptions.localeOptions.map((c) => ({ label: c, value: c }))}
+				placeholder="No locale"
+				disabled={!currency}
+				clearable
+			/>
 		</Label>
 	</div>
 </div>

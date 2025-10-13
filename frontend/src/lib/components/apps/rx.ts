@@ -75,11 +75,13 @@ export function buildObservableWorld() {
 		id: string,
 		previousValue: T
 	): Input<T> {
+		// console.log('connect', connection, id, previousValue)
+
 		if (!connection) {
 			return {
 				id,
 				peak: () => undefined,
-				next: () => { }
+				next: () => {}
 			}
 		}
 
@@ -95,7 +97,7 @@ export function buildObservableWorld() {
 			}
 			return {
 				peak: () => undefined,
-				next: () => { }
+				next: () => {}
 			}
 		}
 
@@ -143,6 +145,7 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 	const subscribers: Subscriber<T>[] = []
 
 	function subscribe(x: Subscriber<T>, npreviousValue: any) {
+		// console.log('subscribe', x, npreviousValue)
 		let currentSubscriber = subscribers.findIndex((y) => y === x || (y.id && y.id === x.id))
 		if (currentSubscriber == -1) {
 			subscribers.push(x)
@@ -180,6 +183,7 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 			} else {
 				value = x
 			}
+			// console.log('set', value, force, subscribers)
 			subscribers.forEach((x) => x.next(value!, force))
 		}
 	}

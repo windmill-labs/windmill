@@ -24,10 +24,11 @@
 		class="mb-4"
 		selected={dbSchema.publicOnly ? 'dbo' : 'all'}
 		on:selected={handleSelected}
-		let:item
 	>
-		<ToggleButton value="dbo" label={dbSchema.schema.dbo ? 'Dbo' : 'Public'} {item} />
-		<ToggleButton value="all" label="All" {item} />
+		{#snippet children({ item })}
+			<ToggleButton value="dbo" label={dbSchema.schema.dbo ? 'Dbo' : 'Public'} {item} />
+			<ToggleButton value="all" label="All" {item} />
+		{/snippet}
 	</ToggleButtonGroup>
 {/if}
 {#if dbSchema.lang === 'graphql'}

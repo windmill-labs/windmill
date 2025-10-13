@@ -15,28 +15,42 @@
 		LogarithmicScale
 	} from 'chart.js'
 	import type { CompletedJob } from '$lib/gen'
-	import { createEventDispatcher } from 'svelte'
 	import { getDbClockNow } from '$lib/forLater'
 	import Button from './common/button/Button.svelte'
 	import { Scatter } from '$lib/components/chartjs-wrappers/chartJs'
+	import DarkModeObserver from './DarkModeObserver.svelte'
 
-	export let jobs: CompletedJob[] | undefined = []
-	export let maxIsNow: boolean = false
-	export let minTimeSet: string | undefined = undefined
-	export let maxTimeSet: string | undefined = undefined
-	export let selectedIds: string[] = []
-	export let canSelect: boolean = true
-	export let lastFetchWentToEnd: boolean = false
+	interface Props {
+		jobs?: CompletedJob[] | undefined
+		maxIsNow?: boolean
+		minTimeSet?: string | undefined
+		maxTimeSet?: string | undefined
+		selectedIds?: string[]
+		canSelect?: boolean
+		lastFetchWentToEnd?: boolean
+		onPointClicked: (ids: string[]) => void
+		onLoadExtra: () => void
+		onZoom: (zoom: { min: Date; max: Date }) => void
+	}
 
-	const dispatch = createEventDispatcher()
+	let {
+		jobs = [],
+		maxIsNow = false,
+		minTimeSet = undefined,
+		maxTimeSet = undefined,
+		selectedIds = $bindable([]),
+		canSelect = true,
+		lastFetchWentToEnd = false,
+		onPointClicked,
+		onLoadExtra,
+		onZoom
+	}: Props = $props()
+
 	const SUCCESS_COLOR = '#4ade80'
 	// const SUCCESS_COLOR_TRANSPARENT = '#c9b638'
-	const SUCCESS_COLOR_TRANSPARENT = mergeColors(SUCCESS_COLOR, getBackgorundColor(), 0.8)
+	const SUCCESS_COLOR_TRANSPARENT = $derived(mergeColors(SUCCESS_COLOR, getBackgroundColor(), 0.8))
 	const FAIL_COLOR = '#f87171'
-	const FAIL_COLOR_TRANSPARENT = mergeColors(FAIL_COLOR, getBackgorundColor(), 0.8)
-
-	$: success = jobs?.filter((x) => x.success)
-	$: failed = jobs?.filter((x) => !x.success)
+	const FAIL_COLOR_TRANSPARENT = $derived(mergeColors(FAIL_COLOR, getBackgroundColor(), 0.8))
 
 	ChartJS.register(
 		Title,
@@ -51,43 +65,12 @@
 		TimeScale
 	)
 
-	$: data = {
-		datasets: [
-			{
-				borderColor: 'rgba(99,0,125, 0)',
-				backgroundColor: FAIL_COLOR as string | string[],
-				radius: 3,
-				label: 'Failed',
-				data:
-					failed?.map((job) => ({
-						x: job.started_at as any,
-						y: job.duration_ms,
-						id: job.id,
-						path: job.script_path
-					})) ?? []
-			},
-			{
-				borderColor: 'rgba(99,0,125, 0)',
-				backgroundColor: SUCCESS_COLOR as string | string[],
-				radius: 3,
-				label: 'Successful',
-				data:
-					success?.map((job) => ({
-						x: job.started_at as any,
-						y: job.duration_ms,
-						id: job.id,
-						path: job.script_path
-					})) ?? []
-			}
-		]
-	}
-
 	const zoomOptions = {
 		pan: {
 			enabled: true,
 			modifierKey: 'ctrl' as 'ctrl',
 			onPanComplete: ({ chart }) => {
-				dispatch('zoom', {
+				onZoom({
 					min: addSeconds(new Date(chart.scales.x.min), -1),
 					max: addSeconds(new Date(chart.scales.x.max), 1)
 				})
@@ -99,7 +82,7 @@
 			},
 			mode: 'x' as 'x',
 			onZoom: ({ chart }) => {
-				dispatch('zoom', {
+				onZoom({
 					min: addSeconds(new Date(chart.scales.x.min), -1),
 					max: addSeconds(new Date(chart.scales.x.max), 1)
 				})
@@ -107,15 +90,14 @@
 		}
 	}
 
-	function isDark(): boolean {
-		return document.documentElement.classList.contains('dark')
-	}
+	let darkMode = $state(false)
+	$effect(() => {
+		ChartJS.defaults.color = darkMode ? '#ccc' : '#666'
+		ChartJS.defaults.borderColor = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+	})
 
-	ChartJS.defaults.color = isDark() ? '#ccc' : '#666'
-	ChartJS.defaults.borderColor = isDark() ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
-
-	function getBackgorundColor(): string {
-		return isDark() ? '#2e3440' : '#ffffff'
+	function getBackgroundColor(): string {
+		return darkMode ? '#2e3440' : '#ffffff'
 	}
 	function hexToRgb(hexColor: string): number[] {
 		hexColor = hexColor.replace(/^#/, '')
@@ -150,28 +132,9 @@
 		return rgbToHex(blendedRgb)
 	}
 
-	function highlightSelectedPoints(ids: string[]) {
-		if (!canSelect || ids.length === 0) {
-			data.datasets[0].backgroundColor = FAIL_COLOR
-			data.datasets[1].backgroundColor = SUCCESS_COLOR
-		} else {
-			data.datasets[0].backgroundColor = data.datasets[0].data.map((p) =>
-				ids.includes(p.id) ? FAIL_COLOR : FAIL_COLOR_TRANSPARENT
-			)
-			data.datasets[1].backgroundColor = data.datasets[1].data.map((p) =>
-				ids.includes(p.id) ? SUCCESS_COLOR : SUCCESS_COLOR_TRANSPARENT
-			)
-		}
-	}
-
 	function getPath(x: any): string {
 		return x.path
 	}
-
-	let minTime = addSeconds(new Date(), -300)
-	let maxTime = getDbClockNow()
-
-	$: computeMinMaxTime(jobs, minTimeSet, maxTimeSet)
 
 	function minJobTime(jobs: CompletedJob[]): Date {
 		let min: Date = new Date(jobs[0].started_at)
@@ -195,6 +158,7 @@
 		}
 		return max
 	}
+
 	function computeMinMaxTime(
 		jobs: CompletedJob[] | undefined,
 		minTimeSet: string | undefined,
@@ -203,15 +167,13 @@
 		let minTimeSetDate = minTimeSet ? new Date(minTimeSet) : undefined
 		let maxTimeSetDate = maxTimeSet ? new Date(maxTimeSet) : undefined
 		if (minTimeSetDate && maxTimeSetDate) {
-			minTime = minTimeSetDate
-			maxTime = maxTimeSetDate
-			return
+			return { minTime: minTimeSetDate, maxTime: maxTimeSetDate }
 		}
 
 		if (jobs == undefined || jobs?.length == 0) {
-			minTime = minTimeSetDate ?? addSeconds(new Date(), -300)
-			maxTime = maxTimeSetDate ?? getDbClockNow()
-			return
+			const computedMinTime = minTimeSetDate ?? addSeconds(new Date(), -300)
+			const computedMaxTime = maxTimeSetDate ?? getDbClockNow()
+			return { minTime: computedMinTime, maxTime: computedMaxTime }
 		}
 
 		const maxJob = maxIsNow ? getDbClockNow() : maxJobTime(jobs)
@@ -219,12 +181,11 @@
 
 		const diff = (maxJob.getTime() - minJob.getTime()) / 20000
 
-		minTime = minTimeSetDate ?? addSeconds(minJob, -diff)
-		if (maxIsNow) {
-			maxTime = maxTimeSetDate ?? maxJob
-		} else {
-			maxTime = maxTimeSetDate ?? addSeconds(maxJob, diff)
-		}
+		let computedMinTime = minTimeSetDate ?? addSeconds(minJob, -diff)
+		let computedMaxTime = maxIsNow
+			? (maxTimeSetDate ?? maxJob)
+			: (maxTimeSetDate ?? addSeconds(maxJob, diff))
+		return { minTime: computedMinTime, maxTime: computedMaxTime }
 	}
 
 	function addSeconds(date: Date, seconds: number): Date {
@@ -232,7 +193,56 @@
 		return date
 	}
 
-	$: scatterOptions = {
+	let success = $derived(jobs?.filter((x) => x.success))
+	let failed = $derived(jobs?.filter((x) => !x.success))
+	let data = $derived.by(() => {
+		const data = {
+			datasets: [
+				{
+					borderColor: 'rgba(99,0,125, 0)',
+					backgroundColor: FAIL_COLOR as string | string[],
+					radius: 3,
+					label: 'Failed',
+					data:
+						failed?.map((job) => ({
+							x: job.started_at as any,
+							y: job.duration_ms,
+							id: job.id,
+							path: job.script_path
+						})) ?? []
+				},
+				{
+					borderColor: 'rgba(99,0,125, 0)',
+					backgroundColor: SUCCESS_COLOR as string | string[],
+					radius: 3,
+					label: 'Successful',
+					data:
+						success?.map((job) => ({
+							x: job.started_at as any,
+							y: job.duration_ms,
+							id: job.id,
+							path: job.script_path
+						})) ?? []
+				}
+			]
+		}
+		if (!canSelect || selectedIds.length === 0) {
+			data.datasets[0].backgroundColor = FAIL_COLOR
+			data.datasets[1].backgroundColor = SUCCESS_COLOR
+		} else {
+			data.datasets[0].backgroundColor = data.datasets[0].data.map((p) =>
+				selectedIds.includes(p.id) ? FAIL_COLOR : FAIL_COLOR_TRANSPARENT
+			)
+			data.datasets[1].backgroundColor = data.datasets[1].data.map((p) =>
+				selectedIds.includes(p.id) ? SUCCESS_COLOR : SUCCESS_COLOR_TRANSPARENT
+			)
+		}
+		return data
+	})
+
+	const minMaxTime = $derived.by(() => computeMinMaxTime(jobs, minTimeSet, maxTimeSet))
+
+	let scatterOptions = $derived({
 		responsive: true,
 		maintainAspectRatio: false,
 		plugins: {
@@ -242,17 +252,17 @@
 			},
 			tooltip: {
 				callbacks: {
-					label: function (context) {
+					label: function (context: any) {
 						return getPath(context.raw)
 					}
 				}
 			}
 		},
-		onClick: (e, u) => {
+		onClick: (_e: any, u: any) => {
 			if (canSelect) {
-				const ids = u.map((j) => data.datasets[j.datasetIndex].data[j.index].id)
+				const ids = u.map((j: any) => data.datasets[j.datasetIndex].data[j.index].id)
 				selectedIds = ids
-				dispatch('pointClicked', ids)
+				onPointClicked(ids)
 			}
 		},
 
@@ -262,8 +272,8 @@
 				grid: {
 					display: false
 				},
-				min: minTime,
-				max: maxTime
+				min: minMaxTime.minTime,
+				max: minMaxTime.maxTime
 			},
 			y: {
 				grid: {
@@ -277,10 +287,10 @@
 			}
 		},
 		animation: false
-	} as any
-
-	$: data && scatterOptions && highlightSelectedPoints(selectedIds)
+	} as any)
 </script>
+
+<DarkModeObserver bind:darkMode />
 
 <!-- {JSON.stringify(minTime)}
 {JSON.stringify(maxTime)}
@@ -291,12 +301,8 @@
 <!-- {JSON.stringify(jobs?.map((x) => x.started_at))} -->
 <div class="relative max-h-40">
 	{#if !lastFetchWentToEnd}
-		<div class="absolute top-[-10px] left-[60px]"
-			><Button
-				size="xs"
-				color="transparent"
-				variant="contained"
-				on:click={() => dispatch('loadExtra')}
+		<div class="absolute top-[-28px] left-[180px]"
+			><Button size="xs" color="transparent" variant="contained" on:click={() => onLoadExtra()}
 				>Load more <Tooltip2
 					>There are more jobs to load but only the first 1000 were fetched</Tooltip2
 				></Button

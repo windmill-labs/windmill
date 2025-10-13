@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { Badge } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getNextId } from '$lib/components/flows/idUtils'
@@ -10,8 +13,12 @@
 	import PanelSection from './common/PanelSection.svelte'
 	import { Plus, Trash } from 'lucide-svelte'
 
-	export let components: (BaseAppComponent & ButtonComponent)[]
-	export let id: string
+	interface Props {
+		components: (BaseAppComponent & ButtonComponent)[]
+		id: string
+	}
+
+	let { components = $bindable(), id }: Props = $props()
 
 	const { selectedComponent, app, errorByComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -42,17 +49,17 @@
 		<span class="text-xs text-tertiary">No action buttons</span>
 	{/if}
 	{#each components as component}
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			class={classNames(
 				'w-full text-xs font-bold gap-1 truncate py-1.5 px-2 cursor-pointer transition-all justify-between flex items-center border border-gray-3 rounded-md',
 				'bg-surface border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-secondary',
 				$selectedComponent?.includes(component.id) ? 'outline outline-blue-500 bg-red-400' : ''
 			)}
-			on:click={() => {
+			onclick={() => {
 				$selectedComponent = [component.id]
 			}}
-			on:keypress
+			onkeypress={bubble('keypress')}
 		>
 			<Badge color="dark-indigo">
 				{component.id}

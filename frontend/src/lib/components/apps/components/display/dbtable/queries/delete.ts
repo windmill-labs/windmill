@@ -1,4 +1,5 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
+import { wrapDucklakeQuery, type DbInput } from '$lib/components/dbOps'
 import { getLanguageByResourceType, type ColumnDef, buildParameters, type DbType } from '../utils'
 
 export function makeDeleteQuery(table: string, columns: ColumnDef[], dbType: DbType) {
@@ -52,26 +53,38 @@ export function makeDeleteQuery(table: string, columns: ColumnDef[], dbType: DbT
 			query += `\nDELETE FROM ${table} \nWHERE ${conditions}`
 			return query
 		}
+		case 'duckdb': {
+			const conditions = columns
+				.map((c) => `($${c.field} IS NULL AND ${c.field} IS NULL OR ${c.field} = $${c.field})`)
+				.join('\n    AND ')
+			query += `\nDELETE FROM ${table} \nWHERE ${conditions}`
+			return query
+		}
 		default:
 			throw new Error('Unsupported database type')
 	}
 }
 
 export function getDeleteInput(
-	resource: string,
+	dbInput: DbInput,
 	table: string,
-	columns: ColumnDef[],
-	dbType: DbType
+	columns: ColumnDef[]
 ): AppInput | undefined {
-	if (!resource || !table) {
+	if (
+		(dbInput.type == 'ducklake' && !dbInput.ducklake) ||
+		(dbInput.type == 'database' && !dbInput.resourcePath) ||
+		!table
+	) {
 		return undefined
 	}
-
+	const dbType = dbInput.type === 'ducklake' ? 'duckdb' : dbInput.resourceType
+	let query = makeDeleteQuery(table, columns, dbType)
+	if (dbInput.type === 'ducklake') query = wrapDucklakeQuery(query, dbInput.ducklake)
 	const deleteRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
 		inlineScript: {
-			content: makeDeleteQuery(table, columns, dbType),
+			content: query,
 			language: getLanguageByResourceType(dbType),
 			schema: {
 				$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -84,14 +97,17 @@ export function getDeleteInput(
 
 	const deleteQuery: AppInput = {
 		runnable: deleteRunnable,
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: `resource-${dbType}`
-			}
-		},
+		fields:
+			dbInput.type == 'database'
+				? {
+						database: {
+							type: 'static',
+							value: `$res:${dbInput.resourcePath}`,
+							fieldType: 'object',
+							format: `resource-${dbType}`
+						}
+					}
+				: {},
 		type: 'runnable',
 		fieldType: 'object'
 	}

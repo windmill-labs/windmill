@@ -40,7 +40,7 @@
 	export type DBTableEditorProps = {
 		onConfirm: (values: CreateTableValues) => void | Promise<void>
 		previewSql?: (values: CreateTableValues) => string
-		resourceType: DbType
+		dbType: DbType
 		dbSchema?: DBSchema
 		currentSchema?: string
 	}
@@ -59,7 +59,6 @@
 		type DbType
 	} from './apps/components/display/dbtable/utils'
 	import { DB_TYPES } from '$lib/consts'
-	import Select from './apps/svelte-select/lib/Select.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
 	import {
@@ -71,22 +70,24 @@
 	import { copyToClipboard } from '$lib/utils'
 	import { getFlatTableNamesFromSchema, type DBSchema } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '$lib/defaults'
 	import DarkModeObserver from './DarkModeObserver.svelte'
+	import Select from './select/Select.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
-	const { onConfirm, resourceType, previewSql, dbSchema, currentSchema }: DBTableEditorProps =
-		$props()
+	const { onConfirm, dbType, previewSql, dbSchema, currentSchema }: DBTableEditorProps = $props()
 
-	const columnTypes = DB_TYPES[resourceType]
+	const columnTypes = DB_TYPES[dbType]
 	const defaultColumnType = (
 		{
-			postgresql: 'VARCHAR',
+			postgresql: 'BIGSERIAL',
 			snowflake: 'varchar',
 			ms_sql_server: 'varchar',
 			bigquery: 'string',
-			mysql: 'varchar'
+			mysql: 'varchar',
+			duckdb: 'string'
 		} satisfies Record<DbType, string>
-	)[resourceType]
+	)[dbType]
 
 	const values: CreateTableValues = $state({
 		name: '',
@@ -104,7 +105,7 @@
 			...(primaryKey && { primaryKey })
 		})
 	}
-	addColumn({ name: 'id', primaryKey: true })
+	addColumn({ name: 'id', primaryKey: dbType !== 'duckdb' })
 
 	const errors: ReturnType<typeof validate> = $derived(validate(values, dbSchema))
 
@@ -121,9 +122,8 @@
 	<div class="flex-1 overflow-y-auto flex flex-col gap-6">
 		<label>
 			Name
-			<input
-				type="text"
-				placeholder="my_table"
+			<TextInput
+				inputProps={{ type: 'text', placeholder: 'my_table' }}
 				class={errors?.name ? 'border !border-red-600/60' : ''}
 				bind:value={values.name}
 			/>
@@ -144,33 +144,27 @@
 					{#each values.columns as column, i}
 						<tr>
 							<Cell first>
-								<input
-									type="text"
-									class={'h-10 ' +
-										(errors?.columns?.includes(column.name) ? 'border !border-red-600/60' : '')}
-									style="height: 2rem;"
-									placeholder="column_name"
+								<TextInput
+									error={errors?.columns?.includes(column.name)}
+									inputProps={{ type: 'text', placeholder: 'column_name' }}
 									bind:value={column.name}
 								/>
 							</Cell>
 							<Cell>
 								<Select
-									inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-									containerStyles={darkMode
-										? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-										: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-									class="!w-48"
-									value={column.datatype}
-									on:change={(e) => {
-										column.datatype = e.detail.value
-										if (datatypeHasLength(column.datatype)) {
-											column.datatype_length = datatypeDefaultLength(column.datatype)
-										} else {
-											column.datatype_length = undefined
+									bind:value={
+										() => column.datatype,
+										(v) => {
+											column.datatype = v
+											if (datatypeHasLength(column.datatype)) {
+												column.datatype_length = datatypeDefaultLength(column.datatype)
+											} else {
+												column.datatype_length = undefined
+											}
 										}
-									}}
-									items={columnTypes}
-									clearable={false}
+									}
+									items={safeSelectItems(columnTypes)}
+									class="w-48"
 								/>
 							</Cell>
 							<Cell last class="flex items-center mt-1.5">
@@ -205,8 +199,8 @@
 										</label>
 										{#if !column.primaryKey}
 											<label class="flex gap-2 items-center text-xs">
-												<input type="checkbox" class="!w-4 !h-4" bind:checked={column.not_null} />
-												Not nullable
+												<input type="checkbox" class="!w-4 !h-4" bind:checked={column.nullable} />
+												Nullable
 											</label>
 										{/if}
 									{/snippet}
@@ -252,23 +246,19 @@
 						<tr>
 							<Cell first class="flex">
 								<Select
-									inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-									containerStyles={darkMode
-										? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-										: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-									class={twMerge('!w-48', fkErrors?.emptyTarget ? 'border !border-red-600/60' : '')}
+									inputClass={twMerge(
+										'!w-48',
+										fkErrors?.emptyTarget ? 'border !border-red-600/60' : ''
+									)}
 									placeholder=""
-									value={foreignKey.targetTable}
-									on:change={(e) => (foreignKey.targetTable = e.detail.value)}
+									bind:value={foreignKey.targetTable}
 									items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
 										value: o,
 										label:
-											(currentSchema && o.startsWith(currentSchema)) ||
-											!dbSupportsSchemas(resourceType)
+											(currentSchema && o.startsWith(currentSchema)) || !dbSupportsSchemas(dbType)
 												? o.split('.')[1]
 												: o
 									}))}
-									clearable={false}
 								/>
 							</Cell>
 							<Cell>
@@ -277,47 +267,39 @@
 										<div class="flex">
 											<div class="flex items-center gap-1 w-60">
 												<!-- Div wrappers with absolute select are to prevent the Select content
-												 		 from overflowing -->
+												 		 from x-overflowing -->
 												<div class="grow h-[2rem] relative">
 													<Select
-														inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-														containerStyles={darkMode
-															? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-															: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-														class={twMerge(
-															'!absolute inset-0',
+														class="!absolute inset-0"
+														inputClass={twMerge(
 															fkErrors?.nonExistingSourceColumns.includes(column.sourceColumn)
 																? 'border !border-red-600/60'
 																: ''
 														)}
 														placeholder=""
-														value={column.sourceColumn}
-														on:change={(e) => (column.sourceColumn = e.detail.value)}
-														items={values.columns.map((c) => c.name)}
+														bind:value={column.sourceColumn}
+														items={values.columns
+															.filter((c) => c.name.length)
+															.map((c) => ({ value: c.name }))}
 														clearable={false}
 													/>
 												</div>
 												<ArrowRight size={16} class="h-fit shrink-0" />
 												<div class="grow h-[2rem] relative">
 													<Select
-														inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-														containerStyles={darkMode
-															? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-															: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
-														class={twMerge(
-															'!absolute inset-0',
+														class="!absolute inset-0"
+														inputClass={twMerge(
 															fkErrors?.nonExistingTargetColumns.includes(column.targetColumn)
 																? 'border !border-red-600/60'
 																: ''
 														)}
 														placeholder=""
-														value={column.targetColumn}
-														on:change={(e) => (column.targetColumn = e.detail.value)}
+														bind:value={column.targetColumn}
 														items={Object.keys(
 															dbSchema?.schema?.[foreignKey.targetTable?.split('.')?.[0] ?? '']?.[
 																foreignKey.targetTable?.split('.')[1]
 															] ?? {}
-														)}
+														).map((value) => ({ value }))}
 														clearable={false}
 													/>
 												</div>

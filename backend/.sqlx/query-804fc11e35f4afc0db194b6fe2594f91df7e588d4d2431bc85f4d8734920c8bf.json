@@ -34,7 +34,9 @@
                 "csharp",
                 "oracledb",
                 "nu",
-                "java"
+                "java",
+                "duckdb",
+                "ruby"
               ]
             }
           }

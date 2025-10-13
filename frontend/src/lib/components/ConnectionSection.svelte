@@ -45,7 +45,18 @@
 			sendUserToast('Connected to Teams successfully')
 			onLoadSettings()
 		} catch (error) {
-			sendUserToast('Failed to connect to Teams', true)
+			// Extract the actual error message from the API response
+			let errorMessage = 'Failed to connect to Teams'
+
+			if (typeof error?.body === 'string') {
+				errorMessage = error.body
+			} else if (error?.body?.message) {
+				errorMessage = error.body.message
+			} else if (error?.message && error.message !== 'Bad Request') {
+				errorMessage = error.message
+			}
+
+			sendUserToast(errorMessage, true)
 			console.error('Error connecting to Teams:', error)
 		}
 	}
@@ -108,7 +119,7 @@
 						bind:selectedTeam
 						minWidth="180px"
 						disabled={!$enterpriseLicense}
-						on:error={(e) => sendUserToast('Failed to load teams: ' + e.detail.message, true)}
+						onError={(e) => sendUserToast('Failed to load teams: ' + e.message, true)}
 					/>
 				{/if}
 			{:else}

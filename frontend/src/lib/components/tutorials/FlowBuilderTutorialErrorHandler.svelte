@@ -27,7 +27,7 @@
 				title: 'Error handler tutorial',
 				description: 'Learn how to recover from an error. You can use arrow keys to navigate.',
 				onNextClick: () => {
-					$flowStore.value.modules = [
+					flowStore.val.value.modules = [
 						{
 							id: 'a',
 							value: {
@@ -51,14 +51,14 @@
 			}
 		},
 		{
-			element: '#flow-editor-error-handler',
+			element: '#flow-editor-add-step-error-handler-button',
 			popover: {
 				title: 'Error handler',
 				description:
 					'You can add an error handler to your flow. It will be executed if any of the steps in the flow fails.',
 
 				onNextClick: () => {
-					triggerPointerDown('#flow-editor-error-handler button')
+					triggerPointerDown('#flow-editor-add-step-error-handler-button')
 					setTimeout(() => {
 						driver.moveNext()
 					})

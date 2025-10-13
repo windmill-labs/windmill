@@ -7,21 +7,28 @@
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import YAML from 'yaml'
-	import { sliceModules } from '../flows/flowStateUtils'
+	import { sliceModules } from '../flows/flowStateUtils.svelte'
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
-	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
+	import { stepInputCompletionEnabled } from '$lib/stores'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { Flow } from '$lib/gen'
+	import { copilotInfo } from '$lib/aiStore'
 
-	let loading = false
-	export let pickableProperties: PickableProperties | undefined = undefined
+	let loading = $state(false)
+	interface Props {
+		pickableProperties?: PickableProperties | undefined
+	}
 
-	let instructions = ''
-	let instructionsField: HTMLInputElement | undefined = undefined
-	$: instructionsField && setTimeout(() => instructionsField?.focus(), 100)
+	let { pickableProperties = undefined }: Props = $props()
 
-	let abortController = new AbortController()
+	let instructions = $state('')
+	let instructionsField: HTMLInputElement | undefined = $state(undefined)
+	$effect(() => {
+		instructionsField && setTimeout(() => instructionsField?.focus(), 100)
+	})
+
+	let abortController = $state(new AbortController())
 	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
@@ -29,7 +36,7 @@
 	async function generatePredicate() {
 		abortController = new AbortController()
 		loading = true
-		const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
 		const upToIndex = idOrders.indexOf($selectedId)
 		if (upToIndex === -1) {
@@ -86,7 +93,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 		floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
 		contentClasses="p-4 flex w-96"
 	>
-		<svelte:fragment slot="trigger">
+		{#snippet trigger()}
 			<Button
 				color={loading ? 'red' : 'light'}
 				size="xs"
@@ -99,14 +106,14 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				clickableWhileLoading
 				on:click={loading ? () => abortController?.abort() : () => {}}
 			/>
-		</svelte:fragment>
-		<svelte:fragment slot="content" let:close>
+		{/snippet}
+		{#snippet content({ close })}
 			<input
 				bind:this={instructionsField}
 				type="text"
 				placeholder="Predicate description"
 				bind:value={instructions}
-				on:keypress={({ key }) => {
+				onkeypress={({ key }) => {
 					if (key === 'Enter' && instructions.length > 0) {
 						close()
 						generatePredicate()
@@ -129,6 +136,6 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				disabled={instructions.length == 0}
 				startIcon={{ icon: Wand2 }}
 			/>
-		</svelte:fragment>
+		{/snippet}
 	</Popover>
 {/if}

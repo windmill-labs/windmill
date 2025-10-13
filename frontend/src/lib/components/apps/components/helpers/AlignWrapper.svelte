@@ -3,27 +3,42 @@
 	import type { HorizontalAlignment, VerticalAlignment } from '../../types'
 	import { tailwindHorizontalAlignment, tailwindVerticalAlignment } from '../../utils'
 
-	export let horizontalAlignment: HorizontalAlignment | undefined = undefined
-	export let verticalAlignment: VerticalAlignment | undefined = undefined
-	export let noWFull = false
-	export let hFull = false
-	let c = ''
-	export { c as class }
-	export let style = ''
-	export let render: boolean = true
+	interface Props {
+		horizontalAlignment?: HorizontalAlignment | undefined
+		verticalAlignment?: VerticalAlignment | undefined
+		noWFull?: boolean
+		hFull?: boolean
+		class?: string
+		style?: string
+		render?: boolean
+		children?: import('svelte').Snippet
+	}
 
-	$: classes = twMerge(
-		'flex z-auto',
-		noWFull ? '' : 'w-full',
-		tailwindHorizontalAlignment(horizontalAlignment),
-		tailwindVerticalAlignment(verticalAlignment),
-		verticalAlignment || hFull ? 'h-full' : '',
-		c
+	let {
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		noWFull = false,
+		hFull = false,
+		class: c = '',
+		style = '',
+		render = true,
+		children
+	}: Props = $props()
+
+	let classes = $derived(
+		twMerge(
+			'flex z-auto',
+			noWFull ? '' : 'w-full',
+			tailwindHorizontalAlignment(horizontalAlignment),
+			tailwindVerticalAlignment(verticalAlignment),
+			verticalAlignment || hFull ? 'h-full' : '',
+			c
+		)
 	)
 </script>
 
 {#if render}
 	<div class={classes} {style}>
-		<slot />
+		{@render children?.()}
 	</div>
 {/if}

@@ -34,7 +34,7 @@
 			<Tabs bind:selected={rawType}>
 				<Tab value="yaml">YAML</Tab>
 				<Tab value="json">JSON</Tab>
-				<svelte:fragment slot="content">
+				{#snippet content()}
 					<div class="relative pt-2">
 						<Button
 							on:click={() =>
@@ -60,7 +60,7 @@
 							/>
 						{/key}
 					</div>
-				</svelte:fragment>
+				{/snippet}
 			</Tabs>
 		</div></DrawerContent
 	>

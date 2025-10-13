@@ -36,11 +36,11 @@
 			/>
 		{/if}
 
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button
 				disabled={workspaceToDeployTo == undefined}
 				on:click={() => deployWorkspace?.deployAll()}>Deploy All</Button
 			>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

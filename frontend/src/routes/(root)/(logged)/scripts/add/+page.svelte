@@ -9,9 +9,10 @@
 	import { goto } from '$lib/navigation'
 	import { replaceState } from '$app/navigation'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
-	import type { GetInitialAndModifiedValues } from '$lib/components/common/confirmationModal/unsavedTypes'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
+	import { get } from 'svelte/store'
+	import { untrack } from 'svelte'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -20,18 +21,14 @@
 	const hubPath = $page.url.searchParams.get('hub')
 	const showMeta = /true|1/i.test($page.url.searchParams.get('show_meta') ?? '0')
 
-	let initialArgs = {}
-
-	if ($initialArgsStore) {
-		initialArgs = $initialArgsStore
-		$initialArgsStore = undefined
-	}
+	let initialArgs = get(initialArgsStore) ?? {}
+	if (get(initialArgsStore)) $initialArgsStore = undefined
 
 	const path = $page.url.searchParams.get('path')
 
 	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
 
-	let scriptBuilder: ScriptBuilder | undefined = undefined
+	let scriptBuilder: ScriptBuilder | undefined = $state(undefined)
 
 	function decodeStateAndHandleError(state) {
 		try {
@@ -60,8 +57,9 @@
 		}
 	}
 
-	let script: NewScript & { draft_triggers: Trigger[] } =
+	let script: NewScript & { draft_triggers: Trigger[] } = $state(
 		!path && initialState != undefined ? decodeStateAndHandleError(initialState) : defaultScript()
+	)
 
 	async function loadTemplate(): Promise<void> {
 		if (templatePath) {
@@ -95,32 +93,29 @@
 
 	loadHub()
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore) {
-			loadTemplate()
+			untrack(() => loadTemplate())
 		}
-	}
-
-	let getInitialAndModifiedValues: GetInitialAndModifiedValues = undefined
+	})
 </script>
 
 <ScriptBuilder
 	{initialArgs}
 	bind:this={scriptBuilder}
 	lockedLanguage={templatePath != null || hubPath != null}
-	on:deploy={(e) => {
-		let newHash = e.detail
-		goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+	onDeploy={(e) => {
+		goto(`/scripts/get/${e.hash}?workspace=${$workspaceStore}`)
 	}}
-	on:saveInitial={(e) => {
-		let path = e.detail
-		goto(`/scripts/edit/${path}`)
+	onSaveInitial={(e) => {
+		goto(`/scripts/edit/${e.path}`)
 	}}
-	bind:getInitialAndModifiedValues
 	searchParams={$page.url.searchParams}
-	{script}
+	bind:script
 	{showMeta}
 	replaceStateFn={(path) => replaceState(path, $page.state)}
 >
-	<UnsavedConfirmationModal {getInitialAndModifiedValues} />
+	<UnsavedConfirmationModal
+		getInitialAndModifiedValues={scriptBuilder?.getInitialAndModifiedValues}
+	/>
 </ScriptBuilder>

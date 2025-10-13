@@ -1,6 +1,6 @@
 import type { Schema } from '$lib/common'
 import type { Policy, Preview } from '$lib/gen'
-import type { History } from '$lib/history'
+import type { History } from '$lib/history.svelte'
 
 import type { Writable } from 'svelte/store'
 import type {
@@ -23,7 +23,7 @@ import type {
 	TemplateV2AppInput,
 	UploadAppInput,
 	UploadS3AppInput,
-	UserAppInput,
+	UserAppInput
 } from './inputType'
 import type { World } from './rx'
 import type { FilledItem } from './svelte-grid/types'
@@ -141,13 +141,42 @@ export type HiddenRunnable = {
 
 export type AppTheme =
 	| {
-		type: 'path'
-		path: string
-	}
+			type: 'path'
+			path: string
+	  }
 	| {
-		type: 'inlined'
-		css: string
-	}
+			type: 'inlined'
+			css: string
+	  }
+
+import type { DiffDrawerI } from '$lib/components/diff_drawer'
+
+export interface AppEditorProps {
+	app: App
+	path: string
+	policy: Policy
+	summary: string
+	fromHub?: boolean
+	diffDrawer?: DiffDrawerI | undefined
+	savedApp?:
+		| {
+				value: App
+				draft?: any
+				path: string
+				summary: string
+				policy: any
+				draft_only?: boolean
+				custom_path?: string
+		  }
+		| undefined
+	version?: number | undefined
+	newApp?: boolean
+	newPath?: string | undefined
+	replaceStateFn?: (path: string) => void
+	gotoFn?: (path: string, opt?: Record<string, any> | undefined) => void
+	unsavedConfirmationModal?: import('svelte').Snippet<[any]>
+	onSavedNewAppPath?: (path: string) => void
+}
 
 export type App = {
 	grid: GridItem[]

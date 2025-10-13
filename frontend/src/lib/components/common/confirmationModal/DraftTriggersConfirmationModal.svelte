@@ -124,25 +124,26 @@
 								{#if permission === 'deploy'}
 									<div class="flex justify-start">
 										<ToggleButtonGroup
-											let:item
 											class="w-fit h-fit"
 											selected={isSelectedTrigger ? 'deploy' : 'discard'}
 											on:selected={(e) => toggleTrigger(trigger, e.detail)}
 										>
-											<ToggleButton
-												label={!trigger.isDraft && trigger.draftConfig ? 'Reset' : 'Discard'}
-												value={'discard'}
-												{item}
-												small
-												class="data-[state=on]:text-white data-[state=on]:bg-red-400 w-[54px] justify-center"
-											/>
-											<ToggleButton
-												label={!trigger.isDraft && trigger.draftConfig ? 'Update' : 'Deploy'}
-												value={'deploy'}
-												{item}
-												small
-												class="data-[state=on]:bg-marine-400 data-[state=on]:text-white data-[state=on]:dark:bg-marine-50 data-[state=on]:dark:text-primary-inverse w-[54px] justify-center"
-											/>
+											{#snippet children({ item })}
+												<ToggleButton
+													label={!trigger.isDraft && trigger.draftConfig ? 'Reset' : 'Discard'}
+													value={'discard'}
+													{item}
+													small
+													class="data-[state=on]:text-white data-[state=on]:bg-red-400 w-[54px] justify-center"
+												/>
+												<ToggleButton
+													label={!trigger.isDraft && trigger.draftConfig ? 'Update' : 'Deploy'}
+													value={'deploy'}
+													{item}
+													small
+													class="data-[state=on]:bg-marine-400 data-[state=on]:text-white data-[state=on]:dark:bg-marine-50 data-[state=on]:dark:text-primary-inverse w-[54px] justify-center"
+												/>
+											{/snippet}
 										</ToggleButtonGroup>
 									</div>
 								{:else if permission === 'admin-only'}

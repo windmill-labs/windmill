@@ -10,7 +10,7 @@ use crate::{
     db::{ApiAuthed, DB},
     settings::{delete_global_setting, set_global_setting_internal},
     users::maybe_refresh_folders,
-    utils::require_super_admin,
+    utils::{check_scopes, require_super_admin},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use sql_builder::{prelude::Bind, SqlBuilder};
 use sqlx::{Postgres, Transaction};
 use std::str::FromStr;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
@@ -78,6 +78,7 @@ pub struct NewSchedule {
     pub tag: Option<String>,
     pub paused_until: Option<DateTime<Utc>>,
     pub cron_version: Option<String>,
+    pub dynamic_skip: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -128,6 +129,35 @@ fn to_json_raw_opt(
     value.map(|v| sqlx::types::Json(to_raw_value(&v)))
 }
 
+/// Validate that a dynamic skip handler (script or flow) exists
+async fn validate_dynamic_skip<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    handler_path: &str,
+) -> Result<()> {
+    // Check for script only (flows are not supported in the UI)
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(
+            SELECT 1 FROM script
+            WHERE workspace_id = $1 AND path = $2 AND archived = false AND deleted = false
+        )",
+        w_id,
+        handler_path
+    )
+    .fetch_one(&mut **tx)
+    .await?
+    .unwrap_or(false);
+
+    if exists {
+        Ok(())
+    } else {
+        Err(Error::BadRequest(format!(
+            "Dynamic skip handler '{}' not found. The handler must be an existing, non-archived script at schedule creation time.",
+            handler_path
+        )))
+    }
+}
+
 async fn create_schedule(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -135,6 +165,8 @@ async fn create_schedule(
     Path(w_id): Path<String>,
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
+    check_scopes(&authed, || format!("schedules:write:{}", ns.path))?;
+
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
     #[cfg(not(feature = "enterprise"))]
@@ -167,6 +199,11 @@ async fn create_schedule(
     check_path_conflict(&mut tx, &w_id, &ns.path).await?;
     check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
 
+    // Validate dynamic_skip if provided
+    if let Some(handler_path) = &ns.dynamic_skip {
+        validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
+    }
+
     let schedule = sqlx::query_as!(
         Schedule,
         r#"
@@ -177,7 +214,7 @@ async fn create_schedule(
             on_recovery, on_recovery_times, on_recovery_extra_args,
             on_success, on_success_extra_args,
             ws_error_handler_muted, retry, summary, no_flow_overlap,
-            tag, paused_until, cron_version, description
+            tag, paused_until, cron_version, description, dynamic_skip
         ) VALUES (
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10,
@@ -185,7 +222,7 @@ async fn create_schedule(
             $15, $16, $17,
             $18, $19,
             $20, $21, $22, $23,
-            $24, $25, $26, $27
+            $24, $25, $26, $27, $28
         )
         RETURNING
             workspace_id,
@@ -217,7 +254,8 @@ async fn create_schedule(
             description,
             tag,
             paused_until,
-            cron_version
+            cron_version,
+            dynamic_skip
         "#,
         w_id,
         ns.path,
@@ -249,22 +287,12 @@ async fn create_schedule(
         ns.tag,
         ns.paused_until,
         ns.cron_version.clone().unwrap_or_else(|| "v2".to_string()),
-        ns.description
+        ns.description,
+        ns.dynamic_skip
     )
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("inserting schedule in {w_id}: {e:#}")))?;
-
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Schedule { path: ns.path.clone() },
-        Some(format!("Schedule '{}' created", ns.path.clone())),
-        true,
-    )
-    .await?;
 
     audit_log(
         &mut *tx,
@@ -286,9 +314,20 @@ async fn create_schedule(
     .await?;
 
     if ns.enabled.unwrap_or(true) {
-        tx = push_scheduled_job(&db, tx, &schedule, Some(&authed.clone().into())).await?
+        tx = push_scheduled_job(&db, tx, &schedule, Some(&authed.clone().into()), None).await?
     }
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Schedule { path: ns.path.clone() },
+        Some(format!("Schedule '{}' created", ns.path.clone())),
+        true,
+    )
+    .await?;
 
     Ok(ns.path.to_string())
 }
@@ -301,12 +340,18 @@ async fn edit_schedule(
     Json(es): Json<EditSchedule>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:write:{}", path))?;
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
     let mut tx = user_db.begin(&authed).await?;
 
     // Check schedule for error
     ScheduleType::from_str(&es.schedule, es.cron_version.as_deref(), true)?;
+
+    // Validate dynamic_skip if provided
+    if let Some(handler_path) = &es.dynamic_skip {
+        validate_dynamic_skip(&mut tx, &w_id, handler_path).await?;
+    }
 
     clear_schedule(&mut tx, path, &w_id).await?;
     let schedule = sqlx::query_as!(
@@ -334,7 +379,8 @@ async fn edit_schedule(
             path                    = $19,
             workspace_id            = $20,
             cron_version            = COALESCE($21, cron_version),
-            description             = $22
+            description             = $22,
+            dynamic_skip        = $23
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -366,7 +412,8 @@ async fn edit_schedule(
             description,
             tag,
             paused_until,
-            cron_version
+            cron_version,
+            dynamic_skip
         "#,
         es.schedule,
         es.timezone,
@@ -393,22 +440,12 @@ async fn edit_schedule(
         path,
         w_id,
         es.cron_version,
-        es.description
+        es.description,
+        es.dynamic_skip
     )
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("updating schedule in {w_id}: {e:#}")))?;
-
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Schedule { path: path.to_string() },
-        None,
-        true,
-    )
-    .await?;
 
     audit_log(
         &mut *tx,
@@ -427,9 +464,20 @@ async fn edit_schedule(
     .await?;
 
     if schedule.enabled {
-        tx = push_scheduled_job(&db, tx, &schedule, None).await?;
+        tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
     }
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Schedule { path: path.to_string() },
+        None,
+        true,
+    )
+    .await?;
 
     Ok(path.to_string())
 }
@@ -567,6 +615,7 @@ async fn get_schedule(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Schedule> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let schedule_o = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
@@ -615,6 +664,7 @@ pub async fn set_enabled(
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:write:{}", path))?;
     let schedule_o = sqlx::query_as!(
         Schedule,
         r#"
@@ -652,7 +702,8 @@ pub async fn set_enabled(
             description,
             tag,
             paused_until,
-            cron_version
+            cron_version,
+            dynamic_skip
         "#,
         payload.enabled,
         authed.email,
@@ -666,17 +717,6 @@ pub async fn set_enabled(
 
     clear_schedule(&mut tx, path, &w_id).await?;
 
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Schedule { path: path.to_string() },
-        None,
-        true,
-    )
-    .await?;
-
     audit_log(
         &mut *tx,
         &authed,
@@ -689,9 +729,20 @@ pub async fn set_enabled(
     .await?;
 
     if payload.enabled {
-        tx = push_scheduled_job(&db, tx, &schedule, None).await?;
+        tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
     }
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Schedule { path: path.to_string() },
+        None,
+        true,
+    )
+    .await?;
 
     Ok(format!(
         "succesfully updated schedule at path {} to status {}",
@@ -752,8 +803,9 @@ async fn delete_schedule(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:write:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
 
     clear_schedule(&mut tx, path, &w_id).await?;
     let exists = sqlx::query_scalar!(
@@ -788,17 +840,6 @@ async fn delete_schedule(
         )));
     }
 
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Schedule { path: path.to_string() },
-        Some(format!("Schedule '{}' deleted", path)),
-        true,
-    )
-    .await?;
-
     audit_log(
         &mut *tx,
         &authed,
@@ -811,6 +852,17 @@ async fn delete_schedule(
     .await?;
 
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Schedule { path: path.to_string() },
+        Some(format!("Schedule '{}' deleted", path)),
+        true,
+    )
+    .await?;
 
     Ok(format!("schedule {} deleted", path))
 }
@@ -1000,6 +1052,7 @@ pub struct EditSchedule {
     pub tag: Option<String>,
     pub paused_until: Option<DateTime<Utc>>,
     pub cron_version: Option<String>,
+    pub dynamic_skip: Option<String>,
 }
 
 pub async fn clear_schedule<'c>(

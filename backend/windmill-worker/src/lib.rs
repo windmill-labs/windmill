@@ -9,10 +9,16 @@ mod agent_workers;
 #[cfg(feature = "python")]
 mod ansible_executor;
 mod bash_executor;
+mod pwsh_executor;
 
 #[cfg(feature = "java")]
 mod java_executor;
 
+#[cfg(feature = "ruby")]
+mod ruby_executor;
+
+mod ai;
+mod ai_executor;
 mod bun_executor;
 pub mod common;
 mod config;
@@ -27,15 +33,23 @@ mod go_executor;
 mod graphql_executor;
 mod handle_child;
 pub mod job_logger;
-mod job_logger_ee;
+#[cfg(feature = "private")]
+pub mod job_logger_ee;
+mod job_logger_oss;
 mod js_eval;
+pub mod memory_common;
+#[cfg(feature = "private")]
+pub mod memory_ee;
+pub mod memory_oss;
 #[cfg(feature = "mysql")]
 mod mysql_executor;
 #[cfg(feature = "nu")]
 mod nu_executor;
 #[cfg(feature = "oracledb")]
 mod oracledb_executor;
-mod otel_ee;
+#[cfg(feature = "private")]
+pub mod otel_ee;
+mod otel_oss;
 mod pg_executor;
 #[cfg(feature = "php")]
 mod php_executor;
@@ -48,14 +62,17 @@ pub mod result_processor;
 mod rust_executor;
 mod sanitized_sql_params;
 mod schema;
+pub mod scoped_dependency_map;
+mod universal_pkg_installer;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
 mod worker_utils;
 
-pub use worker_lockfiles::process_relative_imports;
-
 pub use worker::*;
+pub use worker_lockfiles::{
+    process_relative_imports, trigger_dependents_to_recompute_dependencies,
+};
 
 pub use result_processor::handle_job_error;
 

@@ -4,9 +4,13 @@
 	import { autoPlacement } from '@floating-ui/core'
 	import ChangeInstanceUsernameInner from './ChangeInstanceUsernameInner.svelte'
 
-	export let email: string
-	export let username: string
-	export let isConflict = false
+	interface Props {
+		email: string
+		username: string
+		isConflict?: boolean
+	}
+
+	let { email, username, isConflict = false }: Props = $props()
 </script>
 
 <Popover
@@ -19,12 +23,12 @@
 	}}
 	closeButton
 >
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<Button color={isConflict ? 'red' : 'light'} size="xs" spacingSize="xs2" nonCaptureEvent={true}
 			>{isConflict ? 'Fix username conflict' : 'Change username'}</Button
 		>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{/snippet}
+	{#snippet content()}
 		<ChangeInstanceUsernameInner
 			{email}
 			{username}
@@ -32,5 +36,5 @@
 			on:close={() => close()}
 			on:renamed
 		/>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

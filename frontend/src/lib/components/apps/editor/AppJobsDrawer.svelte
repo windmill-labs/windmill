@@ -17,36 +17,53 @@
 	import AppTimeline from './AppTimeline.svelte'
 
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import JobLoader from '$lib/components/JobLoader.svelte'
 	import type { Job } from '$lib/gen'
 	import type { JobById } from '../types'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 
-	export let open = false
-	export let jobs: string[]
-	export let jobsById: Record<string, JobById>
+	interface Props {
+		open?: boolean
+		jobs: string[]
+		jobsById: Record<string, JobById>
+		hasErrors?: boolean
+		selectedJobId?: string | undefined
+		refreshComponents?: (() => void) | undefined
+		errorByComponent?: Record<string, { id?: string; error: string }>
+	}
 
-	export let hasErrors: boolean = false
-	export let selectedJobId: string | undefined = undefined
-	export let refreshComponents: (() => void) | undefined = undefined
-	export let errorByComponent: Record<string, { id?: string; error: string }> = {}
+	let {
+		open = $bindable(false),
+		jobs,
+		jobsById,
+		hasErrors = false,
+		selectedJobId = $bindable(undefined),
+		refreshComponents = undefined,
+		errorByComponent = {}
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
-	let testJobLoader: TestJobLoader
-	let job: Job | undefined = undefined
-	let testIsLoading = false
+	let jobLoader: JobLoader | undefined = $state()
+	let job: Job | undefined = $state(undefined)
+	let testIsLoading = $state(false)
 
-	let rightColumnSelect: 'timeline' | 'detail' = 'timeline'
+	let rightColumnSelect: 'timeline' | 'detail' = $state('timeline')
 
-	$: selectedJobId && !selectedJobId?.includes('Frontend') && testJobLoader?.watchJob(selectedJobId)
+	$effect(() => {
+		selectedJobId &&
+			!selectedJobId?.includes('Frontend') &&
+			untrack(() => selectedJobId && jobLoader?.watchJob(selectedJobId))
+	})
 
-	$: if (selectedJobId?.includes('Frontend') && selectedJobId) {
-		job = undefined
-	}
+	$effect(() => {
+		if (selectedJobId?.includes('Frontend') && selectedJobId) {
+			job = undefined
+		}
+	})
 </script>
 
-<TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
+<JobLoader noCode={true} bind:this={jobLoader} bind:isLoading={testIsLoading} bind:job />
 
 <Drawer bind:open size="900px">
 	<DrawerContent
@@ -67,8 +84,8 @@
 								{#each jobs ?? [] as id}
 									{@const selectedJob = jobsById[id]}
 									{#if selectedJob}
-										<!-- svelte-ignore a11y-click-events-have-key-events -->
-										<!-- svelte-ignore a11y-no-static-element-interactions -->
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
 											class={classNames(
 												'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-surface-secondary hover:text-blue-400',
@@ -78,10 +95,10 @@
 														? 'bg-red-600 !border-blue-600'
 														: 'bg-red-400'
 													: selectedJobId == id
-													? 'text-blue-600'
-													: ''
+														? 'text-blue-600'
+														: ''
 											)}
-											on:click={() => {
+											onclick={() => {
 												selectedJobId = id
 												rightColumnSelect = 'detail'
 											}}
@@ -163,7 +180,7 @@
 												<Button
 													color="red"
 													variant="border"
-													on:click={() => testJobLoader?.cancelJob()}
+													on:click={() => jobLoader?.cancelJob()}
 												>
 													<Loader2 size={14} class="animate-spin mr-2" />
 
@@ -174,8 +191,8 @@
 										{#if job?.args}
 											<div class="p-2">
 												<JobArgs
-													id={job.id}
-													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+													id={job?.id}
+													workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
 													args={job?.args}
 												/>
 											</div>
@@ -199,12 +216,12 @@
 													/>
 												</Pane>
 												<Pane size={50} minSize={10} class="text-sm text-secondary">
-													{#if job != undefined && 'result' in job && job.result != undefined}<div
+													{#if job != undefined && 'result' in job && job?.result != undefined}<div
 															class="relative h-full px-2"
 															><DisplayResult
 																workspaceId={$workspaceStore}
 																jobId={selectedJobId}
-																result={job.result}
+																result={job?.result}
 															/></div
 														>
 													{:else if testIsLoading}
@@ -220,7 +237,7 @@
 												{#if jobResult?.transformer}
 													<Pane size={50} minSize={10} class="text-sm text-secondary p-2">
 														<div class="font-bold">Transformer results</div>
-														{#if job != undefined && 'result' in job && job.result != undefined}
+														{#if job != undefined && 'result' in job && job?.result != undefined}
 															<div class="relative h-full px-2">
 																<DisplayResult
 																	workspaceId={$workspaceStore}
@@ -247,8 +264,8 @@
 												{#if job?.id}
 													<FlowStatusViewer
 														jobId={job?.id}
-														on:jobsLoaded={({ detail }) => {
-															job = detail
+														onJobsLoaded={({ job: newJob }) => {
+															job = newJob
 														}}
 													/>
 												{:else}
@@ -266,7 +283,7 @@
 				</div>
 			</Pane>
 		</Splitpanes>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			{#if refreshComponents}
 				<Button
 					size="md"
@@ -291,9 +308,9 @@
 			</Button>
 			{#if hasErrors}
 				<Button size="md" color="light" variant="border" on:click={() => dispatch('clearErrors')}>
-					>Clear Errors &nbsp;<BellOff size={14} />
+					Clear Errors &nbsp;<BellOff size={14} />
 				</Button>
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

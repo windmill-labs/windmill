@@ -42,7 +42,7 @@ RUN wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VER
 RUN /usr/local/bin/python3 -m pip install pip-tools
 
 # Bun
-COPY --from=oven/bun:1.2.4 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.2.23 /usr/local/bin/bun /usr/bin/bun
 
 ARG TARGETPLATFORM
 
@@ -57,8 +57,12 @@ RUN apt-get update \
 RUN rustup component add rustfmt
 
 # C#
-COPY --from=bitnami/dotnet-sdk:9.0.101-debian-12-r0 /opt/bitnami/dotnet-sdk /opt/dotnet-sdk
-RUN ln -s /opt/dotnet-sdk/bin/dotnet /usr/bin/dotnet
+RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh \
+    && chmod +x dotnet-install.sh \
+    && ./dotnet-install.sh --channel 9.0 --install-dir /usr/share/dotnet \
+    && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet \
+    && rm dotnet-install.sh
+
 
 # Nushell
 COPY --from=ghcr.io/nushell/nushell:0.101.0-bookworm /usr/bin/nu /usr/bin/nu

@@ -10,28 +10,34 @@
 	import { Pen } from 'lucide-svelte'
 	import PredicateGen from '$lib/components/copilot/PredicateGen.svelte'
 
-	export let branch: {
-		summary?: string
-		expr: string
-		modules: Array<FlowModule>
+	interface Props {
+		branch: {
+			summary?: string
+			expr: string
+			modules: Array<FlowModule>
+		}
+		parentModule: FlowModule
+		previousModule: FlowModule | undefined
+		enableAi?: boolean
 	}
-	export let parentModule: FlowModule
-	export let previousModule: FlowModule | undefined
-	export let enableAi = false
+
+	let { branch = $bindable(), parentModule, previousModule, enableAi = false }: Props = $props()
 
 	const { previewArgs, flowStateStore, flowStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	let editor: SimpleEditor | undefined = undefined
-	let open = false
-	$: stepPropPicker = getStepPropPicker(
-		$flowStateStore,
-		parentModule,
-		previousModule,
-		parentModule.id,
-		$flowStore,
-		$previewArgs,
-		false
+	let editor: SimpleEditor | undefined = $state(undefined)
+	let open = $state(false)
+	let stepPropPicker = $derived(
+		getStepPropPicker(
+			flowStateStore.val,
+			parentModule,
+			previousModule,
+			parentModule.id,
+			flowStore.val,
+			previewArgs.val,
+			false
+		)
 	)
 </script>
 

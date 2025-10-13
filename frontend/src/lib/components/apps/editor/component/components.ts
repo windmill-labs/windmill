@@ -185,22 +185,26 @@ export type TableComponent = BaseComponent<'tablecomponent'> & {
 export type AggridComponent = BaseComponent<'aggridcomponent'> & {
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 export type AggridComponentEe = BaseComponent<'aggridcomponentee'> & {
 	license: string
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type AggridInfiniteComponent = BaseComponent<'aggridinfinitecomponent'> & {
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee'> & {
 	actions: TableAction[]
 	license: string
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>
@@ -239,6 +243,7 @@ export type FileInputComponent = BaseComponent<'fileinputcomponent'> & {
 export type TabsComponent = BaseComponent<'tabscomponent'> & {
 	tabs: string[]
 	disabledTabs: RichConfiguration[]
+	hiddenTabs: RichConfiguration[]
 	onTabChange?: string[]
 }
 
@@ -288,6 +293,7 @@ export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'> & {
 	columns: RichConfiguration
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type S3FileInputComponent = BaseComponent<'s3fileinputcomponent'> & {
@@ -672,7 +678,7 @@ const onErrorClick = {
 				tooltip: 'The message of the toast to display',
 				fieldType: 'text',
 				type: 'static',
-				value: 'An error occured',
+				value: 'An error occurred',
 				placeholder: 'Hello there',
 				onDemandOnly: true
 			},
@@ -972,7 +978,27 @@ const agchartscomponentconst = {
 	},
 	initialData: {
 		configuration: {},
-		componentInput: undefined
+		componentInput: {
+			type: 'evalv2',
+			noStatic: true,
+			fieldType: 'object',
+			expr: `({
+				data: [
+					{ x: 1, y: 5 },
+					{ x: 2, y: 10 },
+					{ x: 3, y: 2 },
+					{ x: 4, y: 8 }
+				],
+				series: [{
+					type: 'bar',
+					xKey: 'x',
+					yKey: 'y',
+					fill: '#C8A2C8',
+					strokeWidth: 2.5
+				}]
+			})`,
+			connections: [] as InputConnectionEval[]
+		}
 	}
 } as const
 
@@ -1359,10 +1385,23 @@ export const components = {
 					value: undefined,
 					fieldType: 'icon-select'
 				},
+				tooltip: {
+					type: 'static',
+					value: '',
+					fieldType: 'text',
+					tooltip: 'Tooltip text to show on hover'
+				},
 				triggerOnAppLoad: {
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
+				},
+				runInBackground: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip:
+						'Run the job in the background without blocking the button. Multiple clicks will trigger multiple jobs.'
 				},
 
 				onSuccess: onSuccessClick,
@@ -1656,7 +1695,19 @@ export const components = {
 					tooltip: 'ChartJs options object https://www.chartjs.org/docs/latest/general/options.html'
 				}
 			},
-			componentInput: undefined
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: {
+					labels: ['Pie', 'Charts', '<3'],
+					datasets: [
+						{
+							data: [25, 50, 25],
+							backgroundColor: ['#FF6384', '#4BC0C0', '#FFCE56']
+						}
+					]
+				}
+			}
 		}
 	},
 	barchartcomponent: {
@@ -1846,7 +1897,21 @@ This is a paragraph.
 		dims: '2:8-6:8' as AppComponentDimensions,
 		customCss: {},
 		initialData: {
-			componentInput: undefined,
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: {
+					type: 'bar',
+					x: [1, 2, 3, 4],
+					y: [5, 10, 2, 8],
+					marker: {
+						color: '#C8A2C8',
+						line: {
+							width: 2.5
+						}
+					}
+				}
+			},
 			configuration: {
 				layout: {
 					type: 'static',
@@ -2354,6 +2419,11 @@ This is a paragraph.
 
 					tooltip:
 						'If too many items, the box overflow its container instead of having an internal scroll'
+				},
+				disabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
 				}
 			}
 		}
@@ -2377,6 +2447,12 @@ This is a paragraph.
 					allowTypeChange: false,
 					value: []
 				} as StaticAppInput,
+				defaultValue: {
+					type: 'static',
+					fieldType: 'text',
+					value: undefined,
+					tooltip: 'Format: $res:path/to/resource'
+				},
 				placeholder: {
 					type: 'static',
 					fieldType: 'text',
@@ -2413,6 +2489,12 @@ This is a paragraph.
 					type: 'static',
 					fieldType: 'text',
 					value: 'postgresql'
+				},
+				defaultValue: {
+					type: 'static',
+					fieldType: 'text',
+					value: undefined,
+					tooltip: 'Format: $res:path/to/resource'
 				},
 				expressOauthSetup: {
 					type: 'static',
@@ -2943,7 +3025,15 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 			},
 			componentInput: undefined,
 			numberOfSubgrids: 2,
-			tabs: ['First tab', 'Second tab'] as string[]
+			tabs: ['First tab', 'Second tab'] as string[],
+			disabledTabs: [
+				{ type: 'static', value: false, fieldType: 'boolean' },
+				{ type: 'static', value: false, fieldType: 'boolean' }
+			] as RichConfiguration[],
+			hiddenTabs: [
+				{ type: 'static', value: false, fieldType: 'boolean' },
+				{ type: 'static', value: false, fieldType: 'boolean' }
+			] as RichConfiguration[]
 		}
 	},
 	steppercomponent: {
@@ -3504,7 +3594,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'object',
 					value: {},
 					tooltip:
-						'This enables setting form enum values dynamically using an object: keys are field names, and values are arrays of strings.'
+						'This enables setting form enum values dynamically using an object: keys are field names, and values are arrays of strings or { "label": "myLabel", "value": "myValue" }.'
 				},
 
 				displayType: {
@@ -3864,7 +3954,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						ms_sql_server: 'MS SQL Server',
 						snowflake: 'Snowflake',
 						bigquery: 'BigQuery',
-						snowflake_oauth: 'Snowflake OAuth'
+						snowflake_oauth: 'Snowflake OAuth',
+						ducklake: 'Ducklake'
 					},
 					configuration: {
 						postgresql: {
@@ -3934,6 +4025,21 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'bigquery',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subFieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						ducklake: {
+							ducklake: {
+								type: 'static',
+								fieldType: 'ducklake',
+								subFieldType: 'ducklake',
 								value: ''
 							} as StaticAppInput,
 							table: {

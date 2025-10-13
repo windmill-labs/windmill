@@ -3,9 +3,13 @@
     nixpkgs.url = "nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     rust-overlay.url = "github:oxalica/rust-overlay";
+    # Use separate channel for claude code. It always needs to be latest
+    nixpkgs-claude.url = "nixpkgs/nixos-unstable";
+    nixpkgs-oapi-gen.url =
+      "nixpkgs/2d068ae5c6516b2d04562de50a58c682540de9bf"; # openapi-generator-cli pin to 7.10.0
   };
-
-  outputs = { self, nixpkgs, flake-utils, rust-overlay }:
+  outputs = { self, nixpkgs, nixpkgs-claude, flake-utils, rust-overlay
+    , nixpkgs-oapi-gen }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
@@ -13,6 +17,14 @@
           config.allowUnfree = true;
           overlays = [ (import rust-overlay) ];
         };
+        claude-code = (import nixpkgs-claude {
+          inherit system;
+          config.allowUnfree = true;
+        }).claude-code;
+
+        openapi-generator-cli =
+          (import nixpkgs-oapi-gen { inherit system; }).openapi-generator-cli;
+
         lib = pkgs.lib;
         stdenv = pkgs.stdenv;
         rust = pkgs.rust-bin.stable.latest.default.override {
@@ -22,6 +34,15 @@
             "rustfmt"
           ];
         };
+        patchedClang = pkgs.llvmPackages_18.clang.overrideAttrs (oldAttrs: {
+          postFixup = ''
+            # Copy the original postFixup logic but skip add-hardening.sh
+            ${oldAttrs.postFixup or ""}
+
+            # Remove the line that substitutes add-hardening.sh
+            sed -i 's/.*source.*add-hardening\.sh.*//' $out/bin/clang
+          '';
+        });
         buildInputs = with pkgs; [
           openssl
           openssl.dev
@@ -29,10 +50,12 @@
           xmlsec.dev
           libxslt.dev
           libclang.dev
+          libffi  # For deno_ffi
           libtool
           nodejs
           postgresql
           pkg-config
+          clang
           cmake
         ];
         coursier = pkgs.fetchFromGitHub {
@@ -64,49 +87,103 @@
       in {
         # Enter by `nix develop .#wasm`
         devShells."wasm" = pkgs.mkShell {
+          # Explicitly set paths for headers and linker
+          shellHook = ''
+            export CC=${patchedClang}/bin/clang
+          '';
           buildInputs = buildInputs ++ (with pkgs; [
             (rust-bin.nightly.latest.default.override {
               extensions = [
                 "rust-src" # for rust-analyzer
                 "rust-analyzer"
               ];
-              targets = [ "wasm32-unknown-unknown" ];
+              targets =
+                [ "wasm32-unknown-unknown" "wasm32-unknown-emscripten" ];
             })
             wasm-pack
             deno
+            emscripten
+            # Needed for extra dependencies
+            glibc_multi
           ]);
+        };
+        devShells."cli" = pkgs.mkShell {
+          shellHook = ''
+            if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+              export FLAKE_ROOT="$(git rev-parse --show-toplevel)"
+            else
+              # Fallback to PWD if not in a git repository
+              export FLAKE_ROOT="$PWD"
+            fi
+            wm-cli-deps
+          '';
+          buildInputs = buildInputs ++ [
+            pkgs.deno
+          ];
+          packages = [
+            (pkgs.writeScriptBin "wm-cli" ''
+              deno run -A --no-check $FLAKE_ROOT/cli/src/main.ts $*
+            '')
+            (pkgs.writeScriptBin "wm-cli-deps" ''
+              pushd $FLAKE_ROOT/cli/
+              ${
+                if pkgs.stdenv.isDarwin
+                then "./gen_wm_client_mac.sh && ./windmill-utils-internal/gen_wm_client_mac.sh"
+                else "./gen_wm_client.sh && ./windmill-utils-internal/gen_wm_client.sh"
+              }
+              popd
+            '')
+          ];
         };
 
         devShells.default = pkgs.mkShell {
-          buildInputs = buildInputs ++ (with pkgs; [
+          buildInputs = buildInputs ++ [
+            # To update run: `nix flake update nixpkgs-claude`
+            claude-code
+            # To update run: `nix flake update nixpkgs-oapi-gen`
+            openapi-generator-cli
+          ] ++ (with pkgs; [
             # Essentials
             rust
+            cargo-watch
             cargo-sweep
             git
             xcaddy
             sqlx-cli
             sccache
             nsjail
-            openapi-generator-cli
+            jq
 
             # Python
             flock
             python3
             python3Packages.pip
             uv
+            poetry
+            pyright
+            openapi-python-client
 
             # Other languages
             deno
+            typescript
             nushell
             go
             bun
             dotnet-sdk_9
             oracle-instantclient
             ansible
+            ruby_3_4
 
             # LSP/Local dev
             svelte-language-server
             taplo
+
+            # Orchestration/Kubernetes
+            minikube
+            kubectl
+            kubernetes-helm
+            conntrack-tools # To run minikube without driver (--driver=none)
+            cri-tools
           ]);
           packages = [
             (pkgs.writeScriptBin "wm-caddy" ''
@@ -146,6 +223,8 @@
             '')
             (pkgs.writeScriptBin "wm" ''
               cd ./frontend
+              npm install
+              npm run generate-backend-client
               npm run dev $*
             '')
             (pkgs.writeScriptBin "wm-minio" ''
@@ -160,32 +239,39 @@
               set -e
               cd ./backend
               ${pkgs.minio-client}/bin/mc alias set 'wmill-minio-dev' 'http://localhost:9000' 'minioadmin' 'minioadmin'
-              ${pkgs.minio-client}/bin/mc admin accesskey create myminio | tee .minio-data/secrets.txt
+              ${pkgs.minio-client}/bin/mc admin accesskey create 'wmill-minio-dev' | tee .minio-data/secrets.txt
               echo ""
               echo 'Saving to: ./backend/.minio-data/secrets.txt'
               echo "bucket: wmill"
               echo "endpoint: http://localhost:9000"
             '')
-
           ];
 
           inherit PKG_CONFIG_PATH RUSTY_V8_ARCHIVE;
           GIT_PATH = "${pkgs.git}/bin/git";
           NODE_ENV = "development";
           NODE_OPTIONS = "--max-old-space-size=16384";
-          DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
+          # DATABASE_URL = "postgres://postgres:changeme@127.0.0.1:5432/";
+          DATABASE_URL =
+            "postgres://postgres:changeme@127.0.0.1:5432/windmill?sslmode=disable";
+
           REMOTE = "http://127.0.0.1:8000";
           REMOTE_LSP = "http://127.0.0.1:3001";
           RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";
           DENO_PATH = "${pkgs.deno}/bin/deno";
           GO_PATH = "${pkgs.go}/bin/go";
+          PHP_PATH = "${pkgs.php}/bin/php";
+          COMPOSER_PATH = "${pkgs.php84Packages.composer}/bin/composer";
           BUN_PATH = "${pkgs.bun}/bin/bun";
           UV_PATH = "${pkgs.uv}/bin/uv";
           NU_PATH = "${pkgs.nushell}/bin/nu";
           JAVA_PATH = "${pkgs.jdk21}/bin/java";
           JAVAC_PATH = "${pkgs.jdk21}/bin/javac";
           COURSIER_PATH = "${coursier}/coursier";
-          # for related places search: ADD_NEW_LANG
+          RUBY_PATH = "${pkgs.ruby}/bin/ruby";
+          RUBY_BUNDLE_PATH = "${pkgs.ruby}/bin/bundle";
+          RUBY_GEM_PATH = "${pkgs.ruby}/bin/gem";
+          # for related places search: ADD_NEW_LANG 
           FLOCK_PATH = "${pkgs.flock}/bin/flock";
           CARGO_PATH = "${rust}/bin/cargo";
           CARGO_SWEEP_PATH = "${pkgs.cargo-sweep}/bin/cargo-sweep";
@@ -194,8 +280,8 @@
           ORACLE_LIB_DIR = "${pkgs.oracle-instantclient.lib}/lib";
           ANSIBLE_PLAYBOOK_PATH = "${pkgs.ansible}/bin/ansible-playbook";
           ANSIBLE_GALAXY_PATH = "${pkgs.ansible}/bin/ansible-galaxy";
-          RUST_LOG = "debug";
-          SQLX_OFFLINE = "true";
+          # RUST_LOG = "debug";
+          # RUST_LOG = "kube=debug";
 
           # See this issue: https://github.com/NixOS/nixpkgs/issues/370494
           # Allows to build jemalloc on nixos
@@ -212,9 +298,10 @@
           # included we need to look in a few places.
           # See https://web.archive.org/web/20220523141208/https://hoverbear.org/blog/rust-bindgen-in-nix/
           BINDGEN_EXTRA_CLANG_ARGS =
-            "${builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"} ${
+            # Prevent clang from using system headers - only use Nix headers
+            "-nostdinc ${builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"} ${
               builtins.readFile "${stdenv.cc}/nix-support/libc-cflags"
-            }${builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"}${
+            } ${builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"} ${
               builtins.readFile "${stdenv.cc}/nix-support/libcxx-cxxflags"
             } -idirafter ${pkgs.libiconv}/include ${
               lib.optionalString stdenv.cc.isClang
@@ -227,9 +314,10 @@
                 lib.getVersion stdenv.cc.cc
               } -isystem ${stdenv.cc.cc}/include/c++/${
                 lib.getVersion stdenv.cc.cc
-              }/${stdenv.hostPlatform.config} -idirafter ${stdenv.cc.cc}/lib/gcc/${stdenv.hostPlatform.config}/14.2.1/include"
-            }"; # NOTE: It is hardcoded to 14.2.1 -------------------------------------------------------------^^^^^^
-          # Please update the version here as well if you want to update flake.
+              }/${stdenv.hostPlatform.config} -idirafter ${stdenv.cc.cc}/lib/gcc/${stdenv.hostPlatform.config}/${
+                lib.getVersion stdenv.cc.cc
+              }/include"
+            }";
         };
         packages.default = self.packages.${system}.windmill;
         packages.windmill-client = pkgs.buildNpmPackage {

@@ -8,12 +8,11 @@
 
 use std::sync::Arc;
 
-use crate::db::ApiAuthed;
-
 use crate::{
     auth::AuthCache,
-    db::DB,
+    db::{ApiAuthed, DB},
     users::Tokened,
+    utils::check_scopes,
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -23,7 +22,7 @@ use axum::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
@@ -203,6 +202,7 @@ async fn create_folder(
         ));
     }
 
+    if let Err(e) = 
     sqlx::query_as!(
         Folder,
         "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
@@ -215,18 +215,38 @@ async fn create_folder(
         authed.username
     )
     .execute(&mut *tx)
-    .await?;
-
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Folder { path: format!("f/{}", ng.name) },
-        Some(format!("Folder '{}' created", ng.name)),
-        true,
-    )
-    .await?;
+    .await {
+        let exists_for_user = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM folder WHERE name = $1 AND workspace_id = $2 AND $3 = ANY(owners))",
+            ng.name,
+            w_id,
+            authed.username
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        let exists = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM folder WHERE name = $1 AND workspace_id = $2)",
+            ng.name,
+            w_id
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+        if !exists_for_user && exists {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "Folder '{}' already exists in workspace '{}' but you do not have permission to read to it", ng.name, w_id
+            )));
+        }  else if exists {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "Folder '{}' already exists in workspace '{}'", ng.name, w_id
+            )));
+        } else {
+            return Err(windmill_common::error::Error::InternalErr(format!(
+                "Failed to create folder: {}", e
+            )));
+        }
+    }
 
     audit_log(
         &mut *tx,
@@ -239,6 +259,18 @@ async fn create_folder(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Folder { path: format!("f/{}", ng.name) },
+        Some(format!("Folder '{}' created", ng.name)),
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::CreateFolder { workspace: w_id, name: ng.name.clone() },
@@ -329,6 +361,11 @@ async fn update_folder(
         );
     }
     if let Some(extra_perms) = ng.extra_perms {
+        if !extra_perms.is_object() {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "extra_perms must be an object, received {}", extra_perms.to_string()
+            )));
+        }
         sqlb.set(
             "extra_perms",
             "?".bind(&serde_json::to_string(&extra_perms).map_err(to_anyhow)?),
@@ -368,17 +405,6 @@ async fn update_folder(
         }
     }
 
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Folder { path: format!("f/{}", name) },
-        Some(format!("Folder '{}' updated", name)),
-        true,
-    )
-    .await?;
-
     audit_log(
         &mut *tx,
         &authed,
@@ -390,6 +416,18 @@ async fn update_folder(
     )
     .await?;
     tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Folder { path: format!("f/{}", name) },
+        Some(format!("Folder '{}' updated", name)),
+        true,
+    )
+    .await?;
+
     webhook.send_message(
         w_id.clone().clone(),
         WebhookMessage::UpdateFolder { workspace: w_id, name: name.to_owned() },
@@ -419,6 +457,7 @@ async fn get_folder(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<Folder> {
+    check_scopes(&authed, || format!("folders:read:f/{}", name))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let folder = not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
@@ -457,6 +496,7 @@ async fn get_folder_usage(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<FolderUsage> {
+    check_scopes(&authed, || format!("folders:read:f/{}", name))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let scripts = sqlx::query_scalar!(

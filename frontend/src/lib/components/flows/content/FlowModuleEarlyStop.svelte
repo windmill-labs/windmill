@@ -4,7 +4,7 @@
 	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
 	import type { Flow, FlowModule } from '$lib/gen'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import type { FlowEditorContext } from '../types'
+	import type { ExtendedOpenFlow, FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../models'
 	import Section from '$lib/components/Section.svelte'
@@ -14,55 +14,81 @@
 	const { flowStateStore, flowStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let flowModule: FlowModule
+	interface Props {
+		flowModule: FlowModule
+	}
 
-	let editor: SimpleEditor | undefined = undefined
-	$: stepPropPicker = getStepPropPicker(
-		$flowStateStore,
-		undefined,
-		undefined,
-		flowModule.id,
-		$flowStore,
-		$previewArgs,
-		false
+	let { flowModule = $bindable() }: Props = $props()
+
+	let editor: SimpleEditor | undefined = $state(undefined)
+	let stepPropPicker = $derived(
+		getStepPropPicker(
+			flowStateStore.val,
+			undefined,
+			undefined,
+			flowModule.id,
+			flowStore.val,
+			previewArgs.val,
+			false
+		)
 	)
 
-	function checkIfParentLoop(flowStore: typeof $flowStore): string | null {
-		const flow: Flow = JSON.parse(JSON.stringify(flowStore))
+	function checkIfBreakableParent(
+		flowStoreValue: ExtendedOpenFlow
+	):
+		| { stepId: string; isParallel: boolean; type: 'loop' }
+		| { stepId: string; isParallel: true; type: 'branchall' }
+		| null {
+		const flow: Flow = JSON.parse(JSON.stringify(flowStoreValue))
 		const parents = dfs(flowModule.id, flow, true)
 		for (const parent of parents.slice(1)) {
 			if (parent.value.type === 'forloopflow' || parent.value.type === 'whileloopflow') {
-				return parent.id
+				return { stepId: parent.id, isParallel: parent.value.parallel ?? false, type: 'loop' }
+			} else if (parent.value.type === 'branchall' && parent.value.parallel) {
+				return { stepId: parent.id, isParallel: true, type: 'branchall' }
 			}
 		}
 		return null
 	}
-	let raise_error_message_stop_after_all_if = flowModule.stop_after_all_iters_if?.error_message !== undefined
-	let raise_error_message_stop_after_if = flowModule.stop_after_if?.error_message !== undefined
-	$: isLoop = flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow'
-	$: isBranchAll = flowModule.value.type === 'branchall'
-	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
-	$: isStopAfterAllIterationsEnabled = Boolean(flowModule.stop_after_all_iters_if)
-	$: result = $flowStateStore[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR
-	$: parentLoopId = checkIfParentLoop($flowStore)
+	let raise_error_message_stop_after_all_if = $state(
+		flowModule.stop_after_all_iters_if?.error_message !== undefined
+	)
+	let raise_error_message_stop_after_if = $state(
+		flowModule.stop_after_if?.error_message !== undefined
+	)
+	let { isLoop, isParallelLoop } = $derived(
+		flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow'
+			? { isLoop: true, isParallelLoop: flowModule.value.parallel ?? false }
+			: { isLoop: false, isParallelLoop: false }
+	)
+	let isBranchAll = $derived(flowModule.value.type === 'branchall')
+	let isStopAfterIfEnabled = $derived(Boolean(flowModule.stop_after_if))
+	let isStopAfterAllIterationsEnabled = $derived(Boolean(flowModule.stop_after_all_iters_if))
+	let result = $derived(flowStateStore.val[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
+	let breakableParent = $derived(checkIfBreakableParent(flowStore.val))
 </script>
 
-<div class="flex flex-col items-start space-y-2 {$$props.class}">
-	{#if !isBranchAll}
+<div class="flex flex-col items-start space-y-2">
+	{#if !isBranchAll && !isParallelLoop}
 		<Section
 			label={(isLoop
 				? 'Break loop'
-				: parentLoopId
-					? 'Break parent loop module ' + parentLoopId
+				: breakableParent
+					? breakableParent.isParallel
+						? breakableParent.type === 'loop'
+							? 'Skip rest of steps in iteration'
+							: 'Skip rest of steps in branch'
+						: 'Break parent loop module ' + breakableParent.stepId
 					: 'Stop flow early') + (isLoop ? ' (evaluated after each iteration)' : '')}
 			class="w-full"
 		>
-			<svelte:fragment slot="header">
+			{#snippet header()}
 				<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
 					If defined, at the end of the step, the predicate expression will be evaluated to decide
-					if the flow should stop early or break if inside a for/while loop.
+					if the flow should stop early, skip rest of steps in iteration/branch if inside a parallel
+					for loop or branch all, or break if inside a for/while loop or branch all.
 				</Tooltip>
-			</svelte:fragment>
+			{/snippet}
 
 			<Toggle
 				checked={isStopAfterIfEnabled}
@@ -80,8 +106,12 @@
 				options={{
 					right: isLoop
 						? 'Break loop'
-						: parentLoopId
-							? 'Break parent loop module'
+						: breakableParent
+							? breakableParent.isParallel
+								? breakableParent.type === 'loop'
+									? 'Skip rest of steps in iteration'
+									: 'Skip rest of steps in branch'
+								: 'Break parent loop module'
 							: 'Stop flow if condition met'
 				}}
 			/>
@@ -99,7 +129,7 @@
 								? result
 								: undefined
 						: result}
-					{#if !parentLoopId && !isLoop}
+					{#if !breakableParent && !isLoop}
 						<div class="flex flex-col gap-2">
 							<Toggle
 								size="xs"
@@ -156,15 +186,17 @@
 						</PropPickerWrapper>
 					</div>
 				{:else}
-					{#if !parentLoopId && !isLoop}
+					{#if !breakableParent && !isLoop}
 						<div class="flex flex-col gap-2">
 							<Toggle
+								disabled
 								size="xs"
 								options={{
 									right: 'Label flow as "skipped" if stopped'
 								}}
 							/>
 							<Toggle
+								disabled
 								size="xs"
 								options={{
 									right: 'Raise an error message if stopped'
@@ -181,18 +213,25 @@
 
 	{#if isLoop || isBranchAll}
 		<Section
-			label={(parentLoopId ? 'Break parent loop module ' + parentLoopId : 'Stop flow early') +
+			label={(breakableParent
+				? breakableParent.isParallel
+					? breakableParent.type === 'loop'
+						? 'Skip rest of steps in iteration'
+						: 'Skip rest of steps in branch'
+					: 'Break parent loop module ' + breakableParent.stepId
+				: 'Stop flow early') +
 				(isBranchAll
 					? ' (evaluated after all branches have been run)'
 					: ' (evaluated after all iterations)')}
 			class="w-full"
 		>
-			<svelte:fragment slot="header">
+			{#snippet header()}
 				<Tooltip documentationLink="https://www.windmill.dev/docs/flows/early_stop">
 					If defined, at the end of the step, the predicate expression will be evaluated to decide
-					if the flow should stop early or break if inside a for/while loop.
+					if the flow should stop early, skip rest of steps in iteration/branch if inside a parallel
+					for loop or branch all, or break if inside a for/while loop or branch all.
 				</Tooltip>
-			</svelte:fragment>
+			{/snippet}
 
 			<Toggle
 				checked={isStopAfterAllIterationsEnabled}
@@ -208,7 +247,14 @@
 					}
 				}}
 				options={{
-					right: (parentLoopId ? 'Break parent loop module' : 'Stop flow') + ' if condition met'
+					right:
+						(breakableParent
+							? breakableParent.isParallel
+								? breakableParent.type === 'loop'
+									? 'Skip rest of steps in iteration'
+									: 'Skip rest of steps in branch'
+								: 'Break parent loop module ' + breakableParent.stepId
+							: 'Stop flow') + ' if condition met'
 				}}
 			/>
 
@@ -218,7 +264,7 @@
 					: 'bg-surface-secondary'}"
 			>
 				{#if flowModule.stop_after_all_iters_if}
-					{#if !parentLoopId}
+					{#if !breakableParent}
 						<div class="flex flex-col gap-2">
 							<Toggle
 								size="xs"
@@ -232,7 +278,8 @@
 								bind:checked={raise_error_message_stop_after_all_if}
 								on:change={(event) => {
 									if (flowModule.stop_after_all_iters_if) {
-										flowModule.stop_after_all_iters_if.error_message = event.detail === false ? undefined : ''
+										flowModule.stop_after_all_iters_if.error_message =
+											event.detail === false ? undefined : ''
 									}
 								}}
 								options={{
@@ -273,7 +320,7 @@
 						</PropPickerWrapper>
 					</div>
 				{:else}
-					{#if !parentLoopId}
+					{#if !breakableParent}
 						<div class="flex flex-col gap-2">
 							<Toggle
 								disabled

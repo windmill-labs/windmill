@@ -10,13 +10,10 @@
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
-{#if $flowStore.value.failure_module}
+{#if flowStore.val.value.failure_module}
 	<FlowModuleWrapper
 		{noEditor}
-		bind:flowModule={$flowStore.value.failure_module}
-		on:delete={() => {
-			$flowStore.value.failure_module = undefined
-		}}
+		bind:flowModule={flowStore.val.value.failure_module}
 		{savedModule}
 		previousModule={undefined}
 	/>

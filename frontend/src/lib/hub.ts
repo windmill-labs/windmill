@@ -83,6 +83,7 @@ export function appToHubUrl(staticApp: any, hubBaseUrl: string): URL {
 type HubPaths = {
 	gitSync: string
 	gitSyncTest: string
+	gitInitRepo: string
 	slackErrorHandler: string
 	slackRecoveryHandler: string
 	slackSuccessHandler: string
@@ -92,6 +93,7 @@ type HubPaths = {
 	teamsErrorHandler: string
 	teamsRecoveryHandler: string
 	teamsSuccessHandler: string
+	emailErrorHandler: string
 }
 
 export const hubPaths = JSON.parse(rawHubPaths) as HubPaths

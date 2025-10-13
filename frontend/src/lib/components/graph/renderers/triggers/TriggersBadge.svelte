@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Calendar, Mail, Webhook, Unplug, Database, Terminal } from 'lucide-svelte'
-	import { Loader2 } from 'lucide-svelte'
-	import { type ComponentType } from 'svelte'
+	import { type Component, type ComponentType } from 'svelte'
 	import { Route } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { type TriggerContext } from '$lib/components/triggers'
@@ -12,6 +11,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
+	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
 
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -44,7 +44,11 @@
 	let menuOpen = $state(false)
 
 	const triggerTypeConfig: {
-		[key in TriggerType]: { icon: ComponentType; countKey?: string; disabled?: boolean }
+		[key in TriggerType]: {
+			icon: ComponentType | Component<any, {}, ''>
+			countKey?: string
+			disabled?: boolean
+		}
 	} = {
 		webhook: { icon: Webhook, countKey: 'webhook_count' },
 		schedule: { icon: Calendar, countKey: 'schedule_count' },
@@ -52,6 +56,7 @@
 		websocket: { icon: Unplug, countKey: 'websocket_count' },
 		postgres: { icon: Database, countKey: 'postgres_count' },
 		kafka: { icon: KafkaIcon, countKey: 'kafka_count', disabled: !$enterpriseLicense },
+		default_email: { icon: Mail, countKey: 'default_email_count' },
 		email: { icon: Mail, countKey: 'email_count' },
 		nats: { icon: NatsIcon, countKey: 'nats_count', disabled: !$enterpriseLicense },
 		mqtt: { icon: MqttIcon, countKey: 'mqtt_count', disabled: !$enterpriseLicense },
@@ -68,11 +73,12 @@
 		'websocket',
 		'postgres',
 		'kafka',
-		'email',
+		'default_email',
 		'nats',
 		'mqtt',
 		'sqs',
 		'gcp',
+		'email',
 		'poll',
 		'cli'
 	]
@@ -178,7 +184,7 @@
 						bind:open={menuOpen}
 						disabled={!triggersGrouped[type]}
 					>
-						{#snippet trigger({ trigger })}
+						{#snippet triggr({ trigger })}
 							{@render triggerButton({
 								type,
 								isSelected,
@@ -208,7 +214,7 @@
 				class="h-fit center-center mr-1"
 				bind:open={menuOpen}
 			>
-				{#snippet trigger({ trigger })}
+				{#snippet triggr({ trigger })}
 					<MeltButton
 						class="w-[23px] h-[23px] rounded-md center-center text-[12px] hover:bg-slate-300 transition-all duration-100 font-normal text-secondary hover:text-primary"
 						meltElement={trigger}
@@ -237,6 +243,8 @@
 	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig[type]}
 
 	<MeltButton
+		aiId={`trigger-button-${type}`}
+		aiDescription={`Trigger button for ${type}`}
 		class={twMerge(
 			'hover:bg-surface-hover rounded-md shadow-sm text-xs relative center-center cursor-pointer bg-slate-100 dark:bg-slate-700',
 			'dark:outline dark:outline-1 outline-tertiary/20 group',
@@ -254,32 +262,7 @@
 	>
 		{#if countKey}
 			{@const count = $triggersCount?.[countKey] ?? 0}
-			{#if count > 0}
-				<div
-					class={twMerge(
-						// Base styles that apply in all cases
-						'absolute z-10 rounded-full overflow-hidden',
-						'flex center-center text-primary-inverse font-mono',
-						'bg-tertiary/50 group-hover:bg-primary transition-all duration-[100ms]',
-						noTriggers ? 'bg-primary' : '',
-
-						// Size variants based on small prop
-						small
-							? '-right-[3px] -top-[3px] h-3 w-3 text-[8px]'
-							: '-right-1.5 -top-1.5 h-4 w-4 text-xs',
-
-						// Special case for no triggers
-						noTriggers && small ? 'h-3 w-3 text-[8px] -right-0.5 -top-0.5' : '',
-						noTriggers && !small ? 'h-4 w-4 text-xs -right-1 -top-1' : ''
-					)}
-				>
-					{#if count === undefined}
-						<Loader2 class="animate-spin text-2xs" />
-					{:else}
-						<p>{count}</p>
-					{/if}
-				</div>
-			{/if}
+			<CountBadge {count} {small} alwaysVisible={noTriggers} />
 		{/if}
 		<SvelteComponent size={small ? 12 : 14} />
 	</MeltButton>
@@ -289,7 +272,7 @@
 	<MenuItem
 		{item}
 		class={itemClass}
-		on:click={() => {
+		onClick={() => {
 			onSelect?.(triggerIndex)
 		}}
 	>

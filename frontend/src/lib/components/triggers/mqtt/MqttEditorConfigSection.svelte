@@ -1,37 +1,41 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import Section from '$lib/components/Section.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import { Plus, X } from 'lucide-svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
-	import type { MqttClientVersion, MqttV3Config, MqttV5Config, MqttSubscribeTopic } from '$lib/gen'
+	import type { MqttClientVersion, MqttSubscribeTopic } from '$lib/gen'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { fade } from 'svelte/transition'
 
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import { emptyStringTrimmed } from '$lib/utils'
-	import { DEFAULT_V3_CONFIG, DEFAULT_V5_CONFIG } from './constant'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 
-	export let can_write: boolean = false
-	export let headless: boolean = false
-	export let mqtt_resource_path: string = ''
-	export let subscribe_topics: MqttSubscribeTopic[] = []
-	export let v3_config: MqttV3Config = DEFAULT_V3_CONFIG
-	export let v5_config: MqttV5Config = DEFAULT_V5_CONFIG
-	export let client_version: MqttClientVersion = 'v5'
-	export let isValid: boolean = false
-	export let client_id: string = ''
-	export let showTestingBadge: boolean = false
-
-	const activateV5Options = {
-		topic_alias: Boolean(v5_config.topic_alias),
-		session_expiry_interval: Boolean(v5_config.session_expiry_interval)
+	interface Props {
+		can_write?: boolean
+		mqtt_resource_path?: string
+		subscribe_topics?: MqttSubscribeTopic[]
+		client_version?: MqttClientVersion
+		isValid?: boolean
+		client_id?: string
+		showTestingBadge?: boolean
 	}
+
+	let {
+		can_write = false,
+		mqtt_resource_path = $bindable(''),
+		subscribe_topics = $bindable([]),
+		client_version = $bindable('v5'),
+		isValid = $bindable(false),
+		client_id = $bindable(''),
+		showTestingBadge = false
+	}: Props = $props()
 
 	const isValidSubscribeTopics = (subscribe_topics: MqttSubscribeTopic[]): boolean => {
 		if (
@@ -43,17 +47,19 @@
 
 		return true
 	}
-	$: isValid = isValidSubscribeTopics(subscribe_topics) && !emptyStringTrimmed(mqtt_resource_path)
+	run(() => {
+		isValid = isValidSubscribeTopics(subscribe_topics) && !emptyStringTrimmed(mqtt_resource_path)
+	})
 </script>
 
-<div>
-	<Section label="MQTT" {headless}>
-		<svelte:fragment slot="header">
+<div class="flex flex-col gap-12">
+	<Section label="MQTT">
+		{#snippet header()}
 			{#if showTestingBadge}
 				<TestingBadge />
 			{/if}
-		</svelte:fragment>
-		<div class="flex flex-col w-full gap-4">
+		{/snippet}
+		<div class="flex flex-col w-full gap-12">
 			<Subsection label="Connection setup">
 				<ResourcePicker resourceType="mqtt" disabled={!can_write} bind:value={mqtt_resource_path} />
 				{#if !emptyStringTrimmed(mqtt_resource_path)}
@@ -70,7 +76,7 @@
 						<div class="flex w-full gap-2 items-center">
 							<div class="w-full flex flex-col gap-2 border p-2 rounded-md">
 								<div class="flex flex-row gap-2 w-full">
-									<!-- svelte-ignore a11y-label-has-associated-control -->
+									<!-- svelte-ignore a11y_label_has_associated_control -->
 									<label class="flex flex-col w-full gap-1">
 										<div class="flex gap-2 mb-1">
 											<span class="text-secondary text-sm">
@@ -113,10 +119,12 @@
 												>
 											</span>
 										</div>
-										<ToggleButtonGroup bind:selected={v.qos} let:item>
-											<ToggleButton value={'qos0'} label="At most once (QoS 0)" {item} />
-											<ToggleButton value={'qos1'} label="At least once (QoS 1)" {item} />
-											<ToggleButton value={'qos2'} label="Exactly once (QoS 2)" {item} />
+										<ToggleButtonGroup bind:selected={v.qos}>
+											{#snippet children({ item })}
+												<ToggleButton value={'qos0'} label="At most once (QoS 0)" {item} />
+												<ToggleButton value={'qos1'} label="At least once (QoS 1)" {item} />
+												<ToggleButton value={'qos2'} label="Exactly once (QoS 2)" {item} />
+											{/snippet}
 										</ToggleButtonGroup>
 									</label>
 								</div>
@@ -144,7 +152,7 @@
 								transition:fade|local={{ duration: 100 }}
 								class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
 								aria-label="Clear"
-								on:click={() => {
+								onclick={() => {
 									subscribe_topics = subscribe_topics.filter((_, index) => index !== i)
 								}}
 							>
@@ -173,126 +181,6 @@
 							Add topic
 						</Button>
 					</div>
-				</div>
-			</Subsection>
-
-			<Subsection label="Advanced" collapsable={true}>
-				<div class="flex p-2 flex-col gap-2 mt-3">
-					<ToggleButtonGroup bind:selected={client_version} let:item>
-						<ToggleButton value="v5" label="Version 5" {item} />
-						<ToggleButton value="v3" label="Version 3" {item} />
-					</ToggleButtonGroup>
-
-					<input
-						type="text"
-						bind:value={client_id}
-						disabled={!can_write}
-						placeholder="Client id"
-						autocomplete="off"
-					/>
-
-					{#if client_version === 'v5'}
-						<Toggle
-							textClass="font-normal text-sm"
-							color="nord"
-							size="xs"
-							checked={v5_config.clean_start}
-							on:change={() => {
-								v5_config.clean_start = !v5_config.clean_start
-							}}
-							options={{
-								right: 'Clean start',
-								rightTooltip:
-									'Start a new session without any stored messages or subscriptions if enabled. Otherwise, resume the previous session with stored subscriptions and undelivered messages. The default setting is 0.',
-								rightDocumentationLink:
-									'https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901039'
-							}}
-							class="py-1"
-						/>
-
-						<div class="flex flex-col gap-2">
-							<Toggle
-								textClass="font-normal text-sm"
-								color="nord"
-								size="xs"
-								checked={activateV5Options.session_expiry_interval}
-								on:change={() => {
-									activateV5Options.session_expiry_interval =
-										!activateV5Options.session_expiry_interval
-									if (!activateV5Options.session_expiry_interval) {
-										v5_config.session_expiry_interval = undefined
-									}
-								}}
-								options={{
-									right: 'Session expiry interval',
-									rightTooltip:
-										'Defines the time in seconds that the broker will retain the session after disconnection. If set to 0, the session ends immediately. If set to 4,294,967,295, the session will be retained indefinitely. Otherwise, subscriptions and undelivered messages are stored until the interval expires.',
-									rightDocumentationLink: ''
-								}}
-								class="py-1"
-							/>
-
-							{#if activateV5Options.session_expiry_interval}
-								<input
-									type="number"
-									bind:value={v5_config.session_expiry_interval}
-									disabled={!can_write}
-									placeholder="Session expiry interval"
-									autocomplete="off"
-								/>
-							{/if}
-						</div>
-
-						<div class="flex flex-col gap-2">
-							<Toggle
-								textClass="font-normal text-sm"
-								color="nord"
-								size="xs"
-								checked={activateV5Options.topic_alias}
-								on:change={() => {
-									activateV5Options.topic_alias = !activateV5Options.topic_alias
-									if (!activateV5Options.topic_alias) {
-										v5_config.topic_alias = undefined
-									}
-								}}
-								options={{
-									right: 'Topic alias maximum',
-									rightTooltip:
-										'Defines the maximum topic alias value the client will accept from the broker. A value of 0 indicates that topic aliases are not supported. The default value is 65536, which is the maximum allowed topic alias.',
-									rightDocumentationLink:
-										'https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html#_Toc3901051'
-								}}
-								class="py-1"
-							/>
-
-							{#if activateV5Options.topic_alias}
-								<input
-									type="number"
-									bind:value={v5_config.topic_alias}
-									disabled={!can_write}
-									placeholder="Topic alias"
-									autocomplete="off"
-								/>
-							{/if}
-						</div>
-					{:else if client_version === 'v3'}
-						<Toggle
-							textClass="font-normal text-sm"
-							color="nord"
-							size="xs"
-							checked={v3_config.clean_session}
-							on:change={() => {
-								v3_config.clean_session = !v3_config.clean_session
-							}}
-							options={{
-								right: 'Clean session',
-								rightTooltip:
-									'Starts a new session without any stored messages or subscriptions if enabled. Otherwise, it resumes the previous session with stored subscriptions and undelivered messages. The default value is 0',
-								rightDocumentationLink: ''
-							}}
-							class="py-1"
-						/>
-					{/if}
 				</div>
 			</Subsection>
 		</div>

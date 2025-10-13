@@ -13,7 +13,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	let email: string
+	let email: string = $state('')
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key
@@ -52,7 +52,7 @@
 										goto('#superadmin-settings')
 									}
 								}
-						  ]
+							]
 						: []
 				)
 			}
@@ -62,45 +62,47 @@
 		email = ''
 	}
 
-	let selected: 'operator' | 'developer' | 'admin' = 'developer'
+	let selected: 'operator' | 'developer' | 'admin' = $state('developer')
 </script>
 
 <Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: MailPlus }}>
 			Invite
 		</Button>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{/snippet}
+	{#snippet content()}
 		<div class="flex flex-col gap-2 p-4">
 			<input
 				type="email"
-				on:keyup={handleKeyUp}
+				onkeyup={handleKeyUp}
 				placeholder="email"
 				bind:value={email}
 				class="mr-4"
 			/>
-			<ToggleButtonGroup bind:selected let:item>
-				<ToggleButton
-					value="operator"
-					label="Operator"
-					tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-					{item}
-				/>
+			<ToggleButtonGroup bind:selected>
+				{#snippet children({ item })}
+					<ToggleButton
+						value="operator"
+						label="Operator"
+						tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+						{item}
+					/>
 
-				<ToggleButton
-					value="developer"
-					label="Developer"
-					tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-					{item}
-				/>
+					<ToggleButton
+						value="developer"
+						label="Developer"
+						tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+						{item}
+					/>
 
-				<ToggleButton
-					value="admin"
-					label="Admin"
-					tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-					{item}
-				/>
+					<ToggleButton
+						value="admin"
+						label="Admin"
+						tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+						{item}
+					/>
+				{/snippet}
 			</ToggleButtonGroup>
 			<Button
 				variant="contained"
@@ -112,5 +114,5 @@
 				Invite
 			</Button>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

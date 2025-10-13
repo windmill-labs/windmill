@@ -30,6 +30,8 @@
 				seatsFromExtraComps: number
 				usedSeats: number
 				owner: string
+				is_past_due: boolean
+				max_tolerated_executions?: number
 		  }
 		| undefined = undefined
 	const plans = {
@@ -157,8 +159,13 @@
 		</div>
 		{#if premiumInfo?.status === 'past_due'}
 			<p class="text-red-500 text-base">
-				Your last invoice is unpaid. Please update your payment method in the customer portal to
-				prevent account downgrade and the interruption of your job executions.
+				{#if premiumInfo.max_tolerated_executions === undefined || premiumInfo.usage > premiumInfo.max_tolerated_executions}
+					Your last invoice is unpaid, you cannot run any more jobs. Please update your payment
+					method in the customer portal to continue running jobs.
+				{:else}
+					Your last invoice is unpaid. Please update your payment method in the customer portal to
+					prevent the interruption of your job executions.
+				{/if}
 			</p>
 		{/if}
 	</div>
@@ -397,8 +404,8 @@
 				class="mb-4 {planTitle === 'Team'
 					? 'text-blue-500'
 					: planTitle === 'Enterprise'
-					? 'text-teal-600'
-					: ''}"
+						? 'text-teal-600'
+						: ''}"
 			>
 				{planTitle}
 			</h2>

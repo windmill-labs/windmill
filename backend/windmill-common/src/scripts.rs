@@ -9,9 +9,11 @@
 use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
+    str::FromStr,
 };
 
 use crate::{
+    assets::AssetWithAltAccessType,
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
@@ -21,6 +23,7 @@ use crate::worker::HUB_CACHE_DIR;
 use anyhow::Context;
 use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
+use itertools::Itertools;
 use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
@@ -52,7 +55,9 @@ pub enum ScriptLang {
     Ansible,
     CSharp,
     Nu,
-    Java, // for related places search: ADD_NEW_LANG
+    Java,
+    Ruby,
+    // for related places search: ADD_NEW_LANG
 }
 
 impl ScriptLang {
@@ -80,14 +85,63 @@ impl ScriptLang {
             ScriptLang::CSharp => "csharp",
             ScriptLang::Nu => "nu",
             ScriptLang::Java => "java",
+            ScriptLang::Ruby => "ruby",
             // for related places search: ADD_NEW_LANG
         }
+    }
+}
+
+impl FromStr for ScriptLang {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let language = match s.to_lowercase().as_str() {
+            "bun" => ScriptLang::Bun,
+            "bunnative" => ScriptLang::Bunnative,
+            "nativets" => ScriptLang::Nativets,
+            "deno" => ScriptLang::Deno,
+            "python3" => ScriptLang::Python3,
+            "go" => ScriptLang::Go,
+            "bash" => ScriptLang::Bash,
+            "powershell" => ScriptLang::Powershell,
+            "postgresql" => ScriptLang::Postgresql,
+            "mysql" => ScriptLang::Mysql,
+            "bigquery" => ScriptLang::Bigquery,
+            "snowflake" => ScriptLang::Snowflake,
+            "mssql" => ScriptLang::Mssql,
+            "graphql" => ScriptLang::Graphql,
+            "oracledb" => ScriptLang::OracleDB,
+            "php" => ScriptLang::Php,
+            "rust" => ScriptLang::Rust,
+            "ansible" => ScriptLang::Ansible,
+            "csharp" => ScriptLang::CSharp,
+            "nu" => ScriptLang::Nu,
+            "java" => ScriptLang::Java,
+            "ruby" => ScriptLang::Ruby,
+            // for related places search: ADD_NEW_LANG
+            language => {
+                return Err(anyhow::anyhow!("{} is currently not supported", language).into())
+            }
+        };
+
+        Ok(language)
     }
 }
 
 #[derive(Eq, PartialEq, Debug, Hash, Clone, Copy, sqlx::Type)]
 #[sqlx(transparent)]
 pub struct ScriptHash(pub i64);
+
+impl Into<u64> for ScriptHash {
+    fn into(self) -> u64 {
+        self.0 as u64
+    }
+}
+
+impl From<i64> for ScriptHash {
+    fn from(value: i64) -> Self {
+        Self(value)
+    }
+}
 
 #[derive(PartialEq, sqlx::Type)]
 #[sqlx(transparent, no_pg_array)]
@@ -112,7 +166,10 @@ impl<'de> Deserialize<'de> for ScriptHash {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        let i = to_i64(&s).map_err(|e| D::Error::custom(format!("{}", e)))?;
+        let i = to_i64(&s).map_err(|e| {
+            tracing::error!("Could not deserialize ScriptHash. Note, input should be in Hex and digit amount should be divisible by 16 (can be padded). err: {}", &e);
+            D::Error::custom(format!("{}", e))
+        })?;
         Ok(ScriptHash(i))
     }
 }
@@ -154,9 +211,53 @@ impl Display for ScriptKind {
     }
 }
 
-pub const PREVIEW_IS_CODEBASE_HASH: i64 = -42;
-pub const PREVIEW_IS_TAR_CODEBASE_HASH: i64 = -43;
+const PREVIEW_IS_CODEBASE_HASH: i64 = -42;
+const PREVIEW_IS_TAR_CODEBASE_HASH: i64 = -43;
+const PREVIEW_IS_ESM_CODEBASE_HASH: i64 = -44;
+const PREVIEW_IS_TAR_ESM_CODEBASE_HASH: i64 = -45;
 
+pub fn is_special_codebase_hash(hash: i64) -> bool {
+    hash == PREVIEW_IS_CODEBASE_HASH || hash == PREVIEW_IS_TAR_CODEBASE_HASH || hash == PREVIEW_IS_ESM_CODEBASE_HASH || hash == PREVIEW_IS_TAR_ESM_CODEBASE_HASH
+}
+
+pub fn codebase_to_hash(is_tar: bool, is_esm: bool) -> i64 {
+    if is_tar {
+        if is_esm {
+            PREVIEW_IS_TAR_ESM_CODEBASE_HASH
+        } else {
+            PREVIEW_IS_TAR_CODEBASE_HASH
+        }
+    } else {
+        if is_esm {
+            PREVIEW_IS_ESM_CODEBASE_HASH
+        } else {
+            PREVIEW_IS_CODEBASE_HASH
+        }
+    }
+}
+
+
+pub fn hash_to_codebase_id(job_id: &str, hash: i64) -> Option<String> {
+    match hash {
+        PREVIEW_IS_CODEBASE_HASH => Some(job_id.to_string()),
+        PREVIEW_IS_TAR_CODEBASE_HASH => Some(format!("{}.tar", job_id)),
+        PREVIEW_IS_ESM_CODEBASE_HASH => Some(format!("{}.esm", job_id)),
+        PREVIEW_IS_TAR_ESM_CODEBASE_HASH => Some(format!("{}.esm.tar", job_id)),
+        _ => None,
+    }
+}
+
+
+pub struct CodebaseInfo {
+    pub is_tar: bool,
+    pub is_esm: bool,
+}
+
+pub fn id_to_codebase_info(id: &str) -> CodebaseInfo {
+    let is_tar = id.ends_with(".tar");
+    let is_esm = id.contains(".esm");
+    CodebaseInfo { is_tar, is_esm }
+}
 #[derive(Serialize, sqlx::FromRow)]
 pub struct Script {
     pub workspace_id: String,
@@ -213,6 +314,9 @@ pub struct Script {
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(json(nullable))]
+    pub assets: Option<Vec<AssetWithAltAccessType>>,
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -278,7 +382,7 @@ impl Hash for Schema {
     }
 }
 
-#[derive(Serialize, Deserialize, Hash)]
+#[derive(Serialize, Deserialize, Hash, Debug)]
 pub struct NewScript {
     pub path: String,
     pub parent_hash: Option<ScriptHash>,
@@ -312,6 +416,8 @@ pub struct NewScript {
     pub codebase: Option<String>,
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assets: Option<Vec<AssetWithAltAccessType>>,
 }
 
 fn lock_deserialize<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
@@ -367,7 +473,7 @@ where
     deserializer.deserialize_any(StringOrArrayVisitor)
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct ListScriptQuery {
     pub path_start: Option<String>,
     pub path_exact: Option<String>,
@@ -384,6 +490,29 @@ pub struct ListScriptQuery {
     pub include_without_main: Option<bool>,
     pub include_draft_only: Option<bool>,
     pub with_deployment_msg: Option<bool>,
+    #[serde(default, deserialize_with = "from_seq")]
+    pub languages: Option<Vec<ScriptLang>>,
+}
+
+fn from_seq<'de, D>(deserializer: D) -> Result<Option<Vec<ScriptLang>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s = <String>::deserialize(deserializer)?;
+
+    let languages: Vec<ScriptLang> = s
+        .split(",")
+        .map(ScriptLang::from_str)
+        .try_collect()
+        .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+
+    let languages = if languages.is_empty() {
+        None
+    } else {
+        Some(languages)
+    };
+
+    Ok(languages)
 }
 
 pub fn to_i64(s: &str) -> crate::error::Result<i64> {
@@ -578,4 +707,10 @@ pub struct HubScript {
     pub language: ScriptLang,
     pub schema: Box<serde_json::value::RawValue>,
     pub summary: Option<String>,
+}
+
+pub fn hash_script(ns: &NewScript) -> i64 {
+    let mut dh = std::hash::DefaultHasher::new();
+    ns.hash(&mut dh);
+    dh.finish() as i64
 }

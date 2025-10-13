@@ -17,22 +17,33 @@
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import { userStore } from '$lib/stores'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'displaycomponent'> | undefined = undefined
-	export let render: boolean
-	export let configuration: RichConfigurations
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'displaycomponent'> | undefined
+		render: boolean
+		configuration: RichConfigurations
+	}
+
+	let result_stream: string | undefined = $state(undefined)
+	let {
+		id,
+		componentInput,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		render,
+		configuration
+	}: Props = $props()
 
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
 	const { app, worldStore, componentControl, workspace, appPath } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	let result: any = undefined
+	let result: any = $state(undefined)
 
-	const resolvedConfig = initConfig(
-		components['displaycomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['displaycomponent'].initialData.configuration, configuration)
 	)
 
 	$componentControl[id] = {
@@ -46,7 +57,8 @@
 		loading: false
 	})
 
-	let css = initCss($app.css?.displaycomponent, customCss)
+	let css = $state(initCss($app.css?.displaycomponent, customCss))
+	let loading = $state(false)
 </script>
 
 {#each Object.keys(components['displaycomponent'].initialData.configuration) as key (key)}
@@ -68,7 +80,15 @@
 	/>
 {/each}
 
-<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper
+	{outputs}
+	{render}
+	{componentInput}
+	{id}
+	bind:initializing
+	bind:result
+	bind:loading
+>
 	<div class="flex flex-col w-full h-full component-wrapper">
 		<div
 			class={twMerge(
@@ -93,8 +113,10 @@
 			)}
 		>
 			<DisplayResult
+				{loading}
 				workspaceId={workspace}
 				{result}
+				{result_stream}
 				{requireHtmlApproval}
 				disableExpand={resolvedConfig?.hideDetails}
 				appPath={$userStore ? undefined : $appPath}

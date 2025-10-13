@@ -8,7 +8,6 @@
 		BadgeX,
 		Info,
 		Plus,
-		RefreshCcw,
 		Slack,
 		X
 	} from 'lucide-svelte'
@@ -21,7 +20,6 @@
 		ConfigService,
 		IndexSearchService,
 		SettingService,
-		TeamsService,
 		type ListAvailablePythonVersionsResponse
 	} from '$lib/gen'
 	import { Button, SecondsInput, Skeleton } from './common'
@@ -41,10 +39,14 @@
 	import TeamSelector from './TeamSelector.svelte'
 	import ChannelSelector from './ChannelSelector.svelte'
 
-	export let setting: Setting
-	export let version: string
-	export let values: Writable<Record<string, any>>
-	export let loading = true
+	interface Props {
+		setting: Setting
+		version: string
+		values: Writable<Record<string, any>>
+		loading?: boolean
+	}
+
+	let { setting, version, values, loading = true }: Props = $props()
 	const dispatch = createEventDispatcher()
 
 	if (
@@ -57,9 +59,7 @@
 	let latestKeyRenewalAttempt: {
 		result: string
 		attempted_at: string
-	} | null
-
-	let isFetching = false
+	} | null = $state(null)
 
 	function showSetting(setting: string, values: Record<string, any>) {
 		if (setting == 'dev_instance') {
@@ -70,14 +70,20 @@
 		return true
 	}
 
-	let licenseKeyChanged = false
-	let renewing = false
-	let opening = false
+	let licenseKeyChanged = $state(false)
+	let renewing = $state(false)
+	let opening = $state(false)
 
-	let to: string = ''
+	let to: string = $state('')
 
 	async function reloadKeyrenewalAttemptInfo() {
 		latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
+	}
+
+	async function reloadLicenseKey() {
+		$values['license_key'] = await SettingService.getGlobal({
+			key: 'license_key'
+		})
 	}
 
 	if (setting.key == 'license_key') {
@@ -91,11 +97,11 @@
 				licenseKey: $values['license_key'] || undefined
 			})
 			sendUserToast('Key renewal successful')
-			reloadKeyrenewalAttemptInfo()
+			reloadLicenseKey()
 		} catch (err) {
-			latestKeyRenewalAttempt = await SettingService.getLatestKeyRenewalAttempt()
 			throw err
 		} finally {
+			reloadKeyrenewalAttemptInfo()
 			renewing = false
 		}
 	}
@@ -135,9 +141,9 @@
 		}
 	}
 
-	let pythonAvailableVersions: ListAvailablePythonVersionsResponse = []
+	let pythonAvailableVersions: ListAvailablePythonVersionsResponse = $state([])
 
-	let isPyFetching = false
+	let isPyFetching = $state(false)
 	async function fetch_available_python_versions() {
 		if (isPyFetching) return
 		isPyFetching = true
@@ -153,31 +159,26 @@
 		fetch_available_python_versions()
 	}
 
-	async function fetchTeams() {
-		if (isFetching) return
-		isFetching = true
-		try {
-			$values['teams'] = await TeamsService.syncTeams()
-		} catch (error) {
-			console.error('Error fetching teams:', error)
-		} finally {
-			isFetching = false
-		}
-	}
-
-	function handleTeamChange(teamItem: { team_id: string; team_name: string }, i: number) {
-		const team = $values['teams'].find((team) => team.team_id === teamItem.team_id) || null
+	function handleTeamChange(
+		teamItem: { team_id: string; team_name: string } | undefined,
+		i: number
+	) {
 		$values['critical_error_channels'][i] = {
-			teams_channel: {
-				team_id: team?.team_id,
-				team_name: team?.team_name,
-				channel_id: team?.channels[0]?.channel_id,
-				channel_name: team?.channels[0]?.channel_name
-			}
+			teams_channel: teamItem
+				? {
+						team_id: teamItem.team_id,
+						team_name: teamItem.team_name,
+						channel_id: undefined, // Will be set when channel is selected
+						channel_name: undefined
+					}
+				: undefined
 		}
 	}
 
-	function handleChannelChange(channel: { channel_id: string; channel_name: string }, i: number) {
+	function handleChannelChange(
+		channel: { channel_id?: string; channel_name?: string } | undefined,
+		i: number
+	) {
 		const team = $values['critical_error_channels'][i]?.teams_channel
 		if (team) {
 			$values['critical_error_channels'][i] = {
@@ -193,7 +194,7 @@
 </script>
 
 <!-- {JSON.stringify($values, null, 2)} -->
-{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null)}
+{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key])}
 	{#if setting.ee_only != undefined && !$enterpriseLicense}
 		<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
 			<AlertTriangle size={16} />
@@ -202,7 +203,7 @@
 	{/if}
 	{#if setting.fieldType == 'select'}
 		<div>
-			<!-- svelte-ignore a11y-label-has-associated-control -->
+			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm">{setting.label}</span>
 				{#if setting.description}
@@ -211,20 +212,22 @@
 					</span>
 				{/if}
 			</label>
-			<ToggleButtonGroup bind:selected={$values[setting.key]} let:item={toggleButton}>
-				{#each setting.select_items ?? [] as item}
-					<ToggleButton
-						value={item.value ?? item.label}
-						label={item.label}
-						tooltip={item.tooltip}
-						item={toggleButton}
-					/>
-				{/each}
+			<ToggleButtonGroup bind:selected={$values[setting.key]}>
+				{#snippet children({ item: toggleButton })}
+					{#each setting.select_items ?? [] as item}
+						<ToggleButton
+							value={item.value ?? item.label}
+							label={item.label}
+							tooltip={item.tooltip}
+							item={toggleButton}
+						/>
+					{/each}
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	{:else if setting.fieldType == 'select_python'}
 		<div>
-			<!-- svelte-ignore a11y-label-has-associated-control -->
+			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm">{setting.label}</span>
 				{#if setting.description}
@@ -234,56 +237,59 @@
 				{/if}
 			</label>
 
-			<ToggleButtonGroup bind:selected={$values[setting.key]} let:item={toggleButtonn}>
-				{#each setting.select_items ?? [] as item}
-					<ToggleButton
-						value={item.value ?? item.label}
-						label={item.label}
-						tooltip={item.tooltip}
-						item={toggleButtonn}
-					/>
-				{/each}
-				<PopoverMelt closeButton={!isPyFetching}>
-					<svelte:fragment slot="trigger">
-						{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
-							<Button
-								variant="border"
-								color="dark"
-								btnClasses="px-1.5 py-1.5 text-2xs bg-surface-secondary border-0"
-								nonCaptureEvent={true}>Select Custom</Button
-							>
-						{:else}
-							<Button
-								variant="border"
-								color="dark"
-								btnClasses="px-1.5 py-1.5 text-2xs border-0 shadow-md"
-								nonCaptureEvent={true}>Custom | {$values[setting.key]}</Button
-							>
-						{/if}
-					</svelte:fragment>
-					<svelte:fragment slot="content">
-						{#if isPyFetching}
-							<div class="p-4">
-								<LoadingIcon />
-							</div>
-						{:else}
-							<ToggleButtonGroup
-								bind:selected={$values[setting.key]}
-								let:item={toggleButtonn}
-								class="mr-10 h-full"
-								tabListClass="flex-wrap p-2"
-							>
-								{#each pythonAvailableVersions as item}
-									<ToggleButton value={item} label={item} tooltip={item} item={toggleButtonn} />
-								{/each}
-							</ToggleButtonGroup>
-						{/if}
-					</svelte:fragment>
-				</PopoverMelt>
+			<ToggleButtonGroup bind:selected={$values[setting.key]}>
+				{#snippet children({ item: toggleButtonn })}
+					{#each setting.select_items ?? [] as item}
+						<ToggleButton
+							value={item.value ?? item.label}
+							label={item.label}
+							tooltip={item.tooltip}
+							item={toggleButtonn}
+						/>
+					{/each}
+					<PopoverMelt closeButton={!isPyFetching}>
+						{#snippet trigger()}
+							{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
+								<Button
+									variant="border"
+									color="dark"
+									btnClasses="px-1.5 py-1.5 text-2xs bg-surface-secondary border-0"
+									nonCaptureEvent={true}>Select Custom</Button
+								>
+							{:else}
+								<Button
+									variant="border"
+									color="dark"
+									btnClasses="px-1.5 py-1.5 text-2xs border-0 shadow-md"
+									nonCaptureEvent={true}>Custom | {$values[setting.key]}</Button
+								>
+							{/if}
+						{/snippet}
+						{#snippet content()}
+							{#if isPyFetching}
+								<div class="p-4">
+									<LoadingIcon />
+								</div>
+							{:else}
+								<ToggleButtonGroup
+									bind:selected={$values[setting.key]}
+									class="mr-10 h-full"
+									tabListClass="flex-wrap p-2"
+								>
+									{#snippet children({ item: toggleButtonn })}
+										{#each pythonAvailableVersions as item}
+											<ToggleButton value={item} label={item} tooltip={item} item={toggleButtonn} />
+										{/each}
+									{/snippet}
+								</ToggleButtonGroup>
+							{/if}
+						{/snippet}
+					</PopoverMelt>
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	{:else}
-		<!-- svelte-ignore a11y-label-has-associated-control -->
+		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<label class="block pb-2">
 			<span class="text-primary font-semibold text-sm">{setting.label}</span>
 			{#if setting.description}
@@ -347,20 +353,28 @@
 						</div>
 					{/if}
 				{:else if setting.fieldType == 'codearea'}
-					<SimpleEditor
-						autoHeight
-						class="editor"
-						lang={setting.codeAreaLang ?? 'txt'}
-						bind:code={$values[setting.key]}
-						fixedOverflowWidgets={false}
-					/>
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						onclick={(ev) => {
+							ev.stopPropagation() // this is to prevent wrapping label interference
+						}}
+					>
+						<SimpleEditor
+							autoHeight
+							class="editor"
+							lang={setting.codeAreaLang ?? 'txt'}
+							bind:code={$values[setting.key]}
+							fixedOverflowWidgets={false}
+						/></div
+					>
 				{:else if setting.fieldType == 'license_key'}
 					{@const { valid, expiration } = parseLicenseKey($values[setting.key] ?? '')}
 					<div class="flex gap-2">
 						<Password
 							small
 							placeholder={setting.placeholder}
-							on:keydown={() => {
+							onKeyDown={() => {
 								licenseKeyChanged = true
 							}}
 							bind:password={$values[setting.key]}
@@ -390,9 +404,16 @@
 							{:else if expiration}
 								<div class="flex flex-row gap-1 items-center">
 									<AlertCircle size={12} class="text-red-600" />
-									<span class="text-red-600 dark:text-red-400 text-xs"
-										>License key expired on {expiration}</span
-									>
+									<span class="text-red-600 dark:text-red-400 text-xs">
+										{#if $values[setting.key]?.endsWith('__dev')}
+											Dev license key expired on {expiration}.<br />If even after successful
+											renewal, your dev license key is still expired, it means that your production
+											key has expired due to unpaid invoices or excessive use of your production
+											instance.
+										{:else}
+											License key expired on {expiration}.
+										{/if}
+									</span>
 								</div>
 							{:else}
 								<div class="flex flex-row gap-1 items-center">
@@ -424,35 +445,42 @@
 														: 'text-red-600'
 											)}
 										>
-											{latestKeyRenewalAttempt.result === 'success'
-												? 'Latest key renewal succeeded'
-												: isTrial
-													? 'Latest key renewal ignored because in trial'
-													: 'Latest key renewal failed'}
-											on {attemptedAt}
+											{#if latestKeyRenewalAttempt.result === 'success' && $values[setting.key]?.endsWith('__dev')}
+												Latest dev key renewal succeeded on {attemptedAt}. The dev key expiry was
+												updated to align with your current production key's expiration date.
+											{:else}
+												{latestKeyRenewalAttempt.result === 'success'
+													? 'Latest key renewal succeeded'
+													: isTrial
+														? 'Latest key renewal ignored because in trial'
+														: 'Latest key renewal failed'}
+												on {attemptedAt}
+											{/if}
 										</span>
 									</div>
-									<div slot="text">
-										{#if latestKeyRenewalAttempt.result === 'success'}
-											<span class="text-green-300">
-												Latest key renewal succeeded on {attemptedAt}
-											</span>
-										{:else if isTrial}
-											<span class="text-yellow-300">
-												License key cannot be renewed during trial ({attemptedAt})
-											</span>
-										{:else}
-											<span class="text-red-300">
-												Latest key renewal failed on {attemptedAt}: {latestKeyRenewalAttempt.result.replace(
-													'error: ',
-													''
-												)}
-											</span>
-										{/if}
-										<br />
-										As long as invoices are paid and usage corresponds to the subscription, the key is
-										renewed daily with a validity of 35 days (grace period).
-									</div>
+									{#snippet text()}
+										<div>
+											{#if latestKeyRenewalAttempt?.result === 'success'}
+												<span class="text-green-300">
+													Latest key renewal succeeded on {attemptedAt}
+												</span>
+											{:else if isTrial}
+												<span class="text-yellow-300">
+													License key cannot be renewed during trial ({attemptedAt})
+												</span>
+											{:else}
+												<span class="text-red-300">
+													Latest key renewal failed on {attemptedAt}: {latestKeyRenewalAttempt?.result.replace(
+														'error: ',
+														''
+													)}
+												</span>
+											{/if}
+											<br />
+											As long as invoices are paid and usage corresponds to the subscription, the key
+											is renewed daily with a validity of 35 days (grace period).
+										</div>
+									{/snippet}
 								</Popover>
 							</div>
 						{/if}
@@ -508,14 +536,11 @@
 									<div class="flex w-full max-w-lg mt-1 gap-2 items-center">
 										<select
 											class="max-w-24"
-											on:change={(e) => {
+											onchange={(e) => {
 												if (e.target?.['value']) {
 													$values[setting.key][i] = {
 														[e.target['value']]: ''
 													}
-												}
-												if (e.target?.['value'] === 'teams_channel') {
-													fetchTeams()
 												}
 											}}
 											value={(() => {
@@ -533,7 +558,7 @@
 											<input
 												type="text"
 												placeholder="Slack channel"
-												on:input={(e) => {
+												oninput={(e) => {
 													if (e.target?.['value']) {
 														$values[setting.key][i] = {
 															slack_channel: e.target['value']
@@ -548,53 +573,50 @@
 													containerClass="w-44"
 													minWidth="140px"
 													showRefreshButton={false}
-													placeholder="Select team"
-													teams={$values['teams']}
-													on:change={(e) => handleTeamChange(e.detail, i)}
-													selectedTeam={$values['critical_error_channels'][i]?.teams_channel
-														? {
-																team_id:
-																	$values['critical_error_channels'][i]?.teams_channel?.team_id,
-																team_name:
-																	$values['critical_error_channels'][i]?.teams_channel?.team_name
-															}
-														: undefined}
+													bind:selectedTeam={
+														() =>
+															$values['critical_error_channels'][i]?.teams_channel
+																? {
+																		team_id:
+																			$values['critical_error_channels'][i]?.teams_channel?.team_id,
+																		team_name:
+																			$values['critical_error_channels'][i]?.teams_channel
+																				?.team_name
+																	}
+																: undefined,
+														(team) => handleTeamChange(team, i)
+													}
 												/>
 
 												{#if $values['critical_error_channels'][i]?.teams_channel?.team_id}
 													<ChannelSelector
 														containerClass=""
-														placeholder="Select channel"
-														channels={$values['teams'].find(
-															(team) =>
-																team.team_id ===
-																$values['critical_error_channels'][i]?.teams_channel?.team_id
-														)?.channels ?? []}
-														on:change={(e) => handleChannelChange(e.detail, i)}
-														selectedChannel={$values['critical_error_channels'][i]?.teams_channel
-															?.channel_id
-															? {
-																	channel_id:
-																		$values['critical_error_channels'][i]?.teams_channel
-																			?.channel_id,
-																	channel_name:
-																		$values['critical_error_channels'][i]?.teams_channel
-																			?.channel_name
-																}
-															: undefined}
+														placeholder="Search channels"
+														teamId={$values['critical_error_channels'][i]?.teams_channel?.team_id}
+														bind:selectedChannel={
+															() =>
+																$values['critical_error_channels'][i]?.teams_channel?.channel_id
+																	? {
+																			channel_id:
+																				$values['critical_error_channels'][i]?.teams_channel
+																					?.channel_id,
+																			channel_name:
+																				$values['critical_error_channels'][i]?.teams_channel
+																					?.channel_name
+																		}
+																	: undefined,
+															(channel) => handleChannelChange(channel, i)
+														}
+														onError={(e) =>
+															sendUserToast('Failed to load channels: ' + e.message, true)}
 													/>
 												{/if}
-												<div>
-													<button on:click={fetchTeams} class="flex items-center gap-1 mt-2">
-														<RefreshCcw size={16} class={isFetching ? 'animate-spin' : ''} />
-													</button>
-												</div>
 											</div>
 										{:else}
 											<input
 												type="email"
 												placeholder="Email address"
-												on:input={(e) => {
+												oninput={(e) => {
 													if (e.target?.['value']) {
 														$values[setting.key][i] = {
 															email: e.target['value']
@@ -608,7 +630,7 @@
 											transition:fade|local={{ duration: 100 }}
 											class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
 											aria-label="Clear"
-											on:click={() => {
+											onclick={() => {
 												$values[setting.key] = $values[setting.key].filter(
 													(_, index) => index !== i
 												)
@@ -625,13 +647,14 @@
 						<Button
 							variant="border"
 							color="light"
-							size="md"
+							size="xs"
 							btnClasses="mt-1"
 							on:click={() => {
 								if ($values[setting.key] == undefined || !Array.isArray($values[setting.key])) {
 									$values[setting.key] = []
 								}
-								$values[setting.key] = $values[setting.key].concat('')
+								// Start with a typed default to avoid invalid primitives in the array
+								$values[setting.key] = $values[setting.key].concat({ email: '' })
 							}}
 							id="arg-input-add-item"
 							startIcon={{ icon: Plus }}
@@ -644,7 +667,7 @@
 								disabled={!$enterpriseLicense}
 								variant="border"
 								color="light"
-								size="md"
+								size="xs"
 								on:click={async () => {
 									try {
 										await SettingService.testCriticalChannels({
@@ -705,7 +728,7 @@
 									type="number"
 									id="writer_memory_budget"
 									placeholder="300"
-									on:input={(e) => {
+									oninput={(e) => {
 										if (e.target instanceof HTMLInputElement) {
 											if (e.target.valueAsNumber) {
 												$values[setting.key].writer_memory_budget =
@@ -723,7 +746,7 @@
 										The max amount of documents (here jobs) per commit. To optimize indexing
 										throughput, it is best to keep this as high as possible. However, especially
 										when reindexing the whole instance, it can be useful to have a limit on how many
-										jobs can be written without being commited. A commit will make the jobs
+										jobs can be written without being committed. A commit will make the jobs
 										available for search, constitute a "checkpoint" state in the indexing and will
 										be logged.
 									</Tooltip>
@@ -763,7 +786,7 @@
 									type="number"
 									id="max_indexed_job_log_size"
 									placeholder="1024"
-									on:input={(e) => {
+									oninput={(e) => {
 										if (e.target instanceof HTMLInputElement) {
 											if (e.target.valueAsNumber) {
 												$values[setting.key].max_indexed_job_log_size =
@@ -782,7 +805,7 @@
 										representing all logs during 1 minute for a specific host. To optimize indexing
 										throughput, it is best to keep this as high as possible. However, especially
 										when reindexing the whole instance, it can be useful to have a limit on how many
-										logs can be written without being commited. A commit will make the logs
+										logs can be written without being committed. A commit will make the logs
 										available for search, appear as a log line, and be a "checkpoint" of the
 										indexing progress.
 									</Tooltip>
@@ -1044,12 +1067,7 @@
 						bind:value={$values[setting.key]}
 					/>
 				{:else if setting.fieldType == 'password'}
-					<input
-						autocomplete="new-password"
-						type="password"
-						placeholder={setting.placeholder}
-						bind:value={$values[setting.key]}
-					/>
+					<Password small placeholder={setting.placeholder} bind:password={$values[setting.key]} />
 				{:else if setting.fieldType == 'boolean'}
 					<div class="mt-0.5">
 						<Toggle

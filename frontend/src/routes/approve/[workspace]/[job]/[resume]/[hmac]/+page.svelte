@@ -1,13 +1,12 @@
 <script lang="ts">
 	import { type Job, JobService } from '$lib/gen'
-	import { page } from '$app/stores'
 	import { base } from '$lib/base'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
-	import { onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
@@ -20,29 +19,24 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
+	import { page } from '$app/state'
 
-	$workspaceStore = $page.params.workspace
-	let rd = $page.url.href.replace($page.url.origin, '')
+	$workspaceStore = page.params.workspace
+	let rd = page.url.href.replace(page.url.origin, '')
 
-	let job: Job | undefined = undefined
-	let currentApprovers: { resume_id: number; approver: string }[] = []
-	let approver = $page.url.searchParams.get('approver') ?? undefined
+	let job: Job | undefined = $state(undefined)
+	let currentApprovers: { resume_id: number; approver: string }[] = $state([])
+	let approver = page.url.searchParams.get('approver') ?? undefined
 
-	let completed: boolean = false
-	$: completed = job?.type == 'CompletedJob'
-	$: alreadyResumed = currentApprovers
-		.map((x) => x.resume_id)
-		.includes(new Number($page.params.resume).valueOf())
+	let completed: boolean = $state(false)
 
-	let dynamicSchema: any = {}
+	let dynamicSchema: any = $state({})
 
-	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
-	$: schema = job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? dynamicSchema
-	let timeout: NodeJS.Timeout | undefined = undefined
-	let error: string | undefined = undefined
-	let default_payload: any = {}
-	let enum_payload: object = {}
-	let description: any = undefined
+	let timeout: number | undefined = undefined
+	let error: string | undefined = $state(undefined)
+	let default_payload: any = $state({})
+	let enum_payload: object = $state({})
+	let description: any = $state(undefined)
 
 	setLicense()
 
@@ -72,10 +66,9 @@
 		timeout && clearInterval(timeout)
 	})
 
-	let argsFetched = false
-	$: job && !argsFetched && getDefaultArgs()
+	let argsFetched = $state(false)
 
-	let valid = true
+	let valid = $state(true)
 	async function getDefaultArgs() {
 		argsFetched = true
 		let jobId = job?.flow_status?.modules?.[approvalStep]?.job
@@ -85,9 +78,9 @@
 		let job_result = (await JobService.getCompletedJobResult({
 			workspace: job?.workspace_id ?? '',
 			id: jobId,
-			secret: $page.params.hmac,
-			suspendedJob: $page.params.job,
-			resumeId: new Number($page.params.resume).valueOf(),
+			secret: page.params.hmac,
+			suspendedJob: page.params.job,
+			resumeId: new Number(page.params.resume).valueOf(),
 			approver
 		})) as any
 		description = job_result?.description
@@ -100,22 +93,22 @@
 
 	async function getJob() {
 		const suspendedJobFlow = await JobService.getSuspendedJobFlow({
-			workspace: $page.params.workspace,
-			id: $page.params.job,
-			resumeId: new Number($page.params.resume).valueOf(),
-			signature: $page.params.hmac,
+			workspace: page.params.workspace ?? '',
+			id: page.params.job ?? '',
+			resumeId: new Number(page.params.resume).valueOf(),
+			signature: page.params.hmac ?? '',
 			approver
 		})
-		job = suspendedJobFlow.job
+		job = suspendedJobFlow.job as Job
 		currentApprovers = suspendedJobFlow.approvers
 	}
 
 	async function resume() {
 		await JobService.resumeSuspendedJobPost({
-			workspace: $page.params.workspace,
-			id: $page.params.job,
-			resumeId: new Number($page.params.resume).valueOf(),
-			signature: $page.params.hmac,
+			workspace: page.params.workspace ?? '',
+			id: page.params.job ?? '',
+			resumeId: new Number(page.params.resume).valueOf(),
+			signature: page.params.hmac ?? '',
 			approver,
 			requestBody: default_payload
 		})
@@ -125,10 +118,10 @@
 
 	async function cancel() {
 		await JobService.cancelSuspendedJobPost({
-			workspace: $page.params.workspace,
-			id: $page.params.job,
-			resumeId: new Number($page.params.resume).valueOf(),
-			signature: $page.params.hmac,
+			workspace: page.params.workspace ?? '',
+			id: page.params.job ?? '',
+			resumeId: new Number(page.params.resume).valueOf(),
+			signature: page.params.hmac ?? '',
 			approver,
 			requestBody: {}
 		})
@@ -137,14 +130,30 @@
 	}
 
 	async function loadUser() {
-		userStore.set(await getUserExt($page.params.workspace))
+		userStore.set(await getUserExt(page.params.workspace ?? ''))
 	}
 
-	$: if (job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && !$userStore) {
-		loadUser()
-	}
-
-	let scheduleEditor: ScheduleEditor
+	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
+	$effect(() => {
+		completed = job?.type == 'CompletedJob'
+	})
+	let alreadyResumed = $derived(
+		currentApprovers
+			.map((x) => x.resume_id)
+			.includes(new Number(page.params.resume ?? '').valueOf())
+	)
+	let approvalStep = $derived.by(() => (job?.flow_status?.step ?? 1) - 1)
+	let schema = $derived.by(
+		() => job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema ?? dynamicSchema
+	)
+	$effect(() => {
+		job && !argsFetched && untrack(() => getDefaultArgs())
+	})
+	$effect(() => {
+		if (job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && !$userStore) {
+			untrack(() => loadUser())
+		}
+	})
 </script>
 
 <ScheduleEditor bind:this={scheduleEditor} />

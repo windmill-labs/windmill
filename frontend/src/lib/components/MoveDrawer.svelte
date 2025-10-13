@@ -117,8 +117,8 @@
 		<div class="flex flex-col mb-2 gap-6">
 			<Path disabled={!own} {kind} {initialPath} bind:path />
 		</div>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button disabled={!own} on:click={updatePath}>Move/Rename</Button>
-		</svelte:fragment>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

@@ -3,8 +3,12 @@
 	import { type AuditLog } from '$lib/gen'
 	import { ArrowRight } from 'lucide-svelte'
 
-	export let logs: AuditLog[]
-	export let selectedId: number | undefined = undefined
+	interface Props {
+		logs: AuditLog[]
+		selectedId?: number | undefined
+	}
+
+	let { logs, selectedId = undefined }: Props = $props()
 
 	const ViewFlowOp: AuditLog['operation'][] = ['jobs.run.flow', 'flows.create', 'flows.update']
 

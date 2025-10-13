@@ -2,6 +2,7 @@
 
 use anyhow::anyhow;
 
+use lazy_static::lazy_static;
 #[cfg(not(target_arch = "wasm32"))]
 use regex::Regex;
 #[cfg(target_arch = "wasm32")]
@@ -14,10 +15,13 @@ use std::{
     iter::Peekable,
     str::CharIndices,
 };
-pub use windmill_parser::{Arg, MainArgSignature, Typ};
+pub use windmill_parser::{Arg, MainArgSignature, ObjectType, Typ};
 
 pub const SANITIZED_ENUM_STR: &str = "__sanitized_enum__";
 pub const SANITIZED_RAW_STRING_STR: &str = "__sanitized_raw_string__";
+
+mod asset_parser;
+pub use asset_parser::parse_assets;
 
 pub fn parse_mysql_sig(code: &str) -> anyhow::Result<MainArgSignature> {
     let parsed = parse_mysql_file(&code)?;
@@ -228,7 +232,7 @@ lazy_static::lazy_static! {
     static ref RE_ARG_BIGQUERY: Regex = Regex::new(r#"(?m)^-- @(\w+) \((\w+(?:\[\])?)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     // -- $name (type) = default
-    static ref RE_ARG_DUCKDB: Regex = Regex::new(r#"(?m)^-- \$(\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
+    static ref RE_ARG_DUCKDB: Regex = Regex::new(r#"(?m)^-- \$(\w+) \(([A-Za-z0-9_\[\]]+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
     static ref RE_ARG_SNOWFLAKE: Regex = Regex::new(r#"(?m)^-- \? (\w+) \((\w+)\)(?: ?\= ?(.+))? *(?:\r|\n|$)"#).unwrap();
 
@@ -488,13 +492,15 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
     let mut args = vec![];
     let mut hm: HashMap<i32, String> = HashMap::new();
     for cap in RE_CODE_PGSQL.captures_iter(code) {
+        let typ = cap
+            .get(2)
+            .map(|cap| transform_types_with_spaces(&cap, &code))
+            .unwrap_or("text");
         hm.insert(
             cap.get(1)
                 .and_then(|x| x.as_str().parse::<i32>().ok())
                 .ok_or_else(|| anyhow!("Impossible to parse arg digit"))?,
-            cap.get(2)
-                .map(|x| x.as_str().to_string())
-                .unwrap_or_else(|| "text".to_string()),
+            typ.to_string(),
         );
     }
     for (i, v) in hm.iter() {
@@ -538,6 +544,37 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
 
     args.append(&mut parse_sql_sanitized_interpolation(code));
     Ok(Some(args))
+}
+
+// The regex doesn't parse types with space such as "character varying"
+// So we look for them manually and replace them with their shorter counterpart
+fn transform_types_with_spaces<'a>(cap: &regex::Match<'a>, code: &str) -> &'a str {
+    lazy_static! {
+        static ref TYPES: [(&'static str, &'static str); 6] = [
+            ("character varying", "varchar"),
+            ("double precision", "double"),
+            ("time with time zone", "timetz"),
+            ("time without time zone", "time"),
+            ("timestamp with time zone", "timestamptz"),
+            ("timestamp without time zone", "timestamp"),
+        ];
+    }
+    let typ = &code[cap.start()..];
+    for (long_type, alias) in TYPES.iter() {
+        let mut typ = typ;
+        let mut found_mismatch = false;
+        for token in long_type.split(' ') {
+            if typ.len() < token.len() || !typ[..token.len()].eq_ignore_ascii_case(token) {
+                found_mismatch = true;
+                break;
+            }
+            typ = typ[token.len()..].trim_start();
+        }
+        if !found_mismatch {
+            return alias;
+        }
+    }
+    cap.as_str()
 }
 
 pub fn parse_sql_statement_named_params(code: &str, prefix: char) -> HashSet<String> {
@@ -734,7 +771,7 @@ pub fn parse_pg_typ(typ: &str) -> Typ {
             "bigint" => Typ::Int,
             "bool" | "boolean" => Typ::Bool,
             "char" | "character" => Typ::Str(None),
-            "json" | "jsonb" => Typ::Object(vec![]),
+            "json" | "jsonb" => Typ::Object(ObjectType::new(None, Some(vec![]))),
             "smallint" | "int2" => Typ::Int,
             "smallserial" | "serial2" => Typ::Int,
             "serial" | "serial4" => Typ::Int,
@@ -766,7 +803,7 @@ pub fn parse_bigquery_typ(typ: &str) -> Typ {
         match typ {
             "string" => Typ::Str(None),
             "bytes" => Typ::Bytes,
-            "json" => Typ::Object(vec![]),
+            "json" => Typ::Object(ObjectType::new(None, Some(vec![]))),
             "timestamp" | "date" | "time" | "datetime" => Typ::Datetime,
             "integer" | "int64" => Typ::Int,
             "float" | "float64" | "numeric" | "bignumeric" => Typ::Float,

@@ -11,13 +11,23 @@
 	import { CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'
 
-	export let open: boolean
+	interface Props {
+		open: boolean
+		jobId?: string | undefined
+		job?: Job | undefined
+		modules: FlowModule[]
+		previewArgs?: Record<string, any>
+		whileLoop?: boolean
+	}
 
-	export let jobId: string | undefined = undefined
-	export let job: Job | undefined = undefined
-	export let modules: FlowModule[]
-	export let previewArgs: Record<string, any> = {}
-	export let whileLoop = false
+	let {
+		open,
+		jobId = $bindable(undefined),
+		job = $bindable(undefined),
+		modules,
+		previewArgs = $bindable({}),
+		whileLoop = false
+	}: Props = $props()
 
 	export const forloopSchema: Schema = {
 		$schema: 'https://json-schema.org/draft/2020-12/schema' as string | undefined,
@@ -54,10 +64,10 @@
 		type: 'object'
 	}
 
-	let selectedJobStep: string | undefined = undefined
+	let selectedJobStep: string | undefined = $state(undefined)
 
-	let isRunning: boolean = false
-	let jobProgressReset: () => void
+	let isRunning: boolean = $state(false)
+	let progressBar: FlowProgressBar | undefined = $state(undefined)
 
 	export function test() {
 		runPreview(previewArgs, undefined)
@@ -70,7 +80,7 @@
 		args: Record<string, any>,
 		restartedFrom: RestartedFrom | undefined
 	) {
-		jobProgressReset()
+		progressBar?.reset()
 		const newFlow = { value: { modules }, summary: '' }
 		jobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
 		isRunning = true
@@ -89,12 +99,14 @@
 		}
 	}
 
-	$: if (job?.type === 'CompletedJob') {
-		isRunning = false
-	}
+	$effect(() => {
+		if (job?.type === 'CompletedJob') {
+			isRunning = false
+		}
+	})
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<svelte:window onkeydown={onKeyDown} />
 
 <div class="flex flex-col space-y-2 h-screen bg-surface px-6 py-2 w-full" id="flow-preview-content">
 	<div class="flex flex-row justify-between w-full items-center gap-x-2">
@@ -149,14 +161,14 @@
 		<div></div>
 	</div>
 	<div class="w-full flex flex-col gap-y-1">
-		<FlowProgressBar {job} bind:reset={jobProgressReset} />
+		<FlowProgressBar {job} bind:this={progressBar} />
 	</div>
 	<div class="overflow-y-auto grow pr-4">
 		<div class="max-h-1/2 overflow-auto border-b">
 			<SchemaForm
 				noVariablePicker
 				compact
-				class="py-4 max-w-3xl"
+				className="py-4 max-w-3xl"
 				schema={whileLoop ? whileLoopSchema : forloopSchema}
 				bind:args={previewArgs}
 			/>
@@ -164,10 +176,10 @@
 		<div class="pt-4 grow">
 			{#if jobId}
 				<FlowStatusViewer
-					{flowStateStore}
+					bind:flowState={flowStateStore.val}
 					{jobId}
-					on:jobsLoaded={({ detail }) => {
-						job = detail
+					onJobsLoaded={({ job: newJob }) => {
+						job = newJob
 					}}
 					bind:selectedJobStep
 				/>

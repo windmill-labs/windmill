@@ -37,10 +37,11 @@
                 "noop",
                 "appdependencies",
                 "deploymentcallback",
-                "singlescriptflow",
+                "singlestepflow",
                 "flowscript",
                 "flownode",
-                "appscript"
+                "appscript",
+                "aiagent"
               ]
             }
           }
@@ -70,7 +71,9 @@
                 "csharp",
                 "oracledb",
                 "nu",
-                "java"
+                "java",
+                "duckdb",
+                "ruby"
               ]
             }
           }

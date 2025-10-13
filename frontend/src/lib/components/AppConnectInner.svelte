@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { userStore, workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
@@ -26,15 +28,27 @@
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import { apiTokenApps, forceSecretValue, linkedSecretValue } from './app_connect'
 	import type { SchemaProperty } from '$lib/common'
+	import Tooltip from './Tooltip.svelte'
 
-	export let step = 1
-	export let resourceType = ''
-	export let isGoogleSignin = false
-	export let disabled = false
-	export let manual = true
-	export let express = false
+	interface Props {
+		step?: number
+		resourceType?: string
+		isGoogleSignin?: boolean
+		disabled?: boolean
+		manual?: boolean
+		express?: boolean
+	}
 
-	let isValid = true
+	let {
+		step = $bindable(1),
+		resourceType = $bindable(''),
+		isGoogleSignin = $bindable(false),
+		disabled = $bindable(false),
+		manual = $bindable(true),
+		express = false
+	}: Props = $props()
+
+	let isValid = $state(true)
 
 	const nativeLanguagesCategory = [
 		'postgresql',
@@ -46,15 +60,14 @@
 		'oracledb'
 	]
 
-	let filter = ''
-	let value: string = ''
+	let filter = $state('')
+	let value: string = $state('')
 	let valueToken: TokenResponse | undefined = undefined
-	let connects: string[] | undefined = undefined
-	let connectsManual:
-		| [string, { img?: string; instructions: string[]; key?: string }][]
-		| undefined = undefined
-	let args: any = {}
-	let renderDescription = true
+	let connects: string[] | undefined = $state(undefined)
+	let connectsManual: { key: string; img?: string; instructions: string[] }[] | undefined =
+		$state(undefined)
+	let args: any = $state({})
+	let renderDescription = $state(true)
 
 	function computeCandidates(resourceType: string, argsKeys: string[], passwords: string[]) {
 		return apiTokenApps[resourceType]?.linkedSecret
@@ -63,11 +76,11 @@
 					(x) =>
 						passwords.includes(x) ||
 						['token', 'secret', 'key', 'pass', 'private'].some((y) => x.toLowerCase().includes(y))
-			  )
+				)
 	}
 
-	let linkedSecret: string | undefined = undefined
-	let linkedSecretCandidates: string[] | undefined = undefined
+	let linkedSecret: string | undefined = $state(undefined)
+	let linkedSecretCandidates: string[] | undefined = $state(undefined)
 	function computeLinkedSecret(resourceType: string, argsKeys: string[], passwords: string[]) {
 		linkedSecretCandidates = computeCandidates(resourceType, argsKeys, passwords)
 		return (
@@ -76,14 +89,37 @@
 		)
 	}
 
-	let scopes: string[] = []
+	let scopes: string[] = $state([])
 	let extra_params: [string, string][] = []
-	let path: string
-	let description = ''
+	let responseExtra: Record<string, string> = $state({})
+	let path: string = $state('')
+	let description = $state('')
 
-	let resourceTypeInfo: ResourceType | undefined = undefined
+	/**
+	 * Client credentials OAuth flow support
+	 * @description Determines if the selected OAuth provider supports client_credentials grant type
+	 * alongside the traditional authorization_code flow
+	 */
+	let supportsClientCredentials = $state(false)
 
-	let pathError = ''
+	/**
+	 * OAuth flow selection
+	 * @description Controls which OAuth flow to use:
+	 * - false: authorization_code flow (interactive, requires user consent)
+	 * - true: client_credentials flow (server-to-server, no user interaction)
+	 */
+	let useClientCredentials = $state(false)
+
+	/**
+	 * Client credentials for resource-level OAuth
+	 */
+	let clientId = $state('')
+	let clientSecret = $state('')
+	let tokenUrl = $state('')
+
+	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
+
+	let pathError = $state('')
 
 	export async function open(rt?: string) {
 		if (!rt) {
@@ -94,6 +130,14 @@
 		description = ''
 		resourceType = rt ?? ''
 		valueToken = undefined
+
+		// Reset client credentials state
+		supportsClientCredentials = false
+		useClientCredentials = false
+		clientId = ''
+		clientSecret = ''
+		tokenUrl = ''
+
 		await loadConnects()
 		manual = !connects?.includes(resourceType)
 		if (manual && express) {
@@ -112,7 +156,9 @@
 	async function loadConnects() {
 		if (!connects) {
 			try {
-				connects = (await OauthService.listOauthConnects()).filter((x) => x != 'supabase_wizard')
+				connects = (await OauthService.listOauthConnects())
+					.filter((x) => x != 'supabase_wizard')
+					.sort((a, b) => a.localeCompare(b))
 			} catch (e) {
 				connects = []
 				console.error('Error loading OAuth connects', e)
@@ -122,27 +168,33 @@
 
 	const connectAndManual = ['gitlab']
 
-	$: isGoogleSignin =
-		step == 1 &&
-		(resourceType == 'google' ||
-			resourceType == 'gmail' ||
-			resourceType == 'gcal' ||
-			resourceType == 'gdrive' ||
-			resourceType == 'gsheets')
+	run(() => {
+		isGoogleSignin =
+			step == 1 &&
+			(resourceType == 'google' ||
+				resourceType == 'gmail' ||
+				resourceType == 'gcal' ||
+				resourceType == 'gdrive' ||
+				resourceType == 'gsheets')
+	})
 
-	$: disabled =
-		(step == 1 && resourceType == '') ||
-		(step == 2 &&
-			value == '' &&
-			args &&
-			args['token'] == '' &&
-			args['password'] == '' &&
-			args['api_key'] == '' &&
-			args['key'] == '' &&
-			linkedSecret != undefined) ||
-		step == 3 ||
-		(step == 4 && pathError != '') ||
-		!isValid
+	run(() => {
+		disabled =
+			(step == 1 && resourceType == '') ||
+			(step == 2 &&
+				(manual
+					? value == '' &&
+						args &&
+						args['token'] == '' &&
+						args['password'] == '' &&
+						args['api_key'] == '' &&
+						args['key'] == '' &&
+						linkedSecret != undefined
+					: false)) ||
+			step == 3 ||
+			(step == 4 && pathError != '') ||
+			!isValid
+	})
 
 	export async function loadResourceTypes() {
 		if (connectsManual) {
@@ -154,14 +206,18 @@
 
 		connectsManual = availableRts
 			.filter((x) => connectAndManual.includes(x) || !Object.keys(connects ?? {}).includes(x))
-			.map((x) => [
-				x,
-				apiTokenApps[x] ?? {
-					instructions: '',
-					img: undefined,
-					linkedSecret: undefined
-				}
-			])
+			.map(
+				(x) =>
+					({
+						key: x,
+						...(apiTokenApps[x] ?? {
+							instructions: '',
+							img: undefined,
+							linkedSecret: undefined
+						})
+					}) as { key: string; img?: string; instructions: string[] }
+			)
+			.sort((a, b) => a.key.localeCompare(b.key))
 		const filteredNativeLanguages = filteredConnectsManual?.filter(
 			(o) => nativeLanguagesCategory?.includes(o[0]) ?? false
 		)
@@ -170,14 +226,14 @@
 			filteredConnectsManual = [
 				...(filteredNativeLanguages ?? []),
 				...(filteredConnectsManual ?? []).filter(
-					([key, _]) => !nativeLanguagesCategory.includes(key)
+					({ key }) => !nativeLanguagesCategory.includes(key)
 				)
 			]
 		} catch (e) {}
 	}
 
 	function popupListener(event) {
-		console.log('Received oauth popup message')
+		console.log('Received oauth popup message', event)
 		let data = event.data
 		if (event.origin == null || event.origin !== window.location.origin) {
 			console.log(
@@ -224,6 +280,7 @@
 			resourceType = data.resource_type
 			value = data.res.access_token!
 			valueToken = data.res
+			responseExtra = data.extra ?? {}
 			step = 4
 			if (express) {
 				path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
@@ -236,6 +293,12 @@
 		const connect = await OauthService.getOauthConnect({ client: resourceType })
 		scopes = connect.scopes ?? []
 		extra_params = Object.entries(connect.extra_params ?? {}) as [string, string][]
+
+		/**
+		 * Check if the OAuth provider supports client_credentials grant type
+		 * This determines whether to show the OAuth flow selection UI
+		 */
+		supportsClientCredentials = connect.grant_types?.includes('client_credentials') ?? false
 	}
 
 	async function getResourceTypeInfo() {
@@ -264,22 +327,79 @@
 			}
 			step += 1
 		} else if (step == 2 && !manual) {
-			const url = new URL(`/api/oauth/connect/${resourceType}`, window.location.origin)
-			url.searchParams.append('scopes', scopes.join('+'))
-			if (extra_params.length > 0) {
-				extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
-			}
-			// if (!newPageOAuth) {
-			// 	window.location.href = url.toString()
-			// } else {
-			window.addEventListener('message', popupListener)
-			window.addEventListener('storage', handleStorageEvent)
-			window.open(url.toString(), '_blank', 'popup=true')
-			step += 1
+			if (useClientCredentials) {
+				/**
+				 * Client credentials flow: Direct API call to backend
+				 * No popup window or user interaction required
+				 * Uses instance-level OAuth credentials for server-to-server auth
+				 */
+				try {
+					// Trim whitespace from credentials to avoid false negatives
+					const trimmedClientId = clientId.trim()
+					const trimmedClientSecret = clientSecret.trim()
 
-			// 	dispatch('close')
-			// }
+					// Validate required fields
+					if (!trimmedClientId || !trimmedClientSecret) {
+						sendUserToast(
+							'Client ID and Client Secret are required for client credentials flow',
+							true
+						)
+						return
+					}
+
+					const requestBody: any = {
+						scopes: scopes,
+						cc_client_id: trimmedClientId,
+						cc_client_secret: trimmedClientSecret
+					}
+
+					// Add token URL override if provided
+					if (tokenUrl.trim()) {
+						requestBody.cc_token_url = tokenUrl.trim()
+					}
+
+					const tokenResponse = await OauthService.connectClientCredentials({
+						client: resourceType,
+						requestBody
+					})
+
+					// Process the token response like in popup flow
+					value = tokenResponse.access_token!
+					valueToken = {
+						...tokenResponse,
+						grant_type: 'client_credentials' // Mark this token as client_credentials
+					}
+					step = 4
+					if (express) {
+						path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+						next()
+					}
+				} catch (error) {
+					sendUserToast(
+						`Failed to connect with client credentials: ${error.body || error.message}`,
+						true
+					)
+				}
+			} else {
+				/**
+				 * Authorization code flow: Traditional OAuth popup window
+				 * Requires user interaction and consent
+				 * Opens popup for user to authenticate with OAuth provider
+				 */
+				const url = new URL(`/api/oauth/connect/${resourceType}`, window.location.origin)
+				url.searchParams.append('scopes', scopes.join('+'))
+				if (extra_params.length > 0) {
+					extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
+				}
+				window.addEventListener('message', popupListener)
+				window.addEventListener('storage', handleStorageEvent)
+				window.open(url.toString(), '_blank', 'popup=true')
+				step += 1
+			}
 		} else {
+			if (!path) {
+				throw Error('Path is not set')
+			}
 			let exists = await VariableService.existsVariable({
 				workspace: $workspaceStore!,
 				path
@@ -301,18 +421,33 @@
 				if (account_identifier) {
 					args['account_identifier'] = account_identifier[1]
 				}
+			} else if (resourceType === 'quickbooks' && responseExtra['realmId']) {
+				args['realmId'] = responseExtra['realmId']
 			}
 
 			let account: number | undefined = undefined
 			if (valueToken?.expires_in != undefined) {
+				const accountData: any = {
+					refresh_token: valueToken.refresh_token ?? '',
+					expires_in: valueToken.expires_in,
+					client: resourceType,
+					grant_type: valueToken.grant_type || 'authorization_code'
+				}
+
+				// Add client credentials if using client_credentials flow
+				if (useClientCredentials) {
+					accountData.cc_client_id = clientId.trim()
+					accountData.cc_client_secret = clientSecret.trim()
+					// Add token URL override if provided
+					if (tokenUrl.trim()) {
+						accountData.cc_token_url = tokenUrl.trim()
+					}
+				}
+
 				account = Number(
 					await OauthService.createAccount({
 						workspace: $workspaceStore!,
-						requestBody: {
-							refresh_token: valueToken.refresh_token ?? '',
-							expires_in: valueToken.expires_in,
-							client: resourceType
-						}
+						requestBody: accountData
 					})
 				)
 			}
@@ -370,33 +505,30 @@
 		}
 	}
 
-	const dispatch = createEventDispatcher()
+	const dispatch = createEventDispatcher<{ error: string; refresh: string; close: void }>()
 
-	let filteredConnects: { key: string }[] = []
-	let filteredConnectsManual: [string, { img?: string; instructions: string[]; key?: string }][] =
-		[]
+	let filteredConnects: { key: string }[] = $state([])
+	let filteredConnectsManual: { key: string; img?: string; instructions: string[] }[] = $state([])
 
-	let editScopes = false
+	let editScopes = $state(false)
 </script>
 
 {#if !express}
 	<SearchItems
 		{filter}
 		items={connects
-			? connects
-					.sort((a, b) => a.localeCompare(b))
-					.map((key) => ({
-						key
-					}))
+			? connects.map((key) => ({
+					key
+				}))
 			: undefined}
 		bind:filteredItems={filteredConnects}
 		f={(x) => x.key}
 	/>
 	<SearchItems
 		{filter}
-		items={connectsManual?.sort((a, b) => a[0].localeCompare(b[0]))}
+		items={connectsManual}
 		bind:filteredItems={filteredConnectsManual}
-		f={(x) => x[0]}
+		f={(x) => x.key}
 	/>
 	{#if step == 1}
 		<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
@@ -460,7 +592,7 @@
 
 		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 			{#if filteredConnectsManual}
-				{#each filteredConnectsManual as [key, _]}
+				{#each filteredConnectsManual as { key }}
 					{#if nativeLanguagesCategory.includes(key)}
 						<Button
 							size="sm"
@@ -483,10 +615,12 @@
 		<div class="mt-8 mb-4"></div>
 		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 			{#if filteredConnectsManual}
-				{#each filteredConnectsManual as [key, _]}
+				{#each filteredConnectsManual as { key }}
 					{#if !nativeLanguagesCategory.includes(key)}
 						<!-- Exclude specific items -->
 						<Button
+							aiId={`app-connect-inner-${key}`}
+							aiDescription={`Connect to ${key}`}
 							size="sm"
 							variant="border"
 							color={key === resourceType ? 'blue' : 'light'}
@@ -552,7 +686,8 @@
 		{#if renderDescription}
 			<div>
 				<div class="flex flex-row-reverse text-2xs text-tertiary -mt-1">GH Markdown</div>
-				<textarea use:autosize bind:value={description} placeholder={'Resource description'}></textarea>
+				<textarea use:autosize bind:value={description} placeholder={'Resource description'}
+				></textarea>
 			</div>
 		{:else if description == undefined || description == ''}
 			<div class="text-sm text-tertiary">No description provided</div>
@@ -577,17 +712,73 @@
 		{#if manual == false && resourceType != ''}
 			<h1 class="mb-4">{resourceType}</h1>
 			<div class="my-4 text-secondary"
-				>Click connect to create a resource backed by an oauth connection, whose token is fetched
-				from the external services and refreshed automatically if needed before expiration (using
-				its refresh token)</div
+				>Create a resource backed by an OAuth connection, whose token is fetched from the external
+				services and refreshed automatically if needed before expiration.</div
 			>
 			<h4 class="mb-2">Description</h4>
 			<div class="text-sm mb-8">
 				<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
 			</div>
+
+			{#if supportsClientCredentials}
+				<div style="margin-bottom: 16px;">
+					<h3 class="mb-4">Authentication Method</h3>
+					<div style="display: flex; align-items: center; gap: 8px;">
+						<input
+							type="checkbox"
+							style="width: 16px; height: 16px; margin: 0;"
+							bind:checked={useClientCredentials}
+						/>
+						<span style="font-size: 14px; font-weight: 600;">Use Client Credentials Flow</span>
+						<Tooltip>
+							Server-to-server authentication without user interaction.
+							<br /><br />
+							Provide your own OAuth client credentials for this resource.
+						</Tooltip>
+					</div>
+
+					{#if useClientCredentials}
+						<div style="margin-top: 16px;">
+							<label style="display: block; margin-bottom: 8px;">
+								<span style="font-weight: 600;">Client ID</span>
+								<input
+									type="text"
+									bind:value={clientId}
+									placeholder="Enter OAuth client ID"
+									class="w-full p-2 border border-gray-300 rounded mt-1"
+									required
+								/>
+							</label>
+							<label style="display: block;">
+								<span style="font-weight: 600;">Client Secret</span>
+								<input
+									type="password"
+									bind:value={clientSecret}
+									placeholder="Enter OAuth client secret"
+									class="w-full p-2 border border-gray-300 rounded mt-1"
+									required
+								/>
+							</label>
+							<label style="display: block; margin-top: 8px;">
+								<span style="font-weight: 600;">Token URL Override (Optional)</span>
+								<input
+									type="url"
+									bind:value={tokenUrl}
+									placeholder="Custom token endpoint URL"
+									class="w-full p-2 border border-gray-300 rounded mt-1"
+								/>
+								<div style="font-size: 12px; color: #666; margin-top: 4px;">
+									Override the instance-level token URL for this resource
+								</div>
+							</label>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
 			<h3 class="mb-4 flex gap-4"
 				>Scopes <button
-					on:click={() => {
+					onclick={() => {
 						editScopes = !editScopes
 					}}><Pen size={14} /></button
 				></h3
@@ -604,7 +795,11 @@
 			{/if}
 		{/if}
 	{:else if step == 3 && !manual && !express}
-		Finish connection in popup window
+		{#if useClientCredentials}
+			Connecting with client credentials...
+		{:else}
+			Finish connection in popup window
+		{/if}
 	{:else}
 		<Path
 			initialPath=""

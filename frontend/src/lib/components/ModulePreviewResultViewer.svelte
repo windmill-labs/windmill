@@ -4,102 +4,117 @@
 	import ScriptFix from './copilot/ScriptFix.svelte'
 	import type DiffEditor from './DiffEditor.svelte'
 	import type Editor from './Editor.svelte'
-	import type { Script, Job, FlowModule } from '$lib/gen'
+	import { type Script, type Job, type FlowModule } from '$lib/gen'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import type { FlowEditorContext } from './flows/types'
+	import type { FlowEditorContext, OutputViewerJob } from './flows/types'
 	import { getContext } from 'svelte'
+	import { getStringError } from './copilot/chat/utils'
+	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
 
-	export let lang: Script['language']
-	export let editor: Editor | undefined
-	export let diffEditor: DiffEditor | undefined
-	export let loopStatus:
-		| { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' }
-		| undefined = undefined
-	export let lastJob: Job | undefined = undefined
-	export let scriptProgress: number | undefined = undefined
-	export let testJob: Job | undefined = undefined
-	export let mod: FlowModule
-	export let testIsLoading: boolean = false
-	export let disableMock: boolean = false
-	export let disableHistory: boolean = false
+	interface Props {
+		lang: Script['language']
+		editor: Editor | undefined
+		diffEditor: DiffEditor | undefined
+		loopStatus?: { type: 'inside' | 'self'; flow: 'forloopflow' | 'whileloopflow' } | undefined
+		testJob?: Job & { result_stream?: string }
+		scriptProgress?: number | undefined
+		mod: FlowModule
+		testIsLoading?: boolean
+		disableMock?: boolean
+		disableHistory?: boolean
+		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
+		loadingJob?: boolean
+		tagLabel?: string
+	}
 
-	const { flowStore, testStepStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	let {
+		lang,
+		editor,
+		diffEditor,
+		loopStatus = undefined,
+		scriptProgress = $bindable(undefined),
+		testJob = undefined,
+		mod,
+		testIsLoading = false,
+		disableMock = false,
+		disableHistory = false,
+		onUpdateMock,
+		loadingJob = false,
+		tagLabel = undefined
+	}: Props = $props()
 
-	let selectedJob: Job | undefined = undefined
-	let fetchingLastJob = false
-	let preview: 'mock' | 'job' | undefined = undefined
-	let outputPicker: OutputPickerInner | undefined = undefined
-	let jobProgressReset: () => void = () => {}
+	const { stepsInputArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	$: lastJob && outputPicker?.setLastJob(lastJob, false)
-	$: testJob && outputPicker?.setLastJob(testJob, true)
+	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
+	export function getOutputPickerInner() {
+		return outputPickerInner
+	}
 
-	let forceJson = false
+	const selectedJob: OutputViewerJob = $derived.by(
+		() => outputPickerInner?.getSelectedJob?.() ?? undefined
+	)
+	const logJob = $derived(testJob ?? selectedJob)
+	const preview = $derived.by(() => outputPickerInner?.getPreview?.())
 </script>
 
 <Splitpanes horizontal>
-	<Pane size={50} minSize={10} class="text-sm text-tertiary">
+	<Pane size={65} minSize={10} class="text-sm text-tertiary">
 		{#if scriptProgress}
-			<JobProgressBar
-				job={testJob}
-				bind:scriptProgress
-				bind:reset={jobProgressReset}
-				compact={true}
-			/>
+			<JobProgressBar job={testJob} {scriptProgress} compact={true} />
 		{/if}
 
 		<OutputPickerInner
-			bind:this={outputPicker}
+			{testJob}
 			fullResult
 			moduleId={mod.id}
 			closeOnOutsideClick={true}
 			getLogs
-			on:updateMock={({ detail }) => {
-				mod.mock = detail
-				$flowStore = $flowStore
-			}}
+			{onUpdateMock}
 			mock={mod.mock}
-			bind:forceJson
-			bind:selectedJob
-			isLoading={(testIsLoading && !scriptProgress) || fetchingLastJob}
-			bind:preview
+			isLoading={testIsLoading || loadingJob}
 			path={`path` in mod.value ? mod.value.path : ''}
 			{loopStatus}
 			{disableMock}
 			{disableHistory}
+			bind:this={outputPickerInner}
 		>
-			<svelte:fragment slot="copilot-fix">
-				{#if lang && editor && diffEditor && $testStepStore[mod.id] && selectedJob && 'result' in selectedJob && selectedJob.result && typeof selectedJob.result == 'object' && `error` in selectedJob.result && selectedJob.result.error}
-					<ScriptFix
-						error={JSON.stringify(selectedJob.result.error)}
-						{lang}
-						{editor}
-						{diffEditor}
-						args={$testStepStore[mod.id]}
-					/>
+			{#snippet copilot_fix()}
+				{#if lang && editor && diffEditor && stepsInputArgs.getStepArgs(mod.id) && selectedJob?.type === 'CompletedJob' && !selectedJob.success && getStringError(selectedJob.result)}
+					<ScriptFix {lang} />
 				{/if}
-			</svelte:fragment>
+			{/snippet}
 		</OutputPickerInner>
 	</Pane>
-	<Pane size={50} minSize={10}>
-		{#if (mod.mock?.enabled && preview != 'job') || preview == 'mock'}
+	<Pane size={35} minSize={10}>
+		{#if (mod.mock?.enabled && preview !== 'job' && testJob?.type !== 'QueuedJob') || preview === 'mock'}
 			<LogViewer
 				small
 				content={undefined}
 				isLoading={false}
 				tag={undefined}
 				customEmptyMessage="Using pinned data"
+				{tagLabel}
+			/>
+		{:else if mod.value.type === 'aiagent' && logJob?.type === 'CompletedJob'}
+			<AiAgentLogViewer
+				tools={mod.value.tools}
+				agentJob={{
+					...logJob,
+					type: 'CompletedJob'
+				}}
+				workspaceId={logJob.workspace_id}
 			/>
 		{:else}
 			<LogViewer
 				small
-				jobId={selectedJob?.id}
-				duration={selectedJob?.['duration_ms']}
-				mem={selectedJob?.['mem_peak']}
-				content={selectedJob?.logs}
-				isLoading={(testIsLoading && selectedJob?.['running'] == false) || fetchingLastJob}
-				tag={selectedJob?.tag}
+				jobId={logJob?.id}
+				duration={logJob?.['duration_ms']}
+				mem={logJob?.['mem_peak']}
+				content={logJob?.['logs']}
+				isLoading={(testIsLoading && logJob?.['running'] == false) || loadingJob}
+				tag={logJob?.['tag']}
+				{tagLabel}
 			/>
 		{/if}
 	</Pane>

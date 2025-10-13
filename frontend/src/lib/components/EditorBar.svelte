@@ -1,9 +1,11 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	export const EDITOR_BAR_WIDTH_THRESHOLD = 1044
 </script>
 
 <script lang="ts">
-	import { ResourceService, VariableService, type Script } from '$lib/gen'
+	import { run } from 'svelte/legacy'
+
+	import { ResourceService, VariableService, WorkspaceService, type Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
 	import { base } from '$lib/base'
@@ -19,14 +21,16 @@
 	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import { SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS } from '$lib/consts'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
 	import Toggle from './Toggle.svelte'
 
 	import {
+		DatabaseIcon,
 		DiffIcon,
 		DollarSign,
+		File,
 		History,
 		Library,
 		Link,
@@ -36,10 +40,9 @@
 		Save,
 		Users
 	} from 'lucide-svelte'
-	import { capitalize, toCamel } from '$lib/utils'
+	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
-	import ScriptGen from './copilot/ScriptGen.svelte'
 	import type DiffEditor from './DiffEditor.svelte'
 	import { getResetCode } from '$lib/script_helpers'
 	import Popover from './Popover.svelte'
@@ -47,112 +50,173 @@
 	import type { EditorBarUi } from './custom_ui'
 	import EditorSettings from './EditorSettings.svelte'
 	import { quicktype, InputData, JSONSchemaInput, FetchingJSONSchemaStore } from 'quicktype-core'
+	import S3FilePicker from './S3FilePicker.svelte'
+	import DucklakeIcon from './icons/DucklakeIcon.svelte'
+	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
+	import ScriptGen from './copilot/ScriptGen.svelte'
 
-	export let lang: SupportedLanguage | 'bunnative' | undefined
-	export let editor: Editor | undefined
-	export let websocketAlive: {
-		pyright: boolean
-		ruff: boolean
-		deno: boolean
-		go: boolean
-		shellcheck: boolean
+	interface Props {
+		lang: SupportedLanguage | 'bunnative' | undefined
+		editor: Editor | undefined
+		websocketAlive: {
+			pyright: boolean
+			ruff: boolean
+			deno: boolean
+			go: boolean
+			shellcheck: boolean
+		}
+		iconOnly?: boolean
+		validCode?: boolean
+		kind?: 'script' | 'trigger' | 'approval'
+		template?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative'
+		collabMode?: boolean
+		collabLive?: boolean
+		collabUsers?: { name: string }[]
+		scriptPath?: string | undefined
+		diffEditor?: DiffEditor | undefined
+		args: Record<string, any>
+		noHistory?: boolean
+		saveToWorkspace?: boolean
+		customUi?: EditorBarUi
+		lastDeployedCode?: string | undefined
+		diffMode?: boolean
+		showHistoryDrawer?: boolean
+		right?: import('svelte').Snippet
+		openAiChat?: boolean
+		moduleId?: string
 	}
-	export let iconOnly: boolean = false
-	export let validCode: boolean = true
-	export let kind: 'script' | 'trigger' | 'approval' = 'script'
-	export let template: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' | 'bunnative' =
-		'script'
-	export let collabMode = false
-	export let collabLive = false
-	export let collabUsers: { name: string }[] = []
-	export let scriptPath: string | undefined = undefined
-	export let diffEditor: DiffEditor | undefined = undefined
-	export let args: Record<string, any>
-	export let noHistory = false
-	export let saveToWorkspace = false
-	export let customUi: EditorBarUi = {}
-	export let lastDeployedCode: string | undefined = undefined
-	export let diffMode: boolean = false
-	export let showHistoryDrawer: boolean = false
 
-	let contextualVariablePicker: ItemPicker
-	let variablePicker: ItemPicker
-	let resourcePicker: ItemPicker
-	let resourceTypePicker: ItemPicker
-	let variableEditor: VariableEditor
-	let resourceEditor: ResourceEditorDrawer
-	let showContextVarPicker = false
-	let showVarPicker = false
-	let showResourcePicker = false
-	let showResourceTypePicker = false
+	let {
+		lang,
+		editor,
+		websocketAlive,
+		iconOnly = false,
+		validCode = true,
+		kind = 'script',
+		template = 'script',
+		collabMode = false,
+		collabLive = false,
+		collabUsers = [],
+		scriptPath = undefined,
+		diffEditor = undefined,
+		args,
+		noHistory = false,
+		saveToWorkspace = false,
+		customUi = {},
+		lastDeployedCode = undefined,
+		diffMode = false,
+		showHistoryDrawer = $bindable(false),
+		right,
+		openAiChat = false,
+		moduleId = undefined
+	}: Props = $props()
 
-	$: showContextVarPicker = [
-		'python3',
-		'bash',
-		'powershell',
-		'go',
-		'deno',
-		'bun',
-		'bunnative',
-		'nativets',
-		'php',
-		'rust',
-		'csharp',
-		'nu',
-		'java'
-		// for related places search: ADD_NEW_LANG
-	].includes(lang ?? '')
-	$: showVarPicker = [
-		'python3',
-		'bash',
-		'powershell',
-		'go',
-		'deno',
-		'bun',
-		'bunnative',
-		'nativets',
-		'php',
-		'rust',
-		'csharp',
-		'nu',
-		'java'
-		// for related places search: ADD_NEW_LANG
-	].includes(lang ?? '')
-	$: showResourcePicker = [
-		'python3',
-		'bash',
-		'powershell',
-		'go',
-		'deno',
-		'bun',
-		'bunnative',
-		'nativets',
-		'php',
-		'rust',
-		'csharp',
-		'nu',
-		'java'
-		// for related places search: ADD_NEW_LANG
-	].includes(lang ?? '')
-	$: showResourceTypePicker =
+	let contextualVariablePicker: ItemPicker | undefined = $state()
+	let variablePicker: ItemPicker | undefined = $state()
+	let resourcePicker: ItemPicker | undefined = $state()
+	let resourceTypePicker: ItemPicker | undefined = $state()
+	let variableEditor: VariableEditor | undefined = $state()
+	let resourceEditor: ResourceEditorDrawer | undefined = $state()
+	let s3FilePicker: S3FilePicker | undefined = $state()
+	let ducklakePicker: ItemPicker | undefined = $state()
+	let databasePicker: ItemPicker | undefined = $state()
+
+	let showContextVarPicker = $derived(
+		[
+			'python3',
+			'bash',
+			'powershell',
+			'go',
+			'deno',
+			'bun',
+			'bunnative',
+			'nativets',
+			'php',
+			'rust',
+			'csharp',
+			'nu',
+			'java',
+			'ruby',
+			'postgresql',
+			'mysql',
+			'bigquery',
+			'mssql',
+			'oracledb',
+			'snowflake',
+			'duckdb'
+			// for related places search: ADD_NEW_LANG
+		].includes(lang ?? '')
+	)
+
+	let showVarPicker = $derived(
+		[
+			'python3',
+			'bash',
+			'powershell',
+			'go',
+			'deno',
+			'bun',
+			'bunnative',
+			'nativets',
+			'php',
+			'rust',
+			'csharp',
+			'nu',
+			'java',
+			'ruby'
+			// for related places search: ADD_NEW_LANG
+		].includes(lang ?? '')
+	)
+
+	let showResourcePicker = $derived(
+		[
+			'python3',
+			'bash',
+			'powershell',
+			'go',
+			'deno',
+			'bun',
+			'bunnative',
+			'nativets',
+			'php',
+			'rust',
+			'csharp',
+			'nu',
+			'java',
+			'ruby'
+			// for related places search: ADD_NEW_LANG
+		].includes(lang ?? '')
+	)
+
+	let showS3Picker = $derived(
+		['duckdb', 'python3'].includes(lang ?? '') ||
+			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
+	)
+	let showDucklakePicker = $derived(['duckdb'].includes(lang ?? ''))
+	let showDatabasePicker = $derived(['duckdb'].includes(lang ?? ''))
+
+	let showResourceTypePicker = $derived(
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
 		lang === 'python3' ||
 		lang === 'php' ||
 		lang === 'rust'
+	)
 
-	let codeViewer: Drawer
-	let codeObj: { language: SupportedLanguage; content: string } | undefined = undefined
+	let codeViewer: Drawer | undefined = $state()
+	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
 
 	function addEditorActions() {
 		editor?.addAction('insert-variable', 'Windmill: Insert variable', () => {
-			variablePicker.openDrawer()
+			variablePicker?.openDrawer()
 		})
 		editor?.addAction('insert-resource', 'Windmill: Insert resource', () => {
-			resourcePicker.openDrawer()
+			resourcePicker?.openDrawer()
 		})
 	}
 
-	$: editor && addEditorActions()
+	run(() => {
+		editor && untrack(() => addEditorActions())
+	})
 
 	async function loadVariables() {
 		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
@@ -164,9 +228,9 @@
 		})
 	}
 
-	let scriptPicker: Drawer
-	let pick_existing: 'hub' | 'workspace' = 'hub'
-	let filter = ''
+	let scriptPicker: Drawer | undefined = $state()
+	let pick_existing: 'hub' | 'workspace' = $state('hub')
+	let filter = $state('')
 
 	async function onScriptPick(e: { detail: { path: string } }) {
 		codeObj = undefined
@@ -414,6 +478,14 @@
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`System.getenv("${name}");`)
 			// for related places search: ADD_NEW_LANG
+		} else if (lang == 'ruby') {
+			editor.insertAtCursor(`ENV['${name}']`)
+		} else if (
+			['postgresql', 'mysql', 'bigquery', 'mssql', 'oracledb', 'snowflake', 'duckdb'].includes(
+				lang ?? ''
+			)
+		) {
+			editor.insertAtCursor(`%%${name}%%`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -484,6 +556,11 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`(Wmill.getVariable("${path}"))`)
 			// for related places search: ADD_NEW_LANG
+		} else if (lang == 'ruby') {
+			if (!editor.getCode().includes("require 'windmill/mini'")) {
+				editor.insertAtBeginning("require 'windmill/mini'\n")
+			}
+			editor.insertAtCursor(`get_variable("${path}")`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -492,26 +569,28 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 	itemName="Variable"
 	extraField="path"
 	loadItems={loadVariables}
-	buttons={{ 'Edit/View': (x) => variableEditor.editVariable(x) }}
+	buttons={{ 'Edit/View': (x) => variableEditor?.editVariable(x) }}
 >
-	<div slot="submission" class="flex flex-row">
-		<Button
-			variant="border"
-			color="blue"
-			size="sm"
-			startIcon={{ icon: Plus }}
-			on:click={() => {
-				variableEditor.initNew()
-			}}
-		>
-			New variable
-		</Button>
-	</div>
+	{#snippet submission()}
+		<div class="flex flex-row">
+			<Button
+				variant="border"
+				color="blue"
+				size="sm"
+				startIcon={{ icon: Plus }}
+				on:click={() => {
+					variableEditor?.initNew()
+				}}
+			>
+				New variable
+			</Button>
+		</div>
+	{/snippet}
 </ItemPicker>
 
 <ItemPicker
 	bind:this={resourcePicker}
-	pickCallback={(path, _) => {
+	pickCallback={(path, _, resType) => {
 		if (!editor) return
 		if (lang == 'deno') {
 			if (!editor.getCode().includes('import * as wmill from')) {
@@ -571,6 +650,20 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		} else if (lang == 'java') {
 			editor.insertAtCursor(`(Wmill.getResource("${path}"))`)
 			// for related places search: ADD_NEW_LANG
+		} else if (lang == 'ruby') {
+			if (!editor.getCode().includes("require 'windmill/mini'")) {
+				editor.insertAtBeginning("require 'windmill/mini'\n")
+			}
+			editor.insertAtCursor(`get_resource("${path}")`)
+		} else if (lang == 'duckdb') {
+			let t = { postgresql: 'postgres', mysql: 'mysql', bigquery: 'bigquery' }[resType]
+			if (!t) {
+				sendUserToast(`Resource type ${resType} is not supported in DuckDB`, true)
+				editor.insertAtCursor(`'res://${path}'`)
+				return
+			} else {
+				editor.insertAtCursor(`ATTACH 'res://${path}' AS db (TYPE ${t});`)
+			}
 		}
 
 		sendUserToast(`${path} inserted at cursor`)
@@ -578,24 +671,26 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	tooltip="Resources represent connections to third party systems. Resources are a good way to define a connection to a frequently used third party system such as a database."
 	documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 	itemName="Resource"
-	buttons={{ 'Edit/View': (x) => resourceEditor.initEdit(x) }}
+	buttons={{ 'Edit/View': (x) => resourceEditor?.initEdit(x) }}
 	extraField="description"
 	extraField2="resource_type"
 	loadItems={async () =>
 		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
 >
-	<div slot="submission" class="flex flex-row gap-x-1 mr-2">
-		<Button
-			startIcon={{ icon: Plus }}
-			target="_blank"
-			variant="border"
-			color="blue"
-			size="sm"
-			href="{base}/resources?connect_app=undefined"
-		>
-			Add resource
-		</Button>
-	</div>
+	{#snippet submission()}
+		<div class="flex flex-row gap-x-1 mr-2">
+			<Button
+				startIcon={{ icon: Plus }}
+				target="_blank"
+				variant="border"
+				color="blue"
+				size="sm"
+				href="{base}/resources?connect_app=undefined"
+			>
+				Add resource
+			</Button>
+		</div>
+	{/snippet}
 </ItemPicker>
 
 {#if showResourceTypePicker}
@@ -615,6 +710,69 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 <ResourceEditorDrawer bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
+{#if showDucklakePicker}
+	<ItemPicker
+		bind:this={ducklakePicker}
+		pickCallback={async (_, name) => {
+			const connStr = name == 'main' ? 'ducklake' : `ducklake://${name}`
+			editor?.insertAtCursor(`ATTACH '${connStr}' AS dl; USE dl;\n`)
+		}}
+		tooltip="Attach a Ducklake in your DuckDB script. Ducklake allows you to manipulate large data on S3 blob files through a traditional SQL interface."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/ducklake"
+		itemName="ducklake"
+		loadItems={async () =>
+			(await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? 'NO_W' })).map(
+				(path) => ({ path })
+			)}
+	/>
+{/if}
+
+{#if showDatabasePicker}
+	<ItemPicker
+		bind:this={databasePicker}
+		pickCallback={(path, _, resType) => {
+			if (!editor) return
+			if (lang == 'duckdb') {
+				let t = { postgresql: 'postgres', mysql: 'mysql', bigquery: 'bigquery' }[resType]
+				editor.insertAtCursor(`ATTACH 'res://${path}' AS db (TYPE ${t});`)
+			}
+			sendUserToast(`${path} inserted at cursor`)
+		}}
+		tooltip="Attach a database resource in your script. This allows you to query data from the database using SQL."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
+		itemName="Database"
+		buttons={{ 'Edit/View': (x) => resourceEditor?.initEdit(x) }}
+		extraField="description"
+		extraField2="resource_type"
+		loadItems={async () =>
+			await ResourceService.listResource({
+				workspace: $workspaceStore ?? 'NO_W',
+				resourceType: 'postgresql,mysql,bigquery'
+			})}
+	></ItemPicker>
+{/if}
+
+<S3FilePicker
+	bind:this={s3FilePicker}
+	readOnlyMode={false}
+	on:selectAndClose={(s3obj) => {
+		let s = `'${formatS3Object(s3obj.detail)}'`
+		if (lang === 'duckdb') {
+			editor?.insertAtCursor(`SELECT * FROM ${s}`)
+		} else if (lang === 'python3') {
+			if (!editor?.getCode().includes('import wmill')) {
+				editor?.insertAtBeginning('import wmill\n')
+			}
+			editor?.insertAtCursor(`wmill.load_s3_file(${s})`)
+		} else if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
+			if (!editor?.getCode().includes('import * as wmill from')) {
+				editor?.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
+			}
+			editor?.insertAtCursor(`wmill.loadS3File(${s})`)
+		}
+	}}
+/>
+
 <div class="flex justify-between items-center overflow-y-auto w-full p-0.5">
 	<div class="flex items-center">
 		<div
@@ -624,6 +782,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		<div class="flex items-center gap-0.5">
 			{#if showContextVarPicker && customUi?.contextVar != false}
 				<Button
+					aiId="editor-bar-add-context-variable"
+					aiDescription="Add context variable"
 					title="Add context variable"
 					color="light"
 					on:click={contextualVariablePicker.openDrawer}
@@ -637,6 +797,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{/if}
 			{#if showVarPicker && customUi?.variable != false}
 				<Button
+					aiId="editor-bar-add-variable"
+					aiDescription="Add variable"
 					title="Add variable"
 					color="light"
 					btnClasses="!font-medium text-tertiary"
@@ -650,8 +812,26 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				</Button>
 			{/if}
 
+			{#if showS3Picker && customUi?.s3object != false}
+				<Button
+					aiId="editor-bar-add-s3-object"
+					aiDescription="Add S3 Object"
+					title="Add S3 object"
+					color="light"
+					on:click={() => s3FilePicker?.open()}
+					size="xs"
+					btnClasses="!font-medium text-tertiary"
+					spacingSize="md"
+					startIcon={{ icon: File }}
+					{iconOnly}
+					>+S3 Object
+				</Button>
+			{/if}
+
 			{#if showResourcePicker && customUi?.resource != false}
 				<Button
+					aiId="editor-bar-add-resource"
+					aiDescription="Add resource"
 					title="Add resource"
 					btnClasses="!font-medium text-tertiary"
 					size="xs"
@@ -667,12 +847,14 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 			{#if showResourceTypePicker && customUi?.type != false}
 				<Button
+					aiId="editor-bar-add-resource-type"
+					aiDescription="Add resource type"
 					title="Add resource type"
 					btnClasses="!font-medium text-tertiary"
 					size="xs"
 					spacingSize="md"
 					color="light"
-					on:click={resourceTypePicker.openDrawer}
+					on:click={() => resourceTypePicker?.openDrawer()}
 					{iconOnly}
 					startIcon={{ icon: Package }}
 				>
@@ -680,8 +862,42 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				</Button>
 			{/if}
 
+			{#if showDatabasePicker && customUi?.database != false}
+				<Button
+					aiId="editor-bar-add-database"
+					aiDescription="Add database"
+					title="Add database"
+					color="light"
+					on:click={() => databasePicker?.openDrawer()}
+					size="xs"
+					btnClasses="!font-medium text-tertiary"
+					spacingSize="md"
+					startIcon={{ icon: DatabaseIcon }}
+					{iconOnly}
+					>+Database
+				</Button>
+			{/if}
+
+			{#if showDucklakePicker && customUi?.ducklake != false}
+				<Button
+					aiId="editor-bar-use-ducklake"
+					aiDescription="Use Ducklake"
+					title="Use Ducklake"
+					color="light"
+					on:click={() => ducklakePicker?.openDrawer()}
+					size="xs"
+					btnClasses="!font-medium text-tertiary"
+					spacingSize="md"
+					startIcon={{ icon: DucklakeIcon }}
+					{iconOnly}
+					>+Ducklake
+				</Button>
+			{/if}
+
 			{#if customUi?.reset != false}
 				<Button
+					aiId="editor-bar-reset-content"
+					aiDescription="Reset content"
 					title="Reset Content"
 					btnClasses="!font-medium text-tertiary"
 					size="xs"
@@ -696,8 +912,10 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{/if}
 
 			{#if customUi?.assistants != false}
-				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash' || lang == 'nu'}
+				{#if lang == 'deno' || lang == 'python3' || lang == 'go' || lang == 'bash'}
 					<Button
+						aiId="editor-bar-reload-assistants"
+						aiDescription="Reload assistants"
 						btnClasses="!font-medium text-tertiary"
 						size="xs"
 						spacingSize="md"
@@ -742,7 +960,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						}}
 					/>
 					<Popover>
-						<svelte:fragment slot="text">Toggle diff mode</svelte:fragment>
+						{#snippet text()}
+							Toggle diff mode
+						{/snippet}
 						<DiffIcon class="ml-1 text-tertiary" size={14} />
 					</Popover>
 				</div>
@@ -757,14 +977,16 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						on:change={() => dispatch('toggleCollabMode')}
 					/>
 					<Popover>
-						<svelte:fragment slot="text">Multiplayer</svelte:fragment>
+						{#snippet text()}
+							Multiplayer
+						{/snippet}
 						<Users class="ml-1 text-tertiary" size={14} />
 					</Popover>
 					{#if collabLive}
 						<button
 							title="Show invite link"
 							class="p-1 rounded hover:bg-gray-400 mx-1 border"
-							on:click={() => dispatch('collabPopup')}><Link size={14} /></button
+							onclick={() => dispatch('collabPopup')}><Link size={14} /></button
 						>
 						<div class="isolate flex -space-x-2 pl-2">
 							{#each collabUsers as user}
@@ -783,7 +1005,11 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{/if}
 
 			{#if customUi?.aiGen != false}
-				<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+				{#if openAiChat}
+					<FlowInlineScriptAiButton {moduleId} />
+				{:else}
+					<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+				{/if}
 			{/if}
 
 			<EditorSettings {customUi} />
@@ -791,7 +1017,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	</div>
 
 	<div class="flex flex-row items-center gap-2">
-		<slot name="right" />
+		{@render right?.()}
 		{#if scriptPath && !noHistory}
 			<Button
 				btnClasses="!font-medium text-tertiary"

@@ -1,20 +1,39 @@
 <script lang="ts">
 	import InputValue from './InputValue.svelte'
 	import type { RichConfiguration } from '../../types'
+	import { untrack } from 'svelte'
 
-	export let id: string
-	export let extraKey: string = ''
-	export let key: string
-	export let resolvedConfig: any | { type: 'oneOf'; configuration: any; selected: string }
-	export let configuration: RichConfiguration
-	export let initialConfig: RichConfiguration | undefined = undefined
-	$: configuration?.type == 'oneOf' && handleSelected(configuration.selected)
+	interface Props {
+		id: string
+		extraKey?: string
+		key: string
+		resolvedConfig: any | { type: 'oneOf'; configuration: any; selected: string }
+		configuration: RichConfiguration
+		initialConfig?: RichConfiguration | undefined
+		debug?: boolean
+	}
+
+	let {
+		id,
+		extraKey = '',
+		key,
+		resolvedConfig = $bindable(),
+		configuration,
+		initialConfig = undefined,
+		debug = false
+	}: Props = $props()
 
 	function handleSelected(selected: string) {
 		if (resolvedConfig?.selected != undefined && resolvedConfig?.selected != selected) {
 			resolvedConfig.selected = selected
 		}
+		// console.log('handleSelected', JSON.stringify({ resolvedConfig, configuration }))
 	}
+	$effect.pre(() => {
+		configuration?.type == 'oneOf' &&
+			configuration.selected &&
+			untrack(() => handleSelected(configuration.selected))
+	})
 </script>
 
 {#if configuration?.type == 'oneOf' && resolvedConfig?.type == 'oneOf'}
@@ -34,6 +53,13 @@
 		{/if}
 	{/each}
 {:else}
+	{#if debug}
+		<pre class="text-2xs">
+			key: {key} 
+			{JSON.stringify({ r: resolvedConfig })}
+			{JSON.stringify(configuration)}</pre
+		>
+	{/if}
 	<InputValue
 		field={key}
 		key={key + extraKey}

@@ -5,7 +5,7 @@
 
 	interface Props {
 		captureInfo?: CaptureInfo | undefined
-		postgres_resource_path?: string
+		isValid: boolean
 		hasPreprocessor?: boolean
 		isFlow?: boolean
 		captureLoading?: boolean
@@ -14,8 +14,8 @@
 
 	let {
 		captureInfo = undefined,
-		postgres_resource_path = '',
 		hasPreprocessor = false,
+		isValid = false,
 		isFlow = false,
 		captureLoading = false,
 		triggerDeployed = false
@@ -25,7 +25,7 @@
 {#if captureInfo}
 	<CaptureSection
 		captureType="postgres"
-		disabled={!postgres_resource_path}
+		disabled={!isValid}
 		{captureInfo}
 		on:captureToggle
 		on:applyArgs

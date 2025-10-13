@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { initCss } from '../../utils'
@@ -13,15 +13,48 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { getFirstNode, isDebugging } from '../../editor/settingsPanel/decisionTree/utils'
 	import InputValue from '../helpers/InputValue.svelte'
+	import { sendUserToast } from '$lib/toast'
 
-	export let id: string
-	export let componentContainerHeight: number
-	export let customCss: ComponentCustomCSS<'decisiontreecomponent'> | undefined = undefined
-	export let render: boolean
-	export let nodes: DecisionTreeNode[]
+	interface Props {
+		id: string
+		componentContainerHeight: number
+		customCss?: ComponentCustomCSS<'decisiontreecomponent'> | undefined
+		render: boolean
+		nodes: DecisionTreeNode[]
+	}
 
-	let everRender = render
-	$: render && !everRender && (everRender = true)
+	let { id, componentContainerHeight, customCss = undefined, render, nodes }: Props = $props()
+
+	let resolvedConditions = $state(createResolvedConditions())
+
+	function createResolvedConditions() {
+		return nodes.reduce((acc, node) => {
+			acc[node.id] = acc[node.id] || []
+			return acc
+		}, {})
+	}
+
+	let resolvedNext = $state(createResolvedNext())
+
+	function createResolvedNext() {
+		return nodes.reduce((acc, node) => {
+			acc[node.id] = acc[node.id] || false
+			return acc
+		}, {})
+	}
+
+	let counter = $state(0)
+	$effect(() => {
+		nodes
+		resolvedConditions = untrack(() => createResolvedConditions())
+		resolvedNext = untrack(() => createResolvedNext())
+		untrack(() => (counter += 1))
+	})
+
+	let everRender = $state(render)
+	$effect.pre(() => {
+		render && !everRender && (everRender = true)
+	})
 
 	const {
 		app,
@@ -33,35 +66,27 @@
 		debuggingComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let css = initCss($app.css?.conditionalwrapper, customCss)
+	let css = $state(initCss($app.css?.conditionalwrapper, customCss))
 	let selectedConditionIndex = 0
-	let currentNodeId = getFirstNode(nodes)?.id ?? ''
+	let currentNodeId = $state(getFirstNode(nodes)?.id ?? '')
 
 	let outputs = initOutput($worldStore, id, {
-		currentNodeId,
+		currentNodeId: untrack(() => currentNodeId),
 		currentNodeIndex: selectedConditionIndex
 	})
 
-	$: resolvedConditions = nodes.reduce((acc, node) => {
-		acc[node.id] = acc[node.id] || []
-		return acc
-	}, resolvedConditions || {})
+	$effect.pre(() => {
+		if (!nodes.map((n) => n.id).includes(currentNodeId)) {
+			const firstNode = untrack(() => getFirstNode(nodes)?.id)
 
-	$: resolvedNext = nodes.reduce((acc, node) => {
-		acc[node.id] = acc[node.id] || false
-		return acc
-	}, resolvedNext || {})
-
-	$: if (!nodes.map((n) => n.id).includes(currentNodeId)) {
-		const firstNode = getFirstNode(nodes)?.id
-
-		if (firstNode) {
-			currentNodeId = firstNode
+			if (firstNode) {
+				currentNodeId = firstNode
+			}
 		}
-	}
+	})
 
-	$: lastNodeId = nodes?.find((node) => node.next.length === 0)?.id
-	$: isNextDisabled = resolvedNext?.[currentNodeId] === false
+	let lastNodeId = $derived(nodes?.find((node) => node.next.length === 0)?.id)
+	let isNextDisabled = $derived(resolvedNext?.[currentNodeId] === false)
 
 	const history: string[] = []
 
@@ -90,6 +115,7 @@
 				return
 			}
 		}
+		sendUserToast('No next node was an available option', true)
 	}
 	function updateFocusedGrid(nodeId) {
 		currentNodeId = nodeId
@@ -136,43 +162,56 @@
 		}
 	}
 
-	$: if (currentNodeId) {
-		outputs.currentNodeId.set(currentNodeId)
-		outputs.currentNodeIndex.set(nodes.findIndex((next) => next.id == currentNodeId))
-	}
-
-	$: if ($selectedComponent?.[0] === id && !$focusedGrid) {
-		$focusedGrid = {
-			parentComponentId: id,
-			subGridIndex: nodes.findIndex((node) => node.id === currentNodeId)
+	$effect.pre(() => {
+		if (currentNodeId) {
+			outputs.currentNodeId.set(currentNodeId)
+			outputs.currentNodeIndex.set(nodes.findIndex((next) => next.id == currentNodeId))
 		}
-	}
+	})
+
+	$effect.pre(() => {
+		if ($selectedComponent?.[0] === id && !$focusedGrid) {
+			$focusedGrid = {
+				parentComponentId: id,
+				subGridIndex: nodes.findIndex((node) => node.id === currentNodeId)
+			}
+		}
+	})
 </script>
 
-{#if Object.keys(resolvedConditions).length === nodes.length}
-	{#each nodes ?? [] as node (node.id)}
-		{#each node.next ?? [] as next, conditionIndex}
-			{#if next.condition}
+<!-- {JSON.stringify(resolvedConditions)}
+{JSON.stringify(resolvedNext)} -->
+
+{#key counter}
+	{#if Object.keys(resolvedConditions).length === nodes.length}
+		{#each nodes ?? [] as node (node.id)}
+			{#each node.next ?? [] as next, conditionIndex}
+				{#if next.condition}
+					<InputValue
+						key={`condition-${node.id}-${conditionIndex}`}
+						{id}
+						input={next.condition}
+						bind:value={resolvedConditions[node.id][conditionIndex]}
+						field={`condition-${node.id}-${conditionIndex}`}
+					/>
+				{/if}
+			{/each}
+		{/each}
+	{/if}
+
+	{#if Object.keys(resolvedConditions).length === nodes.length}
+		{#each nodes ?? [] as node (node.id)}
+			{#if node.allowed}
 				<InputValue
-					key={`condition-${node.id}-${conditionIndex}`}
+					key="allowed-{node.id}"
 					{id}
-					input={next.condition}
-					bind:value={resolvedConditions[node.id][conditionIndex]}
-					field={`condition-${node.id}-${conditionIndex}`}
+					input={node.allowed}
+					bind:value={resolvedNext[node.id]}
 				/>
 			{/if}
 		{/each}
-	{/each}
-{/if}
-
-{#if Object.keys(resolvedConditions).length === nodes.length}
-	{#each nodes ?? [] as node (node.id)}
-		{#if node.allowed}
-			<InputValue key="allowed" {id} input={node.allowed} bind:value={resolvedNext[node.id]} />
-		{/if}
-	{/each}
-{/if}
-
+	{/if}
+{/key}
 {#each Object.keys(css ?? {}) as key (key)}
 	<ResolveStyle
 		{id}
@@ -197,7 +236,7 @@
 						style={css?.container?.style}
 						subGridId={`${id}-${i}`}
 						containerHeight={componentContainerHeight - 40}
-						on:focus={() => {
+						onFocus={() => {
 							if (!$connectingInput.opened) {
 								$selectedComponent = [id]
 							}

@@ -1,42 +1,37 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, getContext } from 'svelte'
-	import Select from './apps/svelte-select/lib/index'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
-
+	import { getContext, untrack } from 'svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { Plus, Loader2, Link2Off } from 'lucide-svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { sendUserToast } from '$lib/toast'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import Select from './select/Select.svelte'
 
-	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
+	interface Props {
+		value: string | undefined
+		resourceType?: string | undefined
+		disablePortal?: boolean
+		expressOAuthSetup?: boolean
+		disabled?: boolean
+	}
 
-	export let initialValue: string | undefined = undefined
-	export let value: string | undefined = initialValue
-	export let resourceType: string | undefined = undefined
-	export let disablePortal = false
-	export let expressOAuthSetup = false
-	export let disabled = false
+	let {
+		value = $bindable(),
+		resourceType = undefined,
+		disablePortal = false,
+		expressOAuthSetup = false,
+		disabled = false
+	}: Props = $props()
 
-	let open = false
-	let refreshCount = 0
+	let open = $state(false)
+	let refreshCount = $state(0)
 	const appViewerContext = getContext<AppViewerContext>('AppViewerContext')
 
-	let valueSelect =
-		initialValue || value
-			? {
-					value: value ?? initialValue,
-					label: value ?? initialValue
-				}
-			: undefined
+	let collection = $state(value ? [{ value, label: value }] : [])
 
-	let collection = [valueSelect]
-
-	let loading = true
+	let loading = $state(true)
 	async function loadResources(resourceType: string | undefined) {
 		loading = true
 		try {
@@ -51,26 +46,25 @@
 			}))
 
 			// TODO check if this is needed
-			if (!nc.find((x) => x.value == value) && (initialValue || value)) {
-				nc.push({ value: value ?? initialValue!, label: value ?? initialValue! })
+			if (!nc.find((x) => x.value == value) && value) {
+				nc.push({ value: value, label: value })
 			}
 			collection = nc
 			if (expressOAuthSetup && nc.length > 0) {
 				value = nc[0].value
-				valueSelect = nc[0]
 			}
 		} finally {
 			loading = false
 		}
 	}
 
-	$: $workspaceStore && loadResources(resourceType)
+	$effect(() => {
+		$workspaceStore && resourceType && untrack(() => loadResources(resourceType))
+	})
 
-	$: dispatchIfMounted('change', value)
+	let darkMode: boolean = $state(false)
 
-	let darkMode: boolean = false
-
-	let drawer: Drawer | undefined = undefined
+	let drawer: Drawer | undefined = $state(undefined)
 
 	export function askNewResource() {
 		refreshCount += 1
@@ -95,7 +89,6 @@
 					on:refresh={async (e) => {
 						await loadResources(resourceType)
 						value = e.detail
-						valueSelect = { value, label: value }
 						open = false
 					}}
 				/>
@@ -123,7 +116,6 @@
 					on:refresh={async (e) => {
 						await loadResources(resourceType)
 						value = e.detail
-						valueSelect = { value, label: value }
 						drawer?.closeDrawer?.()
 						open = false
 					}}
@@ -159,7 +151,6 @@
 						const item = collection[0]
 						if (item) {
 							value = item.value
-							valueSelect = item
 						}
 					}}>Use existing</Button
 				>
@@ -167,27 +158,24 @@
 		{:else}
 			<Select
 				{disabled}
-				portal={!disablePortal}
-				value={valueSelect}
-				on:change={(e) => {
-					value = e.detail.value
-					valueSelect = e.detail
-				}}
-				on:clear={() => {
+				{disablePortal}
+				bind:value={
+					() => value,
+					(v) => {
+						value = v
+					}
+				}
+				onClear={() => {
 					value = undefined
-					valueSelect = undefined
 				}}
+				clearable
 				items={collection}
 				class="text-clip grow min-w-0"
 				placeholder="{resourceType ?? 'any'} resource"
-				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={darkMode
-					? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-					: SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 			/>
 		{/if}
 		<div class="flex gap-1 items-center">
-			{#if valueSelect && expressOAuthSetup}
+			{#if value && expressOAuthSetup}
 				<Button
 					{disabled}
 					color="light"
@@ -196,15 +184,13 @@
 					btnClasses="w-8 px-0.5 py-1.5"
 					iconOnly
 					on:click={async () => {
-						if (valueSelect && valueSelect.label) {
-							value = undefined
+						if (value) {
 							await ResourceService.deleteResource({
 								workspace: appViewerContext?.workspace ?? $workspaceStore,
-								path: valueSelect.label
+								path: value
 							})
-							await loadResources(resourceType)
 							value = undefined
-							valueSelect = undefined
+							await loadResources(resourceType)
 						}
 					}}
 					startIcon={{ icon: Link2Off }}

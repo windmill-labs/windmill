@@ -4,24 +4,39 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
-	export let disabled: boolean = false
-	export let small = false
-	export let light = false
-	export let id: string | undefined = undefined
-	export let item: any | undefined = undefined
-	export let selected: string | undefined = undefined
 	type TogglableItem = {
 		label: string
 		value: string
+		tooltip?: string
 	}
 
-	export let togglableItems: TogglableItem[]
-
-	function select(v: string) {
-		selected = v
+	interface Props {
+		disabled?: boolean
+		small?: boolean
+		light?: boolean
+		id?: string | undefined
+		item?: any | undefined
+		selected?: string | undefined
+		togglableItems: TogglableItem[]
+		class?: string
 	}
 
-	let items = togglableItems.map((i) => ({ displayName: i.label, action: () => select(i.value) }))
+	let {
+		disabled = false,
+		small = false,
+		light = false,
+		id = undefined,
+		item = undefined,
+		selected = $bindable(undefined),
+		togglableItems,
+		class: className = ''
+	}: Props = $props()
+
+	let items = togglableItems.map((i) => ({
+		displayName: i.label,
+		action: () => (selected = i.value),
+		tooltip: i.tooltip
+	}))
 
 	function isAnOptionSelected(selected: string | undefined) {
 		return togglableItems.some((i) => i.value === selected)
@@ -31,11 +46,12 @@
 <Popover
 	disablePopup={true}
 	notClickable
-	class={twMerge('flex', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}
+	class={twMerge('flex', disabled ? 'cursor-not-allowed' : 'cursor-pointer', className)}
 	disappearTimeout={0}
 >
 	<div {id} class="flex">
 		{#if isAnOptionSelected(selected)}
+			{@const tooltip = togglableItems.find((i) => i.value === selected)?.tooltip}
 			<ToggleButton
 				{disabled}
 				value={selected ?? ''}
@@ -44,10 +60,12 @@
 				{light}
 				{id}
 				label={togglableItems.find((i) => i.value === selected)?.label}
+				{tooltip}
+				showTooltipIcon={!!tooltip}
 			/>
 		{/if}
 		<div class="flex items-center">
-			<DropdownV2 {items} />
+			<DropdownV2 enableFlyTransition {items} />
 		</div>
 	</div>
 </Popover>

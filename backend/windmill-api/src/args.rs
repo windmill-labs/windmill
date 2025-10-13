@@ -20,7 +20,7 @@ use windmill_queue::PushArgsOwned;
 
 use crate::{
     db::ApiAuthed,
-    trigger_helpers::{get_runnable_format, RunnableId},
+    triggers::trigger_helpers::{get_runnable_format, RunnableId},
 };
 
 #[derive(Debug)]
@@ -85,7 +85,7 @@ impl RawWebhookArgs {
         db: &DB,
         w_id: &str,
     ) -> Result<HashMap<String, Box<RawValue>>, Error> {
-        use crate::job_helpers_ee::{
+        use crate::job_helpers_oss::{
             get_random_file_name, get_workspace_s3_resource, upload_file_internal,
         };
         use futures::TryStreamExt;

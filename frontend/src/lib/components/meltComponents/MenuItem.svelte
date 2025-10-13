@@ -1,37 +1,80 @@
 <script lang="ts">
 	import { melt } from '@melt-ui/svelte'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 
-	export let href: string | undefined = undefined
-	export let disabled: boolean = false
-	export let target: string | undefined = undefined
-	export let item: MenubarMenuElements['item']
+	interface Props {
+		aiId?: string | undefined
+		aiDescription?: string | undefined
+		href?: string | undefined
+		disabled?: boolean
+		target?: string | undefined
+		item: MenubarMenuElements['item']
+		class?: string | undefined
+		onClick?: (event: MouseEvent) => void
+		children?: import('svelte').Snippet
+		onFocusIn?: (event: FocusEvent) => void
+		onFocusOut?: (event: FocusEvent) => void
+	}
+
+	let {
+		aiId = undefined,
+		aiDescription = undefined,
+		href = undefined,
+		disabled = false,
+		target = undefined,
+		item,
+		class: classNames = undefined,
+		children,
+		onClick,
+		onFocusIn,
+		onFocusOut
+	}: Props = $props()
+
+	let aRef: HTMLAnchorElement | undefined = $state(undefined)
+	let buttonRef: HTMLButtonElement | undefined = $state(undefined)
 </script>
 
 {#if href}
 	<a
+		bind:this={aRef}
 		use:melt={$item}
+		use:triggerableByAI={{
+			id: aiId,
+			description: aiDescription,
+			callback: () => {
+				aRef?.click()
+			}
+		}}
 		{href}
-		class={$$props.class}
+		class={classNames}
 		role="menuitem"
 		aria-disabled={disabled}
 		tabindex={disabled ? -1 : undefined}
 		{target}
-		on:m-focusin
-		on:m-focusout
+		onfocusin={onFocusIn}
+		onfocusout={onFocusOut}
 	>
-		<slot />
+		{@render children?.()}
 	</a>
 {:else}
 	<button
-		on:click
+		bind:this={buttonRef}
+		onclick={onClick}
 		use:melt={$item}
+		use:triggerableByAI={{
+			id: aiId,
+			description: aiDescription,
+			callback: () => {
+				buttonRef?.click()
+			}
+		}}
 		{disabled}
-		class={$$props.class}
+		class={classNames}
 		role="menuitem"
-		on:m-focusin
-		on:m-focusout
+		onfocusin={onFocusIn}
+		onfocusout={onFocusOut}
 	>
-		<slot />
+		{@render children?.()}
 	</button>
 {/if}

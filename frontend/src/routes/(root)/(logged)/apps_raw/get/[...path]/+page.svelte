@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { base } from '$app/paths'
-	import { page } from '$app/stores'
 	import { Button, Skeleton } from '$lib/components/common'
 	import { AppService, type AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -8,27 +7,36 @@
 	import { Pen } from 'lucide-svelte'
 	import RawAppPreview from '$lib/components/raw_apps/RawAppPreview.svelte'
 	import type { HiddenRunnable } from '$lib/components/apps/types'
+	import { page } from '$app/state'
 
-	const hideEditBtn = $page.url.searchParams.get('hideEditBtn') === 'true'
+	const hideEditBtn = page.url.searchParams.get('hideEditBtn') === 'true'
 
-	let app: AppWithLastVersion | undefined = undefined
+	let app = $state(undefined) as AppWithLastVersion | undefined
 
+	let secret = $state(undefined) as string | undefined
 	async function loadApp() {
 		console.log('Loading app')
 		app = await AppService.getAppLiteByPath({
 			workspace: $workspaceStore!,
-			path: $page.params.path
+			path: page.params.path ?? ''
 		})
 	}
 
-	$: $workspaceStore && loadApp()
+	async function loadSecret() {
+		secret = await AppService.getPublicSecretOfLatestVersionOfApp({
+			workspace: $workspaceStore!,
+			path: page.params.path ?? ''
+		})
+	}
 
-	$: can_write = canWrite($page.params.path, app?.extra_perms ?? {}, $userStore)
+	$effect(() => {
+		$workspaceStore && loadApp()
+		$workspaceStore && loadSecret()
+	})
+
+	let can_write = $derived(canWrite(page.params.path ?? '', app?.extra_perms ?? {}, $userStore))
 	function getRunnables(app: AppWithLastVersion) {
 		return (app?.value?.runnables ?? {}) as Record<string, HiddenRunnable>
-	}
-	function getVersion(app: AppWithLastVersion) {
-		return app?.value?.version as number
 	}
 </script>
 
@@ -37,11 +45,11 @@
 		<Skeleton layout={[10]} />
 	{:else}
 		<RawAppPreview
-			path={$page.params.path}
+			path={page.params.path ?? ''}
 			workspace={$workspaceStore}
 			user={$userStore}
 			runnables={getRunnables(app)}
-			version={getVersion(app)}
+			{secret}
 		/>
 	{/if}
 	{#if can_write && !hideEditBtn}
@@ -51,7 +59,7 @@
 				startIcon={{ icon: Pen }}
 				variant="border"
 				btnClasses="bg-white"
-				href="{base}/apps_raw/edit/{$page.params.path}?nodraft=true">Edit</Button
+				href="{base}/apps_raw/edit/{page.params.path}?nodraft=true">Edit</Button
 			>
 		</div>
 	{/if}

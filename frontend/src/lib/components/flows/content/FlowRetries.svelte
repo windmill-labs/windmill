@@ -1,16 +1,63 @@
 <script lang="ts">
-	import type { Retry } from '$lib/gen'
+	import type { Retry, FlowModule } from '$lib/gen'
 	import { SecondsInput } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { AlertTriangle } from 'lucide-svelte'
+	import { untrack, getContext } from 'svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import Section from '$lib/components/Section.svelte'
+	import type { FlowEditorContext } from '../types'
+	import { getStepPropPicker } from '../previousResults'
+	import { NEVER_TESTED_THIS_FAR } from '../models'
 
-	export let flowModuleRetry: Retry | undefined
-	export let disabled: boolean = false
+	interface Props {
+		flowModuleRetry: Retry | undefined
+		disabled?: boolean
+		flowModule?: FlowModule
+	}
 
-	let delayType: 'disabled' | 'constant' | 'exponential'
-	let loaded = false
+	let {
+		flowModule = $bindable(),
+		flowModuleRetry = $bindable(),
+		disabled = false
+	}: Props = $props()
+
+	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStateStore, flowStore, previewArgs } = flowEditorContext || {
+		flowStateStore: null,
+		flowStore: null,
+		previewArgs: null
+	}
+
+	let delayType = $state() as 'disabled' | 'constant' | 'exponential' | undefined
+	let loaded = $state(false)
+
+	let editor: SimpleEditor | undefined = $state(undefined)
+	let stepPropPicker = $derived(
+		flowModule && flowStateStore?.val && flowStore?.val && previewArgs?.val
+			? getStepPropPicker(
+					flowStateStore.val,
+					undefined,
+					undefined,
+					flowModule.id,
+					flowStore.val,
+					previewArgs.val,
+					false
+				)
+			: null
+	)
+
+	let isRetryConditionEnabled = $derived(Boolean(flowModuleRetry?.retry_if))
+	let result = $derived(
+		flowModule && flowStateStore?.val
+			? (flowStateStore.val[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
+			: NEVER_TESTED_THIS_FAR
+	)
 
 	function setConstantRetries() {
 		flowModuleRetry = {
@@ -48,13 +95,17 @@
 		delayType = 'disabled'
 	}
 
-	$: flowModuleRetry === undefined && resetDelayType()
-	$: !loaded && initialLoad()
+	$effect(() => {
+		flowModuleRetry === undefined && resetDelayType()
+	})
+	$effect(() => {
+		!loaded && untrack(() => initialLoad())
+	})
 
 	const u32Max = 4294967295
 </script>
 
-<div class="h-full flex flex-col {$$props.class ?? ''}">
+<div class="h-full flex flex-col gap-4">
 	<ToggleButtonGroup
 		bind:selected={delayType}
 		class={`h-10 ${disabled ? 'disabled' : ''}`}
@@ -68,12 +119,97 @@
 				setExponentialRetries()
 			}
 		}}
-		let:item
 	>
-		<ToggleButton light value="disabled" label="Disabled" {item} />
-		<ToggleButton light value="constant" label="Constant" {item} />
-		<ToggleButton light value="exponential" label="Exponential" {item} />
+		{#snippet children({ item })}
+			<ToggleButton light value="disabled" label="Disabled" {item} />
+			<ToggleButton light value="constant" label="Constant" {item} />
+			<ToggleButton light value="exponential" label="Exponential" {item} />
+		{/snippet}
 	</ToggleButtonGroup>
+
+	{#if delayType === 'constant' || delayType === 'exponential'}
+		<Section label="Retry Condition" class="w-full">
+			{#snippet header()}
+				<Tooltip>
+					Optional condition to determine when to retry. If not specified, will retry on any failure
+					within the configured attempt limits.
+				</Tooltip>
+			{/snippet}
+
+			<Toggle
+				checked={isRetryConditionEnabled}
+				on:change={() => {
+					if (!flowModuleRetry) {
+						return
+					}
+					if (isRetryConditionEnabled && flowModuleRetry.retry_if) {
+						const { retry_if, ...rest } = flowModuleRetry
+						flowModuleRetry = rest
+					} else {
+						flowModuleRetry = {
+							...flowModuleRetry,
+							retry_if: {
+								expr: 'error && error.name !== "PERMANENT_FAILURE"'
+							}
+						}
+					}
+				}}
+				options={{
+					right: 'Only retry if condition is met'
+				}}
+			/>
+
+			<div
+				class="w-full border p-2 mt-2 flex flex-col {flowModuleRetry?.retry_if
+					? ''
+					: 'bg-surface-secondary'}"
+			>
+				{#if flowModuleRetry?.retry_if}
+					<span class="mt-2 text-xs font-bold">Retry condition expression</span>
+					<span class="text-xs text-tertiary mb-2"
+						>Expression should return true to retry, false to skip retry</span
+					>
+					<div class="border w-full">
+						{#if stepPropPicker}
+							<PropPickerWrapper
+								notSelectable
+								pickableProperties={stepPropPicker.pickableProperties}
+								{result}
+								on:select={({ detail }) => {
+									editor?.insertAtCursor(detail)
+									editor?.focus()
+								}}
+							>
+								<SimpleEditor
+									bind:this={editor}
+									lang="javascript"
+									bind:code={flowModuleRetry.retry_if.expr}
+									class="few-lines-editor"
+									extraLib={`declare const result = ${JSON.stringify(result)};` +
+										`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input || {})};`}
+								/>
+							</PropPickerWrapper>
+						{:else}
+							<SimpleEditor
+								bind:this={editor}
+								lang="javascript"
+								bind:code={flowModuleRetry.retry_if.expr}
+								class="few-lines-editor"
+								extraLib={`declare const result = ${JSON.stringify(result)};`}
+							/>
+						{/if}
+					</div>
+				{:else}
+					<span class="mt-2 text-xs font-bold">Retry condition expression</span>
+					<span class="text-xs text-tertiary mb-2"
+						>Expression should return true to retry, false to skip retry</span
+					>
+					<textarea disabled rows="3" class="min-h-[80px]"></textarea>
+				{/if}
+			</div>
+		</Section>
+	{/if}
+
 	<div class="flex h-[calc(100%-22px)]">
 		<div class="w-1/2 h-full overflow-auto pr-2">
 			{#if delayType === 'constant'}
@@ -87,7 +223,7 @@
 						/>
 						<button
 							class="text-xs"
-							on:click={() =>
+							onclick={() =>
 								flowModuleRetry?.constant && (flowModuleRetry.constant.attempts = u32Max)}
 							>max</button
 						>
@@ -102,7 +238,7 @@
 						<input max="100" bind:value={flowModuleRetry.exponential.attempts} type="number" />
 						<button
 							class="text-xs"
-							on:click={() =>
+							onclick={() =>
 								flowModuleRetry?.exponential && (flowModuleRetry.exponential.attempts = 100)}
 							>max</button
 						>

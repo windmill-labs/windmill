@@ -8,57 +8,62 @@
 
 #[cfg(feature = "http_trigger")]
 use {
-    crate::http_trigger_args::{HttpMethod, RawHttpTriggerArgs},
+    crate::triggers::http::{http_trigger_args::RawHttpTriggerArgs, HttpMethod},
     axum::response::{IntoResponse, Response},
     std::collections::HashMap,
 };
 
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 use {
-    crate::gcp_triggers_ee::{
+    crate::triggers::gcp::{
         manage_google_subscription, process_google_push_request, validate_jwt_token,
-        CreateUpdateConfig, SubscriptionMode,
+        CreateUpdateConfig, GcpSubscriptionMode,
     },
     axum::extract::Request,
     http::HeaderMap,
 };
 
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(any(
+    all(feature = "enterprise", feature = "gcp_trigger", feature = "private"),
+    feature = "postgres_trigger"
+))]
 use windmill_common::utils::empty_as_none;
 
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
 use windmill_common::auth::aws::AwsAuthResourceType;
 
 #[cfg(any(
     feature = "http_trigger",
-    all(feature = "enterprise", feature = "gcp_trigger")
+    all(feature = "enterprise", feature = "gcp_trigger", feature = "private")
 ))]
-use {serde::de::DeserializeOwned, windmill_common::error::Error};
+use serde::de::DeserializeOwned;
 
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
-use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
+#[cfg(any(
+    feature = "http_trigger",
+    feature = "postgres_trigger",
+    all(feature = "enterprise", feature = "gcp_trigger", feature = "private")
+))]
+use windmill_common::error::Error;
+
+#[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
+use crate::triggers::kafka::KafkaTriggerConfigConnection;
 
 #[cfg(feature = "mqtt_trigger")]
-use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
+use crate::triggers::mqtt::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
 
-#[cfg(all(feature = "enterprise", feature = "nats"))]
-use crate::nats_triggers_ee::NatsTriggerConfigConnection;
+#[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
+use crate::triggers::nats::NatsTriggerConfigConnection;
 
 #[cfg(feature = "postgres_trigger")]
-use {
-    crate::postgres_triggers::{
-        create_logical_replication_slot_query, create_publication_query, drop_publication_query,
-        generate_random_string, get_database_connection, PublicationData,
-    },
-    itertools::Itertools,
-    pg_escape::quote_literal,
+use crate::triggers::postgres::{
+    create_logical_replication_slot, create_pg_publication, generate_random_string,
+    get_default_pg_connection, PublicationData,
 };
 
 use crate::{
     args::RawWebhookArgs,
     db::{ApiAuthed, DB},
     users::fetch_api_authed,
-    utils::RunnableKind,
 };
 
 use axum::{
@@ -76,7 +81,7 @@ use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
     triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind},
-    utils::{not_found_if_none, paginate, Pagination, StripPath},
+    utils::{not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
     worker::{to_raw_value, CLOUD_HOSTED},
 };
 
@@ -117,7 +122,7 @@ pub fn workspaced_unauthed_service() -> Router {
             head(|| async {}).fallback(http_payload)
         });
 
-        #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+        #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
         let router = router.route("/gcp/:runnable_kind/*path", post(gcp_payload));
 
         router
@@ -141,7 +146,13 @@ struct HttpTriggerConfig {
     wrap_body: Option<bool>,
 }
 
-#[cfg(all(feature = "enterprise", feature = "kafka"))]
+#[cfg(all(feature = "enterprise", feature = "smtp", feature = "private"))]
+#[derive(Serialize, Deserialize)]
+struct EmailTriggerConfig {
+    local_part: String,
+}
+
+#[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
 #[derive(Serialize, Deserialize)]
 pub struct KafkaTriggerConfig {
     #[serde(flatten)]
@@ -150,7 +161,7 @@ pub struct KafkaTriggerConfig {
     pub group_id: String,
 }
 
-#[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SqsTriggerConfig {
     pub queue_url: String,
@@ -159,11 +170,11 @@ pub struct SqsTriggerConfig {
     pub aws_auth_resource_type: AwsAuthResourceType,
 }
 
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
     pub gcp_resource_path: String,
-    pub subscription_mode: SubscriptionMode,
+    pub subscription_mode: GcpSubscriptionMode,
     #[serde(default, deserialize_with = "empty_as_none")]
     pub subscription_id: Option<String>,
     #[serde(default, deserialize_with = "empty_as_none")]
@@ -171,9 +182,11 @@ pub struct GcpTriggerConfig {
     #[serde(flatten)]
     pub create_update: Option<CreateUpdateConfig>,
     pub topic_id: String,
+    pub auto_acknowledge_msg: Option<bool>,
+    pub ack_deadline: Option<i32>,
 }
 
-#[cfg(all(feature = "enterprise", feature = "nats"))]
+#[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
 #[derive(Serialize, Deserialize)]
 pub struct NatsTriggerConfig {
     #[serde(flatten)]
@@ -200,9 +213,12 @@ pub struct MqttTriggerConfig {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct PostgresTriggerConfig {
     pub postgres_resource_path: String,
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub publication_name: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
     pub replication_slot_name: Option<String>,
     pub publication: PublicationData,
+    pub basic_mode: Option<bool>,
 }
 
 #[cfg(feature = "websocket")]
@@ -222,16 +238,18 @@ enum TriggerConfig {
     Postgres(PostgresTriggerConfig),
     #[cfg(feature = "websocket")]
     Websocket(WebsocketTriggerConfig),
-    #[cfg(all(feature = "enterprise", feature = "sqs_trigger"))]
+    #[cfg(all(feature = "enterprise", feature = "sqs_trigger", feature = "private"))]
     Sqs(SqsTriggerConfig),
-    #[cfg(all(feature = "enterprise", feature = "kafka"))]
+    #[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
     Kafka(KafkaTriggerConfig),
-    #[cfg(all(feature = "enterprise", feature = "nats"))]
+    #[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
     Nats(NatsTriggerConfig),
     #[cfg(feature = "mqtt_trigger")]
     Mqtt(MqttTriggerConfig),
-    #[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+    #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
     Gcp(GcpTriggerConfig),
+    #[cfg(all(feature = "enterprise", feature = "smtp", feature = "private"))]
+    Email(EmailTriggerConfig),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -292,57 +310,55 @@ async fn set_postgres_trigger_config(
     user_db: UserDB,
     mut capture_config: NewCaptureConfig,
 ) -> Result<NewCaptureConfig> {
-    let Some(TriggerConfig::Postgres(mut postgres_config)) = capture_config.trigger_config else {
-        return Err(windmill_common::error::Error::BadRequest(
-            "Invalid postgres config".to_string(),
-        ));
+    use windmill_common::error::to_anyhow;
+
+    let Some(TriggerConfig::Postgres(postgres_config)) = capture_config.trigger_config.as_mut()
+    else {
+        return Err(Error::BadRequest("Invalid postgres config".to_string()));
     };
 
-    let mut connection = get_database_connection(
-        authed,
-        Some(user_db),
-        &db,
-        &postgres_config.postgres_resource_path,
-        &w_id,
-    )
-    .await?;
+    if postgres_config.basic_mode.unwrap_or(false) {
+        let mut pg_connection = get_default_pg_connection(
+            authed,
+            Some(user_db),
+            &db,
+            &postgres_config.postgres_resource_path,
+            &w_id,
+        )
+        .await?;
 
-    let publication_name = postgres_config
-        .publication_name
-        .get_or_insert(format!("windmill_capture_{}", generate_random_string()));
-    let replication_slot_name = postgres_config
-        .replication_slot_name
-        .get_or_insert(publication_name.clone());
+        let tx = pg_connection.transaction().await.map_err(to_anyhow)?;
 
-    let query = drop_publication_query(&publication_name);
+        let publication_name = format!("windmill_capture_{}", generate_random_string());
+        let replication_slot_name = publication_name.clone();
 
-    sqlx::query(&query).execute(&mut connection).await?;
+        create_logical_replication_slot(tx.client(), &replication_slot_name)
+            .await
+            .map_err(to_anyhow)?;
 
-    let query = create_publication_query(
-        &publication_name,
-        postgres_config.publication.table_to_track.as_deref(),
-        &postgres_config
-            .publication
-            .transaction_to_track
-            .iter()
-            .map(AsRef::as_ref)
-            .collect_vec(),
-    );
+        create_pg_publication(
+            tx.client(),
+            &publication_name,
+            postgres_config.publication.table_to_track.as_deref(),
+            &postgres_config.publication.transaction_to_track,
+        )
+        .await
+        .map_err(to_anyhow)?;
 
-    sqlx::query(&query).execute(&mut connection).await?;
+        tx.commit().await.map_err(to_anyhow)?;
 
-    let query = format!(
-        "SELECT 1 from pg_replication_slots WHERE slot_name = {}",
-        quote_literal(replication_slot_name)
-    );
-
-    let row = sqlx::query(&query).fetch_optional(&mut connection).await?;
-
-    if row.is_none() {
-        let query = create_logical_replication_slot_query(&replication_slot_name);
-        sqlx::query(&query).execute(&mut connection).await?;
+        postgres_config.publication_name = Some(publication_name);
+        postgres_config.replication_slot_name = Some(replication_slot_name);
+    } else {
+        if postgres_config.publication_name.is_none()
+            || postgres_config.replication_slot_name.is_none()
+        {
+            return Err(Error::BadRequest(
+                "Publication name and slot name required in advanced mode".to_string(),
+            ));
+        }
     }
-    capture_config.trigger_config = Some(TriggerConfig::Postgres(postgres_config));
+
     Ok(capture_config)
 }
 
@@ -358,7 +374,7 @@ async fn set_postgres_trigger_config(
     Ok(capture_config)
 }
 
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 async fn set_gcp_trigger_config(
     w_id: &str,
     authed: ApiAuthed,
@@ -366,9 +382,7 @@ async fn set_gcp_trigger_config(
     mut capture_config: NewCaptureConfig,
 ) -> Result<NewCaptureConfig> {
     let Some(TriggerConfig::Gcp(mut gcp_config)) = capture_config.trigger_config else {
-        return Err(windmill_common::error::Error::BadRequest(
-            "Invalid GCP Pub/Sub config".to_string(),
-        ));
+        return Err(Error::BadRequest("Invalid GCP Pub/Sub config".to_string()));
     };
 
     let config = manage_google_subscription(
@@ -384,17 +398,18 @@ async fn set_gcp_trigger_config(
         gcp_config.create_update,
         false,
         capture_config.is_flow,
+        gcp_config.ack_deadline
     )
     .await?;
     gcp_config.create_update = Some(config);
-    gcp_config.subscription_mode = SubscriptionMode::CreateUpdate;
+    gcp_config.subscription_mode = GcpSubscriptionMode::CreateUpdate;
     capture_config.trigger_config = Some(TriggerConfig::Gcp(gcp_config));
 
     Ok(capture_config)
 }
 
 #[inline]
-#[cfg(not(all(feature = "enterprise", feature = "gcp_trigger")))]
+#[cfg(not(all(feature = "enterprise", feature = "gcp_trigger", feature = "private")))]
 async fn set_gcp_trigger_config(
     _w_id: &str,
     _authed: ApiAuthed,
@@ -716,7 +731,7 @@ pub async fn get_active_capture_owner_and_email(
 
 #[cfg(any(
     feature = "http_trigger",
-    all(feature = "enterprise", feature = "gcp_trigger")
+    all(feature = "enterprise", feature = "gcp_trigger", feature = "private")
 ))]
 async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
     db: &DB,
@@ -895,7 +910,7 @@ async fn webhook_payload(
     Ok(StatusCode::NO_CONTENT)
 }
 
-#[cfg(all(feature = "enterprise", feature = "gcp_trigger"))]
+#[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 async fn gcp_payload(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -903,7 +918,7 @@ async fn gcp_payload(
     headers: HeaderMap,
     request: Request,
 ) -> Result<StatusCode> {
-    use crate::{gcp_triggers_ee::GcpTrigger, trigger_helpers::TriggerJobArgs};
+    use crate::triggers::{gcp::GcpTrigger, trigger_helpers::TriggerJobArgs};
 
     let is_flow = matches!(runnable_kind, RunnableKind::Flow);
     let (gcp_trigger_config, owner, email): (GcpTriggerConfig, _, _) =
@@ -926,9 +941,9 @@ async fn gcp_payload(
     )
     .await?;
 
-    let (payload, gcp) = process_google_push_request(headers, request).await?;
+    let (payload, trigger_info) = process_google_push_request(headers, request).await?;
 
-    let (main_args, preprocessor_args) = GcpTrigger::build_capture_payloads(payload, gcp);
+    let (main_args, preprocessor_args) = GcpTrigger::build_capture_payloads(&payload, trigger_info);
 
     let _ = insert_capture_payload(
         &db,

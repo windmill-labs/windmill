@@ -9,13 +9,40 @@
 	import { ExternalLink } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Label from './Label.svelte'
-	import MultiSelect from 'svelte-multiselect'
+	import MultiSelect from './select/MultiSelect.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
+	import { ConfigService } from '$lib/gen'
 
-	export let config: AutoscalingConfig | undefined
-	export let worker_tags: string[] | undefined
+	interface Props {
+		config: AutoscalingConfig | undefined
+		worker_tags: string[] | undefined
+	}
+
+	let { config = $bindable(), worker_tags }: Props = $props()
 
 	const dispatch = createEventDispatcher()
-	let test_input: number = 3
+	let test_input: number = $state(3)
+	let healthCheckLoading: boolean = $state(false)
+	let healthCheckResult: { success: boolean; error?: string } | null = $state(null)
+
+	async function checkKubernetesHealth() {
+		if (!config?.integration || config.integration.type !== 'kubernetes') return
+		
+		healthCheckLoading = true
+		healthCheckResult = null
+		
+		try {
+			await ConfigService.nativeKubernetesAutoscalingHealthcheck()
+			healthCheckResult = { success: true }
+		} catch (error: any) {
+			healthCheckResult = { 
+				success: false, 
+				error: error.body || error.message || 'Unknown error' 
+			}
+		} finally {
+			healthCheckLoading = false
+		}
+	}
 </script>
 
 <div class="flex flex-row gap-16 pt-2">
@@ -49,11 +76,11 @@
 				}
 			}}
 		/>
-		<!-- svelte-ignore a11y-label-has-associated-control -->
+		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<label>
 			Min # of Workers
 			{#if config !== undefined}
-				<input on:input={() => dispatch('dirty')} type="number" bind:value={config.min_workers} />
+				<input oninput={() => dispatch('dirty')} type="number" bind:value={config.min_workers} />
 				{#if config.min_workers !== undefined && config.min_workers != undefined && config.min_workers > config.max_workers}
 					<div class="text-red-600 text-xs whitespace-nowrap"
 						>Minimum cannot be {'>'} to Maximum</div
@@ -63,11 +90,11 @@
 				<input type="number" disabled />
 			{/if}
 		</label>
-		<!-- svelte-ignore a11y-label-has-associated-control -->
+		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<label>
 			Max # of Workers
 			{#if config !== undefined}
-				<input on:input={() => dispatch('dirty')} type="number" bind:value={config.max_workers} />
+				<input oninput={() => dispatch('dirty')} type="number" bind:value={config.max_workers} />
 			{:else}
 				<input type="number" disabled />
 			{/if}
@@ -75,12 +102,12 @@
 		<div class="p-2">
 			<Section label="Advanced" small collapsable={true}>
 				<div class="flex flex-col gap-2 text-2xs">
-					<!-- svelte-ignore a11y-label-has-associated-control -->
+					<!-- svelte-ignore a11y_label_has_associated_control -->
 					<label>
 						Cooldown seconds after an incremental scale-in/out
 						{#if config !== undefined}
 							<input
-								on:input={() => dispatch('dirty')}
+								oninput={() => dispatch('dirty')}
 								type="number"
 								step="1"
 								min="30"
@@ -91,12 +118,12 @@
 							<input type="number" disabled />
 						{/if}
 					</label>
-					<!-- svelte-ignore a11y-label-has-associated-control -->
+					<!-- svelte-ignore a11y_label_has_associated_control -->
 					<label>
 						Cooldown seconds after a full scale out
 						{#if config !== undefined}
 							<input
-								on:input={() => dispatch('dirty')}
+								oninput={() => dispatch('dirty')}
 								type="number"
 								step="1"
 								min="30"
@@ -107,12 +134,12 @@
 							<input type="number" disabled />
 						{/if}
 					</label>
-					<!-- svelte-ignore a11y-label-has-associated-control -->
+					<!-- svelte-ignore a11y_label_has_associated_control -->
 					<label>
 						Num jobs waiting to trigger an incremental scale-out
 						{#if config !== undefined}
 							<input
-								on:input={() => dispatch('dirty')}
+								oninput={() => dispatch('dirty')}
 								type="number"
 								bind:value={config.inc_scale_num_jobs_waiting}
 								placeholder="1"
@@ -122,14 +149,14 @@
 						{/if}
 					</label>
 
-					<!-- svelte-ignore a11y-label-has-associated-control -->
+					<!-- svelte-ignore a11y_label_has_associated_control -->
 					<label>
 						Num jobs waiting to trigger a full scale out <Tooltip
 							>Default: max_workers, full scale out = scale out to max workers</Tooltip
 						>
 						{#if config !== undefined}
 							<input
-								on:input={() => dispatch('dirty')}
+								oninput={() => dispatch('dirty')}
 								type="number"
 								placeholder="max workers"
 								bind:value={config.full_scale_jobs_waiting}
@@ -138,14 +165,14 @@
 							<input type="number" disabled />
 						{/if}
 					</label>
-					<!-- svelte-ignore a11y-label-has-associated-control -->
+					<!-- svelte-ignore a11y_label_has_associated_control -->
 					<label>
 						Occupancy rate % threshold to go below to trigger a scale-in (decrease) <Tooltip
 							>Default: 25%, need to go below average of all of 15s, 5m and 30m occupancy rates</Tooltip
 						>
 						{#if config !== undefined}
 							<input
-								on:input={() => dispatch('dirty')}
+								oninput={() => dispatch('dirty')}
 								type="number"
 								step="1"
 								min="0"
@@ -157,14 +184,14 @@
 							<input type="number" step="0.01" disabled />
 						{/if}
 					</label>
-					<!-- svelte-ignore a11y-label-has-associated-control -->
+					<!-- svelte-ignore a11y_label_has_associated_control -->
 					<label>
 						Occupancy rate threshold to exceed to trigger an incremental scale-out (increase) <Tooltip
 							>Default: 75%, need to exceed average of all of 15s, 5m and 30m occupancy rates</Tooltip
 						>
 						{#if config !== undefined}
 							<input
-								on:input={() => dispatch('dirty')}
+								oninput={() => dispatch('dirty')}
 								type="number"
 								step="1"
 								min="0"
@@ -176,14 +203,14 @@
 							<input type="number" step="0.01" disabled />
 						{/if}
 					</label>
-					<!-- svelte-ignore a11y-label-has-associated-control -->
+					<!-- svelte-ignore a11y_label_has_associated_control -->
 					<label>
 						Num workers to scale-in/out by when incremental <Tooltip
 							>Default: (max_workers - min_workers) / 5</Tooltip
 						>
 						{#if config !== undefined}
 							<input
-								on:input={() => dispatch('dirty')}
+								oninput={() => dispatch('dirty')}
 								type="number"
 								step="1"
 								min="1"
@@ -196,41 +223,23 @@
 					</label>
 
 					<Label label="Custom tags to autoscale on">
-						<svelte:fragment slot="header">
+						{#snippet header()}
 							<Tooltip>
 								By default, autoscaling will apply to the tags the worker group is assigned to but
 								you can override this here.
 							</Tooltip>
-						</svelte:fragment>
+						{/snippet}
 						{#if config}
 							{#if config.custom_tags}
 								<MultiSelect
-									outerDivClass="text-secondary !bg-surface-disabled !border-0"
-									selected={config.custom_tags}
-									onchange={(e) => {
-										console.log(e.type, config?.custom_tags)
-										if (e && config?.custom_tags) {
-											if (e.type === 'add') {
-												config.custom_tags = [
-													...config.custom_tags,
-													...(e.option ? [e.option.toString()] : [])
-												]
-											} else if (e.type === 'remove') {
-												config.custom_tags = config.custom_tags.filter((t) => t !== e.option)
-												if (config?.custom_tags && config.custom_tags.length == 0) {
-													config.custom_tags = undefined
-												}
-											} else if (e.type === 'removeAll') {
-												config.custom_tags = undefined
-											} else {
-												console.error(`Priority tags multiselect - unknown event type: '${e.type}'`)
-											}
+									bind:value={
+										() => config?.custom_tags ?? [],
+										(v) => {
+											config && (config.custom_tags = v.length ? v : undefined)
 											dispatch('dirty')
 										}
-									}}
-									options={worker_tags ?? []}
-									selectedOptionsDraggable={false}
-									ulOptionsClass={'!bg-surface-secondary'}
+									}
+									items={safeSelectItems(worker_tags)}
 									placeholder="Tags"
 								/>
 							{:else}
@@ -259,30 +268,31 @@
 				on:selected={(e) => dispatch('dirty')}
 				bind:selected={config.integration.type}
 				class="mb-4 mt-2"
-				let:item
 			>
-				<ToggleButton
-					value="dryrun"
-					label="Dry run"
-					tooltip="See autoscaling events but not actual scaling actions will be performed"
-					{item}
-				/>
-				<ToggleButton
-					value="script"
-					label="Custom script"
-					tooltip="Run a custom script to scale your worker group"
-					{item}
-				/>
-				<ToggleButton disabled value="ecs" label="ECS (soon)" {item} />
-				<ToggleButton disabled value="nomad" label="Nomad (soon)" {item} />
-				<ToggleButton disabled value="kubernetes" label="Kubernetes (soon)" {item} />
+				{#snippet children({ item })}
+					<ToggleButton
+						value="dryrun"
+						label="Dry run"
+						tooltip="See autoscaling events but not actual scaling actions will be performed"
+						{item}
+					/>
+					<ToggleButton
+						value="script"
+						label="Custom script"
+						tooltip="Run a custom script to scale your worker group"
+						{item}
+					/>
+					<ToggleButton disabled value="ecs" label="ECS (soon)" {item} />
+					<ToggleButton disabled value="nomad" label="Nomad (soon)" {item} />
+					<ToggleButton value="kubernetes" label="Kubernetes" {item} />
+				{/snippet}
 			</ToggleButtonGroup>
 
 			{#if config.integration.type === 'script'}
 				<label>
 					Script path on the 'admins' workspace
 					<input
-						on:input={() => dispatch('dirty')}
+						oninput={() => dispatch('dirty')}
 						type="text"
 						bind:value={config.integration.path}
 					/>
@@ -292,7 +302,7 @@
 					Custom tag for executing script (optional)
 					{#if config.integration.tag}
 						<input
-							on:input={() => dispatch('dirty')}
+							oninput={() => dispatch('dirty')}
 							type="text"
 							bind:value={config.integration.tag}
 						/>
@@ -336,13 +346,67 @@
 					</div>
 				</div>
 			{/if}
+
+			{#if config.integration.type === 'kubernetes'}
+				<div class="text-sm text-secondary mb-3">
+					Kubernetes configuration is automatically inferred from the cluster environment. 
+					The worker group name and namespace will be detected automatically.
+				</div>
+
+				<div class="flex flex-col gap-3 mt-4">
+					<div class="flex items-center gap-2">
+						<Button 
+							color="blue" 
+							size="xs" 
+							variant="contained"
+							startIcon={{ icon: ExternalLink }}
+							href="https://windmill.dev/docs/core_concepts/autoscaling#kubernetes"
+							target="_blank"
+						>
+							Setup Guide (Roles & Bindings)
+						</Button>
+						<Button 
+							color="light" 
+							size="xs" 
+							variant="contained"
+							onclick={checkKubernetesHealth}
+							disabled={healthCheckLoading}
+						>
+							{healthCheckLoading ? 'Checking...' : 'Check Health'}
+						</Button>
+					</div>
+					
+					{#if healthCheckResult !== null}
+						<div class="p-2 rounded-md text-sm {healthCheckResult.success ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'}">
+							{#if healthCheckResult.success}
+								Kubernetes autoscaling is healthy
+							{:else}
+								{healthCheckResult.error}
+								{#if healthCheckResult.error?.includes('permissions') || healthCheckResult.error?.includes('role')}
+									<br><small>Please follow the setup guide above to configure proper RBAC permissions.</small>
+								{/if}
+							{/if}
+						</div>
+					{/if}
+
+					<div class="flex flex-row gap-2">
+						<Button color="light" size="xs" variant="contained">Test scaling</Button>
+						<div class="flex text-xs flex-row gap-2 items-center">
+							<input class="!w-16" type="number" bind:value={test_input} />
+							workers
+						</div>
+					</div>
+				</div>
+			{/if}
 		{:else}
-			<ToggleButtonGroup selected={'script'} disabled class="mb-4 mt-2" let:item>
-				<ToggleButton value="dryrun" label="Dry run" {item} />
-				<ToggleButton value="script" label="Custom script" {item} />
-				<ToggleButton value="ecs" label="ECS (soon)" {item} />
-				<ToggleButton value="nomad" label="Nomad (soon)" {item} />
-				<ToggleButton value="kubernetes" label="Kubernetes (soon)" {item} />
+			<ToggleButtonGroup selected={'script'} disabled class="mb-4 mt-2">
+				{#snippet children({ item })}
+					<ToggleButton value="dryrun" label="Dry run" {item} />
+					<ToggleButton value="script" label="Custom script" {item} />
+					<ToggleButton value="ecs" label="ECS (soon)" {item} />
+					<ToggleButton value="nomad" label="Nomad (soon)" {item} />
+					<ToggleButton value="kubernetes" label="Kubernetes" {item} />
+				{/snippet}
 			</ToggleButtonGroup>
 
 			<label>

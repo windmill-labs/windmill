@@ -10,24 +10,27 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { SaveIcon, EyeIcon, EyeOffIcon } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
-	let operatorWorkspaceSettings = {
+	let operatorWorkspaceSettings = $state({
 		runs: true,
 		schedules: true,
 		resources: true,
 		variables: true,
+		assets: false,
 		triggers: true,
 		audit_logs: true,
 		groups: true,
 		folders: true,
 		workers: true
-	}
+	})
 
-	let originalSettings = { ...operatorWorkspaceSettings }
-	let isChanged = false
-	let currentWorkspace: string | null = null
+	let originalSettings = $state({ ...untrack(() => operatorWorkspaceSettings) })
+	let isChanged = $state(false)
+	let currentWorkspace: string | null = $state(null)
 
 	async function saveSettings() {
+		console.log('Saving operator settings:', operatorWorkspaceSettings)
 		try {
 			await WorkspaceService.updateOperatorSettings({
 				workspace: $workspaceStore!,
@@ -47,6 +50,7 @@
 		schedules: { title: 'Schedules', description: 'View schedules' },
 		resources: { title: 'Resources', description: 'View resources' },
 		variables: { title: 'Variables', description: 'View variables' },
+		assets: { title: 'Assets', description: 'View assets' },
 		triggers: { title: 'Triggers', description: 'View all triggers (HTTP, Websocket, Kafka)' },
 		audit_logs: { title: 'Audit Logs', description: 'View audit logs' },
 		groups: { title: 'Groups', description: 'View groups and group members' },
@@ -54,35 +58,34 @@
 		workers: { title: 'Workers', description: 'View workers and worker groups' }
 	}
 
-	$: if ($workspaceStore && $workspaceStore !== currentWorkspace) {
-		;(async () => {
-			currentWorkspace = $workspaceStore
-			const settings = await WorkspaceService.getSettings({
-				workspace: $workspaceStore
-			})
-			if (settings.operator_settings !== null) {
-				operatorWorkspaceSettings = settings.operator_settings ?? operatorWorkspaceSettings
-				originalSettings = { ...operatorWorkspaceSettings }
-			}
-		})()
-	}
+	$effect(() => {
+		if ($workspaceStore && $workspaceStore !== currentWorkspace) {
+			;(async () => {
+				currentWorkspace = $workspaceStore
+				const settings = await WorkspaceService.getSettings({
+					workspace: $workspaceStore
+				})
+				if (settings.operator_settings !== null) {
+					operatorWorkspaceSettings = {
+						...operatorWorkspaceSettings,
+						...(settings.operator_settings ?? {})
+					}
+					originalSettings = { ...operatorWorkspaceSettings }
+				}
+			})()
+		}
+	})
 
-	$: isChanged = JSON.stringify(operatorWorkspaceSettings) !== JSON.stringify(originalSettings)
+	$effect(() => {
+		isChanged = JSON.stringify(operatorWorkspaceSettings) !== JSON.stringify(originalSettings)
+	})
 
-	$: enableAllState = (() => {
-		const values = Object.values(operatorWorkspaceSettings)
-		if (values.every((v) => v === true)) return 'true'
-		if (values.every((v) => v === false)) return 'false'
-		return undefined
-	})()
-
-	function toggleAllSettings(event) {
-		const newValue = event.detail === true
-		Object.keys(operatorWorkspaceSettings).forEach((key) => {
-			operatorWorkspaceSettings[key] = newValue
-		})
-		operatorWorkspaceSettings = { ...operatorWorkspaceSettings }
-	}
+	const allDisabled = $derived(
+		Object.values(operatorWorkspaceSettings).every((value) => value === false)
+	)
+	const allEnabled = $derived(
+		Object.values(operatorWorkspaceSettings).every((value) => value === true)
+	)
 </script>
 
 <div class="mt-6">
@@ -112,24 +115,32 @@
 						<Cell head>Description</Cell>
 						<Cell head last>
 							<ToggleButtonGroup
-								bind:selected={enableAllState}
-								on:selected={toggleAllSettings}
-								let:item
+								bind:selected={
+									() => (allDisabled ? 'false' : allEnabled ? 'true' : ''),
+									(v) => {
+										Object.keys(operatorWorkspaceSettings).forEach((key) => {
+											if (v === 'true') operatorWorkspaceSettings[key] = true
+											if (v === 'false') operatorWorkspaceSettings[key] = false
+										})
+									}
+								}
 							>
-								<ToggleButton
-									icon={EyeIcon}
-									small={true}
-									value={'true'}
-									label="Enable All"
-									{item}
-								/>
-								<ToggleButton
-									icon={EyeOffIcon}
-									small={true}
-									value={'false'}
-									label="Disable All"
-									{item}
-								/>
+								{#snippet children({ item })}
+									<ToggleButton
+										icon={EyeIcon}
+										small={true}
+										value={'true'}
+										label="Enable All"
+										{item}
+									/>
+									<ToggleButton
+										icon={EyeOffIcon}
+										small={true}
+										value={'false'}
+										label="Disable All"
+										{item}
+									/>
+								{/snippet}
 							</ToggleButtonGroup>
 						</Cell>
 					</tr>
@@ -143,10 +154,11 @@
 								<ToggleButtonGroup
 									selected={operatorWorkspaceSettings[key] ? 'on' : 'off'}
 									on:selected={({ detail }) => (operatorWorkspaceSettings[key] = detail === 'on')}
-									let:item
 								>
-									<ToggleButton icon={EyeIcon} small={true} value={'on'} label="On" {item} />
-									<ToggleButton icon={EyeOffIcon} small={true} value={'off'} label="Off" {item} />
+									{#snippet children({ item })}
+										<ToggleButton icon={EyeIcon} small={true} value={'on'} label="On" {item} />
+										<ToggleButton icon={EyeOffIcon} small={true} value={'off'} label="Off" {item} />
+									{/snippet}
 								</ToggleButtonGroup>
 							</Cell>
 						</tr>

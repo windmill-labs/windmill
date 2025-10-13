@@ -1,22 +1,24 @@
 use regex::Regex;
 
 pub use windmill_common::jobs::LARGE_LOG_THRESHOLD_SIZE;
+use windmill_common::result_stream::append_result_stream_db;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{Connection, CLOUD_HOSTED};
 
-use windmill_common::DB;
+use windmill_common::{error, DB};
 use windmill_queue::append_logs;
 
+use serde::Serialize;
 use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
 
 use uuid::Uuid;
 
 #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-use crate::job_logger_ee::default_disk_log_storage;
+use crate::job_logger_oss::default_disk_log_storage;
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
-use crate::job_logger_ee::s3_storage;
+use crate::job_logger_oss::s3_storage;
 
 pub enum CompactLogs {
     #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
@@ -59,6 +61,43 @@ pub async fn append_job_logs(
             append_logs(&job_id, w_id, logs, &conn).await;
         }
     }
+}
+
+#[derive(Serialize)]
+struct ResultStreamBody<'a> {
+    result_stream: &'a str,
+    offset: i32,
+}
+
+pub async fn append_result_stream(
+    conn: &Connection,
+    workspace_id: &str,
+    job_id: &Uuid,
+    nstream: &str,
+    offset: i32,
+) -> error::Result<()> {
+    match conn {
+        Connection::Sql(db) => {
+            append_result_stream_db(db, workspace_id, job_id, nstream, offset).await?;
+        }
+        Connection::Http(client) => {
+            let body = ResultStreamBody { result_stream: nstream, offset };
+            if let Err(e) = client
+                .post::<_, String>(
+                    &format!(
+                        "/api/w/{}/agent_workers/push_result_stream/{}",
+                        workspace_id, job_id
+                    ),
+                    None,
+                    &body,
+                )
+                .await
+            {
+                tracing::error!(%job_id, %e, "error sending result stream for  job {job_id}: {e}");
+            };
+        }
+    }
+    Ok(())
 }
 
 pub async fn append_logs_with_compaction(

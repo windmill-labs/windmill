@@ -1,14 +1,15 @@
 #[cfg(feature = "enterprise")]
-use crate::ee::ExternalJwks;
+use crate::ee_oss::ExternalJwks;
 use axum::{
     async_trait,
     extract::{FromRequestParts, OriginalUri, Query},
-    Extension,
+    Extension, Json,
 };
 use chrono::TimeZone;
 use http::{request::Parts, StatusCode};
 use quick_cache::sync::Cache;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 use tower_cookies::Cookies;
 use tracing::Span;
 
@@ -21,10 +22,26 @@ use std::sync::{
 use tokio::sync::RwLock;
 
 use windmill_common::{
-    auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims},
+    auth::{get_folders_for_user, get_groups_for_user, JWTAuthClaims, TOKEN_PREFIX_LEN},
+    error::{Error, JsonResult},
     jwt,
     users::{COOKIE_NAME, SUPERADMIN_SECRET_EMAIL},
 };
+
+lazy_static::lazy_static! {
+    // Global auth cache accessible from main.rs for direct invalidation
+    pub static ref AUTH_CACHE: Cache<(String, String), ExpiringAuthCache> = Cache::new(300);
+
+}
+// Global function to invalidate a specific token from cache
+pub fn invalidate_token_from_cache(token: &str) {
+    // Remove all cache entries for this token (across all workspaces)
+    AUTH_CACHE.retain(|(_workspace_id, cached_token), _cached_value| cached_token != token);
+    tracing::info!(
+        "Invalidated token from auth cache: {}...",
+        &token[..token.len().min(8)]
+    );
+}
 
 #[derive(Clone)]
 pub struct ExpiringAuthCache {
@@ -33,7 +50,6 @@ pub struct ExpiringAuthCache {
 }
 
 pub struct AuthCache {
-    cache: Cache<(String, String), ExpiringAuthCache>,
     db: DB,
     superadmin_secret: Option<String>,
     #[cfg(feature = "enterprise")]
@@ -47,7 +63,6 @@ impl AuthCache {
         #[cfg(feature = "enterprise")] ext_jwks: Option<Arc<RwLock<ExternalJwks>>>,
     ) -> Self {
         AuthCache {
-            cache: Cache::new(300),
             db,
             superadmin_secret,
             #[cfg(feature = "enterprise")]
@@ -56,7 +71,7 @@ impl AuthCache {
     }
 
     pub async fn invalidate(&self, w_id: &str, token: String) {
-        self.cache.remove(&(w_id.to_string(), token));
+        AUTH_CACHE.remove(&(w_id.to_string(), token));
     }
 
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<ApiAuthed> {
@@ -64,14 +79,14 @@ impl AuthCache {
             w_id.as_ref().unwrap_or(&"".to_string()).to_string(),
             token.to_string(),
         );
-        let s = self.cache.get(&key).map(|c| c.to_owned());
+        let s = AUTH_CACHE.get(&key).map(|c| c.to_owned());
         match s {
             Some(ExpiringAuthCache { authed, expiry }) if expiry > chrono::Utc::now() => {
                 Some(authed)
             }
             #[cfg(feature = "enterprise")]
             _ if token.starts_with("jwt_ext_") => {
-                let authed_and_exp = match crate::ee::jwt_ext_auth(
+                let authed_and_exp = match crate::ee_oss::jwt_ext_auth(
                     w_id.as_ref(),
                     token.trim_start_matches("jwt_ext_"),
                     self.ext_jwks.clone(),
@@ -86,7 +101,7 @@ impl AuthCache {
                 };
 
                 if let Some((authed, exp)) = authed_and_exp.clone() {
-                    self.cache.insert(
+                    AUTH_CACHE.insert(
                         key,
                         ExpiringAuthCache {
                             authed: authed.clone(),
@@ -106,11 +121,10 @@ impl AuthCache {
 
                 match jwt_result {
                     Ok(claims) => {
-                        if w_id.is_some_and(|w_id| w_id != claims.workspace_id) {
+                        if w_id.is_some_and(|w_id| !claims.allowed_in_workspace(&w_id)) {
                             tracing::error!("JWT auth error: workspace_id mismatch");
                             return None;
                         }
-
                         let username_override = username_override_from_label(claims.label);
                         let authed = crate::db::ApiAuthed {
                             email: claims.email,
@@ -121,9 +135,10 @@ impl AuthCache {
                             folders: claims.folders,
                             scopes: None,
                             username_override,
+                            token_prefix: claims.audit_span,
                         };
 
-                        self.cache.insert(
+                        AUTH_CACHE.insert(
                             key,
                             ExpiringAuthCache {
                                 authed: authed.clone(),
@@ -204,6 +219,9 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
+                                            token_prefix: Some(
+                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                            ),
                                         })
                                     } else {
                                         let groups = vec![name.to_string()];
@@ -225,6 +243,9 @@ impl AuthCache {
                                             folders,
                                             scopes: None,
                                             username_override,
+                                            token_prefix: Some(
+                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                            ),
                                         })
                                     }
                                 } else {
@@ -239,6 +260,7 @@ impl AuthCache {
                                         folders,
                                         scopes: None,
                                         username_override,
+                                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
                                     })
                                 }
                             }
@@ -286,6 +308,9 @@ impl AuthCache {
                                                 folders,
                                                 scopes,
                                                 username_override,
+                                                token_prefix: Some(
+                                                    token[0..TOKEN_PREFIX_LEN].to_string(),
+                                                ),
                                             })
                                         }
                                         None if super_admin => Some(ApiAuthed {
@@ -297,6 +322,9 @@ impl AuthCache {
                                             folders: vec![],
                                             scopes,
                                             username_override,
+                                            token_prefix: Some(
+                                                token[0..TOKEN_PREFIX_LEN].to_string(),
+                                            ),
                                         }),
                                         None => None,
                                     }
@@ -310,6 +338,7 @@ impl AuthCache {
                                         folders: Vec::new(),
                                         scopes,
                                         username_override,
+                                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
                                     })
                                 }
                             }
@@ -317,7 +346,7 @@ impl AuthCache {
                         }
                     };
                     if let Some(authed) = authed_o.as_ref() {
-                        self.cache.insert(
+                        AUTH_CACHE.insert(
                             key,
                             ExpiringAuthCache {
                                 authed: authed.clone(),
@@ -342,6 +371,7 @@ impl AuthCache {
                         folders: Vec::new(),
                         scopes: None,
                         username_override: None,
+                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
                     })
                 } else {
                     None
@@ -384,6 +414,7 @@ pub struct Tokened {
     pub token: String,
 }
 
+#[derive(Clone, Debug)]
 pub struct OptTokened {
     #[allow(dead_code)]
     pub token: Option<String>,
@@ -470,97 +501,122 @@ where
     }
 }
 
+pub fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) {
+    if let Some(scopes) = scopes {
+        for scope in scopes.iter_mut() {
+            if scope.starts_with("run:") {
+                let (_, part_scope) = scope.split_once(":").unwrap();
+
+                if let Some((kind, path)) = part_scope.split_once("/") {
+                    //appending a 's' as runnable kind is singular while new scope format expect it to be plural
+                    *scope = format!("jobs:run:{}s:{}", kind, path);
+                }
+            } else if scope.starts_with("jobs:") {
+                // Map old jobs scopes to new format
+                let new_scope = match scope.as_str() {
+                    "jobs:listjobs" => "jobs:read",
+                    "jobs:runscript" => "jobs:run:scripts",
+                    "jobs:runflow" => "jobs:run:flows",
+                    "jobs:resumeflow" => "jobs:run:flows",
+                    "jobs:deletejob" => "jobs:write",
+                    _ => continue,
+                };
+
+                *scope = new_scope.to_string();
+            }
+        }
+    }
+}
+
+fn maybe_get_workspace_id_from_path(path_vec: &[&str]) -> Option<String> {
+    let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
+        Some(path_vec[3].to_owned())
+    } else if path_vec.len() >= 5
+        && path_vec[0] == ""
+        && path_vec[1] == "api"
+        && path_vec[2] == "mcp"
+        && path_vec[3] == "w"
+    {
+        Some(path_vec[4].to_owned())
+    } else {
+        if path_vec.len() >= 5 && path_vec[0] == "" && path_vec[2] == "srch" && path_vec[3] == "w" {
+            Some(path_vec[4].to_owned())
+        } else {
+            None
+        }
+    };
+
+    workspace_id
+}
+
 #[async_trait]
 impl<S> FromRequestParts<S> for ApiAuthed
 where
     S: Send + Sync,
 {
-    type Rejection = (StatusCode, String);
+    type Rejection = Error;
 
     async fn from_request_parts(
         parts: &mut Parts,
         state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
         if parts.method == http::Method::OPTIONS {
-            return Ok(ApiAuthed {
-                email: "".to_owned(),
-                username: "".to_owned(),
-                is_admin: false,
-                is_operator: false,
-                groups: Vec::new(),
-                folders: Vec::new(),
-                scopes: None,
-                username_override: None,
-            });
+            return Ok(ApiAuthed::default());
         };
         let already_authed = parts.extensions.get::<ApiAuthed>();
-        if let Some(authed) = already_authed {
-            Ok(authed.clone())
-        } else {
-            let already_tokened = parts.extensions.get::<Tokened>();
-            let token_o = if let Some(token) = already_tokened {
-                Some(token.token.clone())
-            } else {
-                extract_token(parts, state).await
-            };
-            let original_uri = OriginalUri::from_request_parts(parts, state)
-                .await
-                .ok()
-                .map(|x| x.0)
-                .unwrap_or_default();
-            let path_vec: Vec<&str> = original_uri.path().split("/").collect();
-            let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
-                Some(path_vec[3].to_owned())
-            } else if path_vec.len() >= 5
-                && path_vec[0] == ""
-                && path_vec[1] == "api"
-                && path_vec[2] == "mcp"
-                && path_vec[3] == "w"
-            {
-                Some(path_vec[4].to_string())
-            } else {
-                if path_vec.len() >= 5
-                    && path_vec[0] == ""
-                    && path_vec[2] == "srch"
-                    && path_vec[3] == "w"
-                {
-                    Some(path_vec[4].to_string())
-                } else {
-                    None
-                }
-            };
-            if let Some(token) = token_o {
-                if let Ok(Extension(cache)) =
-                    Extension::<Arc<AuthCache>>::from_request_parts(parts, state).await
-                {
-                    if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
-                        parts.extensions.insert(authed.clone());
-                        if authed.scopes.as_ref().is_some_and(|scopes| {
-                            scopes
-                                .iter()
-                                .any(|s| s.starts_with("jobs:") || s.starts_with("run:"))
-                        }) && (path_vec.len() < 3
-                            || (path_vec[4] != "jobs" && path_vec[4] != "jobs_u"))
-                        {
-                            BRUTE_FORCE_COUNTER.increment().await;
-                            return Err((
-                                StatusCode::UNAUTHORIZED,
-                                format!("Unauthorized scoped token: {:?}", authed.scopes),
-                            ));
-                        }
-                        Span::current().record("username", &authed.username.as_str());
-                        Span::current().record("email", &authed.email);
 
-                        if let Some(workspace_id) = workspace_id {
-                            Span::current().record("workspace_id", &workspace_id);
+        if let Some(authed) = already_authed {
+            return Ok(authed.clone());
+        }
+
+        let already_tokened = parts.extensions.get::<Tokened>();
+        let token_o = if let Some(token) = already_tokened {
+            Some(token.token.clone())
+        } else {
+            extract_token(parts, state).await
+        };
+        if let Some(token) = token_o {
+            if let Ok(Extension(cache)) =
+                Extension::<Arc<AuthCache>>::from_request_parts(parts, state).await
+            {
+                let original_uri = OriginalUri::from_request_parts(parts, state)
+                    .await
+                    .ok()
+                    .map(|x| x.0)
+                    .unwrap_or_default();
+                let path_vec: Vec<&str> = original_uri.path().split("/").collect();
+                let workspace_id = maybe_get_workspace_id_from_path(&path_vec);
+
+                if let Some(mut authed) = cache.get_authed(workspace_id.clone(), &token).await {
+                    if authed.scopes.is_some() {
+                        transform_old_scope_to_new_scope(authed.scopes.as_mut());
+
+                        let path = original_uri.path();
+                        let method = parts.method.as_str();
+
+                        if let Err(err) = crate::scopes::check_scopes_for_route(
+                            authed.scopes.as_deref(),
+                            path,
+                            method,
+                        ) {
+                            BRUTE_FORCE_COUNTER.increment().await;
+                            return Err(err);
                         }
-                        return Ok(authed);
                     }
+                    parts.extensions.insert(authed.clone());
+
+                    Span::current().record("username", &authed.username.as_str());
+                    Span::current().record("email", &authed.email);
+
+                    if let Some(workspace_id) = workspace_id {
+                        Span::current().record("workspace_id", &workspace_id);
+                    }
+                    return Ok(authed);
                 }
             }
-            BRUTE_FORCE_COUNTER.increment().await;
-            Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
         }
+        BRUTE_FORCE_COUNTER.increment().await;
+        Err(Error::NotAuthorized("Unauthorized".to_string()))
     }
 }
 
@@ -585,4 +641,72 @@ fn username_override_from_label(label: Option<String>) -> Option<String> {
         }
         _ => None,
     }
+}
+
+#[derive(FromRow, Serialize)]
+pub struct TruncatedTokenWithEmail {
+    pub label: Option<String>,
+    pub token_prefix: Option<String>,
+    pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub last_used_at: chrono::DateTime<chrono::Utc>,
+    pub scopes: Option<Vec<String>>,
+    pub email: Option<String>,
+}
+
+pub async fn list_tokens_internal(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    is_flow: bool,
+) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
+    let tokens = if is_flow {
+        sqlx::query_as!(
+            TruncatedTokenWithEmail,
+            r#"
+        SELECT label,
+               concat(substring(token for 10)) AS token_prefix,
+               expiration,
+               created_at,
+               last_used_at,
+               scopes,
+               email
+        FROM token
+        WHERE workspace_id = $1
+          AND (
+               scopes @> ARRAY['jobs:run:flows:' || $2]::text[]
+               OR scopes @> ARRAY['run:flow/' || $2]::text[]
+              )
+        "#,
+            w_id,
+            path
+        )
+        .fetch_all(db)
+        .await?
+    } else {
+        sqlx::query_as!(
+            TruncatedTokenWithEmail,
+            r#"
+        SELECT label,
+               concat(substring(token for 10)) AS token_prefix,
+               expiration,
+               created_at,
+               last_used_at,
+               scopes,
+               email
+        FROM token
+        WHERE workspace_id = $1
+          AND (
+               scopes @> ARRAY['jobs:run:scripts:' || $2]::text[]
+               OR scopes @> ARRAY['run:script/' || $2]::text[]
+              )
+        "#,
+            w_id,
+            path
+        )
+        .fetch_all(db)
+        .await?
+    };
+
+    Ok(Json(tokens))
 }

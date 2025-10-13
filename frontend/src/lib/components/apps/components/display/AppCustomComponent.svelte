@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext, onMount, untrack } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext } from '../../types'
 
@@ -22,10 +22,14 @@
 	import { Loader2 } from 'lucide-svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
-	export let id: string
-	export let render: boolean
-	export let componentInput: AppInput | undefined
-	export let customComponent: CustomComponentConfig
+	interface Props {
+		id: string
+		render: boolean
+		componentInput: AppInput | undefined
+		customComponent: CustomComponentConfig
+	}
+
+	let { id, render, componentInput, customComponent }: Props = $props()
 
 	let divId = `custom-component-${id}`
 	const { worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
@@ -36,8 +40,8 @@
 		loading: false
 	})
 
-	let setInput
-	let setRender
+	let setInput = $state() as ((input: any) => void) | undefined
+	let setRender = $state() as ((render: boolean) => void) | undefined
 	let ccProps: CCProps<any> = {
 		render,
 		id: divId,
@@ -49,7 +53,7 @@
 			outputs.output.set(output)
 		}
 	}
-	let loaded = false
+	let loaded = $state(false)
 	let renderer: ((props: CCProps<number>) => void) | undefined = undefined
 	// $: renderer && divEl && renderer(ccProps)
 	onMount(async () => {
@@ -96,24 +100,28 @@
 		}
 		console.log('mounted', render, setRender)
 	})
-	let result
+	let result = $state()
 
-	$: render != undefined && setRender && handleRender()
 	function handleRender() {
 		setRender?.(render)
 	}
 
-	$: result != undefined && setInput && handleResult()
 	function handleResult() {
 		setInput?.(result)
 	}
 	// $: result && setInput && setInput(result)
+	$effect(() => {
+		render != undefined && setRender && untrack(() => handleRender())
+	})
+	$effect(() => {
+		result != undefined && setInput && untrack(() => handleResult())
+	})
 </script>
 
 <InitializeComponent {id} />
 <div class="w-full h-full overflow-auto {customComponent?.name ?? 'no_name'}">
 	<RunnableWrapper {outputs} render autoRefresh {componentInput} {id} bind:result>
-		{#if !loaded}
+		{#if !loaded && render}
 			<Loader2 class="animate-spin" />
 		{/if}
 		<div id={divId}></div>

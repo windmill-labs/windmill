@@ -8,7 +8,7 @@
 	import type Editor from '../Editor.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
-	import { dbSchemas, copilotInfo, type DBSchema, workspaceStore } from '$lib/stores'
+	import { dbSchemas, type DBSchema, workspaceStore } from '$lib/stores'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import type SimpleEditor from '../SimpleEditor.svelte'
@@ -18,7 +18,7 @@
 	import { writable } from 'svelte/store'
 	import HighlightCode from '../HighlightCode.svelte'
 	import LoadingIcon from '../apps/svelte-select/lib/LoadingIcon.svelte'
-	import { sleep } from '$lib/utils'
+	import { readFieldsRecursively, sleep } from '$lib/utils'
 	import { autoPlacement } from '@floating-ui/core'
 	import { AlertTriangle, Ban, Check, ExternalLink, HistoryIcon, Wand2, X } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
@@ -26,34 +26,93 @@
 	import { twMerge } from 'tailwind-merge'
 	import { onDestroy } from 'svelte'
 	import ProviderModelSelector from './chat/ProviderModelSelector.svelte'
+	import { copilotInfo } from '$lib/aiStore'
 
-	// props
-	export let iconOnly: boolean = false
-	export let lang: SupportedLanguage | 'bunnative' | 'frontend' | undefined
-	export let editor: Editor | SimpleEditor | undefined
-	export let diffEditor: DiffEditor | undefined
-	export let inlineScript = false
-	export let args: Record<string, any>
-	export let transformer = false
-
-	$: if (lang == 'bunnative') {
-		lang = 'bun'
+	interface Props {
+		// props
+		iconOnly?: boolean
+		lang: SupportedLanguage | 'bunnative' | 'frontend' | undefined
+		editor: Editor | SimpleEditor | undefined
+		diffEditor: DiffEditor | undefined
+		inlineScript?: boolean
+		args: Record<string, any>
+		transformer?: boolean
 	}
 
+	let {
+		iconOnly = false,
+		lang = $bindable(),
+		editor,
+		diffEditor,
+		inlineScript = false,
+		args,
+		transformer = false
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (lang == 'bunnative') {
+			lang = 'bun'
+		}
+	})
+
 	// state
-	let funcDesc = ''
-	let trimmedDesc = ''
-	let genLoading: boolean = false
-	let input: HTMLTextAreaElement | undefined
+	let funcDesc = $state('')
+	let trimmedDesc = $state('')
+	let genLoading: boolean = $state(false)
+	let input: HTMLTextAreaElement | undefined = $state()
 	let generatedCode = writable<string>('')
-	let dbSchema: DBSchema | undefined = undefined
-	let abortController: AbortController | undefined = undefined
-	let blockPopupOpen = false
-	let mode: 'gen' | 'edit' = 'gen'
+	let dbSchema: DBSchema | undefined = $state(undefined)
+	let abortController: AbortController | undefined = $state(undefined)
+	let blockPopupOpen = $state(false)
+	let mode: 'gen' | 'edit' = $state('gen')
 
-	let button: HTMLButtonElement | undefined
+	let button: HTMLButtonElement | undefined = $state()
 
-	$: trimmedDesc = funcDesc.trim()
+	$effect.pre(() => {
+		trimmedDesc = funcDesc.trim()
+	})
+	async function callCopilot() {
+		if (mode === 'edit') {
+			await copilot(
+				{
+					// @ts-ignore
+					language: transformer && lang === 'frontend' ? 'transformer' : lang!,
+					description: trimmedDesc,
+					code: editor?.getCode() || '',
+					dbSchema: dbSchema,
+					type: 'edit',
+					workspace: $workspaceStore!
+				},
+				generatedCode,
+				abortController
+			)
+		} else {
+			await copilot(
+				{
+					// @ts-ignore
+					language: transformer && lang === 'frontend' ? 'transformer' : lang!,
+					description: trimmedDesc,
+					dbSchema: dbSchema,
+					type: 'gen',
+					workspace: $workspaceStore!
+				},
+				generatedCode,
+				abortController
+			)
+		}
+	}
+
+	function handleAiButtonClick() {
+		if (editor && isInitialCode(editor.getCode())) {
+			mode = 'gen'
+		} else {
+			mode = 'edit'
+		}
+
+		setTimeout(() => {
+			autoResize()
+		}, 0)
+	}
 
 	async function onGenerate(closePopup: () => void) {
 		if (trimmedDesc.length <= 0) {
@@ -64,34 +123,7 @@
 			genLoading = true
 			blockPopupOpen = true
 			abortController = new AbortController()
-			if (mode === 'edit') {
-				await copilot(
-					{
-						// @ts-ignore
-						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
-						description: trimmedDesc,
-						code: editor?.getCode() || '',
-						dbSchema: dbSchema,
-						type: 'edit',
-						workspace: $workspaceStore!
-					},
-					generatedCode,
-					abortController
-				)
-			} else {
-				await copilot(
-					{
-						// @ts-ignore
-						language: transformer && lang === 'frontend' ? 'transformer' : lang!,
-						description: trimmedDesc,
-						dbSchema: dbSchema,
-						type: 'gen',
-						workspace: $workspaceStore!
-					},
-					generatedCode,
-					abortController
-				)
-			}
+			await callCopilot()
 			setupDiff()
 			diffEditor?.setModified($generatedCode)
 			blockPopupOpen = false
@@ -143,15 +175,21 @@
 		diffEditor?.hide()
 	}
 
-	$: input && setTimeout(() => input?.focus(), 100)
+	$effect(() => {
+		input && setTimeout(() => input?.focus(), 100)
+	})
 
 	function clear() {
 		$generatedCode = ''
 	}
 
-	$: lang && clear()
+	$effect(() => {
+		lang && clear()
+	})
 
-	$: !$generatedCode && hideDiff()
+	$effect(() => {
+		!$generatedCode && hideDiff()
+	})
 
 	function updateSchema(lang, args, dbSchemas) {
 		const schemaRes = lang === 'graphql' ? args.api : args.database
@@ -167,9 +205,16 @@
 		}
 	}
 
-	$: updateSchema(lang, args, $dbSchemas)
+	$effect(() => {
+		readFieldsRecursively(args)
+		updateSchema(lang, args, $dbSchemas)
+	})
+	$effect(() => {
+		readFieldsRecursively(args)
+		updateSchema(lang, args, $dbSchemas)
+	})
 
-	let codeDiv: HTMLDivElement | undefined
+	let codeDiv: HTMLDivElement | undefined = $state()
 	let lastScrollHeight = 0
 	function updateScroll() {
 		if (codeDiv && lastScrollHeight !== codeDiv.scrollHeight) {
@@ -178,13 +223,26 @@
 		}
 	}
 
-	let promptHistory: string[] = []
-	function getPromptHistory() {
+	let promptHistory: string[] = $state([])
+
+	function getPromptStorageKey() {
+		return 'prompts-' + lang
+	}
+
+	function safeLocalStorageOperation<T>(operation: () => T, defaultValue?: T): T | undefined {
 		try {
-			promptHistory = JSON.parse(localStorage.getItem('prompts-' + lang) || '[]')
+			return operation()
 		} catch (e) {
 			console.error('error interacting with local storage', e)
+			return defaultValue
 		}
+	}
+
+	function getPromptHistory() {
+		const storageKey = getPromptStorageKey()
+		promptHistory =
+			safeLocalStorageOperation(() => JSON.parse(localStorage.getItem(storageKey) || '[]'), []) ||
+			[]
 	}
 
 	function savePrompt() {
@@ -195,26 +253,24 @@
 		while (promptHistory.length > 5) {
 			promptHistory.pop()
 		}
-		try {
-			localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
-		} catch (e) {
-			console.error('error interacting with local storage', e)
-		}
+		const storageKey = getPromptStorageKey()
+		safeLocalStorageOperation(() => localStorage.setItem(storageKey, JSON.stringify(promptHistory)))
 	}
 
 	function clearPromptHistory() {
 		promptHistory = []
-		try {
-			localStorage.setItem('prompts-' + lang, JSON.stringify(promptHistory))
-		} catch (e) {
-			console.error('error interacting with local storage', e)
-		}
+		const storageKey = getPromptStorageKey()
+		safeLocalStorageOperation(() => localStorage.setItem(storageKey, JSON.stringify(promptHistory)))
 	}
-	$: lang && getPromptHistory()
+	$effect(() => {
+		lang && getPromptHistory()
+	})
 
-	$: $generatedCode && updateScroll()
+	$effect(() => {
+		$generatedCode && updateScroll()
+	})
 
-	let innerWidth = 0
+	let innerWidth = $state(0)
 
 	function autoResize() {
 		if (input) {
@@ -241,7 +297,7 @@
 	})
 </script>
 
-<svelte:window on:resize={autoResize} bind:innerWidth />
+<svelte:window onresize={autoResize} bind:innerWidth />
 
 {#if genLoading}
 	<div transition:fade class="fixed z-[4999] inset-0 bg-gray-500/75"></div>
@@ -308,27 +364,14 @@
 		}}
 		disabled={blockPopupOpen}
 	>
-		<svelte:fragment slot="trigger">
+		{#snippet trigger()}
 			{#if inlineScript}
 				<Button
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
-					btnClasses={genLoading ? '!px-3 z-[5000]' : '!px-2'}
+					btnClasses={twMerge(genLoading ? '!px-3 z-[5000]' : '!px-2')}
 					propagateEvent={!genLoading}
-					on:click={genLoading
-						? () => abortController?.abort()
-						: () => {
-								if (editor) {
-									if (isInitialCode(editor.getCode())) {
-										mode = 'gen'
-									} else {
-										mode = 'edit'
-									}
-								}
-								setTimeout(() => {
-									autoResize()
-								}, 0)
-							}}
+					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					iconOnly
 					title="Generate code from prompt"
@@ -348,20 +391,7 @@
 					spacingSize="md"
 					startIcon={genLoading ? { icon: Ban } : { icon: Wand2 }}
 					propagateEvent={!genLoading}
-					on:click={genLoading
-						? () => abortController?.abort()
-						: () => {
-								if (editor) {
-									if (isInitialCode(editor.getCode())) {
-										mode = 'gen'
-									} else {
-										mode = 'edit'
-									}
-								}
-								setTimeout(() => {
-									autoResize()
-								}, 0)
-							}}
+					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
 					{iconOnly}
 				>
@@ -372,8 +402,8 @@
 					{/if}
 				</Button>
 			{/if}
-		</svelte:fragment>
-		<svelte:fragment slot="content" let:close>
+		{/snippet}
+		{#snippet content({ close })}
 			<div class="p-4">
 				{#if genLoading}
 					<div class="w-[42rem] min-h-[3rem] max-h-[34rem] overflow-y-scroll" bind:this={codeDiv}>
@@ -388,15 +418,23 @@
 				{:else if $copilotInfo.enabled}
 					<div class="flex flex-col gap-4">
 						<div class="flex flex-row justify-between items-center w-96 gap-2">
-							<ToggleButtonGroup class="w-auto shrink-0 h-auto" bind:selected={mode} let:item>
-								<ToggleButton
-									value={'gen'}
-									label="Generate from scratch"
-									light
-									class="px-2"
-									{item}
-								/>
-								<ToggleButton value={'edit'} label="Edit existing code" light class="px-2" {item} />
+							<ToggleButtonGroup class="w-auto shrink-0 h-auto" bind:selected={mode}>
+								{#snippet children({ item })}
+									<ToggleButton
+										value={'gen'}
+										label="Generate from scratch"
+										light
+										class="px-2"
+										{item}
+									/>
+									<ToggleButton
+										value={'edit'}
+										label="Edit existing code"
+										light
+										class="px-2"
+										{item}
+									/>
+								{/snippet}
 							</ToggleButtonGroup>
 
 							<ProviderModelSelector />
@@ -405,8 +443,8 @@
 							<textarea
 								bind:this={input}
 								bind:value={funcDesc}
-								on:input={autoResize}
-								on:keydown={({ key, shiftKey }) => {
+								oninput={autoResize}
+								onkeydown={({ key, shiftKey }) => {
 									if (key === 'Enter' && !shiftKey && trimmedDesc.length > 0) {
 										onGenerate(() => close())
 										return false
@@ -451,7 +489,7 @@
 								{/each}
 								<button
 									class="underline text-xs text-start px-2 text-secondary font-normal"
-									on:click={clearPromptHistory}>clear history</button
+									onclick={clearPromptHistory}>clear history</button
 								>
 							</div>
 						{/if}
@@ -468,14 +506,14 @@
 									{#if dbSchema && dbSchema.stringified.length > MAX_SCHEMA_LENGTH}
 										<TooltipV2 notClickable placement="top">
 											<AlertTriangle size={16} class="text-yellow-500" />
-											<svelte:fragment slot="text">
+											{#snippet text()}
 												The schema is about {addThousandsSeparator(
-													dbSchema.stringified.length / 3.5
+													(dbSchema?.stringified.length ?? 0) / 3.5
 												)}
 												tokens. To avoid exceeding the model's context length, it will be truncated to
 												{addThousandsSeparator(MAX_SCHEMA_LENGTH / 3.5)}
 												tokens.
-											</svelte:fragment>
+											{/snippet}
 										</TooltipV2>
 									{/if}
 								</div>
@@ -484,16 +522,19 @@
 										class="w-auto shrink-0"
 										selected={dbSchema?.publicOnly ? 'true' : 'false'}
 										on:selected={handlePublicOnlySelected}
-										let:item
 									>
-										<ToggleButton
-											value={'true'}
-											label={(dbSchema.schema?.dbo ? 'Dbo' : 'Public') + ' schema'}
-											small
-											light
-											{item}
-										/>
-										<ToggleButton value={'false'} label="All schemas" small light {item} />
+										{#snippet children({ item })}
+											<ToggleButton
+												value={'true'}
+												label={(dbSchema?.lang !== 'graphql' && dbSchema?.schema?.dbo
+													? 'Dbo'
+													: 'Public') + ' schema'}
+												small
+												light
+												{item}
+											/>
+											<ToggleButton value={'false'} label="All schemas" small light {item} />
+										{/snippet}
 									</ToggleButtonGroup>
 								{/if}
 							</div>
@@ -511,6 +552,6 @@
 					</p>
 				{/if}
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</Popover>
 {/if}

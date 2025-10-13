@@ -2,31 +2,50 @@
 	import { WorkerService } from '$lib/gen'
 	import { AlertTriangle } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
-	import { onDestroy } from 'svelte'
-	export let tag: string
+	import { onDestroy, untrack } from 'svelte'
+	interface Props {
+		tag: string | undefined
+		tagLabel?: string
+	}
 
-	let noWorkerWithTag = false
+	let { tag, tagLabel = undefined }: Props = $props()
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let noWorkerWithTag = $state(false)
+
+	let timeout: number | undefined = undefined
 
 	let visible = true
+
+	let customTag = $derived.by(() => {
+		if (tag?.includes('$workspace') || tag?.includes('$args')) return
+
+		if (tag?.includes('(')) {
+			return tag.split('(')[0]
+		}
+		return tag
+	})
+
 	async function lookForTag(): Promise<void> {
 		try {
-			const existsWorkerWithTag = await WorkerService.existsWorkerWithTag({ tag })
-			noWorkerWithTag = !existsWorkerWithTag
+			if (!customTag) return
+			const existsWorkerWithTag = await WorkerService.existsWorkersWithTags({ tags: customTag })
+			noWorkerWithTag = !existsWorkerWithTag[customTag]
 			if (noWorkerWithTag) {
 				timeout = setTimeout(() => {
 					if (visible) {
 						lookForTag()
 					}
-				}, 1000)
+				}, 2500)
 			}
 		} catch (err) {
 			console.error(err)
 		}
 	}
 
-	lookForTag()
+	$effect(() => {
+		customTag
+		untrack(() => timeout && setTimeout(() => lookForTag(), 2500))
+	})
 
 	onDestroy(() => {
 		visible = false
@@ -39,8 +58,8 @@
 {#if noWorkerWithTag}
 	<Popover notClickable placement="top">
 		<AlertTriangle size={16} class="text-yellow-500" />
-		<svelte:fragment slot="text">
-			No worker with tag <b>{tag}</b> is currently running.
-		</svelte:fragment>
+		{#snippet text()}
+			No worker with {tagLabel ?? 'tag'} <b>{customTag}</b> is currently running.
+		{/snippet}
 	</Popover>
 {/if}

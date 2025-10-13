@@ -1,48 +1,59 @@
 <script lang="ts">
-	import { twMerge } from 'tailwind-merge'
-	import AssistantMessage from './AssistantMessage.svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
-	import { HistoryIcon, Loader2, Plus, X } from 'lucide-svelte'
+	import AIChatMessage from './AIChatMessage.svelte'
+	import { type Snippet } from 'svelte'
+	import { CheckIcon, HistoryIcon, Loader2, Plus, X, XIcon } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { type AIChatContext, type DisplayMessage, type ContextElement } from './core'
-	import ContextElementBadge from './ContextElementBadge.svelte'
-	import ContextTextarea from './ContextTextarea.svelte'
-	import AvailableContextList from './AvailableContextList.svelte'
+	import { type DisplayMessage } from './shared'
+	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
+	import ChatMode from './ChatMode.svelte'
+	import Markdown from 'svelte-exmarkdown'
+	import { aiChatManager, AIMode } from './AIChatManager.svelte'
+	import AIChatInput from './AIChatInput.svelte'
+	import { getModifierKey } from '$lib/utils'
 
-	export let pastChats: { id: string; title: string }[]
-	export let messages: DisplayMessage[]
-	export let instructions: string
-	export let selectedContext: ContextElement[]
-	export let availableContext: ContextElement[]
-	export let hasDiff: boolean
-	export let diffMode: boolean = false
-	const dispatch = createEventDispatcher<{
-		sendRequest: null
-		saveAndClear: null
-		deletePastChat: { id: string }
-		loadPastChat: { id: string }
-		analyzeChanges: null
-		explainChanges: null
-		suggestImprovements: null
-	}>()
+	let {
+		messages,
+		pastChats,
+		hasDiff,
+		diffMode = false, // todo: remove default
+		selectedContext = $bindable([]), // todo: remove default
+		availableContext = [], // todo: remove default
+		loadPastChat,
+		deletePastChat,
+		saveAndClear,
+		cancel,
+		askAi = () => {}, // todo: remove default,
+		headerLeft,
+		headerRight,
+		disabled = false,
+		disabledMessage = '',
+		suggestions = []
+	}: {
+		messages: DisplayMessage[]
+		pastChats: { id: string; title: string }[]
+		hasDiff?: boolean
+		diffMode: boolean
+		selectedContext: ContextElement[]
+		availableContext: ContextElement[]
+		loadPastChat: (id: string) => void
+		deletePastChat: (id: string) => void
+		saveAndClear: () => void
+		cancel: () => void
+		askAi?: (instructions: string, options?: { withCode?: boolean; withDiff?: boolean }) => void
+		headerLeft?: Snippet
+		headerRight?: Snippet
+		disabled?: boolean
+		disabledMessage?: string
+		suggestions?: string[]
+	} = $props()
 
-	const { loading, currentReply } = getContext<AIChatContext>('AIChatContext')
+	let aiChatInput: AIChatInput | undefined = $state()
+	let editingMessageIndex = $state<number | null>(null)
 
-	export function enableAutomaticScroll() {
-		automaticScroll = true
-	}
-
-	let contextTextareaComponent: ContextTextarea
-
-	export function focusInput() {
-		contextTextareaComponent?.focus()
-	}
-
-	let automaticScroll = true
-	let scrollEl: HTMLDivElement
+	let scrollEl: HTMLDivElement | undefined = $state()
 	async function scrollDown() {
 		scrollEl?.scrollTo({
 			top: scrollEl.scrollHeight,
@@ -50,21 +61,32 @@
 		})
 	}
 
-	let height = 0
-	$: automaticScroll && height && scrollDown()
+	let height = $state(0)
+	$effect(() => {
+		aiChatManager.automaticScroll && height && scrollDown()
+	})
 
-	function addContextToSelection(contextElement: ContextElement) {
-		if (
-			!selectedContext.find(
-				(c) => c.type === contextElement.type && c.title === contextElement.title
-			) &&
-			availableContext.find(
-				(c) => c.type === contextElement.type && c.title === contextElement.title
-			)
-		) {
-			selectedContext = [...selectedContext, contextElement]
-		}
+	function submitSuggestion(suggestion: string) {
+		aiChatManager.sendRequest({ instructions: suggestion })
 	}
+
+	export function focusInput() {
+		aiChatInput?.focusInput()
+	}
+
+	$effect(() => {
+		if (aiChatInput) {
+			aiChatManager.setAiChatInput(aiChatInput)
+		}
+
+		return () => {
+			aiChatManager.setAiChatInput(null)
+		}
+	})
+
+	const isLastMessageTool = $derived(
+		messages.length > 0 && messages[messages.length - 1].role === 'tool'
+	)
 </script>
 
 <div class="flex flex-col h-full">
@@ -72,7 +94,7 @@
 		class="flex flex-row items-center justify-between gap-2 p-2 border-b border-gray-200 dark:border-gray-600"
 	>
 		<div class="flex flex-row items-center gap-2">
-			<slot name="header-left" />
+			{@render headerLeft?.()}
 			<p class="text-sm font-semibold">Chat</p>
 		</div>
 		<div class="flex flex-row items-center gap-2">
@@ -99,8 +121,8 @@
 								{#each pastChats as chat}
 									<button
 										class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1"
-										on:click={() => {
-											dispatch('loadPastChat', { id: chat.id })
+										onclick={() => {
+											loadPastChat(chat.id)
 											close()
 										}}
 									>
@@ -118,7 +140,7 @@
 											variant="border"
 											startIcon={{ icon: X }}
 											on:click={() => {
-												dispatch('deletePastChat', { id: chat.id })
+												deletePastChat(chat.id)
 											}}
 										/>
 									</button>
@@ -131,7 +153,7 @@
 			<Button
 				title="New chat"
 				on:click={() => {
-					dispatch('saveAndClear')
+					saveAndClear()
 				}}
 				size="md"
 				btnClasses="!p-1"
@@ -140,42 +162,35 @@
 				variant="border"
 				color="light"
 			/>
-			<slot name="header-right" />
+			{@render headerRight?.()}
 		</div>
 	</div>
+	{#if messages.length === 0}
+		<span class="text-2xs text-gray-500 dark:text-gray-400 text-center px-2 my-2"
+			>You can use {getModifierKey()}L to open or close this chat, and {getModifierKey()}K in the
+			script editor to modify selected lines.</span
+		>
+	{/if}
+
 	{#if messages.length > 0}
 		<div
-			class="h-full overflow-y-scroll pt-2"
+			class="h-full overflow-y-scroll pt-2 pb-12"
 			bind:this={scrollEl}
-			on:wheel={(e) => {
-				automaticScroll = false
+			onwheel={() => {
+				aiChatManager.disableAutomaticScroll()
 			}}
 		>
 			<div class="flex flex-col" bind:clientHeight={height}>
-				{#each messages as message}
-					{#if message.role === 'user' && message.contextElements}
-						<div class="flex flex-row gap-1 mb-1 overflow-scroll no-scrollbar px-2">
-							{#each message.contextElements as element}
-								<ContextElementBadge contextElement={element} />
-							{/each}
-						</div>
-					{/if}
-					<div
-						class={twMerge(
-							'text-sm py-1 mx-2',
-							message.role === 'user' &&
-								'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg mb-2',
-							message.role === 'assistant' && 'px-[1px] mb-6'
-						)}
-					>
-						{#if message.role === 'assistant'}
-							<AssistantMessage {message} />
-						{:else}
-							{message.content}
-						{/if}
-					</div>
+				{#each messages as message, messageIndex}
+					<AIChatMessage
+						{message}
+						{messageIndex}
+						{availableContext}
+						bind:selectedContext
+						bind:editingMessageIndex
+					/>
 				{/each}
-				{#if $loading && !$currentReply}
+				{#if aiChatManager.loading && !aiChatManager.currentReply && !isLastMessageTool}
 					<div class="mb-6 py-1 px-2">
 						<Loader2 class="animate-spin" />
 					</div>
@@ -184,57 +199,92 @@
 		</div>
 	{/if}
 
-	<div class:border-t={messages.length > 0}>
-		<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 px-2 no-scrollbar">
-			<Popover>
-				<svelte:fragment slot="trigger">
-					<div
-						class="border rounded-md px-1 py-0.5 font-normal text-tertiary text-xs hover:bg-surface-hover"
-						>@</div
-					>
-				</svelte:fragment>
-				<svelte:fragment slot="content" let:close>
-					<AvailableContextList
-						{availableContext}
-						{selectedContext}
-						onSelect={(element) => {
-							addContextToSelection(element)
-							close()
-						}}
-					/>
-				</svelte:fragment>
-			</Popover>
-			{#each selectedContext as element}
-				<ContextElementBadge
-					contextElement={element}
-					deletable
-					on:delete={() => {
-						selectedContext = selectedContext.filter(
-							(c) => c.type !== element.type || c.title !== element.title
-						)
+	<div class:border-t={messages.length > 0} class="relative">
+		{#if aiChatManager.loading}
+			<div class="absolute -top-10 w-full flex flex-row justify-center">
+				<Button
+					startIcon={{ icon: Loader2, classes: 'animate-spin' }}
+					size="xs"
+					variant="border"
+					color="light"
+					on:click={() => {
+						cancel()
 					}}
-				/>
-			{/each}
+				>
+					Stop
+				</Button>
+			</div>
+		{:else if aiChatManager.flowAiChatHelpers?.hasDiff()}
+			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
+				<Button
+					startIcon={{ icon: CheckIcon }}
+					size="xs"
+					variant="border"
+					color="light"
+					btnClasses="bg-green-500 hover:bg-green-600 text-white hover:text-white"
+					on:click={() => {
+						aiChatManager.flowAiChatHelpers?.acceptAllModuleActions()
+					}}
+				>
+					Accept all
+				</Button>
+				<Button
+					startIcon={{ icon: XIcon }}
+					size="xs"
+					variant="border"
+					color="light"
+					btnClasses="dark:opacity-50 opacity-60 hover:opacity-100"
+					on:click={() => {
+						aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
+					}}
+				>
+					Reject all
+				</Button>
+			</div>
+		{/if}
+		<div class="px-2">
+			<AIChatInput
+				bind:this={aiChatInput}
+				bind:selectedContext
+				{availableContext}
+				{disabled}
+				isFirstMessage={messages.length === 0}
+			/>
+			<div
+				class={`flex flex-row ${
+					aiChatManager.mode === 'script' && hasDiff ? 'justify-between' : 'justify-end'
+				} items-center`}
+			>
+				{#if aiChatManager.mode === 'script' && hasDiff}
+					<ChatQuickActions {askAi} {diffMode} />
+				{/if}
+				{#if disabled}
+					<div class="text-tertiary text-xs my-2 px-2">
+						<Markdown md={disabledMessage} />
+					</div>
+				{:else}
+					<div class="flex flex-row gap-2 min-w-0">
+						<ChatMode />
+						<ProviderModelSelector />
+					</div>
+				{/if}
+			</div>
 		</div>
-		<ContextTextarea
-			bind:this={contextTextareaComponent}
-			{instructions}
-			{availableContext}
-			{selectedContext}
-			isFirstMessage={messages.length === 0}
-			on:addContext={(e) => addContextToSelection(e.detail.contextElement)}
-			on:sendRequest={() => dispatch('sendRequest')}
-			on:updateInstructions={(e) => (instructions = e.detail.value)}
-		/>
-		<div
-			class={`flex flex-row ${
-				hasDiff ? 'justify-between' : 'justify-end'
-			} items-center gap-2 px-0.5`}
-		>
-			{#if hasDiff}
-				<ChatQuickActions on:analyzeChanges on:explainChanges on:suggestImprovements {diffMode} />
-			{/if}
-			<ProviderModelSelector />
-		</div>
+		{#if (aiChatManager.mode === AIMode.NAVIGATOR || aiChatManager.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
+			<div class="px-2 mt-4">
+				<div class="flex flex-col gap-2">
+					{#each suggestions as suggestion}
+						<Button
+							on:click={() => submitSuggestion(suggestion)}
+							size="xs2"
+							color="light"
+							btnClasses="whitespace-normal text-center font-normal"
+						>
+							{suggestion}
+						</Button>
+					{/each}
+				</div>
+			</div>
+		{/if}
 	</div>
 </div>

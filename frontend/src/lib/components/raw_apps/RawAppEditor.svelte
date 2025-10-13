@@ -1,6 +1,7 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { writable } from 'svelte/store'
 	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
 	import type { HiddenRunnable, JobById } from '../apps/types'
 	import RawAppEditorHeader from './RawAppEditorHeader.svelte'
@@ -15,34 +16,46 @@
 	import HideButton from '../apps/editor/settingsPanel/HideButton.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 
-	export let initFiles: Record<string, string>
-	export let initRunnables: Record<string, HiddenRunnable>
-	export let newApp: boolean
-	export let policy: Policy
-	export let summary = ''
-	export let path: string
-	export let newPath: string | undefined = undefined
-	export let savedApp:
-		| {
-				value: any
-				draft?: any
-				path: string
-				summary: string
-				policy: any
-				draft_only?: boolean
-				custom_path?: string
-		  }
-		| undefined = undefined
+	interface Props {
+		initFiles: Record<string, string>
+		initRunnables: Record<string, HiddenRunnable>
+		newApp: boolean
+		policy: Policy
+		summary?: string
+		path: string
+		newPath?: string | undefined
+		savedApp?:
+			| {
+					value: any
+					draft?: any
+					path: string
+					summary: string
+					policy: any
+					draft_only?: boolean
+					custom_path?: string
+			  }
+			| undefined
+		diffDrawer?: DiffDrawer | undefined
+	}
 
-	export let diffDrawer: DiffDrawer | undefined = undefined
-	export let version: number | undefined = undefined
+	let {
+		initFiles,
+		initRunnables,
+		newApp,
+		policy,
+		summary = $bindable(''),
+		path,
+		newPath = undefined,
+		savedApp = $bindable(undefined),
+		diffDrawer = undefined
+	}: Props = $props()
+	export const version: number | undefined = undefined
 
-	let runnables = writable(initRunnables)
+	let runnables = $state(initRunnables)
 
-	let files: Record<string, string> | undefined = initFiles
-	$: $runnables && files && saveFrontendDraft()
+	let files: Record<string, string> | undefined = $state(initFiles)
 
-	let draftTimeout: NodeJS.Timeout | undefined = undefined
+	let draftTimeout: number | undefined = undefined
 	function saveFrontendDraft() {
 		draftTimeout && clearTimeout(draftTimeout)
 		draftTimeout = setTimeout(() => {
@@ -51,7 +64,7 @@
 					path != '' ? `rawapp-${path}` : 'rawapp',
 					encodeState({
 						files,
-						runnables: $runnables
+						runnables: runnables
 					})
 				)
 			} catch (err) {
@@ -60,21 +73,15 @@
 		}, 500)
 	}
 
-	let iframe: HTMLIFrameElement | undefined = undefined
+	let iframe: HTMLIFrameElement | undefined = $state(undefined)
 
-	let appPanelSize = 70
+	let appPanelSize = $state(70)
 
-	let jobs: string[] = []
-	let jobsById: Record<string, JobById> = {}
+	let jobs: string[] = $state([])
+	let jobsById: Record<string, JobById> = $state({})
 
-	let iframeLoaded = false // @hmr:keep
+	let iframeLoaded = $state(false) // @hmr:keep
 
-	$: iframe && iframeLoaded && initFiles && populateFiles()
-	$: iframe && iframeLoaded && $runnables && populateRunnables()
-
-	$: iframe?.addEventListener('load', () => {
-		iframeLoaded = true
-	})
 	function populateFiles() {
 		iframe?.contentWindow?.postMessage(
 			{
@@ -89,13 +96,13 @@
 		iframe?.contentWindow?.postMessage(
 			{
 				type: 'setRunnables',
-				dts: genWmillTs($runnables)
+				dts: genWmillTs(runnables)
 			},
 			'*'
 		)
 	}
 
-	let selectedRunnable: string | undefined = undefined
+	let selectedRunnable: string | undefined = $state(undefined)
 
 	function listener(e: MessageEvent) {
 		if (e.data.type === 'setFiles') {
@@ -119,10 +126,24 @@
 		})
 	}
 
-	let darkMode: boolean | undefined = undefined
+	let darkMode: boolean = $state(false)
+	run(() => {
+		runnables && files && saveFrontendDraft()
+	})
+	run(() => {
+		iframe?.addEventListener('load', () => {
+			iframeLoaded = true
+		})
+	})
+	run(() => {
+		iframe && iframeLoaded && initFiles && populateFiles()
+	})
+	run(() => {
+		iframe && iframeLoaded && runnables && populateRunnables()
+	})
 </script>
 
-<svelte:window on:message={listener} />
+<svelte:window onmessage={listener} />
 <DarkModeObserver bind:darkMode />
 
 <RawAppBackgroundRunner
@@ -131,7 +152,7 @@
 	{iframe}
 	bind:jobs
 	bind:jobsById
-	runnables={$runnables}
+	{runnables}
 	{path}
 />
 <div class="max-h-screen overflow-hidden h-screen min-h-0 flex flex-col">
@@ -167,7 +188,7 @@
 			></iframe>
 		</Pane>
 		<Pane>
-			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div class="flex h-full w-full">
 				<RawAppInlineScriptsPanel
 					on:hidePanel={() => {

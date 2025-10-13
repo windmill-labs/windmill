@@ -1,21 +1,25 @@
 <script lang="ts">
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { AppViewerContext } from '../../../types'
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { type ColumnDef, type DbType } from './utils'
+	import { type ColumnDef } from './utils'
 	import { getCountInput } from './queries/count'
+	import type { DbInput } from '$lib/components/dbOps'
 
-	export let id: string
-	export let table: string | undefined
-	export let resource: string | undefined
-	export let renderCount: number
-	export let quicksearch: string
-	export let resourceType: string
-	export let columnDefs: ColumnDef[]
-	export let whereClause: string | undefined
+	interface Props {
+		id: string
+		table: string | undefined
+		renderCount: number
+		quicksearch: string
+		columnDefs: ColumnDef[]
+		whereClause: string | undefined
+		dbInput: DbInput
+	}
+
+	let { id, table, renderCount, quicksearch, dbInput, columnDefs, whereClause }: Props = $props()
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -25,17 +29,15 @@
 		jobId: undefined
 	})
 
-	let runnableComponent: RunnableComponent
-	let loading = false
-	let input: AppInput | undefined = undefined
+	let runnableComponent: RunnableComponent | undefined = $state()
+	let loading = $state(false)
+	let input: AppInput | undefined = $state(undefined)
 	let lastTableCount: string | undefined = undefined
 	let renderCountLast = -1
 	let quicksearchLast: string | undefined = undefined
 
 	let localColumnDefs = columnDefs
-	let lastTable = table
-
-	$: lastTable != undefined && table && onTableChange()
+	let lastTable = $state(table)
 
 	function onTableChange() {
 		if (table !== lastTable) {
@@ -43,8 +45,6 @@
 			localColumnDefs = []
 		}
 	}
-
-	$: table && renderCount != undefined && quicksearch != undefined && computeCount()
 
 	export async function computeCount(forceCompute?: boolean | undefined) {
 		if (!forceCompute) {
@@ -57,16 +57,20 @@
 			}
 		}
 
-		if (table != undefined && resource !== undefined) {
+		if (
+			table != undefined &&
+			((dbInput.type == 'ducklake' && dbInput.ducklake !== undefined) ||
+				(dbInput.type == 'database' && dbInput.resourcePath !== undefined))
+		) {
 			renderCountLast = renderCount
 			lastTableCount = table
 			quicksearchLast = quicksearch
-			await getCount(resource, table, quicksearch)
+			await getCount(dbInput, table, quicksearch)
 		}
 	}
 
-	async function getCount(resource: string, table: string, quicksearch: string) {
-		input = getCountInput(resource, table, resourceType as DbType, localColumnDefs, whereClause)
+	async function getCount(dbInput: DbInput, table: string, quicksearch: string) {
+		input = getCountInput(dbInput, table, localColumnDefs, whereClause)
 
 		await tick()
 
@@ -76,6 +80,12 @@
 			})
 		}
 	}
+	$effect(() => {
+		lastTable != undefined && table && untrack(() => onTableChange())
+	})
+	$effect(() => {
+		table && renderCount != undefined && quicksearch != undefined && untrack(() => computeCount())
+	})
 </script>
 
 <RunnableWrapper

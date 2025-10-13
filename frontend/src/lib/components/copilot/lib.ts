@@ -1,52 +1,232 @@
 import type { AIProvider, AIProviderModel } from '$lib/gen'
 import {
-	copilotInfo,
-	copilotSessionModel,
+	workspaceStore,
 	type DBSchema,
 	type GraphqlSchema,
 	type SQLSchema
 } from '$lib/stores'
 import { buildClientSchema, printSchema } from 'graphql'
-import { OpenAI } from 'openai'
+import OpenAI from 'openai'
 import type {
+	ChatCompletionChunk,
 	ChatCompletionCreateParams,
 	ChatCompletionCreateParamsNonStreaming,
 	ChatCompletionCreateParamsStreaming,
+	ChatCompletionMessageFunctionToolCall,
 	ChatCompletionMessageParam
 } from 'openai/resources/index.mjs'
+import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
 import { formatResourceTypes } from './utils'
+import { z } from 'zod'
+import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
+import type { Stream } from 'openai/core/streaming.mjs'
+import { generateRandomString } from '$lib/utils'
+import { copilotInfo, getCurrentModel } from '$lib/aiStore'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
-// need at least one model for each provider except customai
-export const AI_DEFAULT_MODELS: Record<AIProvider, string[]> = {
-	openai: ['gpt-4o', 'gpt-4o-mini'],
-	azure_openai: ['gpt-4o', 'gpt-4o-mini'],
-	anthropic: [
-		'claude-3-7-sonnet-latest',
-		'claude-3-7-sonnet-latest/thinking',
-		'claude-3-5-haiku-latest',
-		'claude-3-5-sonnet-latest'
-	],
-	mistral: ['codestral-latest'],
-	deepseek: ['deepseek-chat', 'deepseek-reasoner'],
-	googleai: ['gemini-1.5-pro', 'gemini-2.0-flash', 'gemini-1.5-flash'],
-	groq: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'],
-	openrouter: ['meta-llama/llama-3.2-3b-instruct:free'],
-	togetherai: ['meta-llama/Llama-3.3-70B-Instruct-Turbo'],
-	customai: []
+interface AIProviderDetails {
+	label: string
+	defaultModels: string[]
 }
 
-function getModelMaxTokens(model: string) {
-	if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
+const OPENAI_MODELS = [
+	'gpt-5',
+	'gpt-5-mini',
+	'gpt-5-nano',
+	'gpt-4o',
+	'gpt-4o-mini',
+	'o4-mini',
+	'o3',
+	'o3-mini'
+]
+
+export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
+	openai: {
+		label: 'OpenAI',
+		defaultModels: OPENAI_MODELS
+	},
+	azure_openai: {
+		label: 'Azure OpenAI',
+		defaultModels: OPENAI_MODELS
+	},
+	anthropic: {
+		label: 'Anthropic',
+		defaultModels: ['claude-sonnet-4-0', 'claude-sonnet-4-0/thinking', 'claude-3-5-haiku-latest']
+	},
+	mistral: {
+		label: 'Mistral',
+		defaultModels: ['codestral-latest']
+	},
+	deepseek: {
+		label: 'DeepSeek',
+		defaultModels: ['deepseek-chat', 'deepseek-reasoner']
+	},
+	googleai: {
+		label: 'Google AI',
+		defaultModels: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
+	},
+	groq: {
+		label: 'Groq',
+		defaultModels: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']
+	},
+	openrouter: {
+		label: 'OpenRouter',
+		defaultModels: ['meta-llama/llama-3.2-3b-instruct:free']
+	},
+	togetherai: {
+		label: 'Together AI',
+		defaultModels: ['meta-llama/Llama-3.3-70B-Instruct-Turbo']
+	},
+	customai: {
+		label: 'Custom AI',
+		defaultModels: []
+	}
+}
+
+export interface ModelResponse {
+	id: string
+	object: string
+	created: number
+	owned_by: string
+	lifecycle_status: string
+	capabilities: {
+		completion: boolean
+		chat_completion: boolean
+	}
+}
+
+export async function fetchAvailableModels(
+	resourcePath: string,
+	workspace: string,
+	provider: AIProvider,
+	signal?: AbortSignal
+): Promise<string[]> {
+	const models = await fetch(`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/models`, {
+		signal,
+		headers: {
+			'X-Resource-Path': resourcePath,
+			'X-Provider': provider,
+			...(provider === 'anthropic' ? { 'anthropic-version': '2023-06-01' } : {})
+		}
+	})
+	if (!models.ok) {
+		console.error('Failed to fetch models for provider', provider, models)
+		throw new Error(`Failed to fetch models for provider ${provider}`)
+	}
+	const data = (await models.json()) as { data: ModelResponse[] }
+	if (data.data.length > 0) {
+		const sortFunc = (provider: AIProvider) => (a: string, b: string) => {
+			// First prioritize models in defaultModels array
+			const defaultModels = AI_PROVIDERS[provider]?.defaultModels || []
+			const aInDefault = defaultModels.includes(a)
+			const bInDefault = defaultModels.includes(b)
+
+			if (aInDefault && !bInDefault) return -1
+			if (!aInDefault && bInDefault) return 1
+			return 0
+		}
+		switch (provider) {
+			case 'openai':
+				return data.data
+					.filter(
+						(m) => m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')
+					)
+					.map((m) => m.id)
+					.sort(sortFunc(provider))
+			case 'azure_openai':
+				return data.data
+					.filter(
+						(m) =>
+							(m.id.startsWith('gpt-') || m.id.startsWith('o') || m.id.startsWith('codex')) &&
+							m.lifecycle_status !== 'deprecated' &&
+							(m.capabilities.completion || m.capabilities.chat_completion)
+					)
+					.map((m) => m.id)
+					.sort(sortFunc(provider))
+			case 'googleai':
+				return data.data.map((m) => m.id.split('/')[1]).sort(sortFunc(provider))
+			default:
+				return data.data.map((m) => m.id).sort(sortFunc(provider))
+		}
+	}
+
+	return data?.data.map((m) => m.id) ?? []
+}
+
+export function getModelMaxTokens(provider: AIProvider, model: string) {
+	if (model.startsWith('gpt-5')) {
+		return 128000
+	} else if ((provider === 'azure_openai' || provider === 'openai') && model.startsWith('o')) {
+		return 100000
+	} else if (model.startsWith('claude-sonnet') || model.startsWith('gemini-2.5')) {
+		return 64000
+	} else if (model.startsWith('gpt-4.1')) {
+		return 32768
+	} else if (model.startsWith('claude-opus')) {
+		return 32000
+	} else if (model.startsWith('gpt-4o') || model.startsWith('codestral')) {
 		return 16384
 	} else if (model.startsWith('gpt-4-turbo') || model.startsWith('gpt-3.5')) {
 		return 4096
 	}
 	return 8192
+}
+
+export function getModelContextWindow(model: string) {
+	if (model.startsWith('gpt-4.1') || model.startsWith('gemini')) {
+		return 1000000
+	} else if (model.startsWith('gpt-5')) {
+		return 400000
+	} else if (model.startsWith('gpt-4o') || model.startsWith('llama-3.3')) {
+		return 128000
+	} else if (model.startsWith('claude') || model.startsWith('o4-mini') || model.startsWith('o3')) {
+		return 200000
+	} else if (model.startsWith('codestral')) {
+		return 32000
+	} else {
+		return 128000
+	}
+}
+
+function getModelSpecificConfig(
+	modelProvider: AIProviderModel,
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
+) {
+	const defaultMaxTokens = getModelMaxTokens(modelProvider.provider, modelProvider.model)
+	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
+	const customMaxTokensStore = get(copilotInfo)?.maxTokensPerModel
+	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
+	if (
+		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
+		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
+	) {
+		return {
+			model: modelProvider.model,
+			...(tools && tools.length > 0 ? { tools } : {}),
+			max_completion_tokens: maxTokens
+		}
+	} else {
+		return {
+			...(modelProvider.model.endsWith('/thinking')
+				? {
+					thinking: {
+						type: 'enabled',
+						budget_tokens: 1024
+					},
+					model: modelProvider.model.slice(0, -9)
+				}
+				: {
+					model: modelProvider.model,
+					temperature: 0
+				}),
+			...(tools && tools.length > 0 ? { tools } : {}),
+			max_tokens: maxTokens
+		}
+	}
 }
 
 function prepareMessages(aiProvider: AIProvider, messages: ChatCompletionMessageParam[]) {
@@ -101,9 +281,11 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 
 class WorkspacedAIClients {
 	private openaiClient: OpenAI | undefined
+	private anthropicClient: Anthropic | undefined
 
 	init(workspace: string) {
 		this.initOpenai(workspace)
+		this.initAnthropic(workspace)
 	}
 
 	private getBaseURL(workspace: string) {
@@ -122,11 +304,27 @@ class WorkspacedAIClients {
 		})
 	}
 
+	private initAnthropic(workspace: string) {
+		const baseURL = this.getBaseURL(workspace)
+		this.anthropicClient = new Anthropic({
+			baseURL,
+			apiKey: 'fake-key',
+			dangerouslyAllowBrowser: true
+		})
+	}
+
 	getOpenaiClient() {
 		if (!this.openaiClient) {
 			throw new Error('OpenAI not initialized')
 		}
 		return this.openaiClient
+	}
+
+	getAnthropicClient() {
+		if (!this.anthropicClient) {
+			throw new Error('Anthropic not initialized')
+		}
+		return this.anthropicClient
 	}
 }
 
@@ -150,7 +348,7 @@ export async function testKey({
 	if (!apiKey && !resourcePath) {
 		throw new Error('API key or resource path is required')
 	}
-	const modelToTest = model ?? AI_DEFAULT_MODELS[aiProvider][0]
+	const modelToTest = model ?? AI_PROVIDERS[aiProvider].defaultModels[0]
 
 	if (!modelToTest) {
 		throw new Error('Missing a model to test')
@@ -342,7 +540,7 @@ const PROMPTS_CONFIGS = {
 	gen: GEN_CONFIG
 }
 
-function getProviderAndCompletionConfig<K extends boolean>({
+export function getProviderAndCompletionConfig<K extends boolean>({
 	messages,
 	stream,
 	tools,
@@ -355,39 +553,17 @@ function getProviderAndCompletionConfig<K extends boolean>({
 }): {
 	provider: AIProvider
 	config: K extends true
-		? ChatCompletionCreateParamsStreaming
-		: ChatCompletionCreateParamsNonStreaming
+	? ChatCompletionCreateParamsStreaming
+	: ChatCompletionCreateParamsNonStreaming
 } {
-	let info = get(copilotInfo)
-	const modelProvider =
-		forceModelProvider ?? get(copilotSessionModel) ?? info.defaultModel ?? info.aiModels[0]
-
-	if (!modelProvider) {
-		throw new Error('No model selected')
-	}
-
+	const modelProvider = forceModelProvider ?? getCurrentModel()
 	const providerConfig = PROVIDER_COMPLETION_CONFIG_MAP[modelProvider.provider]
-
 	const processedMessages = prepareMessages(modelProvider.provider, messages)
-
 	return {
 		provider: modelProvider.provider,
 		config: {
 			...providerConfig,
-			...(modelProvider.model.endsWith('/thinking')
-				? {
-						thinking: {
-							type: 'enabled',
-							budget_tokens: 1024
-						},
-						model: modelProvider.model.slice(0, -9)
-					}
-				: {
-						model: modelProvider.model,
-						temperature: 0,
-						...(tools && tools.length > 0 ? { tools } : {})
-					}),
-			max_tokens: getModelMaxTokens(modelProvider.model),
+			...getModelSpecificConfig(modelProvider, tools),
 			messages: processedMessages,
 			stream
 		} as any
@@ -436,33 +612,235 @@ export async function getNonStreamingCompletion(
 	}
 	const openaiClient = testOptions?.apiKey
 		? new OpenAI({
-				baseURL: `${location.origin}${OpenAPI.BASE}/ai/proxy`,
-				apiKey: 'fake-key',
-				defaultHeaders: {
-					Authorization: '' // a non empty string will be unable to access Windmill backend proxy
-				},
-				dangerouslyAllowBrowser: true
-			})
+			baseURL: `${location.origin}${OpenAPI.BASE}/ai/proxy`,
+			apiKey: 'fake-key',
+			defaultHeaders: {
+				Authorization: '' // a non empty string will be unable to access Windmill backend proxy
+			},
+			dangerouslyAllowBrowser: true
+		})
 		: workspaceAIClients.getOpenaiClient()
+
 	const completion = await openaiClient.chat.completions.create(config, fetchOptions)
 	response = completion.choices?.[0]?.message.content || ''
 	return response
+}
+
+const mistralFimResponseSchema = z.object({
+	choices: z.array(
+		z.object({
+			message: z.object({
+				content: z.string().optional()
+			}),
+			finish_reason: z.string()
+		})
+	)
+})
+
+export const FIM_MAX_TOKENS = 256
+const FIM_MAX_LINES = 8
+export async function getFimCompletion(
+	prompt: string,
+	suffix: string,
+	providerModel: AIProviderModel,
+	abortController: AbortController
+): Promise<string | undefined> {
+	const fetchOptions: {
+		signal: AbortSignal
+		headers: Record<string, string>
+	} = {
+		signal: abortController.signal,
+		headers: {
+			'X-Provider': providerModel.provider
+		}
+	}
+
+	const workspace = get(workspaceStore)
+
+	const response = await fetch(
+		`${location.origin}${OpenAPI.BASE}/w/${workspace}/ai/proxy/fim/completions`,
+		{
+			method: 'POST',
+			body: JSON.stringify({
+				model: providerModel.model,
+				temperature: 0,
+				prompt,
+				suffix,
+				stop: ['\n\n'],
+				max_tokens: FIM_MAX_TOKENS
+			}),
+			...fetchOptions
+		}
+	)
+
+	const body = await response.json()
+	const parsedBody = mistralFimResponseSchema.parse(body)
+
+	const choice = parsedBody.choices[0]
+
+	if (choice && choice.message.content !== undefined) {
+		let lines = choice.message.content.split('\n')
+
+		// If finish_reason is 'length', remove the last line
+		if (choice.finish_reason === 'length') {
+			if (lines.length > 1) {
+				lines = lines.slice(0, -1)
+			} else {
+				lines = []
+			}
+		}
+
+		lines = lines.slice(0, FIM_MAX_LINES)
+
+		return lines.join('\n')
+	} else {
+		return undefined
+	}
 }
 
 export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
-) {
+): Promise<Stream<ChatCompletionChunk>> {
 	const { provider, config } = getProviderAndCompletionConfig({ messages, stream: true, tools })
+
 	const openaiClient = workspaceAIClients.getOpenaiClient()
-	const completion = await openaiClient.chat.completions.create(config, {
+	const completion = openaiClient.chat.completions.create(config, {
 		signal: abortController.signal,
 		headers: {
 			'X-Provider': provider
 		}
 	})
 	return completion
+}
+
+function extractFirstJSON(str: string) {
+	let depth = 0,
+		i = 0
+	for (; i < str.length; i++) {
+		if (str[i] === '{') depth++
+		else if (str[i] === '}' && --depth === 0) break
+	}
+	return str.slice(0, i + 1)
+}
+
+export async function parseOpenAICompletion(
+	completion: Stream<ChatCompletionChunk>,
+	callbacks: ToolCallbacks & {
+		onNewToken: (token: string) => void
+		onMessageEnd: () => void
+	},
+	messages: ChatCompletionMessageParam[],
+	addedMessages: ChatCompletionMessageParam[],
+	tools: Tool<any>[],
+	helpers: any
+): Promise<boolean> {
+	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
+
+	let answer = ''
+	for await (const chunk of completion) {
+		if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
+			continue
+		}
+		const c = chunk as ChatCompletionChunk
+		const delta = c.choices[0].delta.content
+		if (delta) {
+			answer += delta
+			callbacks.onNewToken(delta)
+		}
+		const toolCalls = c.choices[0].delta.tool_calls || []
+		if (toolCalls.length > 0 && answer) {
+			// if tool calls are present but we have some textual content already, we need to display it to the user first
+			callbacks.onMessageEnd()
+			answer = ''
+		}
+		for (let i = 0; i < toolCalls.length; i++) {
+			const toolCall = toolCalls[i]
+			// Gemini models are missing the index field
+			if (
+				toolCall.index === undefined ||
+				(typeof toolCall.index === 'string' && toolCall.index === '')
+			) {
+				toolCall.index = i
+			}
+			// Gemini models are missing the id field
+			if (toolCall.id === undefined || (typeof toolCall.id === 'string' && toolCall.id === '')) {
+				toolCall.id = generateRandomString()
+			}
+			const { index } = toolCall
+			let finalToolCall = finalToolCalls[index]
+			if (!finalToolCall) {
+				finalToolCalls[index] = toolCall
+			} else {
+				if (toolCall.function?.arguments) {
+					if (!finalToolCall.function) {
+						finalToolCall.function = toolCall.function
+					} else {
+						finalToolCall.function.arguments =
+							(finalToolCall.function.arguments ?? '') + toolCall.function.arguments
+						// Make sure we only have one JSON object, else for Gemini models it sometimes results in two JSON objects
+						finalToolCall.function.arguments = extractFirstJSON(
+							finalToolCall.function.arguments || '{}'
+						)
+					}
+				}
+			}
+			finalToolCall = finalToolCalls[index]
+			if (finalToolCall?.function) {
+				const {
+					function: { name: funcName },
+					id: toolCallId
+				} = finalToolCall
+				if (funcName && toolCallId) {
+					const tool = tools.find((t) => t.def.function.name === funcName)
+					if (tool && tool.preAction) {
+						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
+					}
+				}
+			}
+		}
+	}
+
+	if (answer) {
+		const toAdd = { role: 'assistant' as const, content: answer }
+		addedMessages.push(toAdd)
+		messages.push(toAdd)
+	}
+
+	callbacks.onMessageEnd()
+
+	const toolCalls = Object.values(finalToolCalls).filter(
+		(toolCall) => toolCall.id !== undefined && toolCall.function?.arguments !== undefined
+	) as ChatCompletionMessageFunctionToolCall[]
+
+	if (toolCalls.length > 0) {
+		const toAdd = {
+			role: 'assistant' as const,
+			tool_calls: toolCalls.map((t) => ({
+				...t,
+				function: {
+					...t.function,
+					arguments: t.function.arguments || '{}'
+				}
+			}))
+		}
+		messages.push(toAdd)
+		addedMessages.push(toAdd)
+		for (const toolCall of toolCalls) {
+			const messageToAdd = await processToolCall({
+				tools,
+				toolCall,
+				helpers,
+				toolCallbacks: callbacks
+			})
+			messages.push(messageToAdd)
+			addedMessages.push(messageToAdd)
+		}
+	} else {
+		return false
+	}
+	return true
 }
 
 export function getResponseFromEvent(part: OpenAI.Chat.Completions.ChatCompletionChunk): string {
@@ -588,7 +966,7 @@ export async function deltaCodeCompletion(
 		}
 
 		if (!match[1].endsWith('`')) {
-			// skip udpating if possible that part of three ticks (end of code block)s
+			// skip updating if possible that part of three ticks (end of code block)s
 			delta = getStringEndDelta(code, match[1])
 			generatedCodeDelta.set(delta)
 			code = match[1]

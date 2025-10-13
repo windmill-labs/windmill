@@ -9,60 +9,79 @@
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { Loader2 } from 'lucide-svelte'
+	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
+	import SimpleEditor from '../../SimpleEditor.svelte'
 
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore } = $state(getContext<FlowEditorContext>('FlowEditorContext'))
 
-	export let drawer: Drawer | undefined
+	interface Props {
+		drawer: Drawer | undefined
+	}
 
-	let code = ''
+	let { drawer = $bindable() }: Props = $props()
+
+	let code = $state('')
+	let editor = $state(undefined) as SimpleEditor | undefined
 
 	function reload() {
-		code = YAML.stringify(filteredContentForExport($flowStore))
+		code = YAML.stringify(filteredContentForExport(flowStore.val))
+		editor?.setCode(code)
 	}
 
 	function apply() {
 		try {
 			const parsed = YAML.parse(code)
 			if (parsed.summary && typeof parsed.summary === 'string') {
-				$flowStore.summary = parsed.summary
+				flowStore.val.summary = parsed.summary
 			}
 			if (parsed.description && typeof parsed.description === 'string') {
-				$flowStore.description = parsed.description
+				flowStore.val.description = parsed.description
 			}
 			if (parsed['ws_error_handler_muted'] !== undefined) {
-				$flowStore.ws_error_handler_muted = parsed['ws_error_handler_muted']
+				flowStore.val.ws_error_handler_muted = parsed['ws_error_handler_muted']
 			}
 			if (parsed['dedicated_worker'] !== undefined) {
-				$flowStore.dedicated_worker = parsed['dedicated_worker']
+				flowStore.val.dedicated_worker = parsed['dedicated_worker']
 			}
 			if (parsed['visible_to_runner_only'] !== undefined) {
-				$flowStore.visible_to_runner_only = parsed['visible_to_runner_only']
+				flowStore.val.visible_to_runner_only = parsed['visible_to_runner_only']
 			}
 			if (parsed['on_behalf_of_email'] !== undefined) {
-				$flowStore.on_behalf_of_email = parsed['on_behalf_of_email']
+				flowStore.val.on_behalf_of_email = parsed['on_behalf_of_email']
 			}
-			$flowStore.value = parsed.value
-			$flowStore.schema = parsed.schema
-			$flowStore.tag = parsed.tag
-			$flowStore = $flowStore
+			flowStore.val.value = parsed.value
+			flowStore.val.schema = parsed.schema
+			flowStore.val.tag = parsed.tag
+			refreshStateStore(flowStore)
+			sendUserToast('Changes applied')
 		} catch (e) {
 			sendUserToast('Error parsing yaml: ' + e), true
 		}
 	}
+
+	let editorHeight = $state(0)
 </script>
 
 <Drawer on:open={reload} bind:this={drawer} size="800px">
 	<DrawerContent title="OpenFlow" on:close={() => drawer?.toggleDrawer()}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			<Button color="dark" size="sm" on:click={reload}>Reset code</Button>
 			<Button color="dark" size="sm" on:click={apply}>Apply changes</Button>
-		</svelte:fragment>
+		{/snippet}
 
-		{#if $flowStore}
+		{#if flowStore.val}
 			{#await import('../../SimpleEditor.svelte')}
 				<Loader2 class="animate-spin" />
 			{:then Module}
-				<Module.default autoHeight bind:code lang="yaml" />
+				<div class="h-full w-full overflow-hidden" bind:clientHeight={editorHeight}>
+					<Module.default
+						bind:this={editor}
+						autoHeight
+						minHeight={editorHeight}
+						bind:code
+						lang="yaml"
+					/>
+				</div>
 			{/await}
 		{/if}
 	</DrawerContent>

@@ -3,7 +3,13 @@
 
 	const dispatch = createEventDispatcher()
 
-	export let title: string = ''
+	interface Props {
+		title?: string
+		action?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+	}
+
+	let { title = '', action, children }: Props = $props()
 
 	onDestroy(() => {
 		dispatch('destroy')
@@ -17,10 +23,10 @@
 		<h2 class="font-semibold text-secondary text-sm flex flex-row items-center gap-1 leading-6">
 			{title}
 		</h2>
-		<slot name="action" />
+		{@render action?.()}
 	</div>
 
 	<div class="w-full min-h-0 grow">
-		<slot />
+		{@render children?.()}
 	</div>
 </div>

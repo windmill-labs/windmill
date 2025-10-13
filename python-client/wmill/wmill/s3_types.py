@@ -1,7 +1,10 @@
+from typing import Optional
+
+
 class S3Object(dict):
     s3: str
-    storage: str | None
-    presigned: str | None
+    storage: Optional[str]
+    presigned: Optional[str]
 
     def __getattr__(self, attr):
         return self[attr]

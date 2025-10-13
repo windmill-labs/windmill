@@ -85,6 +85,7 @@ pub async fn generate_nuget_lockfile(
     let mut gen_lockfile_cmd = Command::new(DOTNET_PATH.as_str());
     gen_lockfile_cmd
         .current_dir(job_dir)
+        .env("MSBUILDDISABLENODEREUSE", "1")
         .args(vec!["restore", "--use-lock-file"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -112,7 +113,8 @@ pub async fn generate_nuget_lockfile(
                 .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
         );
 
-    let gen_lockfile_process = start_child_process(gen_lockfile_cmd, DOTNET_PATH.as_str()).await?;
+    let gen_lockfile_process =
+        start_child_process(gen_lockfile_cmd, DOTNET_PATH.as_str(), true).await?;
     handle_child(
         job_id,
         conn,
@@ -126,6 +128,7 @@ pub async fn generate_nuget_lockfile(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;
@@ -331,6 +334,7 @@ async fn build_cs_proj(
         .env("HOME", HOME_ENV.as_str())
         .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")
         .env("DOTNET_NOLOGO", "true")
+        .env("MSBUILDDISABLENODEREUSE", "1")
         .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
         .args(vec![
             "publish",
@@ -368,7 +372,7 @@ async fn build_cs_proj(
                 .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
         );
 
-    let build_cs_process = start_child_process(build_cs_cmd, DOTNET_PATH.as_str()).await?;
+    let build_cs_process = start_child_process(build_cs_cmd, DOTNET_PATH.as_str(), true).await?;
     handle_child(
         job_id,
         conn,
@@ -382,6 +386,7 @@ async fn build_cs_proj(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;
@@ -573,7 +578,7 @@ pub async fn handle_csharp_job(
         #[cfg(windows)]
         nsjail_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
 
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), true).await?
     } else {
         #[cfg(unix)]
         let compiled_executable_name = "./Main".to_string();
@@ -596,6 +601,7 @@ pub async fn handle_csharp_job(
             .env("DOTNET_ROOT", DOTNET_ROOT.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         #[cfg(windows)]
@@ -622,7 +628,7 @@ pub async fn handle_csharp_job(
                     .unwrap_or_else(|_| format!("{}\\AppData\\Local", HOME_ENV.as_str())),
             );
 
-        start_child_process(run_csharp, &compiled_executable_name).await?
+        start_child_process(run_csharp, &compiled_executable_name, true).await?
     };
 
     handle_child(
@@ -639,7 +645,8 @@ pub async fn handle_csharp_job(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
-    read_result(job_dir).await
+    read_result(job_dir, None).await
 }

@@ -1,25 +1,44 @@
 <script lang="ts">
 	import autosize from '$lib/autosize'
-	import { createEventDispatcher } from 'svelte'
-	import type { ContextElement } from './core'
+	import { tick } from 'svelte'
+	import type { ContextElement } from './context'
 	import AvailableContextList from './AvailableContextList.svelte'
+	import Portal from '$lib/components/Portal.svelte'
+	import { zIndexes } from '$lib/zIndexes'
+	import { twMerge } from 'tailwind-merge'
 
-	export let instructions: string
-	export let availableContext: ContextElement[]
-	export let selectedContext: ContextElement[]
-	export let isFirstMessage: boolean
+	interface Props {
+		value: string
+		availableContext: ContextElement[]
+		selectedContext: ContextElement[]
+		isFirstMessage: boolean
+		placeholder: string
+		disabled: boolean
+		onSendRequest: () => void
+		onAddContext: (contextElement: ContextElement) => void
+		className?: string
+		onKeyDown?: (e: KeyboardEvent) => void
+	}
 
-	const dispatch = createEventDispatcher<{
-		updateInstructions: { value: string }
-		sendRequest: null
-		addContext: { contextElement: ContextElement }
-	}>()
+	let {
+		value = $bindable(''),
+		availableContext,
+		selectedContext,
+		isFirstMessage,
+		placeholder,
+		disabled,
+		onSendRequest,
+		onAddContext,
+		className = '',
+		onKeyDown = undefined
+	}: Props = $props()
 
-	let showContextTooltip = false
-	let contextTooltipWord = ''
-	let tooltipPosition = { x: 0, y: 0 }
-	let textarea: HTMLTextAreaElement
-	let selectedSuggestionIndex = 0
+	let showContextTooltip = $state(false)
+	let contextTooltipWord = $state('')
+	let tooltipPosition = $state({ x: 0, y: 0 })
+	let textarea = $state<HTMLTextAreaElement | undefined>(undefined)
+	let tooltipElement = $state<HTMLDivElement | undefined>(undefined)
+	let tooltipCurrentViewNumber = $state(0)
 
 	// Properties to copy for caret position calculation
 	const properties = [
@@ -136,7 +155,7 @@
 	}
 
 	function getHighlightedText(text: string) {
-		return text.replace(/@[\w/.-]+/g, (match) => {
+		return text.replace(/@[\w/.\-\[\]]+/g, (match) => {
 			const contextElement = availableContext.find((c) => c.title === match.slice(1))
 			if (contextElement) {
 				return `<span class="bg-black dark:bg-white text-white dark:text-black z-10">${match}</span>`
@@ -146,14 +165,14 @@
 	}
 
 	function addContextToSelection(contextElement: ContextElement) {
-		dispatch('addContext', { contextElement })
+		onAddContext(contextElement)
 	}
 
 	function updateInstructionsWithContext(contextElement: ContextElement) {
-		const index = instructions.lastIndexOf('@')
+		const index = value.lastIndexOf('@')
 		if (index !== -1) {
-			const newInstructions = instructions.substring(0, index) + `@${contextElement.title}`
-			dispatch('updateInstructions', { value: newInstructions })
+			const newInstructions = value.substring(0, index) + `@${contextElement.title}`
+			value = newInstructions
 		}
 	}
 
@@ -163,27 +182,19 @@
 		showContextTooltip = false
 	}
 
-	function updateTooltipPosition(
-		availableContext: ContextElement[],
-		showContextTooltip: boolean,
-		contextTooltipWord: string
-	) {
-		if (!textarea || !showContextTooltip) return
+	async function updateTooltipPosition(currentViewItemsNumber: number) {
+		if (!textarea) return
 
 		try {
 			const coords = getCaretCoordinates(textarea, textarea.selectionEnd)
 			const rect = textarea.getBoundingClientRect()
-
-			const filteredAvailableContext = availableContext.filter(
-				(c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1))
-			)
 
 			const itemHeight = 28 // Estimated height of one item + gap (Button: p-1(8px) + text-xs(16px) = 24px; Parent: gap-1(4px) = 28px)
 			const containerPadding = 8 // p-1 top + p-1 bottom = 4px + 4px = 8px
 			const maxHeight = 192 + containerPadding // max-h-48 (192px) + containerPadding (8px)
 
 			// Calculate uncapped height, subtract gap from last item as it's not needed
-			const numItems = filteredAvailableContext.length
+			const numItems = currentViewItemsNumber
 			let uncappedHeight =
 				numItems > 0 ? numItems * itemHeight - 4 + containerPadding : containerPadding
 			// Ensure height is at least containerPadding even if no items
@@ -192,6 +203,8 @@
 			const estimatedTooltipHeight = Math.min(uncappedHeight, maxHeight)
 			const margin = 6 // Small margin between caret and tooltip
 
+			// Initial position calculation
+			let finalX = rect.left + coords.left - 70
 			let finalY: number
 
 			if (isFirstMessage) {
@@ -202,9 +215,30 @@
 				finalY = rect.top + coords.top - estimatedTooltipHeight - margin
 			}
 
+			// Set initial position
 			tooltipPosition = {
-				x: rect.left + coords.left - 70,
+				x: finalX,
 				y: finalY
+			}
+
+			// Wait for tooltip to render with initial position
+			await tick()
+
+			// Get actual tooltip width if tooltip is rendered
+			if (tooltipElement) {
+				const tooltipRect = tooltipElement.getBoundingClientRect()
+				const tooltipWidth = tooltipRect.width
+
+				// Adjust position if tooltip would overflow right edge
+				if (finalX + tooltipWidth > window.innerWidth) {
+					finalX = Math.max(10, window.innerWidth - tooltipWidth - 10)
+
+					// Update position after measuring actual width
+					tooltipPosition = {
+						x: finalX,
+						y: finalY
+					}
+				}
 			}
 		} catch (error) {
 			// Hide tooltip on any error related to position calculation
@@ -215,7 +249,7 @@
 
 	function handleInput(e: Event) {
 		textarea = e.target as HTMLTextAreaElement
-		const words = instructions.split(/\s+/)
+		const words = value.split(/\s+/)
 		const lastWord = words[words.length - 1]
 
 		if (
@@ -228,114 +262,109 @@
 		} else {
 			showContextTooltip = false
 			contextTooltipWord = ''
-			selectedSuggestionIndex = 0
-		}
-		dispatch('updateInstructions', { value: instructions })
-	}
-
-	function handleKeyPress(e: KeyboardEvent) {
-		if (e.key === 'Enter' && !e.shiftKey) {
-			e.preventDefault()
-			if (contextTooltipWord) {
-				const filteredContext = availableContext.filter(
-					(c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1))
-				)
-				const contextElement = filteredContext[selectedSuggestionIndex]
-				if (contextElement) {
-					const isInSelectedContext = selectedContext.find(
-						(c) => c.title === contextElement.title && c.type === contextElement.type
-					)
-					// If the context element is already in the selected context and the last word in the instructions is the same as the context element title, send request
-					if (isInSelectedContext && instructions.split(' ').pop() === '@' + contextElement.title) {
-						dispatch('sendRequest')
-						return
-					}
-					handleContextSelection(contextElement)
-				} else if (contextTooltipWord === '@' && availableContext.length > 0) {
-					handleContextSelection(availableContext[0])
-				}
-			} else {
-				dispatch('sendRequest')
-			}
 		}
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
-		if (!showContextTooltip) return
-
-		const filteredContext = availableContext.filter(
-			(c) => !contextTooltipWord || c.title.toLowerCase().includes(contextTooltipWord.slice(1))
-		)
-
-		if (e.key === 'Tab') {
-			e.preventDefault()
-			const contextElement = filteredContext[selectedSuggestionIndex]
-			if (contextElement) {
-				handleContextSelection(contextElement)
-			}
+		// Pass to parent first if provided
+		if (onKeyDown) {
+			onKeyDown(e)
 		}
 
-		if (e.key === 'ArrowDown') {
+		if (showContextTooltip) {
+			// avoid new line after Enter in the tooltip
+			if (e.key === 'Enter') {
+				e.preventDefault()
+			}
+			return
+		}
+
+		if (e.key === 'Enter' && !e.shiftKey) {
 			e.preventDefault()
-			selectedSuggestionIndex = (selectedSuggestionIndex + 1) % filteredContext.length
-		} else if (e.key === 'ArrowUp') {
-			e.preventDefault()
-			selectedSuggestionIndex =
-				(selectedSuggestionIndex - 1 + filteredContext.length) % filteredContext.length
+			onSendRequest()
 		}
 	}
 
-	$: updateTooltipPosition(availableContext, showContextTooltip, contextTooltipWord)
+	$effect(() => {
+		if (showContextTooltip) {
+			updateTooltipPosition(tooltipCurrentViewNumber)
+		}
+	})
 
 	export function focus() {
 		textarea?.focus()
 	}
 </script>
 
-<div class="relative w-full px-2 scroll-pb-2">
+<div class="relative w-full scroll-pb-2 bg-surface">
 	<div
-		class="absolute top-0 left-0 w-full h-full min-h-12 px-4 text-sm pt-1 pointer-events-none"
-		style="line-height: 1.72"
+		class={twMerge(
+			'textarea-input absolute top-0 left-0 pointer-events-none py-1 !px-2',
+			className
+		)}
 	>
-		<span class="break-words" style="white-space: pre-wrap;">
-			{@html getHighlightedText(instructions)}
+		<span class="break-words">
+			{@html getHighlightedText(value)}
 		</span>
 	</div>
 	<textarea
 		bind:this={textarea}
-		on:keypress={handleKeyPress}
-		on:keydown={handleKeyDown}
-		bind:value={instructions}
+		onkeydown={handleKeyDown}
+		bind:value
 		use:autosize
 		rows={3}
-		on:input={handleInput}
-		on:blur={() => {
+		oninput={handleInput}
+		onblur={() => {
 			setTimeout(() => {
 				showContextTooltip = false
-			}, 100)
+			}, 200)
 		}}
-		placeholder={isFirstMessage ? 'Ask anything' : 'Ask followup'}
-		class="resize-none bg-transparent caret-black dark:caret-white"
-		style={instructions.length > 0
-			? 'color: transparent; -webkit-text-fill-color: transparent;'
-			: ''}
+		{placeholder}
+		class={twMerge(
+			'textarea-input resize-none bg-transparent caret-black dark:caret-white overflow-clip',
+			className
+		)}
+		style={value.length > 0 ? 'color: transparent; -webkit-text-fill-color: transparent;' : ''}
+		{disabled}
 	></textarea>
 </div>
 
 {#if showContextTooltip}
-	<div
-		class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50"
-		style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
-	>
-		<AvailableContextList
-			{availableContext}
-			{selectedContext}
-			onSelect={(element) => {
-				handleContextSelection(element)
-			}}
-			showAllAvailable={true}
-			stringSearch={contextTooltipWord.slice(1)}
-			selectedIndex={selectedSuggestionIndex}
-		/>
-	</div>
+	<Portal target="body">
+		<div
+			bind:this={tooltipElement}
+			class="absolute bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg"
+			style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px; z-index: {zIndexes.tooltip};"
+		>
+			<AvailableContextList
+				{availableContext}
+				{selectedContext}
+				onSelect={(element) => {
+					handleContextSelection(element)
+				}}
+				showAllAvailable={true}
+				stringSearch={contextTooltipWord.slice(1)}
+				onViewChange={(newNumber) => {
+					tooltipCurrentViewNumber = newNumber
+				}}
+				setShowing={(showing) => {
+					showContextTooltip = showing
+				}}
+			/>
+		</div>
+	</Portal>
 {/if}
+
+<style>
+	.textarea-input {
+		padding: 0.25rem;
+		border: 1px solid transparent;
+		font-family: inherit;
+		font-size: 0.875rem;
+		line-height: 1.72;
+		white-space: pre-wrap;
+		word-break: break-words;
+		width: 100%;
+		min-height: 3rem;
+	}
+</style>

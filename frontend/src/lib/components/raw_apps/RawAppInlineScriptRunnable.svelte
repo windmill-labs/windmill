@@ -2,7 +2,7 @@
 	import EmptyInlineScript from '../apps/editor/inlineScriptsPanel/EmptyInlineScript.svelte'
 	import InlineScriptRunnableByPath from '../apps/editor/inlineScriptsPanel/InlineScriptRunnableByPath.svelte'
 	import type { Runnable, RunnableWithFields, StaticAppInput } from '../apps/inputType'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import RawAppInlineScriptEditor from './RawAppInlineScriptEditor.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Tabs from '../common/tabs/Tabs.svelte'
@@ -11,12 +11,16 @@
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
 	import SchemaForm from '../SchemaForm.svelte'
 	import RunnableJobPanelInner from '../apps/editor/RunnableJobPanelInner.svelte'
-	import TestJobLoader from '../TestJobLoader.svelte'
+	import JobLoader from '../JobLoader.svelte'
 	import type { Job } from '$lib/gen'
 
-	export let runnable: RunnableWithFields | undefined
-	export let id: string
-	export let appPath: string
+	interface Props {
+		runnable: RunnableWithFields | undefined
+		id: string
+		appPath: string
+	}
+
+	let { runnable = $bindable(), id, appPath }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -35,12 +39,11 @@
 					}
 	}
 
-	let selectedTab = 'inputs'
-	let args = {}
+	let selectedTab = $state('inputs')
+	let args = $state({})
 
 	function getSchema(runnable: RunnableWithFields) {
 		if (runnable?.type == 'runnableByPath') {
-			console.log('runnable.schema', runnable.schema)
 			return runnable.schema
 		} else if (runnable?.type == 'runnableByName' && runnable.inlineScript) {
 			return runnable.inlineScript.schema
@@ -48,12 +51,10 @@
 		return {}
 	}
 
-	let testJobLoader: TestJobLoader | undefined
-	let testJob: Job | undefined
-	let testIsLoading = false
-	let scriptProgress = 0
-
-	$: onFieldsChange(runnable?.fields ?? {})
+	let jobLoader: JobLoader | undefined = $state()
+	let testJob: Job | undefined = $state()
+	let testIsLoading = $state(false)
+	let scriptProgress = $state(0)
 
 	function onFieldsChange(fields: Record<string, StaticAppInput>) {
 		if (args == undefined) {
@@ -69,7 +70,7 @@
 	async function testPreview() {
 		selectedTab = 'test'
 		if (runnable?.type == 'runnableByName' && runnable.inlineScript?.language != 'frontend') {
-			await testJobLoader?.runPreview(
+			await jobLoader?.runPreview(
 				appPath + '/' + id,
 				runnable.inlineScript?.content ?? '',
 				runnable.inlineScript?.language,
@@ -77,20 +78,25 @@
 				undefined
 			)
 		} else if (runnable?.type == 'runnableByPath') {
-			if (testJobLoader && runnable?.type == 'runnableByPath') {
+			if (jobLoader && runnable?.type == 'runnableByPath') {
 				if (runnable.runType == 'flow') {
-					await testJobLoader.runFlowByPath(runnable.path, args)
+					await jobLoader.runFlowByPath(runnable.path, args)
 				} else if (runnable.runType == 'script' || runnable.runType == 'hubscript') {
-					await testJobLoader.runScriptByPath(runnable.path, args)
+					await jobLoader.runScriptByPath(runnable.path, args)
 				}
 			}
 		}
 	}
+	$effect(() => {
+		;[runnable?.fields]
+		untrack(() => onFieldsChange(runnable?.fields ?? {}))
+	})
 </script>
 
-<TestJobLoader
+<JobLoader
+	noCode={true}
 	bind:scriptProgress
-	bind:this={testJobLoader}
+	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
 />
@@ -111,8 +117,8 @@
 						isLoading={testIsLoading}
 						onRun={testPreview}
 						onCancel={async () => {
-							if (testJobLoader) {
-								await testJobLoader.cancelJob()
+							if (jobLoader) {
+								await jobLoader.cancelJob()
 							}
 						}}
 						on:delete
@@ -130,8 +136,8 @@
 					isLoading={testIsLoading}
 					onRun={testPreview}
 					onCancel={async () => {
-						if (testJobLoader) {
-							await testJobLoader.cancelJob()
+						if (jobLoader) {
+							await jobLoader.cancelJob()
 						}
 					}}
 				/>
@@ -141,7 +147,7 @@
 			<Tabs bind:selected={selectedTab}>
 				<Tab value="inputs">Inputs</Tab>
 				<Tab value="test">Test</Tab>
-				<svelte:fragment slot="content">
+				{#snippet content()}
 					{#if selectedTab == 'inputs'}
 						{#if runnable?.fields}
 							<div class="w-full flex flex-col gap-4 p-2">
@@ -177,12 +183,11 @@
 									<div class="px-2 py-3 h-full overflow-auto">
 										<SchemaForm
 											on:keydownCmdEnter={testPreview}
-											disabledArgs={Object.entries(runnable.fields ?? {})
+											disabledArgs={Object.entries(runnable?.fields ?? {})
 												.filter(([k, v]) => v.type == 'static')
 												.map(([k]) => k)}
-											schema={getSchema(runnable)}
+											schema={runnable ? getSchema(runnable) : {}}
 											bind:args
-											shouldCapitalize
 										/>
 									</div>
 								</Pane>
@@ -192,7 +197,7 @@
 							</Splitpanes>
 						</SplitPanesWrapper>
 					{/if}
-				</svelte:fragment>
+				{/snippet}
 			</Tabs>
 		</Pane>
 	</Splitpanes>

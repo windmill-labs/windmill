@@ -13,14 +13,18 @@ import {
 	type TriggersCount,
 	type HttpTrigger,
 	HttpTriggerService,
-	GcpTriggerService
+	GcpTriggerService,
+	type EmailTrigger,
+	EmailTriggerService
 } from '$lib/gen'
+import { enterpriseLicense } from '$lib/stores'
+
 import { getLightConfig, sortTriggers, updateTriggersCount, type Trigger } from './utils'
-import type { Writable } from 'svelte/store'
+import { get, type Writable } from 'svelte/store'
 import type { TriggerType } from './utils'
 import type { UserExt } from '$lib/stores'
 import type { ScheduleTrigger } from '../triggers'
-import { canWrite, formatCron } from '$lib/utils'
+import { canWrite, formatCron, generateRandomString } from '$lib/utils'
 
 export class Triggers {
 	#triggers = $state<Trigger[]>([])
@@ -94,7 +98,7 @@ export class Triggers {
 		const primaryScheduleExists = this.#triggers.some((t) => t.type === 'schedule' && t.isPrimary)
 
 		// Create the new draft trigger
-		const draftId = crypto.randomUUID()
+		const draftId = generateRandomString()
 		const isPrimary = type === 'schedule' && !primaryScheduleExists
 		const newTrigger = {
 			id: draftId,
@@ -430,6 +434,32 @@ export class Triggers {
 		}
 	}
 
+	async fetchEmailTriggers(
+		triggersCountStore: Writable<TriggersCount | undefined>,
+		workspaceId: string | undefined,
+		path: string,
+		isFlow: boolean,
+		user: UserExt | undefined = undefined
+	): Promise<void> {
+		if (!workspaceId) return
+		try {
+			const emailTriggers: EmailTrigger[] = await EmailTriggerService.listEmailTriggers({
+				workspace: workspaceId,
+				path,
+				isFlow
+			})
+			const emailCount = this.updateTriggers(emailTriggers, 'email', user)
+			triggersCountStore.update((triggersCount) => {
+				return {
+					...(triggersCount ?? {}),
+					email_count: emailCount
+				}
+			})
+		} catch (error) {
+			console.error('Failed to fetch email triggers:', error)
+		}
+	}
+
 	async fetchTriggers(
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
@@ -446,11 +476,13 @@ export class Triggers {
 			this.fetchHttpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchWebsocketTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchPostgresTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchKafkaTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchNatsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchMqttTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchSqsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow, user)
+			this.fetchEmailTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+			...(get(enterpriseLicense) ? [
+				this.fetchKafkaTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+				this.fetchSqsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+				this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow, user)] : [])
 		])
 	}
 }

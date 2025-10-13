@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Popover } from '$lib/components/meltComponents'
 	import { Loader2, X } from 'lucide-svelte'
-	import { ContextIconMap, type ContextElement } from './core'
+	import { ContextIconMap, type ContextElement } from './context'
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { twMerge } from 'tailwind-merge'
@@ -10,42 +10,53 @@
 		formatSchema
 	} from '$lib/components/apps/components/display/dbtable/utils'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
-	import { createEventDispatcher } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import FlowModuleIcon from '$lib/components/flows/FlowModuleIcon.svelte'
+	import type { FlowModule } from '$lib/gen'
 
-	export let contextElement: ContextElement
-	export let deletable = false
+	interface Props {
+		contextElement: ContextElement
+		deletable?: boolean
+		onDelete?: () => void
+	}
+
+	let { contextElement, deletable = false, onDelete }: Props = $props()
 	const icon = ContextIconMap[contextElement.type]
-	let showDelete = false
+	let showDelete = $state(false)
 
-	const dispatch = createEventDispatcher<{
-		delete: void
-	}>()
+	const isDeletable = $derived(deletable && contextElement.deletable !== false)
 </script>
 
 <Popover>
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<div
 			class={twMerge(
-				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-tertiary text-xs cursor-default hover:bg-surface-hover hover:cursor-pointer'
+				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-tertiary text-xs cursor-default hover:bg-surface-hover hover:cursor-pointer max-w-48 bg-surface'
 			)}
-			on:mouseenter={() => (showDelete = true)}
-			on:mouseleave={() => (showDelete = false)}
+			onmouseenter={() => (showDelete = true)}
+			onmouseleave={() => (showDelete = false)}
 			aria-label="Context element"
 			role="button"
 			tabindex={0}
 		>
-			<button on:click={() => dispatch('delete')} class:cursor-default={!deletable}>
-				{#if showDelete && deletable}
+			<button onclick={isDeletable ? onDelete : undefined} class:cursor-default={!isDeletable}>
+				{#if showDelete && isDeletable}
 					<X size={16} />
+				{:else if contextElement.type === 'flow_module' || contextElement.type === 'flow_module_code_piece'}
+					<FlowModuleIcon module={contextElement as FlowModule} size={16} />
 				{:else}
-					<svelte:component this={icon} size={16} />
+					{@const SvelteComponent = icon}
+					<SvelteComponent size={16} />
 				{/if}
 			</button>
-			{contextElement.title}
+			<span class="truncate">
+				{contextElement.type === 'diff'
+					? contextElement.title.replace(/_/g, ' ')
+					: contextElement.title}
+			</span>
 		</div>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{/snippet}
+	{#snippet content()}
 		{#if contextElement.type === 'error'}
 			<div class="max-w-96 max-h-[300px] text-xs overflow-auto">
 				<Highlight language={json} code={contextElement.content} class="w-full p-2" />
@@ -67,14 +78,28 @@
 					<div class="text-tertiary">Not loaded yet</div>
 				{/if}
 			</div>
-		{:else if contextElement.type === 'code' || contextElement.type === 'code_piece' || contextElement.type === 'diff'}
+		{:else if contextElement.type === 'code' || contextElement.type === 'code_piece' || contextElement.type === 'diff' || contextElement.type === 'flow_module_code_piece'}
 			<div class="max-w-96 max-h-[300px] text-xs overflow-auto">
 				<HighlightCode
 					language={contextElement.lang}
 					code={contextElement.content}
-					class="w-full p-2 "
+					className="w-full p-2 "
 				/>
 			</div>
+		{:else if contextElement.type === 'flow_module'}
+			{#if contextElement.value.content}
+				<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
+					<HighlightCode
+						language={contextElement.value.language}
+						code={contextElement.value.content}
+						className="w-full p-2 "
+					/>
+				</div>
+			{:else}
+				<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
+					<div class="text-tertiary">{contextElement.title}</div>
+				</div>
+			{/if}
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 </Popover>

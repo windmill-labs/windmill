@@ -39,6 +39,7 @@ export interface Setting {
 		checked: (values: Record<string, any>) => boolean
 	}
 	hiddenIfNull?: boolean
+	hiddenIfEmpty?: boolean
 	requiresReloadOnChange?: boolean
 	isValid?: (value: any) => boolean
 	error?: string
@@ -81,12 +82,11 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			error: 'Base url must start with http:// or https:// and not end with / or a space',
 			isValid: (value: string | undefined) =>
-				value
-					? value?.startsWith('http') &&
-					  value.includes('://') &&
-					  !value?.endsWith('/') &&
-					  !value?.endsWith(' ')
-					: false
+				value == undefined ||
+				(value?.startsWith('http') &&
+					value.includes('://') &&
+					!value?.endsWith('/') &&
+					!value?.endsWith(' '))
 		},
 		{
 			label: 'Email domain',
@@ -188,12 +188,13 @@ export const settings: Record<string, Setting[]> = {
 			key: 'openai_azure_base_path',
 			fieldType: 'text',
 			storage: 'setting',
-			ee_only: ''
+			ee_only: '',
+			hiddenIfEmpty: true
 		},
 		{
 			label: 'Private Hub base url',
 			description:
-				'Base URL of your private Hub instance, without trailing slash. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
+				'Base URL of your Private Hub instance, without trailing slash. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
 			placeholder: 'https://hub.company.com',
 			key: 'hub_base_url',
 			fieldType: 'text',
@@ -224,6 +225,25 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			requiresReloadOnChange: true
+		},
+		{
+			label: 'Private Hub API secret',
+			description:
+				'If access to your Private Hub is restricted, you can set the hub API secret here. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
+			key: 'hub_api_secret',
+			fieldType: 'password',
+			storage: 'setting',
+			ee_only: '',
+			requiresReloadOnChange: true
+		},
+		{
+			label: 'App workspace prefix',
+			description:
+				'When enabled apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path} allowing you to define same custom path for apps in different workspace without conflict',
+			key: 'app_workspaced_route',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
 		}
 	],
 	'Auth/OAuth/SAML': [],
@@ -322,6 +342,33 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: ''
 		},
+		{
+			label: 'Ruby Gems repositories',
+			description: 'Add private Ruby repositories with credentials. Should end with /',
+			key: 'ruby_repos',
+			fieldType: 'text',
+			placeholder: 'https://user:password@gems.foo.com/',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'PowerShell Repository URL',
+			description: 'Add private PowerShell repository URL',
+			key: 'powershell_repo_url',
+			placeholder:
+				'https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json',
+			fieldType: 'text',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'PowerShell Repository PAT',
+			description: 'Add private PowerShell repository Personal Access Token',
+			key: 'powershell_repo_pat',
+			fieldType: 'password',
+			storage: 'setting',
+			ee_only: ''
+		}
 	],
 	Alerts: [
 		{

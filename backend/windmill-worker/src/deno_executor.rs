@@ -8,11 +8,10 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         create_args_and_out_file, get_reserved_variables, parse_npm_config, read_file, read_result,
-        start_child_process, OccupancyMetrics,
+        start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
-    DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY,
-    PATH_ENV, TZ_ENV,
+    DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -145,7 +144,7 @@ pub async fn generate_deno_lock(
         .envs(deno_envs)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child_process = start_child_process(child_cmd, DENO_PATH.as_str()).await?;
+    let mut child_process = start_child_process(child_cmd, DENO_PATH.as_str(), false).await?;
 
     if let Some(db) = db {
         handle_child(
@@ -162,10 +161,11 @@ pub async fn generate_deno_lock(
             false,
             occupancy_metrics,
             None,
+            None,
         )
         .await?;
     } else {
-        child_process.wait().await?;
+        Box::into_pin(child_process.wait()).await?;
     }
 
     let path_lock = format!("{job_dir}/lock.json");
@@ -194,13 +194,15 @@ pub async fn handle_deno_job(
     envs: HashMap<String, String>,
     new_args: &mut Option<HashMap<String, Box<RawValue>>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
     // let mut start = Instant::now();
     let logs1 = "\n\n--- DENO CODE EXECUTION ---\n".to_string();
     append_logs(&job.id, &job.workspace_id, logs1, conn).await;
 
     let main_override = job.script_entrypoint_override.as_deref();
-    let apply_preprocessor = !job.is_flow_step() && job.preprocessed == Some(false);
+    let apply_preprocessor =
+        job.flow_step_id.as_deref() != Some("preprocessor") && job.preprocessed == Some(false);
 
     write_file(job_dir, "main.ts", inner_content)?;
 
@@ -283,6 +285,10 @@ BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
 
+function isAsyncIterable(obj) {{
+    return obj != null && typeof obj[Symbol.asyncIterator] === 'function';
+}}
+
 async function run() {{
     {dates}
     {preprocessor}
@@ -291,6 +297,12 @@ async function run() {{
         throw new Error("{main_name} function is missing");
     }}
     let res: any = await {main_name}(...argsArr);
+    if (isAsyncIterable(res)) {{
+        for await (const chunk of res) {{
+            console.log("WM_STREAM: " + chunk.replace(/\n/g, '\\n'));
+        }}
+        res = null;
+    }}
     const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     await Deno.writeTextFile("result.json", res_json);
     Deno.exit(0);
@@ -402,13 +414,17 @@ try {{
             .envs(reserved_variables)
             .envs(common_deno_proc_envs)
             .args(args)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(deno_cmd, DENO_PATH.as_str()).await?
+        start_child_process(deno_cmd, DENO_PATH.as_str(), false).await?
     };
+
+    let stream_notifier = StreamNotifier::new(conn, job);
+
     // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
     // start = Instant::now();
-    handle_child(
+    let handle_result = handle_child(
         &job.id,
         conn,
         mem_peak,
@@ -422,8 +438,12 @@ try {{
         false,
         &mut Some(occupancy_metrics),
         None,
+        stream_notifier,
     )
     .await?;
+
+    *has_stream = handle_result.result_stream.is_some();
+
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
     if let Err(e) = tokio::fs::remove_dir_all(format!("{DENO_CACHE_DIR}/gen/file/{job_dir}")).await
     {
@@ -445,7 +465,7 @@ try {{
             })?;
         *new_args = Some(args.clone());
     }
-    read_result(job_dir).await
+    read_result(job_dir, handle_result.result_stream).await
 }
 
 async fn build_import_map(
@@ -528,6 +548,8 @@ pub async fn start_worker(
         "NOT_AVAILABLE",
         "dedicated_worker",
         Some(script_path.to_string()),
+        None,
+        None,
         None,
         None,
         None,

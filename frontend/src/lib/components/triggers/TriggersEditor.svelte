@@ -20,6 +20,21 @@
 		type Trigger
 	} from './utils'
 	import { isCloudHosted } from '$lib/cloud'
+	import {
+		ScheduleService,
+		WebsocketTriggerService,
+		PostgresTriggerService,
+		KafkaTriggerService,
+		NatsTriggerService,
+		MqttTriggerService,
+		HttpTriggerService,
+		GcpTriggerService,
+		SqsTriggerService,
+		EmailTriggerService
+	} from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
+	import Alert from '../common/alert/Alert.svelte'
+	import type { FlowEditorContext } from '../flows/types'
 
 	interface Props {
 		noEditor: boolean
@@ -67,6 +82,11 @@
 	const useVerticalTriggerBar = $derived(width < 1000)
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const chatInputEnabled = $derived(
+		Boolean(flowEditorContext?.flowStore?.val?.value?.chat_input_enabled)
+	)
+
 	const dispatch = createEventDispatcher()
 	onDestroy(() => {
 		dispatch('exitTriggers')
@@ -77,10 +97,55 @@
 		triggersState.selectedTriggerIndex = triggerIndex
 	}
 
-	function deleteDraftTrigger(triggerIndex: number | undefined) {
+	let deletingTrigger = $state<number | undefined>(undefined)
+	async function deleteDeployedTrigger(triggerIndex: number) {
+		const { type: triggerType, path: triggerPath } = triggersState.triggers[triggerIndex]
+		if (!triggerPath) {
+			return
+		}
+
+		const deleteHandlers = {
+			schedule: () => ScheduleService.deleteSchedule,
+			websocket: () => WebsocketTriggerService.deleteWebsocketTrigger,
+			postgres: () => PostgresTriggerService.deletePostgresTrigger,
+			kafka: () => KafkaTriggerService.deleteKafkaTrigger,
+			nats: () => NatsTriggerService.deleteNatsTrigger,
+			gcp: () => GcpTriggerService.deleteGcpTrigger,
+			sqs: () => SqsTriggerService.deleteSqsTrigger,
+			mqtt: () => MqttTriggerService.deleteMqttTrigger,
+			http: () => HttpTriggerService.deleteHttpTrigger,
+			email: () => EmailTriggerService.deleteEmailTrigger
+		}
+
+		const deleteHandler = deleteHandlers[triggerType as keyof typeof deleteHandlers]
+		if (deleteHandler && deletingTrigger !== triggerIndex) {
+			deletingTrigger = triggerIndex
+			try {
+				await deleteHandler()({
+					workspace: $workspaceStore ?? '',
+					path: triggerPath ?? ''
+				})
+				sendUserToast(`Successfully deleted ${triggerType} trigger: ${triggerPath}`)
+			} catch (error) {
+				sendUserToast(error.body || error.message, true)
+			} finally {
+				deletingTrigger = undefined
+			}
+		}
+	}
+
+	async function deleteTrigger(triggerIndex: number | undefined) {
 		if (triggerIndex === undefined) {
 			return
 		}
+		// If the trigger is deployed, delete the trigger from the db
+		if (
+			!triggersState.triggers[triggerIndex].isDraft &&
+			triggersState.triggers[triggerIndex].path
+		) {
+			await deleteDeployedTrigger(triggerIndex)
+		}
+
 		triggersState.deleteTrigger(triggersCount, triggerIndex)
 		triggersState.selectedTriggerIndex = triggersState.triggers.length - 1
 	}
@@ -169,6 +234,14 @@
 				isFlow,
 				$userStore
 			)
+		} else if (triggerType === 'email') {
+			await triggersState.fetchEmailTriggers(
+				triggersCount,
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
 		}
 
 		triggersState.selectedTriggerIndex = triggersState.triggers.findIndex(
@@ -213,6 +286,13 @@
 </script>
 
 <div bind:clientWidth={width} class="h-full w-full">
+	{#if chatInputEnabled}
+		<div class="p-2 pb-0">
+			<Alert type="warning" title="Chat Input Mode Enabled" size="xs">
+				This flow will only accept <span class="font-mono text-xs bg-surface-secondary px-1 rounded">user_message</span> as input parameter.
+			</Alert>
+		</div>
+	{/if}
 	<FlowCard {noEditor} noHeader>
 		<Splitpanes horizontal>
 			<Pane>
@@ -226,10 +306,10 @@
 								triggers={triggersState.triggers}
 								{isEditor}
 								onAddDraftTrigger={handleAddTrigger}
-								onDeleteDraft={deleteDraftTrigger}
+								onDeleteDraft={deleteTrigger}
 								onReset={handleResetDraft}
 								webhookToken={$triggersCount?.webhook_count}
-								emailToken={$triggersCount?.email_count}
+								emailToken={$triggersCount?.default_email_count}
 							/>
 						</div>
 					{:else}
@@ -286,7 +366,7 @@
 										{schema}
 										{isEditor}
 										onDelete={() => {
-											deleteDraftTrigger(triggersState.selectedTriggerIndex)
+											deleteTrigger(triggersState.selectedTriggerIndex)
 										}}
 										onUpdate={(path) => {
 											handleUpdate(triggersState.selectedTriggerIndex, path)
@@ -303,15 +383,15 @@
 										onReset={() => {
 											handleResetDraft(triggersState.selectedTriggerIndex)
 										}}
-										on:email-domain={({ detail }) => {
-											emailDomain = detail
+										onEmailDomain={(domain) => {
+											emailDomain = domain
 										}}
 									/>
 								</div>
 							{/key}
 						{:else}
 							<span class="text-sm text-tertiary text-center mx-auto mt-2"
-								>{`Select a trigger from the ${useVerticalTriggerBar ? 'left toolbar' : 'table'} or a create a new one`}</span
+								>{`Select a trigger from the ${useVerticalTriggerBar ? 'left toolbar' : 'table'} or create a new one`}</span
 							>
 						{/if}
 					</div>

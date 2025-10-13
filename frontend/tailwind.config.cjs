@@ -1,5 +1,8 @@
 const plugin = require('tailwindcss/plugin')
-const { tailwindClasses } = require('./src/lib/components/apps/editor/componentsPanel/tailwindUtils')
+const {
+	tailwindClasses
+} = require('./src/lib/components/apps/editor/componentsPanel/tailwindUtils')
+const { zIndexes } = require('./src/lib/zIndexes')
 
 const lightTheme = {
 	surface: '#ffffff',
@@ -11,6 +14,7 @@ const lightTheme = {
 	textPrimary: '#2d3748',
 	textSecondary: '#4a5568',
 	textTertiary: '#505c70',
+	textHint: '#757E8F',
 	textDisabled: '#a0aec0',
 
 	border: '#dddddd',
@@ -29,6 +33,7 @@ const darkTheme = {
 	textPrimary: '#EEEEEE',
 	textSecondary: '#C2C9D1',
 	textTertiary: '#A8AEB7',
+	textHint: '#989DA5',
 	textDisabled: '#989DA5',
 
 	border: '#3e4c60',
@@ -82,6 +87,7 @@ const config = {
 		'autocomplete-list-item-create',
 		'selected',
 		'wm-tab-selected',
+		...Object.values(zIndexes).map((zIndex) => `z-[${zIndex}]`),
 		...tailwindClasses
 	],
 	theme: {
@@ -409,6 +415,7 @@ const config = {
 			primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
 			secondary: 'rgb(var(--color-text-secondary) / <alpha-value>)',
 			tertiary: 'rgb(var(--color-text-tertiary) / <alpha-value>)',
+			hint: 'rgb(var(--color-text-hint) / <alpha-value>)',
 			disabled: 'rgb(var(--color-text-disabled) / <alpha-value>)',
 
 			'surface-inverse': 'rgb(var(--color-surface-inverse) / <alpha-value>)',
@@ -420,6 +427,7 @@ const config = {
 			'primary-inverse': 'rgb(var(--color-text-primary-inverse) / <alpha-value>)',
 			'secondary-inverse': 'rgb(var(--color-text-secondary-inverse) / <alpha-value>)',
 			'tertiary-inverse': 'rgb(var(--color-text-tertiary-inverse) / <alpha-value>)',
+			'hint-inverse': 'rgb(var(--color-text-hint-inverse) / <alpha-value>)',
 			'disabled-inverse': 'rgb(var(--color-text-disabled-inverse) / <alpha-value>)'
 		},
 		fontFamily: {
@@ -475,7 +483,8 @@ const config = {
 			},
 			animation: {
 				'spin-counter-clockwise': 'spin-counter-clockwise 1s linear infinite',
-				'zoom-in': 'zoom-in 0.25s ease-in-out'
+				'zoom-in': 'zoom-in 0.25s ease-in-out',
+				'fade-out': 'fade-out 1s ease-in-out'
 			},
 			keyframes: {
 				'spin-counter-clockwise': {
@@ -484,6 +493,10 @@ const config = {
 				'zoom-in': {
 					'0%': { transform: 'scale(0.95)' },
 					'100%': { transform: 'scale(1)' }
+				},
+				'fade-out': {
+					'0%': { opacity: '1' },
+					'100%': { opacity: '0' }
 				}
 			}
 		}
@@ -510,6 +523,7 @@ const config = {
 					'--color-text-primary': lightThemeRgb.textPrimary,
 					'--color-text-secondary': lightThemeRgb.textSecondary,
 					'--color-text-tertiary': lightThemeRgb.textTertiary,
+					'--color-text-hint': lightThemeRgb.textHint,
 					'--color-text-disabled': lightThemeRgb.textDisabled,
 
 					'--color-surface-inverse': darkThemeRgb.surface,
@@ -521,6 +535,7 @@ const config = {
 					'--color-text-primary-inverse': darkThemeRgb.textPrimary,
 					'--color-text-secondary-inverse': darkThemeRgb.textSecondary,
 					'--color-text-tertiary-inverse': darkThemeRgb.textTertiary,
+					'--color-text-hint-inverse': darkThemeRgb.textHint,
 					'--color-text-disabled-inverse': darkThemeRgb.textDisabled,
 
 					'--color-border': lightThemeRgb.border,
@@ -551,6 +566,7 @@ const config = {
 						'--color-text-primary': darkThemeRgb.textPrimary,
 						'--color-text-secondary': darkThemeRgb.textSecondary,
 						'--color-text-tertiary': darkThemeRgb.textTertiary,
+						'--color-text-hint': darkThemeRgb.textHint,
 						'--color-text-disabled': darkThemeRgb.textDisabled,
 
 						'--color-surface-inverse': lightThemeRgb.surface,
@@ -562,6 +578,7 @@ const config = {
 						'--color-text-primary-inverse': lightThemeRgb.textPrimary,
 						'--color-text-secondary-inverse': lightThemeRgb.textSecondary,
 						'--color-text-tertiary-inverse': lightThemeRgb.textTertiary,
+						'--color-text-hint-inverse': lightThemeRgb.textHint,
 						'--color-text-disabled-inverse': lightThemeRgb.textDisabled,
 
 						'--color-border': darkThemeRgb.border,
@@ -652,7 +669,7 @@ const config = {
 				".dark [type='checkbox']:checked": {
 					backgroundImage: `url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e")`
 				},
-				'input:not(.windmillapp),input[type="text"]:not(.windmillapp),input[type="email"]:not(.windmillapp),input[type="url"]:not(.windmillapp),input[type="password"]:not(.windmillapp),input[type="number"]:not(.windmillapp),input[type="date"]:not(.windmillapp),input[type="datetime-local"]:not(.windmillapp),input[type="month"]:not(.windmillapp),input[type="search"]:not(.windmillapp),input[type="tel"]:not(.windmillapp),input[type="time"]:not(.windmillapp),input[type="week"]:not(.windmillapp),textarea:not(.windmillapp):not(.monaco-mouse-cursor-text),select:not(.windmillapp)':
+				'input:not(.windmillapp):not(.no-default-style),input[type="text"]:not(.windmillapp):not(.no-default-style),input[type="email"]:not(.windmillapp):not(.no-default-style),input[type="url"]:not(.windmillapp):not(.no-default-style),input[type="password"]:not(.windmillapp):not(.no-default-style),input[type="number"]:not(.windmillapp):not(.no-default-style),input[type="date"]:not(.windmillapp):not(.no-default-style),input[type="datetime-local"]:not(.windmillapp):not(.no-default-style),input[type="month"]:not(.windmillapp):not(.no-default-style),input[type="search"]:not(.windmillapp):not(.no-default-style),input[type="tel"]:not(.windmillapp):not(.no-default-style),input[type="time"]:not(.windmillapp):not(.no-default-style),input[type="week"]:not(.windmillapp):not(.no-default-style),textarea:not(.windmillapp):not(.no-default-style):not(.monaco-mouse-cursor-text),select:not(.windmillapp):not(.no-default-style)':
 					{
 						display: 'block',
 						fontSize: theme('fontSize.sm'),
@@ -677,7 +694,7 @@ const config = {
 							}
 						}
 					},
-				'.dark input:not(.windmillapp),.dark input[type="text"]:not(.windmillapp),.dark input[type="email"]:not(.windmillapp),.dark input[type="url"]:not(.windmillapp),.dark input[type="password"]:not(.windmillapp),.dark input[type="number"]:not(.windmillapp),.dark input[type="date"]:not(.windmillapp),.dark input[type="datetime-local"]:not(.windmillapp),.dark input[type="month"]:not(.windmillapp),.dark input[type="search"]:not(.windmillapp),.dark input[type="tel"]:not(.windmillapp),.dark input[type="time"]:not(.windmillapp),.dark input[type="week"]:not(.windmillapp),.dark textarea:not(.windmillapp):not(.monaco-mouse-cursor-text),.dark select:not(.windmillapp)':
+				'.dark input:not(.windmillapp):not(.no-default-style),.dark input[type="text"]:not(.windmillapp):not(.no-default-style),.dark input[type="email"]:not(.windmillapp):not(.no-default-style),.dark input[type="url"]:not(.windmillapp):not(.no-default-style),.dark input[type="password"]:not(.windmillapp):not(.no-default-style),.dark input[type="number"]:not(.windmillapp):not(.no-default-style),.dark input[type="date"]:not(.windmillapp):not(.no-default-style),.dark input[type="datetime-local"]:not(.windmillapp):not(.no-default-style),.dark input[type="month"]:not(.windmillapp):not(.no-default-style),.dark input[type="search"]:not(.windmillapp):not(.no-default-style),.dark input[type="tel"]:not(.windmillapp):not(.no-default-style),.dark input[type="time"]:not(.windmillapp):not(.no-default-style),.dark input[type="week"]:not(.windmillapp):not(.no-default-style),.dark textarea:not(.windmillapp):not(.no-default-style):not(.monaco-mouse-cursor-text),.dark select:not(.windmillapp):not(.no-default-style)':
 					{
 						backgroundColor: theme('colors.gray.700'),
 						color: theme('colors.gray.200'),

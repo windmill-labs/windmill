@@ -12,7 +12,9 @@
 	import type { IDbTableOps } from './dbOps'
 	import { deepEqual } from 'fast-equals'
 	import 'ag-grid-community/styles/ag-grid.css'
+	import 'ag-grid-community/styles/ag-theme-alpine.css'
 	import '$lib/components/apps/components/display/table/theme/windmill-theme.css'
+	import { untrack } from 'svelte'
 
 	type Props = {
 		dbTableOps: IDbTableOps
@@ -45,7 +47,7 @@
 	let refreshCount = $state(0)
 	const refresh = () => (refreshCount += 1)
 
-	$effect(() => eGui && mountGrid())
+	$effect(() => eGui && untrack(() => mountGrid()))
 	function mountGrid() {
 		if (eGui && !api) {
 			createGrid(eGui, {
@@ -54,7 +56,7 @@
 				...(dbTableOps.onUpdate && {
 					defaultColDef: {
 						flex: 1,
-						minWidth: 160,
+						minWidth: 150,
 						editable: true,
 						onCellValueChanged: (e) => {
 							if (!$workspaceStore) return
@@ -76,7 +78,6 @@
 					}
 				}),
 				onViewportChanged: (e) => ([firstRow, lastRow] = [e.firstRow, e.lastRow]),
-				infiniteInitialRowCount: 100,
 				cacheBlockSize: 100,
 				cacheOverflowSize: 10,
 				maxBlocksInCache: 20,
@@ -95,7 +96,7 @@
 		const key = { quicksearch, colDefs: dbTableOps.colDefs, refreshCount }
 		if (deepEqual(key, prevUpdateKey)) return
 		prevUpdateKey = key
-		updateGrid()
+		untrack(() => updateGrid())
 	})
 	function updateGrid() {
 		dbTableOps.getCount({ quicksearch }).then((result) => (rowCount = result))
@@ -140,7 +141,7 @@
 		{#if dbTableOps.onInsert}
 			<InsertRowDrawerButton
 				columnDefs={dbTableOps.colDefs ?? []}
-				dbType={dbTableOps.resourceType}
+				dbType={dbTableOps.dbType}
 				onInsert={(values) => {
 					if (!$workspaceStore) return
 					dbTableOps.onInsert?.({ values }).then((result) => {
@@ -186,7 +187,9 @@
 		<div class="flex gap-1 w-full justify-between items-center text-xs text-primary p-2">
 			<div>
 				<Popover>
-					<svelte:fragment slot="text">Download</svelte:fragment>
+					{#snippet text()}
+						Download
+					{/snippet}
 					<Button
 						startIcon={{ icon: Download }}
 						color="light"

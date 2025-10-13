@@ -18,7 +18,7 @@
 		type DbType,
 		getTablesByResource
 	} from './utils'
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
 	import { workspaceStore, type DBSchemas } from '$lib/stores'
 	import { Drawer } from '$lib/components/common'
@@ -38,19 +38,31 @@
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import InsertRowDrawerButton from '../InsertRowDrawerButton.svelte'
+	import { getDucklakeSchema, type DbInput } from '$lib/components/dbOps'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'dbexplorercomponent'> | undefined = undefined
-	export let render: boolean
-	export let initializing: boolean = true
-	export let actions: TableAction[] = []
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		customCss?: ComponentCustomCSS<'dbexplorercomponent'> | undefined
+		render: boolean
+		initializing?: boolean
+		actions?: TableAction[]
+	}
 
-	$: table = resolvedConfig.type.configuration?.[resolvedConfig.type?.selected]?.table as
-		| string
-		| undefined
+	let {
+		id,
+		configuration,
+		customCss = undefined,
+		render,
+		initializing = $bindable(undefined),
+		actions = []
+	}: Props = $props()
 
-	$: table !== null && render && clearColumns()
+	$effect.pre(() => {
+		if (initializing === undefined) {
+			initializing = true
+		}
+	})
 
 	function clearColumns() {
 		// We only want to clear the columns if the table has changed
@@ -75,25 +87,14 @@
 		// @ts-ignore
 		gridItem.data.configuration.columnDefs = { value: [], type: 'static', loading: false }
 
-		$app = {
-			...$app
-		}
+		$app = $app
 	}
 
-	const resolvedConfig = initConfig(
-		components['dbexplorercomponent'].initialData.configuration,
-		configuration
+	const resolvedConfig = $state(
+		initConfig(components['dbexplorercomponent'].initialData.configuration, configuration)
 	)
 
-	$: resolvedConfig.type.selected &&
-		render &&
-		computeInput(
-			resolvedConfig.columnDefs,
-			resolvedConfig.whereClause,
-			resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
-		)
-
-	let timeoutInput: NodeJS.Timeout | undefined = undefined
+	let timeoutInput: number | undefined = undefined
 
 	function computeInput(columnDefs: any, whereClause: string | undefined, resource: any) {
 		if (timeoutInput) {
@@ -104,11 +105,10 @@
 			console.log('compute input')
 
 			input = getSelectInput(
-				resource,
+				dbInput,
 				resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
 				columnDefs,
-				whereClause,
-				resolvedConfig.type.selected as DbType
+				whereClause
 			)
 		}, 1000)
 	}
@@ -117,34 +117,41 @@
 		getContext<AppViewerContext>('AppViewerContext')
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
-	let input: AppInput | undefined = undefined
-	let quicksearch = ''
-	let aggrid: AppAggridExplorerTable
+	let input: AppInput | undefined = $state(undefined)
+	let quicksearch = $state('')
+	let aggrid: AppAggridExplorerTable | undefined = $state()
 
-	$: editorContext != undefined && $mode == 'dnd' && resolvedConfig.type && listTables()
-
-	$: editorContext != undefined &&
-		$mode == 'dnd' &&
-		resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table &&
-		listColumnsIfAvailable()
-
-	let firstQuicksearch = true
-	$: if (quicksearch !== undefined) {
-		if (firstQuicksearch) {
-			firstQuicksearch = false
-		} else {
-			aggrid?.clearRows()
-		}
-	}
+	let firstQuicksearch = $state(true)
 
 	initializing = false
 
-	let updateCell: UpdateCell
+	let updateCell: UpdateCell | undefined = $state()
 
-	let renderCount = 0
+	let renderCount = $state(0)
 	let insertDrawer: Drawer | undefined = undefined
-	let componentContainerHeight: number | undefined = undefined
-	let buttonContainerHeight: number | undefined = undefined
+	let componentContainerHeight: number | undefined = $state(undefined)
+	let buttonContainerHeight: number | undefined = $state(undefined)
+
+	let dbPath = $derived(
+		resolvedConfig.type.selected !== 'ducklake'
+			? resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
+			: resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.ducklake
+	)
+	let dbInput: DbInput = $derived(
+		resolvedConfig.type.selected === 'ducklake'
+			? {
+					type: 'ducklake',
+					ducklake: dbPath.split('ducklake://')[1]
+				}
+			: {
+					type: 'database',
+					resourcePath: dbPath.split('$res:')[1],
+					resourceType: resolvedConfig.type.selected as DbType
+				}
+	)
+	let dbtype = $derived(
+		resolvedConfig.type.selected === 'ducklake' ? ('duckdb' as const) : resolvedConfig.type.selected
+	)
 
 	function onUpdate(
 		e: CustomEvent<{
@@ -159,14 +166,13 @@
 		const { columnDef, value, data, oldValue } = e.detail
 
 		updateCell?.triggerUpdate(
-			resolvedConfig.type.configuration[resolvedConfig.type.selected].resource,
+			dbInput,
 			resolvedConfig.type.configuration[resolvedConfig.type.selected].table ?? 'unknown',
 			columnDef,
 			resolvedConfig.columnDefs,
 			value,
 			data,
-			oldValue,
-			resolvedConfig.type.selected as DbType
+			oldValue
 		)
 	}
 
@@ -206,46 +212,40 @@
 	}
 
 	async function listTables() {
-		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
+		if (!dbPath) return
+		if (lastResource === dbPath) return
+		lastResource = dbPath
 
-		if (!resource) return
-
-		if (lastResource === resource) return
-		lastResource = resource
 		const gridItem = findGridItem($app, id)
-
-		if (!gridItem) {
-			return
-		}
+		if (!gridItem) return
 
 		updateOneOfConfiguration(
 			gridItem.data.configuration.type as OneOfConfiguration,
 			resolvedConfig.type,
-			{
-				table: {
-					selectOptions: [],
-					loading: true
-				}
-			}
+			{ table: { selectOptions: [], loading: true } }
 		)
 
-		if (!resolvedConfig.type?.configuration?.[resolvedConfig.type.selected]?.resource) {
-			$app = {
-				...$app
-			}
+		if (!dbPath) {
+			$app = $app
 			return
 		}
 
 		try {
 			const dbSchemas: DBSchemas = {}
-
-			await getDbSchemas(
-				resolvedConfig?.type?.selected,
-				resolvedConfig.type.configuration[resolvedConfig?.type?.selected].resource.split(':')[1],
-				$workspaceStore,
-				dbSchemas,
-				() => {}
-			)
+			if (resolvedConfig?.type?.selected === 'ducklake') {
+				dbSchemas[dbPath] = await getDucklakeSchema({
+					workspace: $workspaceStore!,
+					ducklake: dbPath.split('ducklake://')[1]
+				})
+			} else {
+				await getDbSchemas(
+					resolvedConfig?.type?.selected,
+					dbPath.split('$res:')[1],
+					$workspaceStore,
+					dbSchemas,
+					() => {}
+				)
+			}
 
 			updateOneOfConfiguration(
 				gridItem.data.configuration.type as OneOfConfiguration,
@@ -253,25 +253,18 @@
 				{
 					table: {
 						selectOptions: dbSchemas
-							? await getTablesByResource(
-									dbSchemas,
-									resolvedConfig?.type?.selected,
-									resource.split(':')[1],
-									$workspaceStore!
-								)
+							? await getTablesByResource(dbSchemas, dbtype, dbPath, $workspaceStore!)
 							: [],
 						loading: false
 					}
 				}
 			)
 
-			$app = {
-				...$app
-			}
+			$app = $app
 		} catch (e) {}
 	}
 
-	let datasource: IDatasource = {
+	let datasource: IDatasource = $state({
 		rowCount: 0,
 		getRows: async function (params) {
 			const currentParams = {
@@ -292,7 +285,7 @@
 			}
 
 			runnableComponent?.runComponent(undefined, undefined, undefined, currentParams, {
-				done: (items) => {
+				onDone: (items) => {
 					let lastRow = -1
 
 					if (datasource?.rowCount && datasource.rowCount <= params.endRow) {
@@ -324,18 +317,18 @@
 						params.failCallback()
 					}
 				},
-				cancel: () => {
+				onCancel: () => {
 					params.failCallback()
 				},
-				error: () => {
+				onError: (error) => {
 					params.failCallback()
 				}
 			})
 		}
-	}
+	})
 
-	let lastTable: string | undefined = undefined
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let lastTable: string | undefined = $state(undefined)
+	let timeout: number | undefined = undefined
 
 	function isSubset(subset: Record<string, any>, superset: Record<string, any>) {
 		return Object.keys(subset).every((key) => {
@@ -384,10 +377,18 @@
 		$app = $app
 
 		let tableMetadata = await loadTableMetaData(
-			resolvedConfig.type.configuration[selected].resource,
+			resolvedConfig.type.selected === 'ducklake'
+				? {
+						type: 'ducklake',
+						ducklake: dbPath.split('ducklake://')[1]
+					}
+				: {
+						type: 'database',
+						resourcePath: dbPath.split('$res:')[1],
+						resourceType: dbtype
+					},
 			$workspaceStore,
-			resolvedConfig.type.configuration[selected].table,
-			selected
+			resolvedConfig.type.configuration[selected].table
 		)
 
 		if (!tableMetadata) return
@@ -448,7 +449,7 @@
 			return o
 		})
 
-		state = undefined
+		componentState = undefined
 
 		// If in the mean time the table has changed, we don't want to update the columnDefs
 		if (lastTable !== table) {
@@ -473,8 +474,6 @@
 			renderCount += 1
 		}, 1500)
 	}
-
-	$: $worldStore && render && connectToComponents()
 
 	function connectToComponents() {
 		if ($worldStore && datasource !== undefined) {
@@ -519,12 +518,11 @@
 			const selected = resolvedConfig.type.selected
 
 			await insertRowRunnable?.insertRow(
-				resolvedConfig.type.configuration[selected].resource,
+				dbInput,
 				$workspaceStore,
 				resolvedConfig.type.configuration[selected].table,
 				resolvedConfig.columnDefs,
-				args,
-				selected
+				args
 			)
 
 			insertDrawer?.closeDrawer()
@@ -534,33 +532,68 @@
 		}
 	}
 
-	let runnableComponent: RunnableComponent
-	let state: any = undefined
-	let insertRowRunnable: InsertRowRunnable
-	let deleteRow: DeleteRow
-	let dbExplorerCount: DbExplorerCount | undefined = undefined
+	let runnableComponent: RunnableComponent | undefined = $state()
+	let componentState: any = $state(undefined)
+	let insertRowRunnable: InsertRowRunnable | undefined = $state()
+	let deleteRow: DeleteRow | undefined = $state()
+	let dbExplorerCount: DbExplorerCount | undefined = $state(undefined)
 
 	function onDelete(e) {
 		const data = { ...e.detail }
 		delete data['__index']
 
-		const selected = resolvedConfig.type.selected
-
 		deleteRow?.triggerDelete(
-			resolvedConfig.type.configuration[selected].resource,
-			resolvedConfig.type.configuration[selected].table ?? 'unknown',
+			dbInput,
+			resolvedConfig.type.configuration[resolvedConfig.type.selected].table ?? 'unknown',
 			resolvedConfig.columnDefs,
-			data,
-			selected
+			data
 		)
 	}
 
-	let refreshCount = 0
+	let refreshCount = $state(0)
 
-	$: hideSearch = resolvedConfig.hideSearch as boolean
-	$: hideInsert = resolvedConfig.hideInsert as boolean
-
-	let loading: boolean = false
+	let loading: boolean = $state(false)
+	let table = $derived(
+		resolvedConfig.type.configuration?.[resolvedConfig.type?.selected]?.table as string | undefined
+	)
+	$effect(() => {
+		table !== null && render && untrack(() => clearColumns())
+	})
+	$effect(() => {
+		;[resolvedConfig.columnDefs, resolvedConfig.whereClause, resolvedConfig.type.selected]
+		resolvedConfig.type.selected &&
+			render &&
+			untrack(() => {
+				computeInput(resolvedConfig.columnDefs, resolvedConfig.whereClause, dbPath)
+			})
+	})
+	$effect(() => {
+		editorContext != undefined &&
+			$mode == 'dnd' &&
+			resolvedConfig.type &&
+			dbPath &&
+			untrack(() => listTables())
+	})
+	$effect(() => {
+		editorContext != undefined &&
+			$mode == 'dnd' &&
+			resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table &&
+			untrack(() => listColumnsIfAvailable())
+	})
+	$effect(() => {
+		if (quicksearch !== undefined) {
+			if (firstQuicksearch) {
+				firstQuicksearch = false
+			} else if (aggrid) {
+				untrack(() => aggrid?.clearRows())
+			}
+		}
+	})
+	$effect(() => {
+		$worldStore && render && untrack(() => connectToComponents())
+	})
+	let hideSearch = $derived(resolvedConfig.hideSearch as boolean)
+	let hideInsert = $derived(resolvedConfig.hideInsert as boolean)
 </script>
 
 {#each Object.keys(components['dbexplorercomponent'].initialData.configuration) as key (key)}
@@ -600,8 +633,7 @@
 		{id}
 		{quicksearch}
 		{table}
-		resource={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.resource}
-		resourceType={resolvedConfig?.type?.selected}
+		{dbInput}
 		columnDefs={resolvedConfig?.columnDefs}
 		whereClause={resolvedConfig?.whereClause}
 	/>
@@ -644,21 +676,21 @@
 					{#if hideInsert !== true}
 						<InsertRowDrawerButton
 							columnDefs={resolvedConfig.columnDefs}
-							dbType={resolvedConfig.type.selected}
+							dbType={dbtype}
 							onInsert={(args) => insert(args)}
 						/>
 					{/if}
 				</div>
 			</div>
 		{/if}
-		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
+		{#if dbPath && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
 			<!-- {JSON.stringify(lastInput)} -->
 			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
 			{#key renderCount && render}
 				<!-- {JSON.stringify(resolvedConfig.columnDefs)} -->
 				<AppAggridExplorerTable
 					bind:this={aggrid}
-					bind:state
+					bind:componentState
 					{id}
 					{datasource}
 					{resolvedConfig}
@@ -680,19 +712,3 @@
 		{/if}
 	</div>
 </RunnableWrapper>
-
-<!-- <Portal name="db-explorer">
-	<Drawer bind:this={insertDrawer} size="800px">
-		<DrawerContent title="Insert row" on:close={insertDrawer.closeDrawer}>
-			<svelte:fragment slot="actions">
-				<Button color="dark" size="xs" on:click={insert} disabled={!isInsertable}>Insert</Button>
-			</svelte:fragment>
-			<InsertRow
-				bind:args
-				bind:isInsertable
-				columnDefs={resolvedConfig.columnDefs}
-				dbType={resolvedConfig.type.selected}
-			/>
-		</DrawerContent>
-	</Drawer>
-</Portal> -->

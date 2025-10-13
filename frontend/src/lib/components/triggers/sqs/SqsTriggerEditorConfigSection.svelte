@@ -3,10 +3,9 @@
 	import Required from '$lib/components/Required.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { emptyStringTrimmed } from '$lib/utils'
-	import MultiSelect from 'svelte-multiselect'
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
-	import { Plus, X } from 'lucide-svelte'
+	import { Plus } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ArgInput from '$lib/components/ArgInput.svelte'
@@ -16,35 +15,52 @@
 	import { VariableService, type AwsAuthResourceType } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import TestingBadge from '../testingBadge.svelte'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
-	export let can_write: boolean = false
-	export let headless: boolean = false
-	export let isValid: boolean = false
-	export let queue_url = ''
-	export let aws_resource_path = ''
-	export let aws_auth_resource_type: AwsAuthResourceType = 'credentials'
-	export let message_attributes: string[] = []
-	export let showTestingBadge: boolean = false
+	interface Props {
+		can_write?: boolean
+		headless?: boolean
+		isValid?: boolean
+		queue_url?: string
+		aws_resource_path?: string
+		aws_auth_resource_type?: AwsAuthResourceType
+		message_attributes?: string[]
+		showTestingBadge?: boolean
+	}
+
+	let {
+		can_write = false,
+		headless = false,
+		isValid = $bindable(false),
+		queue_url = $bindable(''),
+		aws_resource_path = $bindable(''),
+		aws_auth_resource_type = $bindable('credentials'),
+		message_attributes = $bindable([]),
+		showTestingBadge = false
+	}: Props = $props()
 
 	async function loadVariables() {
 		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
 	}
-	let itemPicker: ItemPicker
-	let variableEditor: VariableEditor
-	let cached: string[] = []
+	let itemPicker: ItemPicker | undefined = $state()
+	let variableEditor: VariableEditor | undefined = $state()
+	let cached: string[] = $state([])
 	let all_attributes = message_attributes.includes('All')
-	let tab: 'specific' | 'all' = all_attributes ? 'all' : 'specific'
+	let tab: 'specific' | 'all' = $state(all_attributes ? 'all' : 'specific')
 
-	$: isValid = !emptyStringTrimmed(aws_resource_path) && !emptyStringTrimmed(queue_url)
+	$effect(() => {
+		isValid = !emptyStringTrimmed(aws_resource_path) && !emptyStringTrimmed(queue_url)
+	})
 </script>
 
 <div>
 	<Section label="SQS" {headless}>
-		<svelte:fragment slot="badge">
+		{#snippet badge()}
 			{#if showTestingBadge}
 				<TestingBadge />
 			{/if}
-		</svelte:fragment>
+		{/snippet}
 		<div class="flex flex-col w-full gap-4">
 			<Subsection label="Connection setup">
 				<div class="flex flex-col gap-3">
@@ -58,10 +74,11 @@
 							on:selected={() => {
 								aws_resource_path = ''
 							}}
-							let:item
 						>
-							<ToggleButton label="Credentials" value="credentials" {item} />
-							<ToggleButton label="Oidc" value="oidc" {item} />
+							{#snippet children({ item })}
+								<ToggleButton label="Credentials" value="credentials" {item} />
+								<ToggleButton label="Oidc" value="oidc" {item} />
+							{/snippet}
 						</ToggleButtonGroup>
 
 						{#if aws_auth_resource_type === 'credentials'}
@@ -116,33 +133,22 @@
 							}
 							tab = detail
 						}}
-						let:item
 					>
-						<ToggleButton value="all" label="All attributes" {item} />
-						<ToggleButton value="specific" label="Specific attributes" {item} />
+						{#snippet children({ item })}
+							<ToggleButton value="all" label="All attributes" {item} />
+							<ToggleButton value="specific" label="Specific attributes" {item} />
+						{/snippet}
 					</ToggleButtonGroup>
 				</div>
 				<div class="flex flex-col mt-3 gap-1">
 					<MultiSelect
-						options={message_attributes ?? []}
-						allowUserOptions="append"
-						bind:selected={message_attributes}
-						ulOptionsClass={'!bg-surface !text-sm'}
-						ulSelectedClass="!text-sm"
-						outerDivClass="!bg-surface !min-h-[38px] !border-[#d1d5db]"
-						noMatchingOptionsMsg=""
-						createOptionMsg={null}
-						duplicates={false}
+						bind:value={message_attributes}
+						items={safeSelectItems(message_attributes)}
+						onCreateItem={(x) => message_attributes.push(x)}
 						placeholder="Set message attributes"
-						--sms-options-margin="4px"
+						noItemsMsg="Add message attributes to filter on"
 						disabled={tab === 'all'}
-					>
-						<svelte:fragment slot="remove-icon">
-							<div class="hover:text-primary p-0.5">
-								<X size={12} />
-							</div>
-						</svelte:fragment>
-					</MultiSelect>
+					/>
 				</div>
 			</Subsection>
 		</div>
@@ -159,21 +165,23 @@
 	itemName="Variable"
 	extraField="path"
 	loadItems={loadVariables}
-	buttons={{ 'Edit/View': (x) => variableEditor.editVariable(x) }}
+	buttons={{ 'Edit/View': (x) => variableEditor?.editVariable(x) }}
 >
-	<div slot="submission" class="flex flex-row">
-		<Button
-			variant="border"
-			color="blue"
-			size="sm"
-			startIcon={{ icon: Plus }}
-			on:click={() => {
-				variableEditor.initNew()
-			}}
-		>
-			New variable
-		</Button>
-	</div>
+	{#snippet submission()}
+		<div class="flex flex-row">
+			<Button
+				variant="border"
+				color="blue"
+				size="sm"
+				startIcon={{ icon: Plus }}
+				on:click={() => {
+					variableEditor?.initNew()
+				}}
+			>
+				New variable
+			</Button>
+		</div>
+	{/snippet}
 </ItemPicker>
 
 <VariableEditor bind:this={variableEditor} on:create={itemPicker.openDrawer} />

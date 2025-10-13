@@ -6,11 +6,21 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { createEventDispatcher } from 'svelte'
 
-	export let componentNumber: number = 0
-	export let interval: number | undefined = undefined
-	export let refreshing: string[] = []
-	export let progress: number = 100
-	export let loading: boolean | undefined = false
+	interface Props {
+		componentNumber?: number
+		interval?: number | undefined
+		refreshing?: string[]
+		progress?: number
+		loading?: boolean | undefined
+	}
+
+	let {
+		componentNumber = 0,
+		interval = undefined,
+		refreshing = [],
+		progress = 100,
+		loading = false
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -53,7 +63,7 @@
 		</Button>
 
 		<Dropdown {items} class="w-fit h-auto">
-			<svelte:fragment slot="buttonReplacement">
+			{#snippet buttonReplacement()}
 				<div
 					class="flex flex-row gap-2 text-xs bg-surface hover:bg-surface-hover px-2 items-center h-7"
 				>
@@ -66,7 +76,7 @@
 						<TimerReset size={14} />
 					</div>
 				</div>
-			</svelte:fragment>
+			{/snippet}
 		</Dropdown>
 	</div>
 	{#if interval}

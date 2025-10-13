@@ -1,28 +1,43 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initCss } from '../../utils'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import JobLoader from '$lib/components/JobLoader.svelte'
 	import type { Job } from '$lib/gen'
 	import { components } from '../../editor/component'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
-	export let id: string
-	export let initializing: boolean | undefined = false
-	export let customCss: ComponentCustomCSS<'jobidlogcomponent'> | undefined = undefined
-	export let configuration: RichConfigurations
-	export let render: boolean
+	interface Props {
+		id: string
+		initializing?: boolean | undefined
+		customCss?: ComponentCustomCSS<'jobidlogcomponent'> | undefined
+		configuration: RichConfigurations
+		render: boolean
+	}
+
+	let {
+		id,
+		initializing = $bindable(undefined),
+		customCss = undefined,
+		configuration,
+		render
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (initializing) {
+			initializing = false
+		}
+	})
 
 	const { app, worldStore, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['jobidlogcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['jobidlogcomponent'].initialData.configuration, configuration)
 	)
 
 	const outputs = initOutput($worldStore, id, {
@@ -33,16 +48,30 @@
 
 	initializing = false
 
-	let css = initCss($app.css?.jobidlogcomponent, customCss)
+	let css = $state(initCss($app.css?.jobidlogcomponent, customCss))
 
-	let testJobLoader: TestJobLoader | undefined = undefined
-	let testIsLoading: boolean = false
-	let testJob: Job | undefined = undefined
+	let jobLoader: JobLoader | undefined = $state(undefined)
+	let testIsLoading: boolean = $state(false)
+	let testJob: Job | undefined = $state(undefined)
 
-	$: if (resolvedConfig.jobId) {
-		outputs.loading.set(true)
-		testJobLoader?.watchJob(resolvedConfig?.['jobId'])
-	}
+	$effect(() => {
+		if (resolvedConfig.jobId) {
+			untrack(() => {
+				outputs.loading.set(true)
+				const jobId = resolvedConfig?.['jobId']
+				if (jobId) {
+					let callbacks = {
+						done(x) {
+							outputs.loading.set(false)
+							outputs.jobId.set(x.id)
+							outputs.result.set(x.result)
+						}
+					}
+					jobLoader?.watchJob(jobId, callbacks)
+				}
+			})
+		}
+	})
 </script>
 
 {#each Object.keys(components['jobidlogcomponent'].initialData.configuration) as key (key)}
@@ -64,16 +93,12 @@
 	/>
 {/each}
 
-<TestJobLoader
+<JobLoader
+	noCode={true}
 	workspaceOverride={workspace}
-	bind:this={testJobLoader}
+	bind:this={jobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
-	on:done={(e) => {
-		outputs.loading.set(false)
-		outputs.jobId.set(e.detail.id)
-		outputs.result.set(e.detail.result)
-	}}
 />
 
 <InitializeComponent {id} />

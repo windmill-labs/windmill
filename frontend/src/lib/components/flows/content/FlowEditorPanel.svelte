@@ -1,30 +1,59 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
 	import FlowSettings from './FlowSettings.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowConstants from './FlowConstants.svelte'
-	import type { FlowModule, Flow } from '$lib/gen'
-	import { initFlowStepWarnings } from '../utils'
-	import { dfs } from '../dfs'
+	import type { FlowModule, Flow, Job } from '$lib/gen'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
-	import { insertNewPreprocessorModule } from '../flowStateUtils'
+	import { insertNewPreprocessorModule } from '../flowStateUtils.svelte'
 	import TriggersEditor from '../../triggers/TriggersEditor.svelte'
 	import { handleSelectTriggerFromKind, type Trigger } from '$lib/components/triggers/utils'
+	import { computeMissingInputWarnings } from '../missingInputWarnings'
+	import FlowResult from './FlowResult.svelte'
+	import type { StateStore } from '$lib/utils'
 
-	export let noEditor = false
-	export let enableAi = false
-	export let newFlow = false
-	export let disabledFlowInputs = false
-	export let savedFlow:
-		| (Flow & {
-				draft?: Flow | undefined
-		  })
-		| undefined = undefined
-	export let onDeployTrigger: (trigger: Trigger) => void = () => {}
+	interface Props {
+		noEditor?: boolean
+		enableAi?: boolean
+		newFlow?: boolean
+		disabledFlowInputs?: boolean
+		savedFlow?:
+			| (Flow & {
+					draft?: Flow | undefined
+			  })
+			| undefined
+		onDeployTrigger?: (trigger: Trigger) => void
+		forceTestTab?: Record<string, boolean>
+		highlightArg?: Record<string, string | undefined>
+		onTestFlow?: () => Promise<string | undefined>
+		job?: Job
+		isOwner?: boolean
+		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
+		onOpenDetails?: () => void
+		previewOpen?: boolean
+	}
+
+	let {
+		noEditor = false,
+		enableAi = false,
+		newFlow = false,
+		disabledFlowInputs = false,
+		savedFlow = undefined,
+		onDeployTrigger = () => {},
+		forceTestTab,
+		highlightArg,
+		onTestFlow,
+		job,
+		isOwner,
+		suspendStatus,
+		onOpenDetails,
+		previewOpen = false
+	}: Props = $props()
+
 	const {
 		selectedId,
 		flowStore,
@@ -50,33 +79,13 @@
 		}
 	}
 
-	async function initWarnings() {
-		for (const module of $flowStore?.value?.modules) {
-			if (!module) {
-				continue
-			}
-
-			if (!$flowInputsStore) {
-				$flowInputsStore = {}
-			}
-
-			$flowInputsStore[module?.id] = {
-				flowStepWarnings: await initFlowStepWarnings(
-					module.value,
-					$flowStateStore?.[module?.id]?.schema,
-					dfs($flowStore.value.modules, (fm) => fm.id)
-				)
-			}
-		}
-	}
-
-	onMount(() => {
-		initWarnings()
+	$effect(() => {
+		computeMissingInputWarnings(flowStore, flowStateStore.val, flowInputsStore)
 	})
 </script>
 
 {#if $selectedId?.startsWith('settings')}
-	<FlowSettings {noEditor} />
+	<FlowSettings {enableAi} {noEditor} />
 {:else if $selectedId === 'Input'}
 	<FlowInput
 		{noEditor}
@@ -87,9 +96,11 @@
 			showCaptureHint.set(true)
 		}}
 		on:applyArgs
+		{onTestFlow}
+		{previewOpen}
 	/>
 {:else if $selectedId === 'Result'}
-	<p class="p-4 text-secondary">The result of the flow will be the result of the last node.</p>
+	<FlowResult {noEditor} {job} {isOwner} {suspendStatus} {onOpenDetails} />
 {:else if $selectedId === 'constants'}
 	<FlowConstants {noEditor} />
 {:else if $selectedId === 'failure'}
@@ -108,7 +119,7 @@
 		on:updateSchema={(e) => {
 			const { payloadData, redirect } = e.detail
 			if (payloadData) {
-				$previewArgs = JSON.parse(JSON.stringify(payloadData))
+				previewArgs.val = JSON.parse(JSON.stringify(payloadData))
 			}
 			if (redirect) {
 				$selectedId = 'Input'
@@ -123,11 +134,11 @@
 		{noEditor}
 		newItem={newFlow}
 		isFlow={true}
-		hasPreprocessor={!!$flowStore.value.preprocessor_module}
+		hasPreprocessor={!!flowStore.val.value.preprocessor_module}
 		canHavePreprocessor={true}
-		args={$previewArgs}
+		args={previewArgs.val}
 		isDeployed={savedFlow && !savedFlow?.draft_only}
-		schema={$flowStore.schema}
+		schema={flowStore.val.schema}
 		{onDeployTrigger}
 	/>
 {:else if $selectedId.startsWith('subflow:')}
@@ -135,18 +146,20 @@
 		>Selected step is witin an expanded subflow and is not directly editable in the flow editor</div
 	>
 {:else}
-	{@const dup = checkDup($flowStore.value.modules)}
+	{@const dup = checkDup(flowStore.val.value.modules)}
 	{#if dup}
 		<div class="text-red-600 text-xl p-2">There are duplicate modules in the flow at id: {dup}</div>
 	{:else}
 		{#key $selectedId}
-			{#each $flowStore.value.modules as flowModule, index (flowModule.id ?? index)}
+			{#each flowStore.val.value.modules as flowModule, index (flowModule.id ?? index)}
 				<FlowModuleWrapper
 					{noEditor}
-					bind:flowModule={$flowStore.value.modules[index]}
-					previousModule={$flowStore.value.modules[index - 1]}
+					bind:flowModule={flowStore.val.value.modules[index]}
+					previousModule={flowStore.val.value.modules[index - 1]}
 					{enableAi}
 					savedModule={savedFlow?.value.modules[index]}
+					{forceTestTab}
+					{highlightArg}
 				/>
 			{/each}
 		{/key}

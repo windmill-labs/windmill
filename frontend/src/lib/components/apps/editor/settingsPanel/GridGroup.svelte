@@ -8,14 +8,18 @@
 	import { Plus } from 'lucide-svelte'
 	import { Alert } from '$lib/components/common'
 
-	export let groupFields: RichConfigurations | undefined
-	export let item: GridItem
+	interface Props {
+		groupFields: RichConfigurations | undefined
+		item: GridItem
+	}
 
-	let groupManagementDrawer: GroupManagementDrawer | undefined = undefined
+	let { groupFields = $bindable(), item }: Props = $props()
+
+	let groupManagementDrawer: GroupManagementDrawer | undefined = $state(undefined)
 
 	// const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
-	let fieldName: string = ''
+	let fieldName: string = $state('')
 	function addField(name: string) {
 		if (name == '') return
 		groupFields = {
@@ -92,7 +96,8 @@
 			<div class="flex flex-row gap-2 items-center relative">
 				<input
 					type="text"
-					on:keydown|stopPropagation={(event) => {
+					onkeydown={(event) => {
+						event.stopPropagation()
 						switch (event.key) {
 							case 'Enter':
 								event.preventDefault()

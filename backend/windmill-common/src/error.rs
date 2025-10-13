@@ -40,6 +40,8 @@ pub enum Error {
     RequireAdmin(String),
     #[error("{0}")]
     ExecutionErr(String),
+    #[error("{0}")]
+    ResultTooLarge(String),
     #[error("IoErr: {error:#} @{location:#}")]
     IoErr { error: io::Error, location: String },
     #[error("Utf8Err: {error:#} @{location:#}")]
@@ -82,6 +84,44 @@ pub enum Error {
     ArgumentErr(String),
     #[error("{1}")]
     Generic(StatusCode, String),
+}
+
+impl Error {
+    pub fn name(&self) -> &str {
+        match self {
+            Self::ExecutionErr(_) => "ExecutionErr",
+            Self::ResultTooLarge(_) => "ResultTooLarge",
+            Self::BadRequest(_) => "BadRequest",
+            Self::QuotaExceeded(_) => "QuotaExceeded",
+            Self::InternalErr(_) => "InternalErr",
+            Self::InternalErrLoc { .. } => "InternalErr",
+            Self::InternalErrAt(_, _) => "InternalErr",
+            Self::Anyhow { .. } => "Anyhow",
+            Self::JsonErr(_) => "JsonErr",
+            Self::AIError(_) => "AIError",
+            Self::AlreadyCompleted(_) => "AlreadyCompleted",
+            Self::FindPythonError(_) => "FindPythonError",
+            Self::ArgumentErr(_) => "ArgumentErr",
+            Self::Generic(_, _) => "Generic",
+            Self::IoErr { .. } => "IoErr",
+            Self::Utf8Err { .. } => "Utf8Err",
+            Self::UuidErr { .. } => "UuidErr",
+            Self::SqlErr { .. } => "SqlErr",
+            Self::SerdeJson { .. } => "SerdeJson",
+            Self::HexErr { .. } => "HexErr",
+            Self::DatabaseMigration(_) => "DatabaseMigration",
+            Self::ExitStatus(_, _) => "ExitStatus",
+            Self::ExecutionRawError(_) => "ExecutionRawError",
+            Self::BadGateway(_) => "BadGateway",
+            Self::BadConfig(_) => "BadConfig",
+            Self::ConnectingToDatabase(_) => "ConnectingToDatabase",
+            Self::NotFound(_) => "NotFound",
+            Self::NotAuthorized(_) => "NotAuthorized",
+            Self::MetricNotFound(_) => "MetricNotFound",
+            Self::PermissionDenied(_) => "PermissionDenied",
+            _ => "InternalErr",
+        }
+    }
 }
 
 fn prettify_location(location: &'static Location<'static>) -> String {
@@ -138,6 +178,13 @@ impl From<serde_json::Error> for Error {
     #[track_caller]
     fn from(e: serde_json::Error) -> Self {
         Self::SerdeJson { error: e, location: prettify_location(std::panic::Location::caller()) }
+    }
+}
+
+impl From<url::ParseError> for Error {
+    #[track_caller]
+    fn from(e: url::ParseError) -> Self {
+        Self::ArgumentErr(format!("Cannot parse provided url. \ne: {e}"))
     }
 }
 
@@ -244,5 +291,44 @@ where
 {
     fn from(err: E) -> Self {
         Self(err.into())
+    }
+}
+#[cfg(feature = "parquet")]
+impl From<object_store::Error> for Error {
+    fn from(err: object_store::Error) -> Self {
+        use object_store::Error::*;
+        match err {
+            Generic { store, source } => Error::Generic(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Generic {} error: {}", store, source),
+            ),
+            NotFound { path, source } => Error::NotFound(format!("{}: {}", path, source)),
+            InvalidPath { source } => Error::BadRequest(format!("Invalid path: {}", source)),
+            JoinError { source } => Error::InternalErr(format!("Join error: {}", source)),
+            NotSupported { source } => {
+                Error::BadRequest(format!("Operation not supported: {}", source))
+            }
+            AlreadyExists { path, source } => {
+                Error::BadRequest(format!("Object at {} already exists: {}", path, source))
+            }
+            Precondition { path, source } => {
+                Error::BadRequest(format!("Precondition failed at {}: {}", path, source))
+            }
+            NotModified { path, source } => {
+                Error::ExecutionErr(format!("Not modified at {}: {}", path, source))
+            }
+            NotImplemented => Error::BadRequest("Operation not yet implemented.".to_string()),
+            PermissionDenied { path, source } => {
+                Error::PermissionDenied(format!("Permission denied at {}: {}", path, source))
+            }
+            Unauthenticated { path, source } => {
+                Error::NotAuthorized(format!("Unauthenticated for {}: {}", path, source))
+            }
+            UnknownConfigurationKey { store, key } => Error::BadConfig(format!(
+                "Invalid config key '{}' for store '{}'",
+                key, store
+            )),
+            _ => Error::InternalErr(format!("Object store error: {}", err)),
+        }
     }
 }

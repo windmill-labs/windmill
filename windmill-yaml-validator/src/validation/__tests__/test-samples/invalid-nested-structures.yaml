@@ -1,0 +1,89 @@
+summary: Invalid Nested Structures
+description: Testing deeply nested invalid structures
+value:
+  modules:
+    - id: deeply_nested_invalid
+      value:
+        type: forloopflow
+        modules:
+          - id: nested_branch
+            value:
+              type: branchone
+              branches:
+                - expr: "invalid expression syntax"
+                  modules:
+                    - id: triple_nested
+                      value:
+                        type: whileloopflow
+                        modules:
+                          - id: quad_nested
+                            value:
+                              type: rawscript
+                              input_transforms:
+                                invalid_transform:
+                                  type: invalid_type
+                                  # Missing required fields for transform
+                              content: 123  # should be string
+                              language: "cobol"  # invalid enum
+                        skip_failures: []  # should be boolean
+                        # Missing condition
+              default: null  # should be array
+              # Missing required branches structure
+        iterator:
+          type: static
+          # Missing required value
+        skip_failures: {}  # should be boolean
+        parallelism: -5  # should be positive integer
+    
+    - id: invalid_input_transforms
+      value:
+        type: rawscript
+        input_transforms:
+          transform1:
+            type: javascript
+            # Missing required expr for javascript transform
+          transform2:
+            type: static
+            # Missing required value for static transform
+          transform3:
+            type: unknown_type
+            value: "test"
+        content: ""  # empty content
+        language: deno
+    
+    - id: invalid_suspend_config
+      suspend:
+        required_events: "not_a_number"
+        timeout: -1  # should be positive
+        resume_form:
+          schema: "not_an_object"
+        user_auth_required: "not_a_boolean"
+        user_groups_required:
+          type: invalid_transform
+      value:
+        type: identity
+    
+    - id: invalid_mock_config
+      mock:
+        enabled: "not_a_boolean"
+        return_value: 
+          # Circular reference attempt
+          self_ref: *self_ref
+      value:
+        type: rawscript
+        input_transforms: {}
+        content: "test"
+        language: python3
+    
+    - id: invalid_retry_config
+      retry:
+        constant:
+          attempts: "not_a_number"
+          seconds: -1
+        exponential:
+          attempts: 0  # should be positive
+          multiplier: "not_a_number"
+          seconds: -5
+          random_factor: 150  # should be 0-100
+      value:
+        type: identity

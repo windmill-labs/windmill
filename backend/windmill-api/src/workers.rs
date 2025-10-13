@@ -28,7 +28,7 @@ use crate::{db::ApiAuthed, utils::require_super_admin};
 pub fn global_service() -> Router {
     Router::new()
         .route("/list", get(list_worker_pings))
-        .route("/exists_worker_with_tag", get(exists_worker_with_tag))
+        .route("/exists_workers_with_tags", get(exists_workers_with_tags))
         .route("/custom_tags", get(get_custom_tags))
         .route(
             "/is_default_tags_per_workspace",
@@ -37,6 +37,7 @@ pub fn global_service() -> Router {
         .route("/get_default_tags", get(get_default_tags))
         .route("/queue_metrics", get(get_queue_metrics))
         .route("/queue_counts", get(get_queue_counts))
+        .route("/queue_running_counts", get(get_queue_running_counts))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -70,10 +71,10 @@ struct WorkerPing {
     wm_memory_usage: Option<i64>,
 }
 
-#[derive(Serialize, Deserialize)]
-struct EnableWorkerQuery {
-    disable: bool,
-}
+// #[derive(Serialize, Deserialize)]
+// struct EnableWorkerQuery {
+//     disable: bool,
+// }
 
 #[derive(Deserialize)]
 pub struct ListWorkerQuery {
@@ -113,24 +114,38 @@ async fn list_worker_pings(
 }
 
 #[derive(Serialize, Deserialize)]
-struct TagQuery {
-    tag: String,
+struct TagsQuery {
+    tags: String,
 }
 
-async fn exists_worker_with_tag(
+async fn exists_workers_with_tags(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Query(tag_query): Query<TagQuery>,
-) -> JsonResult<bool> {
+    Query(tags_query): Query<TagsQuery>,
+) -> JsonResult<std::collections::HashMap<String, bool>> {
     let mut tx = user_db.begin(&authed).await?;
-    let row = sqlx::query!(
-        "SELECT EXISTS(SELECT 1 FROM worker_ping WHERE custom_tags @> $1 AND ping_at > now() - interval '1 minute')",
-        &[tag_query.tag]
+    let mut result = std::collections::HashMap::new();
+
+    // Create a query that checks all tags at once using unnest
+    let tags = tags_query
+        .tags
+        .split(',')
+        .map(|s| s.to_string())
+        .collect::<Vec<String>>();
+    let rows = sqlx::query!(
+        "SELECT tag::text, EXISTS(SELECT 1 FROM worker_ping WHERE custom_tags @> ARRAY[tag] AND ping_at > now() - interval '1 minute') as exists
+         FROM unnest($1::text[]) as tag",
+        tags.as_slice()
     )
-    .fetch_one(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
+
+    for row in rows {
+        result.insert(row.tag.unwrap_or_default(), row.exists.unwrap_or(false));
+    }
+
     tx.commit().await?;
-    Ok(Json(row.exists.unwrap_or(false)))
+    Ok(Json(result))
 }
 
 #[derive(Deserialize)]
@@ -146,33 +161,12 @@ async fn get_custom_tags(Query(query): Query<CustomTagQuery>) -> JsonResult<Vec<
     }
     if let Some(workspace) = query.workspace {
         let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
-        let workspace_tags = tags_o
-            .1
-            .iter()
-            .filter(|(_, workspaces)| workspaces.contains(&workspace))
-            .map(|(tag, _)| tag.clone())
-            .collect::<Vec<String>>();
-        let all_tags = tags_o.0.clone();
-        return Ok(Json(
-            all_tags
-                .into_iter()
-                .chain(workspace_tags.into_iter())
-                .collect(),
-        ));
+        let all_tags = tags_o.to_string_vec(Some(workspace));
+        return Ok(Json(all_tags));
     } else if query.show_workspace_restriction.is_some_and(|x| x) {
         let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
-        let workspace_tags = tags_o
-            .1
-            .iter()
-            .map(|(tag, workspaces)| format!("{}({})", tag, workspaces.join("+")))
-            .collect::<Vec<String>>();
-        let all_tags = tags_o.0.clone();
-        return Ok(Json(
-            all_tags
-                .into_iter()
-                .chain(workspace_tags.into_iter())
-                .collect(),
-        ));
+        let all_tags = tags_o.to_string_vec(None);
+        return Ok(Json(all_tags));
     }
     Ok(Json(ALL_TAGS.read().await.clone().into()))
 }
@@ -225,4 +219,13 @@ async fn get_queue_counts(
     require_super_admin(&db, &authed.email).await?;
     let queue_counts = windmill_common::queue::get_queue_counts(&db).await;
     Ok(Json(queue_counts))
+}
+
+async fn get_queue_running_counts(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<std::collections::HashMap<String, u32>> {
+    require_super_admin(&db, &authed.email).await?;
+    let queue_running_counts = windmill_common::queue::get_queue_running_counts(&db).await;
+    Ok(Json(queue_running_counts))
 }

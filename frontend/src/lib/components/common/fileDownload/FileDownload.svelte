@@ -3,9 +3,13 @@
 	import { Download } from 'lucide-svelte'
 	import { base } from '$lib/base'
 
-	export let s3object: any
-	export let workspaceId: string | undefined = undefined
-	export let appPath: string | undefined = undefined
+	interface Props {
+		s3object: any
+		workspaceId?: string | undefined
+		appPath?: string | undefined
+	}
+
+	let { s3object, workspaceId = undefined, appPath = undefined }: Props = $props()
 </script>
 
 <a
@@ -21,5 +25,7 @@ duration-200 rounded-lg p-1 gap-2"
 	download={s3object?.s3.split('/').pop() ?? 'unnamed_download.file'}
 >
 	<Download />
-	<span>s3://{s3object.s3} {s3object.storage ? ` (${s3object.storage})` : ''}</span>
+	<span>
+		{s3object.storage ? `s3://${s3object.storage}/${s3object.s3}` : `s3:///${s3object.s3}`}
+	</span>
 </a>

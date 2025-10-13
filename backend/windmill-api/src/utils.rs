@@ -6,8 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::fmt::Display;
-
 use axum::{body::Body, response::Response};
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
@@ -20,6 +18,8 @@ use windmill_common::{
     DB,
 };
 
+use crate::{db::ApiAuthed, scopes::ScopeDefinition};
+
 #[cfg(feature = "enterprise")]
 use windmill_common::error::JsonResult;
 
@@ -31,21 +31,10 @@ pub struct WithStarredInfoQuery {
     pub with_starred_info: Option<bool>,
 }
 
+// Shared structs for bulk delete operations
 #[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RunnableKind {
-    Script,
-    Flow,
-}
-
-impl Display for RunnableKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let runnable_kind = match self {
-            RunnableKind::Script => "script",
-            RunnableKind::Flow => "flow"
-        };
-        write!(f, "{}", runnable_kind)
-    }
+pub struct BulkDeleteRequest {
+    pub paths: Vec<String>,
 }
 
 pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
@@ -58,6 +47,36 @@ pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     } else {
         Ok(())
     }
+}
+
+pub fn check_scopes<F>(authed: &ApiAuthed, required: F) -> error::Result<()>
+where
+    F: FnOnce() -> String,
+{
+    if let Some(scopes) = authed.scopes.as_ref() {
+        let mut is_scoped_token = false;
+        let required_scope = ScopeDefinition::from_scope_string(&required())?;
+        for scope in scopes {
+            if !scope.starts_with("if_jobs:filter_tags:") {
+                if !is_scoped_token {
+                    is_scoped_token = true;
+                }
+
+                match ScopeDefinition::from_scope_string(scope) {
+                    Ok(scope) if scope.includes(&required_scope) => return Ok(()),
+                    _ => {}
+                }
+            }
+        }
+
+        if is_scoped_token {
+            return Err(Error::NotAuthorized(format!(
+                "Required scope: {}",
+                required_scope.as_string()
+            )));
+        }
+    }
+    Ok(())
 }
 
 pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
@@ -211,9 +230,8 @@ where
     Ok(o.filter(|s| !s.trim().is_empty()))
 }
 
-use serde::Serialize;
-
-#[derive(Serialize)]
+#[cfg(feature = "enterprise")]
+#[derive(serde::Serialize)]
 pub struct CriticalAlert {
     id: i32,
     alert_type: String,
@@ -429,8 +447,8 @@ pub async fn acknowledge_all_critical_alerts(
 }
 
 #[cfg(feature = "http_trigger")]
-#[derive(Clone)]
-pub struct ExpiringCacheEntry<T> {
-    pub value: T,
-    pub expiry: std::time::Instant,
+pub use windmill_common::utils::ExpiringCacheEntry;
+
+lazy_static::lazy_static! {
+    static ref DUCKLAKE_INSTANCE_PG_PASSWORD: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 }

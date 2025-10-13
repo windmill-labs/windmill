@@ -5,12 +5,16 @@
 	import type { Job } from '$lib/gen'
 	import { Loader2 } from 'lucide-svelte'
 
-	export let frontendJob: boolean | any = false
-	export let testJob: Job | any = undefined
-	export let testIsLoading = false
+	interface Props {
+		frontendJob?: boolean | any
+		testJob?: Job | any
+		testIsLoading?: boolean
+	}
 
-	let logDrawerOpen = false
-	let resultDrawerOpen = false
+	let { frontendJob = false, testJob = undefined, testIsLoading = false }: Props = $props()
+
+	let logDrawerOpen = $state(false)
+	let resultDrawerOpen = $state(false)
 </script>
 
 <Splitpanes horizontal>
@@ -38,11 +42,12 @@
 			<div class="break-words relative h-full px-1">
 				<DisplayResult bind:drawerOpen={resultDrawerOpen} result={frontendJob} />
 			</div>
-		{:else if testJob != undefined && 'result' in testJob && testJob.result != undefined}
+		{:else if testJob != undefined && (testJob.type == 'CompletedJob' || testJob.result_stream)}
 			<div class="break-words relative h-full px-1">
 				<DisplayResult
 					bind:drawerOpen={resultDrawerOpen}
 					workspaceId={testJob?.workspace_id}
+					result_stream={testJob?.result_stream}
 					jobId={testJob?.id}
 					result={testJob.result}
 					language={testJob?.language}

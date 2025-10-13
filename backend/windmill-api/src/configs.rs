@@ -7,21 +7,23 @@
  */
 
 use axum::{
-    extract::{Extension, Path},
+    extract::{Extension, Path, Query},
     routing::{get, post},
     Json, Router,
 };
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     error::{self},
+    utils::Pagination,
+    worker::MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS,
     DB,
 };
 
-use crate::{db::ApiAuthed, utils::require_super_admin};
+use crate::{db::ApiAuthed, utils::require_devops_role};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -32,6 +34,10 @@ pub fn global_service() -> Router {
         .route(
             "/list_autoscaling_events/:worker_group",
             get(list_autoscaling_events),
+        )
+        .route(
+            "/native_kubernetes_autoscaling_healthcheck",
+            get(native_kubernetes_autoscaling_healthcheck),
         )
         .route(
             "/list_available_python_versions",
@@ -103,7 +109,7 @@ async fn get_config(
     Path(name): Path<String>,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Option<serde_json::Value>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
 
     let config = sqlx::query_as!(Config, "SELECT * FROM config WHERE name = $1", name)
         .fetch_optional(&db)
@@ -119,7 +125,7 @@ async fn update_config(
     authed: ApiAuthed,
     Json(config): Json<serde_json::Value>,
 ) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
 
     #[cfg(not(feature = "enterprise"))]
     if name.starts_with("worker__") {
@@ -127,6 +133,42 @@ async fn update_config(
             "Worker groups configurable from UI available only in the enterprise version"
                 .to_string(),
         ));
+    }
+
+    if name.starts_with("worker__") {
+        let periodic_script_bash = config
+            .get("periodic_script_bash")
+            .filter(|v| !v.is_null())
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty());
+
+        let periodic_script_interval = config
+            .get("periodic_script_interval_seconds")
+            .filter(|v| !v.is_null());
+
+        match (periodic_script_bash, periodic_script_interval) {
+            (Some(_), Some(interval_value)) => {
+                if let Some(interval) = interval_value.as_u64() {
+                    if interval < MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS {
+                        return Err(error::Error::BadRequest(format!(
+                            "Periodic script interval must be at least {} seconds, got {} seconds",
+                            MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, interval
+                        )));
+                    }
+                } else {
+                    return Err(error::Error::BadRequest(
+                        "Periodic script interval must be a valid number".to_string(),
+                    ));
+                }
+            }
+            (Some(_), None) => {
+                return Err(error::Error::BadRequest(
+                    "Periodic script interval must be specified when periodic script is configured"
+                        .to_string(),
+                ));
+            }
+            _ => {}
+        }
     }
 
     let mut tx = db.begin().await?;
@@ -157,7 +199,7 @@ async fn delete_config(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
 ) -> error::Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
 
     let mut tx = db.begin().await?;
 
@@ -198,15 +240,42 @@ struct AutoscalingEvent {
 async fn list_autoscaling_events(
     Extension(db): Extension<DB>,
     Path(worker_group): Path<String>,
+    Query(mut pagination): Query<Pagination>,
 ) -> error::JsonResult<Vec<AutoscalingEvent>> {
+    if pagination.per_page.is_none() {
+        pagination.per_page = Some(5);
+    }
+    let (per_page, offset) = windmill_common::utils::paginate(pagination);
+
     let events = sqlx::query_as!(
         AutoscalingEvent,
-        "SELECT id, worker_group, event_type::text, desired_workers, reason, applied_at FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT 5",
-        worker_group
+        "SELECT id, worker_group, event_type::text, desired_workers, reason, applied_at FROM autoscaling_event WHERE worker_group = $1 ORDER BY applied_at DESC LIMIT $2 OFFSET $3",
+        worker_group,
+        per_page as i64,
+        offset as i64
     )
     .fetch_all(&db)
     .await?;
     Ok(Json(events))
+}
+
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn native_kubernetes_autoscaling_healthcheck(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> Result<(), windmill_autoscaling::kubernetes_integration_ee::KubeError> {
+    require_devops_role(&db, &authed.email).await.map_err(|e| {
+        windmill_autoscaling::kubernetes_integration_ee::KubeError::Other(e.to_string())
+    })?;
+
+    windmill_autoscaling::kubernetes_integration_ee::kubernetes_healthcheck().await
+}
+
+#[cfg(not(all(feature = "enterprise", feature = "private")))]
+async fn native_kubernetes_autoscaling_healthcheck() -> Result<(), error::Error> {
+    Err(error::Error::BadRequest(
+        "Native Kubernetes autoscaling available only in the enterprise version".to_string(),
+    ))
 }
 
 async fn list_available_python_versions() -> error::JsonResult<Vec<String>> {
@@ -232,7 +301,7 @@ async fn list_configs(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> error::JsonResult<Vec<Config>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_devops_role(&db, &authed.email).await?;
     let configs = sqlx::query_as!(Config, "SELECT name, config FROM config")
         .fetch_all(&db)
         .await?;

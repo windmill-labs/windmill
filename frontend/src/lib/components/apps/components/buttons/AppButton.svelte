@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type {
 		AppViewerContext,
@@ -22,25 +22,47 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 
-	export let id: string
-	export let componentInput: AppInput | undefined
-	export let configuration: RichConfigurations
-	export let recomputeIds: string[] | undefined = undefined
-	export let extraQueryParams: Record<string, any> = {}
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let noWFull = false
-	export let preclickAction: (() => Promise<void>) | undefined = undefined
-	export let customCss: ComponentCustomCSS<'buttoncomponent'> | undefined = undefined
-	export let render: boolean
-	export let errorHandledByComponent: boolean | undefined = false
-	export let extraKey: string | undefined = undefined
-	export let isMenuItem: boolean = false
-	export let noInitialize = false
-	export let replaceCallback: boolean = false
+	interface Props {
+		id: string
+		componentInput: AppInput | undefined
+		configuration: RichConfigurations
+		recomputeIds?: string[] | undefined
+		extraQueryParams?: Record<string, any>
+		horizontalAlignment?: 'left' | 'center' | 'right' | undefined
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		noWFull?: boolean
+		preclickAction?: (() => Promise<void>) | undefined
+		customCss?: ComponentCustomCSS<'buttoncomponent'> | undefined
+		render: boolean
+		errorHandledByComponent?: boolean | undefined
+		extraKey?: string | undefined
+		isMenuItem?: boolean
+		noInitialize?: boolean
+		replaceCallback?: boolean
+		controls?: { left: () => boolean; right: () => boolean | string } | undefined
+		onDone?: () => void
+	}
 
-	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
-		undefined
+	let {
+		id,
+		componentInput,
+		configuration,
+		recomputeIds = undefined,
+		extraQueryParams = {},
+		horizontalAlignment = undefined,
+		verticalAlignment = undefined,
+		noWFull = false,
+		preclickAction = undefined,
+		customCss = undefined,
+		render,
+		errorHandledByComponent = $bindable(false),
+		extraKey = undefined,
+		isMenuItem = false,
+		noInitialize = false,
+		replaceCallback = false,
+		controls = undefined,
+		onDone = undefined
+	}: Props = $props()
 
 	const { worldStore, app, componentControl, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -49,12 +71,9 @@
 	const iterContext = getContext<ListContext>('ListWrapperContext')
 	const listInputs: ListInputs | undefined = getContext<ListInputs>('ListInputs')
 
-	let resolvedConfig = initConfig(
-		components['buttoncomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['buttoncomponent'].initialData.configuration, configuration)
 	)
-
-	$: errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -66,15 +85,12 @@
 		$componentControl[id] = controls
 	}
 
-	let runnableComponent: RunnableComponent
+	let runnableComponent: RunnableComponent | undefined = $state()
 
-	let confirmedCallback: (() => void) | undefined = undefined
+	let confirmedCallback: (() => void) | undefined = $state(undefined)
 
-	let beforeIconComponent: any
-	let afterIconComponent: any
-
-	$: resolvedConfig.beforeIcon && beforeIconComponent && handleBeforeIcon()
-	$: resolvedConfig.afterIcon && afterIconComponent && handleAfterIcon()
+	let beforeIconComponent: any = $state()
+	let afterIconComponent: any = $state()
 
 	function getIconSize() {
 		switch (resolvedConfig.size as 'xs' | 'xs2' | 'xs3' | 'sm' | 'md' | 'lg' | 'xl') {
@@ -127,16 +143,22 @@
 	})
 
 	let errors: Record<string, string> = {}
-	$: errorsMessage = Object.values(errors)
-		.filter((x) => x != '')
-		.join('\n')
-	let runnableWrapper: RunnableWrapper
+	let runnableWrapper: RunnableWrapper | undefined = $state()
 
 	async function handleClick(event: CustomEvent) {
 		event?.stopPropagation()
 		event?.preventDefault()
 
 		$selectedComponent = [id]
+
+		// Show brief feedback for background mode
+		if (resolvedConfig.runInBackground) {
+			backgroundClickFeedback = true
+			setTimeout(() => {
+				backgroundClickFeedback = false
+			}, 300)
+		}
+
 		const action = async () => {
 			const inputOutput = { result: outputs.result.peak(), loading: true }
 			if (rowContext && rowInputs) {
@@ -162,9 +184,24 @@
 			await action()
 		}
 	}
-	let loading = false
+	let loading = $state(false)
+	let backgroundClickFeedback = $state(false)
 
-	let css = initCss($app.css?.buttoncomponent, customCss)
+	let css = $state(initCss($app.css?.buttoncomponent, customCss))
+	$effect(() => {
+		errorHandledByComponent = resolvedConfig?.onError?.selected !== 'errorOverlay'
+	})
+	$effect.pre(() => {
+		resolvedConfig.beforeIcon && beforeIconComponent && untrack(() => handleBeforeIcon())
+	})
+	$effect.pre(() => {
+		resolvedConfig.afterIcon && afterIconComponent && untrack(() => handleAfterIcon())
+	})
+	let errorsMessage = $derived(
+		Object.values(errors)
+			.filter((x) => x != '')
+			.join('\n')
+	)
 </script>
 
 {#each Object.entries(components['buttoncomponent'].initialData.configuration) as [key, initialConfig] (key)}
@@ -206,6 +243,7 @@
 	{render}
 	{outputs}
 	{extraKey}
+	allowConcurentRequests={resolvedConfig.runInBackground}
 	onSuccess={(r) => {
 		let inputOutput = { result: r, loading: false }
 		if (rowContext && rowInputs) {
@@ -215,6 +253,12 @@
 			listInputs.set(id, inputOutput)
 		}
 	}}
+	on:done={() => {
+		onDone?.()
+	}}
+	on:doneError={() => {
+		onDone?.()
+	}}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
 	{replaceCallback}
 >
@@ -223,45 +267,64 @@
 			<div class="text-red-500 text-xs">{errorsMessage}</div>
 		{/if}
 		{#key css}
-			<Button
-				on:pointerdown={(e) => e.stopPropagation()}
-				btnClasses={twMerge(
-					css?.button?.class ?? '',
-					isMenuItem ? 'flex items-center justify-start' : '',
-					isMenuItem ? '!border-0' : '',
-					'wm-button',
-					`wm-button-${resolvedConfig.color}`
-				)}
-				variant={isMenuItem ? 'border' : 'contained'}
-				style={css?.button?.style}
-				wrapperClasses={twMerge(
-					css?.container?.class ?? '',
-					resolvedConfig.fillContainer ? 'w-full h-full' : '',
-					isMenuItem ? 'w-full' : '',
-					'wm-button-container',
-					`wm-button-container-${resolvedConfig.color}`
-				)}
-				wrapperStyle={css?.container?.style}
-				disabled={resolvedConfig.disabled}
-				on:click={handleClick}
-				size={resolvedConfig.size}
-				color={resolvedConfig.color}
-				{loading}
+			<div
+				class="inline-flex"
+				title={resolvedConfig.tooltip && String(resolvedConfig.tooltip).length > 0
+					? String(resolvedConfig.tooltip)
+					: undefined}
 			>
-				{#if resolvedConfig.beforeIcon}
-					{#key resolvedConfig.beforeIcon}
-						<div class="min-w-4" bind:this={beforeIconComponent}></div>
-					{/key}
-				{/if}
-				{#if resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0}
-					<div>{resolvedConfig.label.toString()}</div>
-				{/if}
-				{#if resolvedConfig.afterIcon}
-					{#key resolvedConfig.afterIcon}
-						<div class="min-w-4" bind:this={afterIconComponent}></div>
-					{/key}
-				{/if}
-			</Button>
+				<Button
+					on:pointerdown={(e) => e.stopPropagation()}
+					btnClasses={twMerge(
+						css?.button?.class ?? '',
+						isMenuItem ? 'flex items-center justify-start' : '',
+						isMenuItem ? '!border-0' : '',
+						'wm-button',
+						`wm-button-${resolvedConfig.color}`
+					)}
+					variant={isMenuItem ? 'border' : 'contained'}
+					style={css?.button?.style}
+					wrapperClasses={twMerge(
+						css?.container?.class ?? '',
+						resolvedConfig.fillContainer ? 'w-full h-full' : '',
+						isMenuItem ? 'w-full' : '',
+						'wm-button-container',
+						`wm-button-container-${resolvedConfig.color}`
+					)}
+					wrapperStyle={css?.container?.style}
+					disabled={resolvedConfig.disabled}
+					on:click={handleClick}
+					size={resolvedConfig.size}
+					color={resolvedConfig.color}
+					loading={resolvedConfig.runInBackground ? backgroundClickFeedback : loading}
+				>
+					{#if resolvedConfig.beforeIcon}
+						{#key resolvedConfig.beforeIcon}
+							<div
+								class={resolvedConfig.label?.toString() &&
+								resolvedConfig.label?.toString()?.length > 0
+									? 'min-w-4'
+									: ''}
+								bind:this={beforeIconComponent}
+							></div>
+						{/key}
+					{/if}
+					{#if resolvedConfig.label?.toString() && resolvedConfig.label?.toString()?.length > 0}
+						<div>{resolvedConfig.label.toString()}</div>
+					{/if}
+					{#if resolvedConfig.afterIcon}
+						{#key resolvedConfig.afterIcon}
+							<div
+								class={resolvedConfig.label?.toString() &&
+								resolvedConfig.label?.toString()?.length > 0
+									? 'min-w-4'
+									: ''}
+								bind:this={afterIconComponent}
+							></div>
+						{/key}
+					{/if}
+				</Button>
+			</div>
 		{/key}
 	</AlignWrapper>
 </RunnableWrapper>

@@ -1,8 +1,22 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 mkdir openapi || true
-cp  ../backend/windmill-api/openapi.yaml openapi/openapi.yaml
+# cp  ../backend/windmill-api/openapi.yaml openapi/openapi.yaml
+
+LEGACY_WILDCARD="\$ref: \"..\/..\/openflow.openapi.yaml#\/components\/schemas\""
+# We will need to use old syntax of openapi to maintain compatability with previous windmill-api versions.
+# If we use new format, many models use another namespace, thus make it not fully compatible with old versions
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS version using perl
+    perl -0777 -pe "s/# -- INLINE START --\n.*?# -- INLINE END --\n/$LEGACY_WILDCARD\n/s" \
+        ../backend/windmill-api/openapi.yaml > openapi/openapi.yaml
+else
+    # Replace everything between markers with legacy wildcard
+    sed -z "
+        s/# -- INLINE START --\n.*# -- INLINE END --\n/$LEGACY_WILDCARD\n/g;
+    " ../backend/windmill-api/openapi.yaml > openapi/openapi.yaml
+fi
 
 npx @redocly/openapi-cli@latest bundle openapi/openapi.yaml > openapi-bundled.yaml
 
@@ -10,7 +24,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
     # sed -z is not supported on macOS, use perl instead
     perl -0777 -pe 's/FlowModuleValue:/FlowModuleValue2:/g' openapi-bundled.yaml > openapi-decycled.yaml
 else
-    sed -z 's/FlowModuleValue:/FlowModuleValue2:/' openapi-bundled.yaml > openapi-decycled.yaml
+  sed -z 's/FlowModuleValue:/FlowModuleValue2:/' openapi-bundled.yaml > openapi-decycled.yaml
 fi
 
 echo "    FlowModuleValue: {}" >> openapi-decycled.yaml

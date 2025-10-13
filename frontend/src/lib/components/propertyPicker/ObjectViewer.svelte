@@ -3,7 +3,7 @@
 
 	import { copyToClipboard, truncate } from '$lib/utils'
 
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick, untrack, type Snippet } from 'svelte'
 	import { computeKey, keepByKeyOrValue } from './utils'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/models'
 	import Portal from '$lib/components/Portal.svelte'
@@ -13,6 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import Popover from '../Popover.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		json: any
@@ -27,6 +28,8 @@
 		prefix?: string
 		expandedEvenOnLevel0?: string | undefined
 		connecting?: boolean
+		metaData?: Snippet<[any]>
+		editKey?: Snippet<[any]>
 	}
 
 	let {
@@ -41,7 +44,9 @@
 		collapseLevel = undefined,
 		prefix = '',
 		expandedEvenOnLevel0 = undefined,
-		connecting = false
+		connecting = false,
+		metaData,
+		editKey
 	}: Props = $props()
 
 	let jsonFiltered = $state(json)
@@ -53,7 +58,7 @@
 		return searchOpen && search ? keepByKeyOrValue(json, search) : json
 	}
 
-	let searchTimeout: NodeJS.Timeout | undefined = undefined
+	let searchTimeout: number | undefined = undefined
 	function onSearch() {
 		if (searchTimeout) {
 			clearTimeout(searchTimeout)
@@ -76,6 +81,13 @@
 			return 'undefined'
 		}
 		if (Object.keys(arg).length === 1 && Object.keys(arg).includes('s3')) {
+			return 's3object'
+		}
+		if (
+			Object.keys(arg).length === 2 &&
+			Object.keys(arg).includes('s3') &&
+			Object.keys(arg).includes('filename')
+		) {
 			return 's3object'
 		}
 		return typeof arg
@@ -117,7 +129,7 @@
 		jsonFiltered = onJsonChange(json)
 	})
 	$effect(() => {
-		search != undefined && searchOpen && onSearch()
+		search != undefined && searchOpen && untrack(() => onSearch())
 	})
 	let keys = $derived(
 		['object', 's3object'].includes(getTypeAsString(jsonFiltered)) ? Object.keys(jsonFiltered) : []
@@ -127,6 +139,7 @@
 	let closeBracket = $derived(isArray ? ']' : '}')
 	let keyLimit = $derived(isArray ? 5 : 100)
 	let fullyCollapsed = $derived(keys.length > 1 && collapsed)
+	let searchInput: HTMLInputElement | undefined = $state(undefined)
 </script>
 
 {#snippet renderScalar(k: string, v: any)}
@@ -167,9 +180,12 @@
 	</span>
 {/snippet}
 
-<Portal name="object-viewer">
-	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
-</Portal>
+{#if getTypeAsString(jsonFiltered) === 's3object'}
+	<Portal name="object-viewer">
+		<S3FilePicker bind:this={s3FileViewer} readOnlyMode={true} />
+	</Portal>
+{/if}
+
 {#if level == 0}
 	<div class="float-right">
 		{#if searchOpen}
@@ -185,6 +201,7 @@
 					class="!h-6 !text-2xs mt-0.5"
 					bind:value={search}
 					placeholder="Search..."
+					bind:this={searchInput}
 				/>
 				<button
 					class="absolute right-2 top-1 rounded-full hover:bg-surface-hover focus:bg-surface-hover text-secondary p-0.5"
@@ -200,7 +217,10 @@
 				iconOnly
 				btnClasses="text-tertiary hover:text-primary"
 				startIcon={{ icon: Search }}
-				on:click={() => (searchOpen = true)}
+				on:click={() => {
+					searchOpen = true
+					tick().then(() => searchInput?.focus())
+				}}
 			></Button>
 		{/if}
 	</div>
@@ -248,11 +268,16 @@
 								color="light"
 								variant="border"
 								wrapperClasses="p-0 whitespace-nowrap w-fit"
-								btnClasses="font-mono h-4 py-1 text-2xs font-thin px-1 rounded-[0.275rem]"
+								btnClasses={twMerge(
+									'font-mono h-4 py-1 text-2xs',
+									'font-thin px-1 rounded-[0.275rem]',
+									metaData ? 'rounded-r-none border-r-0.5' : ''
+								)}
 								title={computeFullKey(key, rawKey)}
 							>
-								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index} </span>
+								<span class={pureViewer ? 'cursor-auto' : ''}>{!isArray ? key : index}</span>
 							</Button>
+							{@render metaData?.(key)}
 						</AnimatedButton>
 						<span class="text-2xs -ml-0.5 text-tertiary">:</span>
 
@@ -273,6 +298,7 @@
 						{:else}
 							{@render renderScalar(key, jsonFiltered[key])}
 						{/if}
+						{@render editKey?.(key)}
 					</li>
 				{/each}
 				{#if keys.length > keyLimit}

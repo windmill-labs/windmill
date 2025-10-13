@@ -1,5 +1,8 @@
 <script lang="ts">
-	import { getContext, onDestroy } from 'svelte'
+	import { stopPropagation, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput, selectId } from '../../editor/appUtils'
 	import type {
@@ -17,18 +20,31 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { loadIcon } from '../icon'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let inputType = 'text'
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'textinputcomponent'> | undefined = undefined
-	export let appCssKey:
-		| 'textinputcomponent'
-		| 'passwordinputcomponent'
-		| 'emailinputcomponent'
-		| 'textareainputcomponent' = 'textinputcomponent'
-	export let render: boolean
-	export let onChange: string[] | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		inputType?: string
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'textinputcomponent'> | undefined
+		appCssKey?:
+			| 'textinputcomponent'
+			| 'passwordinputcomponent'
+			| 'emailinputcomponent'
+			| 'textareainputcomponent'
+		render: boolean
+		onChange?: string[] | undefined
+	}
+
+	let {
+		id,
+		configuration,
+		inputType = 'text',
+		verticalAlignment = undefined,
+		customCss = undefined,
+		appCssKey = 'textinputcomponent',
+		render,
+		onChange = undefined
+	}: Props = $props()
 
 	const {
 		app,
@@ -39,9 +55,8 @@
 		runnableComponents
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	let resolvedConfig = initConfig(
-		components['textinputcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['textinputcomponent'].initialData.configuration, configuration)
 	)
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -52,8 +67,9 @@
 	})
 
 	let initValue = outputs?.result.peak()
-	let value: string | undefined =
+	let value: string | undefined = $state(
 		!iterContext && initValue && initValue != '' ? initValue : resolvedConfig.defaultValue
+	)
 
 	onDestroy(() => {
 		listInputs?.remove(id)
@@ -67,9 +83,6 @@
 	}
 
 	let initialHandleDefault = true
-	$: handleDefault(resolvedConfig.defaultValue)
-
-	$: value, onValueChange()
 
 	function onValueChange() {
 		let val = value ?? ''
@@ -96,21 +109,10 @@
 		value = defaultValue
 	}
 
-	let css = initCss($app.css?.[appCssKey], customCss)
+	let css = $state(initCss($app.css?.[appCssKey], customCss))
 
-	$: classInput = twMerge(
-		'windmillapp w-full py-1.5 px-2 text-sm',
-		'app-editor-input',
-		css?.input?.class ?? '',
-		'wm-input',
-		'wm-text-input'
-	)
-
-	let beforeIconComponent: any
-	let afterIconComponent: any
-
-	$: resolvedConfig.beforeIcon && beforeIconComponent && handleBeforeIcon()
-	$: resolvedConfig.afterIcon && afterIconComponent && handleAfterIcon()
+	let beforeIconComponent: any = $state()
+	let afterIconComponent: any = $state()
 
 	async function handleBeforeIcon() {
 		if (resolvedConfig.beforeIcon) {
@@ -135,6 +137,29 @@
 			)
 		}
 	}
+	$effect.pre(() => {
+		resolvedConfig.defaultValue
+		untrack(() => handleDefault(resolvedConfig.defaultValue))
+	})
+	$effect.pre(() => {
+		value
+		untrack(() => onValueChange())
+	})
+	let classInput = $derived(
+		twMerge(
+			'windmillapp w-full py-1.5 px-2 text-sm',
+			'app-editor-input',
+			css?.input?.class ?? '',
+			'wm-input',
+			'wm-text-input'
+		)
+	)
+	$effect.pre(() => {
+		resolvedConfig.beforeIcon && beforeIconComponent && untrack(() => handleBeforeIcon())
+	})
+	$effect.pre(() => {
+		resolvedConfig.afterIcon && afterIconComponent && untrack(() => handleAfterIcon())
+	})
 </script>
 
 {#each Object.keys(components['textinputcomponent'].initialData.configuration) as key (key)}
@@ -169,9 +194,11 @@
 				'h-full'
 			)}
 			style="resize:none; {css?.input?.style ?? ''}"
-			on:pointerdown|stopPropagation={(e) =>
-				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-			on:keydown|stopPropagation
+			onpointerdown={(e) => {
+				e.stopPropagation()
+				!$connectingInput.opened && selectId(e, id, selectedComponent, $app)
+			}}
+			onkeydown={stopPropagation(bubble('keydown'))}
 			bind:value
 			placeholder={resolvedConfig.placeholder}
 			disabled={resolvedConfig.disabled}
@@ -195,9 +222,11 @@
 							resolvedConfig.afterIcon ? '!pr-8' : ''
 						)}
 						style={css?.input?.style ?? ''}
-						on:pointerdown|stopPropagation={(e) =>
-							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-						on:keydown|stopPropagation
+						onpointerdown={(e) => {
+							e.stopPropagation()
+							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)
+						}}
+						onkeydown={stopPropagation(bubble('keydown'))}
 						type="password"
 						autocomplete="new-password"
 						bind:value
@@ -212,9 +241,11 @@
 							resolvedConfig.afterIcon ? '!pr-8' : ''
 						)}
 						style={css?.input?.style ?? ''}
-						on:pointerdown|stopPropagation={(e) =>
-							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-						on:keydown|stopPropagation
+						onpointerdown={(e) => {
+							e.stopPropagation()
+							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)
+						}}
+						onkeydown={stopPropagation(bubble('keydown'))}
 						type="text"
 						bind:value
 						placeholder={resolvedConfig.placeholder}
@@ -228,9 +259,11 @@
 							resolvedConfig.afterIcon ? '!pr-8' : ''
 						)}
 						style={css?.input?.style ?? ''}
-						on:pointerdown|stopPropagation={(e) =>
-							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
-						on:keydown|stopPropagation
+						onpointerdown={(e) => {
+							e.stopPropagation()
+							!$connectingInput.opened && selectId(e, id, selectedComponent, $app)
+						}}
+						onkeydown={stopPropagation(bubble('keydown'))}
 						type="email"
 						bind:value
 						placeholder={resolvedConfig.placeholder}

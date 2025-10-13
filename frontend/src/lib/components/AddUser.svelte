@@ -13,8 +13,8 @@
 
 	const dispatch = createEventDispatcher()
 
-	let email: string
-	let username: string
+	let email: string | undefined = $state()
+	let username: string | undefined = $state()
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key
@@ -24,7 +24,7 @@
 		}
 	}
 
-	let automateUsernameCreation = false
+	let automateUsernameCreation = $state(false)
 	async function getAutomateUsernameCreationSetting() {
 		automateUsernameCreation =
 			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? false
@@ -35,17 +35,17 @@
 		await WorkspaceService.addUser({
 			workspace: $workspaceStore!,
 			requestBody: {
-				email,
+				email: email!,
 				username: automateUsernameCreation ? undefined : username,
 				is_admin: selected == 'admin',
 				operator: selected == 'operator'
 			}
 		})
 		sendUserToast(`Added ${email}`)
-		if (!(await UserService.existsEmail({ email }))) {
+		if (!(await UserService.existsEmail({ email: email! }))) {
 			let isSuperadmin = $superadmin
 			if (!isCloudHosted()) {
-				const emailCopy = email
+				const emailCopy = email!
 				sendUserToast(
 					`User ${email} is not registered yet on the instance. ${
 						!isSuperadmin
@@ -62,7 +62,7 @@
 										goto('#superadmin-settings')
 									}
 								}
-						  ]
+							]
 						: []
 				)
 			}
@@ -70,47 +70,49 @@
 		dispatch('new')
 	}
 
-	let selected: 'operator' | 'developer' | 'admin' = 'developer'
+	let selected: 'operator' | 'developer' | 'admin' = $state('developer')
 </script>
 
 <Popover placement="bottom-end">
-	<svelte:fragment slot="trigger">
+	{#snippet trigger()}
 		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: UserPlus }}>
 			Add new user
 		</Button>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{/snippet}
+	{#snippet content()}
 		<div class="flex flex-col w-72 p-4">
 			<span class="text-sm mb-2 leading-6 font-semibold">Add a new user</span>
 
 			<span class="text-xs mb-1 leading-6">Email</span>
-			<input type="email mb-1" on:keyup={handleKeyUp} placeholder="email" bind:value={email} />
+			<input type="email mb-1" onkeyup={handleKeyUp} placeholder="email" bind:value={email} />
 
 			{#if !automateUsernameCreation}
 				<span class="text-xs mb-1 pt-2 leading-6">Username</span>
-				<input type="text" on:keyup={handleKeyUp} placeholder="username" bind:value={username} />
+				<input type="text" onkeyup={handleKeyUp} placeholder="username" bind:value={username} />
 			{/if}
 
 			<span class="text-xs mb-1 pt-2 leading-6">Role</span>
-			<ToggleButtonGroup bind:selected class="mb-4" let:item>
-				<ToggleButton
-					value="operator"
-					label="Operator"
-					tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-					{item}
-				/>
-				<ToggleButton
-					value="developer"
-					label="Developer"
-					tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-					{item}
-				/>
-				<ToggleButton
-					value="admin"
-					label="Admin"
-					tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-					{item}
-				/>
+			<ToggleButtonGroup bind:selected class="mb-4">
+				{#snippet children({ item })}
+					<ToggleButton
+						value="operator"
+						label="Operator"
+						tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+						{item}
+					/>
+					<ToggleButton
+						value="developer"
+						label="Developer"
+						tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+						{item}
+					/>
+					<ToggleButton
+						value="admin"
+						label="Admin"
+						tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+						{item}
+					/>
+				{/snippet}
 			</ToggleButtonGroup>
 			<Button
 				variant="contained"
@@ -129,5 +131,5 @@
 				Add
 			</Button>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

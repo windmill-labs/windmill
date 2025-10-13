@@ -6,7 +6,11 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
-	export let loading: boolean = false
+	interface Props {
+		loading?: boolean
+	}
+
+	let { loading = false }: Props = $props()
 
 	const { mode, jobs, jobsById } = getContext<AppViewerContext>('AppViewerContext')
 </script>
@@ -18,26 +22,27 @@
 		jobsById.set({})
 		jobs.set([])
 	}}
-	let:item
 >
-	<ToggleButton
-		label="Editor"
-		value="dnd"
-		icon={Pen}
-		disabled={loading}
-		iconProps={{ size: 16 }}
-		class="gap-2"
-		{item}
-	/>
-	<ToggleButton
-		label="Preview"
-		value="preview"
-		icon={Eye}
-		tooltip="Preview mode"
-		disabled={loading}
-		id="app-editor-preview-toggle"
-		iconProps={{ size: 16 }}
-		class="gap-2"
-		{item}
-	/>
+	{#snippet children({ item })}
+		<ToggleButton
+			label="Editor"
+			value="dnd"
+			icon={Pen}
+			disabled={loading}
+			iconProps={{ size: 16 }}
+			class="gap-2"
+			{item}
+		/>
+		<ToggleButton
+			label="Preview"
+			value="preview"
+			icon={Eye}
+			tooltip="Preview mode"
+			disabled={loading}
+			id="app-editor-preview-toggle"
+			iconProps={{ size: 16 }}
+			class="gap-2"
+			{item}
+		/>
+	{/snippet}
 </ToggleButtonGroup>

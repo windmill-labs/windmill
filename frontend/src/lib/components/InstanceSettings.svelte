@@ -2,7 +2,7 @@
 	import { scimSamlSetting, settings, settingsKeys, type SettingStorage } from './instanceSettings'
 	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
-	import type { TeamInfo, TeamsChannel } from '$lib/gen/types.gen'
+	import type { TeamsChannel } from '$lib/gen/types.gen'
 
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
@@ -16,20 +16,29 @@
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
 
-	export let tab: string = 'Core'
-	export let hideTabs: boolean = false
-	export let hideSave: boolean = false
-	export let closeDrawer: (() => void) | undefined = () => {}
+	interface Props {
+		tab?: string
+		hideTabs?: boolean
+		hideSave?: boolean
+		closeDrawer?: (() => void) | undefined
+	}
+
+	let {
+		tab = $bindable('Core'),
+		hideTabs = false,
+		hideSave = false,
+		closeDrawer = () => {}
+	}: Props = $props()
 
 	let values: Writable<Record<string, any>> = writable({})
 	let initialOauths: Record<string, any> = {}
 	let initialRequirePreexistingUserForOauth: boolean = false
-	let requirePreexistingUserForOauth: boolean = false
+	let requirePreexistingUserForOauth: boolean = $state(false)
 
 	let initialValues: Record<string, any> = {}
-	let snowflakeAccountIdentifier = ''
-	let version: string = ''
-	let loading = true
+	let snowflakeAccountIdentifier = $state('')
+	let version: string = $state('')
+	let loading = $state(true)
 
 	loadSettings()
 	loadVersion()
@@ -39,7 +48,7 @@
 	async function loadVersion() {
 		version = await SettingsService.backendVersion()
 	}
-	let oauths: Record<string, any> = {}
+	let oauths: Record<string, any> = $state({})
 
 	async function loadSettings() {
 		loading = true
@@ -87,29 +96,6 @@
 
 		if (nvalues['critical_error_channels'] == undefined) {
 			nvalues['critical_error_channels'] = []
-		} else {
-			let teams = ((await SettingService.getGlobal({ key: 'teams' })) as TeamInfo[]) ?? []
-
-			nvalues['teams'] = teams
-
-			nvalues['critical_error_channels'] = nvalues['critical_error_channels'].map((el) => {
-				if (el.teams_channel) {
-					const team = teams.find((team) => team.team_name === el.teams_channel.team_name) || null
-					return {
-						teams_channel: {
-							team_id: team?.team_id,
-							team_name: team?.team_name,
-							channel_id: team?.channels.find(
-								(channel) => channel.channel_id === el.teams_channel.channel_id
-							)?.channel_id,
-							channel_name: team?.channels.find(
-								(channel) => channel.channel_id === el.teams_channel.channel_id
-							)?.channel_name
-						}
-					}
-				}
-				return el
-			})
 		}
 
 		$values = nvalues
@@ -132,12 +118,22 @@
 			setupSnowflakeUrls()
 		}
 
-		// Remove empty or invalid teams_channel entries
+		// Remove empty or invalid entries for critical error channels
 		$values.critical_error_channels = $values.critical_error_channels.filter((entry) => {
-			if (entry && typeof entry == 'object' && 'teams_channel' in entry) {
+			if (!entry || typeof entry !== 'object') return false
+			if ('teams_channel' in entry) {
 				return isValidTeamsChannel(entry.teams_channel)
 			}
-			return true
+			if ('slack_channel' in entry) {
+				return (
+					typeof entry.slack_channel === 'string' && entry.slack_channel.trim() !== ''
+				)
+			}
+			if ('email' in entry) {
+				return typeof entry.email === 'string' && entry.email.trim() !== ''
+			}
+			// Unknown shape
+			return false
 		})
 
 		let shouldReloadPage = false
@@ -218,9 +214,17 @@
 		oauths['snowflake_oauth'].connect_config = connect_config
 	}
 
+	let sendingStats = $state(false)
 	async function sendStats() {
-		await SettingService.sendStats()
-		sendUserToast('Usage sent')
+		try {
+			sendingStats = true
+			await SettingService.sendStats()
+			sendUserToast('Usage sent')
+		} catch (err) {
+			throw err
+		} finally {
+			sendingStats = false
+		}
 	}
 
 	function isValidTeamsChannel(value: any): value is TeamsChannel {
@@ -240,13 +244,13 @@
 </script>
 
 <div class="pb-8">
-	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<Tabs {hideTabs} bind:selected={tab}>
 		{#each settingsKeys as category}
 			<Tab value={category}>{category}</Tab>
 		{/each}
 
-		<svelte:fragment slot="content">
+		{#snippet content()}
 			{#each Object.keys(settings) as category}
 				<TabContent value={category}>
 					{#if category == 'SMTP'}
@@ -323,16 +327,20 @@
 								color="light"
 								btnClasses="w-auto"
 								wrapperClasses="mb-4"
-								size="xs">Send usage</Button
+								loading={sendingStats}
+								size="xs"
 							>
+								Send usage
+							</Button>
 						{/if}
 					{:else if category == 'Auth/OAuth/SAML'}
 						<AuthSettings
 							bind:oauths
 							bind:snowflakeAccountIdentifier
 							bind:requirePreexistingUserForOauth
+							baseUrl={$values?.base_url}
 						>
-							<svelte:fragment slot="scim">
+							{#snippet scim()}
 								<div class="flex-col flex gap-2 pb-4">
 									{#each scimSamlSetting as setting}
 										<InstanceSetting
@@ -344,7 +352,7 @@
 										/>
 									{/each}
 								</div>
-							</svelte:fragment>
+							{/snippet}
 						</AuthSettings>
 					{/if}
 					<div>
@@ -362,7 +370,7 @@
 					</div>
 				</TabContent>
 			{/each}
-		</svelte:fragment>
+		{/snippet}
 	</Tabs>
 </div>
 

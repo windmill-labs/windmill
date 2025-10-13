@@ -12,7 +12,9 @@
 		type Flow,
 		type Script,
 		type ScriptArgs,
-		type WebsocketTriggerInitialMessage
+		type WebsocketTriggerInitialMessage,
+		type Retry,
+		type ErrorHandler
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
@@ -24,11 +26,14 @@
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import WebsocketEditorConfigSection from './WebsocketEditorConfigSection.svelte'
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveWebsocketTriggerFromCfg } from './utils'
-	import { handleConfigChange, type Trigger } from '../utils'
+	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -87,6 +92,7 @@
 	let initial_messages: WebsocketTriggerInitialMessage[] = $state([])
 	let url_runnable_args: Record<string, any> | undefined = $state({})
 	let can_return_message = $state(false)
+	let can_return_error_result = $state(false)
 	let dirtyPath = $state(false)
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
@@ -94,6 +100,11 @@
 	let initialConfig: Record<string, any> | undefined = undefined
 	let deploymentLoading = $state(false)
 	let isValid = $state(false)
+	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
+	let errorHandlerSelected: ErrorHandler = $state('slack')
+	let error_handler_path: string | undefined = $state()
+	let error_handler_args: Record<string, any> = $state({})
+	let retry: Retry | undefined = $state()
 
 	const websocketCfg = $derived.by(getSaveCfg)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
@@ -116,6 +127,12 @@
 
 	$effect(() => {
 		is_flow = itemKind === 'flow'
+	})
+
+	$effect(() => {
+		if (!can_return_message) {
+			can_return_error_result = false
+		}
 	})
 
 	export async function openEdit(
@@ -173,6 +190,11 @@
 			url_runnable_args = defaultValues?.url_runnable_args ?? {}
 			dirtyPath = false
 			can_return_message = false
+			can_return_error_result = false
+			error_handler_path = defaultValues?.error_handler_path ?? undefined
+			error_handler_args = defaultValues?.error_handler_args ?? {}
+			retry = defaultValues?.retry ?? undefined
+			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -191,7 +213,12 @@
 		initial_messages = cfg?.initial_messages ?? []
 		url_runnable_args = cfg?.url_runnable_args
 		can_return_message = cfg?.can_return_message
+		can_return_error_result = cfg?.can_return_error_result
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+		error_handler_path = cfg?.error_handler_path
+		error_handler_args = cfg?.error_handler_args ?? {}
+		retry = cfg?.retry
+		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 	}
 
 	function getSaveCfg() {
@@ -205,7 +232,11 @@
 			initial_messages,
 			url_runnable_args,
 			can_return_message,
-			enabled
+			can_return_error_result,
+			enabled,
+			error_handler_path,
+			error_handler_args,
+			retry
 		}
 	}
 
@@ -256,7 +287,8 @@
 			.filter((v): v is { path: string; is_flow: boolean; args: ScriptArgs } => !!v)
 	)
 	$effect(() => {
-		loadInitialMessageRunnableSchemas(initialMessageRunnables)
+		;[initialMessageRunnables]
+		untrack(() => loadInitialMessageRunnableSchemas(initialMessageRunnables))
 	})
 
 	async function updateTrigger(): Promise<void> {
@@ -297,7 +329,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {
@@ -317,22 +350,22 @@
 				: 'New WebSocket trigger'}
 			on:close={drawer.closeDrawer}
 		>
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				{@render actionsButtons()}
-			</svelte:fragment>
+			{/snippet}
 			{@render config()}
 		</DrawerContent>
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'WebSocket trigger' : ''} headerClass="grow min-w-0 h-[30px]">
-		<svelte:fragment slot="header">
+		{#snippet header()}
 			{#if customLabel}
 				{@render customLabel()}
 			{/if}
-		</svelte:fragment>
-		<svelte:fragment slot="action">
+		{/snippet}
+		{#snippet action()}
 			{@render actionsButtons()}
-		</svelte:fragment>
+		{/snippet}
 		{@render config()}
 	</Section>
 {/if}
@@ -394,8 +427,8 @@
 				</Label>
 			</div>
 
-			{#if !hideTarget}
-				<Section label="Runnable" class="flex flex-col gap-4">
+			<Section label={hideTarget ? 'Runnable options' : 'Runnable'} class="flex flex-col gap-4">
+				{#if !hideTarget}
 					<div>
 						<p class="text-xs mb-1 text-tertiary">
 							Pick a script or flow to be triggered<Required required={true} />
@@ -410,6 +443,7 @@
 								bind:scriptPath={script_path}
 								allowRefresh={can_write}
 								allowEdit={!$userStore?.operator}
+								clearable
 							/>
 							{#if emptyString(script_path)}
 								<Button
@@ -425,21 +459,34 @@
 							{/if}
 						</div>
 					</div>
+				{/if}
 
-					<Toggle
-						checked={can_return_message}
-						on:change={() => {
-							can_return_message = !can_return_message
-						}}
-						options={{
-							right: 'Send runnable result',
-							rightTooltip:
-								'Whether the runnable result should be sent as a message to the websocket server when not null.'
-						}}
-						disabled={!can_write}
-					/>
-				</Section>
-			{/if}
+				<Toggle
+					checked={can_return_message}
+					on:change={() => {
+						can_return_message = !can_return_message
+					}}
+					options={{
+						right: 'Send runnable result',
+						rightTooltip:
+							'Whether the runnable result should be sent as a message to the websocket server when not null.'
+					}}
+					disabled={!can_write}
+				/>
+
+				<Toggle
+					checked={can_return_error_result}
+					on:change={() => {
+						can_return_error_result = !can_return_error_result
+					}}
+					options={{
+						right: 'Send result on error',
+						rightTooltip:
+							'Allows the runnable result to be sent as a message to the WebSocket server if the result is a non-null error.'
+					}}
+					disabled={!can_write || !can_return_message}
+				/>
+			</Section>
 
 			<WebsocketEditorConfigSection
 				bind:url
@@ -540,7 +587,7 @@
 														{schema}
 														bind:args={v.runnable_result.args}
 														shouldHideNoInputs
-														class="text-xs"
+														className="text-xs"
 														disabled={!can_write}
 													/>
 												{/await}
@@ -671,6 +718,28 @@
 						>
 							Add item
 						</Button>
+					</div>
+				</div>
+			</Section>
+
+			<Section label="Advanced" collapsable>
+				<div class="flex flex-col gap-4">
+					<div class="min-h-96">
+						<Tabs bind:selected={optionTabSelected}>
+							<Tab value="error_handler">Error Handler</Tab>
+							<Tab value="retries">Retries</Tab>
+						</Tabs>
+						<div class="mt-4">
+							<TriggerRetriesAndErrorHandler
+								{optionTabSelected}
+								{itemKind}
+								{can_write}
+								bind:errorHandlerSelected
+								bind:error_handler_path
+								bind:error_handler_args
+								bind:retry
+							/>
+						</div>
 					</div>
 				</div>
 			</Section>

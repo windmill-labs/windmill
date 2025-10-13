@@ -1,3 +1,18 @@
+<script lang="ts" module>
+	async function loadResources(workspace: string): Promise<string[]> {
+		const r = await ResourceService.listResource({ workspace })
+		const sPaths = await ScriptService.listScriptPaths({ workspace })
+		const fPaths = await FlowService.listFlowPaths({ workspace })
+		const a = await AppService.listApps({ workspace })
+		return r
+			.map((r) => r.path)
+			.concat(sPaths)
+			.concat(fPaths)
+			.concat(a.map((a) => a.path))
+			.sort()
+	}
+</script>
+
 <script lang="ts">
 	import { goto } from '$lib/navigation'
 	import type { ActionKind } from '$lib/common'
@@ -15,28 +30,61 @@
 	} from '$lib/gen'
 
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Loader2, RefreshCcw } from 'lucide-svelte'
-	import { onDestroy, tick } from 'svelte'
-	import AutoComplete from 'simple-svelte-autocomplete'
+	import { ChevronDown, Loader2, RefreshCcw } from 'lucide-svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import Select from '../select/Select.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { safeSelectItems } from '../select/utils.svelte'
 
-	let usernames: string[]
-	let resources: string[]
-	let loading: boolean = false
+	let usernames: string[] | undefined = $state()
+	let resources = usePromise(() => loadResources($workspaceStore!), { loadInit: false })
+	let loading: boolean = $state(false)
 	let page: number | undefined = undefined
 
-	export let logs: AuditLog[] = []
-	export let username: string = 'all'
-	export let pageIndex: number | undefined = 1
-	export let hasMore: boolean = false
-	export let before: string | undefined = undefined
-	export let after: string | undefined = undefined
-	export let perPage: number | undefined = 100
-	export let operation: string = 'all'
-	export let resource: string | undefined = 'all'
-	export let actionKind: ActionKind | 'all' = 'all'
-	export let scope: undefined | 'all_workspaces' | 'instance' = undefined
+	interface Props {
+		logs?: AuditLog[]
+		username?: string
+		pageIndex?: number | undefined
+		hasMore?: boolean
+		before?: string | undefined
+		after?: string | undefined
+		perPage?: number | undefined
+		operation?: string
+		resource?: string | undefined
+		actionKind?: ActionKind | 'all'
+		scope?: undefined | 'all_workspaces' | 'instance'
+	}
+
+	let {
+		logs = $bindable(undefined),
+		username = $bindable('all'),
+		pageIndex = $bindable(1),
+		hasMore = $bindable(false),
+		before = $bindable(undefined),
+		after = $bindable(undefined),
+		perPage = $bindable(100),
+		operation = $bindable(),
+		resource = $bindable() as string | undefined,
+		actionKind = $bindable(undefined),
+		scope = $bindable(undefined)
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (logs == undefined) {
+			logs = []
+		}
+		if (operation == undefined) {
+			operation = 'all'
+		}
+		if (resource == undefined) {
+			resource = 'all'
+		}
+		if (actionKind == undefined) {
+			actionKind = 'all'
+		}
+	})
 
 	async function loadLogs(
 		username: string | undefined,
@@ -91,33 +139,10 @@
 				: [$userStore?.username ?? '']
 	}
 
-	async function loadResources() {
-		const r = await ResourceService.listResource({
-			workspace: $workspaceStore!
-		})
-		const sPaths = await ScriptService.listScriptPaths({
-			workspace: $workspaceStore!
-		})
-		const fPaths = await FlowService.listFlowPaths({
-			workspace: $workspaceStore!
-		})
-		const a = await AppService.listApps({
-			workspace: $workspaceStore!
-		})
-		resources = r
-			.map((r) => r.path)
-			.concat(sPaths)
-			.concat(fPaths)
-			.concat(a.map((a) => a.path))
-			.sort()
-	}
-
-	$: $workspaceStore && refresh && refreshLogs()
-
 	let initialLoad = true
 	function refreshLogs() {
 		loadUsers()
-		loadResources()
+		resources.refresh()
 		loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
 		tick().then(() => {
 			initialLoad = false
@@ -146,7 +171,7 @@
 			addQueryParam('workspace', 'admins')
 		}
 		const query = '?' + queryParams.join('&')
-		goto(query)
+		goto(query, { replaceState: true, keepFocus: true })
 
 		loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
 	}
@@ -167,12 +192,6 @@
 		page = pageIndex
 		updateLogs()
 	}
-
-	// observe all the variables that should trigger an update
-	$: username, perPage, before, after, operation, resource, actionKind, scope, updateQueryParams()
-
-	// observe the pageIndex variable that should trigger an update
-	$: updatePageQueryParams(pageIndex)
 
 	window.addEventListener('popstate', handlePopState)
 
@@ -241,6 +260,9 @@
 		USERS_ADD_GLOBAL: 'users.add_global',
 		USERS_IMPERSONATE: 'users.impersonate',
 		USERS_LEAVE_WORKSPACE: 'users.leave_workspace',
+		USERS_SCIM_CREATE: 'users.scim_create',
+		USERS_SCIM_DELETE: 'users.scim_delete',
+		USERS_SCIM_UPDATE: 'users.scim_update',
 		OAUTH_LOGIN: 'oauth.login',
 		OAUTH_LOGIN_FAILURE: 'oauth.login_failure',
 		OAUTH_SIGNUP: 'oauth.signup',
@@ -268,6 +290,9 @@
 		IGROUP_DELETE: 'igroup.delete',
 		IGROUP_ADDUSER: 'igroup.adduser',
 		IGROUP_REMOVEUSER: 'igroup.removeuser',
+		INSTANCE_GROUPS_SCIM_CREATE: 'instance_groups.scim_create',
+		INSTANCE_GROUPS_SCIM_DELETE: 'instance_groups.scim_delete',
+		INSTANCE_GROUPS_SCIM_UPDATE: 'instance_groups.scim_update',
 		VARIABLES_DECRYPT_SECRET: 'variables.decrypt_secret',
 		WORKSPACES_EDIT_COMMAND_SCRIPT: 'workspaces.edit_command_script',
 		WORKSPACES_EDIT_DEPLOY_TO: 'workspaces.edit_deploy_to',
@@ -282,7 +307,19 @@
 		WORKSPACES_DELETE: 'workspaces.delete'
 	}
 
-	let refresh = 1
+	let refresh = $state(1)
+	$effect(() => {
+		$workspaceStore && refresh && untrack(() => refreshLogs())
+	})
+	// observe all the variables that should trigger an update
+	$effect(() => {
+		;[username, perPage, before, after, operation, resource, actionKind, scope]
+		updateQueryParams()
+	})
+	// observe the pageIndex variable that should trigger an update
+	$effect(() => {
+		updatePageQueryParams(pageIndex)
+	})
 </script>
 
 <div class="flex flex-col items-center gap-6 2xl:gap-1 2xl:flex-row mt-4 xl:mt-0">
@@ -294,50 +331,59 @@
 				on:selected={({ detail }) => {
 					scope = detail === 'admins' ? undefined : detail
 				}}
-				let:item
 			>
-				<ToggleButton
-					value={'admins'}
-					label="Admins"
-					tooltip="Displays events from the admins workspace only."
-					{item}
-				/>
-				<ToggleButton
-					value="all_workspaces"
-					label="All"
-					tooltip="Displays events from all workspaces."
-					{item}
-				/>
-				<ToggleButton
-					value="instance"
-					label="Instance"
-					tooltip="Displays instance-scope events, such as user logins and registrations, instance user and group management, and worker configuration changes."
-					{item}
-				/>
+				{#snippet children({ item })}
+					<ToggleButton
+						value={'admins'}
+						label="Admins"
+						tooltip="Displays events from the admins workspace only."
+						{item}
+					/>
+					<ToggleButton
+						value="all_workspaces"
+						label="All"
+						tooltip="Displays events from all workspaces."
+						{item}
+					/>
+					<ToggleButton
+						value="instance"
+						label="Instance"
+						tooltip="Displays instance-scope events, such as user logins and registrations, instance user and group management, and worker configuration changes."
+						{item}
+					/>
+				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 	{/if}
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">After</span>
-		<input type="text" value={after ?? 'After'} disabled />
+		<span class="text-xs absolute -top-4">From</span>
+		<input type="text" value={after ?? 'From'} disabled />
 		<CalendarPicker
+			clearable
 			date={after}
 			placement="bottom-end"
-			label="After"
-			on:change={async ({ detail }) => {
+			label="From"
+			on:change={({ detail }) => {
 				after = new Date(detail).toISOString()
+			}}
+			on:clear={() => {
+				after = undefined
 			}}
 		/>
 	</div>
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Before</span>
-		<input type="text" value={before ?? 'Before'} disabled />
+		<span class="text-xs absolute -top-4">To</span>
+		<input type="text" value={before ?? 'To'} disabled />
 		<CalendarPicker
+			clearable
 			bind:date={before}
-			label="Before"
+			label="To"
 			placement="bottom-end"
-			on:change={async ({ detail }) => {
+			on:change={({ detail }) => {
 				before = new Date(detail).toISOString()
+			}}
+			on:clear={() => {
+				before = undefined
 			}}
 		/>
 	</div>
@@ -362,32 +408,25 @@
 	<div class="flex gap-1 relative w-full">
 		<span class="text-xs absolute -top-4">Resource</span>
 
-		<AutoComplete
-			create
-			onCreate={(resource) => {
-				resources.push(resource)
-				return resource
-			}}
+		<Select
+			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
 			createText="Press enter to use this value"
-			noInputStyles
-			items={resources}
-			value={resource}
-			bind:selectedItem={resource}
-			inputClassName="!h-[34px] py-1 !text-xs !w-48"
-			hideArrow
-			dropdownClassName="!text-sm"
+			bind:value={resource}
+			items={safeSelectItems(['all', ...(resources.value ?? [])])}
+			inputClass="dark:!bg-gray-700"
+			RightIcon={ChevronDown}
 		/>
 	</div>
 
 	<div class="flex gap-1 relative w-full">
 		<span class="text-xs absolute -top-4">Operation</span>
 
-		<select bind:value={operation}>
-			<option selected value="all">all</option>
-			{#each Object.keys(operations) as e}
-				<option value={operations[e]}>{e}</option>
-			{/each}
-		</select>
+		<Select
+			bind:value={operation}
+			items={['all', ...Object.values(operations)].map((r) => ({ value: r, label: r }))}
+			inputClass="dark:!bg-gray-700"
+			RightIcon={ChevronDown}
+		/>
 	</div>
 
 	<div class="flex gap-1 relative w-full">

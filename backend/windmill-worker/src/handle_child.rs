@@ -4,8 +4,10 @@ use futures::Future;
 use nix::sys::signal::{self, Signal};
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use nix::unistd::Pid;
+use process_wrap::tokio::TokioChildWrapper;
 use windmill_common::agent_workers::PingJobStatusResponse;
 use windmill_common::jobs::LARGE_LOG_THRESHOLD_SIZE;
+use windmill_common::result_stream::extract_stream_from_logs;
 
 #[cfg(windows)]
 use std::process::Stdio;
@@ -27,7 +29,7 @@ use windmill_queue::{append_logs, CanceledBy};
 use std::os::unix::process::ExitStatusExt;
 
 use std::process::ExitStatus;
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::{io, panic, time::Duration};
 
@@ -41,7 +43,6 @@ use windmill_common::job_metrics;
 use tokio::io::AsyncWriteExt;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
-    process::Child,
     sync::{broadcast, watch},
     time::{interval, sleep, Instant, MissedTickBehavior},
 };
@@ -51,9 +52,9 @@ use futures::{
     stream, StreamExt,
 };
 
-use crate::common::{resolve_job_timeout, OccupancyMetrics};
-use crate::job_logger::{append_job_logs, append_with_limit};
-use crate::job_logger_ee::process_streaming_log_lines;
+use crate::common::{resolve_job_timeout, OccupancyMetrics, StreamNotifier};
+use crate::job_logger::{append_job_logs, append_result_stream, append_with_limit};
+use crate::job_logger_oss::process_streaming_log_lines;
 use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 
@@ -87,6 +88,10 @@ async fn kill_process_tree(pid: Option<u32>) -> Result<(), String> {
     }
 }
 
+pub struct HandleChildResult {
+    pub result_stream: Option<String>,
+}
+
 /// - wait until child exits and return with exit status
 /// - read lines from stdout and stderr and append them to the "queue"."logs"
 ///   quitting early if output exceedes MAX_LOG_SIZE characters (not bytes)
@@ -99,7 +104,7 @@ pub async fn handle_child(
     conn: &Connection,
     mem_peak: &mut i32,
     canceled_by_ref: &mut Option<CanceledBy>,
-    mut child: Child,
+    mut child: Box<dyn TokioChildWrapper>,
     nsjail: bool,
     worker: &str,
     w_id: &str,
@@ -109,7 +114,8 @@ pub async fn handle_child(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     // Do not print logs to output, but instead save to string.
     pipe_stdout: Option<&mut String>,
-) -> error::Result<()> {
+    stream_notifier: Option<StreamNotifier>,
+) -> error::Result<HandleChildResult> {
     let start = Instant::now();
 
     let pid = child.id();
@@ -197,7 +203,7 @@ pub async fn handle_child(
     let wait_on_child = async {
         let kill_reason = tokio::select! {
             biased;
-            result = child.wait() => return result.map(Ok),
+            result = Box::into_pin(child.wait()) => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
             _ = sleep(timeout_duration) => KillReason::Timeout { is_job_specific },
             ex = update_job, if job_id != Uuid::nil() => match ex {
@@ -227,6 +233,7 @@ pub async fn handle_child(
                         if let Err(err) = client
                             .post::<_, ()>(
                                 &format!("/api/agent_workers/set_job_cancelled/{}", job_id),
+                                None,
                                 &JobCancelled {
                                     canceled_by: "timeout".to_string(),
                                     reason: format!("duration > {}", timeout_duration.as_secs()),
@@ -290,11 +297,12 @@ pub async fn handle_child(
         #[cfg(unix)]
         {
             /* send SIGKILL and reap child process */
-            let (_, kill) = future::join(set_reason, child.kill()).await;
+            let (_, kill) = future::join(set_reason, Box::into_pin(child.kill())).await;
             kill.map(|()| Err(kill_reason))
         }
     };
 
+    let mut stream_result = Vec::new();
     /* a future that reads output from the child and appends to the database */
     let lines = write_lines(
         output,
@@ -307,6 +315,8 @@ pub async fn handle_child(
         pipe_stdout,
         &mut rx2,
         child_name,
+        &mut stream_result,
+        stream_notifier,
     )
     .instrument(trace_span!("child_lines"));
 
@@ -321,7 +331,7 @@ pub async fn handle_child(
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
         ))),
-        Ok(Ok(status)) => process_status(&child_name, status),
+        Ok(Ok(status)) => process_status(&child_name, status, stream_result),
         Ok(Err(kill_reason)) => match kill_reason {
             KillReason::AlreadyCompleted => {
                 Err(Error::AlreadyCompleted("Job already completed".to_string()))
@@ -345,6 +355,8 @@ pub async fn write_lines(
     pipe_stdout: Option<&mut String>,
     rx2: &mut broadcast::Receiver<()>,
     child_name: &str,
+    stream_result: &mut Vec<String>,
+    stream_notifier: Option<StreamNotifier>,
 ) {
     let max_log_size = if *CLOUD_HOSTED {
         MAX_RESULT_SIZE
@@ -375,6 +387,8 @@ pub async fn write_lines(
 
     let mut pipe_stdout = pipe_stdout;
 
+    let is_stream = Arc::new(AtomicBool::new(false));
+    let offset = Arc::new(AtomicI32::new(0));
     while let Some(line) = output.by_ref().next().await {
         let do_write_ = do_write.shared();
 
@@ -400,13 +414,26 @@ pub async fn write_lines(
         let mut joined = String::new();
 
         let job_id = job_id.clone();
+        let mut nstream = String::new();
+
         while let Some(line) = read_lines.next().await {
             match line {
                 Ok(line) => {
                     if line.is_empty() {
                         continue;
                     }
-                    append_with_limit(&mut joined, &line, &mut log_remaining);
+                    if let Some(stream) = extract_stream_from_logs(&line) {
+                        let len = stream.len();
+                        if log_remaining >= len {
+                            log_remaining -= len;
+                            nstream.push_str(&stream);
+                            stream_result.push(stream);
+                        } else {
+                            log_remaining = 0;
+                        }
+                    } else {
+                        append_with_limit(&mut joined, &line, &mut log_remaining);
+                    }
                     if log_remaining == 0 {
                         tracing::info!(%job_id, "Too many logs lines for job {job_id}");
                         let _ = set_too_many_logs.send(true);
@@ -458,8 +485,33 @@ pub async fn write_lines(
             let w_id = w_id.to_string();
             let job_id = job_id.clone();
             let pg_log_total_size = pg_log_total_size.clone();
-
+            let stream_notifier = stream_notifier.clone();
+            let is_stream = is_stream.clone();
+            let offset = offset.clone();
             (do_write, write_result) = tokio::spawn(async move {
+                if !nstream.is_empty() {
+                    if let Some(stream_notifier) = stream_notifier {
+                        if !is_stream.load(Ordering::SeqCst) {
+                            is_stream.store(true, Ordering::SeqCst);
+                            stream_notifier.update_flow_status_with_stream_job();
+                        }
+                    };
+
+                    if let Err(err) = append_result_stream(
+                        &conn,
+                        &w_id,
+                        &job_id,
+                        &nstream,
+                        offset.fetch_add(1, Ordering::SeqCst),
+                    )
+                    .await
+                    {
+                        tracing::error!(
+                            "Unable to send result stream for job {job_id}. Error was: {:?}",
+                            err
+                        );
+                    }
+                }
                 append_job_logs(
                     &job_id,
                     &w_id,
@@ -727,17 +779,17 @@ where
 ///
 /// builds a stream joining both stdout and stderr each read line by line
 fn child_joined_output_stream(
-    child: &mut Child,
+    child: &mut Box<dyn TokioChildWrapper>,
     job_id: Uuid,
     w_id: String,
 ) -> impl stream::FusedStream<Item = io::Result<String>> {
     let stderr = child
-        .stderr
+        .stderr()
         .take()
-        .expect("child did not have a handle to stdout");
+        .expect("child did not have a handle to stderr");
 
     let stdout = child
-        .stdout
+        .stdout()
         .take()
         .expect("child did not have a handle to stdout");
 
@@ -762,9 +814,19 @@ pub fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     })
 }
 
-pub fn process_status(program: &str, status: ExitStatus) -> error::Result<()> {
+pub fn process_status(
+    program: &str,
+    status: ExitStatus,
+    stream_result: Vec<String>,
+) -> error::Result<HandleChildResult> {
     if status.success() {
-        Ok(())
+        Ok(HandleChildResult {
+            result_stream: if stream_result.is_empty() {
+                None
+            } else {
+                Some(stream_result.join(""))
+            },
+        })
     } else if let Some(code) = status.code() {
         Err(error::Error::ExitStatus(program.to_string(), code))
     } else {

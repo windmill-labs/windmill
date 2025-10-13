@@ -5,11 +5,16 @@
 	import type RunnableComponent from '../../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { initOutput } from '../../../editor/appUtils'
-	import { type ColumnDef, type DbType } from './utils'
+	import { type ColumnDef } from './utils'
 	import { sendUserToast } from '$lib/toast'
 	import { getInsertInput } from './queries/insert'
+	import type { DbInput } from '$lib/components/dbOps'
 
-	export let id: string
+	interface Props {
+		id: string
+	}
+
+	let { id }: Props = $props()
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -19,38 +24,42 @@
 		jobId: undefined
 	})
 
-	let runnableComponent: RunnableComponent
-	let loading = false
-	let input: AppInput | undefined = undefined
+	let runnableComponent: RunnableComponent | undefined = $state()
+	let loading = $state(false)
+	let input: AppInput | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
 	export async function insertRow(
-		resource: string,
+		dbInput: DbInput,
 		workspace: string | undefined,
 		table: string | undefined,
 		columns: ColumnDef[],
-		values: Record<string, any>,
-		resourceType: string
+		values: Record<string, any>
 	): Promise<boolean> {
-		if (!resource || !table || !workspace) {
+		if (
+			(dbInput.type == 'ducklake' && !dbInput.ducklake) ||
+			(dbInput.type == 'database' && !dbInput.resourcePath) ||
+			!table ||
+			!workspace
+		) {
 			return false
 		}
 
-		input = getInsertInput(table, columns, resource, resourceType as DbType)
+		input = getInsertInput(dbInput, table, columns)
 
 		await tick()
 
 		if (runnableComponent) {
 			await runnableComponent?.runComponent(undefined, undefined, undefined, values, {
-				done: (x) => {
+				onDone: (_x) => {
 					dispatch('insert')
 					sendUserToast('Row inserted', false)
 				},
-				cancel: () => {
+				onCancel: () => {
 					sendUserToast('Error inserting row', true)
 				},
-				error: () => {
+				onError: () => {
 					sendUserToast('Error inserting row', true)
 				}
 			})

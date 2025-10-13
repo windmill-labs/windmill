@@ -7,9 +7,9 @@
  */
 
 use crate::auth::is_devops_email;
-use crate::ee::LICENSE_KEY_ID;
+use crate::ee_oss::LICENSE_KEY_ID;
 #[cfg(feature = "enterprise")]
-use crate::ee::{send_critical_alert, CriticalAlertKind};
+use crate::ee_oss::{send_critical_alert, CriticalAlertKind};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
 use crate::DB;
@@ -19,19 +19,30 @@ use git_version::git_version;
 
 use chrono::Utc;
 use croner::Cron;
+use itertools::Itertools;
 use rand::{distr::Alphanumeric, rng, Rng};
 use reqwest::Client;
 use semver::Version;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{de::Error as SerdeDeserializerError, Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Postgres};
-use std::str::FromStr;
+use std::borrow::Cow;
+use std::fmt::Display;
+use std::sync::Arc;
+use std::{fs::DirBuilder as SyncDirBuilder, str::FromStr};
+use tokio::fs::DirBuilder as AsyncDirBuilder;
+use tokio::sync::RwLock;
+use url::Url;
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
 
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
+
+pub const AGENT_JWT_PREFIX: &str = "jwt_agent_";
+pub const WORKER_NAME_PREFIX: &str = "wk";
+pub const AGENT_WORKER_NAME_PREFIX: &str = "ag";
 
 use crate::CRITICAL_ALERT_MUTE_UI_ENABLED;
 use std::panic::{self, AssertUnwindSafe, Location};
@@ -40,6 +51,7 @@ use std::sync::atomic::Ordering;
 use crate::worker::CLOUD_HOSTED;
 
 lazy_static::lazy_static! {
+
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .timeout(std::time::Duration::from_secs(20))
@@ -53,6 +65,12 @@ lazy_static::lazy_static! {
         }
     ).unwrap_or(Version::new(0, 1, 0));
 
+    pub static ref HOSTNAME :String = std::env::var("FORCE_HOSTNAME").unwrap_or_else(|_| {
+        gethostname()
+            .to_str()
+            .map(|x| x.to_string())
+            .unwrap_or_else(|| rd_string(5))
+    });
 
     pub static ref MODE_AND_ADDONS: ModeAndAddons = {
         let mut search_addon = false;
@@ -70,7 +88,7 @@ lazy_static::lazy_static! {
                 }
                 Mode::Worker
             } else if &x == "agent" {
-                println!("Binary is in 'agent' mode");
+                println!("Binary is in 'agent' mode with BASE_INTERNAL_URL={}", std::env::var("BASE_INTERNAL_URL").unwrap_or_default());
                 if std::env::var("BASE_INTERNAL_URL").is_err() {
                     panic!("BASE_INTERNAL_URL is required in agent mode")
                 }
@@ -118,6 +136,12 @@ lazy_static::lazy_static! {
             mode,
         }
     };
+
+    pub static ref HUB_API_SECRET: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+}
+
+lazy_static::lazy_static! {
+    pub static ref AGENT_TOKEN: String = std::env::var("AGENT_TOKEN").unwrap_or_default();
 }
 
 #[derive(Clone)]
@@ -167,15 +191,6 @@ pub async fn require_admin_or_devops(
     Ok(())
 }
 
-pub fn hostname() -> String {
-    std::env::var("FORCE_HOSTNAME").unwrap_or_else(|_| {
-        gethostname()
-            .to_str()
-            .map(|x| x.to_string())
-            .unwrap_or_else(|| rd_string(5))
-    })
-}
-
 fn instance_name(hostname: &str) -> String {
     hostname
         .replace(" ", "")
@@ -186,16 +201,32 @@ fn instance_name(hostname: &str) -> String {
         .to_string()
 }
 
-pub fn worker_suffix(hostname: &str, rd_string: &str) -> String {
-    format!("{}-{}", instance_name(hostname), rd_string)
+const DEFAULT_WORKER_SUFFIX_LEN: usize = 5;
+pub const SSH_AGENT_WORKER_SUFFIX: &'static str = "/ssh";
+
+pub fn create_worker_suffix(hostname: &str, rd_string_len: usize) -> String {
+    let wk_suffix = format!("{}-{}", instance_name(hostname), rd_string(rd_string_len));
+    wk_suffix
+}
+
+pub fn create_default_worker_suffix(hostname: &str) -> String {
+    create_worker_suffix(hostname, DEFAULT_WORKER_SUFFIX_LEN)
 }
 
 pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str) -> String {
     if is_agent {
-        format!("ag-{}-{}", worker_group, suffix)
+        format!("{}-{}-{}", AGENT_WORKER_NAME_PREFIX, worker_group, suffix)
     } else {
-        format!("wk-{}-{}", worker_group, suffix)
+        format!("{}-{}-{}", WORKER_NAME_PREFIX, worker_group, suffix)
     }
+}
+
+pub fn retrieve_common_worker_prefix(worker_name: &str) -> String {
+    let (prefix, _) = worker_name.rsplit_once('-').unzip();
+
+    prefix
+        .expect("Invalid worker_name: expected at least one '-' in the name")
+        .to_owned()
 }
 
 pub fn paginate(pagination: Pagination) -> (usize, usize) {
@@ -219,18 +250,38 @@ pub async fn now_from_db<'c, E: sqlx::PgExecutor<'c>>(
 ) -> Result<chrono::DateTime<chrono::Utc>> {
     Ok(sqlx::query_scalar!("SELECT now()")
         .fetch_one(db)
+        .warn_after_seconds_with_sql(1, "now_from_db".to_string())
         .await?
         .unwrap())
 }
 
+pub async fn create_directory_async(directory_path: &str) {
+    AsyncDirBuilder::new()
+        .recursive(true)
+        .create(directory_path)
+        .await
+        .expect("could not create dir");
+}
+
+pub fn create_directory_sync(directory_path: &str) {
+    SyncDirBuilder::new()
+        .recursive(true)
+        .create(directory_path)
+        .expect("could not create dir");
+}
+
+#[track_caller]
 pub fn not_found_if_none<T, U: AsRef<str>>(opt: Option<T>, kind: &str, name: U) -> Result<T> {
     if let Some(o) = opt {
         Ok(o)
     } else {
+        let loc = Location::caller();
         Err(Error::NotFound(format!(
-            "{} not found at name {}",
+            "{} not found at name {} ({}:{})",
             kind,
-            name.as_ref()
+            name.as_ref(),
+            loc.file().split("/").last().unwrap_or_default(),
+            loc.line()
         )))
     }
 }
@@ -285,6 +336,10 @@ pub async fn http_get_from_hub(
 
     if let Some(uid) = uid {
         request = request.header("X-uid", uid);
+    }
+
+    if let Some(hub_api_secret) = HUB_API_SECRET.read().await.clone() {
+        request = request.header("X-api-secret", hub_api_secret);
     }
 
     if let Some(query_params) = query_params {
@@ -487,6 +542,18 @@ impl<T> IsEmpty for Vec<T> {
     }
 }
 
+impl<T> IsEmpty for Option<T>
+where
+    T: IsEmpty,
+{
+    fn is_empty(&self) -> bool {
+        match self {
+            Some(v) => v.is_empty(),
+            None => true,
+        }
+    }
+}
+
 pub fn empty_as_none<'de, D, T>(deserializer: D) -> std::result::Result<Option<T>, D::Error>
 where
     D: Deserializer<'de>,
@@ -494,6 +561,26 @@ where
 {
     let option = <Option<T> as serde::Deserialize>::deserialize(deserializer)?;
     Ok(option.filter(|s| !s.is_empty()))
+}
+
+pub fn is_empty<T>(value: &T) -> bool
+where
+    T: IsEmpty,
+{
+    value.is_empty()
+}
+
+pub fn deserialize_url<'de, D: Deserializer<'de>>(
+    de: D,
+) -> std::result::Result<Option<Url>, D::Error> {
+    let intermediate = <Option<Cow<'de, str>>>::deserialize(de)?;
+
+    match intermediate.as_deref() {
+        None | Some("") => Ok(None),
+        Some(non_empty_string) => Url::parse(non_empty_string)
+            .map(Some)
+            .map_err(D::Error::custom),
+    }
 }
 
 pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> {
@@ -521,6 +608,30 @@ pub async fn fetch_mute_workspace(_db: &DB, workspace_id: &str) -> Result<bool> 
             return Err(err.into());
         }
     }
+}
+
+// build_arg_str(&[("name", Some("value")), ("name2", None)], " ", "=")
+pub fn build_arg_str(args: &[(&str, Option<&str>)], sep: &str, eq: &str) -> String {
+    args.iter()
+        .filter_map(|(k, v)| {
+            if let Some(value) = v {
+                Some(format!("{}{}{}", k, eq, value))
+            } else {
+                None
+            }
+        })
+        .join(sep)
+}
+
+// Some errors (duckdb) leak the password in the error message
+pub fn sanitize_string_from_password(s: &str, passwd: &str) -> Option<String> {
+    if s.contains(passwd) {
+        return Some(s.replace(passwd, "******"));
+    }
+    // Do NOT check substrings
+    // In the case the user finds a string and notices that it gets substituted,
+    // He can very easily find the next character in O(1) and thus the entire password
+    None
 }
 
 pub enum ScheduleType {
@@ -681,15 +792,30 @@ pub trait WarnAfterExt: Future + Sized {
     #[track_caller]
     fn warn_after_seconds(self, seconds: u8) -> WarnAfterFuture<Self> {
         let caller = Location::caller();
+        self.build_from_caller(seconds, caller, None)
+    }
+
+    fn build_from_caller(
+        self,
+        seconds: u8,
+        caller: &Location,
+        sql: Option<String>,
+    ) -> WarnAfterFuture<Self> {
         let location = format!("{}:{}", caller.file(), caller.line());
         WarnAfterFuture {
             future: self,
             timeout: time::sleep(Duration::from_secs(seconds as u64)),
             warned: false,
             start_time: std::time::Instant::now(),
-            location: location,
+            location,
             seconds,
+            sql,
         }
+    }
+    #[track_caller]
+    fn warn_after_seconds_with_sql(self, seconds: u8, sql: String) -> WarnAfterFuture<Self> {
+        let caller = Location::caller();
+        self.build_from_caller(seconds, caller, Some(sql))
     }
 }
 
@@ -707,6 +833,7 @@ pin_project! {
         location: String,
         start_time: std::time::Instant,
         seconds: u8,
+        sql: Option<String>,
     }
 }
 
@@ -716,13 +843,20 @@ impl<F: Future> Future for WarnAfterFuture<F> {
     fn poll(self: Pin<&mut Self>, cx: &mut TContext<'_>) -> Poll<Self::Output> {
         let this = self.project();
 
+        fn build_query_string(location: &str, sql: Option<&str>) -> String {
+            match sql {
+                Some(sql) => format!("{}: {}", location, sql),
+                None => location.to_string(),
+            }
+        }
+
         // Poll the timeout future to check if it has elapsed.
         if !*this.warned {
             if this.timeout.poll(cx).is_ready() {
                 tracing::warn!(
                     location = this.location,
                     "SLOW_QUERY: query {} to db taking longer than expected (> {} seconds)",
-                    this.location,
+                    build_query_string(&this.location, this.sql.as_deref()),
                     this.seconds,
                 );
                 *this.warned = true;
@@ -737,7 +871,7 @@ impl<F: Future> Future for WarnAfterFuture<F> {
                     tracing::warn!(
                         location = this.location,
                         "SLOW_QUERY: completed query {} with total duration: {:.2?}",
-                        this.location,
+                        build_query_string(&this.location, this.sql.as_deref()),
                         elapsed
                     );
                 }
@@ -746,4 +880,47 @@ impl<F: Future> Future for WarnAfterFuture<F> {
             Poll::Pending => Poll::Pending,
         }
     }
+}
+
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum RunnableKind {
+    Script,
+    Flow,
+}
+
+impl Display for RunnableKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let runnable_kind = match self {
+            RunnableKind::Script => "script",
+            RunnableKind::Flow => "flow",
+        };
+        write!(f, "{}", runnable_kind)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_build_arg_str() {
+        let r = build_arg_str(
+            &[
+                ("host", Some("localhost")),
+                ("port", Some("5432")),
+                ("password", None),
+                ("user", Some("postgres")),
+                ("dbname", Some("test_db")),
+            ],
+            " ",
+            "=",
+        );
+        assert_eq!(r, "host=localhost port=5432 user=postgres dbname=test_db");
+    }
+}
+
+#[derive(Clone)]
+pub struct ExpiringCacheEntry<T> {
+    pub value: T,
+    pub expiry: std::time::Instant,
 }

@@ -8,6 +8,7 @@
 use crate::{
     db::{ApiAuthed, DB},
     users::require_owner_of_path,
+    utils::check_scopes,
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -22,13 +23,14 @@ use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::FromRow;
 use std::str;
-use windmill_audit::audit_ee::audit_log;
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::{
     apps::ListAppQuery,
     db::UserDB,
     error::{Error, JsonResult, Result},
     utils::{not_found_if_none, paginate, Pagination, StripPath},
+    worker::CLOUD_HOSTED,
 };
 
 pub fn workspaced_service() -> Router {
@@ -127,6 +129,7 @@ async fn get_data(
     Path((w_id, _version, path)): Path<(String, u16, StripPath)>,
 ) -> Result<Response> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("raw_apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let app_o = sqlx::query_scalar!(
@@ -149,9 +152,30 @@ async fn create_app(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("raw_apps:write:{}", app.path))?;
+    if *CLOUD_HOSTED {
+        let nb_apps = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM raw_app WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?;
+        if nb_apps.unwrap_or(0) >= 1000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of apps (1000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+        if app.summary.len() > 300 {
+            return Err(Error::BadRequest(
+                "Summary must be less than 300 characters on cloud".to_string(),
+            ));
+        }
+    }
     let mut tx = user_db.begin(&authed).await?;
     if &app.path == "" {
         return Err(Error::BadRequest("App path cannot be empty".to_string()));
@@ -212,6 +236,7 @@ async fn delete_app(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("raw_apps:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -250,6 +275,7 @@ async fn update_app(
     use sql_builder::prelude::*;
 
     let path = path.to_path();
+    check_scopes(&authed, || format!("raw_apps:write:{}", path))?;
 
     let mut tx = user_db.begin(&authed).await?;
     let mut sqlb = SqlBuilder::update_table("raw_app");
@@ -326,6 +352,7 @@ async fn exists_app(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
     let path = path.to_path();
+    // Note: exists_app doesn't require authentication, so no scope check needed
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM raw_app WHERE path = $1 AND workspace_id = $2)",
         path,

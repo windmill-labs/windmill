@@ -9,6 +9,7 @@
 use crate::{
     db::{ApiAuthed, DB},
     users::{maybe_refresh_folders, require_owner_of_path},
+    utils::{check_scopes, BulkDeleteRequest},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 
@@ -17,20 +18,24 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use futures::future::try_join_all;
 use hyper::StatusCode;
 use serde_json::Value;
 
-use windmill_audit::audit_ee::{audit_log, AuditAuthorable};
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    db::UserDB,
+    db::{UserDB, UserDbWithAuthed},
     error::{Error, JsonResult, Result},
-    utils::{not_found_if_none, paginate, Pagination, StripPath},
+    scripts::ScriptHash,
+    utils::{not_found_if_none, paginate, Pagination, StripPath, WarnAfterExt},
     variables::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
     },
+    worker::CLOUD_HOSTED,
 };
 
+use crate::var_resource_cache::{cache_variable, get_cached_variable};
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
@@ -50,6 +55,7 @@ pub fn workspaced_service() -> Router {
         .route("/exists/*path", get(exists_variable))
         .route("/update/*path", post(update_variable))
         .route("/delete/*path", delete(delete_variable))
+        .route("/delete_bulk", delete(delete_variables_bulk))
         .route("/create", post(create_variable))
         .route("/encrypt", post(encrypt_value))
 }
@@ -74,8 +80,10 @@ async fn list_contextual_variables(
             Some("u/user/triggering_flow_path".to_string()),
             Some("c".to_string()),
             Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
-            Some("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c".to_string()),
-            Some(chrono::offset::Utc::now())
+            Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
+            Some(chrono::offset::Utc::now()),
+            Some(ScriptHash(1234567890)),
+            None,
         )
         .await
         .to_vec(),
@@ -140,6 +148,8 @@ async fn get_variable(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<ListableVariable> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("variables:read:{}", path))?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     let variable_o = sqlx::query_as::<_, ListableVariable>(
@@ -186,7 +196,7 @@ async fn get_variable(
                 #[cfg(feature = "oauth2")]
                 {
                     Some(
-                        crate::oauth2_ee::_refresh_token(
+                        crate::oauth2_oss::_refresh_token(
                             tx,
                             &variable.path,
                             &w_id,
@@ -201,7 +211,12 @@ async fn get_variable(
             } else if !value.is_empty() && decrypt_secret {
                 let _ = tx.commit().await;
                 let mc = build_crypt(&db, &w_id).await?;
-                Some(decrypt(&mc, value)?)
+                Some(decrypt(&mc, value).map_err(|e| {
+                    Error::internal_err(format!(
+                        "Error decrypting variable {}: {}",
+                        variable.path, e
+                    ))
+                })?)
             } else if q.include_encrypted.unwrap_or(false) {
                 Some(value)
             } else {
@@ -216,18 +231,32 @@ async fn get_variable(
     Ok(Json(r))
 }
 
+#[derive(Deserialize)]
+struct GetValueQuery {
+    allow_cache: Option<bool>,
+}
 async fn get_value(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(q): Query<GetValueQuery>,
 ) -> JsonResult<String> {
     let path = path.to_path();
-    let tx = user_db.begin(&authed).await?;
-    return get_value_internal(tx, &db, &w_id, &path, &authed)
-        .await
-        .map(Json);
+    check_scopes(&authed, || format!("variables:read:{}", path))?;
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+
+    return get_value_internal(
+        &userdb_authed,
+        &db,
+        &w_id,
+        &path,
+        &authed,
+        q.allow_cache.unwrap_or(false),
+    )
+    .warn_after_seconds(10)
+    .await
+    .map(Json);
 }
 
 async fn explain_variable_perm_error(
@@ -314,6 +343,21 @@ async fn create_variable(
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
+    check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
+    if *CLOUD_HOSTED {
+        let nb_variables = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM variable WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?;
+        if nb_variables.unwrap_or(0) >= 10000 {
+            return Err(Error::BadRequest(
+                    "You have reached the maximum number of variables (10000) on cloud. Contact support@windmill.dev to increase the limit"
+                        .to_string(),
+                ));
+        }
+    }
     let authed = maybe_refresh_folders(&variable.path, &w_id, authed, &db).await;
 
     check_path_conflict(&db, &w_id, &variable.path).await?;
@@ -396,6 +440,9 @@ async fn delete_variable(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
+
+    check_scopes(&authed, || format!("variables:write:{}", path))?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -444,12 +491,81 @@ async fn delete_variable(
     Ok(format!("variable {} deleted", path))
 }
 
+async fn delete_variables_bulk(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path(w_id): Path<String>,
+    Json(request): Json<BulkDeleteRequest>,
+) -> JsonResult<Vec<String>> {
+    for path in &request.paths {
+        check_scopes(&authed, || format!("variables:write:{}", path))?;
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let deleted_paths = sqlx::query_scalar!(
+        "DELETE FROM variable WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
+        &request.paths,
+        w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2",
+        &deleted_paths,
+        w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "variables.delete_bulk",
+        ActionKind::Delete,
+        &w_id,
+        Some(&deleted_paths.join(", ")),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    try_join_all(deleted_paths.iter().map(|path| {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Variable {
+                path: path.to_string(),
+                parent_path: Some(path.to_string()),
+            },
+            Some(format!("Variable '{}' deleted", path)),
+            true,
+        )
+    }))
+    .await?;
+
+    for path in &deleted_paths {
+        webhook.send_message(
+            w_id.clone(),
+            WebhookMessage::DeleteVariable { workspace: w_id.clone(), path: path.to_owned() },
+        );
+    }
+
+    Ok(Json(deleted_paths))
+}
+
 #[derive(Deserialize)]
 struct EditVariable {
     path: Option<String>,
     value: Option<String>,
     is_secret: Option<bool>,
     description: Option<String>,
+    account: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -469,6 +585,7 @@ async fn update_variable(
     use sql_builder::prelude::*;
 
     let path = path.to_path();
+    check_scopes(&authed, || format!("variables:write:{}", path))?;
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
 
     let mut sqlb = SqlBuilder::update_table("variable");
@@ -506,6 +623,10 @@ async fn update_variable(
         sqlb.set_str("description", &desc);
     }
 
+    if let Some(account_id) = ns.account {
+        sqlb.set_str("account", account_id);
+    }
+
     if let Some(nbool) = ns.is_secret {
         let old_secret = sqlx::query_scalar!(
             "SELECT is_secret from variable WHERE path = $1 AND workspace_id = $2",
@@ -523,6 +644,21 @@ async fn update_variable(
         sqlb.set_str("is_secret", nbool);
     }
     sqlb.returning("path");
+
+    // Get old account_id if we're updating the account field
+    let old_account_id = if ns.account.is_some() {
+        sqlx::query_scalar!(
+            "SELECT account FROM variable WHERE path = $1 AND workspace_id = $2",
+            &path,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten()
+    } else {
+        None
+    };
+
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     if let Some(npath) = ns.path {
@@ -575,6 +711,33 @@ async fn update_variable(
         None,
     )
     .await?;
+
+    // Clean up old account if it's no longer referenced and different from new account
+    if let Some(old_acc_id) = old_account_id {
+        if ns.account.is_some() && ns.account != Some(old_acc_id) {
+            // Check if old account is still referenced by other variables or resources
+            let account_still_used = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM variable WHERE account = $1 AND workspace_id = $2)",
+                old_acc_id,
+                &w_id
+            )
+            .fetch_one(&mut *tx)
+            .await?
+            .unwrap_or(true);
+
+            if !account_still_used {
+                // Delete the orphaned account
+                sqlx::query!(
+                    "DELETE FROM account WHERE id = $1 AND workspace_id = $2",
+                    old_acc_id,
+                    &w_id
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+    }
+
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -617,19 +780,29 @@ fn replace_path(v: serde_json::Value, path: &str, npath: &str) -> Value {
     }
 }
 
-pub async fn get_value_internal<'c>(
-    mut tx: Transaction<'c, Postgres>,
+pub async fn get_value_internal<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a>(
+    acquire_db: A,
     db: &DB,
     w_id: &str,
     path: &str,
     audit_author: &impl AuditAuthorable,
+    allow_cache: bool,
 ) -> Result<String> {
+    if allow_cache {
+        if let Some(cached_variable) = get_cached_variable(&w_id, &path) {
+            return Ok(cached_variable);
+        }
+    }
+
+    let mut tx = acquire_db.begin().await?;
     let variable_o = sqlx::query!(
         "SELECT value, account, (now() > account.expires_at) as is_expired, is_secret, path from variable
         LEFT JOIN account ON variable.account = account.id WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
     )
     .fetch_optional(&mut *tx)
+    .warn_after_seconds(5)
     .await?;
+    drop(tx);
 
     let variable = if let Some(variable) = variable_o {
         variable
@@ -639,6 +812,7 @@ pub async fn get_value_internal<'c>(
     };
 
     let r = if variable.is_secret {
+        let mut tx = db.begin().await?;
         audit_log(
             &mut *tx,
             audit_author,
@@ -649,11 +823,14 @@ pub async fn get_value_internal<'c>(
             None,
         )
         .await?;
+        tx.commit().await?;
+
         let value = variable.value;
         if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
             #[cfg(feature = "oauth2")]
             {
-                crate::oauth2_ee::_refresh_token(
+                let tx = db.begin().await?;
+                crate::oauth2_oss::_refresh_token(
                     tx,
                     &variable.path,
                     &w_id,
@@ -665,15 +842,24 @@ pub async fn get_value_internal<'c>(
             #[cfg(not(feature = "oauth2"))]
             return Err(Error::internal_err("Require oauth2 feature".to_string()));
         } else if !value.is_empty() {
-            tx.commit().await?;
             let mc = build_crypt(&db, &w_id).await?;
-            decrypt(&mc, value)?
+            decrypt(&mc, value).map_err(|e| {
+                Error::internal_err(format!(
+                    "Error decrypting variable {}: {}",
+                    variable.path, e
+                ))
+            })?
         } else {
             "".to_string()
         }
     } else {
         variable.value
     };
+
+    // Cache the result when explicitly allowed and caching appropriate
+    if allow_cache {
+        cache_variable(&w_id, &path, audit_author.email(), r.clone());
+    }
 
     Ok(r)
 }
@@ -698,7 +884,9 @@ pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> Result<S
         let mut value = record.value;
         if record.is_secret {
             let mc = build_crypt(db, w_id).await?;
-            value = decrypt(&mc, value)?;
+            value = decrypt(&mc, value).map_err(|e| {
+                Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
+            })?;
         }
 
         Ok(value)

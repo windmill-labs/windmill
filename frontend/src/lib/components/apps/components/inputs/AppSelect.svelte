@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { getContext, onDestroy } from 'svelte'
-	import Select from '../../svelte-select/lib/index'
+	import { getContext, onDestroy, untrack } from 'svelte'
 
 	import type {
 		AppViewerContext,
@@ -11,7 +10,6 @@
 	} from '../../types'
 	import { initCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
@@ -21,20 +19,37 @@
 	import { Bug } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 
-	export let id: string
-	export let configuration: RichConfigurations
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'selectcomponent'> | undefined = undefined
-	export let render: boolean
-	export let extraKey: string | undefined = undefined
-	export let preclickAction: (() => Promise<void>) | undefined = undefined
-	export let recomputeIds: string[] | undefined = undefined
-	export let noInitialize = false
-	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
-		undefined
-	export let noDefault = false
-	export let onSelect: string[] | undefined = undefined
+	interface Props {
+		id: string
+		configuration: RichConfigurations
+		verticalAlignment?: 'top' | 'center' | 'bottom' | undefined
+		customCss?: ComponentCustomCSS<'selectcomponent'> | undefined
+		render: boolean
+		extraKey?: string | undefined
+		preclickAction?: (() => Promise<void>) | undefined
+		recomputeIds?: string[] | undefined
+		noInitialize?: boolean
+		controls?: { left: () => boolean; right: () => boolean | string } | undefined
+		noDefault?: boolean
+		onSelect?: string[] | undefined
+	}
+
+	let {
+		id,
+		configuration,
+		verticalAlignment = undefined,
+		customCss = undefined,
+		render,
+		extraKey = undefined,
+		preclickAction = undefined,
+		recomputeIds = undefined,
+		noInitialize = false,
+		controls = undefined,
+		noDefault = false,
+		onSelect = undefined
+	}: Props = $props()
 
 	const {
 		app,
@@ -42,8 +57,7 @@
 		connectingInput,
 		selectedComponent,
 		runnableComponents,
-		componentControl,
-		darkMode
+		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const iterContext = getContext<ListContext>('ListWrapperContext')
@@ -61,9 +75,8 @@
 		$componentControl[id] = { ...$componentControl[id], ...controls }
 	}
 
-	let resolvedConfig = initConfig(
-		components['selectcomponent'].initialData.configuration,
-		configuration
+	let resolvedConfig = $state(
+		initConfig(components['selectcomponent'].initialData.configuration, configuration)
 	)
 
 	let outputs = initOutput($worldStore, id, {
@@ -71,15 +84,15 @@
 	})
 
 	// The library expects double quotes around the value
-	let value: string | undefined = noDefault
-		? undefined
-		: outputs?.result.peak()
-		? JSON.stringify(outputs?.result.peak())
-		: undefined
+	let value: string | undefined = $state(
+		noDefault
+			? undefined
+			: outputs?.result.peak()
+				? JSON.stringify(outputs?.result.peak())
+				: undefined
+	)
 
-	$: resolvedConfig.items && handleItems()
-
-	let listItems: { label: string; value: string; created?: boolean }[] = []
+	let listItems: { label: string; value: string; created?: boolean }[] = $state([])
 
 	function setContextValue(value: any) {
 		if (iterContext && listInputs) {
@@ -108,7 +121,7 @@
 						label: item?.label ?? 'undefined',
 						value: item?.value != undefined ? JSON.stringify(item.value) : 'undefined'
 					}
-			  })
+				})
 			: []
 
 		if (value != undefined && listItems.some((x) => x.value === value)) {
@@ -137,9 +150,7 @@
 		rowInputs?.remove(id)
 	})
 
-	function onChange(e: CustomEvent) {
-		e?.stopPropagation()
-
+	function onChange(nvalue: any) {
 		if (resolvedConfig.create) {
 			listItems = listItems.map((i) => {
 				delete i.created
@@ -147,7 +158,7 @@
 			})
 		}
 		preclickAction?.()
-		setValue(e.detail?.['value'])
+		setValue(nvalue)
 		if (onSelect) {
 			onSelect.forEach((id) => $runnableComponents?.[id]?.cb?.forEach((f) => f()))
 		}
@@ -178,11 +189,12 @@
 		setContextValue(undefined)
 	}
 
-	let css = initCss($app.css?.selectcomponent, customCss)
+	let css = $state(initCss($app.css?.selectcomponent, customCss))
 
 	let previsousFilter = ''
 
-	function handleFilter(e) {
+	function onFilter(newFilterText: string) {
+		filterText = newFilterText
 		if (resolvedConfig.create && filterText !== previsousFilter) {
 			previsousFilter = filterText
 			if (filterText.length > 0) {
@@ -201,8 +213,6 @@
 		}
 	}
 
-	$: resolvedConfig.defaultValue != undefined && handleDefault()
-
 	function handleDefault() {
 		if (resolvedConfig.defaultValue != undefined) {
 			const nvalue = resolvedConfig.defaultValue
@@ -211,7 +221,13 @@
 			setContextValue(nvalue)
 		}
 	}
-	let filterText = ''
+	let filterText = $state('')
+	$effect(() => {
+		resolvedConfig.items && untrack(() => handleItems())
+	})
+	$effect(() => {
+		resolvedConfig.defaultValue != undefined && untrack(() => handleDefault())
+	})
 </script>
 
 {#each Object.keys(components['selectcomponent'].initialData.configuration) as key (key)}
@@ -242,7 +258,7 @@
 	<div
 		class="app-select w-full"
 		style="height: 34px;"
-		on:pointerdown={(e) => {
+		onpointerdown={(e) => {
 			if (!e.shiftKey) {
 				e.stopPropagation()
 			}
@@ -250,7 +266,7 @@
 	>
 		{#if Array.isArray(listItems) && listItems.every((x) => x && typeof x == 'object' && typeof x['label'] == 'string' && `value` in x)}
 			{#if resolvedConfig.nativeHtmlSelect}
-				<select class={css?.input?.class} style={css?.input?.style} on:change={onNativeChange}>
+				<select class={css?.input?.class} style={css?.input?.style} onchange={onNativeChange}>
 					{#if resolvedConfig.placeholder}
 						<option value="" disabled selected>{resolvedConfig.placeholder}</option>
 					{/if}
@@ -260,34 +276,22 @@
 				</select>
 			{:else}
 				<Select
-					inAppEditor={true}
-					--border-radius="0.250rem"
-					--clear-icon-color="#6b7280"
-					--border={$darkMode ? '1px solid #6b7280' : '1px solid #d1d5db'}
-					bind:filterText
-					on:filter={handleFilter}
-					on:clear={onClear}
-					on:change={onChange}
-					items={listItems}
+					bind:filterText={() => filterText, onFilter}
+					{onClear}
+					items={listItems.map((item) =>
+						item.created && item.label === filterText
+							? { ...item, label: 'Add new: ' + item.label }
+							: item
+					)}
 					listAutoWidth={resolvedConfig.fullWidth}
-					inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-					containerStyles={($darkMode
-						? SELECT_INPUT_DEFAULT_STYLE.containerStylesDark
-						: SELECT_INPUT_DEFAULT_STYLE.containerStyles) + css?.input?.style}
-					{value}
+					containerStyle={css?.input?.style}
+					bind:value={() => value, onChange}
 					class={css?.input?.class}
 					placeholder={resolvedConfig.placeholder}
 					disabled={resolvedConfig.disabled}
-					on:focus={() => {
-						if (!$connectingInput.opened) {
-							$selectedComponent = [id]
-						}
-					}}
-				>
-					<svelte:fragment slot="item" let:item
-						>{#if resolvedConfig.create}{item.created ? 'Add new: ' : ''}{/if}{item.label}
-					</svelte:fragment>
-				</Select>
+					clearable
+					onFocus={() => !$connectingInput.opened && ($selectedComponent = [id])}
+				/>
 			{/if}
 		{:else}
 			<Popover notClickable placement="bottom" popupClass="!bg-surface border w-96">
@@ -298,16 +302,18 @@
 				>
 					<Bug size={14} />
 				</div>
-				<span slot="text">
-					<div class="bg-surface">
-						<Alert title="Incorrect options" type="error" size="xs" class="h-full w-full ">
-							The selectable items should be an array of {'{"value": any, "label":}'}. Found:
-							<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap"
-								>{JSON.stringify(listItems, null, 4)}</pre
-							>
-						</Alert>
-					</div>
-				</span>
+				{#snippet text()}
+					<span>
+						<div class="bg-surface">
+							<Alert title="Incorrect options" type="error" size="xs" class="h-full w-full ">
+								The selectable items should be an array of {'{"value": any, "label":}'}. Found:
+								<pre class="w-full bg-surface p-2 rounded-md whitespace-pre-wrap"
+									>{JSON.stringify(listItems, null, 4)}</pre
+								>
+							</Alert>
+						</div>
+					</span>
+				{/snippet}
 			</Popover>
 		{/if}
 	</div>

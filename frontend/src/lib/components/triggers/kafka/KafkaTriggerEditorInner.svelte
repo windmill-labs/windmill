@@ -5,17 +5,20 @@
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { KafkaTriggerService } from '$lib/gen'
+	import { KafkaTriggerService, type ErrorHandler, type Retry } from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
-	import type { Snippet } from 'svelte'
+	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import { saveKafkaTriggerFromCfg } from './utils'
-	import { handleConfigChange, type Trigger } from '../utils'
+	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -74,6 +77,11 @@
 	let kafkaResourcePath = $state('')
 	let kafkaCfg: Record<string, any> = $state({})
 	let deploymentLoading = $state(false)
+	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
+	let errorHandlerSelected: ErrorHandler = $state('slack')
+	let error_handler_path: string | undefined = $state()
+	let error_handler_args: Record<string, any> = $state({})
+	let retry: Retry | undefined = $state()
 
 	const isValid = $derived(
 		!!kafkaResourcePath &&
@@ -152,6 +160,10 @@
 			path = nDefaultValues?.path ?? ''
 			initialPath = ''
 			dirtyPath = false
+			error_handler_path = nDefaultValues?.error_handler_path ?? undefined
+			error_handler_args = nDefaultValues?.error_handler_args ?? {}
+			retry = nDefaultValues?.retry ?? undefined
+			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -172,6 +184,10 @@
 		enabled = cfg?.enabled
 		extra_perms = cfg?.extra_perms
 		can_write = canWrite(path, cfg?.extra_perms, $userStore)
+		error_handler_path = cfg?.error_handler_path
+		error_handler_args = cfg?.error_handler_args ?? {}
+		retry = cfg?.retry
+		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -196,7 +212,10 @@
 			group_id: kafkaCfg.group_id,
 			topics: kafkaCfg.topics,
 			enabled,
-			extra_perms: extra_perms
+			extra_perms: extra_perms,
+			error_handler_path,
+			error_handler_args,
+			retry
 		}
 	}
 
@@ -236,7 +255,8 @@
 	}
 
 	$effect(() => {
-		onCaptureConfigChange?.(captureConfig, isValid)
+		const args = [captureConfig, isValid] as const
+		untrack(() => onCaptureConfigChange?.(...args))
 	})
 
 	$effect(() => {
@@ -256,22 +276,22 @@
 				: 'New Kafka trigger'}
 			on:close={drawer.closeDrawer}
 		>
-			<svelte:fragment slot="actions">
+			{#snippet actions()}
 				{@render actionsButtons('sm')}
-			</svelte:fragment>
+			{/snippet}
 			{@render config()}
 		</DrawerContent>
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'Kafka trigger' : ''} headerClass="grow min-w-0 h-[30px]">
-		<svelte:fragment slot="header">
+		{#snippet header()}
 			{#if customLabel}
 				{@render customLabel()}
 			{/if}
-		</svelte:fragment>
-		<svelte:fragment slot="action">
+		{/snippet}
+		{#snippet action()}
 			{@render actionsButtons('xs')}
-		</svelte:fragment>
+		{/snippet}
 		{@render config()}
 	</Section>
 {/if}
@@ -348,6 +368,7 @@
 							bind:scriptPath={script_path}
 							allowRefresh={can_write}
 							allowEdit={!$userStore?.operator}
+							clearable
 						/>
 						{#if emptyString(script_path)}
 							<Button
@@ -371,6 +392,28 @@
 				{can_write}
 				showTestingBadge={isEditor}
 			/>
+
+			<Section label="Advanced" collapsable>
+				<div class="flex flex-col gap-4">
+					<div class="min-h-96">
+						<Tabs bind:selected={optionTabSelected}>
+							<Tab value="error_handler">Error Handler</Tab>
+							<Tab value="retries">Retries</Tab>
+						</Tabs>
+						<div class="mt-4">
+							<TriggerRetriesAndErrorHandler
+								{optionTabSelected}
+								{itemKind}
+								{can_write}
+								bind:errorHandlerSelected
+								bind:error_handler_path
+								bind:error_handler_args
+								bind:retry
+							/>
+						</div>
+					</div>
+				</div>
+			</Section>
 		</div>
 	{/if}
 {/snippet}

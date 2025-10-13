@@ -181,7 +181,7 @@
 					</Tooltip>
 				</div>
 			</Tab>
-			<svelte:fragment slot="content">
+			{#snippet content()}
 				<TabContent value="local">
 					{#if component && component.customCss !== undefined}
 						<div class="flex-col flex gap-4 divide-y">
@@ -235,7 +235,7 @@
 						{/each}
 					{/if}
 				</TabContent>
-			</svelte:fragment>
+			{/snippet}
 		</Tabs>
 
 		<ConfirmationModal

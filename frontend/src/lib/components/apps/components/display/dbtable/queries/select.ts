@@ -1,4 +1,5 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
+import { wrapDucklakeQuery, type DbInput } from '$lib/components/dbOps'
 import { buildParameters, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
@@ -217,6 +218,28 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 			query += ` LIMIT @limit OFFSET @offset`
 			break
 		}
+		case 'duckdb': {
+			const orderBy = `
+      ${columnDefs
+				.map(
+					(column) =>
+						`
+      (CASE WHEN $order_by = '${column.field}' AND $is_desc IS false THEN "${column.field}"::text END),
+      (CASE WHEN $order_by = '${column.field}' AND $is_desc IS true THEN "${column.field}"::text END) DESC`
+				)
+				.join(',\n')}`
+
+			quicksearchCondition = `($quicksearch = '' OR CONCAT(${filteredColumns.join(
+				', '
+			)}) ILIKE '%' || $quicksearch || '%')`
+
+			query += `SELECT ${filteredColumns.join(', ')} FROM ${table}\n`
+			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}\n`
+			query += ` ORDER BY ${orderBy}\n`
+			query += ` LIMIT $limit::INT OFFSET $offset::INT`
+
+			break
+		}
 
 		default:
 			throw new Error('Unsupported database type')
@@ -236,40 +259,43 @@ function coerceToNumber(value: any): number {
 }
 
 export function getSelectInput(
-	resource: string,
+	dbInput: DbInput,
 	table: string | undefined,
 	columnDefs: ColumnDef[],
 	whereClause: string | undefined,
-	dbType: DbType,
 	options?: { limit?: number; offset?: number }
 ): AppInput | undefined {
-	if (!resource || !table || !columnDefs) {
+	if (
+		(dbInput.type == 'ducklake' && !dbInput.ducklake) ||
+		(dbInput.type == 'database' && !dbInput.resourcePath) ||
+		!table ||
+		!columnDefs?.length
+	) {
 		return undefined
 	}
 
-	if (columnDefs.length === 0) {
-		return undefined
-	}
-
+	const dbType = dbInput.type === 'ducklake' ? 'duckdb' : dbInput.resourceType
+	let content = makeSelectQuery(table, columnDefs, whereClause, dbType, options)
+	if (dbInput.type === 'ducklake') content = wrapDucklakeQuery(content, dbInput.ducklake)
 	const getRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
 		type: 'runnableByName',
-		inlineScript: {
-			content: makeSelectQuery(table, columnDefs, whereClause, dbType, options),
-			language: getLanguageByResourceType(dbType)
-		}
+		inlineScript: { content, language: getLanguageByResourceType(dbType) }
 	}
 
 	const getQuery: AppInput = {
 		runnable: getRunnable,
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: `resource-${dbType}`
-			}
-		},
+		fields:
+			dbInput.type === 'database'
+				? {
+						database: {
+							type: 'static',
+							value: `$res:${dbInput.resourcePath}`,
+							fieldType: 'object',
+							format: `resource-${dbType}`
+						}
+					}
+				: {},
 		type: 'runnable',
 		fieldType: 'object',
 		hideRefreshButton: true

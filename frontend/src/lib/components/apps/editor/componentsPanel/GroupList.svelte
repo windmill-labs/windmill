@@ -14,15 +14,19 @@
 	import type { AppViewerContext, GridItem } from '../../types'
 	import { getAllSubgridsAndComponentIds } from '../appUtils'
 
-	export let item: GridItem
+	interface Props {
+		item: GridItem
+	}
+
+	let { item }: Props = $props()
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let groups: Array<{
 		name: string
 		path: string
-	}> = []
+	}> = $state([])
 
-	let loading: boolean = false
+	let loading: boolean = $state(false)
 
 	async function getGroups() {
 		loading = true
@@ -79,7 +83,7 @@
 		nameField = ''
 	}
 
-	let nameField: string = ''
+	let nameField: string = $state('')
 
 	getGroups()
 </script>

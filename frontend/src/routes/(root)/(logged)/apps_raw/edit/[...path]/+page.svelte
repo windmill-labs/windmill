@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { AppService, DraftService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { page } from '$app/stores'
 	import { cleanValueProperties, decodeState, type Value } from '$lib/utils'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
@@ -9,11 +8,13 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { HiddenRunnable } from '$lib/components/apps/types'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+	import { page } from '$app/state'
 
 	let files: Record<string, string> | undefined = undefined
 	let runnables = {}
 	let newPath = ''
-	let lastVersion = 0
+	// let lastVersion = 0
 	let policy: any = {}
 	let summary = ''
 
@@ -32,15 +33,15 @@
 		  }
 		| undefined = undefined
 	let redraw = 0
-	let path = $page.params.path
+	let path = page.params.path ?? ''
 
-	let nodraft = $page.url.searchParams.get('nodraft')
+	let nodraft = page.url.searchParams.get('nodraft')
 
 	afterNavigate(() => {
 		if (nodraft) {
-			let url = new URL($page.url.href)
+			let url = new URL(page.url.href)
 			url.search = ''
-			replaceState(url.toString(), $page.state)
+			replaceState(url.toString(), page.state)
 		}
 	})
 
@@ -48,12 +49,12 @@
 		runnables = app.value.runnables
 		files = app.value.files
 		summary = app.summary
-		lastVersion = app.version
+		// lastVersion = app.version
 		policy = app.policy
 		newPath = app.path
 	}
 
-	const initialState = nodraft ? undefined : localStorage.getItem(`rawapp-${$page.params.path}`)
+	const initialState = nodraft ? undefined : localStorage.getItem(`rawapp-${page.params.path}`)
 	let stateLoadedFromLocalStorage =
 		initialState != undefined ? decodeState(initialState) : undefined
 
@@ -62,7 +63,7 @@
 			path,
 			workspace: $workspaceStore!
 		})
-		const app_w_draft_ = structuredClone(app_w_draft)
+		const app_w_draft_ = structuredClone(stateSnapshot(app_w_draft))
 		savedApp = {
 			summary: app_w_draft_.summary,
 			value: app_w_draft_.value as any,
@@ -190,9 +191,9 @@
 		extractRawApp(prev)
 		savedApp = {
 			summary: prev.summary,
-			value: structuredClone(prev.value),
+			value: structuredClone(stateSnapshot(prev.value)),
 			path: prev.path,
-			policy: structuredClone(policy),
+			policy: structuredClone(stateSnapshot(policy)),
 			custom_path: prev.custom_path
 		}
 		redraw++
@@ -214,11 +215,10 @@
 				initRunnables={runnables}
 				{summary}
 				{newPath}
-				path={$page.params.path}
+				path={page.params.path ?? ''}
 				{policy}
 				bind:savedApp
 				{diffDrawer}
-				version={lastVersion}
 				newApp={false}
 			/>
 		</div>

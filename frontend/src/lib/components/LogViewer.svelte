@@ -1,4 +1,4 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
 	const s3LogPrefixes = [
 		'\n[windmill] Previous logs have been saved to object storage at logs/',
 		'\n[windmill] Previous logs have been saved to disk at logs/',
@@ -12,46 +12,67 @@
 	import { copyToClipboard } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { workspaceStore } from '$lib/stores'
-	import AnsiUp from 'ansi_up'
+	import { AnsiUp } from 'ansi_up'
 	import NoWorkerWithTagWarning from './runs/NoWorkerWithTagWarning.svelte'
 	import { JobService } from '$lib/gen'
 	import Tooltip from './Tooltip.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import QueuePosition from './QueuePosition.svelte'
 
-	export let content: string | undefined
-	export let isLoading: boolean
-	export let duration: number | undefined = undefined
-	export let mem: number | undefined = undefined
-	export let wrapperClass = ''
-	export let jobId: string | undefined = undefined
-	export let tag: string | undefined
-	export let small = false
-	export let drawerOpen = false
-	export let noMaxH = false
-	export let noAutoScroll = false
-	export let download = true
-	export let customEmptyMessage = 'No logs are available yet'
+	interface Props {
+		content: string | undefined
+		isLoading: boolean
+		duration?: number | undefined
+		mem?: number | undefined
+		wrapperClass?: string
+		jobId?: string | undefined
+		tag: string | undefined
+		small?: boolean
+		drawerOpen?: boolean
+		noMaxH?: boolean
+		noAutoScroll?: boolean
+		download?: boolean
+		customEmptyMessage?: string
+		tagLabel?: string
+		noPadding?: boolean
+		navigationId?: string
+	}
+
+	let {
+		content,
+		isLoading,
+		duration = undefined,
+		mem = undefined,
+		wrapperClass = '',
+		jobId = undefined,
+		tag,
+		small = false,
+		drawerOpen = $bindable(false),
+		noMaxH = false,
+		noAutoScroll = false,
+		download = true,
+		customEmptyMessage = 'No logs are available yet',
+		tagLabel = undefined,
+		noPadding = false,
+		navigationId = undefined
+	}: Props = $props()
 
 	// @ts-ignore
-	const ansi_up = new AnsiUp()
+	const ansi_up = $state(new AnsiUp())
 
 	ansi_up.use_classes = true
 
-	let scroll = true
-	let div: HTMLElement | null = null
+	let scroll = $state(true)
+	let div: HTMLElement | null = $state(null)
 
 	// let downloadStartUrl: string | undefined = undefined
 
 	let LOG_INC = 10000
-	let LOG_LIMIT = LOG_INC
+	let LOG_LIMIT = $state(LOG_INC)
 
-	let lastJobId = jobId
+	let lastJobId = $state(jobId)
 
-	let loadedFromObjectStore = ''
-	$: if (jobId !== lastJobId) {
-		lastJobId = jobId
-		loadedFromObjectStore = ''
-		LOG_LIMIT = LOG_INC
-	}
+	let loadedFromObjectStore = $state('')
 
 	function findPrefixIndex(truncateContent: string): number | undefined {
 		let index = s3LogPrefixes.findIndex((x) => truncateContent.startsWith(x))
@@ -85,11 +106,6 @@
 		}
 	}
 
-	$: truncatedContent = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
-
-	$: prefixIndex = findPrefixIndex(truncatedContent)
-	$: downloadStartUrl = findStartUrl(truncatedContent, prefixIndex)
-
 	function truncateContent(
 		jobContent: string | undefined,
 		loadedFromObjectStore: string,
@@ -102,21 +118,12 @@
 		return content
 	}
 
-	$: truncatedContent && scrollToBottom()
-
-	$: html = ansi_up.ansi_to_html(
-		downloadStartUrl && prefixIndex != undefined
-			? truncatedContent.substring(
-					truncatedContent.substring(1).indexOf('\n') + 2,
-					truncatedContent.length
-				)
-			: truncatedContent
-	)
 	export function scrollToBottom() {
+		// console.log('scrollToBottom', scroll, div)
 		scroll && setTimeout(() => div?.scroll({ top: div?.scrollHeight, behavior: 'smooth' }), 100)
 	}
 
-	let logViewer: Drawer
+	let logViewer: Drawer | undefined = $state()
 
 	async function getStoreLogs() {
 		if (downloadStartUrl) {
@@ -138,18 +145,40 @@
 	function showMoreTruncate(len: number) {
 		scroll = false
 		LOG_LIMIT += LOG_INC
-		console.log(LOG_INC, len, LOG_LIMIT)
 		let newC = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
 		let newlineIndex = newC.indexOf('\n') + 1
 		if (newlineIndex < LOG_INC / 2) {
 			LOG_LIMIT -= newlineIndex
 		}
 	}
+	$effect.pre(() => {
+		if (jobId !== lastJobId) {
+			lastJobId = jobId
+			loadedFromObjectStore = ''
+			LOG_LIMIT = LOG_INC
+		}
+	})
+	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
+	let prefixIndex = $derived(findPrefixIndex(truncatedContent))
+	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixIndex))
+	$effect.pre(() => {
+		truncatedContent && scrollToBottom()
+	})
+	let html = $derived(
+		ansi_up.ansi_to_html(
+			downloadStartUrl && prefixIndex != undefined
+				? truncatedContent.substring(
+						truncatedContent.substring(1).indexOf('\n') + 2,
+						truncatedContent.length
+					)
+				: truncatedContent
+		)
+	)
 </script>
 
 <Drawer bind:this={logViewer} bind:open={drawerOpen} size="900px">
 	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
+		{#snippet actions()}
 			{#if jobId && download}
 				<Button
 					href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
@@ -174,88 +203,105 @@
 			>
 				Copy to clipboard
 			</Button>
-		</svelte:fragment>
+		{/snippet}
 		<div>
 			<pre
 				class="bg-surface-secondary text-secondary text-xs w-full p-2 whitespace-pre-wrap border rounded-md"
 				>{#if content}{@const len =
 						(content?.length ?? 0) +
 						(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button
-							on:click={getStoreLogs}
+							onclick={getStoreLogs}
 							>Show more... <Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
 						><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)...<br
-						/><button on:click={() => showMoreTruncate(len)}>Show more..</button><br
+						/><button onclick={() => showMoreTruncate(len)}>Show more..</button><br
 						/>{/if}{@html html}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
 			>
 		</div>
 	</DrawerContent>
 </Drawer>
 
-<div class="relative w-full h-full {wrapperClass}">
-	<div
-		bind:this={div}
-		class="w-full h-full overflow-auto relative bg-surface-secondary {noMaxH ? '' : 'max-h-screen'}"
-	>
-		<div class="sticky z-10 top-0 right-0 w-full flex flex-row-reverse justify-between text-sm">
-			<div class="flex gap-2 pl-0.5 bg-surface-secondary">
-				{#if jobId && download}
-					<div class="flex items-center">
-						<a
-							class="text-primary pb-0.5"
-							target="_blank"
-							href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
-							download="windmill_logs_{jobId}.txt"
-							><Download size="14" />
-						</a>
-					</div>
-				{/if}
-				<button on:click={logViewer.openDrawer}><Expand size="12" /></button>
-				{#if !noAutoScroll}
-					<div
-						class="{small ? '' : 'py-2'} pr-2 {small
-							? '!text-2xs'
-							: '!text-xs'} flex gap-2 text-tertiary items-center"
-					>
-						Auto scroll
-						<input class="windmillapp" type="checkbox" bind:checked={scroll} />
-					</div>
-				{/if}
-			</div>
-		</div>
-		{#if isLoading}
-			<div class="flex gap-2 absolute top-2 left-2 items-center z-10">
-				<Loader2 class="animate-spin" />
-				{#if tag}
-					<div class="flex flex-row items-center gap-1">
-						<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}">tag: {tag}</div>
-						<NoWorkerWithTagWarning {tag} />
-					</div>
-				{/if}
-			</div>
-		{:else if duration}
-			<span
-				class="absolute {small ? '!text-2xs' : '!text-xs'} text-tertiary dark:text-gray-400 {small
-					? 'top-0'
-					: 'top-2'} left-2">took {duration}ms</span
-			>
-		{/if}
-		{#if mem}
-			<span
-				class="absolute {small ? '!text-2xs' : '!text-xs'} text-tertiary dark:text-gray-400 {small
-					? 'top-0'
-					: 'top-2'}  left-36">mem peak: {(mem / 1024).toPrecision(4)}MB</span
-			>
-		{/if}
-		<pre class="whitespace-pre break-words {small ? '!text-2xs' : '!text-xs'} w-full p-2"
-			>{#if content}{@const len =
-					(content?.length ?? 0) +
-					(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button on:click={getStoreLogs}
-						>Show more... &nbsp;<Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
-					><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)<br
-					/><button on:click={() => showMoreTruncate(len)}>Show more..</button><br />{/if}<span
-					>{@html html}</span
-				>{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
+<div class="w-full h-full {wrapperClass}">
+	<div class="w-full h-full relative">
+		<div
+			bind:this={div}
+			class="w-full h-full overflow-auto bg-surface-secondary pt-4 {noMaxH ? '' : 'max-h-screen'}"
+			data-nav-id={navigationId}
 		>
+			<div class="absolute z-10 top-0 right-0 flex flex-row-reverse justify-between text-sm">
+				<div class="flex gap-2">
+					{#if jobId && download}
+						<div class="flex items-center">
+							<a
+								class="text-primary pb-0.5"
+								target="_blank"
+								href="{base}/api/w/{$workspaceStore}/jobs_u/get_logs/{jobId}"
+								download="windmill_logs_{jobId}.txt"
+								><Download size="14" />
+							</a>
+						</div>
+					{/if}
+					<button onclick={logViewer.openDrawer}><Expand size="12" /></button>
+					{#if !noAutoScroll}
+						<div
+							class="{small ? '' : 'py-2'} pr-2 {small
+								? '!text-2xs'
+								: '!text-xs'} flex gap-2 text-tertiary items-center"
+						>
+							Auto scroll
+							<input class="windmillapp" type="checkbox" bind:checked={scroll} />
+						</div>
+					{/if}
+				</div>
+			</div>
+			{#if isLoading}
+				<div class="flex gap-2 absolute top-2 left-2 items-center z-10">
+					<Loader2 class="animate-spin" />
+					{#if tag}
+						<div class="flex flex-row items-center gap-1">
+							<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}"
+								>{tagLabel ?? 'tag'}: {tag}</div
+							>
+							<NoWorkerWithTagWarning {tagLabel} {tag} />
+						</div>
+					{/if}
+					{#if jobId}
+						<QueuePosition {jobId} />
+					{/if}
+				</div>
+			{:else if duration}
+				<span
+					class={twMerge(
+						'absolute  text-tertiary dark:text-gray-400',
+						small ? '!text-2xs' : '!text-xs',
+						small ? 'top-0' : 'top-2',
+						noPadding ? '' : 'left-2'
+					)}>took {duration}ms</span
+				>
+			{/if}
+			{#if mem}
+				<span
+					class="absolute {small ? '!text-2xs' : '!text-xs'} text-tertiary dark:text-gray-400 {small
+						? 'top-0'
+						: 'top-2'}  left-36">mem peak: {(mem / 1024).toPrecision(4)}MB</span
+				>
+			{/if}
+			<pre
+				class={twMerge(
+					'whitespace-pre break-words w-full',
+					small ? '!text-2xs' : '!text-xs',
+					noPadding ? '' : 'p-2'
+				)}
+				>{#if content}{@const len =
+						(content?.length ?? 0) +
+						(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button
+							onclick={getStoreLogs}
+							>Show more... &nbsp;<Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
+						><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)<br
+						/><button onclick={() => showMoreTruncate(len)}>Show more..</button><br />{/if}<span
+						>{@html html}</span
+					>{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
+			>
+		</div>
 	</div>
 </div>
 
@@ -462,5 +508,10 @@
 	}
 	.dark .ansi-bright-white-bg {
 		background-color: rgb(229, 233, 240);
+	}
+
+	[data-nav-id]:focus-visible {
+		outline: none;
+		outline-offset: 0;
 	}
 </style>

@@ -9,7 +9,7 @@ use serde_json::Value;
 use tree_sitter::Node;
 use windmill_parser::Arg;
 use windmill_parser::MainArgSignature;
-use windmill_parser::Typ;
+use windmill_parser::{ObjectType, Typ};
 
 #[derive(Debug)]
 pub struct JavaMainSigMeta {
@@ -101,7 +101,7 @@ fn find_typ<'a>(typ_node: Node<'a>, code: &str) -> anyhow::Result<(Typ, Option<V
                 Ok("Double")      => (Typ::Float, null),
                 Ok("Boolean")     => (Typ::Bool, null),
                 Ok("Character")   => (Typ::Str(None), null),
-                Ok("Object")      => (Typ::Object(vec![]),null), // TODO: Complete the object type
+                Ok("Object")      => (Typ::Object(ObjectType::new(None, Some(vec![]))),null), // TODO: Complete the object type
                 Ok(s)       => bail!("Unknown type `{s}`"),
                 Err(e) => bail!("Error getting type name: {}", e),
             }
@@ -394,7 +394,7 @@ class Main {
                 Arg {
                     name: "i".into(),
                     otyp: Some("Object".into()),
-                    typ: Typ::Object(vec![]),
+                    typ: Typ::Object(ObjectType::new(None, Some(vec![]))),
                     default: Some(json!(null)),
                     has_default: true,
                     oidx: None
@@ -427,7 +427,7 @@ class Main {
                 Arg {
                     name: "b".into(),
                     otyp: Some("Object[]".into()),
-                    typ: Typ::List(Box::new(Typ::Object(vec![]))),
+                    typ: Typ::List(Box::new(Typ::Object(ObjectType::new(None, Some(vec![]))))),
                     default: Some(json!(null)),
                     has_default: true,
                     oidx: None

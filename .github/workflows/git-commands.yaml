@@ -1,0 +1,276 @@
+name: Git commands
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  update-sqlx:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/updatesqlx')
+    runs-on: ubicloud-standard-8
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: windmill
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: ${{ vars.INTERNAL_APP_ID }}
+          private-key: ${{ secrets.INTERNAL_APP_KEY }}
+
+      - name: Comment on PR - Starting
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ steps.app.outputs.token }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'Starting sqlx update...'
+            })
+
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ steps.app.outputs.token }}
+          ref: ${{ github.event.issue.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Checkout windmill-ee-private
+        uses: actions/checkout@v3
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: windmill-ee-private
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+
+      # Cache rust dependencies
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./backend -> target"
+
+      - name: Install xmlsec build-time deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libxml2-dev libssl-dev \
+            xmlsec1 libxmlsec1-dev libxmlsec1-openssl
+
+      - name: Run update-sqlx script
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/windmill
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -e  # Exit on any command failure
+          PR_NUMBER=${{ github.event.issue.number }}
+          BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
+          echo "Checking out PR branch: $BRANCH_NAME"
+          git checkout $BRANCH_NAME
+          git config --local user.email "windmill-internal-app[bot]@users.noreply.github.com"
+          git config --local user.name "windmill-internal-app[bot]"
+          git config pull.rebase true
+          git pull origin $BRANCH_NAME
+          mkdir -p frontend/build
+          cd backend
+          cargo install sqlx-cli --version 0.8.5
+          sqlx migrate run
+          if ! ./update_sqlx.sh --dir ./windmill-ee-private; then
+            gh pr comment $PR_NUMBER --body "❌ SQLx update failed. Please check the workflow logs for details."
+            exit 1
+          fi
+          # Pass the branch name to the next step
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Commit changes if any
+        run: |
+          git add backend/.sqlx
+          git commit -m "Update SQLx metadata"
+          git push origin ${{ env.BRANCH_NAME }}
+
+      - name: Comment on PR - Completed
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ steps.app.outputs.token }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'Successfully ran sqlx update'
+            })
+
+  demo:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/demo')
+    runs-on: ubicloud-standard-2
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code for Demo Generation
+        uses: anthropics/claude-code-action@beta
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          timeout_minutes: "10"
+          allowed_tools: "Bash"
+          direct_prompt: |
+            You need to:
+
+            1. Extract the Cloudflare preview URL from the cloudflare-workers-and-pages bot comment in this PR
+            2. Analyze the PR changes to understand what feature was added/modified
+            3. Create detailed instructions to give to an AI agent that will click and interact with buttons and inputs to showcase the new feature. Only include the instructions, nothing else.
+            4. Create a demo.json file with a valid JSON object containing:
+              - instructions: the demo instructions
+              - url: the preview URL
+            5. VALIDATE the JSON file using `jq` before finishing
+            DO NOT COMMIT THIS FILE TO THE PR.
+
+            Example demo.json:
+            {
+              "instructions": "Click on settings, then account settings, then 'generate new token'",
+              "url": "https://example.pages.dev"
+            }
+
+            CRITICAL: After creating demo.json, you MUST:
+            1. Run `jq empty demo.json` to validate the JSON is properly formatted
+            2. If validation fails, fix the JSON and validate again
+            3. Only proceed once the JSON passes validation
+            4. Use proper JSON escaping for newlines, quotes, and special characters
+
+            Make sure to:
+            - Create a valid JSON object that passes `jq empty demo.json`
+            - Extract the correct preview URL (should be a .pages.dev domain)
+            - Create specific, actionable demo steps based on the actual changes in the PR
+            - Properly escape all strings in the JSON (use jq to create the file if needed)
+            - NOT COMMIT THE DEMO.JSON FILE TO THE PR
+
+      - name: Send instructions to Windmill
+        env:
+          DEMO_WEBHOOK_TOKEN: ${{ secrets.DEMO_WEBHOOK_TOKEN }}
+        run: |
+          if [[ -f "demo.json" ]]; then
+            echo "Found demo.json, sending to Windmill..."
+            cat demo.json
+
+            # Validate JSON one more time (Claude should have already done this)
+            if ! jq empty demo.json; then
+              echo "Error: demo.json is not valid JSON"
+              exit 1
+            fi
+
+            RESULT=$(curl -s \
+              -H 'Content-Type: application/json' \
+              -H "Authorization: Bearer $DEMO_WEBHOOK_TOKEN" \
+              -X POST \
+              -d @demo.json \
+              'https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/ai/browserbase_demo')
+
+            echo "Windmill response:"
+            echo -E "$RESULT"
+          else
+            echo "Error: demo.json file not found"
+            exit 1
+          fi
+
+  update-ee-ref:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/eeref')
+    runs-on: ubicloud-standard-2
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: app
+        with:
+          app-id: ${{ vars.INTERNAL_APP_ID }}
+          private-key: ${{ secrets.INTERNAL_APP_KEY }}
+
+      - name: Comment on PR - Starting
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ steps.app.outputs.token }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'Starting ee ref update...'
+            })
+
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ steps.app.outputs.token }}
+          ref: ${{ github.event.issue.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Checkout windmill-ee-private
+        uses: actions/checkout@v3
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: windmill-ee-private
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+
+      - name: Get last commit hash of private-repo
+        id: get-commit-hash
+        run: |
+          cd windmill-ee-private
+          COMMIT_HASH=$(git rev-parse HEAD)
+          echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
+          echo "Latest commit hash: $COMMIT_HASH"
+
+      - name: Update ee-repo-ref.txt
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          PR_NUMBER=${{ github.event.issue.number }}
+          BRANCH_NAME=$(gh pr view $PR_NUMBER --json headRefName --jq .headRefName)
+          echo "Checking out PR branch: $BRANCH_NAME"
+          git checkout $BRANCH_NAME
+          git config --local user.email "windmill-internal-app[bot]@users.noreply.github.com"
+          git config --local user.name "windmill-internal-app[bot]"
+          git config pull.rebase true
+          git pull origin $BRANCH_NAME
+          echo "${{ steps.get-commit-hash.outputs.commit_hash }}" > backend/ee-repo-ref.txt
+          echo "Updated backend/ee-repo-ref.txt with commit hash: ${{ steps.get-commit-hash.outputs.commit_hash }}"
+          # commit and push the changes
+          git add backend/ee-repo-ref.txt
+          git commit -m "Update ee-repo-ref.txt" || echo "No changes to commit"
+          git push origin $BRANCH_NAME
+
+      - name: Comment on PR - Completed
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ steps.app.outputs.token }}
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: 'Successfully updated ee-repo-ref.txt'
+            })

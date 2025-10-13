@@ -6,11 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use crate::{
     db::{ApiAuthed, DB},
-    ee::validate_license_key,
+    ee_oss::validate_license_key,
     utils::{generate_instance_username_for_all_users, require_super_admin},
     HTTP_CLIENT,
 };
@@ -23,25 +23,27 @@ use axum::{
 
 #[cfg(feature = "enterprise")]
 use axum::extract::Query;
+use serde_json::json;
 
 #[cfg(feature = "enterprise")]
 use crate::utils::require_devops_role;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "enterprise")]
-use windmill_common::ee::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
+use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
+use windmill_common::error::to_anyhow;
 use windmill_common::{
-    email_ee::send_email,
+    email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
+    get_database_url,
     global_settings::{
-        AUTOMATE_USERNAME_CREATION_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING,
-        ENV_SETTINGS, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
+        APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
+    parse_postgres_url,
     server::Smtp,
 };
-
-#[cfg(feature = "parquet")]
-use windmill_common::error::to_anyhow;
 
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
@@ -66,6 +68,14 @@ pub fn global_service() -> Router {
         .route(
             "/critical_alerts/:id/acknowledge",
             post(acknowledge_critical_alert),
+        )
+        .route(
+            "/get_ducklake_instance_catalog_db_status",
+            post(get_ducklake_instance_catalog_db_status),
+        )
+        .route(
+            "/setup_ducklake_catalog_db/:name",
+            post(setup_ducklake_catalog_db),
         )
         .route(
             "/critical_alerts/acknowledge_all",
@@ -99,7 +109,7 @@ pub async fn test_email(
     let to = test_email.to;
 
     let client_timeout = Duration::from_secs(3);
-    send_email(
+    send_email_plain_text(
         "Test email from Windmill",
         "Test email content",
         vec![to],
@@ -249,6 +259,69 @@ pub async fn set_global_setting_internal(
                     .await?;
             }
         }
+        APP_WORKSPACED_ROUTE_SETTING => {
+            let serde_json::Value::Bool(workspaced_route) = &value else {
+                return Err(error::Error::BadRequest(format!(
+                    "{} setting Expected to be boolean",
+                    APP_WORKSPACED_ROUTE_SETTING
+                )));
+            };
+
+            if !*workspaced_route {
+                #[derive(Debug, Deserialize, Serialize)]
+                #[allow(unused)]
+                struct DuplicateApp {
+                    custom_path: Option<String>,
+                    path: String,
+                }
+                let duplicate_app = sqlx::query_as!(
+                    DuplicateApp,
+                    r#"
+                        SELECT
+                            path,
+                            custom_path
+                        FROM 
+                            app
+                        WHERE 
+                            custom_path IN (
+                                SELECT 
+                                    custom_path
+                                FROM 
+                                    app
+                                GROUP 
+                                    BY custom_path
+                                HAVING COUNT(*) > 1
+                            )
+                        ORDER BY custom_path
+                        "#
+                )
+                .fetch_all(db)
+                .await?;
+
+                if !duplicate_app.is_empty() {
+                    tracing::error!(
+                        "Cannot disable {} setting as duplicate app with custom path were found: {:?}",
+                        APP_WORKSPACED_ROUTE_SETTING,
+                        &duplicate_app
+                    );
+
+                    #[derive(Serialize)]
+                    struct ErrorResponse {
+                        error: String,
+                        details: Vec<DuplicateApp>,
+                    }
+
+                    let error_response = ErrorResponse {
+                        error: "Duplicate custom paths detected".to_string(),
+                        details: duplicate_app,
+                    };
+
+                    return Err(error::Error::JsonErr(
+                        serde_json::to_value(error_response).unwrap(),
+                    ));
+                }
+            }
+        }
         _ => {}
     }
 
@@ -286,6 +359,7 @@ pub async fn get_global_setting(
         && key != HUB_BASE_URL_SETTING
         && key != HUB_ACCESSIBLE_URL_SETTING
         && key != EMAIL_DOMAIN_SETTING
+        && key != APP_WORKSPACED_ROUTE_SETTING
     {
         require_super_admin(&db, &authed.email).await?;
     }
@@ -326,10 +400,10 @@ async fn list_global_settings() -> JsonResult<String> {
 
 pub async fn send_stats(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    windmill_common::stats_ee::send_stats(
+    windmill_common::stats_oss::send_stats(
         &HTTP_CLIENT,
         &db,
-        windmill_common::stats_ee::SendStatsReason::Manual,
+        windmill_common::stats_oss::SendStatsReason::Manual,
     )
     .await?;
 
@@ -390,11 +464,11 @@ pub async fn renew_license_key(
     authed: ApiAuthed,
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    let result = windmill_common::ee::renew_license_key(
+    let result = windmill_common::ee_oss::renew_license_key(
         &HTTP_CLIENT,
         &db,
         license_key,
-        windmill_common::ee::RenewReason::Manual,
+        windmill_common::ee_oss::RenewReason::Manual,
     )
     .await;
 
@@ -424,7 +498,7 @@ pub async fn create_customer_portal_session(
     Query(LicenseQuery { license_key }): Query<LicenseQuery>,
 ) -> Result<String> {
     let url =
-        windmill_common::ee::create_customer_portal_session(&HTTP_CLIENT, license_key).await?;
+        windmill_common::ee_oss::create_customer_portal_session(&HTTP_CLIENT, license_key).await?;
 
     return Ok(url);
 }
@@ -497,4 +571,166 @@ pub async fn acknowledge_all_critical_alerts(
 #[cfg(not(feature = "enterprise"))]
 pub async fn acknowledge_all_critical_alerts() -> error::Error {
     error::Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[derive(Deserialize, Debug, Serialize)]
+struct DucklakeInstanceCatalogDbStatus {
+    logs: DucklakeInstanceCatalogDbStatusLogs, // (Step, Message)[]
+    success: bool,
+    error: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Serialize, Default)]
+#[serde(default)]
+struct DucklakeInstanceCatalogDbStatusLogs {
+    super_admin: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    database_credentials: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    valid_dbname: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    created_database: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    db_connect: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    grant_permissions: String,
+}
+
+async fn get_ducklake_instance_catalog_db_status(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<HashMap<String, DucklakeInstanceCatalogDbStatus>> {
+    let result = sqlx::query_scalar!(
+        r#"SELECT value->'instance_catalog_db_status' FROM global_settings WHERE name = 'ducklake_settings'"#,
+    )
+    .fetch_one(&db)
+    .await?
+    .ok_or_else(|| error::Error::ExecutionErr("Couldn't find ducklake_settings".to_string()))?;
+    let result = serde_json::from_value(result).map_err(|e| {
+        error::Error::ExecutionErr(format!(
+            "couldn't parse instance_catalog_db_status : {}",
+            e.to_string()
+        ))
+    })?;
+    return Ok(Json(result));
+}
+
+async fn setup_ducklake_catalog_db(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(dbname): Path<String>,
+) -> JsonResult<DucklakeInstanceCatalogDbStatus> {
+    let mut logs = DucklakeInstanceCatalogDbStatusLogs::default();
+    let result = setup_ducklake_catalog_db_inner(authed, &db, &dbname, &mut logs).await;
+    let success = result.is_ok();
+    let error = result.err().map(|e| e.to_string());
+    let status = DucklakeInstanceCatalogDbStatus { logs, success, error };
+    let status_json = serde_json::to_value(&status).map_err(to_anyhow)?;
+    // Save that the database was setup successfully
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{instance_catalog_db_status}', (COALESCE(value->'instance_catalog_db_status', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'ducklake_settings'"#,
+        json!({ dbname: status_json })
+    ).execute(&db).await?;
+
+    Ok(Json(status))
+}
+
+async fn setup_ducklake_catalog_db_inner(
+    authed: ApiAuthed,
+    db: &DB,
+    dbname: &str,
+    logs: &mut DucklakeInstanceCatalogDbStatusLogs,
+) -> Result<()> {
+    require_super_admin(db, &authed.email).await?;
+    logs.super_admin = "OK".to_string();
+    let pg_creds = &get_database_url().await?;
+    let pg_creds = parse_postgres_url(pg_creds)?;
+    logs.database_credentials = "OK".to_string();
+
+    // Validate name to ensure it only contains alphanumeric characters
+    // Prevents SQL injection on the instance database
+    lazy_static::lazy_static! {
+        static ref VALID_NAME: regex::Regex = regex::Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
+    }
+    if !VALID_NAME.is_match(dbname) {
+        return Err(error::Error::BadRequest(
+            "Catalog name must be alphanumeric, underscores allowed".to_string(),
+        ));
+    }
+    if pg_creds.database.trim().eq_ignore_ascii_case(dbname.trim()) {
+        return Err(error::Error::BadRequest(
+            "Database name cannot be the same as the main database".to_string(),
+        ));
+    }
+    logs.valid_dbname = "OK".to_string();
+
+    let db_exists = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
+        dbname
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+
+    logs.created_database = "SKIP".to_string();
+    if !db_exists {
+        sqlx::query(&format!("CREATE DATABASE \"{dbname}\""))
+            .execute(db)
+            .await?;
+        logs.created_database = "OK".to_string();
+    }
+
+    let ssl_mode = match pg_creds.ssl_mode.as_deref() {
+        Some("allow") => "prefer".to_string(),
+        Some("verify-ca") | Some("verify-full") => "require".to_string(),
+        Some(s) => s.to_string(),
+        None => "prefer".to_string(),
+    };
+    // We have to connect to the newly created database as admin to grant permissions
+    let conn_str = format!(
+        "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
+        user = urlencoding::encode(&pg_creds.username.unwrap_or_else(|| "postgres".to_string())),
+        password = urlencoding::encode(&pg_creds.password.as_deref().unwrap_or("")),
+        host = urlencoding::encode(&pg_creds.host),
+        port = pg_creds.port.unwrap_or(5432),
+        dbname = dbname,
+        sslmode = ssl_mode
+    );
+
+    let (client, connection) = tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
+    )
+    .await
+    .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
+    .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
+    let join_handle = tokio::spawn(async move { connection.await });
+    logs.db_connect = "OK".to_string();
+
+    client
+        .batch_execute(&format!(
+            "GRANT CONNECT ON DATABASE \"{dbname}\" TO ducklake_user;
+            GRANT USAGE ON SCHEMA public TO ducklake_user;
+            GRANT CREATE ON SCHEMA public TO ducklake_user;
+            ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ducklake_user;"
+        ))
+        .await
+        .map_err(|e| {
+            error::Error::ExecutionErr(format!(
+                "Failed to grant permissions to ducklake_user: {}",
+                e.to_string(),
+            ))
+        })?;
+    logs.grant_permissions = "OK".to_string();
+
+    drop(client); // /!\ Drop before joining to avoid deadlock
+    join_handle
+        .await
+        .map_err(|e| error::Error::ExecutionErr(format!("join error: {}", e.to_string())))?
+        .map_err(|e| {
+            error::Error::ExecutionErr(format!("tokio_postgres error: {}", e.to_string()))
+        })?;
+
+    Ok(())
 }

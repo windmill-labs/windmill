@@ -1,11 +1,11 @@
 from io import BufferedReader, BytesIO
-from json import JSONDecodeError
+from typing import Optional, Union
 
 import httpx
 
 
 class S3BufferedReader(BufferedReader):
-    def __init__(self, workspace: str, windmill_client: httpx.Client, file_key: str, s3_resource_path: str | None, storage: str | None):
+    def __init__(self, workspace: str, windmill_client: httpx.Client, file_key: str, s3_resource_path: Optional[str], storage: Optional[str]):
         params = {
             "file_key": file_key,
         }
@@ -22,6 +22,17 @@ class S3BufferedReader(BufferedReader):
 
     def __enter__(self):
         reader = self._context_manager.__enter__()
+        if reader.status_code >= 400:
+            error_bytes = reader.read()
+            try:
+                error_text = error_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                error_text = str(error_bytes)
+            raise httpx.HTTPStatusError(
+                f"Failed to load S3 file: {reader.status_code} {reader.reason_phrase} - {error_text}",
+                request=reader.request,
+                response=reader
+            )
         self._iterator = reader.iter_bytes()
         return self
 
@@ -50,7 +61,7 @@ class S3BufferedReader(BufferedReader):
         self._context_manager.__exit__(*args)
 
 
-def bytes_generator(buffered_reader: BufferedReader | BytesIO):
+def bytes_generator(buffered_reader: Union[BufferedReader, BytesIO]):
     while True:
         byte = buffered_reader.read(50 * 1024)
         if not byte:

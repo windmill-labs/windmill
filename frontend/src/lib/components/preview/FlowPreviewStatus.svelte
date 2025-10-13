@@ -4,20 +4,31 @@
 
 	import JobStatus from '../JobStatus.svelte'
 	import { ExternalLinkIcon } from 'lucide-svelte'
-	import type { FlowStatusViewerContext } from '../graph'
-	import { getContext } from 'svelte'
 	import { truncateRev } from '$lib/utils'
-	export let job: QueuedJob | CompletedJob
+	import { twMerge } from 'tailwind-merge'
 
-	let { hideJobId } = getContext<FlowStatusViewerContext>('FlowStatusViewer')
+	interface Props {
+		job: QueuedJob | CompletedJob
+		hideJobId?: boolean
+		extra?: import('svelte').Snippet
+	}
+
+	let { job, hideJobId = false, extra }: Props = $props()
 </script>
 
-<div class="grid grid-cols-2 gap-4 mb-1 text-tertiary dark:text-gray-400">
+<div
+	class={twMerge(
+		'grid grid-cols-2 gap-4 mb-1 text-tertiary dark:text-gray-400',
+		extra && job && !hideJobId ? 'grid-cols-3' : 'grid-cols-2'
+	)}
+>
 	<JobStatus {job} />
 	{#if job && !hideJobId}
 		<div>
 			<div class="text-primary whitespace-nowrap truncate text-sm">
-				<span class="font-semibold mr-1">Flow:</span>
+				{#if ['flow', 'flowpreview', 'flownode'].includes(job.job_kind)}
+					<span class="font-semibold mr-1">Flow:</span>
+				{/if}
 				<a
 					rel="noreferrer"
 					target="_blank"
@@ -29,4 +40,5 @@
 			</div>
 		</div>
 	{/if}
+	{@render extra?.()}
 </div>

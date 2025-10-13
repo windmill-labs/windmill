@@ -2,18 +2,36 @@
 	import { classNames } from '$lib/utils'
 	import Tooltip from '../../../../Tooltip.svelte'
 
-	export let title: string
-	export let noPadding: boolean = false
-	export let fullHeight: boolean = true
-	export let titlePadding: string = ''
-	export let tooltip = ''
-	export let documentationLink: string | undefined = undefined
-	export let id: string | undefined = undefined
+	interface Props {
+		title: string
+		noPadding?: boolean
+		fullHeight?: boolean
+		titlePadding?: string
+		tooltip?: string
+		documentationLink?: string | undefined
+		id?: string | undefined
+		class?: string | undefined
+		action?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+	}
+
+	let {
+		title,
+		noPadding = false,
+		fullHeight = true,
+		titlePadding = '',
+		tooltip = '',
+		documentationLink = undefined,
+		id = undefined,
+		class: clazz = undefined,
+		action,
+		children
+	}: Props = $props()
 </script>
 
 <div
 	class={classNames(
-		$$props.class,
+		clazz,
 		'flex flex-col gap-2 items-start',
 		noPadding ? '' : 'p-3',
 		fullHeight ? 'h-full' : ''
@@ -31,7 +49,7 @@
 				</Tooltip>
 			{/if}
 		</div>
-		<slot name="action" />
+		{@render action?.()}
 	</div>
-	<slot />
+	{@render children?.()}
 </div>

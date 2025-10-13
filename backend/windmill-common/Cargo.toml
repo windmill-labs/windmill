@@ -7,6 +7,7 @@ edition.workspace = true
 [features]
 default = []
 enterprise = []
+private = []
 jemalloc = ["dep:tikv-jemalloc-ctl"]
 tantivy = []
 prometheus = ["dep:prometheus"]
@@ -14,7 +15,7 @@ loki = ["dep:tracing-loki"]
 benchmark = []
 parquet = ["dep:object_store", "dep:aws-config", "dep:aws-sdk-sts", "dep:aws-smithy-types-convert", "dep:datafusion"]
 aws_auth = ["dep:aws-sdk-sts", "dep:aws-config"]
-otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk", 
+otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk",
     "dep:opentelemetry", "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic"]
 smtp = ["dep:mail-send"]
 scoped_cache = []
@@ -35,6 +36,7 @@ serde_json.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 hex.workspace = true
+async-trait.workspace = true
 reqwest-middleware = { workspace = true }
 reqwest-retry = { workspace = true }
 rand.workspace = true
@@ -62,6 +64,9 @@ object_store = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
+base64.workspace = true
+bitflags.workspace = true
+
 aws-smithy-types-convert = { workspace = true, optional = true }
 indexmap.workspace = true
 bytes.workspace = true
@@ -74,20 +79,24 @@ windmill-macros.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-py.workspace = true
+windmill-parser.workspace = true
 jsonwebtoken.workspace = true
 backon.workspace = true
 openidconnect = { workspace = true, optional = true }
 strum.workspace = true
 strum_macros.workspace = true
+url.workspace = true
+async-recursion.workspace = true
 
 semver.workspace = true
-croner = "2.0.6"
+croner = "2.2.0"
 quick_cache.workspace = true
 pin-project-lite.workspace = true
 futures.workspace = true
 tempfile.workspace = true
 systemstat.workspace = true
 size.workspace = true
+globset.workspace = true
 
 opentelemetry-semantic-conventions = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
@@ -99,3 +108,6 @@ tonic = { workspace = true, optional = true }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+sysinfo.workspace = true

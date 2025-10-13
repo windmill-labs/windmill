@@ -1,12 +1,23 @@
 <script lang="ts">
 	import Portal from '$lib/components/Portal.svelte'
 
-	export let condition = false
-	export let target: string | HTMLElement | undefined = undefined
+	interface Props {
+		condition?: boolean
+		target?: string | HTMLElement | undefined
+		name?: string
+		children?: import('svelte').Snippet
+	}
+
+	let {
+		condition = false,
+		target = undefined,
+		name = 'conditional-portal',
+		children
+	}: Props = $props()
 </script>
 
 {#if condition}
-	<Portal name="conditional-portal" {target}><slot /></Portal>
+	<Portal {name} {target}>{@render children?.()}</Portal>
 {:else}
-	<slot />
+	{@render children?.()}
 {/if}

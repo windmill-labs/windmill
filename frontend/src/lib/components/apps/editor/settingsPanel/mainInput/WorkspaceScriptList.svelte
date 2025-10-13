@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { createEventDispatcher, onMount } from 'svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -8,11 +11,16 @@
 	import { emptyString } from '$lib/utils'
 	import { Skeleton } from '$lib/components/common'
 
-	export let filter = ''
+	interface Props {
+		filter?: string
+		children?: import('svelte').Snippet
+	}
 
-	let scripts: Script[] | undefined = undefined
-	let filteredItems: (Script & { marked?: string })[] = []
-	$: prefilteredItems = scripts ?? []
+	let { filter = $bindable(''), children }: Props = $props()
+
+	let scripts: Script[] | undefined = $state(undefined)
+	let filteredItems: (Script & { marked?: string })[] = $state([])
+	let prefilteredItems = $derived(scripts ?? [])
 
 	const dispatch = createEventDispatcher()
 
@@ -37,10 +45,10 @@
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />
 <div class="w-full flex mt-1 items-center gap-2">
-	<slot />
+	{@render children?.()}
 	<input
 		type="text"
-		on:keydown|stopPropagation
+		onkeydown={stopPropagation(bubble('keydown'))}
 		placeholder="Search workspace scripts"
 		bind:value={filter}
 		class="text-2xl grow mb-4"
@@ -56,7 +64,7 @@
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover bg-surface transition-all items-center rounded-md"
-						on:click={() => dispatch('pick', item.path)}
+						onclick={() => dispatch('pick', item.path)}
 					>
 						<div class="flex items-center gap-4">
 							<RowIcon kind="script" />

@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	import { writable } from 'svelte/store'
 	const activeDropdown = writable<{ id: string | null; close: (() => void) | null }>({
 		id: null,
@@ -16,20 +16,52 @@
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import { untrack } from 'svelte'
+	import { fly } from 'svelte/transition'
 
-	export let items: Item[] | (() => Item[]) | (() => Promise<Item[]>) = []
-	export let disabled = false
-	export let placement: Placement = 'bottom-end'
-	export let usePointerDownOutside = false
-	export let closeOnOtherDropdownOpen = true
-	export let fixedHeight = true
-	export let hidePopup = false
-	export let open = false
-	export let customWidth: number | undefined = undefined
-	export let customMenu = false
+	interface Props {
+		aiId?: string | undefined
+		aiDescription?: string | undefined
+		items?: Item[] | (() => Item[]) | (() => Promise<Item[]>)
+		disabled?: boolean
+		placement?: Placement
+		usePointerDownOutside?: boolean
+		closeOnOtherDropdownOpen?: boolean
+		fixedHeight?: boolean
+		hidePopup?: boolean
+		open?: boolean
+		customWidth?: number | undefined
+		customMenu?: boolean
+		class?: string | undefined
+		enableFlyTransition?: boolean
+		buttonReplacement?: import('svelte').Snippet
+		menu?: import('svelte').Snippet
+	}
+
+	let {
+		aiId = undefined,
+		aiDescription = undefined,
+		items = [],
+		disabled = false,
+		placement = 'bottom-end',
+		usePointerDownOutside = false,
+		closeOnOtherDropdownOpen = true,
+		fixedHeight = true,
+		hidePopup = false,
+		open = $bindable(false),
+		customWidth = undefined,
+		customMenu = false,
+		class: classNames = undefined,
+		enableFlyTransition = false,
+		buttonReplacement,
+		menu
+	}: Props = $props()
+
+	let buttonEl: HTMLButtonElement | undefined = $state(undefined)
 
 	const {
-		elements: { menu, item, trigger },
+		elements: { menu: menuEl, item, trigger },
 		states,
 		ids: { menu: dropdownId }
 	} = createDropdownMenu({
@@ -55,7 +87,12 @@
 	})
 
 	const sync = createSync(states)
-	$: sync.open(open, (v) => (open = Boolean(v)))
+	$effect(() => {
+		open
+		untrack(() => {
+			sync.open(open, (v) => (open = Boolean(v)))
+		})
+	})
 
 	export function close() {
 		open = false
@@ -77,25 +114,31 @@
 <ResolveOpen {open} on:open on:close />
 
 <button
-	class={twMerge('w-full flex items-center justify-end', fixedHeight && 'h-8', $$props.class)}
+	bind:this={buttonEl}
+	use:triggerableByAI={{
+		id: aiId,
+		description: aiDescription,
+		callback: () => buttonEl?.click()
+	}}
+	class={twMerge('w-full flex items-center justify-end', fixedHeight && 'h-8', classNames)}
 	use:melt={$trigger}
 	{disabled}
-	on:click={(e) => e.stopPropagation()}
+	onclick={(e) => e.stopPropagation()}
 	use:pointerDownOutside={{
 		capture: true,
 		stopPropagation: false,
 		exclude: getMenuElements,
-		customEventName: 'pointerdown_menu'
-	}}
-	on:pointerdown_outside={() => {
-		if (usePointerDownOutside) {
-			close()
+		customEventName: 'pointerdown_menu',
+		onClickOutside: () => {
+			if (usePointerDownOutside) {
+				close()
+			}
 		}
 	}}
 	data-menu
 >
-	{#if $$slots.buttonReplacement}
-		<slot name="buttonReplacement" />
+	{#if buttonReplacement}
+		{@render buttonReplacement?.()}
 	{:else}
 		<Button
 			nonCaptureEvent
@@ -108,15 +151,20 @@
 </button>
 
 {#if open && !hidePopup}
-	<div use:melt={$menu} data-menu class="z-[6000] transition-all duration-100">
+	<div
+		use:melt={$menuEl}
+		data-menu
+		class="z-[6000] transition-all duration-100"
+		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
+	>
 		{#if customMenu}
-			<slot name="menu" />
+			{@render menu?.()}
 		{:else}
 			<div
 				class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
 				style={customWidth ? `width: ${customWidth}px` : ''}
 			>
-				<DropdownV2Inner items={computeItems} meltItem={item} />
+				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} />
 			</div>
 		{/if}
 	</div>

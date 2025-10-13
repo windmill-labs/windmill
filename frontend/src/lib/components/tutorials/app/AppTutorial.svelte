@@ -2,7 +2,7 @@
 	import { insertNewGridItem, appComponentFromType } from '$lib/components/apps/editor/appUtils'
 	import type { AppComponent, TypedComponent } from '$lib/components/apps/editor/component'
 	import type { AppViewerContext, AppEditorContext } from '$lib/components/apps/types'
-	import { push } from '$lib/history'
+	import { push } from '$lib/history.svelte'
 	import { getContext } from 'svelte'
 	import Tutorial from '../Tutorial.svelte'
 	import {
@@ -13,14 +13,15 @@
 		updateInlineRunnableCode
 	} from '../utils'
 	import { updateProgress } from '$lib/tutorialUtils'
+	import { type DriveStep } from 'driver.js'
+	import { wait } from '$lib/utils'
 
 	export let name: string
 	export let index: number
 
 	let tutorial: Tutorial | undefined = undefined
 
-	const { app, selectedComponent, focusedGrid, connectingInput } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { app, selectedComponent, focusedGrid } = getContext<AppViewerContext>('AppViewerContext')
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
 	export function runTutorial() {
@@ -49,7 +50,7 @@
 	on:skipAll
 	tainted={isAppTainted($app)}
 	getSteps={(driver) => {
-		const steps = [
+		const steps: DriveStep[] = [
 			{
 				popover: {
 					title: 'App editor tutorial',
@@ -112,7 +113,7 @@
 				popover: {
 					title: 'Component input',
 					description:
-						'There are several ways to set the input of a component. It can be static, the result of a JS expression, connected to the output of another component, or the result of a inline runnable. Here we will create an inline runnable that will convert the text to uppercase.',
+						'There are several ways to set the input of a component. It can be static, the result of a JS expression, connected to the output of another component, or the result of an inline runnable. Here we will create an inline runnable that will convert the text to uppercase.',
 					onNextClick: () => {
 						clickFirstButtonBySelector('#component-input')
 						setTimeout(() => {
@@ -143,9 +144,7 @@
 					description: "Let's create an inline script.",
 					onNextClick: () => {
 						clickButtonBySelector('#app-editor-create-inline-script')
-						setTimeout(() => {
-							driver.moveNext()
-						})
+						setTimeout(() => driver.moveNext())
 					}
 				}
 			},
@@ -155,7 +154,7 @@
 				popover: {
 					title: 'Choose a language',
 					description:
-						'You can choose the language of your runnable. They are two type of runnables: frontend and backend.'
+						'You can choose the language of your runnable. There are two type of runnables: frontend and backend.'
 				}
 			},
 
@@ -177,87 +176,71 @@
 			},
 			{
 				element: '#create-deno-script',
+				onHighlighted: () => {
+					document.querySelector('#schema-plug-x')?.parentElement?.classList.remove('opacity-0')
+				},
 				popover: {
 					title: 'Create a deno script',
 					description:
 						"Let's create a simple deno script. For the sake of this tutorial, we will create a script that converts the text to uppercase.",
-					onNextClick: () => {
+					onNextClick: async () => {
 						clickButtonBySelector('#create-deno-script')
-						setTimeout(() => {
-							if ($selectedComponent?.[0]) {
-								updateInlineRunnableCode(
-									$app,
-									$selectedComponent[0],
-									`export async function main(x: string) {
-  return x?.toLocaleUpperCase();
-}
-`
-								)
-							}
+						await wait(50)
+						if ($selectedComponent?.[0]) {
+							updateInlineRunnableCode(
+								$app,
+								$selectedComponent[0],
+								'export function main(x: string) {\n  return x?.toLocaleUpperCase();\n}'
+							)
+						}
 
-							driver.moveNext()
-						})
+						driver.moveNext()
 					}
 				}
 			},
 			{
-				element: '#schema-plug',
+				element: '#schema-plug-x',
+				onHighlighted: () => {
+					document.querySelector('#schema-plug-x')?.parentElement?.classList.remove('opacity-0')
+				},
 				popover: {
 					title: 'Connect the function input',
 					description:
 						"The function we created has an string input 'x'. We can connect the output of the text component to it.",
 					onNextClick: () => {
-						clickButtonBySelector('#schema-plug')
+						clickButtonBySelector('#schema-plug-x')
 						setTimeout(() => {
 							driver.moveNext()
 						})
 					}
 				}
 			},
-
 			{
-				element: '#connect-output-d',
+				element: '#connect-output-a',
 				popover: {
 					title: 'Select the output',
-					description: ' ',
+					description: 'Open the output selector of the text input component.',
 					onNextClick: () => {
-						$connectingInput.opened = false
-						$connectingInput.input = undefined
-
+						clickButtonBySelector('#connect-output-a')
 						setTimeout(() => {
 							driver.moveNext()
 						})
-					},
-					onPopoverRender: (popover, opts) => {
-						const wrapper = document.createElement('div')
-						wrapper.classList.add('flex', 'flex-col', 'gap-2', 'w-full', 'items-start')
-
-						const p1 = document.createElement('p')
-						p1.innerText =
-							'You can now select the output in the output menu. Click on the little red button to open the menu.'
-
-						const id = document.createElement('div')
-						id.innerHTML = `<button class="bg-red-500/70 border border-red-600 px-1 py-0.5" title="Outputs" aria-label="Open output"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide-icon lucide lucide-plug-2 "><path d="M9 2v6"></path><path d="M15 2v6"></path><path d="M12 17v5"></path><path d="M5 8h14"></path><path d="M6 11V8h12v3a6 6 0 1 1-12 0v0Z"></path></svg></button>`
-
-						const p2 = document.createElement('p')
-						p2.innerText =
-							'Once opened, you can select the output you want to connect to. Here we will connect the result output of the text component to the input "x" of the inline runnable.'
-
-						const objectViewer = document.createElement('div')
-						objectViewer.innerHTML = `<div class="rounded-lg shadow-md border p-4 bg-surface"><span class="s-UNyBDXJ1E286">  <ul class="w-full pl-2 border-none s-UNyBDXJ1E286"><li class="s-UNyBDXJ1E286"><button class="whitespace-nowrap s-UNyBDXJ1E286"><span class="key border  font-semibold rounded px-1 hover:bg-surface-hover text-2xs text-secondary s-UNyBDXJ1E286">result</span> :</button> <button class="val  rounded px-1 hover:bg-blue-100 string s-UNyBDXJ1E286"><span title="" class="text-2xs s-UNyBDXJ1E286">""</span></button></li> </ul> </span> <span class="border border-blue-600 rounded px-1 cursor-pointer hover:bg-gray-200 s-UNyBDXJ1E286 hidden">{...}</span> </div>`
-
-						wrapper.appendChild(p1)
-						wrapper.appendChild(id)
-						wrapper.appendChild(p2)
-						wrapper.appendChild(objectViewer)
-
-						popover.description.appendChild(wrapper)
-
-						tutorial?.renderControls(opts)
 					}
 				}
 			},
-
+			{
+				element: '.component-output-viewer-a li *:has(> button[title="result"])',
+				popover: {
+					title: 'Select the output',
+					description: "Let's select the result of the text input component.",
+					onNextClick: () => {
+						setTimeout(async () => {
+							clickButtonBySelector('.component-output-viewer-a li button[title="result"]')
+							driver.moveNext()
+						})
+					}
+				}
+			},
 			{
 				element: '.wm-app-viewer',
 				popover: {

@@ -37,7 +37,8 @@ use windmill_parser_sql::{
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::common::{
-    build_args_values, s3_mode_args_to_worker_data, sizeof_val, OccupancyMetrics, S3ModeWorkerData,
+    build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, sizeof_val,
+    OccupancyMetrics, S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
@@ -88,7 +89,7 @@ fn do_postgresql_inner<'a>(
             let arg_t = arg
                 .otyp
                 .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("Missing otzyp for pg arg"))?;
+                .ok_or_else(|| anyhow::anyhow!("Missing otyp for pg arg"))?;
             let typ = &arg.typ;
             let param = convert_val(value, arg_t, typ)?;
             query_params.push(param);
@@ -186,6 +187,7 @@ pub async fn do_postgresql(
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    parent_runnable_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
     let pg_args = build_args_values(job, client, conn).await?;
 
@@ -312,7 +314,11 @@ pub async fn do_postgresql(
 
     let sig = parse_pgsql_sig(&query).map_err(|x| Error::ExecutionErr(x.to_string()))?;
 
-    let (query, _) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig.args, &pg_args)?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+
+    let (query, _) =
+        &sanitize_and_interpolate_unsafe_sql_args(query, &sig.args, &pg_args, &reserved_variables)?;
 
     let queries = parse_sql_blocks(query);
 
@@ -555,11 +561,15 @@ fn convert_vec_val(
                 chrono::NaiveTime::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default()
             })
         })?)),
-        "timestamp" | "timestamptz" => Ok(Box::new(map_as_single_type(vec, |v| {
+        "timestamp" => Ok(Box::new(map_as_single_type(vec, |v| {
             v.as_str().map(|x| {
                 chrono::NaiveDateTime::parse_from_str(x, "%Y-%m-%dT%H:%M:%S.%3fZ")
                     .unwrap_or_default()
             })
+        })?)),
+        "timestamptz" => Ok(Box::new(map_as_single_type(vec, |v| {
+            v.as_str()
+                .map(|x| x.parse::<chrono::DateTime<Utc>>().unwrap_or_default())
         })?)),
         "jsonb" | "json" => Ok(Box::new(
             vec.map(|v| v.clone().into_iter().map(Some).collect_vec()),
@@ -605,7 +615,8 @@ fn convert_val(
             "uuid" => Ok(Box::new(None::<Uuid>)),
             "date" => Ok(Box::new(None::<chrono::NaiveDate>)),
             "time" | "timetz" => Ok(Box::new(None::<chrono::NaiveTime>)),
-            "timestamp" | "timestamptz" => Ok(Box::new(None::<chrono::NaiveDateTime>)),
+            "timestamp" => Ok(Box::new(None::<chrono::NaiveDateTime>)),
+            "timestamptz" => Ok(Box::new(None::<chrono::DateTime<Utc>>)),
             "jsonb" | "json" => Ok(Box::new(None::<Option<Value>>)),
             "bytea" => Ok(Box::new(None::<Vec<u8>>)),
             "text" | "varchar" => Ok(Box::new(None::<String>)),
@@ -668,9 +679,13 @@ fn convert_val(
                 chrono::NaiveTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ").unwrap_or_default();
             Ok(Box::new(time))
         }
-        Value::String(s) if arg_t == "timestamp" || arg_t == "timestamptz" => {
+        Value::String(s) if arg_t == "timestamp" => {
             let datetime = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S.%3fZ")
                 .unwrap_or_default();
+            Ok(Box::new(datetime))
+        }
+        Value::String(s) if arg_t == "timestamptz" => {
+            let datetime = s.parse::<chrono::DateTime<Utc>>().unwrap_or_default();
             Ok(Box::new(datetime))
         }
         Value::String(s) if arg_t == "bytea" => {
@@ -679,6 +694,7 @@ fn convert_val(
                 .unwrap_or(vec![]);
             Ok(Box::new(bytes))
         }
+        Value::Array(_) if arg_t == "jsonb" || arg_t == "json" => Ok(Box::new(value.clone())),
         Value::Object(_) if arg_t == "text" || arg_t == "varchar" => {
             Ok(Box::new(serde_json::to_string(value).map_err(|err| {
                 Error::ExecutionErr(format!("Failed to convert JSON to text: {}", err))

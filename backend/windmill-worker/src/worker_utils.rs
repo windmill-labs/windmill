@@ -125,6 +125,7 @@ async fn update_worker_ping_full_inner(
             client
                 .post::<_, ()>(
                     UPDATE_PING_URL,
+                    None,
                     &Ping {
                         last_job_executed: None,
                         last_job_workspace_id: None,
@@ -190,6 +191,7 @@ pub async fn insert_ping(
             client
                 .post::<_, ()>(
                     UPDATE_PING_URL,
+                    None,
                     &Ping {
                         last_job_executed: None,
                         last_job_workspace_id: None,
@@ -249,6 +251,7 @@ pub async fn update_worker_ping_from_job(
             client
                 .post::<Ping, ()>(
                     UPDATE_PING_URL,
+                    None,
                     &Ping {
                         last_job_executed: Some(job_id.clone()),
                         last_job_workspace_id: Some(w_id.to_string()),
@@ -287,6 +290,7 @@ pub async fn ping_job_status(
             client
                 .post(
                     &format!("/api/agent_workers/ping_job_status/{}", job_id),
+                    None,
                     &PingJobStatus { mem_peak, current_mem },
                 )
                 .await
@@ -304,7 +308,7 @@ pub(crate) async fn queue_vacuum(conn: &Connection, worker_name: &str, hostname:
             tokio::task::spawn(
                 (async move {
                     tracing::info!(worker = %worker_name, hostname = %hostname, "vacuuming queue");
-                    if let Err(e) = sqlx::query!("VACUUM v2_job_queue, v2_job_runtime, v2_job_status")
+                    if let Err(e) = sqlx::query!("VACUUM (SKIP_LOCKED) v2_job_queue, v2_job_runtime, v2_job_status, job_perms")
                         .execute(&db2)
                         .await
                     {

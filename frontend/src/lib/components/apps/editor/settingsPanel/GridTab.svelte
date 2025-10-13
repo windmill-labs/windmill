@@ -1,7 +1,10 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
-	import { getContext, tick } from 'svelte'
+	import { getContext, tick, untrack } from 'svelte'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
@@ -10,28 +13,58 @@
 	import { generateRandomString } from '$lib/utils'
 	import { GripVertical, Plus } from 'lucide-svelte'
 	import GridTabDisabled from './GridTabDisabled.svelte'
+	import GridTabHidden from './GridTabHidden.svelte'
 
-	export let tabs: string[] = []
-	export let disabledTabs: RichConfiguration[] = []
-
-	export let canDisableTabs: boolean = false
-
-	export let word: string = 'Tab'
-
-	export let component: AppComponent
-
-	$: if (disabledTabs == undefined) {
-		disabledTabs = [
-			{ type: 'static', value: false, fieldType: 'boolean' },
-			{ type: 'static', value: false, fieldType: 'boolean' }
-		]
+	interface Props {
+		tabs?: string[]
+		disabledTabs?: RichConfiguration[]
+		hiddenTabs?: RichConfiguration[]
+		canDisableTabs?: boolean
+		canHideTabs?: boolean
+		word?: string
+		component: AppComponent
 	}
 
-	let items = tabs.map((tab, index) => {
-		return { value: tab, id: generateRandomString(), originalIndex: index }
+	let {
+		tabs = $bindable(undefined),
+		disabledTabs = $bindable(undefined),
+		hiddenTabs = $bindable(undefined),
+		canDisableTabs = false,
+		canHideTabs = false,
+		word = 'Tab',
+		component = $bindable()
+	}: Props = $props()
+
+	$effect.pre(() => {
+		if (tabs == undefined) {
+			tabs = []
+		}
+		if (disabledTabs == undefined) {
+			disabledTabs = [
+				{ type: 'static', value: false, fieldType: 'boolean' },
+				{ type: 'static', value: false, fieldType: 'boolean' }
+			]
+		}
+		if (hiddenTabs == undefined) {
+			hiddenTabs = [
+				{ type: 'static', value: false, fieldType: 'boolean' },
+				{ type: 'static', value: false, fieldType: 'boolean' }
+			]
+		}
 	})
 
-	$: tabs = items.map((item) => item.value)
+	let items = $state.raw(
+		(tabs ?? []).map((tab, index) => {
+			return { value: tab, id: generateRandomString(), originalIndex: index }
+		})
+	)
+
+	$effect.pre(() => {
+		items
+		untrack(() => {
+			tabs = items.map((item) => item.value)
+		})
+	})
 
 	const { app, runnableComponents, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -55,6 +88,7 @@
 		component.numberOfSubgrids = items.length
 
 		disabledTabs = [...(disabledTabs ?? []), { type: 'static', value: false, fieldType: 'boolean' }]
+		hiddenTabs = [...(hiddenTabs ?? []), { type: 'static', value: false, fieldType: 'boolean' }]
 	}
 
 	function deleteSubgrid(index: number) {
@@ -76,6 +110,9 @@
 
 		// Delete the item in the disabledTabs array
 		disabledTabs = (disabledTabs ?? []).filter((_, i) => i !== index)
+
+		// Delete the item in the hiddenTabs array
+		hiddenTabs = (hiddenTabs ?? []).filter((_, i) => i !== index)
 
 		component.numberOfSubgrids = items.length
 		// Update the originalIndex of the remaining items
@@ -114,10 +151,13 @@
 			}
 
 			const newDisabledTabs: RichConfiguration[] = []
+			const newHiddenTabs: RichConfiguration[] = []
 			for (let i = 0; i < items.length; i++) {
-				newDisabledTabs.push(disabledTabs[items[i].originalIndex])
+				disabledTabs && newDisabledTabs.push(disabledTabs[items[i].originalIndex])
+				hiddenTabs && newHiddenTabs.push(hiddenTabs[items[i].originalIndex])
 			}
 			disabledTabs = newDisabledTabs
+			hiddenTabs = newHiddenTabs
 
 			// update originalIndex
 			items.forEach((item, i) => {
@@ -136,6 +176,8 @@
 			})
 		}
 	}
+
+	const rnd = generateRandomString()
 </script>
 
 <PanelSection title={`${word}s ${tabs && tabs.length > 0 ? `(${tabs.length})` : ''}`}>
@@ -147,17 +189,18 @@
 			use:dragHandleZone={{
 				items,
 				flipDurationMs: 200,
-				dropTargetStyle: {}
+				dropTargetStyle: {},
+				type: rnd
 			}}
-			on:consider={handleConsider}
-			on:finalize={handleFinalize}
+			onconsider={handleConsider}
+			onfinalize={handleFinalize}
 		>
 			{#each items as item, index (item.id)}
 				<div class="border rounded-md p-2 mb-2 bg-surface">
 					<div class="w-full flex flex-row gap-2 items-center relative my-1">
 						<input
-							on:keydown|stopPropagation
-							on:input={(e) => updateItemValue(index, e)}
+							onkeydown={stopPropagation(bubble('keydown'))}
+							oninput={(e) => updateItemValue(index, e)}
 							type="text"
 							bind:value={items[index].value}
 						/>
@@ -166,9 +209,9 @@
 						</div>
 
 						<div class="flex flex-col justify-center gap-2">
-							<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+							<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 
-							<!-- svelte-ignore a11y-no-static-element-interactions -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div use:dragHandle class="handle w-4 h-4" aria-label="drag-handle">
 								<GripVertical size={16} />
 							</div>
@@ -177,6 +220,11 @@
 
 					{#if canDisableTabs && disabledTabs}
 						<GridTabDisabled {index} bind:field={disabledTabs[index]} id={component.id} />
+					{/if}
+					{#if canHideTabs && hiddenTabs}
+						<div class="mt-2">
+							<GridTabHidden {index} bind:field={hiddenTabs[index]} id={component.id} />
+						</div>
 					{/if}
 				</div>
 			{/each}

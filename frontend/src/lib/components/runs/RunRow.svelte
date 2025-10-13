@@ -4,24 +4,28 @@
 	import type { Job } from '$lib/gen'
 	import {
 		displayDate,
-		msToReadableTime,
 		truncateHash,
 		truncateRev,
-		isFlowPreview,
 		isScriptPreview,
-		isJobSelectable
+		isJobSelectable,
+		msToReadableTime,
+		isFlowPreview
 	} from '$lib/utils'
 	import { Badge, Button } from '../common'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 	import {
+		Bot,
 		Calendar,
 		Check,
+		Clock,
+		Code,
+		ExternalLink,
 		FastForward,
-		Folder,
 		Hourglass,
-		ListFilter,
+		ListFilterPlus,
+		Package,
 		Play,
 		ShieldQuestion,
 		X
@@ -34,45 +38,104 @@
 
 	import WaitTimeWarning from '../common/waitTimeWarning/WaitTimeWarning.svelte'
 	import type { RunsSelectionMode } from './RunsBatchActionsDropdown.svelte'
+	import DropdownV2 from '../DropdownV2.svelte'
+	import { Tooltip } from '../meltComponents'
+	import { GitIcon } from '../icons'
+	import RunLabels from './RunLabels.svelte'
+	import './runs-grid.css'
 
 	const dispatch = createEventDispatcher()
 
-	export let job: Job
-	export let selected: boolean = false
-	export let containerWidth: number = 0
-	export let containsLabel: boolean = false
-	export let activeLabel: string | null
-	export let selectionMode: RunsSelectionMode | false = false
+	interface Props {
+		job: Job
+		selected?: boolean
+		containerWidth?: number
+		containsLabel?: boolean
+		showTag?: boolean
+		activeLabel: string | null
+		selectionMode?: RunsSelectionMode | false
+	}
 
-	let scheduleEditor: ScheduleEditor
+	let {
+		job,
+		selected = false,
+		containerWidth = 0,
+		containsLabel = false,
+		showTag = true,
+		activeLabel,
+		selectionMode = false
+	}: Props = $props()
 
-	$: isExternal = job && job.id === '-'
+	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
+
+	let isExternal = $derived(job && job.id === '-')
+
+	function getJobKindIcon(jobKind: Job['job_kind']) {
+		if (jobKind === 'flow' || isFlowPreview(jobKind)) {
+			return BarsStaggered
+		} else if (jobKind === 'deploymentcallback') {
+			return GitIcon
+		} else if (
+			jobKind === 'dependencies' ||
+			jobKind === 'appdependencies' ||
+			jobKind === 'flowdependencies'
+		) {
+			return Package
+		} else if (
+			jobKind === 'script' ||
+			isScriptPreview(jobKind) ||
+			jobKind === 'script_hub' ||
+			jobKind === 'singlestepflow'
+		) {
+			return Code
+		} else if (jobKind === 'aiagent') {
+			return Bot
+		}
+		return Code
+	}
+
+	let labelWidth = $state(0)
+
+	let isJobRecent = $state(true)
 </script>
 
 <Portal name="run-row">
 	<ScheduleEditor onUpdate={() => goto('/schedules')} bind:this={scheduleEditor} />
 </Portal>
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class={twMerge(
 		'hover:bg-surface-hover cursor-pointer',
 		selected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-		'flex flex-row items-center h-full'
+		'grid items-center h-full'
 	)}
+	class:grid-runs-table={!containsLabel && !selectionMode && showTag}
+	class:grid-runs-table-with-labels={containsLabel && !selectionMode && showTag}
+	class:grid-runs-table-selection={!containsLabel && selectionMode && showTag}
+	class:grid-runs-table-with-labels-selection={containsLabel && selectionMode && showTag}
+	class:grid-runs-table-no-tag={!containsLabel && !selectionMode && !showTag}
+	class:grid-runs-table-with-labels-no-tag={containsLabel && !selectionMode && !showTag}
+	class:grid-runs-table-selection-no-tag={!containsLabel && selectionMode && !showTag}
+	class:grid-runs-table-with-labels-selection-no-tag={containsLabel && selectionMode && !showTag}
 	style="width: {containerWidth}px"
-	on:click={() => {
+	onclick={() => {
 		if (!selectionMode || isJobSelectable(selectionMode)(job)) {
 			dispatch('select')
 		}
 	}}
 >
-	<div class="w-1/12 flex justify-center">
-		{#if selectionMode && isJobSelectable(selectionMode)(job)}
-			<div class="px-2">
-				<input type="checkbox" checked={selected} />
+	<!-- Selection column (only when in selection mode) -->
+	{#if selectionMode}
+		<div class="flex items-center justify-center">
+			<div class="w-4 h-4">
+				<input type="checkbox" checked={selected} disabled={!isJobSelectable(selectionMode)(job)} />
 			</div>
-		{/if}
+		</div>
+	{/if}
+
+	<!-- Status -->
+	<div class="flex items-center justify-start pl-2">
 		{#if isExternal}
 			<Badge color="gray" baseClass="!px-1.5">
 				<ShieldQuestion size={14} />
@@ -114,16 +177,13 @@
 		{/if}
 	</div>
 
-	<div class="w-4/12 flex justify-start">
-		<div class="flex flex-row items-center gap-1 text-gray-500 dark:text-gray-300 text-2xs">
+	<!-- Job time -->
+	<div class="overflow-hidden min-w-0">
+		<div class="flex flex-row items-center gap-1 text-secondary text-2xs">
 			{#if job}
 				{#if 'started_at' in job && job.started_at}
-					Started <TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
-					{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-						(Ran in {msToReadableTime(
-							job.duration_ms
-						)}{#if job.job_kind == 'flow' || isFlowPreview(job.job_kind)}&nbsp;total{/if})
-					{/if}
+					{isJobRecent ? 'Started' : ''}
+					<TimeAgo bind:isRecent={isJobRecent} agoOnlyIfRecent date={job.started_at ?? ''} />
 					{#if job && (job.self_wait_time_ms || job.aggregate_wait_time_ms)}
 						<WaitTimeWarning
 							self_wait_time_ms={job.self_wait_time_ms}
@@ -132,9 +192,13 @@
 						/>
 					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
-					Scheduled for {displayDate(job.scheduled_for)}
+					{displayDate(job.scheduled_for)}<Clock size={12} />
 				{:else if job.canceled}
-					Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
+					{#if job.type == 'CompletedJob'}
+						Cancelled <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />
+					{:else}
+						Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
+					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
 					Waiting for executor (scheduled for <TimeAgo
 						agoOnlyIfRecent
@@ -147,154 +211,207 @@
 		</div>
 	</div>
 
-	<div class="w-4/12 flex justify-start flex-col">
-		<div class="flex flex-row text-sm">
-			{#if job === undefined}
-				No job found
-			{:else}
-				<div class="flex flex-row gap-1 min-w-0">
-					<div class="whitespace-nowrap text-xs font-semibold truncate">
-						{#if job.script_path}
-							<div class="flex flex-row gap-1 items-center">
-								{#if isExternal}
-									<span class="w-30 justify-center">-</span>
-								{:else}
-									<a
-										href="{base}/run/{job.id}?workspace={job.workspace_id}"
-										class="truncate w-30 dark:text-blue-400"
-									>
-										{job.script_path}
-									</a>
-									<Button
-										title="Filter by path"
-										size="xs2"
-										color="light"
-										on:click={() => {
-											dispatch('filterByPath', job.script_path)
-										}}
-									>
-										<ListFilter size={10} />
-									</Button>
-								{/if}
-								{#if job.script_path?.startsWith('f/')}
-									<Button
-										title="Filter by folder"
-										size="xs2"
-										color="light"
-										on:click={() => {
-											// split script_path by / and get the second element
-											const folder = job.script_path?.split('/')[1]
-
-											dispatch('filterByFolder', folder)
-										}}
-									>
-										<Folder size={10} />
-									</Button>
-								{/if}
-							</div>
-						{:else if 'job_kind' in job && isScriptPreview(job.job_kind)}
-							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
-						{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
-							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">
-								lock deps of {truncateHash(job.script_hash ?? '')}
-							</a>
-						{:else if 'job_kind' in job && job.job_kind == 'identity'}
-							<a href="{base}/run/{job.id}?workspace={job.workspace_id}">no op</a>
-						{/if}
-					</div>
-				</div>
-			{/if}
-		</div>
-
-		{#if job && job.parent_job}
-			{#if job.is_flow_step}
-				<div class="flex flex-row gap-1 items-center">
-					<BarsStaggered class="text-secondary" size={14} />
-					<span class="mx-1 text-xs">
-						Step of flow <a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
-							{truncateRev(job.parent_job, 6)}
-						</a>
-					</span>
-				</div>
-			{:else}
-				<div class="flex flex-row gap-1 items-center">
-					<span class="text-2xs text-tertiary truncate">
-						parent <a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
-							{truncateRev(job.parent_job, 10)}
-						</a>
-					</span>
-				</div>
-			{/if}
+	<!-- Job duration-->
+	<div class="text-2xs font-normal text-secondary pr-2">
+		{#if job && 'duration_ms' in job && job.duration_ms != undefined}
+			{msToReadableTime(job.duration_ms, 2)}
+		{:else}
+			-
 		{/if}
 	</div>
-	{#if containsLabel}
-		<div class="w-3/12 flex justify-start px-0.5">
-			{#if job && job?.['labels']}
-				<div class="flex flex-row items-center gap-1 overflow-x-auto">
-					{#if Array.isArray(job?.['labels'])}
-						{#each job?.['labels'] as label}
-							<Button
-								variant="border"
-								size="xs3"
-								btnClasses={twMerge(
-									activeLabel == label ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-									'!text-2xs !font-normal truncate max-w-28'
-								)}
-								color="light"
-								on:click={() => {
-									dispatch('filterByLabel', label)
-								}}
-								endIcon={{ icon: ListFilter }}
-							>
-								{label}
-							</Button>
-						{/each}
+
+	<!-- Job path-->
+	<div class="flex justify-start flex-col pr-4">
+		{#if job === undefined}
+			No job found
+		{:else}
+			{@const JobKindIcon = getJobKindIcon(job.job_kind)}
+			<div class="flex flex-row gap-3 min-w-0 items-center h-full">
+				<Tooltip class="h-full">
+					<div class="relative">
+						{#if job && job.parent_job}
+							<span class="absolute -top-1 -right-1 text-xs text-blue-500">*</span>
+						{/if}
+						<JobKindIcon size={14} />
+					</div>
+					{#snippet text()}
+						<span>
+							{#if job && job.job_kind}
+								{job.job_kind}
+							{/if}
+							{#if job && job.is_flow_step && job.parent_job}
+								<br /> Step of flow
+								<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+									{truncateRev(job.parent_job, 10)}
+								</a>
+							{:else if job && job.parent_job}
+								<br /> Parent
+								<a href={`${base}/run/${job.parent_job}?workspace=${job.workspace_id}`}>
+									{truncateRev(job.parent_job, 10)}
+								</a>
+							{/if}
+						</span>
+					{/snippet}
+				</Tooltip>
+
+				<div class="whitespace-nowrap text-xs text-secondary truncate">
+					{#if job.script_path}
+						<div class="flex flex-row gap-1 items-center">
+							{#if isExternal}
+								<span class="w-30 justify-center">-</span>
+							{:else}
+								<span class="truncate w-30" title={job.script_path}>
+									{job.script_path}
+								</span>
+							{/if}
+							{#if !isExternal || job.script_path?.startsWith('f/')}
+								{@const isFolder = job.script_path?.startsWith('f/')}
+								<DropdownV2
+									items={() => {
+										const items = isExternal
+											? []
+											: [
+													{
+														displayName: `Filter by path: ${job.script_path}`,
+														action: () => dispatch('filterByPath', job.script_path),
+														disabled: isExternal
+													}
+												]
+										if (isFolder) {
+											const folder = job.script_path?.split('/')[1]
+											return [
+												{
+													displayName: `Filter by folder: ${folder}`,
+													action: () => dispatch('filterByFolder', folder)
+												},
+												...items
+											]
+										}
+										return items
+									}}
+									class="w-fit"
+								>
+									{#snippet buttonReplacement()}
+										<div
+											class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
+										>
+											<ListFilterPlus size={14} />
+										</div>
+									{/snippet}
+								</DropdownV2>
+							{/if}
+						</div>
+					{:else if 'job_kind' in job && isScriptPreview(job.job_kind)}
+						Preview without path
+					{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
+						lock deps of {truncateHash(job.script_hash ?? '')}
+					{:else if 'job_kind' in job && job.job_kind == 'identity'}
+						no op
+					{:else if 'job_kind' in job && isFlowPreview(job.job_kind)}
+						Preview without path
 					{/if}
 				</div>
-			{/if}
+			</div>
+		{/if}
+	</div>
+	<!-- Labels-->
+	{#if containsLabel}
+		<div class="flex justify-start overflow-hidden" bind:clientWidth={labelWidth}>
+			<RunLabels
+				{job}
+				{activeLabel}
+				onFilterByLabel={(label) => dispatch('filterByLabel', label)}
+				{labelWidth}
+			/>
 		</div>
 	{/if}
-	<div class="w-3/12 flex justify-start">
+	<!-- Author and schedule-->
+	<div class="flex justify-start pr-4 text-secondary">
 		{#if job && job.schedule_path}
-			<div class="flex flex-row items-center gap-1">
-				<Calendar size={14} />
+			<div class="flex flex-row items-center gap-1 w-full -ml-2">
 				<Button
 					size="xs2"
 					color="light"
-					btnClasses="font-normal"
+					btnClasses="font-normal bg-transparent hover:bg-surface hover:text-primary"
 					on:click={() => scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
 				>
-					<div class="truncate text-ellipsis text-left" title={job.schedule_path}>
-						{truncateRev(job.schedule_path, 20)}
-					</div>
+					<Calendar size={14} />
 				</Button>
-				<Button
-					size="xs2"
-					color="light"
-					on:click={() => {
-						dispatch('filterBySchedule', job.schedule_path)
-					}}
+				<div class="text-xs truncate text-ellipsis text-left" dir="rtl" title={job.schedule_path}>
+					{job.schedule_path}
+				</div>
+				<DropdownV2
+					items={[
+						{
+							displayName: `Filter by schedule: ${truncateRev(job.schedule_path, 20)}`,
+							action: () => dispatch('filterBySchedule', job.schedule_path)
+						}
+					]}
+					class="w-fit"
 				>
-					<ListFilter size={10} />
-				</Button>
+					{#snippet buttonReplacement()}
+						<div
+							class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
+						>
+							<ListFilterPlus size={14} />
+						</div>
+					{/snippet}
+				</DropdownV2>
 			</div>
 		{:else}
-			<div class="flex flex-row gap-1 items-center">
-				<div class="text-xs truncate text-ellipsis text-left" title={job.created_by}>
-					{truncateRev(job.created_by ?? '', 20)}
+			<div class="flex flex-row gap-1 items-center w-full">
+				<div class="text-xs truncate text-ellipsis text-left" dir="rtl" title={job.created_by}>
+					{job.created_by ?? ''}
 				</div>
 				{#if !isExternal}
-					<Button
-						size="xs2"
-						color="light"
-						on:click={() => {
-							dispatch('filterByUser', job.created_by ?? '')
-						}}
+					<DropdownV2
+						items={[
+							{
+								displayName: `Filter by triggered by: ${job.created_by}`,
+								action: () => dispatch('filterByUser', job.created_by ?? '')
+							}
+						]}
+						customWidth={256}
+						class="w-fit"
 					>
-						<ListFilter size={10} />
-					</Button>
+						{#snippet buttonReplacement()}
+							<div
+								class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
+							>
+								<ListFilterPlus size={14} />
+							</div>
+						{/snippet}
+					</DropdownV2>
 				{/if}
 			</div>
 		{/if}
 	</div>
+
+	<!-- Job tag-->
+	{#if showTag}
+		<div class="flex justify-start gap-1">
+			{#if job.tag}
+				<span class="text-xs text-secondary truncate" title={job.tag}>{job.tag}</span>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- Job link-->
+	{#if !isExternal}
+		<div class="flex justify-end pr-2">
+			<a
+				target="_blank"
+				href="{base}/run/{job.id}?workspace={job.workspace_id}"
+				class={twMerge(
+					'text-right float-right  px-2',
+					selected
+						? 'text-blue-500 hover:text-primary'
+						: 'text-gray-300 dark:text-gray-500 hover:text-primary dark:hover:text-primary'
+				)}
+				title="See run detail in a new tab"
+			>
+				<ExternalLink size={14} />
+			</a>
+		</div>
+	{/if}
 </div>

@@ -11,31 +11,48 @@
 	import { SecondsInput } from '../../common'
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import { getStepPropPicker } from '../previousResults'
 
-	export let flowModule: FlowModule
-	export let previousModuleId: string | undefined
+	interface Props {
+		flowModule: FlowModule
+		previousModuleId: string | undefined
+	}
 
-	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	let { flowModule = $bindable(), previousModuleId }: Props = $props()
 
-	let schema = emptySchema()
+	const { selectedId, flowStore, flowStateStore, previewArgs } =
+		getContext<FlowEditorContext>('FlowEditorContext')
+	let schema = $state(emptySchema())
 	schema.properties['sleep'] = {
 		type: 'number'
 	}
 
-	let editor: SimpleEditor | undefined = undefined
+	let editor: SimpleEditor | undefined = $state(undefined)
 
-	const result = $flowStateStore[$selectedId]?.previewResult ?? {}
+	let stepPropPicker = $derived(
+		getStepPropPicker(
+			flowStateStore.val,
+			undefined,
+			undefined,
+			flowModule.id,
+			flowStore.val,
+			previewArgs.val,
+			false
+		)
+	)
 
-	$: isSleepEnabled = Boolean(flowModule.sleep)
+	const result = flowStateStore.val[$selectedId]?.previewResult ?? {}
+
+	let isSleepEnabled = $derived(Boolean(flowModule.sleep))
 </script>
 
 <Section label="Sleep" class="w-full">
-	<svelte:fragment slot="header">
+	{#snippet header()}
 		<Tooltip documentationLink="https://www.windmill.dev/docs/flows/sleep">
 			If defined, at the end of the step, the flow will sleep for a number of seconds before
 			scheduling the next job (if any, no effect if the step is the last one).
 		</Tooltip>
-	</svelte:fragment>
+	{/snippet}
 
 	<Toggle
 		checked={isSleepEnabled}
@@ -58,6 +75,7 @@
 			<div class="border">
 				<PropPickerWrapper
 					noFlowPlugConnect={true}
+					flow_input={stepPropPicker.pickableProperties.flow_input}
 					notSelectable
 					{result}
 					displayContext={false}

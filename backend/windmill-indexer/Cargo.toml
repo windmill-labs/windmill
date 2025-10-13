@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 parquet = ["dep:object_store"]
+private = []
 enterprise = []
 
 [dependencies]
@@ -31,3 +32,4 @@ object_store = { workspace = true, optional = true}
 tokio-tar.workspace = true
 lazy_static.workspace = true
 const_format.workspace = true
+flume.workspace = true

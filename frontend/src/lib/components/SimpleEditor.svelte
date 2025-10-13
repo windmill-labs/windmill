@@ -7,56 +7,14 @@
 	import '@codingame/monaco-vscode-standalone-css-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import '@codingame/monaco-vscode-standalone-html-language-features'
-	import {
-		editor as meditor,
-		KeyCode,
-		KeyMod,
-		Uri as mUri,
-		languages,
-		type IRange,
-		type IDisposable
-	} from 'monaco-editor'
-
-	languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noSemanticValidation: false,
-		noLib: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-	})
-	function setDiagnosticsOptions() {
-		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: [1108]
-		})
-	}
-	setDiagnosticsOptions()
-	languages.json.jsonDefaults.setDiagnosticsOptions({
-		validate: true,
-		allowComments: false,
-		schemas: [],
-		enableSchemaRequest: true
-	})
-	languages.json.jsonDefaults.setModeConfiguration({
-		documentRangeFormattingEdits: false,
-		documentFormattingEdits: true,
-		hovers: true,
-		completionItems: true,
-		documentSymbols: true,
-		tokens: true,
-		colors: true,
-		foldingRanges: true,
-		selectionRanges: true,
-		diagnostics: true
-	})
 </script>
 
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
+	import { editorConfig, updateOptions } from '$lib/editorUtils'
+	import { createHash } from '$lib/editorLangUtils'
+
 	// import {
 	// 	editor as meditor,
 	// 	KeyCode,
@@ -69,15 +27,28 @@
 
 	import { allClasses } from './apps/editor/componentsPanel/cssUtils'
 
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
 	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
-	import { vimMode } from '$lib/stores'
+	import { vimMode, relativeLineNumbers } from '$lib/stores'
 	import { initVim } from './monaco_keybindings'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import { editorPositionMap } from '$lib/utils'
+	import { langToExt } from '$lib/editorLangUtils'
+	import {
+		editor as meditor,
+		KeyCode,
+		KeyMod,
+		Uri as mUri,
+		languages,
+		type IRange,
+		type IDisposable,
+		type IPosition
+	} from 'monaco-editor'
+	import { setMonacoJavascriptOptions, setMonacoJsonOptions } from './monacoLanguagesOptions'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -114,8 +85,14 @@
 		allowVim = false,
 		tailwindClasses = [],
 		class: className = '',
-		loadAsync = false
-	} = $props<{
+		fakeMonacoPlaceholderClass = '',
+		loadAsync = false,
+		key,
+		disabled = false,
+		minHeight = 1000,
+		renderLineHighlight = 'none',
+		yPadding
+	}: {
 		lang: string
 		code?: string
 		hash?: string
@@ -136,8 +113,15 @@
 		allowVim?: boolean
 		tailwindClasses?: string[]
 		class?: string
+		fakeMonacoPlaceholderClass?: string
 		loadAsync?: boolean
-	}>()
+		initialCursorPos?: IPosition
+		key?: string
+		disabled?: boolean
+		minHeight?: number
+		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
+		yPadding?: number
+	} = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -156,20 +140,27 @@
 		}
 	}
 
-	export function setCode(ncode: string): void {
+	export function setCode(ncode: string, formatCode?: boolean): void {
 		if (ncode != code) {
 			code = ncode
 		}
 		editor?.setValue(ncode)
+		if (formatCode) {
+			format()
+		}
 	}
 
-	function updateCode(): boolean {
+	export function formatCode(): void {
+		format()
+	}
+
+	function updateCode() {
 		const ncode = getCode()
 		if (code == ncode) {
-			return false
+			return
 		}
 		code = ncode
-		return true
+		dispatch('change', { code: ncode })
 	}
 
 	function updatePlaceholderVisibility(value: string) {
@@ -238,14 +229,19 @@
 
 	$effect(() => {
 		if (allowVim && editor !== null && $vimMode && statusDiv) {
-			onVimMode()
+			untrack(() => onVimMode())
 		}
 	})
 
 	$effect(() => {
 		if (!$vimMode && vimDisposable) {
-			onVimDisable()
+			untrack(() => onVimDisable())
 		}
+	})
+	$effect(() => {
+		editor?.updateOptions({
+			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
+		})
 	})
 
 	function onVimDisable() {
@@ -303,40 +299,20 @@
 
 	$effect(() => {
 		if (editor !== null && (lang || disableLinting || disableSuggestions || hideLineNumbers)) {
-			updateModelAndOptions()
+			untrack(() => updateModelAndOptions())
 		}
 	})
 
 	let fontSize = $derived(small ? 12 : 14)
 
 	async function loadMonaco() {
+		setMonacoJsonOptions()
+		setMonacoJavascriptOptions()
 		await initializeVscode()
 		initialized = true
 
-		// if (lang === 'javascript') {
-		// 	languages.typescript.javascriptDefaults.setCompilerOptions({
-		// 		target: languages.typescript.ScriptTarget.Latest,
-		// 		allowNonTsExtensions: true,
-		// 		noSemanticValidation: false,
-		// 		noLib: true,
-		// 		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		// 	})
-		// 	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-		// 		noSemanticValidation: false,
-		// 		noSyntaxValidation: false,
-		// 		noSuggestionDiagnostics: false,
-		// 		diagnosticCodesToIgnore: [1108]
-		// 	})
-		// } else if (lang === 'json') {
-		// 	languages.json.jsonDefaults.setDiagnosticsOptions({
-		// 		validate: true,
-		// 		allowComments: false,
-		// 		schemas: [],
-		// 		enableSchemaRequest: true
-		// 	})
-		// }
 		try {
-			model = meditor.createModel(code, lang, mUri.parse(uri))
+			model = meditor.createModel(code ?? '', lang, mUri.parse(uri))
 		} catch (err) {
 			console.log('model already existed', err)
 			const nmodel = meditor.getModel(mUri.parse(uri))
@@ -352,37 +328,55 @@
 		if (!divEl) {
 			return
 		}
-		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets),
-			model,
-			lineDecorationsWidth: 6,
-			lineNumbersMinChars: 2,
-			fontSize: fontSize,
-			quickSuggestions: disableSuggestions
-				? { other: false, comments: false, strings: false }
-				: { other: true, comments: true, strings: true },
-			suggestOnTriggerCharacters: !disableSuggestions,
-			wordBasedSuggestions: disableSuggestions ? 'off' : 'matchingDocuments',
-			parameterHints: { enabled: !disableSuggestions },
-			suggest: {
-				showIcons: !disableSuggestions,
-				showSnippets: !disableSuggestions,
-				showKeywords: !disableSuggestions,
-				showWords: !disableSuggestions,
-				snippetsPreventQuickSuggestions: disableSuggestions
+		try {
+			editor = meditor.create(divEl as HTMLDivElement, {
+				...editorConfig(
+					code ?? '',
+					lang,
+					automaticLayout,
+					fixedOverflowWidgets,
+					$relativeLineNumbers
+				),
+				model,
+				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {}),
+				renderLineHighlight,
+				lineDecorationsWidth: 6,
+				lineNumbersMinChars: 2,
+				fontSize: fontSize,
+				quickSuggestions: disableSuggestions
+					? { other: false, comments: false, strings: false }
+					: { other: true, comments: true, strings: true },
+				suggestOnTriggerCharacters: !disableSuggestions,
+				wordBasedSuggestions: disableSuggestions ? 'off' : 'matchingDocuments',
+				parameterHints: { enabled: !disableSuggestions },
+				suggest: {
+					showIcons: !disableSuggestions,
+					showSnippets: !disableSuggestions,
+					showKeywords: !disableSuggestions,
+					showWords: !disableSuggestions,
+					snippetsPreventQuickSuggestions: disableSuggestions
+				}
+			})
+			if (key && editorPositionMap?.[key]) {
+				editor.setPosition(editorPositionMap[key])
+				editor.revealPositionInCenterIfOutsideViewport(editorPositionMap[key])
 			}
-		})
+		} catch (e) {
+			console.error('Error loading monaco:', e)
+			return
+		}
 		keepModelAroundToAvoidDisposalOfWorkers()
 
-		let timeoutModel: NodeJS.Timeout | undefined = undefined
+		let timeoutModel: number | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
 			suggestion = ''
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
-				if (updateCode()) {
-					dispatch('change', { code })
-				}
+				updateCode()
 			}, 200)
+		})
+		editor.onDidChangeCursorPosition((event) => {
+			if (key) editorPositionMap[key] = event.position
 		})
 
 		editor.onDidFocusEditorText(() => {
@@ -407,7 +401,7 @@
 		if (autoHeight) {
 			const updateHeight = () => {
 				if (!editor) return
-				const contentHeight = Math.min(1000, editor.getContentHeight())
+				const contentHeight = Math.min(minHeight, editor.getContentHeight())
 				if (divEl) {
 					divEl.style.height = `${contentHeight}px`
 				}
@@ -536,7 +530,7 @@
 		})
 	}
 
-	let previousExtraLib = undefined
+	let previousExtraLib: string | undefined = undefined
 	function loadExtraLib() {
 		if (lang == 'javascript') {
 			const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
@@ -577,7 +571,7 @@
 
 	$effect(() => {
 		if (mounted && extraLib && initialized) {
-			loadExtraLib()
+			untrack(() => loadExtraLib())
 		}
 	})
 
@@ -599,11 +593,11 @@
 		}
 	}
 
-	updatePlaceholderVisibility(code)
+	updatePlaceholderVisibility(code ?? '')
 </script>
 
 <EditorTheme />
-{#if editor && suggestion && code.length === 0}
+{#if editor && suggestion && code?.length === 0}
 	<div
 		class="absolute top-[0.05rem] left-[2.05rem] z-10 text-sm text-[#0007] italic font-mono dark:text-[#ffffff56] text-ellipsis overflow-hidden whitespace-nowrap"
 		style={`max-width: calc(${width}px - 2.05rem)`}
@@ -616,17 +610,19 @@
 	<FakeMonacoPlaceHolder
 		{code}
 		autoheight
-		lineNumbersWidth={(23 * fontSize) / 14}
+		lineNumbersWidth={hideLineNumbers ? 0 : (23 * fontSize) / 14}
 		lineNumbersOffset={fontSize == 14 ? -8 : -11}
 		{fontSize}
+		showNumbers={!hideLineNumbers}
+		class={fakeMonacoPlaceholderClass}
 	/>
 {/if}
 
 <div
 	bind:this={divEl}
-	class="relative {className} {!editor ? 'hidden' : ''} editor simple-editor {!allowVim
-		? 'nonmain-editor'
-		: ''}"
+	class="relative {className} {!editor ? 'hidden' : ''} editor {disabled
+		? 'disabled'
+		: ''} simple-editor {!allowVim ? 'nonmain-editor' : ''}"
 	bind:clientWidth={width}
 >
 	{#if placeholder}

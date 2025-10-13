@@ -1,4 +1,6 @@
 <script lang="ts">
+	import DisplayResult from './DisplayResult.svelte'
+
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import { copyToClipboard, roughSizeOfObject } from '$lib/utils'
@@ -11,7 +13,8 @@
 		Table2,
 		Braces,
 		Highlighter,
-		ArrowDownFromLine
+		ArrowDownFromLine,
+		Loader2
 	} from 'lucide-svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import DisplayResultControlBar from './DisplayResultControlBar.svelte'
@@ -32,36 +35,20 @@
 	import { convertJsonToCsv } from './table/tableUtils'
 	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
-	import PdfViewer from './display/PdfViewer.svelte'
 	import type { DisplayResultUi } from './custom_ui'
-	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
+	import { getContext, hasContext, createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-
-	export let result: any
-	export let requireHtmlApproval = false
-	export let filename: string | undefined = undefined
-	export let disableExpand = false
-	export let jobId: string | undefined = undefined
-	export let workspaceId: string | undefined = undefined
-	export let hideAsJson: boolean = false
-	export let noControls: boolean = false
-	export let drawerOpen = false
-	export let nodeId: string | undefined = undefined
-	export let language: string | undefined = undefined
-	export let appPath: string | undefined = undefined
-	export let customUi: DisplayResultUi | undefined = undefined
-	export let isTest: boolean = true
-	export let externalToolbarAvailable: boolean = false
+	import { userStore } from '$lib/stores'
+	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
-	let resultKind:
+	type ResultKind =
 		| 'json'
 		| 'table-col'
 		| 'table-row'
@@ -83,13 +70,61 @@
 		| 'nondisplayable'
 		| 'pdf'
 		| undefined
+	let resultKind: ResultKind = $state()
 
-	let hasBigInt = false
-	$: resultKind = inferResultKind(result)
+	let hasBigInt = $state(false)
 
-	export let forceJson = false
-	let enableHtml = false
-	let s3FileDisplayRawMode = false
+	interface Props {
+		result: any
+		requireHtmlApproval?: boolean
+		filename?: string | undefined
+		disableExpand?: boolean
+		jobId?: string | undefined
+		workspaceId?: string | undefined
+		hideAsJson?: boolean
+		noControls?: boolean
+		drawerOpen?: boolean
+		nodeId?: string | undefined
+		loading?: boolean | undefined
+		language?: string | undefined
+		appPath?: string | undefined
+		customUi?: DisplayResultUi | undefined
+		isTest?: boolean
+		externalToolbarAvailable?: boolean
+		forceJson?: boolean
+		result_stream?: string | undefined
+		fixTableSizingToParent?: boolean
+		copilot_fix?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+		growVertical?: boolean
+	}
+
+	let {
+		result,
+		requireHtmlApproval = false,
+		filename = undefined,
+		disableExpand = false,
+		jobId = undefined,
+		workspaceId = undefined,
+		hideAsJson = false,
+		noControls = false,
+		drawerOpen = $bindable(false),
+		nodeId = undefined,
+		language = undefined,
+		appPath = undefined,
+		customUi = undefined,
+		isTest = true,
+		externalToolbarAvailable = false,
+		forceJson = $bindable(false),
+		result_stream = undefined,
+		fixTableSizingToParent = false,
+		copilot_fix,
+		children,
+		loading = false,
+		growVertical = false
+	}: Props = $props()
+	let enableHtml = $state(false)
+	let s3FileDisplayRawMode = $state(false)
 
 	function isTableRow(result: any): boolean {
 		return Array.isArray(result) && result.every((x) => Array.isArray(x))
@@ -104,35 +139,43 @@
 
 	function isTableRowObject(json) {
 		// check array of objects (with possible a first row of headers)
+		const hasHeaders =
+			Array.isArray(json[0]) &&
+			json[0].length > 0 &&
+			json[0].length <= 50 &&
+			json[0].every((item) => typeof item === 'string')
+		return isTableRowObjectInner(json, hasHeaders)
+	}
+
+	function isTableRowObjectInner(json: any, hasHeaders: boolean) {
 		return (
 			Array.isArray(json) &&
-			json.length > 0 &&
-			(json.every(
-				(item) =>
-					item && typeof item === 'object' && Object.keys(item).length > 0 && !Array.isArray(item)
-			) ||
-				(Array.isArray(json[0]) &&
-					json[0].every((item) => typeof item === 'string') &&
-					json
-						.slice(1)
-						.every(
-							(item) =>
-								item &&
-								typeof item === 'object' &&
-								Object.keys(item).length > 0 &&
-								!Array.isArray(item)
-						)))
+			json.length > (hasHeaders ? 1 : 0) &&
+			json.every((item, index) => {
+				if (hasHeaders && index === 0) {
+					return true
+				}
+				if (item && typeof item === 'object') {
+					let keys = Object.keys(item)
+					if (keys.length > 0 && !Array.isArray(item)) {
+						if (hasHeaders || keys.length <= 50) {
+							return true
+						}
+					}
+				}
+				return false
+			})
 		)
 	}
 
-	let largeObject: boolean | undefined = undefined
+	let largeObject: boolean | undefined = $state(undefined)
 
 	function checkIfS3(result: any, keys: string[]) {
 		return keys.includes('s3') && typeof result.s3 === 'string'
 	}
 
-	let is_render_all = false
-	let download_as_csv = false
+	let is_render_all = $state(false)
+	let download_as_csv = $state(false)
 	function inferResultKind(result: any) {
 		try {
 			if (result === 'WINDMILL_TOO_BIG') {
@@ -165,6 +208,7 @@
 				}
 
 				let size = roughSizeOfObject(result)
+				console.debug('size of object', size)
 				// Otherwise, check if the result is too large (10kb) for json
 
 				if (size > TABLE_MAX_SIZE) {
@@ -257,6 +301,29 @@
 						return 'markdown'
 					} else if (isTableCol(result, keys)) {
 						return 'table-col'
+					} else if (keys.length < 1000 && keys.includes('wm_renderer')) {
+						const renderer = result['wm_renderer']
+						if (typeof renderer === 'string') {
+							if (
+								[
+									'json',
+									'html',
+									'png',
+									'file',
+									'jpeg',
+									'gif',
+									'svg',
+									'filename',
+									's3object',
+									'plain',
+									'markdown',
+									'map',
+									'pdf'
+								].includes(renderer)
+							) {
+								return renderer as ResultKind
+							}
+						}
 					}
 				}
 			} catch (err) {}
@@ -267,8 +334,8 @@
 		return 'json'
 	}
 
-	let jsonViewer: Drawer
-	let s3FileViewer: S3FilePicker
+	let jsonViewer: Drawer | undefined = $state()
+	let s3FileViewer: S3FilePicker | undefined = $state()
 
 	function checkIfHasBigInt(result: any) {
 		if (typeof result === 'number' && Number.isInteger(result) && !Number.isSafeInteger(result)) {
@@ -305,28 +372,23 @@
 			json.length > 0 &&
 			Array.isArray(json[0]) &&
 			json[0].length > 0 &&
-			json[0].every((item) => typeof item === 'string') &&
-			json
-				.slice(1)
-				.every(
-					(item) =>
-						item && typeof item === 'object' && Object.keys(item).length > 0 && !Array.isArray(item)
-				)
+			json[0].every((item) => typeof item === 'string')
 		) {
 			const headers = json[0]
-			const rows = json.slice(1)
+			const rows: { [key: string]: string }[] = new Array(json.length - 1)
 
-			const result = rows.map((row) => {
+			for (let i = 1; i < json.length; i++) {
 				const obj: { [key: string]: string } = {}
+				const row = json[i]
 
-				for (const header of headers) {
-					obj[header] = row[header]
+				for (let j = 0; j < headers.length; j++) {
+					obj[headers[j]] = row[headers[j]]
 				}
 
-				return obj
-			})
+				rows[i - 1] = obj
+			}
 
-			return result
+			return rows
 		}
 
 		return json
@@ -386,20 +448,20 @@
 	}
 
 	export function openDrawer() {
-		jsonViewer.openDrawer()
+		jsonViewer?.openDrawer()
 	}
 
-	let globalForceJson: boolean = false
+	let globalForceJson: boolean = $state(false)
 
-	let seeS3PreviewFileFromList = ''
+	let seeS3PreviewFileFromList = $state('')
 
 	const disableTooltips = hasContext('disableTooltips')
 		? getContext('disableTooltips') === true
 		: false
 
-	let resultHeaderHeight = 0
+	let resultHeaderHeight = $state(0)
 
-	let toolbarLocation: 'self' | 'external' | undefined = undefined
+	let toolbarLocation: 'self' | 'external' | undefined = $state(undefined)
 	function chooseToolbarLocation(shouldShowToolbar: boolean, resultHeaderHeight: number) {
 		if (!shouldShowToolbar) {
 			toolbarLocation = undefined
@@ -408,31 +470,47 @@
 		} else {
 			toolbarLocation = 'self'
 		}
-		dispatchIfMounted('toolbar-location-changed', toolbarLocation)
+		dispatch('toolbar-location-changed', toolbarLocation)
 	}
 
 	export function getToolbarLocation() {
 		return toolbarLocation
 	}
 
-	$: chooseToolbarLocation(
-		!is_render_all &&
-			resultKind != 'nondisplayable' &&
-			result != undefined &&
-			length != undefined &&
-			largeObject != undefined &&
-			!disableExpand &&
-			!noControls,
-		resultHeaderHeight
-	)
-
 	onDestroy(() => {
 		dispatch('toolbar-location-changed', undefined)
+	})
+
+	$effect(() => {
+		;[result]
+		untrack(() => {
+			resultKind = inferResultKind(result)
+		})
+	})
+	$effect(() => {
+		chooseToolbarLocation(
+			!is_render_all &&
+				resultKind != 'nondisplayable' &&
+				result != undefined &&
+				length != undefined &&
+				largeObject != undefined &&
+				!disableExpand &&
+				!noControls,
+			resultHeaderHeight
+		)
 	})
 </script>
 
 <HighlightTheme />
-{#if is_render_all}
+
+{#if result_stream && result == undefined}
+	<div class="flex flex-col w-full gap-2">
+		<div class="flex items-center gap-2 text-tertiary">
+			<Loader2 class="animate-spin" size={16} /> Streaming result
+		</div>
+		<ResultStreamDisplay {result_stream} />
+	</div>
+{:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
 		{#if !noControls}
 			<div class="text-tertiary text-sm">
@@ -442,17 +520,18 @@
 					on:selected={(ev) => {
 						globalForceJson = ev.detail === 'json'
 					}}
-					let:item
 				>
-					<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} {item} />
+					{#snippet children({ item })}
+						<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} {item} />
 
-					<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
+						<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
+					{/snippet}
 				</ToggleButtonGroup>
 			</div>
 		{/if}
 		<div class="flex flex-col w-full gap-10">
 			{#each result['render_all'] as res}
-				<svelte:self
+				<DisplayResult
 					{noControls}
 					result={res}
 					{requireHtmlApproval}
@@ -471,9 +550,11 @@
 	<div class="text-red-400">Non displayable object</div>
 {:else}
 	<div
-		class="inline-highlight relative grow {['plain', 'markdown'].includes(resultKind ?? '')
-			? ''
-			: 'min-h-[160px]'}"
+		class={twMerge(
+			'inline-highlight relative grow flex flex-col',
+			['plain', 'markdown'].includes(resultKind ?? '') ? 'min-h-0' : 'min-h-[160px]',
+			growVertical ? '' : 'h-full'
+		)}
 	>
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full">
@@ -484,30 +565,31 @@
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
 							class="h-6"
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
-							let:item
 							on:selected={(ev) => {
 								forceJson = ev.detail === 'json'
 							}}
 						>
-							{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
-								<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} {item} />
-							{:else}
-								<ToggleButton
-									class="px-1.5"
-									value="pretty"
-									label="Pretty"
-									icon={Highlighter}
-									{item}
-								/>
-							{/if}
-							<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
+							{#snippet children({ item })}
+								{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
+									<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} {item} />
+								{:else}
+									<ToggleButton
+										class="px-1.5"
+										value="pretty"
+										label="Pretty"
+										icon={Highlighter}
+										{item}
+									/>
+								{/if}
+								<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
+							{/snippet}
 						</ToggleButtonGroup>
 					{/if}
 				</div>
 
 				<div class="text-secondary text-xs flex gap-2.5 z-10 items-center">
 					{#if customUi?.disableAiFix !== true}
-						<slot name="copilot-fix" />
+						{@render copilot_fix?.()}
 					{/if}
 					{#if toolbarLocation === 'self'}
 						<!-- TODO : When svelte 5 is released, use a snippet to pass the toolbar to a parent -->
@@ -525,16 +607,36 @@
 					{/if}
 				</div>
 			</div>
-			<div class="grow">
+			<div class="grow relative">
 				{#if !forceJson && resultKind === 'table-col'}
-					{@const data = 'table-col' in result ? result['table-col'] : result}
-					<AutoDataTable objects={objectOfArraysToObjects(data)} />
+					{@const data =
+						typeof result === 'object' && 'table-col' in result ? result['table-col'] : result}
+					<AutoDataTable
+						class={fixTableSizingToParent
+							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
+							: ''}
+						objects={objectOfArraysToObjects(data)}
+					/>
 				{:else if !forceJson && resultKind === 'table-row'}
-					{@const data = 'table-row' in result ? result['table-row'] : result}
-					<AutoDataTable objects={arrayOfRowsToObjects(data)} />
+					{@const data =
+						typeof result === 'object' && 'table-row' in result ? result['table-row'] : result}
+					<AutoDataTable
+						class={fixTableSizingToParent
+							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
+							: ''}
+						objects={arrayOfRowsToObjects(data)}
+					/>
 				{:else if !forceJson && resultKind === 'table-row-object'}
-					{@const data = 'table-row-object' in result ? result['table-row-object'] : result}
-					<AutoDataTable objects={handleArrayOfObjectsHeaders(data)} />
+					{@const data =
+						typeof result === 'object' && 'table-row-object' in result
+							? result['table-row-object']
+							: result}
+					<AutoDataTable
+						class={fixTableSizingToParent
+							? 'absolute inset-0 [&>div]:h-full [&>div]:min-h-[10rem]'
+							: ''}
+						objects={handleArrayOfObjectsHeaders(data)}
+					/>
 				{:else if !forceJson && resultKind === 'html'}
 					<div class="h-full">
 						{#if !requireHtmlApproval || enableHtml}
@@ -604,15 +706,19 @@
 					</div>
 				{:else if !forceJson && resultKind === 'pdf'}
 					<div class="h-96 mt-2 border">
-						<PdfViewer
-							allowFullscreen
-							source="data:application/pdf;base64,{contentOrRootString(result.pdf)}"
-						/>
+						{#await import('$lib/components/display/PdfViewer.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default
+								allowFullscreen
+								source="data:application/pdf;base64,{contentOrRootString(result.pdf)}"
+							/>
+						{/await}
 					</div>
 				{:else if !forceJson && resultKind === 'plain'}<div class="h-full text-2xs"
 						><pre class="whitespace-pre-wrap"
 							>{typeof result === 'string' ? result : result?.['result']}</pre
-						>{#if !noControls}
+						>{#if !noControls && !loading}
 							<div class="flex">
 								<Button
 									on:click={() =>
@@ -647,7 +753,7 @@
 								>{JSON.stringify(result.error.extra, null, 4)}</pre
 							>
 						{/if}
-						<slot />
+						{@render children?.()}
 					</div>
 					{#if !isTest && language === 'bun'}
 						<div class="pt-20"></div>
@@ -721,34 +827,38 @@
 									language={json}
 									code={toJsonStr(result).replace(/\\n/g, '\n')}
 								/>
-								<button
-									class="text-secondary underline text-2xs whitespace-nowrap"
-									on:click={() => {
-										s3FileViewer?.open?.(result)
-									}}
-									><span class="flex items-center gap-1"
-										><PanelRightOpen size={12} />object store explorer<Tooltip
-											>Require admin privilege or "S3 resource details and content can be accessed
-											by all users of this workspace" of S3 Storage to be set in the workspace
-											settings</Tooltip
-										></span
-									>
-								</button>
+								{#if $userStore}
+									<button
+										class="text-secondary underline text-2xs whitespace-nowrap"
+										onclick={() => {
+											s3FileViewer?.open?.(result)
+										}}
+										><span class="flex items-center gap-1"
+											><PanelRightOpen size={12} />object store explorer<Tooltip
+												>Require admin privilege or "S3 resource details and content can be accessed
+												by all users of this workspace" of S3 Storage to be set in the workspace
+												settings</Tooltip
+											></span
+										>
+									</button>
+								{/if}
 							{:else if !result?.disable_download}
 								<FileDownload {workspaceId} s3object={result} {appPath} />
-								<button
-									class="text-secondary underline text-2xs whitespace-nowrap"
-									on:click={() => {
-										s3FileViewer?.open?.(result)
-									}}
-									><span class="flex items-center gap-1"
-										><PanelRightOpen size={12} />object store explorer<Tooltip
-											>Require admin privilege or "S3 resource details and content can be accessed
-											by all users of this workspace" of S3 Storage to be set in the workspace
-											settings</Tooltip
-										></span
-									>
-								</button>
+								{#if $userStore}
+									<button
+										class="text-secondary underline text-2xs whitespace-nowrap"
+										onclick={() => {
+											s3FileViewer?.open?.(result)
+										}}
+										><span class="flex items-center gap-1"
+											><PanelRightOpen size={12} />object store explorer<Tooltip
+												>Require admin privilege or "S3 resource details and content can be accessed
+												by all users of this workspace" of S3 Storage to be set in the workspace
+												settings</Tooltip
+											></span
+										>
+									</button>
+								{/if}
 							{/if}
 						</div>
 						{#if typeof result?.s3 === 'string'}
@@ -779,18 +889,22 @@
 								</div>
 							{:else if result?.s3?.endsWith('.pdf')}
 								<div class="h-96 mt-2 border">
-									<PdfViewer
-										allowFullscreen
-										source="{`/api/w/${workspaceId}/${
-											appPath
-												? 'apps_u/download_s3_file/' + appPath
-												: 'job_helpers/load_image_preview'
-										}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(result.s3)}` +
-											(result.storage ? `&storage=${result.storage}` : '')}{appPath &&
-										result.presigned
-											? `&${result.presigned}`
-											: ''}"
-									/>
+									{#await import('$lib/components/display/PdfViewer.svelte')}
+										<Loader2 class="animate-spin" />
+									{:then Module}
+										<Module.default
+											allowFullscreen
+											source="{`/api/w/${workspaceId}/${
+												appPath
+													? 'apps_u/download_s3_file/' + appPath
+													: 'job_helpers/load_image_preview'
+											}?${appPath ? 's3' : 'file_key'}=${encodeURIComponent(result.s3)}` +
+												(result.storage ? `&storage=${result.storage}` : '')}{appPath &&
+											result.presigned
+												? `&${result.presigned}`
+												: ''}"
+										/>
+									{/await}
 								</div>
 							{/if}
 						{/if}
@@ -813,7 +927,7 @@
 									/>
 									<button
 										class="text-secondary text-2xs whitespace-nowrap"
-										on:click={() => {
+										onclick={() => {
 											s3FileViewer?.open?.(s3object)
 										}}
 										><span class="flex items-center gap-1"
@@ -821,7 +935,7 @@
 										>
 									</button>
 								{:else if !s3object?.disable_download}
-									<FileDownload {s3object} />
+									<FileDownload {workspaceId} {s3object} {appPath} />
 								{:else}
 									<div class="flex text-secondary pt-2">{s3object?.s3} (download disabled)</div>
 								{/if}
@@ -835,7 +949,7 @@
 										/>{:else}
 										<button
 											class="text-secondary whitespace-nowrap flex gap-2 items-center"
-											on:click={() => {
+											onclick={() => {
 												seeS3PreviewFileFromList = s3object?.s3
 											}}
 											>open table preview <ArrowDownFromLine />
@@ -855,7 +969,7 @@
 									{:else}
 										<button
 											class="text-secondary whitespace-nowrap flex gap-2 items-center"
-											on:click={() => {
+											onclick={() => {
 												seeS3PreviewFileFromList = s3object?.s3
 											}}
 											>open image preview <ArrowDownFromLine />
@@ -863,12 +977,16 @@
 									{/if}
 								{:else if s3object?.s3?.endsWith('.pdf')}
 									<div class="h-96 mt-2 border" data-interactive>
-										<PdfViewer
-											allowFullscreen
-											source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
-												s3object.s3
-											)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
-										/>
+										{#await import('$lib/components/display/PdfViewer.svelte')}
+											<Loader2 class="animate-spin" />
+										{:then Module}
+											<Module.default
+												allowFullscreen
+												source={`/api/w/${workspaceId}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+													s3object.s3
+												)}` + (s3object.storage ? `&storage=${s3object.storage}` : '')}
+											/>
+										{/await}
 									</div>
 								{/if}
 							{/each}
@@ -956,7 +1074,7 @@
 	{#if !disableExpand && !noControls}
 		<Drawer bind:this={jsonViewer} bind:open={drawerOpen} size="900px">
 			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
-				<svelte:fragment slot="actions">
+				{#snippet actions()}
 					{#if customUi?.disableDownload !== true}
 						<Button
 							download="{filename ?? 'result'}.json"
@@ -982,8 +1100,8 @@
 					>
 						Copy to clipboard
 					</Button>
-				</svelte:fragment>
-				<svelte:self
+				{/snippet}
+				<DisplayResult
 					{noControls}
 					{result}
 					{requireHtmlApproval}

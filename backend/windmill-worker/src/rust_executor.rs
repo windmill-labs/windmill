@@ -66,6 +66,7 @@ mount {
 #[cfg(not(debug_assertions))]
 const DEV_CONF_NSJAIL: &'static str = "";
 
+#[cfg(not(windows))]
 lazy_static::lazy_static! {
     static ref CARGO_HOME_DEFAULT: String = format!("{}/.cargo", *HOME_DIR);
     static ref RUSTUP_HOME_DEFAULT: String = format!("{}/.rustup", *HOME_DIR);
@@ -174,7 +175,8 @@ pub async fn generate_cargo_lockfile(
             std::env::var("TMP").unwrap_or_else(|_| "C:\\tmp".to_string()),
         );
     }
-    let gen_lockfile_process = start_child_process(gen_lockfile_cmd, CARGO_PATH.as_str()).await?;
+    let gen_lockfile_process =
+        start_child_process(gen_lockfile_cmd, CARGO_PATH.as_str(), false).await?;
     handle_child(
         job_id,
         conn,
@@ -188,6 +190,7 @@ pub async fn generate_cargo_lockfile(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;
@@ -281,7 +284,7 @@ async fn get_build_dir(
         );
 
         tokio::spawn(async move {
-            if let Err(e) = match start_child_process(sweep_cmd, CARGO_PATH.as_str()).await {
+            if let Err(e) = match start_child_process(sweep_cmd, CARGO_PATH.as_str(), false).await {
                 Ok(sweep_process) => {
                     handle_child(
                         &job_id,
@@ -296,6 +299,7 @@ async fn get_build_dir(
                         None,
                         false,
                         &mut None,
+                        None,
                         None,
                     )
                     .await
@@ -364,7 +368,7 @@ pub async fn build_rust_crate(
         if !is_preview {
             nsjail_cmd.arg("--release");
         }
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let mut build_rust_cmd = Command::new(CARGO_PATH.as_str());
         build_rust_cmd
@@ -393,7 +397,7 @@ pub async fn build_rust_crate(
             );
             build_rust_cmd.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
-        start_child_process(build_rust_cmd, CARGO_PATH.as_str()).await?
+        start_child_process(build_rust_cmd, CARGO_PATH.as_str(), false).await?
     };
     handle_child(
         &job.id,
@@ -408,6 +412,7 @@ pub async fn build_rust_crate(
         None,
         false,
         &mut Some(occupancy_metrics),
+        None,
         None,
     )
     .await?;
@@ -559,7 +564,7 @@ pub async fn handle_rust_job(
             .args(vec!["--config", "run.config.proto", "--", "/tmp/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str()).await?
+        start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
         let compiled_executable_name = "./main";
         let mut run_rust = Command::new(compiled_executable_name);
@@ -572,6 +577,7 @@ pub async fn handle_rust_job(
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -581,7 +587,7 @@ pub async fn handle_rust_job(
             run_rust.env("USERPROFILE", crate::USERPROFILE_ENV.as_str());
         }
 
-        start_child_process(run_rust, compiled_executable_name).await?
+        start_child_process(run_rust, compiled_executable_name, false).await?
     };
     handle_child(
         &job.id,
@@ -597,7 +603,8 @@ pub async fn handle_rust_job(
         false,
         &mut Some(occupancy_metrics),
         None,
+        None,
     )
     .await?;
-    read_result(job_dir).await
+    read_result(job_dir, None).await
 }

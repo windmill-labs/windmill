@@ -1,5 +1,4 @@
-#[cfg(feature = "parquet")]
-use crate::error;
+use crate::error::{self};
 #[cfg(feature = "parquet")]
 use aws_sdk_sts::config::ProvideCredentials;
 #[cfg(feature = "parquet")]
@@ -10,12 +9,17 @@ use object_store::aws::AwsCredential;
 #[cfg(feature = "parquet")]
 use object_store::azure::MicrosoftAzureBuilder;
 #[cfg(feature = "parquet")]
+use object_store::gcp::GoogleCloudStorageBuilder;
+#[cfg(feature = "parquet")]
 use object_store::ObjectStore;
 #[cfg(feature = "parquet")]
 use object_store::{aws::AmazonS3Builder, ClientOptions};
+use quick_cache::sync::Cache;
 #[cfg(feature = "parquet")]
 use reqwest::header::HeaderMap;
-use serde::{Deserialize, Serialize};
+use serde::de::Visitor;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt;
 #[cfg(feature = "parquet")]
 use std::sync::{Arc, Mutex};
 
@@ -147,7 +151,7 @@ pub enum ObjectStoreReload {
 #[cfg(feature = "parquet")]
 pub async fn reload_object_store_setting(db: &crate::DB) -> ObjectStoreReload {
     use crate::{
-        ee::{get_license_plan, LicensePlan},
+        ee_oss::{get_license_plan, LicensePlan},
         global_settings::{load_value_from_global_settings, OBJECT_STORE_CONFIG_SETTING},
         s3_helpers::ObjectSettings,
     };
@@ -214,34 +218,144 @@ pub async fn reload_object_store_setting(db: &crate::DB) -> ObjectStoreReload {
     return ObjectStoreReload::Never;
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum LargeFileStorage {
     S3Storage(S3Storage),
     AzureBlobStorage(AzureBlobStorage),
     S3AwsOidc(S3Storage),
     AzureWorkloadIdentity(AzureBlobStorage),
+    GoogleCloudStorage(GoogleCloudStorage),
     // TODO: Add a filesystem type here in the future if needed
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+impl LargeFileStorage {
+    pub fn get_s3_resource_path(&self) -> &str {
+        match self {
+            LargeFileStorage::S3Storage(s3_lfs) => &s3_lfs.s3_resource_path,
+            LargeFileStorage::S3AwsOidc(s3_lfs) => &s3_lfs.s3_resource_path,
+            LargeFileStorage::AzureBlobStorage(az_lfs) => &az_lfs.azure_blob_resource_path,
+            LargeFileStorage::AzureWorkloadIdentity(az_lfs) => &az_lfs.azure_blob_resource_path,
+            LargeFileStorage::GoogleCloudStorage(gcs_lfs) => &gcs_lfs.gcs_resource_path,
+        }
+    }
+    pub fn is_public_resource(&self) -> bool {
+        match self {
+            LargeFileStorage::S3Storage(lfs) => lfs.public_resource,
+            LargeFileStorage::S3AwsOidc(lfs) => lfs.public_resource,
+            LargeFileStorage::AzureBlobStorage(lfs) => lfs.public_resource,
+            LargeFileStorage::AzureWorkloadIdentity(lfs) => lfs.public_resource,
+            LargeFileStorage::GoogleCloudStorage(glfs) => glfs.public_resource,
+        }
+        .unwrap_or(false)
+    }
+    pub fn get_advanced_permissions(&self) -> Option<&Vec<S3PermissionRule>> {
+        match self {
+            LargeFileStorage::S3Storage(lfs) => lfs.advanced_permissions.as_ref(),
+            LargeFileStorage::S3AwsOidc(lfs) => lfs.advanced_permissions.as_ref(),
+            LargeFileStorage::AzureBlobStorage(lfs) => lfs.advanced_permissions.as_ref(),
+            LargeFileStorage::AzureWorkloadIdentity(lfs) => lfs.advanced_permissions.as_ref(),
+            LargeFileStorage::GoogleCloudStorage(glfs) => glfs.advanced_permissions.as_ref(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct S3Storage {
     pub s3_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
+    pub advanced_permissions: Option<Vec<S3PermissionRule>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AzureBlobStorage {
     pub azure_blob_resource_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_resource: Option<bool>,
+    pub advanced_permissions: Option<Vec<S3PermissionRule>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct GoogleCloudStorage {
+    pub gcs_resource_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_resource: Option<bool>,
+    pub advanced_permissions: Option<Vec<S3PermissionRule>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct S3PermissionRule {
+    pub pattern: String,
+    pub allow: S3Permission, // read, write, delete, list
+}
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub struct S3Permission: u8 {
+        const READ   = 0b0001;
+        const WRITE  = 0b0010;
+        const DELETE = 0b0100;
+        const LIST   = 0b1000;
+    }
+}
+
+impl Serialize for S3Permission {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut perms = Vec::new();
+        if self.contains(S3Permission::READ) {
+            perms.push("read");
+        }
+        if self.contains(S3Permission::WRITE) {
+            perms.push("write");
+        }
+        if self.contains(S3Permission::DELETE) {
+            perms.push("delete");
+        }
+        if self.contains(S3Permission::LIST) {
+            perms.push("list");
+        }
+        let perms = perms.join(",");
+        perms.serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for S3Permission {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct PermVisitor;
+        impl<'de> Visitor<'de> for PermVisitor {
+            type Value = S3Permission;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("comma separated list of permissions: read, write, delete, list")
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                let mut perms = S3Permission::empty();
+                for value in v.split(',') {
+                    perms |= match value {
+                        "read" => S3Permission::READ,
+                        "write" => S3Permission::WRITE,
+                        "delete" => S3Permission::DELETE,
+                        "list" => S3Permission::LIST,
+                        _ => S3Permission::empty(), // ignore unknown permissions
+                    };
+                }
+                Ok(perms)
+            }
+        }
+
+        deserializer.deserialize_str(PermVisitor)
+    }
 }
 
 #[derive(Clone, Debug)]
 pub enum ObjectStoreResource {
     S3(S3Resource),
     Azure(AzureBlobResource),
+    Gcs(GcsResource),
 }
 
 impl ObjectStoreResource {
@@ -259,6 +373,7 @@ pub enum StorageResourceType {
     AzureBlob,
     S3AwsOidc,
     AzureWorkloadIdentity,
+    GoogleCloudStorage,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -298,6 +413,22 @@ pub struct AzureBlobResource {
     pub access_key: Option<String>,
     #[serde(rename = "federatedTokenFile")]
     pub federated_token_file: Option<String>,
+}
+
+fn as_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::de::Deserializer<'de>,
+{
+    let v: serde_json::Value = Deserialize::deserialize(deserializer)?;
+    serde_json::to_string(&v).map_err(serde::de::Error::custom)
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct GcsResource {
+    pub bucket: String,
+    #[serde(rename = "serviceAccountKey")]
+    #[serde(deserialize_with = "as_string")]
+    pub service_account_key: String,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Hash)]
@@ -380,7 +511,70 @@ pub async fn build_object_store_client(
         ObjectStoreResource::Azure(azure_blob_resource_ref) => {
             build_azure_blob_client(&azure_blob_resource_ref)
         }
+        ObjectStoreResource::Gcs(gcs_resource_ref) => build_gcs_client(&gcs_resource_ref).await,
     }
+}
+
+#[derive(PartialEq)]
+pub enum BundleFormat {
+    Esm,
+    Cjs,
+}
+
+impl BundleFormat {
+    pub fn from_string(s: &str) -> Option<Self> {
+        match s {
+            "esm" => Some(Self::Esm),
+            "cjs" => Some(Self::Cjs),
+            _ => None,
+        }
+    }
+}
+
+pub async fn upload_artifact_to_store(
+    path: &str,
+    data: bytes::Bytes,
+    standalone_dir: &str,
+) -> error::Result<()> {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    let object_store = crate::s3_helpers::get_object_store().await;
+    #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+    let object_store: Option<()> = None;
+    Ok(
+        if &crate::utils::MODE_AND_ADDONS.mode == &crate::utils::Mode::Standalone
+            && object_store.is_none()
+        {
+            let path = format!("{}/{}", standalone_dir, path);
+            tracing::info!("Writing file to path {path}");
+
+            let split_path = path.split("/").collect::<Vec<&str>>();
+            std::fs::create_dir_all(split_path[..split_path.len() - 1].join("/"))?;
+
+            crate::worker::write_file_bytes(&path, &data)?;
+        } else {
+            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
+            {
+                return Err(error::Error::ExecutionErr(
+                    "codebase is an EE feature".to_string(),
+                ));
+            }
+
+            #[cfg(all(feature = "enterprise", feature = "parquet"))]
+            if let Some(os) = object_store {
+                if let Err(e) = os
+                    .put(&object_store::path::Path::from(path), data.into())
+                    .await
+                {
+                    tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                    return Err(error::Error::ExecutionErr(format!(
+                        "Failed to put {path} to s3"
+                    )));
+                }
+            } else {
+                return Err(error::Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
+            }
+        },
+    )
 }
 
 #[cfg(feature = "parquet")]
@@ -575,18 +769,59 @@ fn build_azure_blob_client(
     return Ok(Arc::new(store));
 }
 
+#[cfg(feature = "parquet")]
+async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<dyn ObjectStore>> {
+    let gcs_resource = gcs_resource_ref.clone();
+
+    let mut store_builder = GoogleCloudStorageBuilder::new()
+        .with_client_options(
+            ClientOptions::new()
+                .with_timeout_disabled()
+                .with_default_headers(HeaderMap::from_iter(vec![(
+                    "Accept-Encoding".parse().unwrap(),
+                    "".parse().unwrap(),
+                )])),
+        )
+        .with_bucket_name(gcs_resource.bucket);
+
+    store_builder = store_builder.with_service_account_key(gcs_resource.service_account_key);
+
+    // if private key is malformed, it will panic => https://github.com/apache/arrow-rs-object-store/issues/419
+    let store = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| store_builder.build()))
+        .map_err(|panic_info| {
+            tracing::error!(
+                "Panic while building GCS object store client: {:?}",
+                panic_info
+            );
+            error::Error::internal_err(format!(
+                "Panic while building GCS object store client: {:?}",
+                panic_info
+            ))
+        })?
+        .map_err(|err| {
+            tracing::error!("Error building GCS object store client: {:?}", err);
+            error::Error::internal_err(format!(
+                "Error building GCS object store client: {}",
+                err.to_string()
+            ))
+        })?;
+
+    return Ok(Arc::new(store));
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "typ", content = "value")]
 pub enum ObjectStoreSettings {
     S3(S3Settings),
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum ObjectSettings {
     S3(S3Settings),
     Azure(AzureBlobResource),
     AwsOidc(S3AwsOidcResource),
+    Gcs(GcsResource),
 }
 
 impl ObjectSettings {
@@ -595,6 +830,7 @@ impl ObjectSettings {
             ObjectSettings::S3(s3_settings) => s3_settings.bucket.as_ref(),
             ObjectSettings::Azure(azure_settings) => Some(&azure_settings.container_name),
             ObjectSettings::AwsOidc(s3_aws_oidc_settings) => Some(&s3_aws_oidc_settings.bucket),
+            ObjectSettings::Gcs(gcs_settings) => Some(&gcs_settings.bucket),
         }
     }
 }
@@ -613,8 +849,8 @@ pub async fn build_object_store_from_settings(
             build_azure_blob_client(&azure_blob_resource).map(|x| ExpirableObjectStore::from(x))
         }
         ObjectSettings::AwsOidc(ref s3_aws_oidc_settings) => {
-            let token_generator = crate::job_s3_helpers_ee::TokenGenerator::AsServerInstance();
-            let res = crate::job_s3_helpers_ee::generate_s3_aws_oidc_resource(
+            let token_generator = crate::job_s3_helpers_oss::TokenGenerator::AsServerInstance();
+            let res = crate::job_s3_helpers_oss::generate_s3_aws_oidc_resource(
                 s3_aws_oidc_settings.clone(),
                 token_generator,
                 init_private_key,
@@ -627,6 +863,12 @@ pub async fn build_object_store_from_settings(
                     store: x,
                     refresh: Some(ObjectStoreRefresh::new(settings.clone(), res.expiration())),
                 })
+        }
+        ObjectSettings::Gcs(gcs_settings) => {
+            let gcs_resource = gcs_settings;
+            build_gcs_client(&gcs_resource)
+                .await
+                .map(|x| ExpirableObjectStore::from(x))
         }
     }
 }
@@ -892,7 +1134,7 @@ pub async fn convert_json_line_stream<E: Into<anyhow::Error>>(
     Ok(tokio_stream::wrappers::ReceiverStream::new(rx))
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct DuckdbConnectionSettingsResponse {
     pub connection_settings_str: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -907,4 +1149,98 @@ pub struct DuckdbConnectionSettingsQueryV2 {
     pub s3_resource_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
+}
+
+pub fn lfs_to_object_store_resource(
+    lfs: &LargeFileStorage,
+    resource_value: serde_json::Value,
+) -> error::Result<ObjectStoreResource> {
+    match lfs {
+        LargeFileStorage::S3Storage(_) | LargeFileStorage::S3AwsOidc(_) => {
+            let s3_resource: S3Resource = serde_json::from_value(resource_value).map_err(|e| {
+                error::Error::internal_err(format!("Error parsing S3 resource: {}", e))
+            })?;
+            Ok(ObjectStoreResource::S3(s3_resource))
+        }
+        LargeFileStorage::AzureBlobStorage(_) | LargeFileStorage::AzureWorkloadIdentity(_) => {
+            let azure_blob_resource: AzureBlobResource = serde_json::from_value(resource_value)
+                .map_err(|e| {
+                    error::Error::internal_err(format!("Error parsing Azure Blob resource: {}", e))
+                })?;
+            Ok(ObjectStoreResource::Azure(azure_blob_resource))
+        }
+        LargeFileStorage::GoogleCloudStorage(_) => {
+            let gcs_resource: GcsResource =
+                serde_json::from_value(resource_value).map_err(|e| {
+                    error::Error::internal_err(format!("Error parsing GCS resource: {}", e))
+                })?;
+            Ok(ObjectStoreResource::Gcs(gcs_resource))
+        }
+    }
+}
+
+pub fn format_duckdb_connection_settings(
+    object_store_resource: ObjectStoreResource,
+) -> error::Result<DuckdbConnectionSettingsResponse> {
+    match object_store_resource {
+        ObjectStoreResource::S3(s3_resource) => duckdb_connection_settings_internal(s3_resource),
+        ObjectStoreResource::Azure(azure_resource) => {
+            let connection_string = format!(
+                "CREATE SECRET az_secret (TYPE AZURE, CONNECTION_STRING 'DefaultEndpointsProtocol=https;AccountName={};AccountKey={};EndpointSuffix=core.windows.net');",
+                azure_resource.account_name,
+                azure_resource.access_key.unwrap_or_default()
+            );
+            let response = DuckdbConnectionSettingsResponse {
+                connection_settings_str: connection_string,
+                azure_container_path: Some(format!("az://{}", azure_resource.container_name)),
+                s3_bucket: None,
+            };
+            Ok(response)
+        }
+        ObjectStoreResource::Gcs(_) => {
+            return Err(error::Error::BadRequest(
+                "GCS is not supported in DuckDB".to_string(),
+            ));
+        }
+    }
+}
+
+pub fn duckdb_connection_settings_internal(
+    s3_resource: S3Resource,
+) -> error::Result<DuckdbConnectionSettingsResponse> {
+    let mut duckdb_settings: String = String::new();
+
+    duckdb_settings.push_str("SET home_directory='./';\n"); // TODO: make this configurable maybe, or point to a temporary folder
+    duckdb_settings.push_str("INSTALL 'httpfs';\n");
+    if s3_resource.path_style.unwrap_or(true) {
+        duckdb_settings.push_str("SET s3_url_style='path';\n");
+    }
+    duckdb_settings.push_str(format!("SET s3_region='{}';\n", s3_resource.region).as_str());
+    duckdb_settings.push_str(format!("SET s3_endpoint='{}';\n", s3_resource.endpoint).as_str());
+    if !s3_resource.use_ssl {
+        duckdb_settings.push_str("SET s3_use_ssl=0;\n"); // default is true for DuckDB
+    }
+    if let Some(access_key_id) = s3_resource.access_key {
+        duckdb_settings.push_str(format!("SET s3_access_key_id='{}';\n", access_key_id).as_str());
+    }
+    if let Some(secret_access_key) = s3_resource.secret_key {
+        duckdb_settings
+            .push_str(format!("SET s3_secret_access_key='{}';\n", secret_access_key).as_str());
+    }
+
+    let response = DuckdbConnectionSettingsResponse {
+        connection_settings_str: duckdb_settings,
+        azure_container_path: None,
+        s3_bucket: Some(s3_resource.bucket),
+    };
+    return Ok(response);
+}
+
+// DuckDB does not parse anything in case of S3 errors and just returns a generic error message.
+// To display better error messages, we cache the errors in a Map<Token, ErrorMessage>
+//
+// We leverage the fact that workers have an internal server to insert the error message
+// from the S3 Proxy, and read it directly in memory from the worker.
+lazy_static::lazy_static! {
+    pub static ref S3_PROXY_LAST_ERRORS_CACHE: Cache<String, String> = Cache::new(4);
 }
