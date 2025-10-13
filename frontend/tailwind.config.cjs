@@ -646,7 +646,8 @@ const config = {
 						},
 						'&:focus': {
 							borderColor: 'rgb(var(--color-border-selected))',
-							outline: 'none'
+							outline: 'none',
+							boxShadow: 'none'
 						},
 						'&:disabled,[disabled]': {
 							backgroundColor: 'rgb(var(--color-surface-disabled))' + ' !important'

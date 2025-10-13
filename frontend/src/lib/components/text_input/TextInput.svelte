@@ -10,7 +10,7 @@
 			'transition-colors border border-border-light',
 			forceFocus
 				? '!border-border-selected'
-				: '!border-nord-400 hover:!border-border-selected/50 focus:!border-border-selected',
+				: '!border-border-light hover:!border-border-selected/50 focus:!border-border-selected',
 			error ? '!border-red-300 focus:!border-red-400 hover:!border-red-500' : ''
 		)
 	}
