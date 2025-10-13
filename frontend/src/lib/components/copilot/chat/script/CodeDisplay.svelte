@@ -15,8 +15,6 @@
 		yaml
 	} from 'svelte-highlight/languages'
 	import { aiChatManager, AIMode } from '../AIChatManager.svelte'
-	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
-	import { DIFF_BASED_EDIT_PROVIDERS } from './core'
 	import { Check, Play } from 'lucide-svelte'
 
 	const astNode = getAstNode()
@@ -93,15 +91,7 @@
 		) {
 			return false
 		}
-
-		// Only show for non-diff-based providers
-		try {
-			const currentModel =
-				$copilotSessionModel ?? $copilotInfo.defaultModel ?? $copilotInfo.aiModels[0]
-			return !DIFF_BASED_EDIT_PROVIDERS.includes(currentModel.provider)
-		} catch (e) {
-			return false
-		}
+		return true
 	})
 
 	function handleApplyCode() {
