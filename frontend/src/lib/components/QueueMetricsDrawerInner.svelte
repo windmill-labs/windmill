@@ -164,7 +164,14 @@
 				})
 		}
 
-		minDate = new Date(Math.min(...countData.datasets.map((d) => new Date(d.data[0].x).getTime())))
+		minDate = new Date(
+			Math.min(
+				...countData.datasets
+					.map((x) => x.data[0].x)
+					.filter((x) => x != null)
+					.map((d) => new Date(d).getTime())
+			)
+		)
 
 		loading = false
 	}
