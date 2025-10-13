@@ -254,6 +254,12 @@
 		}
 	}
 
+	export function insertAtCurrentLine(code: string): void {
+		if (editor) {
+			insertAtLine(code, editor.getPosition()?.lineNumber ?? 0);
+		}
+	}
+
 	export function arrowDown(): void {
 		if (editor) {
 			let pos = editor.getPosition()
