@@ -75,7 +75,6 @@
 		{#if !trigger?.draftConfig && enabled !== undefined}
 			<div class="center-center">
 				<Toggle
-					size="2sm"
 					disabled={permissions === 'none'}
 					checked={enabled}
 					options={{ right: 'enable', left: 'disable' }}

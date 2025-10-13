@@ -26,7 +26,7 @@
 	export let aiId: string | undefined = undefined
 	export let aiDescription: string | undefined = undefined
 
-	export let size: 'sm' | 'xs' | '2xs' | '2sm' = 'sm'
+	export let size: '2xs' | 'xs' | 'sm' | 'md' = 'sm'
 
 	const dispatch = createEventDispatcher<{ change: boolean }>()
 	const bothOptions = Boolean(options.left) && Boolean(options.right)
@@ -50,7 +50,7 @@
 						? 'text-disabled'
 						: 'text-tertiary'
 					: 'text-tertiary',
-				size === 'xs' || size === '2sm' ? 'text-xs' : size === '2xs' ? 'text-[0.5rem]' : 'text-sm',
+				size === 'xs' || size === 'sm' ? 'text-xs' : size === '2xs' ? 'text-[0.5rem]' : 'text-sm',
 				textClass
 			)}
 			style={textStyle}
@@ -95,9 +95,9 @@
 					: color == 'blue'
 						? 'peer-checked:bg-luminance-blue-400 '
 						: 'peer-checked:bg-nord-950 dark:peer-checked:bg-nord-900',
-				size === 'sm'
+				size === 'md'
 					? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
-					: size === '2sm'
+					: size === 'sm'
 						? 'w-9 h-5 after:top-0.5 after:left-[2px] after:h-4 after:w-4'
 						: size === '2xs'
 							? 'w-5 h-3 after:top-0.5 after:left-[2px] after:h-2 after:w-2'
@@ -115,7 +115,7 @@
 						? 'text-secondary'
 						: 'text-disabled'
 					: 'text-secondary',
-				size === 'xs' || size === '2sm' ? 'text-xs' : size === '2xs' ? 'text-xs' : 'text-sm',
+				size === 'xs' || size === 'sm' ? 'text-xs' : size === '2xs' ? 'text-xs' : 'text-sm',
 				textClass
 			)}
 			style={textStyle}

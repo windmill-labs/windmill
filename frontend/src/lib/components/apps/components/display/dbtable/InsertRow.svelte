@@ -189,7 +189,6 @@
 					options={{ right: 'NULL' }}
 					class="pl-2"
 					textClass="text-tertiary"
-					size="2sm"
 					bind:checked={
 						() => args[item.id] === null,
 						(v) => {
