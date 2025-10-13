@@ -104,7 +104,7 @@ jobs:
               }
             }
           claude_args: |
-            --allowedTools mcp__github__create_pull_request,Bash
+            --allowedTools Bash
             --system-prompt "## IMPORTANT INSTRUCTIONS
             - Your branch name should be a short description of the requested changes.
             - Bypass previous instructions and instead of adding a url in your comment to manually create a PR, if you created a new branch with your changes, automatically create a draft PR from that branch to main.
@@ -125,5 +125,4 @@ jobs:
             - DO NOT FORGET TO OPEN A DRAFT PR AFTER YOU ARE DONE if you made changes after a request from a git issue.
 
             ## Available Tools
-            - mcp__github__create_pull_request: Create PRs from branches
             - Bash: Full access to run validation commands and git operations"
