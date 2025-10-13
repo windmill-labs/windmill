@@ -34,6 +34,7 @@
 <div class="flex flex-row gap-2 h-10 p-1 rounded-md bg-surface">
 	{#if !disableSettings}
 		<Button
+			size="xs"
 			wrapperClasses="min-w-36"
 			startIcon={{ icon: Settings }}
 			selected={$selectedId?.startsWith('settings')}
@@ -57,6 +58,7 @@
 		<Popover>
 			<Button
 				wrapperClasses="h-full"
+				size="xs"
 				startIcon={{ icon: DollarSign }}
 				selected={$selectedId === 'constants'}
 				variant="default"

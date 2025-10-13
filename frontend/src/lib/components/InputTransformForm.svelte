@@ -660,6 +660,7 @@
 						<div>
 							{#if arg}
 								<TemplateEditor
+									yPadding={7}
 									bind:this={monacoTemplate}
 									{extraLib}
 									on:focus={onFocus}
@@ -667,7 +668,7 @@
 										focused = false
 									}}
 									bind:code={arg.value}
-									fontSize={14}
+									fontSize={12}
 									on:change={() => {
 										dispatch('change', { argName, arg })
 									}}
@@ -741,12 +742,13 @@
 						</ArgInput>
 					{:else if arg.expr != undefined}
 						<div
-							class={`bg-surface-tertiary rounded-md flex flex-col pl-4 ${inputBorderClass({ forceFocus: focused })}`}
+							class={`bg-surface-tertiary rounded-md flex flex-col pl-3 ${inputBorderClass({ forceFocus: focused })}`}
 						>
 							<SimpleEditor
+								small
 								bind:this={monaco}
 								bind:code={arg.expr}
-								yPadding={8}
+								yPadding={7}
 								{extraLib}
 								lang="javascript"
 								shouldBindKey={false}

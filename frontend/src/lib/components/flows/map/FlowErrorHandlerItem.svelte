@@ -116,6 +116,7 @@
 	>
 		{#snippet trigger({ toggleOpen })}
 			<Button
+				size="xs"
 				wrapperClasses="h-full min-w-36"
 				title={`Add failure module`}
 				variant="default"

@@ -66,6 +66,7 @@
 
 {#snippet button({ onPress }: { onPress: () => void })}
 	<Button
+		size="xs"
 		color="light"
 		variant="default"
 		onClick={onPress}
