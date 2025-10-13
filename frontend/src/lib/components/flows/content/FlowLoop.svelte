@@ -248,11 +248,10 @@
 								class="h-6"
 							>
 								{#snippet children({ item })}
-									<ToggleButton light small label="static" value="static" {item} />
+									<ToggleButton small label="static" value="static" {item} />
 
 									<ToggleButton
 										small
-										light
 										tooltip="JavaScript expression ('flow_input' or 'results')."
 										value="javascript"
 										icon={FunctionSquare}

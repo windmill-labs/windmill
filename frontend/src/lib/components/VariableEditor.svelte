@@ -14,7 +14,6 @@
 	import { canWrite, isOwner } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import Section from './Section.svelte'
 	import { Loader2, Save } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 
