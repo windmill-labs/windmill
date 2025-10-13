@@ -51,14 +51,16 @@
 
 <Drawer bind:this={drawer} size="900px" on:close={removeHash}>
 	<DrawerContent title="User Settings" on:close={closeDrawer}>
-		<div class="flex flex-col h-full gap-6">
+		<div class="flex flex-col gap-6 pb-8">
 			{#if scopes == undefined}
-				<div class="flex flex-col gap-2 border border-border-light p-4">
+				<div
+					class="flex flex-row justify-between items-start gap-2 border border-border-light p-4 rounded-md"
+				>
+					<div class="font-medium text-emphasis text-xs flex items-center">
+						Theme <DarkModeToggle forcedDarkMode={false} />
+					</div>
 					<div class="text-xs text-emphasis flex-col flex">
 						Windmill <Version />
-					</div>
-					<div class="font-medium text-emphasis text-xs flex items-baseline">
-						Theme <DarkModeToggle forcedDarkMode={false} />
 					</div>
 				</div>
 				<div class="grid grid-cols-1 lg:grid-cols-2 w-full gap-4">
@@ -71,14 +73,16 @@
 				</div>
 			{/if}
 
-			<TokensTable
-				{showMcpMode}
-				{openWithMcpMode}
-				defaultNewTokenLabel={newTokenLabel}
-				defaultNewTokenWorkspace={newTokenWorkspace}
-				{scopes}
-				onTokenCreated={handleTokenCreated}
-			/>
+			<div class="grow min-h-0">
+				<TokensTable
+					{showMcpMode}
+					{openWithMcpMode}
+					defaultNewTokenLabel={newTokenLabel}
+					defaultNewTokenWorkspace={newTokenWorkspace}
+					{scopes}
+					onTokenCreated={handleTokenCreated}
+				/>
+			</div>
 		</div>
 	</DrawerContent>
 </Drawer>

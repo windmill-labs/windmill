@@ -246,7 +246,7 @@
 </script>
 
 <div>
-	<div class="py-3 px-3 border rounded-md mb-6 min-w-min">
+	<div class="p-4 rounded-md mb-6 min-w-min bg-surface-tertiary">
 		<h3 class="pb-2 font-semibold text-emphasis text-sm">Add a new token</h3>
 
 		{#if showMcpMode}
@@ -450,6 +450,7 @@
 				on:click={() => {
 					mcpCreationMode = false
 				}}
+				variant="default"
 			>
 				Cancel
 			</Button>
@@ -457,6 +458,7 @@
 				on:click={() => createToken(mcpCreationMode)}
 				disabled={mcpCreationMode &&
 					(newTokenWorkspace == undefined || (newMcpScope === 'folder' && !selectedFolder))}
+				variant="accent"
 			>
 				New token
 			</Button>

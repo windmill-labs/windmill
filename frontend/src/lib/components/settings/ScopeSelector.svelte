@@ -487,25 +487,24 @@
 			<Loader2 size={32} class="animate-spin text-primary" />
 		</div>
 	{:else if error}
-		<div class="p-4 bg-red-50 border border-red-200 rounded-lg">
-			<p class="text-sm text-red-800 mb-3">{error}</p>
-			<Button onclick={fetchScopeDomains} variant="contained" color="red" size="sm">
-				Try again
-			</Button>
+		<div class="p-4 bg-surface-tertiary border border-red-200 rounded-lg">
+			<p class="text-xs text-red-600 mb-3">{error}</p>
+			<Button onclick={fetchScopeDomains} variant="accent" size="sm">Try again</Button>
 		</div>
 	{:else if scopeDomains}
-		<div class="mb-6 p-4 bg-surface-secondary border rounded-lg">
+		<div class="mb-6 p-4 bg-surface-tertiary border rounded-md">
 			<div class="flex items-center justify-between mb-3">
-				<h4 class="text-sm font-semibold text-primary">
+				<h4 class="text-xs font-semibold text-emphasis">
 					Selected Scopes ({selectedScopes.length})
 				</h4>
-				<Button onclick={clearAllScopes} {disabled} size="xs" color="light">Clear All</Button>
+				<Button onclick={clearAllScopes} {disabled} size="xs" variant="subtle">Clear All</Button>
 			</div>
 
 			{#if selectedScopes.length === 0}
-				<p class="text-sm text-tertiary">No scopes selected. Token will have full access.</p>
+				<p class="text-xs text-secondary">No scopes selected. Token will have full access.</p>
 			{:else if hasAdministratorScope}
-				<p class="text-sm text-tertiary">Administrator scope grants full access to all resources.</p
+				<p class="text-xs text-secondary"
+					>Administrator scope grants full access to all resources.</p
 				>
 			{:else}
 				<div class="flex flex-wrap gap-2">
@@ -536,21 +535,21 @@
 			{/if}
 		</div>
 
-		<div class="space-y-3 max-h-96 overflow-y-auto border rounded-lg p-4">
+		<div class="max-h-96 overflow-y-auto border rounded-md">
 			{#each scopeDomains as domain}
 				{@const domainState = getDomainState(domain.name)}
 				{@const isExpanded = domainState?.isExpanded || false}
 				{@const isDomainSelected = domainState?.hasFullAccess || false}
 				{@const selectedScopes = getSelectedScopesForDomain(domain)}
 
-				<div class="border rounded-lg bg-surface overflow-hidden">
+				<div class="overflow-hidden">
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="p-4 bg-surface-secondary cursor-pointer hover:bg-surface-tertiary transition-colors"
+						class="p-4 cursor-pointer hover:bg-surface-hover transition-colors"
 						onclick={() => toggleDomainExpansion(domain.name)}
 					>
-						<div class="flex items-center gap-3">
+						<div class="flex items-center gap-2">
 							<div class="flex-shrink-0">
 								<ChevronRight
 									size={16}
@@ -572,12 +571,12 @@
 								/>
 							</div>
 
-							<div class="flex-1 min-w-0">
-								<div class="flex items-center gap-2 flex-wrap">
+							<div class="flex-1 min-w-0 flex flex-col gap-1">
+								<div class="flex items-center gap-x-2 gap-y-1 flex-wrap">
 									<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 									<label
 										for={`domain-${domain.name}`}
-										class="text-sm font-semibold text-primary cursor-pointer"
+										class="text-xs font-medium text-emphasis cursor-pointer"
 										onclick={(e) => e.stopPropagation()}
 									>
 										{domain.name}
@@ -603,14 +602,14 @@
 									{/each}
 								</div>
 								{#if domain.description}
-									<p class="text-xs text-tertiary mt-0.5">{domain.description}</p>
+									<p class="text-2xs text-secondary">{domain.description}</p>
 								{/if}
 							</div>
 						</div>
 					</div>
 
 					{#if isExpanded}
-						<div class="p-2">
+						<div class="p-2 pl-12">
 							<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 								{#each domain.scopes as scope}
 									{@const scopeState = domainState?.scopes[scope.value]}
@@ -621,11 +620,11 @@
 									{@const isDisabled = disabled || isScopeDisabled(scope, domain)}
 
 									<div
-										class="p-3 border rounded-lg w-full {isDisabled
-											? 'bg-surface opacity-60'
-											: 'bg-surface-secondary'}"
+										class="p-2 border rounded-lg w-full {isDisabled
+											? 'bg-surface-disabled opacity-60'
+											: 'bg-surface-tertiary'}"
 									>
-										<div class="flex justify-between items-center mb-2">
+										<div class="flex justify-between items-center">
 											<label
 												class={twMerge(
 													'flex items-center gap-2 flex-1 min-w-0',
@@ -643,8 +642,8 @@
 
 												<span
 													class={twMerge(
-														'font-medium text-xs truncate cursor-pointer',
-														isDisabled ? 'text-tertiary' : ''
+														'font-normal text-xs truncate cursor-pointer',
+														isDisabled ? 'text-disabled' : 'text-primary'
 													)}
 												>
 													{scope.label}
@@ -658,7 +657,7 @@
 														contentClasses="p-3"
 													>
 														{#snippet trigger()}
-															<Button size="xs" disabled={isDisabled} color="dark">
+															<Button size="xs" disabled={isDisabled} variant="default">
 																Restrict paths
 																<Tooltip light>
 																	Restrict this scope to specific resource paths. If no paths are
@@ -686,7 +685,6 @@
 																				addResourcePath(scope.value, currentInput)
 																			}
 																		}}
-																		class="flex-1 text-sm px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-surface"
 																	/>
 																	<Button
 																		onclick={() => {
@@ -699,7 +697,7 @@
 																	</Button>
 																</div>
 																{#if pathError}
-																	<p class="text-xs text-red-600 mt-1">{pathError}</p>
+																	<p class="text-2xs text-red-600 mt-1">{pathError}</p>
 																{/if}
 															</div>
 														{/snippet}
