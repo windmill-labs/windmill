@@ -822,7 +822,7 @@
 									<HighlightCode
 										language={script.language}
 										code={script.content}
-										class="whitespace-pre-wrap"
+										className="whitespace-pre-wrap"
 									/>
 								</div>
 							</TabContent>

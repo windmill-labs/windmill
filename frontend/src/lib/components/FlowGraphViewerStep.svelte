@@ -178,7 +178,7 @@
 					<HighlightCode
 						language={stepDetail.value.language}
 						code={stepDetail.value.content}
-						class="whitespace-pre-wrap"
+						className="whitespace-pre-wrap"
 					/>
 				</div>
 				<h3 class="mb-2 mt-4">Lockfile</h3>
