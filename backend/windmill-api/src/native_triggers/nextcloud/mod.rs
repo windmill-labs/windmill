@@ -1,13 +1,14 @@
 use serde::{Deserialize, Serialize};
 
-mod external;
+pub mod external;
 mod routes;
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct NextCloudResource {
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NextCloudOAuthData {
     pub base_url: String,
-    pub username: String,
-    pub password: String,
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub token_expires_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

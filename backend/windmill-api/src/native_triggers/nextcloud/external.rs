@@ -1,10 +1,10 @@
-use http::StatusCode;
-use reqwest::Client;
+use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use sqlx::PgConnection;
 use std::collections::HashMap;
 use windmill_common::{
-    error::{to_anyhow, Error, Result},
+    error::{Error, Result},
     triggers::TriggerKind,
     worker::to_raw_value,
     BASE_URL, DB,
@@ -15,10 +15,10 @@ use crate::{
     native_triggers::{
         generate_webhook_service_url,
         nextcloud::{
-            routes, NextCloud, NextCloudPayload, NextCloudResource, NextCloudTriggerData,
+            routes, NextCloud, NextCloudOAuthData, NextCloudPayload, NextCloudTriggerData,
             OcsResponse,
         },
-        External, ServiceName,
+        EventType, External, NativeTriggerData, ServiceName,
     },
     triggers::trigger_helpers::TriggerJobArgs,
 };
@@ -43,15 +43,28 @@ struct FullNextCloudPayload {
 }
 
 impl FullNextCloudPayload {
-    async fn new(w_id: &str, internal_id: &str, payload: NextCloudPayload) -> FullNextCloudPayload {
+    async fn new(
+        w_id: &str,
+        internal_id: &str,
+        data: &NativeTriggerData<NextCloudPayload>,
+    ) -> FullNextCloudPayload {
+        let EventType::Webhook(webhook_config) = &data.event_type;
         let base_url = &*BASE_URL.read().await;
-        let uri = generate_webhook_service_url(base_url, w_id, internal_id);
+        let uri = generate_webhook_service_url(
+            base_url,
+            w_id,
+            &data.runnable_path,
+            data.runnable_kind,
+            internal_id,
+            ServiceName::Nextcloud,
+            webhook_config,
+        );
 
         FullNextCloudPayload {
             http_method: http::Method::POST.to_string().to_uppercase(),
             auth_method: AuthMethod::None,
             uri,
-            payload,
+            payload: data.payload.clone(),
         }
     }
 }
@@ -99,153 +112,142 @@ impl TriggerJobArgs for NextCloud {
 impl External for NextCloud {
     type Payload = NextCloudPayload;
     type TriggerData = NextCloudTriggerData;
-    type Resource = NextCloudResource;
+    type OAuthData = NextCloudOAuthData;
     type CreateResponse = RegisterWebhookResponse;
     const SERVICE_NAME: ServiceName = ServiceName::Nextcloud;
     const DISPLAY_NAME: &'static str = "NextCloud";
-    const RESOURCE_TYPE: &'static str = "nextcloud";
     const SUPPORT_WEBHOOK: bool = true;
+    const TOKEN_ENDPOINT: &'static str = "/apps/oauth2/api/v1/token";
+    const REFRESH_ENDPOINT: &'static str = "/apps/oauth2/api/v1/token";
 
     async fn create(
         &self,
         w_id: &str,
         internal_id: i64,
-        resource: &Self::Resource,
-        payload: &Self::Payload,
+        oauth_data: &Self::OAuthData,
+        data: &NativeTriggerData<Self::Payload>,
+        db: &DB,
+        tx: &mut PgConnection,
     ) -> Result<Self::CreateResponse> {
         let full_nextcloud_payload =
-            FullNextCloudPayload::new(w_id, &internal_id.to_string(), payload.to_owned()).await;
+            FullNextCloudPayload::new(w_id, &internal_id.to_string(), data).await;
 
-        let response = Client::new()
-            .post(format!(
-                "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks",
-                resource.base_url
-            ))
-            .basic_auth(&resource.username, Some(&resource.password))
-            .header("OCS-APIRequest", "true")
-            .header("Content-Type", "application/json")
-            .header("accept", "application/json")
-            .json(&full_nextcloud_payload)
-            .send()
-            .await
-            .map_err(to_anyhow)?;
+        let url = format!(
+            "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks",
+            oauth_data.base_url
+        );
 
-        if response.status() != StatusCode::OK {
-            let error_response = response
-                .json::<OcsResponse<Box<serde_json::value::RawValue>>>()
-                .await
-                .map_err(|e| {
-                    Error::InternalErr(format!("Failed to parse NextCloud response: {}", e))
-                })?;
+        let mut headers = HashMap::new();
+        headers.insert("OCS-APIRequest".to_string(), "true".to_string());
 
-            return Err(Error::BadRequest(error_response.ocs.meta.message));
-        }
+        let ocs_response = self
+            .http_client_request::<OcsResponse<RegisterWebhookResponse>, _>(
+                &url,
+                Method::POST,
+                w_id,
+                tx,
+                db,
+                Some(headers),
+                Some(&full_nextcloud_payload),
+            )
+            .await?;
 
-        let webhook_response = response
-            .json::<OcsResponse<RegisterWebhookResponse>>()
-            .await
-            .map_err(|e| {
-                Error::InternalErr(format!("Failed to parse NextCloud response: {}", e))
-            })?;
-
-        Ok(webhook_response.ocs.data)
+        Ok(ocs_response.ocs.data)
     }
 
     async fn update(
         &self,
         w_id: &str,
         internal_id: i64,
-        resource: &Self::Resource,
+        oauth_data: &Self::OAuthData,
         external_id: &str,
-        payload: &Self::Payload,
+        data: &NativeTriggerData<Self::Payload>,
+        db: &DB,
+        tx: &mut PgConnection,
     ) -> Result<()> {
         let full_nextcloud_payload =
-            FullNextCloudPayload::new(w_id, &internal_id.to_string(), payload.to_owned()).await;
-        let _ = Client::new()
-            .post(format!(
-                "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks/{}",
-                resource.base_url, external_id
-            ))
-            .basic_auth(&resource.username, Some(&resource.password))
-            .header("OCS-APIRequest", "true")
-            .header("Content-Type", "application/json")
-            .header("accept", "application/json")
-            .json(&full_nextcloud_payload)
-            .send()
-            .await
-            .map_err(to_anyhow)?
-            .error_for_status()
-            .map_err(to_anyhow)?;
+            FullNextCloudPayload::new(w_id, &internal_id.to_string(), data).await;
+
+        let url = format!(
+            "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks/{}",
+            oauth_data.base_url, external_id
+        );
+
+        let mut headers = HashMap::new();
+        headers.insert("OCS-APIRequest".to_string(), "true".to_string());
+
+        let _ = self
+            .http_client_request::<serde_json::Value, _>(
+                &url,
+                Method::POST,
+                w_id,
+                tx,
+                db,
+                Some(headers),
+                Some(&full_nextcloud_payload),
+            )
+            .await?;
 
         Ok(())
     }
 
-    async fn get(&self, resource: &Self::Resource, external_id: &str) -> Result<Self::TriggerData> {
-        let response = Client::new()
-            .get(format!(
-                "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks/{}",
-                resource.base_url, external_id
-            ))
-            .basic_auth(&resource.username, Some(&resource.password))
-            .header("OCS-APIRequest", "true")
-            .header("accept", "application/json")
-            .send()
-            .await
-            .map_err(|e| Error::InternalErr(format!("Failed to get NextCloud trigger: {}", e)))?;
-
-        if response.status() == StatusCode::NOT_FOUND {
-            return Err(Error::NotFound(format!(
-                "Trigger {} not found on NextCloud",
-                external_id
-            )));
+    async fn validate_data_config(&self, data: &NativeTriggerData<Self::Payload>) -> Result<()> {
+        let event_type = &data.event_type;
+        if !matches!(event_type, &EventType::Webhook(_)) {
+            return Err(Error::BadRequest(
+                "Nextcloud native trigger only support webhook event".to_string(),
+            ));
         }
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(Error::InternalErr(format!(
-                "NextCloud API error ({}): {}",
-                status, body
-            )));
-        }
-
-        let trigger = response
-            .json::<Box<serde_json::value::RawValue>>()
-            .await
-            .map_err(|e| {
-                Error::InternalErr(format!("Failed to parse NextCloud response: {}", e))
-            })?;
-
-        let trigger = serde_json::from_str::<OcsResponse<NextCloudTriggerData>>(trigger.get())?;
-        Ok(trigger.ocs.data)
+        return Ok(());
     }
 
-    async fn delete(&self, resource: &Self::Resource, external_id: &str) -> Result<()> {
-        let response = Client::new()
-            .delete(format!(
-                "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks/{}",
-                resource.base_url, external_id
-            ))
-            .basic_auth(&resource.username, Some(&resource.password))
-            .header("OCS-APIRequest", "true")
-            .send()
+    async fn get(
+        &self,
+        w_id: &str,
+        oauth_data: &Self::OAuthData,
+        external_id: &str,
+        db: &DB,
+        tx: &mut PgConnection,
+    ) -> Result<Self::TriggerData> {
+        let url = format!(
+            "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks/{}",
+            oauth_data.base_url, external_id
+        );
+
+        let mut headers = HashMap::new();
+        headers.insert("OCS-APIRequest".to_string(), "true".to_string());
+
+        let ocs_response: OcsResponse<NextCloudTriggerData> = self
+            .http_client_request::<_, ()>(&url, Method::GET, w_id, tx, db, Some(headers), None)
+            .await?;
+
+        Ok(ocs_response.ocs.data)
+    }
+
+    async fn delete(
+        &self,
+        w_id: &str,
+        oauth_data: &Self::OAuthData,
+        external_id: &str,
+        db: &DB,
+        tx: &mut PgConnection,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks/{}",
+            oauth_data.base_url, external_id
+        );
+
+        let mut headers = HashMap::new();
+        headers.insert("OCS-APIRequest".to_string(), "true".to_string());
+
+        let _: serde_json::Value = self
+            .http_client_request::<_, ()>(&url, Method::DELETE, w_id, tx, db, Some(headers), None)
             .await
-            .map_err(|e| {
-                Error::InternalErr(format!("Failed to delete NextCloud trigger: {}", e))
+            .or_else(|e| match &e {
+                Error::InternalErr(msg) if msg.contains("404") => Ok(serde_json::Value::Null),
+                _ => Err(e),
             })?;
-
-        if response.status() == StatusCode::NOT_FOUND {
-            return Ok(());
-        }
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(Error::InternalErr(format!(
-                "NextCloud API error ({}): {}",
-                status, body
-            )));
-        }
 
         Ok(())
     }
@@ -273,49 +275,63 @@ impl External for NextCloud {
         Ok(job_args)
     }
 
-    async fn exists(&self, resource: &Self::Resource, external_id: &str) -> Result<bool> {
-        let response = Client::new()
-            .get(format!(
-                "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks/{}",
-                resource.base_url, external_id
-            ))
-            .basic_auth(&resource.username, Some(&resource.password))
-            .header("OCS-APIRequest", "true")
-            .send()
-            .await
-            .map_err(|e| Error::InternalErr(format!("Failed to check NextCloud trigger: {}", e)))?;
+    async fn exists(
+        &self,
+        w_id: &str,
+        oauth_data: &Self::OAuthData,
+        external_id: &str,
+        db: &DB,
+        tx: &mut PgConnection,
+    ) -> Result<bool> {
+        let url = format!(
+            "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks/{}",
+            oauth_data.base_url, external_id
+        );
 
-        Ok(response.status() == StatusCode::OK)
+        let mut headers = HashMap::new();
+        headers.insert("OCS-APIRequest".to_string(), "true".to_string());
+
+        let _ = self
+            .http_client_request::<serde_json::Value, ()>(
+                &url,
+                Method::GET,
+                w_id,
+                tx,
+                db,
+                Some(headers),
+                None,
+            )
+            .await?;
+
+        Ok(true)
     }
 
-    async fn list_all(&self, resource: &Self::Resource) -> Result<Vec<Self::TriggerData>> {
-        let response = Client::new()
-            .get(format!(
-                "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks",
-                resource.base_url
-            ))
-            .basic_auth(&resource.username, Some(&resource.password))
-            .header("OCS-APIRequest", "true")
-            .header("accept", "application/json")
-            .send()
-            .await
-            .map_err(|e| Error::InternalErr(format!("Failed to list NextCloud triggers: {}", e)))?;
+    async fn list_all(
+        &self,
+        w_id: &str,
+        oauth_data: &Self::OAuthData,
+        db: &DB,
+        tx: &mut PgConnection,
+    ) -> Result<Vec<Self::TriggerData>> {
+        let url = format!(
+            "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks",
+            oauth_data.base_url
+        );
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(Error::InternalErr(format!(
-                "NextCloud API error ({}): {}",
-                status, body
-            )));
-        }
+        let mut headers = HashMap::new();
+        headers.insert("OCS-APIRequest".to_string(), "true".to_string());
 
-        let ocs_response = response
-            .json::<OcsResponse<Vec<NextCloudTriggerData>>>()
-            .await
-            .map_err(|e| {
-                Error::InternalErr(format!("Failed to parse NextCloud response: {}", e))
-            })?;
+        let ocs_response = self
+            .http_client_request::<OcsResponse<Vec<NextCloudTriggerData>>, ()>(
+                &url,
+                Method::GET,
+                w_id,
+                tx,
+                db,
+                Some(headers),
+                None,
+            )
+            .await?;
 
         Ok(ocs_response.ocs.data)
     }
@@ -332,6 +348,6 @@ impl External for NextCloud {
     }
 
     fn additional_routes(&self) -> axum::Router {
-        routes::nextcloud_routes()
+        routes::nextcloud_routes(self.clone())
     }
 }

@@ -29,6 +29,9 @@ use windmill_api::{
     SCIM_TOKEN,
 };
 
+#[cfg(feature = "native_triggers")]
+use windmill_api::native_triggers::sync::sync_all_triggers;
+
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::low_disk_alerts;
 #[cfg(feature = "enterprise")]
@@ -1692,6 +1695,33 @@ pub async fn monitor_db(
         update_min_version(conn).await;
     };
 
+    let native_triggers_sync_f = async {
+        #[cfg(feature = "native_triggers")]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(20) {
+            if let Some(db) = conn.as_sql() {
+                match sync_all_triggers(db).await {
+                    Ok(result) => {
+                        tracing::debug!(
+                            "Native triggers sync completed: {} workspaces, {} deleted, {} errors",
+                            result.workspaces_processed,
+                            result.total_deleted,
+                            result.total_errors
+                        );
+                        if result.total_errors > 0 {
+                            tracing::warn!(
+                                "Native triggers sync encountered {} errors",
+                                result.total_errors
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Error during native triggers sync: {:#}", e);
+                    }
+                }
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -1707,6 +1737,7 @@ pub async fn monitor_db(
         cleanup_concurrency_counters_f,
         cleanup_concurrency_counters_empty_keys_f,
         cleanup_worker_group_stats_f,
+        native_triggers_sync_f,
     );
 }
 

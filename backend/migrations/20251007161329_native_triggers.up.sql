@@ -13,7 +13,6 @@ CREATE TABLE native_triggers (
     runnable_path VARCHAR(255) NOT NULL,
     runnable_kind RUNNABLE_KIND NOT NULL,
     workspace_id VARCHAR(50) NOT NULL,
-    resource_path VARCHAR(255) NOT NULL,
     summary TEXT,
     metadata JSONB NULL,
     edited_by VARCHAR(50) NOT NULL,

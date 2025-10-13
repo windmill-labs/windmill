@@ -1,18 +1,20 @@
 <script lang="ts">
 	import { NativeTriggerService } from '$lib/gen/services.gen'
-	import type { NativeServiceName, RunnableKind } from '$lib/gen/types.gen'
+	import type { EventType, NativeServiceName, RunnableKind } from '$lib/gen/types.gen'
 	import type { ExtendedNativeTrigger } from './utils'
 	import { validateCommonFields, getServiceConfig, getTemplateUrl } from './utils'
-	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
-	import { Button, Drawer } from '$lib/components/common'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { generateRandomString, sendUserToast } from '$lib/utils'
+	import { Button, Drawer, Url } from '$lib/components/common'
 	import { X, Save, Pipette } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import NextcloudTriggerForm from './services/nextcloud/NextcloudTriggerForm.svelte'
+	import CreateToken from '$lib/components/settings/CreateToken.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	interface Props {
 		service: NativeServiceName
@@ -51,10 +53,11 @@
 	let errors = $state<Record<string, string>>({})
 	let showCustomRawEditor = $state(false)
 	let customRawConfig = $state('')
-
+	let token = $state('')
+	let request_type: 'async' | 'sync' = $state('async')
+	let event_type: 'webhook' = $state('webhook')
 	let runnablePath = $state('')
 	let runnableKind = $state<RunnableKind>('script')
-	let resourcePath = $state('')
 	let summary = $state('')
 	let triggerId = $state<number | null>(null)
 
@@ -62,10 +65,11 @@
 		isNew = true
 		config = {}
 		externalData = null
+		token = ''
+		event_type = 'webhook'
 		errors = {}
 		runnablePath = ''
 		runnableKind = 'script'
-		resourcePath = ''
 		summary = ''
 		triggerId = null
 		showCustomRawEditor = false
@@ -81,7 +85,6 @@
 		errors = {}
 		runnablePath = trigger.runnable_path
 		runnableKind = trigger.runnable_kind === 'flow' ? 'flow' : 'script'
-		resourcePath = trigger.resource_path
 		summary = trigger.summary
 		triggerId = trigger.id
 		showCustomRawEditor = false
@@ -96,16 +99,19 @@
 				path: trigger.runnable_path,
 				id: trigger.id
 			})
-			
+
 			externalData = fullTrigger.external_data
-			
+
 			if (fullTrigger.external_data) {
 				customRawConfig = JSON.stringify(fullTrigger.external_data, null, 2)
 			}
 		} catch (err: any) {
 			const errorMessage = err.body || err.message || ''
-			
-			if (errorMessage.includes('no longer exists on external service') && errorMessage.includes('automatically deleted')) {
+
+			if (
+				errorMessage.includes('no longer exists on external service') &&
+				errorMessage.includes('automatically deleted')
+			) {
 				sendUserToast(
 					`Trigger was automatically deleted because it no longer exists on ${serviceConfig?.serviceDisplayName}. The editor will close.`,
 					true
@@ -125,39 +131,42 @@
 		isOpen = false
 	}
 
-	function validateForm(): boolean {
-		const commonErrors = validateCommonFields({
-			runnable_path: runnablePath,
-			resource_path: resourcePath
-		})
+	let validationErrors = $derived.by(() => {
+		if (!serviceFormRef) {
+			return {}
+		}
+
+		const commonErrors = validateCommonFields(
+			{
+				runnable_path: runnablePath,
+				token
+			},
+			event_type
+		)
 
 		let serviceErrors: Record<string, string> = {}
 		if (serviceFormRef?.validate) {
 			serviceErrors = serviceFormRef.validate()
 		}
 
-		errors = { ...commonErrors, ...serviceErrors }
-		return Object.keys(errors).length === 0
-	}
+		return { ...commonErrors, ...serviceErrors }
+	})
+
+	let isValid = $derived.by(() => Object.keys(validationErrors).length === 0)
 
 	async function save() {
-		if (!validateForm()) {
-			sendUserToast('Please fix validation errors', true)
-			return
-		}
-
 		loading = true
 		try {
+			let event_type: EventType = { request_type, token, type: 'webhook' }
 			const payload = {
 				external_id: '',
 				runnable_path: runnablePath,
 				runnable_kind: runnableKind,
-				resource_path: resourcePath,
 				summary: summary || undefined,
-				payload: config
+				payload: config,
+				event_type
 			}
 
-			// Debug: log the payload being sent
 			console.log('Sending payload:', JSON.stringify(payload, null, 2))
 
 			if (isNew) {
@@ -208,7 +217,7 @@
 					color="blue"
 					startIcon={{ icon: Save }}
 					on:click={save}
-					disabled={loading}
+					disabled={loading || !isValid}
 				>
 					{isNew ? 'Create' : 'Update'} Trigger
 				</Button>
@@ -229,6 +238,7 @@
 							<div class="flex-1">
 								<ScriptPicker
 									bind:scriptPath={runnablePath}
+									allowRefresh={true}
 									bind:itemKind={runnableKind}
 									kinds={['script']}
 									allowFlow={true}
@@ -236,6 +246,7 @@
 								/>
 							</div>
 							<Button
+								size="md"
 								href={templateUrl}
 								target="_blank"
 								startIcon={{ icon: Pipette }}
@@ -250,14 +261,6 @@
 					</Section>
 
 					<div>
-						<Label label="Resource Path" required />
-						<ResourcePicker bind:value={resourcePath} resourceType={serviceConfig?.resourceType} />
-						{#if errors.resource_path}
-							<div class="text-red-500 text-xs mt-1">{errors.resource_path}</div>
-						{/if}
-					</div>
-
-					<div>
 						<Label label="Summary" />
 						<input
 							bind:value={summary}
@@ -265,6 +268,52 @@
 							class="windmill-input"
 						/>
 					</div>
+					<ToggleButtonGroup bind:selected={event_type}>
+						{#snippet children({ item })}
+							<ToggleButton value="webhook" label="Webhook" {item} />
+						{/snippet}
+					</ToggleButtonGroup>
+
+					{#if event_type === 'webhook'}
+						{#if isNew}
+							<p class="text-xs"
+								>Generate a unique token that will be used to securely authenticate your webhook <Required
+									required
+								/></p
+							>
+						{:else}
+							<p class="text-xs"
+								>Re-Generate a unique token that will be used to securely authenticate your webhook <Required
+									required
+								/></p
+							>
+						{/if}
+						<div class="flex flex-col gap-2">
+							<CreateToken
+								onTokenCreated={(newToken) => {
+									token = newToken
+								}}
+								newTokenLabel={`native-triggers-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+								scopes={[
+									runnableKind === 'script'
+										? `jobs:run:scripts:${runnablePath}`
+										: `jobs:run:flows:${runnablePath}`
+								]}
+								displayCreateToken={false}
+							/>
+
+							{#if token.trim().length > 0}
+								<Url text={token} label="Generated Token" />
+							{/if}
+
+							<ToggleButtonGroup bind:selected={request_type}>
+								{#snippet children({ item })}
+									<ToggleButton value="async" label="Async" {item} />
+									<ToggleButton value="sync" label="Sync" {item} />
+								{/snippet}
+							</ToggleButtonGroup>
+						</div>
+					{/if}
 				</div>
 
 				{#if loadingConfig}
@@ -273,7 +322,9 @@
 							{serviceConfig?.serviceDisplayName} Configuration
 						</h3>
 						<div class="flex items-center gap-2 text-tertiary">
-							<div class="animate-spin h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full"></div>
+							<div
+								class="animate-spin h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full"
+							></div>
 							Loading configuration from {serviceConfig?.serviceDisplayName}...
 						</div>
 					</div>
@@ -284,26 +335,33 @@
 						bind:errors
 						bind:showCustomRawEditor
 						bind:customRawConfig
-						bind:resourcePath
 						{externalData}
 						disabled={loading || loadingConfig}
+						path={runnablePath}
+						isFlow={runnableKind === 'flow'}
+						token=""
+						triggerTokens={undefined}
+						scopes={[]}
 					/>
-				{:else if resourcePath}
-					<div class="rounded-md p-4 space-y-4">
-						<h3 class="text-md font-medium text-primary">
-							{serviceConfig?.serviceDisplayName} Configuration
-						</h3>
-						<div class="text-red-500 text-sm">
-							Failed to load service configuration component for {service}.
-						</div>
-					</div>
 				{:else}
 					<div class="rounded-md p-4 space-y-4">
 						<h3 class="text-md font-medium text-primary">
 							{serviceConfig?.serviceDisplayName} Configuration
 						</h3>
-						<div class="text-tertiary">
-							Please select a resource to load configuration options.
+						<div class="text-red-500 text-sm space-y-2">
+							<div>Failed to load service configuration component for {service}.</div>
+							<div class="text-xs text-tertiary">
+								Ensure your workspace has a connected {serviceConfig?.serviceDisplayName} integration.
+							</div>
+							<Button
+								size="xs"
+								color="light"
+								variant="border"
+								href="/workspace_settings?tab=integrations"
+								target="_blank"
+							>
+								Manage Workspace Integrations
+							</Button>
 						</div>
 					</div>
 				{/if}

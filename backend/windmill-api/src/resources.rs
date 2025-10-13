@@ -1340,7 +1340,6 @@ async fn update_resource_type(
     feature = "http_trigger",
     feature = "postgres_trigger",
     feature = "mqtt_trigger",
-    feature = "nextcloud_trigger",
     all(
         feature = "enterprise",
         any(

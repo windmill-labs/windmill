@@ -1760,6 +1760,8 @@ pub struct RunJobQuery {
     pub skip_preprocessor: Option<bool>,
     pub poll_delay_ms: Option<u64>,
     pub memory_id: Option<Uuid>,
+    pub internal_id: Option<String>,
+    pub service_name: Option<String>
 }
 
 impl RunJobQuery {

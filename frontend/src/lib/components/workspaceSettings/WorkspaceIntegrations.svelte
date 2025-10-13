@@ -1,0 +1,339 @@
+<script lang="ts">
+	import { workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/utils'
+	import { Button, Alert } from '$lib/components/common'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
+	import Description from '$lib/components/Description.svelte'
+	import { Plus, Check, X, ExternalLink, Cog } from 'lucide-svelte'
+	import { NextcloudIcon } from '$lib/components/icons'
+	import { WorkspaceIntegrationService, type NativeServiceName } from '$lib/gen'
+	import OAuthClientConfig from './OAuthClientConfig.svelte'
+	import { page } from '$app/stores'
+
+	interface WorkspaceIntegration {
+		service_name: string
+		oauth_data: {
+			client_id: string
+			client_secret: string
+			base_url: string
+			redirect_uri: string
+		} | null
+	}
+
+	interface ServiceConfig {
+		name: string
+		displayName: string
+		description: string
+		icon: any
+		docsUrl?: string
+	}
+
+	const supportedServices: Record<string, ServiceConfig> = {
+		nextcloud: {
+			name: 'nextcloud',
+			displayName: 'Nextcloud',
+			description: 'Connect to Nextcloud for file operations and webhook triggers',
+			icon: NextcloudIcon,
+			docsUrl: 'https://www.windmill.dev/docs/integrations/nextcloud'
+		}
+	}
+
+	let integrations = $state<WorkspaceIntegration[]>([])
+	let loading = $state(false)
+	let connecting = $state<string | null>(null)
+	let showingConfig = $state<string | null>(null)
+	let processingCallback = $state(false)
+
+	async function loadIntegrations() {
+		if (!$workspaceStore) return
+
+		loading = true
+		try {
+			const response = await WorkspaceIntegrationService.listNativeTriggerServices({
+				workspace: $workspaceStore
+			})
+			integrations = response.map((item) => ({
+				service_name: item.service_name,
+				oauth_data: item.oauth_data || null
+			}))
+		} catch (err: any) {
+			console.error('Failed to load workspace integrations:', err)
+			sendUserToast(`Failed to load integrations: ${err.message}`, true)
+		} finally {
+			loading = false
+		}
+	}
+
+	async function deleteIntegration(serviceName: string) {
+		if (!$workspaceStore) return
+
+		try {
+			await WorkspaceIntegrationService.deleteNativeTriggerService({
+				workspace: $workspaceStore,
+				serviceName: serviceName as any
+			})
+			sendUserToast(`${supportedServices[serviceName]?.displayName} disconnected successfully`)
+			loadIntegrations()
+		} catch (err: any) {
+			sendUserToast(
+				`Failed to disconnect ${supportedServices[serviceName]?.displayName}: ${err.message}`,
+				true
+			)
+		}
+	}
+
+	async function connectService(serviceName: string, redirectUri: string) {
+		if (!$workspaceStore) return
+
+		connecting = serviceName
+		try {
+			const auth_url = await WorkspaceIntegrationService.generateNativeTriggerServiceConnectUrl({
+				workspace: $workspaceStore,
+				serviceName: serviceName as any,
+				requestBody: { redirect_uri: redirectUri }
+			})
+
+			if (auth_url) {
+				window.location.href = auth_url
+			}
+		} catch (err: any) {
+			sendUserToast(
+				`Failed to connect ${supportedServices[serviceName]?.displayName}: ${err.message}`,
+				true
+			)
+			connecting = null
+		}
+	}
+
+	async function createOrUpdateIntegration(serviceName: string, oauthData: any) {
+		if (!$workspaceStore) return
+
+		try {
+			await WorkspaceIntegrationService.createNativeTriggerService({
+				workspace: $workspaceStore,
+				serviceName: serviceName as any,
+				requestBody: oauthData
+			})
+			sendUserToast(
+				`${supportedServices[serviceName]?.displayName} configuration saved successfully`
+			)
+			loadIntegrations()
+		} catch (err: any) {
+			sendUserToast(
+				`Failed to configure ${supportedServices[serviceName]?.displayName}: ${err.message}`,
+				true
+			)
+		}
+	}
+
+	function isConfigured(integration: WorkspaceIntegration): boolean {
+		return (
+			integration.oauth_data !== null &&
+			!!integration.oauth_data.client_id &&
+			!!integration.oauth_data.client_secret &&
+			!!integration.oauth_data.base_url
+		)
+	}
+
+	function getIntegrationByService(serviceName: string): WorkspaceIntegration | null {
+		return integrations.find((integration) => integration.service_name === serviceName) || null
+	}
+
+	async function handleOAuthCallback(
+		workspace: string,
+		serviceName: NativeServiceName,
+		code: string,
+		state: string
+	) {
+		console.log({ workspace, serviceName, code, state })
+		processingCallback = true
+		try {
+			if (serviceName) {
+				await WorkspaceIntegrationService.nativeTriggerServiceCallback({
+					serviceName,
+					workspace,
+					code,
+					state,
+					requestBody: { redirect_uri: redirectUri }
+				})
+				sendUserToast(`${supportedServices[serviceName]?.displayName} connected successfully!`)
+				await loadIntegrations()
+			} else {
+				sendUserToast(`Could not handle callback missing service query args`, true)
+			}
+		} catch (err: any) {
+			sendUserToast(`Failed to complete OAuth connection: ${err.message}`, true)
+		} finally {
+			const url = new URL(window.location.href)
+			url.searchParams.delete('code')
+			url.searchParams.delete('state')
+			url.searchParams.delete('service')
+			url.searchParams.delete('workspace')
+			window.history.replaceState({}, '', url.toString())
+			processingCallback = false
+		}
+	}
+
+	$effect(() => {
+		if (
+			$page.url.searchParams.has('code') &&
+			$page.url.searchParams.has('state') &&
+			$page.url.searchParams.has('workspace') &&
+			$page.url.searchParams.has('service')
+		) {
+			const service = $page.url.searchParams.get('service')! as NativeServiceName
+			const workspace = $page.url.searchParams.get('workspace')!
+			const code = $page.url.searchParams.get('code')!
+			const state = $page.url.searchParams.get('state')!
+			handleOAuthCallback(workspace, service, code, state)
+		}
+	})
+
+	let redirectUri = $state('')
+
+	$effect(() => {
+		if ($workspaceStore) {
+			loadIntegrations()
+		}
+	})
+</script>
+
+<div class="flex flex-col gap-6 my-8">
+	<div class="flex flex-col gap-2">
+		<div class="text-primary text-lg font-semibold">Workspace Integrations</div>
+		<Description>
+			Connect your workspace to external services for native triggers and enhanced functionality.
+			These connections are shared across all workspace members and are required for native triggers
+			to work.
+		</Description>
+		<Description link="https://www.windmill.dev/docs/integrations/native-triggers">
+			Learn more about native triggers and workspace integrations.
+		</Description>
+	</div>
+
+	{#if processingCallback}
+		<Alert type="info" title="Processing OAuth Connection">
+			<p class="text-sm"> Completing your OAuth connection... Please wait. </p>
+		</Alert>
+	{:else if loading}
+		<div class="space-y-4">
+			{#each new Array(3) as _}
+				<Skeleton layout={[[6], 0.4]} />
+			{/each}
+		</div>
+	{:else}
+		<div class="space-y-4">
+			{#each Object.entries(supportedServices) as [serviceName, config]}
+				{@const integration = getIntegrationByService(serviceName)}
+				{@const isConnecting = connecting === serviceName}
+				{@const isOAuthConfigured = integration && isConfigured(integration)}
+				{@const isShowingConfig = showingConfig === serviceName}
+
+				<div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-surface">
+					<div class="flex items-center justify-between">
+						<div class="flex items-center gap-3">
+							<div class="w-8 h-8 flex items-center justify-center">
+								<config.icon class="w-6 h-6" />
+							</div>
+							<div class="flex flex-col">
+								<div class="text-primary font-medium">{config.displayName}</div>
+								<div class="text-tertiary text-sm">{config.description}</div>
+							</div>
+						</div>
+
+						<div class="flex items-center gap-2">
+							{#if isOAuthConfigured}
+								<div class="flex items-center gap-1 text-green-600 text-sm">
+									<Check size={16} />
+									Configured
+								</div>
+								<Button
+									size="xs"
+									color="blue"
+									onclick={() => connectService(serviceName, redirectUri)}
+									disabled={isConnecting}
+									startIcon={{ icon: Plus }}
+								>
+									{isConnecting ? 'Connecting...' : 'Connect'}
+								</Button>
+								<Button
+									size="xs"
+									color="red"
+									variant="border"
+									onclick={() => deleteIntegration(serviceName)}
+									startIcon={{ icon: X }}
+								>
+									Delete
+								</Button>
+							{:else}
+								<div class="flex items-center gap-1 text-gray-500 text-sm">
+									<X size={16} />
+									Not Configured
+								</div>
+								<Button
+									size="xs"
+									color="blue"
+									variant="border"
+									onclick={() =>
+										(showingConfig = showingConfig === serviceName ? null : serviceName)}
+									startIcon={{ icon: Cog }}
+								>
+									Configure OAuth
+								</Button>
+							{/if}
+
+							{#if config.docsUrl}
+								<Button
+									size="xs"
+									color="light"
+									variant="border"
+									href={config.docsUrl}
+									target="_blank"
+									startIcon={{ icon: ExternalLink }}
+								>
+									Docs
+								</Button>
+							{/if}
+						</div>
+					</div>
+
+					{#if isShowingConfig}
+						<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+							<OAuthClientConfig
+								{serviceName}
+								bind:redirectUri
+								serviceDisplayName={config.displayName}
+								existingConfig={integration?.oauth_data}
+								onConfigSaved={async (oauthData) => {
+									await createOrUpdateIntegration(serviceName, oauthData)
+									showingConfig = null
+								}}
+							/>
+						</div>
+					{/if}
+				</div>
+			{/each}
+		</div>
+
+		<Alert type="info" title="Native Trigger Requirements">
+			<div class="space-y-2">
+				<p>To use native triggers, you need:</p>
+				<ol class="list-decimal list-inside space-y-1 text-sm">
+					<li>Configure OAuth client credentials for the desired service (workspace level)</li>
+					<li>Connect your workspace to the external service using the configured OAuth client</li>
+					<li>Appropriate permissions to create and manage triggers</li>
+				</ol>
+				<p class="text-xs text-tertiary mt-2">
+					OAuth client configuration is required before you can connect to external services. This
+					ensures secure authentication between your workspace and the external service.
+				</p>
+			</div>
+		</Alert>
+
+		{#if integrations.length === 0}
+			<Alert type="warning" title="No Integrations Connected">
+				Connect to external services above to enable native triggers for your workspace.
+			</Alert>
+		{/if}
+	{/if}
+</div>

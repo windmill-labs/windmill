@@ -55,7 +55,11 @@
 	import NatsIcon from '../icons/NatsIcon.svelte'
 	import MqttIcon from '../icons/MqttIcon.svelte'
 	import AwsIcon from '../icons/AwsIcon.svelte'
-	import { getAvailableNativeTriggerServices, getServiceConfig, getServiceIcon } from '../triggers/native/utils'
+	import {
+		getAvailableNativeTriggerServices,
+		getServiceConfig,
+		getServiceIcon
+	} from '../triggers/native/utils'
 	import type { NativeServiceName } from '$lib/gen/types.gen'
 	import {
 		Menubar,
@@ -75,7 +79,10 @@
 	}
 
 	async function deleteFork() {
-		await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '', onlyDeleteForks: true })
+		await WorkspaceService.deleteWorkspace({
+			workspace: $workspaceStore ?? '',
+			onlyDeleteForks: true
+		})
 		sendUserToast('You deleted the workspace')
 		clearStores()
 		goto('/user/workspaces')
@@ -84,11 +91,14 @@
 	let hasNewChangelogs = $state(false)
 	let recentChangelogs: Changelog[] = $state([])
 	let lastOpened = localStorage.getItem('changelogsLastOpened')
-	let availableNativeServices = $state<Array<{ service: NativeServiceName; icon: any; config: any }>>([])
+	let availableNativeServices = $state<
+		Array<{ service: NativeServiceName; icon: any; config: any }>
+	>([])
 
 	async function loadAvailableNativeTriggers() {
 		try {
-			const services = await getAvailableNativeTriggerServices()
+			const services = await getAvailableNativeTriggerServices($workspaceStore!)
+			console.log({ services })
 			const serviceData = await Promise.all(
 				services.map(async (service) => ({
 					service,
@@ -310,7 +320,6 @@
 		}
 	])
 
-	// Add available native trigger services to the trigger links
 	let nativeTriggerLinks = $derived(
 		availableNativeServices.map(({ service, icon, config }) => ({
 			label: config?.serviceDisplayName || service,

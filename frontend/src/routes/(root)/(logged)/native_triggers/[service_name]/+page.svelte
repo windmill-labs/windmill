@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
 	import { NativeTriggerService } from '$lib/gen'
 	import type { NativeServiceName, NativeTrigger } from '$lib/gen'
 	import type { ExtendedNativeTrigger } from '$lib/components/triggers/native/utils'
@@ -12,11 +11,10 @@
 	import NativeTriggerEditor from '$lib/components/triggers/native/NativeTriggerEditor.svelte'
 	import { sendUserToast, removeTriggerKindIfUnused } from '$lib/utils'
 	import { userStore, workspaceStore, userWorkspaces, usedTriggerKinds } from '$lib/stores'
-	import { onMount } from 'svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Button, Alert } from '$lib/components/common'
-	import { Plus, AlertTriangle, RefreshCw } from 'lucide-svelte'
+	import { Loader2, Plus } from 'lucide-svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -27,7 +25,7 @@
 
 	let triggers: NativeTrigger[] = $state([])
 	let loading = $state(true)
-	let serviceAvailable = $state(false)
+	let serviceAvailable: boolean | undefined = $state(undefined)
 	let serviceSupported = $state(true)
 	let editor: NativeTriggerEditor
 	let shareModal: ShareModal | undefined = $state()
@@ -42,7 +40,7 @@
 		}
 
 		if ($workspaceStore) {
-			serviceAvailable = await isServiceAvailable(serviceName)
+			serviceAvailable = await isServiceAvailable(serviceName, $workspaceStore)
 		}
 	}
 
@@ -73,33 +71,39 @@
 			return
 		}
 
+		if (!serviceAvailable) {
+			sendUserToast('Cannot sync triggers: workspace integration not connected', true)
+			return
+		}
+
 		try {
 			await NativeTriggerService.syncNativeTriggers({
 				workspace: $workspaceStore!,
 				serviceName: serviceName
 			})
 
-			// Sync completed successfully - reload triggers to show changes
 			sendUserToast(`Successfully synced ${serviceConfig.serviceDisplayName} triggers`)
 			loadTriggers()
 		} catch (err: any) {
-			sendUserToast(`Failed to sync triggers: ${err.body || err.message}`, true)
+			const errorMessage = err.body || err.message
+			if (
+				errorMessage.includes('workspace integration') ||
+				errorMessage.includes('not connected')
+			) {
+				sendUserToast(
+					`Cannot sync: ${serviceConfig.serviceDisplayName} workspace integration not connected. Please connect it in workspace settings.`,
+					true
+				)
+			} else {
+				sendUserToast(`Failed to sync triggers: ${errorMessage}`, true)
+			}
 		}
 	}
 
-	// Load data when workspace is available
-	run(() => {
-		if ($workspaceStore && $userStore) {
-			checkServiceAvailability().then(() => {
-				if (serviceAvailable) {
-					loadTriggers()
-				}
-			})
+	checkServiceAvailability().then(() => {
+		if (serviceAvailable) {
+			loadTriggers()
 		}
-	})
-
-	onMount(() => {
-		checkServiceAvailability()
 	})
 </script>
 
@@ -121,7 +125,6 @@
 {:else if !serviceSupported}
 	<CenteredPage>
 		<div class="max-w-md mx-auto text-center py-12">
-			<AlertTriangle class="mx-auto h-12 w-12 text-yellow-500 mb-4" />
 			<h2 class="text-lg font-semibold text-primary mb-2"> Service Not Supported </h2>
 			<p class="text-secondary mb-4">
 				The service "{serviceName}" is not supported for native triggers.
@@ -137,45 +140,55 @@
 				serviceName}. These are more efficient than regular triggers as they're handled directly by the service provider."
 		>
 			{#if serviceAvailable}
-				<div class="flex gap-2">
-					{#if serviceConfig?.supportsSync}
-						<Button size="md" color="light" startIcon={{ icon: RefreshCw }} on:click={syncTriggers}>
-							Sync with {serviceConfig.serviceDisplayName}
-						</Button>
-					{/if}
-					<Button
-						size="md"
-						color="blue"
-						startIcon={{ icon: Plus }}
-						on:click={() => editor?.openNew()}
-					>
-						New {serviceConfig?.serviceDisplayName || serviceName} Trigger
-					</Button>
-				</div>
+				<Button
+					size="md"
+					color="blue"
+					startIcon={{ icon: Plus }}
+					on:click={() => editor?.openNew()}
+				>
+					New {serviceConfig?.serviceDisplayName || serviceName} Trigger
+				</Button>
 			{/if}
 		</PageHeader>
 
-		{#if !serviceAvailable}
+		{#if serviceAvailable === false}
 			<Alert
 				title="{serviceConfig?.serviceDisplayName || serviceName} Integration Not Available"
 				type="warning"
 			>
 				<div class="flex items-start gap-3">
-					<AlertTriangle size={20} class="text-yellow-600 mt-0.5 shrink-0" />
 					<div>
 						<p class="mb-2">
-							{serviceConfig?.serviceDisplayName || serviceName} triggers are not available because the
-							{serviceConfig?.serviceDisplayName || serviceName} OAuth2 integration is not configured
-							in the instance settings.
+							{serviceConfig?.serviceDisplayName || serviceName} triggers are not available. This could
+							be because:
 						</p>
-						<p class="text-sm text-tertiary">
-							Please contact your administrator to configure {serviceConfig?.serviceDisplayName ||
-								serviceName} OAuth2 in the instance settings to enable this feature.
-						</p>
+						<ul class="list-disc list-inside space-y-1 text-sm mb-3">
+							<li
+								>The workspace doesn't have a {serviceConfig?.serviceDisplayName || serviceName} integration
+								connected</li
+							>
+							<li
+								>The {serviceConfig?.serviceDisplayName || serviceName} OAuth2 integration is not configured
+								in the instance settings</li
+							>
+						</ul>
+						<div class="flex gap-2">
+							<Button size="xs" color="blue" href="/workspace_settings?tab=integrations">
+								Manage Workspace Integrations
+							</Button>
+							<Button
+								size="xs"
+								color="light"
+								variant="border"
+								onclick={() => checkServiceAvailability()}
+							>
+								Retry Check
+							</Button>
+						</div>
 					</div>
 				</div>
 			</Alert>
-		{:else}
+		{:else if serviceAvailable}
 			<div class="w-full h-full flex flex-col">
 				<div class="w-full pb-4 pt-6">
 					<input
@@ -218,6 +231,13 @@
 				{:else}
 					<NoItemFound />
 				{/if}
+			</div>
+		{:else}
+			<div class="flex flex-col items-center justify-center h-64 gap-3">
+				<Loader2 class="animate-spin text-blue-500" size="32" />
+				<div class="text-secondary"
+					>Checking {serviceConfig?.serviceDisplayName || serviceName} availability...</div
+				>
 			</div>
 		{/if}
 	</CenteredPage>

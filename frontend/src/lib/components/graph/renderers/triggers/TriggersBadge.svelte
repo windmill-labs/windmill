@@ -4,7 +4,7 @@
 	import { Route } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { type TriggerContext } from '$lib/components/triggers'
-	import { enterpriseLicense } from '$lib/stores'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon, GoogleCloudIcon } from '$lib/components/icons'
 	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
 	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
@@ -49,7 +49,7 @@
 	// Load available native trigger services
 	async function loadAvailableNativeTriggers() {
 		try {
-			const services = await getAvailableNativeTriggerServices()
+			const services = await getAvailableNativeTriggerServices($workspaceStore!)
 			const serviceData = await Promise.all(
 				services.map(async (service) => ({
 					service,

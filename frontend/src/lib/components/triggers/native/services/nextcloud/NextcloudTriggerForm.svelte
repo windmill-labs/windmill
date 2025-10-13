@@ -11,22 +11,28 @@
 
 	interface Props {
 		config: Record<string, any>
-		resourcePath: string
 		errors: Record<string, string>
 		disabled?: boolean
 		showCustomRawEditor?: boolean
 		customRawConfig?: string
 		externalData?: any
+		path?: string
+		isFlow?: boolean
+		hash?: string
+		token?: string
+		triggerTokens?: any
+		scopes?: string[]
 	}
 
-	let { 
-		config = $bindable(), 
-		resourcePath = $bindable(), 
-		errors = $bindable(), 
+	let {
+		config = $bindable(),
+		errors = $bindable(),
 		disabled = false,
 		showCustomRawEditor = $bindable(false),
 		customRawConfig = $bindable(''),
-		externalData = undefined
+		externalData = undefined,
+		token = $bindable(''),
+		triggerTokens = $bindable(undefined)
 	}: Props = $props()
 
 	let availableEvents = $state<NextCloudEventType[]>([])
@@ -68,7 +74,7 @@
 	}
 
 	async function loadAvailableEvents() {
-		if (!resourcePath || !$workspaceStore) {
+		if (!$workspaceStore) {
 			availableEvents = []
 			return
 		}
@@ -76,8 +82,7 @@
 		loadingEvents = true
 		try {
 			const events = await NativeTriggerService.listNextCloudEvents({
-				workspace: $workspaceStore,
-				resourcePath: resourcePath
+				workspace: $workspaceStore!
 			})
 			availableEvents = events
 			serviceSchema = getNextcloudSchema()
@@ -92,7 +97,7 @@
 
 	export function validate(): Record<string, string> {
 		let serviceErrors: Record<string, string> = {}
-		
+
 		if (serviceSchema && serviceSchema.required) {
 			for (const requiredField of serviceSchema.required) {
 				if (!config[requiredField]) {
@@ -103,7 +108,8 @@
 		}
 
 		if (!config.event && availableEvents.length === 0 && !loadingEvents) {
-			serviceErrors.event = 'Unable to load available events. Please check your resource configuration.'
+			serviceErrors.event =
+				'Unable to load available events. Please check your resource configuration.'
 		}
 
 		return serviceErrors
@@ -139,7 +145,7 @@
 	})
 
 	$effect(() => {
-		if (resourcePath && $workspaceStore) {
+		if ($workspaceStore) {
 			loadAvailableEvents()
 		}
 	})
@@ -178,21 +184,33 @@
 				fixedOverflowWidgets={false}
 				class="h-64"
 			/>
-			<Button size="xs" color="blue" on:click={parseCustomRawConfig} {disabled}>
-				Parse JSON
-			</Button>
+			<Button size="xs" color="blue" on:click={parseCustomRawConfig} {disabled}>Parse JSON</Button>
 		</div>
 	{:else if loadingEvents}
 		<div class="flex items-center gap-2 text-tertiary">
-			<div class="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+			<div class="animate-spin w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full"
+			></div>
 			Loading available events...
 		</div>
-	{:else if availableEvents.length === 0 && resourcePath}
+	{:else if availableEvents.length === 0}
 		<div class="text-red-500 text-sm space-y-2">
-			<div>No events available. Please check your NextCloud resource configuration.</div>
-			<Button size="xs" color="blue" on:click={loadAvailableEvents} {disabled}>
-				Retry Loading Events
-			</Button>
+			<div
+				>No events available. Please ensure your workspace has a connected Nextcloud integration.</div
+			>
+			<div class="flex gap-2">
+				<Button size="xs" color="blue" on:click={loadAvailableEvents} {disabled}>
+					Retry Loading Events
+				</Button>
+				<Button
+					size="xs"
+					color="light"
+					variant="border"
+					href="/workspace_settings?tab=integrations"
+					target="_blank"
+				>
+					Manage Integrations
+				</Button>
+			</div>
 		</div>
 	{:else if serviceSchema}
 		<SchemaForm
@@ -205,7 +223,8 @@
 		/>
 	{:else}
 		<div class="text-tertiary">
-			Please select a resource to load available configuration options.
+			Please ensure NextCloud workspace integration is connected to load available configuration
+			options.
 		</div>
 	{/if}
 </div>

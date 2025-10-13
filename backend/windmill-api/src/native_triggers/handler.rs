@@ -1,26 +1,20 @@
-use crate::resources::try_get_resource_from_db_as;
 use crate::{
     db::ApiAuthed,
     native_triggers::{
-        delete_native_trigger, list_native_triggers, store_native_trigger,
-        sync::sync_workspace_triggers, update_native_trigger, External, NativeTrigger,
-        NativeTriggerData, ServiceName,
+        delete_native_trigger, get_workspace_integration, list_native_triggers,
+        store_native_trigger, update_native_trigger, External, NativeTrigger, NativeTriggerData,
+        ServiceName,
     },
-    triggers::trigger_helpers::trigger_runnable,
-    users::fetch_api_authed,
     utils::check_scopes,
 };
 use axum::{
-    body::Body,
     extract::{Path, Query},
-    response::{IntoResponse, Response},
     routing::{delete, get, post},
     Extension, Json, Router,
 };
-use http::{HeaderMap, StatusCode};
 use serde::{Deserialize, Serialize};
+use sqlx::Postgres;
 use std::sync::Arc;
-use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
@@ -56,33 +50,28 @@ async fn create_native_trigger<T: External>(
     Path(workspace_id): Path<String>,
     Json(data): Json<NativeTriggerData<T::Payload>>,
 ) -> JsonResult<CreateTriggerResponse> {
+    let _ = handler.validate_data_config(&data);
+
     check_scopes(&authed, || {
         format!("native_triggers:write:{}", &data.runnable_path)
     })?;
 
-    let resource = try_get_resource_from_db_as::<T::Resource>(
-        &authed,
-        Some(user_db.clone()),
-        &db,
-        &data.resource_path,
-        &workspace_id,
-    )
-    .await?;
     let mut tx = user_db.begin(&authed).await?;
+    let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
 
-    let (payload, trigger_metadata) = data.into_payload_and_metadata();
+    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
+        Error::InternalErr(format!(
+            "Failed to parse {} OAuth data: {}",
+            T::DISPLAY_NAME,
+            e
+        ))
+    })?;
 
-    let trigger_id = store_native_trigger(
-        &mut *tx,
-        &authed,
-        &workspace_id,
-        service_name,
-        trigger_metadata,
-    )
-    .await?;
+    let trigger_id =
+        store_native_trigger(&mut *tx, &authed, &workspace_id, service_name, &data).await?;
 
     let resp = handler
-        .create(&workspace_id, trigger_id, &resource, &payload)
+        .create(&workspace_id, trigger_id, &oauth_data, &data, &db, &mut tx)
         .await?;
 
     let (external_id, _) = handler.external_id_and_metadata_from_response(&resp);
@@ -147,42 +136,39 @@ async fn update_native_trigger_handler<T: External>(
     Path((workspace_id, id)): Path<(String, i64)>,
     Json(data): Json<NativeTriggerData<T::Payload>>,
 ) -> Result<String> {
+    let _ = handler.validate_data_config(&data);
+
     check_scopes(&authed, || {
         format!("native_triggers:write:{}", &data.runnable_path)
     })?;
 
-    let existing = get_native_trigger(&db, &workspace_id, id, service_name).await?;
+    let mut tx = user_db.begin(&authed).await?;
 
-    let resource = try_get_resource_from_db_as::<T::Resource>(
-        &authed,
-        Some(user_db.clone()),
-        &db,
-        &existing.resource_path,
-        &workspace_id,
-    )
-    .await?;
+    let existing = get_native_trigger(&mut *tx, &workspace_id, id, service_name).await?;
+
+    let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
+
+    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
+        Error::InternalErr(format!(
+            "Failed to parse {} OAuth data: {}",
+            T::DISPLAY_NAME,
+            e
+        ))
+    })?;
 
     handler
         .update(
             &workspace_id,
             id,
-            &resource,
+            &oauth_data,
             &existing.external_id,
-            &data.payload,
+            &data,
+            &db,
+            &mut tx,
         )
         .await?;
 
-    let mut tx = user_db.begin(&authed).await?;
-
-    update_native_trigger(
-        &mut *tx,
-        &authed,
-        &workspace_id,
-        id,
-        service_name,
-        data.into(),
-    )
-    .await?;
+    update_native_trigger(&mut *tx, &authed, &workspace_id, id, service_name, &data).await?;
 
     audit_log(
         &mut *tx,
@@ -229,18 +215,29 @@ async fn get_native_trigger_handler<T: External>(
         format!("native_triggers:read:{}", runnable_path)
     })?;
 
-    let windmill_trigger = get_native_trigger(&db, &workspace_id, id, service_name).await?;
+    let mut tx = user_db.begin(&authed).await?;
 
-    let resource = try_get_resource_from_db_as::<T::Resource>(
-        &authed,
-        Some(user_db.clone()),
-        &db,
-        &windmill_trigger.resource_path,
-        &workspace_id,
-    )
-    .await?;
+    let windmill_trigger = get_native_trigger(&mut *tx, &workspace_id, id, service_name).await?;
 
-    let native_trigger = handler.get(&resource, &windmill_trigger.external_id).await;
+    let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
+
+    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
+        Error::InternalErr(format!(
+            "Failed to parse {} OAuth data: {}",
+            T::DISPLAY_NAME,
+            e
+        ))
+    })?;
+
+    let native_trigger = handler
+        .get(
+            &workspace_id,
+            &oauth_data,
+            &windmill_trigger.external_id,
+            &db,
+            &mut tx,
+        )
+        .await;
     let native_trigger_config = match native_trigger {
         Ok(native_cfg) => native_cfg,
         Err(Error::NotFound(_)) => {
@@ -248,9 +245,6 @@ async fn get_native_trigger_handler<T: External>(
             "Native trigger no longer exists on external service {}, auto-deleting from database",
             service_name
         );
-
-            let mut tx = user_db.begin(&authed).await?;
-
             let deleted = delete_native_trigger(&mut *tx, &workspace_id, id, service_name).await?;
 
             if deleted {
@@ -265,8 +259,6 @@ async fn get_native_trigger_handler<T: External>(
                 None,
             )
             .await?;
-
-                tx.commit().await?;
 
                 tracing::info!(
                     "Auto-deleted native trigger {} from database (external_id: {})",
@@ -312,20 +304,29 @@ async fn delete_native_trigger_handler<T: External>(
         format!("native_triggers:write:{}", runnable_path)
     })?;
 
-    let existing = get_native_trigger(&db, &workspace_id, id, service_name).await?;
-
-    let resource = try_get_resource_from_db_as::<T::Resource>(
-        &authed,
-        Some(user_db.clone()),
-        &db,
-        &existing.resource_path,
-        &workspace_id,
-    )
-    .await?;
-
-    handler.delete(&resource, &existing.external_id).await?;
-
     let mut tx = user_db.begin(&authed).await?;
+
+    let existing = get_native_trigger(&mut *tx, &workspace_id, id, service_name).await?;
+
+    let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
+
+    let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
+        Error::InternalErr(format!(
+            "Failed to parse {} OAuth data: {}",
+            T::DISPLAY_NAME,
+            e
+        ))
+    })?;
+
+    handler
+        .delete(
+            &workspace_id,
+            &oauth_data,
+            &existing.external_id,
+            &db,
+            &mut tx,
+        )
+        .await?;
 
     let deleted = delete_native_trigger(&mut *tx, &workspace_id, id, service_name).await?;
 
@@ -395,129 +396,19 @@ async fn list_native_triggers_handler<T: External>(
 ) -> JsonResult<Vec<NativeTrigger>> {
     let mut tx = user_db.begin(&authed).await?;
     let triggers = list_native_triggers(
-        &mut tx,
+        &mut *tx,
         &workspace_id,
         service_name,
         query.page,
         query.per_page,
     )
     .await?;
-
+    tx.commit().await?;
     Ok(Json(triggers))
 }
 
-async fn handle_webhook_native_trigger_handler<T: External>(
-    Extension(handler): Extension<Arc<T>>,
-    Extension(service_name): Extension<ServiceName>,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path((workspace_id, internal_id)): Path<(String, i64)>,
-    header: HeaderMap,
-    body: Body,
-) -> Result<Response> {
-    let body_bytes = axum::body::to_bytes(body, usize::MAX)
-        .await
-        .map_err(|e| Error::InternalErr(format!("Failed to read body: {}", e)))?;
-
-    let body_str = String::from_utf8(body_bytes.to_vec())
-        .map_err(|e| Error::BadRequest(format!("Invalid UTF-8 in body: {}", e)))?;
-
-    tracing::info!(
-        "Received {} webhook for workspace {} and internal_id {}",
-        service_name,
-        workspace_id,
-        internal_id
-    );
-
-    let trigger = get_native_trigger(&db, &workspace_id, internal_id, service_name).await?;
-
-    let headers_map: std::collections::HashMap<String, String> = header
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-        .collect();
-
-    let is_flow = trigger.runnable_kind == RunnableKind::Flow;
-
-
-    let job_args = handler
-        .prepare_webhook(
-            &db,
-            &workspace_id,
-            headers_map,
-            body_str,
-            &trigger.runnable_path,
-            is_flow,
-        )
-        .await?;
-
-    let authed = fetch_api_authed(
-        trigger.edited_by.clone(),
-        trigger.email.clone(),
-        &trigger.workspace_id,
-        &db,
-        Some(format!("native-trigger-{}", internal_id)),
-    )
-    .await?;
-
-    let response = trigger_runnable(
-        &db,
-        Some(user_db),
-        authed,
-        &workspace_id,
-        &trigger.runnable_path,
-        is_flow,
-        job_args,
-        None,
-        None,
-        None,
-        format!("native_trigger/{}/{}", service_name, internal_id),
-        None,
-    )
-    .await?;
-
-    Ok(response)
-}
-
-async fn sync_triggers_handler<T: External>(
-    Extension(handler): Extension<Arc<T>>,
-    Extension(service_name): Extension<ServiceName>,
-    _authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(_user_db): Extension<UserDB>,
-    Path(workspace_id): Path<String>,
-) -> Result<Response> {
-    tracing::info!(
-        "Starting sync for {} triggers in workspace {}",
-        service_name.as_str(),
-        workspace_id
-    );
-
-    let sync_result = sync_workspace_triggers(&db, &workspace_id, &*handler).await;
-    match sync_result {
-        Ok((deleted_triggers, sync_errors)) => {
-            tracing::info!(
-                "Sync completed for {} triggers in workspace {}. Deleted: {}, Errors: {}",
-                service_name.as_str(),
-                workspace_id,
-                deleted_triggers.len(),
-                sync_errors.len()
-            );
-
-            if !sync_errors.is_empty() {
-                tracing::warn!("Sync had {} errors: {:?}", sync_errors.len(), sync_errors);
-            }
-
-            Ok((StatusCode::OK).into_response())
-        }
-        Err(e) => {
-            tracing::error!("Failed to sync triggers: {:#}", e);
-            Err(e)
-        }
-    }
-}
-
-pub async fn get_native_trigger(
-    db: &DB,
+pub async fn get_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
     workspace_id: &str,
     id: i64,
     service_name: ServiceName,
@@ -532,7 +423,6 @@ pub async fn get_native_trigger(
             service_name as "service_name!: ServiceName",
             external_id,
             workspace_id,
-            resource_path,
             summary,
             metadata,
             edited_by,
@@ -568,8 +458,7 @@ pub fn service_routes<T: External + 'static>(handler: T) -> Router {
         .route("/get/:id/*path", get(get_native_trigger_handler::<T>))
         .route("/update/:id", post(update_native_trigger_handler::<T>))
         .route("/delete", delete(delete_native_trigger_handler::<T>))
-        .route("/exists", post(exists_native_trigger_handler::<T>))
-        .route("/sync", post(sync_triggers_handler::<T>));
+        .route("/exists", post(exists_native_trigger_handler::<T>));
 
     standard_routes
         .merge(additional_routes)
@@ -577,55 +466,17 @@ pub fn service_routes<T: External + 'static>(handler: T) -> Router {
         .layer(Extension(service_name))
 }
 
-pub fn service_webhook_routes<T: External + 'static>(handler: T) -> Router {
-    if !T::SUPPORT_WEBHOOK {
-        return Router::new();
-    }
-
-    let service_name = T::SERVICE_NAME;
-    let handler_arc = Arc::new(handler);
-
-    let cors = CorsLayer::new()
-        .allow_methods([http::Method::POST])
-        .allow_origin(tower_http::cors::Any);
-
-    Router::new()
-        .route(
-            "/w/:workspace_id/webhook/:internal_id",
-            post(handle_webhook_native_trigger_handler::<T>),
-        )
-        .layer(cors)
-        .layer(Extension(handler_arc))
-        .layer(Extension(service_name))
-}
-
 pub fn generate_native_trigger_routers() -> Router {
     let router = Router::new();
 
-    #[cfg(feature = "nextcloud_trigger")]
+    #[cfg(feature = "native_triggers")]
     {
         use crate::native_triggers::nextcloud::NextCloud;
 
         return router.nest("/nextcloud", service_routes(NextCloud));
     }
 
-    #[cfg(not(feature = "nextcloud_trigger"))]
-    {
-        router
-    }
-}
-
-pub fn generate_native_trigger_webhook_routers() -> Router {
-    let router = Router::new();
-
-    #[cfg(feature = "nextcloud_trigger")]
-    {
-        use crate::native_triggers::nextcloud::NextCloud;
-
-        return router.nest("/nextcloud", service_webhook_routes(NextCloud));
-    }
-
-    #[cfg(not(feature = "nextcloud_trigger"))]
+    #[cfg(not(feature = "native_triggers"))]
     {
         router
     }

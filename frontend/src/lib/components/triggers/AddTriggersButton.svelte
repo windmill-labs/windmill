@@ -6,6 +6,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { CloudOff } from 'lucide-svelte'
 	import { isServiceAvailable } from './native/utils'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		setDropdownWidthToButtonWidth?: boolean
@@ -36,7 +37,7 @@
 	let nextcloudAvailable = $state(false)
 
 	async function setNextcloudState() {
-		nextcloudAvailable = await isServiceAvailable('nextcloud')
+		nextcloudAvailable = await isServiceAvailable('nextcloud', $workspaceStore!)
 	}
 
 	setNextcloudState()

@@ -1,11 +1,10 @@
 import type { NativeServiceName, NativeTrigger } from '$lib/gen/types.gen'
 import { isCloudHosted } from '$lib/cloud'
-import { SettingService } from '$lib/gen/services.gen'
+import { WorkspaceIntegrationService } from '$lib/gen'
 
 export interface NativeTriggerConfig {
 	readonly serviceDisplayName: string
 	readonly serviceKey: NativeServiceName
-	readonly resourceType: string
 	readonly supportsSync: boolean
 	readonly supportsFetchConfig: boolean
 	readonly isCloudCompatible: boolean
@@ -19,7 +18,6 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 	nextcloud: {
 		serviceDisplayName: 'Nextcloud',
 		serviceKey: 'nextcloud',
-		resourceType: 'nextcloud',
 		supportsSync: true,
 		supportsFetchConfig: true,
 		isCloudCompatible: true,
@@ -30,7 +28,10 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 	}
 }
 
-export async function isServiceAvailable(service: NativeServiceName): Promise<boolean> {
+export async function isServiceAvailable(
+	service: NativeServiceName,
+	workspace: string
+): Promise<boolean> {
 	const config = NATIVE_TRIGGER_SERVICES[service]
 	if (!config) return false
 
@@ -39,13 +40,14 @@ export async function isServiceAvailable(service: NativeServiceName): Promise<bo
 	}
 
 	try {
-		const availableClients = (await SettingService.getGlobal({ key: 'oauths' })) as Record<
-			string,
-			unknown
-		>
-		return availableClients[service] != undefined
-	} catch (err) {
-		console.debug(`Service ${service} not available:`, err)
+		const response = await WorkspaceIntegrationService.checkIfNativeTriggersServiceExists({
+			workspace,
+			serviceName: service
+		})
+
+		return response
+	} catch (workspaceErr) {
+		console.debug(`Workspace integration check failed for ${service}:`, workspaceErr)
 		return false
 	}
 }
@@ -54,12 +56,14 @@ export function getAvailableServices(): NativeServiceName[] {
 	return Object.keys(NATIVE_TRIGGER_SERVICES) as NativeServiceName[]
 }
 
-export async function getAvailableNativeTriggerServices(): Promise<NativeServiceName[]> {
+export async function getAvailableNativeTriggerServices(
+	workspace: string
+): Promise<NativeServiceName[]> {
 	const services = getAvailableServices()
 	const availableServices: NativeServiceName[] = []
 
 	for (const service of services) {
-		const available = await isServiceAvailable(service)
+		const available = await isServiceAvailable(service, workspace)
 		if (available) {
 			availableServices.push(service)
 		}
@@ -78,7 +82,6 @@ export interface ExtendedNativeTrigger extends NativeTrigger {
 	runnable_kind: 'script' | 'flow'
 }
 
-
 export interface ServiceFormProps {
 	config: Record<string, any>
 	errors: Record<string, string>
@@ -88,15 +91,20 @@ export interface ServiceFormProps {
 	disabled?: boolean
 }
 
-export function validateCommonFields(config: Record<string, any>): Record<string, string> {
+export function validateCommonFields(
+	config: Record<string, any>,
+	event_type: 'webhook'
+): Record<string, string> {
 	const errors: Record<string, string> = {}
 
 	if (!config.runnable_path?.trim()) {
 		errors.runnable_path = 'Script/Flow path is required'
 	}
 
-	if (!config.resource_path?.trim()) {
-		errors.resource_path = 'Resource path is required'
+	if (event_type === 'webhook') {
+		if (!config.token?.trim()) {
+			errors.token = 'Please generate a token'
+		}
 	}
 
 	return errors
@@ -124,12 +132,17 @@ export async function getServiceIcon(service: NativeServiceName): Promise<any> {
 	}
 }
 
-export function getServiceTemplates(service: NativeServiceName): { script?: string; flow?: string } | undefined {
+export function getServiceTemplates(
+	service: NativeServiceName
+): { script?: string; flow?: string } | undefined {
 	const config = getServiceConfig(service)
 	return config?.templates
 }
 
-export function getTemplateUrl(service: NativeServiceName, type: 'script' | 'flow'): string | undefined {
+export function getTemplateUrl(
+	service: NativeServiceName,
+	type: 'script' | 'flow'
+): string | undefined {
 	const templates = getServiceTemplates(service)
 	return templates?.[type]
 }

@@ -150,8 +150,8 @@ mod smtp_server_oss;
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
 
-#[cfg(feature = "nextcloud_trigger")]
-mod native_triggers;
+#[cfg(feature = "native_triggers")]
+pub mod native_triggers;
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
 pub mod stripe_ee;
@@ -374,8 +374,6 @@ pub async fn run_server(
 
     if !*CLOUD_HOSTED && server_mode && !mcp_mode {
         start_all_listeners(db.clone(), &killpill_rx);
-        #[cfg(feature = "nextcloud_trigger")]
-        native_triggers::sync::start_sync_loop(db.clone(), killpill_rx.resubscribe());
     }
 
     let listener = tokio::net::TcpListener::bind(addr)
@@ -458,19 +456,18 @@ pub async fn run_server(
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
-                        .nest(
-                            "/native_triggers",
+                        .nest("/native_triggers", {
+                            #[cfg(feature = "native_triggers")]
                             {
-                                #[cfg(feature = "nextcloud_trigger")]
-                                {
-                                    native_triggers::handler::generate_native_trigger_routers()
-                                }
-                                #[cfg(not(feature = "nextcloud_trigger"))]
-                                {
-                                    axum::Router::new()
-                                }
+                                native_triggers::handler::generate_native_trigger_routers().merge(
+                                    native_triggers::workspace_integrations::workspaced_service(),
+                                )
                             }
-                        )
+                            #[cfg(not(feature = "native_triggers"))]
+                            {
+                                axum::Router::new()
+                            }
+                        })
                         .nest("/oauth", {
                             #[cfg(feature = "oauth2")]
                             {
@@ -493,16 +490,6 @@ pub async fn run_server(
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_oss::workspaced_service())
                         .nest("/openapi", openapi::openapi_service())
-                        .nest("/webhooks/nextcloud", {
-                            #[cfg(feature = "nextcloud_trigger")]
-                            {
-                                Router::new()
-                            }
-                            #[cfg(not(feature = "nextcloud_trigger"))]
-                            {
-                                Router::new()
-                            }
-                        })
                         .merge(triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
@@ -693,19 +680,6 @@ pub async fn run_server(
                         }
                     }
                     .layer(from_extractor::<OptAuthed>()),
-                )
-                .nest(
-                    "/native_triggers",
-                    {
-                        #[cfg(feature = "nextcloud_trigger")]
-                        {
-                            native_triggers::handler::generate_native_trigger_webhook_routers()
-                        }
-                        #[cfg(not(feature = "nextcloud_trigger"))]
-                        {
-                            axum::Router::new()
-                        }
-                    }
                 )
                 .route("/version", get(git_v))
                 .route("/uptodate", get(is_up_to_date))

@@ -202,7 +202,8 @@
 			sqs_used,
 			mqtt_used,
 			gcp_used,
-			email_used
+			email_used,
+			nextcloud_used
 		} = await WorkspaceService.getUsedTriggers({
 			workspace: $workspaceStore ?? ''
 		})
@@ -232,6 +233,9 @@
 		}
 		if (email_used) {
 			usedKinds.push('email')
+		}
+		if (nextcloud_used) {
+			usedKinds.push('nextcloud')
 		}
 		$usedTriggerKinds = usedKinds
 	}

@@ -109,9 +109,6 @@
 							<div class="text-tertiary text-2xs truncate text-left font-light">
 								runnable: {trigger.runnable_path}
 							</div>
-							<div class="text-tertiary text-2xs truncate text-left font-light">
-								resource: {trigger.resource_path}
-							</div>
 						</a>
 
 						<div class="flex gap-2 items-center justify-end">
