@@ -549,28 +549,22 @@
 							<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>
 								<SideBarTab {dropdownItems} fullMenu={!!$flowInputEditorState?.selectedTab}>
 									{#snippet close_button()}
-										<button
-											onclick={() => {
-												handleEditSchema()
-											}}
-											title={!!$flowInputEditorState?.selectedTab
-												? 'Close input editor'
-												: 'Open input editor'}
-											class={twMerge(
-												ButtonType.ColorVariants.blue.contained,
-												!!$flowInputEditorState?.selectedTab
-													? 'rounded-tl-md border-l border-t'
-													: 'rounded-md border'
-											)}
-										>
-											<div class="p-2 center-center">
-												{#if !!$flowInputEditorState?.selectedTab}
-													<ChevronRight size={14} />
-												{:else}
-													<Pen size={14} />
-												{/if}
-											</div>
-										</button>
+										<Button
+											onClick={() => handleEditSchema()}
+											{...!!$flowInputEditorState?.selectedTab
+												? {
+														title: 'Close input editor',
+														startIcon: { icon: ChevronRight },
+														btnClasses: 'rounded-none rounded-tl-md'
+													}
+												: {
+														title: 'Open input editor',
+														startIcon: { icon: Pen }
+													}}
+											variant="accent"
+											iconOnly
+											wrapperClasses="h-full"
+										/>
 									{/snippet}
 								</SideBarTab>
 							</div>

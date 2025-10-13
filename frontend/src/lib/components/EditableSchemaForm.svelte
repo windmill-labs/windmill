@@ -589,15 +589,15 @@
 												}
 											}}
 										>
-											<div class="flex flex-row gap-2">
+											<div class="flex flex-row gap-2 text-sm">
 												{argName}
 												{#if !uiOnly}
 													<div onclick={stopPropagation(preventDefault(bubble('click')))}>
 														<Popover placement="bottom-end" containerClasses="p-4" closeButton>
 															{#snippet trigger()}
 																<Button
-																	color="light"
-																	size="xs2"
+																	variant="subtle"
+																	size="xs3"
 																	nonCaptureEvent
 																	startIcon={{ icon: Pen }}
 																	iconOnly
