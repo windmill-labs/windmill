@@ -715,41 +715,41 @@ const config = {
 			addComponents({
 				'.table-custom': {
 					'& th': {
-						paddingTop: theme('spacing.3'),
+						paddingTop: theme('spacing.2'),
 						paddingRight: theme('spacing.1'),
 						paddingLeft: theme('spacing.1'),
-						paddingBottom: theme('spacing.3'),
-						fontSize: theme('fontSize.sm'),
+						paddingBottom: theme('spacing.2'),
+						fontSize: theme('fontSize.2xs'),
 						textAlign: 'left',
-						fontWeight: theme('fontWeight.semibold'),
-						color: theme('colors.gray.900'),
-						textTransform: 'capitalize'
+						fontWeight: theme('fontWeight.normal'),
+						color: 'rgb(var(--color-text-secondary))',
+						textTransform: 'none'
 					},
 					'.dark & th': {
-						color: theme('colors.gray.200')
+						color: 'rgb(var(--color-text-secondary))'
 					},
 					'& td': {
 						paddingLeft: theme('spacing.1'),
 						paddingRight: theme('spacing.1'),
 						paddingTop: theme('spacing.2'),
 						paddingBottom: theme('spacing.2'),
-						fontSize: theme('fontSize.sm'),
-						color: theme('colors.gray.700')
+						fontSize: theme('fontSize.xs'),
+						color: 'rgb(var(--color-text-primary))'
 					},
 					'.dark & td ': {
-						color: theme('colors.gray.200')
+						color: 'rgb(var(--color-text-primary))'
 					},
 					'& tbody > :not([hidden]) ~ :not([hidden])': {
-						borderTop: `1px solid ${theme('colors.gray.200')}`
+						borderTop: `1px solid rgb(var(--color-border-light))`
 					},
 					'.dark & tbody > :not([hidden]) ~ :not([hidden])': {
-						borderTop: `1px solid ${theme('colors.gray.700')}`
+						borderTop: `1px solid rgb(var(--color-border-light))`
 					},
 					'& tbody > tr:hover': {
-						backgroundColor: theme('colors.gray.50')
+						backgroundColor: 'rgb(var(--color-surface-hover))'
 					},
 					'.dark & tbody > tr:hover': {
-						backgroundColor: theme('colors.gray.800')
+						backgroundColor: 'rgb(var(--color-surface-hover))'
 					}
 				},
 				'.commit-hash': {
