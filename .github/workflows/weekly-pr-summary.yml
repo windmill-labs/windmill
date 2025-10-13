@@ -99,7 +99,7 @@ jobs:
             ## Write tool issue:
              - If the Write tool returns an error, create the summary.md file with the echo bash command.
           claude_args: |
-            --allowedTools "Edit,MultiEdit,Write,Read,Glob,Grep,LS,Write,Bash"
+            --allowedTools "Edit,MultiEdit,Write,Read,Glob,Grep,LS,Bash"
 
       - name: Send Summary to Windmill
         if: hashFiles('summary.md') != ''
