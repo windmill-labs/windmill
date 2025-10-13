@@ -310,7 +310,7 @@ pub async fn load_mcp_tools(
 
         // Create new MCP client for this execution
         tracing::debug!("Creating fresh MCP client for {}", resource_name);
-        let client = McpClient::from_resource(mcp_resource, &path)
+        let client = McpClient::from_resource(mcp_resource, db, workspace_id, &path)
             .await
             .context("Failed to create MCP client")?;
 

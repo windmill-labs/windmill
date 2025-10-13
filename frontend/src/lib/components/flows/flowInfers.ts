@@ -47,7 +47,8 @@ export const AI_AGENT_SCHEMA = {
 		},
 		mcp_resources: {
 			type: 'array',
-			description: 'Array of MCP resources to use for the AI agent.',
+			description:
+				'List of MCP server resources. All the tools from these resources will be available to the AI agent. Only supports HTTP streamable servers.',
 			items: {
 				type: 'resource' as const,
 				resourceType: 'mcp'

@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{json, value::RawValue, Value};
+use std::str::FromStr;
+use windmill_common::variables::get_secret_value_as_admin;
 use windmill_common::worker::to_raw_value;
+use windmill_common::DB;
 
 use crate::ai::types::{Tool, ToolDef, ToolDefFunction};
 
@@ -29,7 +32,10 @@ pub struct McpResource {
     pub name: String,
     /// HTTP URL for the MCP server endpoint
     pub url: String,
-    /// Optional headers for authentication
+    /// Optional token for authentication
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    /// Optional headers
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<HashMap<String, String>>,
 }
@@ -55,15 +61,25 @@ pub struct McpClient {
 
 impl McpClient {
     /// Create a new MCP client from a resource configuration
-    pub async fn from_resource(resource: McpResource, resource_path: &str) -> Result<Self> {
+    pub async fn from_resource(
+        resource: McpResource,
+        db: &DB,
+        w_id: &str,
+        resource_path: &str,
+    ) -> Result<Self> {
         // Build custom reqwest client with headers if provided
         let mut headers = HeaderMap::new();
+        if let Some(token_path) = &resource.token {
+            let value =
+                get_secret_value_as_admin(db, w_id, token_path.trim_start_matches("$var:")).await?;
+            headers.insert(
+                HeaderName::from_static("authorization"),
+                HeaderValue::from_str(format!("Bearer {}", value).as_str())?,
+            );
+        }
         if let Some(resource_headers) = &resource.headers {
             for (key, value) in resource_headers {
-                match (
-                    HeaderName::from_bytes(key.as_bytes()),
-                    HeaderValue::from_str(value),
-                ) {
+                match (HeaderName::from_str(key), HeaderValue::from_str(value)) {
                     (Ok(name), Ok(value)) => {
                         headers.insert(name, value);
                     }
