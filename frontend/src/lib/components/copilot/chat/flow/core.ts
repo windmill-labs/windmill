@@ -126,7 +126,13 @@ const newStepSchema = z.union([
 		})
 		.describe(
 			'Add a branch one at the specified location: only the first branch that evaluates to true will be executed'
-		)
+		),
+	z
+		.object({
+			type: z.literal('aiagent'),
+			parallel: z.boolean().optional().describe('Whether to execute tools in parallel')
+		})
+		.describe('Add an AI agent step at the specified location')
 ])
 
 type NewStep = z.infer<typeof newStepSchema>
@@ -942,6 +948,10 @@ For special step types, follow these additional steps:
   - Set advanced options (parallel, parallelism, skip_failures) using set_forloop_options
 - For branchone steps: Set the predicates for each branch using set_branch_predicate
 - For branchall steps: No additional setup needed
+- For aiagent steps:
+  - Set the inputs using set_step_inputs (provider, user_message, system_prompt, etc.)
+  - Tools can be added as nested steps inside the AI agent
+  - Optionally set parallel: true to execute tools in parallel
 
 ### Module Control Options
 For any module type, you can set control flow options using set_module_control_options:
