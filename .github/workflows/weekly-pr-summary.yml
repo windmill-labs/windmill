@@ -1,0 +1,129 @@
+name: Weekly PR Summary
+
+on:
+  schedule:
+    # Every Friday at 8:00 AM UTC
+    - cron: "0 8 * * 5"
+  workflow_dispatch:
+    # Allow manual triggering for testing
+
+jobs:
+  weekly-pr-summary:
+    runs-on: ubicloud-standard-4
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Generate Weekly PR Summary
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+
+            Generate a comprehensive weekly summary of ONLY MERGED Pull Requests from the past 7 days.
+
+            ## Your Task:
+
+            1. **Calculate Date Range**:
+               - Run: `CUTOFF_DATE=$(date --date='7 days ago' --iso-8601)`
+               - Run: `TODAY=$(date --iso-8601)`
+               - This gives you the exact 7-day window (store these in variables for use in commands)
+
+            2. **Fetch ONLY Merged PRs from Past Week**:
+               - Command: `gh pr list --repo ${{ github.repository }} --state merged --search "merged:>=$CUTOFF_DATE" --limit 100 --json number,title,author,mergedAt,url`
+               - This returns ONLY PRs that were merged in the last 7 days
+               - The --search flag filters by merge date using GitHub's search syntax
+
+            3. **Gather Details**: For each merged PR, include:
+               - PR number and title (with link)
+               - Author (extract login from author.login in JSON)
+               - Merged date (from mergedAt field)
+               - Brief summary: Use `gh pr view <number> --json body` to get PR description, then extract first paragraph or key points (1-2 sentences max)
+
+            4. **Generate Statistics**:
+               - Total PRs merged this week
+
+            5. **Save Summary to Markdown File**: Write the summary to a file for webhook delivery:
+               - Save the complete formatted markdown to: `summary.md`
+               - Do not commit the file to the repository
+
+            ## Output Format:
+
+            ```markdown
+            # 📊 Weekly Merged PRs Summary
+            ## Week of [Start Date] to [End Date]
+
+            ### Statistics
+            - **Total PRs Merged**: X
+
+            ---
+
+            ## ✅ Merged Pull Requests (X total)
+
+            ### #[PR_NUMBER]: [PR Title]
+            - **Author**: @username
+            - **Merged**: [Human-readable date, e.g., "Oct 13, 2025 at 14:30 UTC"]
+            - **Summary**: [1-2 sentence description from PR body]
+            - **Link**: [Full URL to PR]
+
+            [Repeat for each merged PR, sorted by merge date - most recent first]
+
+            ---
+
+            *🤖 Generated automatically on [Date]*
+            ```
+
+            ## Important Notes:
+            - **CRITICAL**: ONLY include PRs with state "merged" from the last 7 days
+            - Use the --search flag with "merged:>=DATE" syntax to filter by merge date
+            - Use GitHub CLI (`gh`) for all operations
+            - Sort PRs by merge date (most recent first) - you can use `jq` to sort the JSON if needed
+            - If a PR has no description, write "(No description provided)"
+            - If there are more than 50 merged PRs, include all but add a note about high activity
+            - Extract meaningful summary from PR body - look for the first paragraph or key bullet points
+            - Format dates in human-readable format, not ISO format
+            - Parse JSON responses carefully using `jq` or similar tools
+
+            ## Saving the Markdown Output:
+            After generating the markdown summary, save it to a file, BUT DO NOT COMMIT IT TO THE REPOSITORY.
+          claude_args: |
+            --allowedTools "Bash"
+
+      - name: Send Summary to Windmill
+        if: hashFiles('summary.md') != ''
+        env:
+          WEEKLY_SUMMARY_TOKEN: ${{ secrets.WEEKLY_SUMMARY_TOKEN }}
+        run: |
+          if [[ -f "summary.md" ]]; then
+            echo "Found summary.md, sending to Windmill..."
+
+            # Read the markdown content
+            MARKDOWN_CONTENT=$(cat summary.md)
+
+            # Create JSON payload
+            PAYLOAD=$(jq -n --arg markdown "$MARKDOWN_CONTENT" '{markdown: $markdown}')
+
+            # Send to Windmill webhook
+            RESULT=$(curl -s \
+              -H 'Content-Type: application/json' \
+              -H "Authorization: Bearer $WEEKLY_SUMMARY_TOKEN" \
+              -X POST \
+              -d "$PAYLOAD" \
+              'https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/ai/send_past_week_pr_summaries_to_discord')
+
+            echo "Windmill response:"
+            echo -E "$RESULT"
+            echo "✅ Summary sent successfully to Windmill!"
+          else
+            echo "⚠️ Warning: summary.md not found, skipping delivery"
+            exit 1
+          fi
