@@ -121,6 +121,19 @@
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
+
+	// API endpoint tools that are always available via MCP
+	const apiEndpointTools = [
+		'createVariable', 'deleteVariable', 'updateVariable', 'getVariable', 'listVariable',
+		'createResource', 'deleteResource', 'updateResource', 'getResource', 'listResource', 'listResourceType',
+		'listScripts', 'getScriptByPath',
+		'listFlows', 'getFlowByPath',
+		'runScriptPreviewAndWaitResult',
+		'listQueue', 'listJobs',
+		'createSchedule', 'updateSchedule', 'deleteSchedule', 'getSchedule', 'listSchedules',
+		'listWorkers'
+	]
+
 	const warning = $derived(
 		newMcpScope === 'favorites'
 			? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.`
@@ -274,7 +287,7 @@
 					options={{
 						right: 'Generate MCP URL',
 						rightTooltip:
-							'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
+							'Generate a new MCP URL to make your scripts, flows, and API endpoints available as tools through your LLM clients.',
 						rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
 					}}
 					size="xs"
@@ -443,6 +456,24 @@
 								{/if}
 							</div>
 						{/if}
+
+						<span class="block text-xs text-tertiary mt-2"
+							>API endpoint tools that will be available via MCP ({apiEndpointTools.length})</span
+						>
+						<div class="flex flex-wrap gap-1">
+							{#if apiEndpointTools.length <= 5}
+								{#each apiEndpointTools as endpoint}
+									<Badge rounded small color="green">{endpoint}</Badge>
+								{/each}
+							{:else}
+								{#each apiEndpointTools.slice(0, 3) as endpoint}
+									<Badge rounded small color="green">{endpoint}</Badge>
+								{/each}
+								<Badge rounded small color="dark-gray">
+									+{apiEndpointTools.length - 3} more
+								</Badge>
+							{/if}
+						</div>
 					</div>
 				{/if}
 			{/if}
