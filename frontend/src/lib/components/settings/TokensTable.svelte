@@ -63,11 +63,11 @@
 	}
 </script>
 
-<div class="flex flex-col min-h-0">
-	<div class="text-2xs text-tertiary italic pb-2 mt-2">
+<div class="flex flex-col min-h-0 p-4 border border-border-light rounded-md">
+	<h2 class="text-emphasis text-sm font-semibold mb-1">Tokens</h2>
+	<div class="text-xs text-primary mb-2">
 		Authenticate to the Windmill API with access tokens.
 	</div>
-
 	<CreateToken
 		{showMcpMode}
 		{openWithMcpMode}
@@ -76,7 +76,7 @@
 		{scopes}
 		onTokenCreated={handleTokenCreated}
 	/>
-	<div class="overflow-auto flex-1 min-h-64">
+	<div class="overflow-auto flex-1 min-h-64 grow">
 		<TableCustom>
 			<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
 			<tr slot="header-row">
