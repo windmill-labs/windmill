@@ -650,7 +650,7 @@ const config = {
 							boxShadow: 'none'
 						},
 						'&:disabled,[disabled]': {
-							backgroundColor: 'rgb(var(--color-surface-disabled))' + ' !important'
+							backgroundColor: 'rgba(var(--color-surface-disabled) / 0.2)' + ' !important'
 						}
 					},
 

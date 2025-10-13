@@ -211,7 +211,7 @@
 			disabled
 				? ['default', 'subtle'].includes(variant)
 					? '!text-disabled'
-					: '!bg-surface-disabled !text-disabled'
+					: '!bg-surface-disabled/20 !text-disabled'
 				: '',
 			loading ? 'cursor-wait' : '',
 			selected && ['default', 'subtle'].includes(variant)

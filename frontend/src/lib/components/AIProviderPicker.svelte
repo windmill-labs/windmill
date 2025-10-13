@@ -219,7 +219,7 @@
 				clearable={false}
 				noItemsMsg={'No models available'}
 				bind:filterText
-				inputClass="min-h-10 !bg-surface disabled:!bg-surface-disabled"
+				inputClass="min-h-10 !bg-surface disabled:!bg-surface-disabled/20"
 			/>
 		</div>
 	</div>

@@ -621,7 +621,7 @@
 
 									<div
 										class="p-2 border rounded-lg w-full {isDisabled
-											? 'bg-surface-disabled opacity-60'
+											? 'bg-surface-disabled/20 opacity-60'
 											: 'bg-surface-tertiary'}"
 									>
 										<div class="flex justify-between items-center">

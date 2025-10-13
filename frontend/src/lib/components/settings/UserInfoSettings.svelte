@@ -35,14 +35,12 @@
 	<h2 class="text-emphasis text-sm font-semibold mb-2">User info</h2>
 
 	<form class="flex flex-col gap-6">
-		<label class="w-full text-tertiary flex flex-col gap-1">
+		<div class="w-full text-tertiary flex flex-col gap-1">
 			<div class="text-xs text-emphasis font-medium">Email</div>
-			<TextInput
-				inputProps={{ disabled: true }}
-				value={$usersWorkspaceStore?.email}
-				class="input"
-			/>
-		</label>
+			<span class="text-xs font-normal text-primary">
+				{$usersWorkspaceStore?.email}
+			</span>
+		</div>
 
 		<label class="flex flex-col gap-1 w-120">
 			<span class="text-xs text-emphasis font-medium">Password</span>
@@ -51,6 +49,7 @@
 					<TextInput
 						inputProps={{ autocomplete: 'new-password', type: 'password' }}
 						bind:value={newPassword}
+						error={passwordError}
 					/>
 					<Button size="sm" variant="default" btnClasses="w-min" on:click={setPassword}
 						>Set password</Button
