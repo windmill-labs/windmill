@@ -444,8 +444,7 @@
 							{/if}
 						</div>
 
-						<span class="block text-xs mt-2"
-							>API endpoint tools that will be available via MCP ({mcpEndpointTools.length})</span
+						<span class="block text-xs mt-2">API endpoint tools that will be available via MCP</span
 						>
 						<div class="flex flex-wrap gap-1">
 							{#each mcpEndpointTools as endpoint}
