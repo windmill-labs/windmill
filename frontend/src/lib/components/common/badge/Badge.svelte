@@ -32,7 +32,8 @@
 		['dark-yellow']: 'bg-yellow-300 text-yellow-800',
 		['dark-indigo']: 'bg-indigo-500 text-indigo-100',
 		['dark-orange']: 'bg-orange-500 text-orange-100',
-		['dark-violet']: 'bg-violet-500 text-violet-100'
+		['dark-violet']: 'bg-violet-500 text-violet-100',
+		transparent: 'bg-transparent'
 	}
 	const hovers: Partial<Record<BadgeColor, string>> = {
 		gray: 'hover:bg-gray-200 dark:hover:bg-gray-300',

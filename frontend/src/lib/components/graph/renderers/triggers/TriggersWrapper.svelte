@@ -59,7 +59,7 @@
 	<button
 		style="background-color: {hover && bgHoverColor ? bgHoverColor : bgColor};"
 		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center justify-center rounded-md {selected
-			? 'outline  outline-2  outline-gray-600 dark:bg-white/5 dark:outline-gray-400'
+			? 'outline  outline-1  outline-luminance-blue-300 dark:bg-white/5'
 			: ''}"
 		onclick={() => {
 			dispatch('select')

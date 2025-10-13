@@ -2,7 +2,7 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import Popover from '$lib/components/Popover.svelte'
-	import { classNames, type StateStore } from '$lib/utils'
+	import { classNames, getCssColor, type StateStore } from '$lib/utils'
 	import {
 		Bed,
 		Database,
@@ -265,12 +265,14 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={classNames(
-			'w-full module flex rounded-sm cursor-pointer max-w-full',
+			'w-full module flex rounded-md cursor-pointer max-w-full',
 			deletable ? aiModuleActionToBgColor(action) : ''
 		)}
-		style="width: 275px; height: 34px; background-color: {hover && bgHoverColor
-			? bgHoverColor
-			: bgColor};"
+		style="width: 275px; height: 34px; background-color: {selected
+			? getCssColor('surface-accent-selected')
+			: hover && bgHoverColor
+				? bgHoverColor
+				: bgColor};"
 		onmouseenter={() => (hover = true)}
 		onmouseleave={() => (hover = false)}
 		onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
@@ -280,10 +282,10 @@
 		{/if}
 		<div
 			class={classNames(
-				'absolute rounded-sm outline-offset-0 outline-slate-500 dark:outline-gray-400',
-				selected ? 'outline outline-2' : 'active:outline active:outline-2'
+				'absolute rounded-md outline-offset-0 outline-luminance-blue-300',
+				selected ? 'outline outline-1' : 'active:outline active:outline-1'
 			)}
-			style={`width: 275px; height: ${outputPickerVisible ? '51px' : '34px'};`}
+			style={`width: 275px; height: ${outputPickerVisible ? '54px' : '34px'};`}
 		></div>
 		<div
 			class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"
@@ -412,6 +414,7 @@
 				{bold}
 				bind:editId
 				{hover}
+				{selected}
 			>
 				{#snippet icon()}
 					{@render icon_render?.()}

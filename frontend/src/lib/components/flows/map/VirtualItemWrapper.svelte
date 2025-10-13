@@ -69,11 +69,11 @@
 	>
 		<div
 			class={twMerge(
-				'absolute  outline-gray-600 dark:outline-gray-400 rounded-md',
-				selected ? 'outline outline-2' : '',
-				selectable ? 'cursor-pointer active:outline active:outline-2' : ''
+				'absolute  outline-luminance-blue-300 rounded-md',
+				selected ? 'outline outline-1' : '',
+				selectable ? 'cursor-pointer active:outline active:outline-1' : ''
 			)}
-			style={`width: 275px; height: ${outputPickerVisible ? '50px' : '34px'};`}
+			style={`width: 275px; height: ${outputPickerVisible ? '53px' : '34px'};`}
 		>
 		</div>
 		{@render children?.({ hover })}

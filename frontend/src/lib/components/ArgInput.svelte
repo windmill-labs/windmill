@@ -955,10 +955,9 @@
 							{/key}
 						</div>
 						<Button
-							variant="border"
+							variant="default"
 							color="light"
 							size="xs"
-							btnClasses="text-tertiary py-2.5"
 							wrapperClasses="w-full {Array.isArray(value) && value.length > 0 ? 'mt-1.5' : ''}"
 							on:click={() => {
 								if (value == undefined || !Array.isArray(value)) {
@@ -988,7 +987,7 @@
 					{/if}
 				</div>
 				{#if !displayHeader}
-					<div class="block mt-2.5 pl-2">
+					<div class="block mt-2 pl-2">
 						<Toggle
 							on:change={(e) => {
 								// Once the user has changed the input type, we should not change it back automatically

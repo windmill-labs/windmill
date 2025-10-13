@@ -33,7 +33,7 @@ export function getStateColor(
 			return isDark ? '#ea580c' : 'rgb(255, 208, 193)'
 		default:
 			if (nonVirtualItem) {
-				return isDark ? '#2E3440' : 'white'
+				return getCssColor('surface-tertiary')
 			} else {
 				return getCssColor('component-virtual-node')
 			}

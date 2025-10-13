@@ -41,7 +41,7 @@
 {#if !isRunning}
 	<Button
 		size="sm"
-		color="dark"
+		variant="accent-secondary"
 		btnClasses={twMerge(
 			'relative p-1.5 h-[36px] transition-all duration-200',
 			wide ? 'w-[120px]' : 'w-[44.5px]'

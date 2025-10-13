@@ -71,14 +71,6 @@
 	let inputPopover: Popover | undefined = $state(undefined)
 	let popover: Popover | undefined = $state(undefined)
 
-	const virtualItemClasses = {
-		bar: 'dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea] hover:bg-slate-300'
-	}
-
-	const defaultClasses = {
-		bar: 'bg-surface-disabled hover:bg-surface-hover dark:bg-[#454e5f] dark:hover:bg-[#576278]'
-	}
-
 	export function toggleOpen(forceOpen: boolean = false) {
 		if (popover?.isOpened() && !forceOpen) {
 			popover?.close()
@@ -130,7 +122,7 @@
 </script>
 
 <div
-	class="relative h-1 w-[275px]"
+	class="relative h-0 w-[275px]"
 	onpointerdown={(e) => {
 		e.preventDefault()
 		e.stopPropagation()
@@ -140,14 +132,12 @@
 	<div class="absolute w-full h-[20px]"></div>
 	<div
 		class={twMerge(
-			'bg-slate-200 absolute w-full',
-			variant === 'virtual'
-				? `${virtualItemClasses.bar} ${bottomBarOpen ? 'bg-slate-300 dark:bg-[#525d6f]' : ''}`
-				: `${defaultClasses.bar} ${bottomBarOpen ? 'bg-surface-hover dark:bg-[#576278]' : ''}`,
+			'absolute w-full bg-surface',
+			variant === 'virtual' ? `` : ``,
 			'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-md',
 			'group transition-all duration-100',
 			'flex flex-row items-center justify-center',
-			'h-1 hover:h-[20px]',
+			'h-0 hover:h-[20px]',
 			bottomBarOpen && 'h-[20px]'
 		)}
 		style:background-color={type && type !== 'WaitingForEvents'
