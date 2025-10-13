@@ -45,12 +45,8 @@
 		<span
 			class={twMerge(
 				'mr-2 font-normal duration-50 select-none',
-				bothOptions || textDisabled
-					? checked
-						? 'text-disabled'
-						: 'text-tertiary'
-					: 'text-tertiary',
-				size === 'xs' || size === 'sm' ? 'text-xs' : size === '2xs' ? 'text-[0.5rem]' : 'text-sm',
+				bothOptions || textDisabled ? (checked ? 'text-disabled' : 'text-primary') : 'text-primary',
+				size === '2xs' ? 'text-2xs' : 'text-xs',
 				textClass
 			)}
 			style={textStyle}
@@ -110,12 +106,8 @@
 		<span
 			class={twMerge(
 				'ml-2 font-normal duration-50 select-none',
-				bothOptions || textDisabled
-					? checked
-						? 'text-secondary'
-						: 'text-disabled'
-					: 'text-secondary',
-				size === 'xs' || size === 'sm' ? 'text-xs' : size === '2xs' ? 'text-xs' : 'text-sm',
+				bothOptions || textDisabled ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
+				size === '2xs' ? 'text-2xs' : 'text-xs',
 				textClass
 			)}
 			style={textStyle}
