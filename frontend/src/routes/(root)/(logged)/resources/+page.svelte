@@ -43,6 +43,7 @@
 
 	import { convert } from '@redocly/json-to-json-schema'
 	import {
+		Boxes,
 		Braces,
 		Building,
 		Circle,
@@ -655,8 +656,8 @@
 		>
 			<div class="flex flex-row justify-end gap-4">
 				<Button
-					variant="border"
-					size="md"
+					variant="default"
+					size="xl"
 					startIcon={{ icon: Plus }}
 					on:click={startNewType}
 					aiId="resources-add-resource-type"
@@ -665,8 +666,9 @@
 					Add resource type
 				</Button>
 				<Button
-					size="md"
-					startIcon={{ icon: Link }}
+					size="xl"
+					variant="accent"
+					startIcon={{ icon: Boxes }}
 					on:click={() => appConnect?.open?.()}
 					aiId="resources-add-resource"
 					aiDescription="Add resource"

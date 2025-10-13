@@ -41,7 +41,7 @@
 
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
-		title={mode == 'edit' ? 'Edit ' + path : 'Add a resourcee'}
+		title={mode == 'edit' ? 'Edit ' + path : 'Add a resource'}
 		on:close={drawer.closeDrawer}
 	>
 		{#await import('./ResourceEditor.svelte')}

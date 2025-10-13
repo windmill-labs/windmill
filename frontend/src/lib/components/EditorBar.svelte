@@ -531,9 +531,9 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 	{#snippet submission()}
 		<div class="flex flex-row">
 			<Button
-				variant="border"
+				variant="accent"
 				color="blue"
-				size="sm"
+				size="xl"
 				startIcon={{ icon: Plus }}
 				on:click={() => {
 					variableEditor?.initNew()

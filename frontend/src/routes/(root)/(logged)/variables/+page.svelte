@@ -174,7 +174,12 @@
 						New&nbsp;contextual&nbsp;variable
 					</Button>
 				{:else}
-					<Button size="md" startIcon={{ icon: Plus }} on:click={() => variableEditor?.initNew()}>
+					<Button
+						size="xl"
+						variant="accent"
+						startIcon={{ icon: Plus }}
+						on:click={() => variableEditor?.initNew()}
+					>
 						New&nbsp;variable
 					</Button>
 				{/if}
