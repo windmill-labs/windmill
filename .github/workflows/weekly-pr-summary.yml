@@ -99,24 +99,32 @@ jobs:
             --max-turns 10
             --allowedTools "Bash"
 
-      - name: Send Summary to Webhook
+      - name: Send Summary to Windmill
         if: hashFiles('summary.md') != ''
         env:
-          WEBHOOK_URL: ${{ secrets.WEEKLY_SUMMARY_WEBHOOK_URL }}
+          WEEKLY_SUMMARY_TOKEN: ${{ secrets.WEEKLY_SUMMARY_TOKEN }}
         run: |
           if [[ -f "summary.md" ]]; then
-            echo "Found summary.md, sending to webhook..."
+            echo "Found summary.md, sending to Windmill..."
 
             # Read the markdown content
             MARKDOWN_CONTENT=$(cat summary.md)
 
-            # Send to webhook as JSON payload
-            curl -s -X POST \
-              -H "Content-Type: application/json" \
-              -d "$(jq -n --arg content "$MARKDOWN_CONTENT" '{markdown: $content}')" \
-              "$WEBHOOK_URL"
+            # Create JSON payload
+            PAYLOAD=$(jq -n --arg markdown "$MARKDOWN_CONTENT" '{markdown: $markdown}')
 
-            echo "✅ Summary sent successfully to webhook!"
+            # Send to Windmill webhook
+            RESULT=$(curl -s \
+              -H 'Content-Type: application/json' \
+              -H "Authorization: Bearer $WEEKLY_SUMMARY_TOKEN" \
+              -X POST \
+              -d "$PAYLOAD" \
+              'https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/ai/send_past_week_pr_summaries_to_discord')
+
+            echo "Windmill response:"
+            echo -E "$RESULT"
+            echo "✅ Summary sent successfully to Windmill!"
           else
-            echo "⚠️ Warning: summary.md not found, skipping webhook delivery"
+            echo "⚠️ Warning: summary.md not found, skipping delivery"
+            exit 1
           fi
