@@ -67,7 +67,7 @@
 		</div>
 		{#if opened || isSearching}
 			<div>
-				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
+				{#each item.items.slice(0, showMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}
 					<TreeView
 						{isSearching}
 						{collapseAll}
@@ -132,7 +132,7 @@
 		</div>
 		{#if opened || isSearching}
 			<div>
-				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
+				{#each item.items.slice(0, showMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}
 					<TreeView
 						{collapseAll}
 						item={subItem}
