@@ -56,6 +56,7 @@
 		type DucklakeSettingsType
 	} from '$lib/components/workspaceSettings/DucklakeSettings.svelte'
 	import { AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -83,6 +84,13 @@
 	let customPrompts: Record<string, string> = $state({})
 	let maxTokensPerModel: Record<string, number> = $state({})
 
+	// Track initial AI config for unsaved changes detection
+	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
+	let initialCodeCompletionModel: string | undefined = $state(undefined)
+	let initialDefaultModel: string | undefined = $state(undefined)
+	let initialCustomPrompts: Record<string, string> = $state({})
+	let initialMaxTokensPerModel: Record<string, number> = $state({})
+
 	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
 		resourcePath: undefined,
@@ -109,7 +117,12 @@
 			| 'general'
 			| 'webhook'
 			| 'deploy_to'
-			| 'error_handler') ?? 'users'
+			| 'error_handler'
+			| 'ai'
+			| 'windmill_lfs'
+			| 'git_sync'
+			| 'default_app'
+			| 'encryption') ?? 'users'
 	)
 	let usingOpenaiClientCredentialsOauth = $state(false)
 
@@ -253,6 +266,13 @@
 				customPrompts[mode] = ''
 			}
 		}
+
+		// Store initial AI config state for unsaved changes detection
+		initialAiProviders = clone(aiProviders)
+		initialDefaultModel = defaultModel
+		initialCodeCompletionModel = codeCompletionModel
+		initialCustomPrompts = clone(customPrompts)
+		initialMaxTokensPerModel = clone(maxTokensPerModel)
 		errorHandlerItemKind = settings.error_handler
 			? (settings.error_handler.split('/')[0] as 'flow' | 'script')
 			: 'script'
@@ -373,6 +393,35 @@
 			untrack(() => tab)
 		)
 	})
+
+	// Function to check if there are unsaved changes in AI settings
+	function getAiSettingsInitialAndModifiedValues() {
+		// Only check for unsaved changes when on the AI tab
+		if (tab !== 'ai') {
+			return {
+				savedValue: undefined,
+				modifiedValue: undefined
+			}
+		}
+
+		const savedValue = {
+			aiProviders: initialAiProviders,
+			defaultModel: initialDefaultModel,
+			codeCompletionModel: initialCodeCompletionModel,
+			customPrompts: initialCustomPrompts,
+			maxTokensPerModel: initialMaxTokensPerModel
+		}
+
+		const modifiedValue = {
+			aiProviders: aiProviders,
+			defaultModel: defaultModel,
+			codeCompletionModel: codeCompletionModel,
+			customPrompts: customPrompts,
+			maxTokensPerModel: maxTokensPerModel
+		}
+
+		return { savedValue, modifiedValue }
+	}
 </script>
 
 <CenteredPage>
@@ -817,6 +866,14 @@
 				bind:customPrompts
 				bind:maxTokensPerModel
 				bind:usingOpenaiClientCredentialsOauth
+				onSave={() => {
+					// Update initial state after successful save
+					initialAiProviders = clone(aiProviders)
+					initialDefaultModel = defaultModel
+					initialCodeCompletionModel = codeCompletionModel
+					initialCustomPrompts = clone(customPrompts)
+					initialMaxTokensPerModel = clone(maxTokensPerModel)
+				}}
 			/>
 		{:else if tab == 'windmill_lfs'}
 			<StorageSettings bind:s3ResourceSettings />
@@ -922,6 +979,8 @@
 		</div>
 	{/if}
 </CenteredPage>
+
+<UnsavedConfirmationModal getInitialAndModifiedValues={getAiSettingsInitialAndModifiedValues} />
 
 <style>
 </style>
