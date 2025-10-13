@@ -256,7 +256,6 @@
 
 	export function insertAtCurrentLine(code: string): void {
 		if (editor) {
-			console.log();
 			insertAtLine(code, editor.getPosition()?.lineNumber ?? 0);
 		}
 	}
