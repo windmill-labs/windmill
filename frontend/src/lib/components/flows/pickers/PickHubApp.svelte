@@ -67,7 +67,7 @@
 							<RowIcon kind="app" />
 
 							<div class="w-full text-left font-normal">
-								<div class="text-emphasis flex-wrap text-xs font-medium">
+								<div class="text-primary flex-wrap text-xs font-normal">
 									{#if item.marked}
 										{@html item.marked ?? ''}
 									{:else}

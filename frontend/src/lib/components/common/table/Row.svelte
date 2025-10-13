@@ -58,7 +58,7 @@
 ></div>
 <div
 	class={twMerge(
-		'hover:bg-surface-hover w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-2.5 border-b last:border-b-0',
+		'hover:bg-surface-hover w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-3 border-b last:border-b-0',
 		depth > 0 ? '!rounded-none' : ''
 	)}
 	style={depth > 0 ? `padding-left: ${depth * 32}px;` : ''}
@@ -68,7 +68,7 @@
 			<RowIcon {href} {kind} />
 		</div>
 		<div class="grow">
-			<div class="text-emphasis flex-wrap text-left text-xs font-medium">
+			<div class="text-primary flex-wrap text-left text-xs font-normal">
 				{#if marked}
 					{@html marked}
 				{:else}

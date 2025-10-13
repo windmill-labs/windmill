@@ -49,7 +49,7 @@
 				</div>
 
 				<div>
-					<span class="whitespace-nowrap"
+					<span class="whitespace-nowrap text-xs text-emphasis font-medium"
 						>{#if depth === 0}f/{/if}{item.folderName}</span
 					>
 					<div class="text-2xs font-normal text-secondary whitespace-nowrap">
@@ -85,7 +85,7 @@
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="text-center text-sm text-secondary cursor-pointer hover:text-primary"
+						class="text-center text-xs py-2 text-secondary cursor-pointer hover:text-primary"
 						onclick={() => {
 							if (isFolder(item)) {
 								showMax += Math.min(30, item.items.length - showMax)
@@ -116,7 +116,7 @@
 				</div>
 
 				<div>
-					<span class="whitespace-nowrap">u/{item.username}</span>
+					<span class="whitespace-nowrap text-xs text-emphasis font-medium">u/{item.username}</span>
 					<div class="text-2xs font-normal text-secondary whitespace-nowrap"
 						>({pluralize(item.items.length, ' item')})</div
 					>
@@ -149,7 +149,7 @@
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="text-center text-sm text-secondary cursor-pointer py-2 hover:text-primary"
+						class="text-center text-xs text-secondary cursor-pointer py-2 hover:text-primary"
 						onclick={() => {
 							if (isUser(item)) {
 								showMax += Math.min(30, item.items.length - showMax)

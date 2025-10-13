@@ -144,7 +144,7 @@
 			{#each items as item (item.path)}
 				<li class="flex flex-row w-full">
 					<button
-						class="p-4 gap-4 flex flex-row grow hover:bg-surface-hover transition-all items-center rounded-md"
+						class="p-4 gap-4 flex flex-row grow hover:bg-surface-hover transition-all items-center"
 						onclick={() => dispatch('pick', item)}
 					>
 						<div class="flex items-center gap-4">
@@ -156,7 +156,7 @@
 							</div>
 
 							<div class="w-full text-left font-normal">
-								<div class="text-emphasis flex-wrap text-xs font-medium mb-1">
+								<div class="text-primary flex-wrap text-xs font-normal mb-1">
 									{item.summary ?? ''}
 								</div>
 								<div class="text-secondary text-xs">

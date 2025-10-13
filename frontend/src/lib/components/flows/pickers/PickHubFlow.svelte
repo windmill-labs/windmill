@@ -60,14 +60,14 @@
 			{#each filteredItems as item (item)}
 				<li class="flex flex-row w-full">
 					<button
-						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover bg-surfacehite transition-all items-center"
+						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-surface-hover transition-all items-center"
 						onclick={() => dispatch('pick', item)}
 					>
 						<div class="flex items-center gap-4">
 							<RowIcon kind="flow" />
 
 							<div class="w-full text-left font-normal">
-								<div class="text-emphasis flex-wrap text-xs font-medium">
+								<div class="text-primary flex-wrap text-xs font-normal">
 									{#if item.marked}
 										{@html item.marked ?? ''}
 									{:else}
