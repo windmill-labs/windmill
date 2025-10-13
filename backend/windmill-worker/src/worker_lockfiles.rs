@@ -253,6 +253,8 @@ pub async fn handle_dependency_job(
 
             let current_hash = job.runnable_id.unwrap_or(ScriptHash(0));
             let w_id = &job.workspace_id;
+
+            // TODO: What if this thing is invalidated after we move update before it???
             let (deployment_message, parent_path) =
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
@@ -585,7 +587,9 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             continue;
         }
 
-        let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+        let mut tx = db.clone().begin().await?;
+        // TODO: Is debounce_key already locked? Or it will be locked only when we do update it in push?
+        // TODO: Can anything pull while we are here?
         let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
         if let Some(ref dm) = deployment_message {
             // TODO: How to consolidate deployment messages?
@@ -605,22 +609,46 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             to_raw_value(&already_visited),
         );
 
+        args.insert(
+            "triggered_by_relative_import".to_string(),
+            to_raw_value(&()),
+        );
+
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
-            let r =
-                // TODO: Not sure if this is safe:
-                // might have race conditions in edge-cases
-                get_latest_deployed_hash_for_path(None, db.clone(), w_id, s.importer_path.as_str())
-                    .await;
+            // let r =
+            //     // TODO: Not sure if this is safe:
+            //     // might have race conditions in edge-cases
+            //     get_latest_deployed_hash_for_path(None, db.clone(), w_id, s.importer_path.as_str())
+            //         .await;
+
+            let r = sqlx::query_scalar!(
+                "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false ORDER BY created_at DESC LIMIT 1",
+                script_path,
+                w_id
+            )
+            .fetch_one(&mut *tx).await;
+
             match r {
                 // We will create Dependency job as is. But the Dep Job Handler will detect that the job originates
                 // from [[trigger_dependents_to_recompute_dependencies]] and will create new script with new hash instead
-                Ok(r) => JobPayload::Dependencies {
-                    path: s.importer_path.clone(),
-                    hash: ScriptHash(r.hash),
-                    language: r.language,
-                    dedicated_worker: r.dedicated_worker,
-                },
+                Ok(hash) => {
+                    let info =
+                        windmill_common::get_script_info_for_hash(None, db, w_id, hash).await?;
+
+                    // JobPayload::Dependencies {
+                    //     path: s.importer_path.clone(),
+                    //     hash: ScriptHash(hash.hash),
+                    //     language: hash.language,
+                    //     dedicated_worker: hash.dedicated_worker,
+                    // }
+                    JobPayload::Dependencies {
+                        path: s.importer_path.clone(),
+                        hash: ScriptHash(hash),
+                        language: info.language,
+                        dedicated_worker: info.dedicated_worker,
+                    }
+                }
                 Err(err) => {
                     tracing::error!(
                         "error getting latest deployed hash for path {path}: {err}",
@@ -634,7 +662,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
         } else if kind == "flow" {
             tracing::debug!("Handling flow dependency update for: {}", s.importer_path);
             // Create transaction to make operation atomic.
-            let mut flow_tx = db.begin().await?;
+            // let mut flow_tx = db.begin().await?;
 
             // Note: Duplicate items in to_relock are handled by the accumulate_debounce_stale_data
             // function which uses DISTINCT when merging arrays
@@ -643,29 +671,35 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 to_raw_value(&s.importer_node_ids),
             );
 
+            // TODO: Create indexes?
             let r = sqlx::query_scalar!(
-                "SELECT versions[array_upper(versions, 1)] FROM flow WHERE path = $1 AND workspace_id = $2",
+                "SELECT id FROM flow_version WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
                 s.importer_path,
                 w_id,
-            ).fetch_optional(&mut *flow_tx)
-            .await
-            .map_err(to_anyhow).map(Option::flatten);
+            ).fetch_optional(&mut *tx)
+            .await;
+
+            dbg!(&r);
+            // .map_err(to_anyhow).map(Option::flatten);
+            // let r = sqlx::query_scalar!(
+            //     "SELECT versions[array_upper(versions, 1)] FROM flow WHERE path = $1 AND workspace_id = $2",
+            //     s.importer_path,
+            //     w_id,
+            // ).fetch_optional(&mut *tx)
+            // .await
+            // .map_err(to_anyhow).map(Option::flatten);
 
             match r {
                 // Get current version of current flow.
                 Ok(Some(cur_version)) => {
                     // NOTE: Temporary solution. See the usage for more details.
                     // TODO: May be use token_prefix instead
-                    args.insert(
-                        "triggered_by_relative_import".to_string(),
-                        to_raw_value(&()),
-                    );
                     // Commit the transaction.
                     // NOTE:
                     // We do not append flow.versions with new version.
                     // We will do this in the end of the dependency job handler.
                     // Otherwise it might become a source of race-conditions.
-                    flow_tx.commit().await?;
+                    // flow_tx.commit().await?;
                     JobPayload::FlowDependencies {
                         path: s.importer_path.clone(),
                         dedicated_worker: None,
@@ -685,7 +719,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                             &s.importer_path,
                             w_id,
                             "flow",
-                            flow_tx,
+                            tx,
                             &None,
                         )
                         .await
@@ -706,7 +740,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
         } else if kind == "app" && !*WMDEBUG_NO_NEW_APP_VERSION_ON_DJ {
             tracing::debug!("Handling flow dependency update for: {}", s.importer_path);
             // Create transaction to make operation atomic.
-            let mut tx = db.begin().await?;
+            // let mut tx = db.begin().await?;
 
             args.insert(
                 "components_to_relock".to_string(),
@@ -714,13 +748,20 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                 to_raw_value(&s.importer_node_ids),
             );
 
+            // let r = sqlx::query_scalar!(
+            //     "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2",
+            //     s.importer_path,
+            //     w_id,
+            // ).fetch_optional(&mut *tx)
+            // .await
+            // .map_err(to_anyhow).map(Option::flatten);
+
             let r = sqlx::query_scalar!(
-                "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2",
+                "SELECT id FROM app_version WHERE app_id = (SELECT id FROM app WHERE path = $1 AND workspace_id = $2) ORDER BY created_at DESC LIMIT 1",
                 s.importer_path,
                 w_id,
             ).fetch_optional(&mut *tx)
-            .await
-            .map_err(to_anyhow).map(Option::flatten);
+            .await;
 
             match r {
                 // Get current version of current flow.
@@ -731,7 +772,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         to_raw_value(&()),
                     );
 
-                    tx.commit().await?;
+                    // tx.commit().await?;
                     JobPayload::AppDependencies {
                         path: s.importer_path.clone(),
                         // Point Dep Job to the new version.
@@ -781,7 +822,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
         tracing::debug!("Pushing dependency job for: {}", s.importer_path);
         let (job_uuid, new_tx) = windmill_queue::push(
             db,
-            tx,
+            PushIsolationLevel::Transaction(tx),
             &w_id,
             job_payload,
             windmill_queue::PushArgs { args: &args, extra: None },
@@ -872,42 +913,42 @@ pub async fn handle_flow_dependency_job(
             })?
             .0;
 
-        if triggered_by_relative_import {
-            // Find out what would be the next version.
-            // Also clone current flow_version to get new_version (which is usually c_v + 1).
-            // NOTE: It is fine if something goes wrong downstream and `flow` is not being appended with this new version.
-            // This version will just remain in db and cause no trouble.
+        // if triggered_by_relative_import {
+        //     // Find out what would be the next version.
+        //     // Also clone current flow_version to get new_version (which is usually c_v + 1).
+        //     // NOTE: It is fine if something goes wrong downstream and `flow` is not being appended with this new version.
+        //     // This version will just remain in db and cause no trouble.
 
-            // TODO: ^^^ Except it is viewable as a flow version in history.
-            let new_version = sqlx::query_scalar!(
-                "INSERT INTO flow_version
-                (workspace_id, path, value, schema, created_by)
+        //     // TODO: ^^^ Except it is viewable as a flow version in history.
+        //     let new_version = sqlx::query_scalar!(
+        //         "INSERT INTO flow_version
+        //         (workspace_id, path, value, schema, created_by)
 
-                SELECT workspace_id, path, value, schema, created_by
-                FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
+        //         SELECT workspace_id, path, value, schema, created_by
+        //         FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
 
-                RETURNING id",
-                &job_path,
-                &job.workspace_id,
-                &version
-            )
-            .fetch_one(db)
-            .await
-            .map_err(|e| {
-                error::Error::internal_err(format!(
-                    "Error updating flow due to flow history insert: {e:#}"
-                ))
-            })?;
+        //         RETURNING id",
+        //         &job_path,
+        //         &job.workspace_id,
+        //         &version
+        //     )
+        //     .fetch_one(db)
+        //     .await
+        //     .map_err(|e| {
+        //         error::Error::internal_err(format!(
+        //             "Error updating flow due to flow history insert: {e:#}"
+        //         ))
+        //     })?;
 
-            // Replace old value with the new one.
-            // It will be used downstream.
-            job.runnable_id.replace(ScriptHash(new_version));
-            // TODO: Do we need to update preview_data?
+        //     // Replace old value with the new one.
+        //     // It will be used downstream.
+        //     job.runnable_id.replace(ScriptHash(new_version));
+        //     // TODO: Do we need to update preview_data?
 
-            Some(new_version)
-        } else {
-            Some(version)
-        }
+        //     Some(new_version)
+        // } else {
+        Some(version)
+        // }
     };
 
     tracing::trace!("Job details: {:?}", &job);
@@ -2149,27 +2190,27 @@ pub async fn handle_app_dependency_job(
         .unwrap_or_default();
 
     if let Some(runnable_id) = &mut job.runnable_id {
-        if triggered_by_relative_import {
-            let new_version = sqlx::query_scalar!(
-                "INSERT INTO app_version
-                (app_id, value, created_by, raw_app)
-            SELECT app_id, value, created_by, raw_app
-            FROM app_version WHERE id = $1
-            RETURNING id",
-                **runnable_id
-            )
-            .fetch_one(db)
-            .await
-            .map_err(|e| {
-                error::Error::internal_err(format!(
-                    "Error updating App due to App history insert: {e:#}"
-                ))
-            })?;
+        // if triggered_by_relative_import {
+        //     let new_version = sqlx::query_scalar!(
+        //         "INSERT INTO app_version
+        //         (app_id, value, created_by, raw_app)
+        //     SELECT app_id, value, created_by, raw_app
+        //     FROM app_version WHERE id = $1
+        //     RETURNING id",
+        //         **runnable_id
+        //     )
+        //     .fetch_one(db)
+        //     .await
+        //     .map_err(|e| {
+        //         error::Error::internal_err(format!(
+        //             "Error updating App due to App history insert: {e:#}"
+        //         ))
+        //     })?;
 
-            // Update version, so downstream code will use new one.
-            *runnable_id = ScriptHash(new_version);
-            id = new_version;
-        }
+        //     // Update version, so downstream code will use new one.
+        //     *runnable_id = ScriptHash(new_version);
+        //     id = new_version;
+        // }
     }
 
     sqlx::query!(

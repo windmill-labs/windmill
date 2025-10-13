@@ -2393,13 +2393,89 @@ pub async fn pull(
             return Ok(PulledJobResult { job: None, suspended, missing_concurrency_key: false });
         };
 
+        let kind = job.kind;
         // Handle dependency job debouncing cleanup when a job is pulled for execution
-        if job.kind.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING {
+        if kind.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING {
+            // Only used for testing in tests/relative_imports.rs
+            // Give us some space to work with.
+            #[cfg(debug_assertions)]
+            if let Some(duration) = job
+                .args
+                .as_ref()
+                .map(|x| {
+                    x.get("dbg_sleep_between_pull_and_debounce_key_removal")
+                        .map(|v| serde_json::from_str::<u32>(v.get()).ok())
+                        .flatten()
+                })
+                .flatten()
+            {
+                tracing::debug!("going to sleep",);
+                sleep(std::time::Duration::from_secs(duration as u64)).await;
+            }
+
             tracing::debug!(
                 "Processing debounce cleanup for dependency job {} at path {:?}",
                 &job.id,
                 &job.runnable_path
             );
+
+            if job
+                .args
+                .as_ref()
+                .map(|x| x.get("triggered_by_relative_import").is_some())
+                .unwrap_or_default()
+            {
+                dbg!("Updating latest flow version");
+                let new_id = match kind {
+                    JobKind::Dependencies => *job.runnable_id.unwrap(),
+                    JobKind::FlowDependencies => sqlx::query_scalar!(
+                        "INSERT INTO flow_version
+                        (workspace_id, path, value, schema, created_by)
+
+                        SELECT workspace_id, path, value, schema, created_by
+                        FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
+
+                        RETURNING id
+                        ",
+                        job.runnable_path(),
+                        job.workspace_id,
+                        *(job.runnable_id.clone().unwrap())
+                    )
+                    .fetch_one(db)
+                    .await
+                    .map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "Error updating flow due to flow history insert: {e:#}"
+                        ))
+                    })?,
+
+                    JobKind::AppDependencies => sqlx::query_scalar!(
+                        "INSERT INTO app_version
+                            (app_id, value, created_by, raw_app)
+                        SELECT app_id, value, created_by, raw_app
+                        FROM app_version WHERE id = $1
+                        RETURNING id",
+                        *(job.runnable_id.clone().unwrap()) // TODO: Unsafe unwrap()
+                    )
+                    .fetch_one(db)
+                    .await
+                    .map_err(|e| {
+                        error::Error::internal_err(format!(
+                            "Error updating App due to App history insert: {e:#}"
+                        ))
+                    })?,
+                    _ => unreachable!(),
+                };
+
+                job.runnable_id.replace(new_id.into());
+            }
+
+            // TODO:
+            // 1. What if we update from UI and the job is getting debounced? what about triggered_by_dependencies?
+            // 2. Raw deps cannot be debounced?
+            // 3. npm_mode + others.
+            // 4. on UI deployment it is literally the same as triggered_by_dependencies. But it uses nodes_to_relock.
+            // except it does not create new version.
 
             // IMPORTANT: We delete by job_id and NOT by debounce_key to avoid race conditions.
             // The debounce_key entry may be reused if the job it points to is already running,
@@ -4377,13 +4453,17 @@ pub async fn push<'c, 'd>(
         job_kind.is_dependency(),
         script_path.clone(),
         *WMDEBUG_NO_DJOB_DEBOUNCING,
+        // We only do debouncing for jobs triggered by relative imports
+        // We do not want this be the case for normal djobs, since they will always be sequential.
+        args.args.contains_key("triggered_by_relative_import"),
     ) {
         // For this to work we need:
         // 1. schedule job in future - this will correspond to debounce delay
         // 2. job should be dependency job
         // 3. object path should be provided
         // 4. fallback is disabled
-        (true, true, Some(obj_path), false) => {
+        // 5. the job is created by relative imports
+        (true, true, Some(obj_path), false, true) => {
             // Generate a unique key for this dependency job based on workspace and object path
             let debounce_key = format!("{workspace_id}:{obj_path}:dependency");
 
@@ -4393,7 +4473,7 @@ pub async fn push<'c, 'd>(
             );
 
             // Check if there's already a job registered for this debounce key
-            if let Some(debounce_job_id) = sqlx::query_scalar!(
+            if let Some(mut debounce_job_id) = sqlx::query_scalar!(
                 "SELECT job_id FROM debounce_key WHERE key = $1::text",
                 &debounce_key
             )
@@ -4416,7 +4496,7 @@ pub async fn push<'c, 'd>(
                 // that's why we create new debounce.
                 //
                 // we will just reuse existing entry for another debounce.
-                if sqlx::query_scalar!(
+                let debounced = if sqlx::query_scalar!(
                     "SELECT running FROM v2_job_queue WHERE id = $1",
                     &debounce_job_id
                 )
@@ -4428,6 +4508,7 @@ pub async fn push<'c, 'd>(
                         "You are lucky. Job has been pulled but debounce key hasn't been cleaned up yet, assigning new job_id {} to debounce_key",
                         job_id
                     );
+
                     sqlx::query!(
                         "UPDATE debounce_key SET job_id = $2 WHERE key = $1",
                         &debounce_key,
@@ -4435,7 +4516,11 @@ pub async fn push<'c, 'd>(
                     )
                     .execute(&mut *tx)
                     .await?;
-                }
+                    debounce_job_id = job_id;
+                    false
+                } else {
+                    true
+                };
 
                 // Accumulate the nodes/components that need relocking from this request
                 // This ensures all dependency updates are handled even if jobs are debounced
@@ -4449,8 +4534,10 @@ pub async fn push<'c, 'd>(
                     accumulate_debounce_stale_data(&mut tx, &debounce_job_id, &to_relock).await?;
                 }
 
-                // Return the existing job ID, effectively debouncing this request
-                return Ok((debounce_job_id, tx));
+                if debounced {
+                    // Return the existing job ID, effectively debouncing this request
+                    return Ok((debounce_job_id, tx));
+                }
             } else {
                 // No existing debounce entry, create a new one
                 tracing::debug!("Creating new debounce entry for key: {}", &debounce_key);
