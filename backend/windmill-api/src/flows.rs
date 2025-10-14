@@ -885,6 +885,7 @@ async fn update_flow(
         .await?;
     }
 
+    // This will lock anyone who is trying to iterate on flow_versions with given path and parameters.
     let version = sqlx::query_scalar!(
         "INSERT INTO flow_version (workspace_id, path, value, schema, created_by) VALUES ($1, $2, $3, $4::text::json, $5) RETURNING id",
         w_id,
@@ -901,6 +902,7 @@ async fn update_flow(
         ))
     })?;
 
+    // TODO: This should happen only after we are done with dependency job.
     sqlx::query!(
         "UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
         version, nf.path, w_id
@@ -1018,6 +1020,7 @@ async fn update_flow(
         None,
     )
     .await?;
+
     sqlx::query!(
         "UPDATE flow SET dependency_job = $1 WHERE path = $2 AND workspace_id = $3",
         dependency_job_uuid,

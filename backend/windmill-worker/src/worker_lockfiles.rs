@@ -597,6 +597,15 @@ pub async fn trigger_dependents_to_recompute_dependencies(
     db: &sqlx::Pool<sqlx::Postgres>,
     mut already_visited: Vec<String>,
 ) -> error::Result<()> {
+    // TODO: There is a race-condition.
+    // This can be old version.
+    //
+    // Check lines of code below, you will find that we get the latest version of the script/app/flow
+    //
+    // However the latest version does not necesserely mean that it is finalized.
+    // Instead we assume that this would be the version we would base on.
+    //
+    // So the script_importers might be behind. Thus some information like nodes_to_relock might be lost.
     let script_importers = sqlx::query!(
         "SELECT importer_path, importer_kind::text, array_agg(importer_node_id) as importer_node_ids FROM dependency_map
          WHERE imported_path = $1
