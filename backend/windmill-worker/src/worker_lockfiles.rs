@@ -748,7 +748,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             ).fetch_optional(&mut *tx)
             .await;
 
-            dbg!(&r);
             // .map_err(to_anyhow).map(Option::flatten);
             // let r = sqlx::query_scalar!(
             //     "SELECT versions[array_upper(versions, 1)] FROM flow WHERE path = $1 AND workspace_id = $2",
