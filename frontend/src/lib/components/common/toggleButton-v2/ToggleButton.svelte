@@ -49,8 +49,8 @@
 		{id}
 		{disabled}
 		class={twMerge(
-			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center border',
-			small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-2 text-xs',
+			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center justify-center border',
+			small ? 'px-1.5 py-0.5 text-2xs min-h-6 min-w-6' : 'px-2 py-2 text-xs min-h-8 min-w-8',
 			'text-primary data-[state=on]:text-emphasis',
 			'data-[state=on]:bg-surface-tertiary data-[state=off]:border-transparent data-[state=on]:border-border-normal',
 			'bg-surface-transparent hover:bg-surface-hover',
