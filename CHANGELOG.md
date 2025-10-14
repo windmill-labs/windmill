@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.559.0](https://github.com/windmill-labs/windmill/compare/v1.558.1...v1.559.0) (2025-10-14)
+
+
+### Features
+
+* Add back apply code button in CodeDisplay ([#6800](https://github.com/windmill-labs/windmill/issues/6800)) ([b630208](https://github.com/windmill-labs/windmill/commit/b630208ece8aca9decd30b6964afb88aa8025f41))
+* add support for contextual vars in SQL ([#6791](https://github.com/windmill-labs/windmill/issues/6791)) ([b972eb9](https://github.com/windmill-labs/windmill/commit/b972eb97219d1aba4c820c2e9cd18d519cbd25b4))
+* **rust:** add resource types ([#5843](https://github.com/windmill-labs/windmill/issues/5843)) ([e2feba3](https://github.com/windmill-labs/windmill/commit/e2feba391c47fd62c3ba76556b4c2777e10dc192))
+
+
+### Bug Fixes
+
+* **internal:** no max turns ([#6805](https://github.com/windmill-labs/windmill/issues/6805)) ([1a0dbf7](https://github.com/windmill-labs/windmill/commit/1a0dbf7982a647eff40031439e930b1ff53ae615))
+* Safeguard prevents button from deleting non-fork workspaces ([#6795](https://github.com/windmill-labs/windmill/issues/6795)) ([9149faf](https://github.com/windmill-labs/windmill/commit/9149faf3053431633f6046aa3d20ef8fdfb05fea))
+* show workspace prefix to non superadmins for app deploy custom path ([#6793](https://github.com/windmill-labs/windmill/issues/6793)) ([e0d9017](https://github.com/windmill-labs/windmill/commit/e0d90170365d799f05222457feb0fc7f27edf945))
+
 ## [1.558.1](https://github.com/windmill-labs/windmill/compare/v1.558.0...v1.558.1) (2025-10-09)
 
 
