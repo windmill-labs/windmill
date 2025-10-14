@@ -103,6 +103,7 @@
             wasm-pack
             deno
             emscripten
+            nushell
             # Needed for extra dependencies
             glibc_multi
           ]);
