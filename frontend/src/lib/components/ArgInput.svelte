@@ -1016,7 +1016,7 @@
 			<ObjectResourceInput
 				{disabled}
 				{defaultValue}
-				selectFirst={!noDefaultOnSelectFirst}
+				selectFirst={!noDefaultOnSelectFirst && required}
 				{disablePortal}
 				format={format ?? ''}
 				bind:value
