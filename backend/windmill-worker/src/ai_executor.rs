@@ -21,7 +21,7 @@ use windmill_common::{
     error::{self, Error},
     flow_conversations::MessageType,
     flow_status::AgentAction,
-    flows::{FlowModuleValue, FlowValue, InputTransform},
+    flows::{FlowModule, FlowModuleValue, FlowValue},
     get_latest_hash_for_path,
     jobs::JobKind,
     scripts::get_full_hub_script_by_path,
@@ -118,17 +118,23 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    // Extract mcp_resources from input_transforms
-    let mcp_resources: Vec<String> = input_transforms
-        .get("mcp_resources")
-        .and_then(|it| match it {
-            InputTransform::Static { value } => Some(value),
-            _ => None,
-        })
-        .and_then(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
-        .unwrap_or_default();
+    // Separate Windmill tools and MCP resource paths from the tools list
+    let mut windmill_modules: Vec<FlowModule> = Vec::new();
+    let mut mcp_resource_paths: Vec<String> = Vec::new();
 
-    let tools = futures::future::try_join_all(tools.into_iter().map(|mut t| {
+    for tool in tools {
+        match tool {
+            windmill_common::flows::Tool::Windmill(module) => {
+                windmill_modules.push(*module);
+            }
+            windmill_common::flows::Tool::Mcp(mcp_ref) => {
+                mcp_resource_paths.push(mcp_ref.resource_path);
+            }
+        }
+    }
+
+    // Process Windmill flow modules into Tool definitions
+    let tools = futures::future::try_join_all(windmill_modules.into_iter().map(|mut t| {
         let conn = conn;
         let db = db;
         let job = job;
@@ -169,7 +175,7 @@ pub async fn handle_ai_agent_job(
                             .await?;
                             Ok(Some(hub_script.schema))
                         } else {
-                            let hash = get_latest_hash_for_path(db, &job.workspace_id, path, true)
+                            let hash = get_latest_hash_for_path(db, &job.workspace_id, path.as_str(), true)
                                 .await?
                                 .0;
                             // update module definition to use a fixed hash so all tool calls match the same schema
@@ -232,8 +238,8 @@ pub async fn handle_ai_agent_job(
 
     // Load MCP tools if configured
     let mut tools = tools;
-    let mcp_clients = if !mcp_resources.is_empty() {
-        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_resources).await?;
+    let mcp_clients = if !mcp_resource_paths.is_empty() {
+        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_resource_paths).await?;
         tools.extend(mcp_tools);
         clients
     } else {
