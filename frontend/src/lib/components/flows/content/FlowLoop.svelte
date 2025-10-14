@@ -188,6 +188,11 @@
 						<div class="mb-2 text-sm font-bold">Run in parallel</div>
 						<Toggle
 							bind:checked={mod.value.parallel}
+							on:change={({ detail }) => {
+								if (detail == false) {
+									;(mod.value as ForloopFlow).parallelism = undefined
+								}
+							}}
 							options={{
 								right: 'All iterations run in parallel'
 							}}
