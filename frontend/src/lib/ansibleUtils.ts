@@ -220,6 +220,7 @@ export function extractDelegateToGitRepoConfig(code: string): DelegateToGitRepoC
  * @returns The modified YAML script content
  */
 export function insertAdditionalInventories(code: string, inventoryPaths: string[]): string {
+	console.log("asdasdassdadas")
 	const lines = code.split('\n')
 
 	// Find and update existing additional_inventories section if it exists
@@ -293,7 +294,7 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 
 		// Format the new options content
 		const optionsIndentation = '  ' // Standard 2-space indentation under additional_inventories
-		const formattedPaths = inventoryPaths.map(path => `"${path}"`)
+		const formattedPaths = inventoryPaths.map(path => `"delegated_git_repository/${path}"`)
 		const inlineFormat = `${optionsIndentation}- options: [${formattedPaths.join(', ')}]`
 
 		let newOptionsContent: string[]
@@ -304,7 +305,7 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 			// Use dash format
 			newOptionsContent = [`${optionsIndentation}- options:`]
 			inventoryPaths.forEach(path => {
-				newOptionsContent.push(`${optionsIndentation}  - "${path}"`)
+				newOptionsContent.push(`${optionsIndentation}  - "delegated_git_repository/${path}"`)
 			})
 		}
 
@@ -320,7 +321,7 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 	}
 
 	// Format the inventory paths based on length
-	const formattedPaths = inventoryPaths.map(path => `"${path}"`)
+	const formattedPaths = inventoryPaths.map(path => `"delegated_git_repository/${path}"`)
 	const inlineFormat = `options: [${formattedPaths.join(', ')}]`
 
 	let inventorySection: string[]
@@ -337,7 +338,7 @@ export function insertAdditionalInventories(code: string, inventoryPaths: string
 			'  - options:'
 		]
 		inventoryPaths.forEach(path => {
-			inventorySection.push(`    - "${path}"`)
+			inventorySection.push(`    - "delegated_git_repository/${path}"`)
 		})
 	}
 
