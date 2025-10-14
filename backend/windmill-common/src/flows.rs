@@ -620,10 +620,8 @@ pub struct McpToolRef {
     /// Display name / summary for this MCP server
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
-    /// Path to the MCP resource - can be static or a JavaScript expression
-    /// Static: {"type": "static", "value": "u/admin/my_mcp_server"}
-    /// JS: {"type": "javascript", "expr": "flow_input.server"} or {"type": "javascript", "expr": "results.a.mcp_path"}
-    pub resource_path: InputTransform,
+    /// Path to the MCP resource (e.g., "u/admin/my_mcp_server")
+    pub resource_path: String,
 }
 
 /// Tool that can be used by an AI agent - Serialize only

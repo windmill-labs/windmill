@@ -2763,27 +2763,12 @@ async fn push_next_flow_job(
                 .map(Marc::new)
                 .map_err(|e| error::Error::internal_err(format!("identity: {e:#}")))
             }
-            Ok(FlowModuleValue::AIAgent { input_transforms, tools }) => {
+            Ok(FlowModuleValue::AIAgent { input_transforms, .. }) => {
                 let ctx = get_transform_context(&flow_job, &previous_id, &status)
                     .warn_after_seconds(3)
                     .await?;
                 transform_context = Some(ctx);
                 let by_id = transform_context.as_ref().unwrap();
-
-                // Resolve MCP resource paths
-                let mut resolved_mcp_paths: Vec<String> = Vec::new();
-                for tool in tools {
-                    if let windmill_common::flows::Tool::Mcp(mcp_ref) = tool {
-                        let resource_path: String = evaluate_input_transform(
-                            &mcp_ref.resource_path,
-                            arc_last_job_result.clone(),
-                            Some(arc_flow_job_args.clone()),
-                            Some(client),
-                            Some(by_id),
-                        ).await?;
-                        resolved_mcp_paths.push(resource_path);
-                    }
-                }
 
                 // if a failure step, we add flow job id and started_at to the context. This is for error handling of triggers where we wrap scripts into single step flows
                 // It's to make its arguments consistent with global/workspace/schedule error handlers.
@@ -2794,7 +2779,7 @@ async fn push_next_flow_job(
                     }),
                     _ => None,
                 };
-                let mut transformed_args = transform_input(
+                transform_input(
                     arc_flow_job_args.clone(),
                     arc_last_job_result.clone(),
                     input_transforms,
@@ -2806,17 +2791,8 @@ async fn push_next_flow_job(
                     client,
                 )
                 .warn_after_seconds(3)
-                .await?;
-
-                // Add resolved MCP paths to args
-                if !resolved_mcp_paths.is_empty() {
-                    transformed_args.insert(
-                        "_wm_mcp_resource_paths".to_string(),
-                        to_raw_value(&resolved_mcp_paths),
-                    );
-                }
-
-                Ok(Marc::new(transformed_args))
+                .await
+                .map(Marc::new)
             }
             Ok(
                 FlowModuleValue::Script { input_transforms, .. }
