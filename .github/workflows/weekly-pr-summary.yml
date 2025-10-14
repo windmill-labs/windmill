@@ -65,7 +65,7 @@ jobs:
 
             **Total PRs Merged**: X
 
-            **#[PR_NUMBER]: [PR Title]**
+            **[PR Title]**
             Author: @username
             [1-2 sentence description from PR body]
 
