@@ -602,7 +602,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
     //
     // Check lines of code below, you will find that we get the latest version of the script/app/flow
     //
-    // However the latest version does not necesserely mean that it is finalized.
+    // However the latest version does not necessarily mean that it is finalized.
     // Instead we assume that this would be the version we would base on.
     //
     // So the script_importers might be behind. Thus some information like nodes_to_relock might be lost.
