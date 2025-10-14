@@ -13,7 +13,14 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
     let docs = YamlLoader::load_from_str(inner_content)
         .map_err(|e| anyhow!("Failed to parse yaml: {}", e))?;
 
-    if docs.len() < 2 {
+    let mut delegating_to_git_repo = false;
+    if let Yaml::Hash(doc) = &docs[0] {
+        if let Some(v) = doc.get(&Yaml::String("delegate_to_git_repo".to_string())) {
+            delegating_to_git_repo = extract_delegate_to_git_repo_details(v).is_some();
+        }
+    }
+
+    if docs.len() < 2 && !delegating_to_git_repo {
         return Ok(MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -413,9 +420,6 @@ pub fn parse_ansible_reqs(
     let docs = YamlLoader::load_from_str(inner_content)
         .map_err(|e| anyhow!("Failed to parse yaml: {}", e))?;
 
-    if docs.len() < 2 {
-        return Ok((logs, None, inner_content.to_string()));
-    }
 
     let mut ret = AnsibleRequirements::default();
 
@@ -865,6 +869,7 @@ pub fn add_versions_to_requirements_yaml(
     Ok((out_str, logs))
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 
