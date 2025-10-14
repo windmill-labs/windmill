@@ -58,6 +58,7 @@ use std::{
     time::Duration,
 };
 use windmill_parser::MainArgSignature;
+use windmill_queue::debouncing_job_preprocessor;
 use windmill_queue::PulledJobResultToJobErr;
 
 use uuid::Uuid;
@@ -1580,7 +1581,7 @@ pub async fn run_worker(
 
                         // TODO: Test if suspend works in dedicated worker.
                         // TODO: Test if suspend works in this branch.
-                        let job = match timeout(
+                        let mut job = match timeout(
                             Duration::from_secs(10),
                             pull(
                                 &db,
@@ -1601,6 +1602,16 @@ pub async fn run_worker(
                                 continue;
                             }
                         };
+
+                        // Essential debouncing job preprocessing.
+                        if let Ok(windmill_queue::PulledJobResult {
+                            job: Some(ref mut pulled_job),
+                            ..
+                        }) = &mut job
+                        {
+                            // TODO: Do proper error handling
+                            debouncing_job_preprocessor(pulled_job, &db).await.unwrap();
+                        }
 
                         add_time!(bench, "job pulled from DB");
                         let duration_pull_s = pull_time.elapsed().as_secs_f64();
@@ -2555,6 +2566,7 @@ pub async fn handle_queued_job(
             })
             .flatten()
         {
+            tracing::debug!("Debug: {} going to sleep for {}", job.id, dbg_djob_sleep);
             sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
         }
 

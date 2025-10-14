@@ -224,7 +224,7 @@ def main():
         )
         .await;
 
-        // tokio::time::sleep(std::time::Duration::from_secs(13)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(13)).await;
 
         assert_dmap(
             &db,
@@ -825,6 +825,12 @@ def main():
                     windmill_common::worker::to_raw_value(&20),
                 );
 
+                args.insert(
+                    "triggered_by_relative_import".to_owned(),
+                    // Execution should take this seconds
+                    windmill_common::worker::to_raw_value(&()),
+                );
+
                 let (_flow_id, new_tx) = windmill_queue::push(
                     &db,
                     windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
@@ -856,6 +862,7 @@ def main():
                     None,
                     None,
                     false,
+                    None,
                     None,
                 )
                 .await
@@ -914,7 +921,7 @@ def main():
                         completed.next().await;
                         completed.next().await;
                         completed.next().await;
-                        completed.next().await;
+                        // completed.next().await;
                     },
                     port,
                 )
@@ -936,13 +943,7 @@ def main():
                 .unwrap();
 
             assert_eq!(
-                vec![
-                    Some(2),
-                    Some(333400),
-                    Some(1443253234253454),
-                    Some(333403),
-                    Some(1443253234253454)
-                ],
+                vec![Some(1), Some(333400), Some(333403), Some(1443253234253454)],
                 r
             );
 
@@ -967,7 +968,11 @@ def main():
 
             // Function to create a dependency job
             let create_dependency_job =
-                |delay, nodes_to_relock, db: sqlx::Pool<sqlx::Postgres>, version| async move {
+                |delay,
+                 nodes_to_relock,
+                 db: sqlx::Pool<sqlx::Postgres>,
+                 version,
+                 debounce_job_id_o| async move {
                     let mut args = std::collections::HashMap::new();
                     args.insert(
                         "dbg_sleep_between_pull_and_debounce_key_removal".to_owned(),
@@ -1015,6 +1020,7 @@ def main():
                         None,
                         false,
                         None,
+                        debounce_job_id_o,
                     )
                     .await
                     .unwrap();
@@ -1024,7 +1030,8 @@ def main():
                 };
 
             // Push the first dependency job
-            let job1 = create_dependency_job(2, vec!["a", "b"], db.clone(), 1443253234253454).await;
+            let job1 =
+                create_dependency_job(2, vec!["a", "b"], db.clone(), 1443253234253454, None).await;
 
             let db2 = db.clone();
             in_test_worker(
@@ -1060,7 +1067,8 @@ def main():
 
                     // Now push a second dependency job while the first is being processed
                     // This should trigger the race condition handling code
-                    let job2 = create_dependency_job(0, vec!["b", "c"], db.clone(), 1).await;
+                    let job2 =
+                        create_dependency_job(0, vec!["b", "c"], db.clone(), 1, Some(job1)).await;
 
                     // The second job should find the existing debounce_key but see that
                     // the first job is already running, so it will create a new job
@@ -1070,17 +1078,17 @@ def main():
                     completed.next().await;
 
                     // Wait for the second job to finish
-                    completed.next().await;
+                    // completed.next().await;
 
                     // Verify that both jobs were created and processed
-                    assert_ne!(job1, job2, "Two different jobs should have been created");
+                    assert_eq!(job1, job2, "Second job should be debounced");
                 },
                 port,
             )
             .await;
 
             assert_eq!(
-                vec![1443253234253454, 1, 2],
+                vec![1443253234253454, 1],
                 sqlx::query_scalar!("SELECT versions FROM flow WHERE path = 'f/dre/flow'")
                     .fetch_one(&db)
                     .await
@@ -1139,7 +1147,7 @@ def main():
 
             // At this point we should have two
             let mut job_ids = vec![];
-            let push_job = |delay, version, db, nodes_to_relock| async move {
+            let push_job = |delay, version, db, nodes_to_relock, debounce_job_id_o| async move {
                 let mut args = std::collections::HashMap::new();
                 args.insert(
                     "dbg_djob_sleep".to_owned(),
@@ -1192,6 +1200,7 @@ def main():
                     None,
                     false,
                     None,
+                    debounce_job_id_o,
                 )
                 .await
                 .unwrap();
@@ -1202,7 +1211,7 @@ def main():
             };
 
             // Push first
-            job_ids.push(push_job(5, 1443253234253454, db.clone(), ["a", "b"]).await);
+            job_ids.push(push_job(5, 1443253234253454, db.clone(), ["a", "b"], None).await);
 
             // Verify debounce_stale_data and debounce_key
             {
@@ -1237,7 +1246,7 @@ def main():
             windmill_common::worker::update_min_version(&Connection::Sql(db.clone())).await;
 
             // Push second
-            job_ids.push(push_job(0, 1, db.clone(), ["b", "c"]).await);
+            job_ids.push(push_job(0, 1, db.clone(), ["b", "c"], None).await);
 
             // Wait for the second one to finish in separate worker.
             // in_test_worker(&db, completed.next(), port).await;
@@ -1526,6 +1535,11 @@ WHERE
                     // Execution should take this seconds
                     windmill_common::worker::to_raw_value(&20),
                 );
+                args.insert(
+                    "triggered_by_relative_import".to_owned(),
+                    // Execution should take this seconds
+                    windmill_common::worker::to_raw_value(&()),
+                );
 
                 let (_flow_id, new_tx) = windmill_queue::push(
                     &db,
@@ -1557,6 +1571,7 @@ WHERE
                     None,
                     None,
                     false,
+                    None,
                     None,
                 )
                 .await
@@ -1615,7 +1630,7 @@ WHERE
                         completed.next().await;
                         completed.next().await;
                         completed.next().await;
-                        completed.next().await;
+                        // completed.next().await;
                     },
                     port,
                 )
@@ -1636,10 +1651,7 @@ WHERE
                 .await
                 .unwrap();
 
-            assert_eq!(
-                vec![Some(10), Some(433400), Some(0), Some(433403), Some(0)],
-                r
-            );
+            assert_eq!(vec![Some(9), Some(433400), Some(433403), Some(0)], r);
 
             Ok(())
         }
@@ -1661,6 +1673,11 @@ WHERE
                     // First one will create delay for 5 seconds
                     // The second will have no delay at all.
                     windmill_common::worker::to_raw_value(&delay),
+                );
+
+                args.insert(
+                    "triggered_by_relative_import".to_string(),
+                    windmill_common::worker::to_raw_value(&()),
                 );
 
                 let (job_uuid, new_tx) = windmill_queue::push(
@@ -1694,6 +1711,7 @@ WHERE
                     None,
                     None,
                     false,
+                    None,
                     None,
                 )
                 .await
@@ -1814,6 +1832,7 @@ WHERE
         /// 1. LLF and RLF create two djobs for flow at the same and fall into single debounce
         #[cfg(feature = "python")]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
+        // TODO: Same test_but script fails.
         async fn test_1(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             // This tests if debouncing and consolidation works.
             // Also makes sures that dependency job does not create new flow version
@@ -1988,9 +2007,28 @@ WHERE
                 .unwrap(),
                 "f/dre_script/script"
             );
+            // completed.next().await.unwrap();
 
             // Verify
             {
+                assert_eq!(
+                    0,
+                    sqlx::query_scalar!("SELECT COUNT(*) from v2_job_queue")
+                        .fetch_one(&db)
+                        .await
+                        .unwrap()
+                        .unwrap()
+                );
+                assert_eq!(
+                    vec![533404],
+                    dbg!(sqlx::query_scalar!(
+                        "SELECT hash FROM script WHERE path = 'f/dre_script/script' AND archived = true"
+                    )
+                    .fetch_all(&db)
+                    .await
+                    .unwrap())
+                );
+
                 assert_ne!(
                     533404,
                     sqlx::query_scalar!(
@@ -2010,16 +2048,6 @@ WHERE
                     .await
                     .unwrap()
                     .unwrap()
-                );
-
-                assert_eq!(
-                    vec![533404],
-                    dbg!(sqlx::query_scalar!(
-                        "SELECT hash FROM script WHERE path = 'f/dre_script/script' AND archived = true"
-                    )
-                    .fetch_all(&db)
-                    .await
-                    .unwrap())
                 );
             }
 
@@ -2065,6 +2093,12 @@ WHERE
                     windmill_common::worker::to_raw_value(&20),
                 );
 
+                args.insert(
+                    "triggered_by_relative_import".to_owned(),
+                    // Execution should take this seconds
+                    windmill_common::worker::to_raw_value(&()),
+                );
+
                 let (_flow_id, new_tx) = windmill_queue::push(
                     &db,
                     windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
@@ -2097,6 +2131,7 @@ WHERE
                     None,
                     None,
                     false,
+                    None,
                     None,
                 )
                 .await
@@ -2138,6 +2173,7 @@ WHERE
                         .run_until_complete(&db, port)
                         .await;
 
+                        // This one is supposed to be started after flow djob has debounced and started but haven't finished yet.
                         RunJob::from(windmill_common::jobs::JobPayload::Dependencies {
                             path: "f/dre_script/leaf_left".to_owned(),
                             hash: 533400.into(),
@@ -2149,13 +2185,15 @@ WHERE
                         .run_until_complete(&db, port)
                         .await;
 
+                        // Verify runnable ids are different
+
                         // assert_eq!(completed.next().await.unwrap(), flow_id);
 
                         completed.next().await;
                         completed.next().await;
                         completed.next().await;
                         completed.next().await;
-                        completed.next().await;
+                        // completed.next().await;
                     },
                     port,
                 )
@@ -2178,11 +2216,8 @@ WHERE
 
             assert_eq!(
                 vec![
-                    // TODO: Why this
-                    Some(-1531113812573927612),
+                    Some(-221349019907577876),
                     Some(533400),
-                    // And this are different?
-                    Some(4307044321200691775),
                     Some(533403),
                     Some(533404)
                 ],
@@ -2192,187 +2227,203 @@ WHERE
             Ok(())
         }
 
-        /// 3. Same as second test, however first app djob will take longer than second debounce.
-        /// NOTE: This test should be ran in debug mode. In release it will not work properly.
-        #[cfg(all(feature = "python", feature = "private"))]
-        #[sqlx::test(fixtures("base", "djob_debouncing"))]
-        async fn test_3(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-            // This tests checks if concurrency limit works correcly and there is no race conditions.
-            let (client, port, _s) = init_client(db.clone()).await;
-            let mut completed = listen_for_completed_jobs(&db).await;
+        //         // TODO: we don't need scripts to have concurrency limit
+        //         /// 3. Same as second test, however first app djob will take longer than second debounce.
+        //         /// NOTE: This test should be ran in debug mode. In release it will not work properly.
+        //         #[cfg(all(feature = "python", feature = "private"))]
+        //         #[sqlx::test(fixtures("base", "djob_debouncing"))]
+        //         async fn test_3(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+        //             // This tests checks if concurrency limit works correcly and there is no race conditions.
+        //             let (client, port, _s) = init_client(db.clone()).await;
+        //             let mut completed = listen_for_completed_jobs(&db).await;
 
-            // At this point we should have two
-            let mut job_ids = vec![];
-            let push_job = |delay, db| async move {
-                let mut args = std::collections::HashMap::new();
-                args.insert(
-                    "dbg_djob_sleep".to_owned(),
-                    // First one will create delay for 5 seconds
-                    // The second will have no delay at all.
-                    windmill_common::worker::to_raw_value(&delay),
-                );
+        //             // At this point we should have two
+        //             let mut job_ids = vec![];
+        //             let push_job = |delay, db| async move {
+        //                 let mut args = std::collections::HashMap::new();
+        //                 args.insert(
+        //                     "dbg_djob_sleep".to_owned(),
+        //                     // First one will create delay for 5 seconds
+        //                     // The second will have no delay at all.
+        //                     windmill_common::worker::to_raw_value(&delay),
+        //                 );
 
-                let (job_uuid, new_tx) = windmill_queue::push(
-                    &db,
-                    windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
-                    "test-workspace",
-                    windmill_common::jobs::JobPayload::Dependencies {
-                        path: "f/dre_script/script".to_owned(),
-                        language: windmill_common::scripts::ScriptLang::Python3,
-                        dedicated_worker: None,
-                        hash: windmill_common::scripts::ScriptHash(533404),
-                    },
-                    windmill_queue::PushArgs { args: &args, extra: None },
-                    "admin",
-                    "admin@windmill.dev",
-                    "admin".to_owned(),
-                    Some("trigger.dependents.to.recompute.dependencies"),
-                    // Schedule for now.
-                    Some(chrono::Utc::now()),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    false,
-                    false,
-                    None,
-                    true,
-                    Some("dependency".into()),
-                    None,
-                    None,
-                    None,
-                    None,
-                    false,
-                    None,
-                )
-                .await
-                .unwrap();
+        //                 args.insert(
+        //                     "triggered_by_relative_import".to_string(),
+        //                     windmill_common::worker::to_raw_value(&()),
+        //                 );
 
-                new_tx.commit().await.unwrap();
+        //                 let (job_uuid, new_tx) = windmill_queue::push(
+        //                     &db,
+        //                     windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
+        //                     "test-workspace",
+        //                     windmill_common::jobs::JobPayload::Dependencies {
+        //                         path: "f/dre_script/script".to_owned(),
+        //                         language: windmill_common::scripts::ScriptLang::Python3,
+        //                         dedicated_worker: None,
+        //                         hash: windmill_common::scripts::ScriptHash(533404),
+        //                     },
+        //                     windmill_queue::PushArgs { args: &args, extra: None },
+        //                     "admin",
+        //                     "admin@windmill.dev",
+        //                     "admin".to_owned(),
+        //                     Some("trigger.dependents.to.recompute.dependencies"),
+        //                     // Schedule for now.
+        //                     Some(chrono::Utc::now()),
+        //                     None,
+        //                     None,
+        //                     None,
+        //                     None,
+        //                     None,
+        //                     false,
+        //                     false,
+        //                     None,
+        //                     true,
+        //                     Some("dependency".into()),
+        //                     None,
+        //                     None,
+        //                     None,
+        //                     None,
+        //                     false,
+        //                     None,
+        //                     None,
+        //                 )
+        //                 .await
+        //                 .unwrap();
 
-                job_uuid
-            };
+        //                 new_tx.commit().await.unwrap();
 
-            // Push first
-            job_ids.push(push_job(5, db.clone()).await);
+        //                 job_uuid
+        //             };
 
-            // Verify debounce_stale_data and debounce_key
-            {
-                let q = sqlx::query_scalar!("SELECT key FROM debounce_key")
-                    .fetch_all(&db)
-                    .await
-                    .unwrap();
+        //             // Push first
+        //             job_ids.push(push_job(5, db.clone()).await);
+        //             sleep(Duration::from_millis(300)).await;
 
-                assert_eq!(q.len(), 1);
+        //             // Verify debounce_stale_data and debounce_key
+        //             {
+        //                 let q = sqlx::query_scalar!("SELECT key FROM debounce_key")
+        //                     .fetch_all(&db)
+        //                     .await
+        //                     .unwrap();
 
-                assert_eq!(
-                    q[0].clone(),
-                    "test-workspace:f/dre_script/script:dependency".to_owned(),
-                );
+        //                 assert_eq!(q.len(), 1);
 
-                // Stale data is empty for scripts
-                assert_eq!(
-                    sqlx::query_scalar!("SELECT COUNT(*) FROM debounce_stale_data")
-                        .fetch_one(&db)
-                        .await
-                        .unwrap()
-                        .unwrap(),
-                    0
-                );
-            }
+        //                 assert_eq!(
+        //                     q[0].clone(),
+        //                     "test-workspace:f/dre_script/script:dependency".to_owned(),
+        //                 );
 
-            // Start the first one in the background
-            let handle = {
-                let mut completed = listen_for_completed_jobs(&db).await;
-                let db2 = db.clone();
-                tokio::spawn(async move {
-                    in_test_worker(
-                        &db2,
-                        // sleep(Duration::from_secs(7)),
-                        completed.next(), // Only wait for the single job. We are going to spawn another worker for second one.
-                        port,
-                    )
-                    .await;
-                })
-            };
+        //                 // Stale data is empty for scripts
+        //                 assert_eq!(
+        //                     sqlx::query_scalar!("SELECT COUNT(*) FROM debounce_stale_data")
+        //                         .fetch_one(&db)
+        //                         .await
+        //                         .unwrap()
+        //                         .unwrap(),
+        //                     0
+        //                 );
+        //             }
 
-            // Wait for the job to be created and started
-            // This way next job is not going to be consumed by the first one.
-            sleep(Duration::from_secs(1)).await;
+        //             // Start the first one in the background
+        //             let handle = {
+        //                 let mut completed = listen_for_completed_jobs(&db).await;
+        //                 let db2 = db.clone();
+        //                 tokio::spawn(async move {
+        //                     in_test_worker(
+        //                         &db2,
+        //                         // sleep(Duration::from_secs(7)),
+        //                         completed.next(), // Only wait for the single job. We are going to spawn another worker for second one.
+        //                         port,
+        //                     )
+        //                     .await;
+        //                 })
+        //             };
 
-            // Push second
-            job_ids.push(push_job(0, db.clone()).await);
+        //             // Wait for the job to be created and started
+        //             // This way next job is not going to be consumed by the first one.
+        //             sleep(Duration::from_secs(1)).await;
 
-            // Wait for the second one to finish in separate worker.
-            in_test_worker(
-                &db,
-                async {
-                    // First job will be pulled
-                    completed.next().await;
-                    // However since we have concurrency limit enabled it will get rescheduled by creation of new djob.
-                    // So we have to wait for that one as well.
-                    completed.next().await;
-                },
-                port,
-            )
-            .await;
+        //             // Push second
+        //             job_ids.push(push_job(0, db.clone()).await);
 
-            // Wait for the first one
-            handle.await.unwrap();
+        //             // Wait for the second one to finish in separate worker.
+        //             in_test_worker(
+        //                 &db,
+        //                 async {
+        //                     // First job will be pulled
+        //                     completed.next().await;
+        //                     // However since we have concurrency limit enabled it will get rescheduled by creation of new djob.
+        //                     // So we have to wait for that one as well.
+        //                     completed.next().await;
+        //                 },
+        //                 port,
+        //             )
+        //             .await;
 
-            // Verify that we have expected outcome
-            {
-                // Verify lock
-                {
-                    assert_eq!(
-                        sqlx::query_scalar!(
-                            "SELECT lock FROM script WHERE path = 'f/dre_script/script'"
-                        )
-                        .fetch_one(&db)
-                        .await
-                        .unwrap(),
-                        Some("# py: 3.11\nbottle==0.13.2\ntiny==0.1.3".into())
-                    );
-                }
-                assert_eq!(
-                    sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job",)
-                        .fetch_one(&db)
-                        .await
-                        .unwrap()
-                        .unwrap(),
-                    2
-                );
+        //             // Wait for the first one
+        //             handle.await.unwrap();
 
-                assert_eq!(
-                    sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_completed",)
-                        .fetch_one(&db)
-                        .await
-                        .unwrap()
-                        .unwrap(),
-                    2
-                );
-                // Check that two jobs were executed sequentially
-                assert!(sqlx::query_scalar!(
-                    "
-SELECT
-    j1.completed_at < j2.started_at
-FROM
-    v2_job_completed j1,
-    v2_job_completed j2
-WHERE
-    j1.id = $1  
-    AND j2.id = $2",
-                    job_ids[0],
-                    job_ids[1],
-                )
-                .fetch_one(&db)
-                .await
-                .unwrap()
-                .unwrap());
-            }
-            Ok(())
-        }
+        //             // Verify that we have expected outcome
+        //             {
+        //                 assert_eq!(
+        //                     sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue",)
+        //                         .fetch_one(&db)
+        //                         .await
+        //                         .unwrap()
+        //                         .unwrap(),
+        //                     0
+        //                 );
+        //                 // Verify lock
+        //                 {
+        //                     assert_eq!(
+        //                         sqlx::query_scalar!(
+        //                             "SELECT lock FROM script WHERE path = 'f/dre_script/script'"
+        //                         )
+        //                         .fetch_one(&db)
+        //                         .await
+        //                         .unwrap(),
+        //                         Some("# py: 3.11\nbottle==0.13.2\ntiny==0.1.3".into())
+        //                     );
+        //                 }
+        //                 assert_eq!(
+        //                     sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job",)
+        //                         .fetch_one(&db)
+        //                         .await
+        //                         .unwrap()
+        //                         .unwrap(),
+        //                     2
+        //                 );
+
+        //                 assert_eq!(
+        //                     sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_completed",)
+        //                         .fetch_one(&db)
+        //                         .await
+        //                         .unwrap()
+        //                         .unwrap(),
+        //                     2
+        //                 );
+        //                 // Check that two jobs were executed sequentially
+        //                 assert!(sqlx::query_scalar!(
+        //                     "
+        // SELECT
+        //     j1.completed_at < j2.started_at
+        // FROM
+        //     v2_job_completed j1,
+        //     v2_job_completed j2
+        // WHERE
+        //     j1.id = $1
+        //     AND j2.id = $2",
+        //                     job_ids[0],
+        //                     job_ids[1],
+        //                 )
+        //                 .fetch_one(&db)
+        //                 .await
+        //                 .unwrap()
+        //                 .unwrap());
+        //             }
+        //             Ok(())
+        //         }
     }
     // TODO: Test git sync
 }

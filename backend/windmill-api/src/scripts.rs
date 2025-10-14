@@ -1000,6 +1000,7 @@ async fn create_script_internal<'c>(
             Some(&authed.clone().into()),
             false,
             None,
+            None,
         )
         .await?;
         Ok((hash, new_tx, None))

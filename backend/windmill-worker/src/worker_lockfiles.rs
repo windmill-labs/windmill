@@ -258,13 +258,13 @@ pub async fn handle_dependency_job(
             let (deployment_message, parent_path) =
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
-            let script_info = sqlx::query_as::<_, windmill_common::scripts::Script>(
-                "SELECT * FROM script WHERE hash = $1 AND workspace_id = $2",
-            )
-            .bind(&current_hash.0)
-            .bind(w_id)
-            .fetch_one(db)
-            .await?;
+            // let script_info = sqlx::query_as::<_, windmill_common::scripts::Script>(
+            //     "SELECT * FROM script WHERE hash = $1 AND workspace_id = $2",
+            // )
+            // .bind(&current_hash.0)
+            // .bind(w_id)
+            // .fetch_one(db)
+            // .await?;
 
             // DependencyJob can be triggered only from 2 places:
             // 1. create_script function in windmill-api/src/scripts.rs
@@ -272,124 +272,158 @@ pub async fn handle_dependency_job(
             //
             // First will **always** produce script with null in `lock`
             // where Second will **always** do with lock being not null
-            let deployed_hash = if script_info.lock.is_some() && !*WMDEBUG_NO_HASH_CHANGE_ON_DJ {
-                let path = script_info.path.clone();
+            //         let deployed_hash = if script_info.lock.is_some() && !*WMDEBUG_NO_HASH_CHANGE_ON_DJ {
+            //             let path = script_info.path.clone();
 
-                let mut tx = db.begin().await?;
-                // This entire section exists to solve following problem:
-                //
-                // 2 workers, one script that depend on another in python
-                // run the original script on both workers
-                // you update the dependenecy of a relative import,
-                // run it again until you ran it on both, normally it should fail on one of those
-                //
-                // It happens because every worker has cached their own script versions.
-                // However usual dependency job does not update hash of the script (and cache is keyed by the hash).
-                // This logical branch will create new script which will update the hash and automatically invalidate cache.
-                //
-                // IMPORTANT: This will **only** be triggered by another DependencyJob. It will never be triggered by script (re)deployement
+            //             let mut tx = db.begin().await?;
+            //             // This entire section exists to solve following problem:
+            //             //
+            //             // 2 workers, one script that depend on another in python
+            //             // run the original script on both workers
+            //             // you update the dependenecy of a relative import,
+            //             // run it again until you ran it on both, normally it should fail on one of those
+            //             //
+            //             // It happens because every worker has cached their own script versions.
+            //             // However usual dependency job does not update hash of the script (and cache is keyed by the hash).
+            //             // This logical branch will create new script which will update the hash and automatically invalidate cache.
+            //             //
+            //             // IMPORTANT: This will **only** be triggered by another DependencyJob. It will never be triggered by script (re)deployement
 
-                let ns = NewScript {
-                    path: script_info.path,
-                    parent_hash: Some(current_hash),
-                    summary: script_info.summary,
-                    description: script_info.description,
-                    content: script_info.content,
-                    schema: script_info.schema,
-                    is_template: Some(script_info.is_template),
-                    // TODO: Make it either None everywhere (particularely when raw reqs are calculated)
-                    // Or handle this case and conditionally make Some (only with raw reqs)
-                    lock: None,
-                    language: script_info.language,
-                    kind: Some(script_info.kind),
-                    tag: script_info.tag,
-                    draft_only: script_info.draft_only,
-                    envs: script_info.envs,
-                    concurrent_limit: script_info.concurrent_limit,
-                    concurrency_time_window_s: script_info.concurrency_time_window_s,
-                    cache_ttl: script_info.cache_ttl,
-                    dedicated_worker: script_info.dedicated_worker,
-                    ws_error_handler_muted: script_info.ws_error_handler_muted,
-                    priority: script_info.priority,
-                    timeout: script_info.timeout,
-                    delete_after_use: script_info.delete_after_use,
-                    restart_unless_cancelled: script_info.restart_unless_cancelled,
-                    deployment_message: deployment_message.clone(),
-                    concurrency_key: script_info.concurrency_key,
-                    visible_to_runner_only: script_info.visible_to_runner_only,
-                    no_main_func: script_info.no_main_func,
-                    codebase: script_info.codebase,
-                    has_preprocessor: script_info.has_preprocessor,
-                    on_behalf_of_email: script_info.on_behalf_of_email,
-                    assets: script_info.assets,
-                };
+            //             let ns = NewScript {
+            //                 path: script_info.path,
+            //                 parent_hash: Some(current_hash),
+            //                 summary: script_info.summary,
+            //                 description: script_info.description,
+            //                 content: script_info.content,
+            //                 schema: script_info.schema,
+            //                 is_template: Some(script_info.is_template),
+            //                 // TODO: Make it either None everywhere (particularely when raw reqs are calculated)
+            //                 // Or handle this case and conditionally make Some (only with raw reqs)
+            //                 lock: None,
+            //                 language: script_info.language,
+            //                 kind: Some(script_info.kind),
+            //                 tag: script_info.tag,
+            //                 draft_only: script_info.draft_only,
+            //                 envs: script_info.envs,
+            //                 concurrent_limit: script_info.concurrent_limit,
+            //                 concurrency_time_window_s: script_info.concurrency_time_window_s,
+            //                 cache_ttl: script_info.cache_ttl,
+            //                 dedicated_worker: script_info.dedicated_worker,
+            //                 ws_error_handler_muted: script_info.ws_error_handler_muted,
+            //                 priority: script_info.priority,
+            //                 timeout: script_info.timeout,
+            //                 delete_after_use: script_info.delete_after_use,
+            //                 restart_unless_cancelled: script_info.restart_unless_cancelled,
+            //                 deployment_message: deployment_message.clone(),
+            //                 concurrency_key: script_info.concurrency_key,
+            //                 visible_to_runner_only: script_info.visible_to_runner_only,
+            //                 no_main_func: script_info.no_main_func,
+            //                 codebase: script_info.codebase,
+            //                 has_preprocessor: script_info.has_preprocessor,
+            //                 on_behalf_of_email: script_info.on_behalf_of_email,
+            //                 assets: script_info.assets,
+            //             };
 
-                let new_hash = hash_script(&ns);
+            //             let new_hash = hash_script(&ns);
 
-                sqlx::query!("
-    INSERT INTO script
-    (workspace_id, hash, path, parent_hashes, summary, description, content, \
-    created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-    draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
-    dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-    delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
-    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets)
+            //             sqlx::query!("
+            // INSERT INTO script
+            // (workspace_id, hash, path, parent_hashes, summary, description, content, \
+            // created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
+            // draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+            // dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+            // delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+            // codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets)
 
-    SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
-            content, created_by, schema, is_template, extra_perms, $4, language, kind, tag, \
-            draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
-            dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-            delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
-            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets
+            // SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
+            //         content, created_by, schema, is_template, extra_perms, $4, language, kind, tag, \
+            //         draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+            //         dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+            //         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+            //         codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets
 
-    FROM script WHERE hash = $2 AND workspace_id = $3;
-            ",
-                new_hash, current_hash.0, w_id, &content).execute(db).await?;
-                tracing::info!(
-                    "Updated script at path {} with hash {} to new hash {}",
-                    path,
-                    current_hash.0,
-                    new_hash
-                );
-                // Archive current
+            // FROM script WHERE hash = $2 AND workspace_id = $3;
+            //         ",
+            //             new_hash, current_hash.0, w_id, &content).execute(db).await?;
+            // tracing::info!(
+            //     "Updated script at path {} with hash {} to new hash {}",
+            //     path,
+            //     current_hash.0,
+            //     new_hash
+            // );
+            // Archive current
+            if let Some(base_hash) = job.args.as_ref().and_then(|x| {
+                x.get("base_hash")
+                    .map(|v| serde_json::from_str::<i64>(v.get()).ok())
+                    .flatten()
+            }) {
+                // tracing::debug!(
+                //     "cloning script at path {} from '{}' to '{}'",
+                //     s.path,
+                //     *base_hash,
+                //     new_hash
+                // );
+
+                // sqlx::query!("
+                // INSERT INTO script
+                // (workspace_id, hash, path, parent_hashes, summary, description, content, \
+                // created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
+                // draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+                // dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+                // delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+                // codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets)
+
+                // SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
+                //         content, created_by, schema, is_template, extra_perms, $4, language, kind, tag, \
+                //         draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+                //         dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+                //         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+                //         codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets
+
+                // FROM script WHERE hash = $2 AND workspace_id = $3;
+                //         ", current_hash.0, base_hash, w_id, &content).execute(db).await?;
+
+                // Archive base script
                 sqlx::query!(
                     "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2",
-                    current_hash.0,
-                    w_id
-                )
-                .execute(&mut *tx)
-                .await?;
-                tracing::info!(
-                    "Archived script at path {} from dependency job {}",
-                    path,
-                    current_hash.0
-                );
-                tx.commit().await?;
-
-                ScriptHash(new_hash)
-            } else {
-                // We do not create new row for this update
-                // That means we can keep current hash and just update lock
-                sqlx::query!(
-                    "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
-                    &content,
-                    &current_hash.0,
+                    base_hash,
                     w_id
                 )
                 .execute(db)
                 .await?;
 
-                // `lock` has been updated; invalidate the cache.
-                // Since only worker that ran this Dependency Job has the cache
-                // we do not need to think about invalidating cache for other workers.
-                cache::script::invalidate(current_hash);
+                tracing::info!(
+                    "Archived base script at path {:?} from dependency job {}",
+                    job.runnable_path.clone(),
+                    base_hash
+                );
+                // tx.commit().await?;
+            }
 
-                if *WMDEBUG_NO_HASH_CHANGE_ON_DJ {
-                    tracing::warn!("WMDEBUG_NO_HASH_CHANGE_ON_DJ usually should not be used. Behavior might be unstable. Please contact Windmill Team for support.")
-                }
+            // ScriptHash(new_hash)
+            // } else {
+            // We do not create new row for this update
+            // That means we can keep current hash and just update lock
+            sqlx::query!(
+                "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
+                &content,
+                &current_hash.0,
+                w_id
+            )
+            .execute(db)
+            .await?;
 
-                current_hash
-            };
+            // `lock` has been updated; invalidate the cache.
+            // Since only worker that ran this Dependency Job has the cache
+            // we do not need to think about invalidating cache for other workers.
+            cache::script::invalidate(current_hash);
+
+            // if *WMDEBUG_NO_HASH_CHANGE_ON_DJ {
+            //     tracing::warn!("WMDEBUG_NO_HASH_CHANGE_ON_DJ usually should not be used. Behavior might be unstable. Please contact Windmill Team for support.")
+            // }
+
+            // current_hash
+            // };
 
             if let Err(e) = handle_deployment_metadata(
                 &job.permissioned_as_email,
@@ -397,7 +431,7 @@ pub async fn handle_dependency_job(
                 &db,
                 &w_id,
                 DeployedObject::Script {
-                    hash: deployed_hash,
+                    hash: current_hash,
                     path: script_path.to_string(),
                     parent_path: parent_path.clone(),
                 },
@@ -614,6 +648,21 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             to_raw_value(&()),
         );
 
+        // IMPORTANT:
+        // Lock debounce key row, so no jobs at this moment can mutate latest version of flow/app/script
+        let debounce_job_id_o = {
+            let key = format!("{w_id}:{}:dependency", s.importer_path.clone());
+            sqlx::query_scalar!(
+                "SELECT job_id FROM debounce_key WHERE key = $1 FOR UPDATE",
+                // Lock it for update. After we commit this tx, if there is a job pulled it will be able to proceed.
+                key
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+        };
+
+        tracing::debug!("debounce_job_id_0: {:?}", debounce_job_id_o.clone());
+
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
             // let r =
@@ -623,16 +672,27 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             //         .await;
 
             let r = sqlx::query_scalar!(
-                "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false ORDER BY created_at DESC LIMIT 1",
-                script_path,
+                "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false ORDER BY COALESCE(array_length(parent_hashes, 1), 0) DESC LIMIT 1",
+                s.importer_path.clone(),
                 w_id
             )
             .fetch_one(&mut *tx).await;
+
+            // let all = sqlx::query!(
+            //     "SELECT hash, array_length(parent_hashes, 1) as length FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false ORDER BY array_length(parent_hashes, 1) DESC",
+            //     s.importer_path.clone(),
+            //     w_id
+            // )
+            // .fetch_all(&mut *tx).await?;
+
+            // tracing::debug!("newest hash for {} is: {all:?}", &s.importer_path);
 
             match r {
                 // We will create Dependency job as is. But the Dep Job Handler will detect that the job originates
                 // from [[trigger_dependents_to_recompute_dependencies]] and will create new script with new hash instead
                 Ok(hash) => {
+                    tracing::debug!("newest hash for {} is: {hash}", &s.importer_path);
+
                     let info =
                         windmill_common::get_script_info_for_hash(None, db, w_id, hash).await?;
 
@@ -849,6 +909,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             None,
             false,
             None,
+            debounce_job_id_o,
         )
         .await?;
 

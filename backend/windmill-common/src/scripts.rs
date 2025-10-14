@@ -723,3 +723,83 @@ pub fn hash_script(ns: &NewScript) -> i64 {
     ns.hash(&mut dh);
     dh.finish() as i64
 }
+
+// TODO: Should not be viewable as latest.
+pub async fn clone_script<'c>(
+    base_hash: ScriptHash,
+    w_id: &str,
+    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+) -> crate::error::Result<i64> {
+    let s =
+        sqlx::query_as::<_, Script>("SELECT * FROM script WHERE hash = $1 AND workspace_id = $2")
+            .bind(base_hash.0)
+            .bind(w_id)
+            .fetch_one(&mut **tx)
+            .await?;
+
+    let ns = NewScript {
+        path: s.path.clone(),
+        parent_hash: Some(base_hash),
+        summary: s.summary,
+        description: s.description,
+        content: s.content,
+        schema: s.schema,
+        is_template: Some(s.is_template),
+        // TODO: Make it either None everywhere (particularely when raw reqs are calculated)
+        // Or handle this case and conditionally make Some (only with raw reqs)
+        lock: None,
+        language: s.language,
+        kind: Some(s.kind),
+        tag: s.tag,
+        draft_only: s.draft_only,
+        envs: s.envs,
+        concurrent_limit: s.concurrent_limit,
+        concurrency_time_window_s: s.concurrency_time_window_s,
+        cache_ttl: s.cache_ttl,
+        dedicated_worker: s.dedicated_worker,
+        ws_error_handler_muted: s.ws_error_handler_muted,
+        priority: s.priority,
+        timeout: s.timeout,
+        delete_after_use: s.delete_after_use,
+        restart_unless_cancelled: s.restart_unless_cancelled,
+        // deployment_message: deployment_message.clone(),
+        // TODO:
+        deployment_message: None,
+        concurrency_key: s.concurrency_key,
+        visible_to_runner_only: s.visible_to_runner_only,
+        no_main_func: s.no_main_func,
+        codebase: s.codebase,
+        has_preprocessor: s.has_preprocessor,
+        on_behalf_of_email: s.on_behalf_of_email,
+        assets: s.assets,
+    };
+
+    let new_hash = hash_script(&ns);
+
+    tracing::debug!(
+        "cloning script at path {} from '{}' to '{}'",
+        s.path,
+        *base_hash,
+        new_hash
+    );
+
+    sqlx::query!("
+    INSERT INTO script
+    (workspace_id, hash, path, parent_hashes, summary, description, content, \
+    created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
+    draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+    dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+    delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets)
+
+    SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
+            content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
+            draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
+            dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
+            delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
+            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets
+
+    FROM script WHERE hash = $2 AND workspace_id = $3;
+            ", new_hash, base_hash.0, w_id).execute(&mut **tx).await?;
+    Ok(new_hash)
+}
