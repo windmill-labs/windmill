@@ -70,7 +70,7 @@ impl McpClient {
         // Build custom reqwest client with headers if provided
         let mut headers = HeaderMap::new();
         if let Some(token_path) = &resource.token {
-            if token_path.len() > 0 {
+            if !token_path.trim().is_empty() {
                 let value =
                     get_secret_value_as_admin(db, w_id, token_path.trim_start_matches("$var:"))
                         .await?;
