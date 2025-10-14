@@ -359,6 +359,7 @@ pub async fn get_global_setting(
         && key != HUB_BASE_URL_SETTING
         && key != HUB_ACCESSIBLE_URL_SETTING
         && key != EMAIL_DOMAIN_SETTING
+        && key != APP_WORKSPACED_ROUTE_SETTING
     {
         require_super_admin(&db, &authed.email).await?;
     }
