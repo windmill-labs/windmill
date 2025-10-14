@@ -614,8 +614,10 @@ pub struct Branch {
 /// Reference to an MCP (Model Context Protocol) resource
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct McpToolRef {
-    /// Path to the MCP resource (e.g., "u/admin/my_mcp_server")
-    pub resource_path: String,
+    /// Path to the MCP resource - can be static or a JavaScript expression
+    /// Static: {"type": "static", "value": "u/admin/my_mcp_server"}
+    /// JS: {"type": "javascript", "expr": "flow_input.server"} or {"type": "javascript", "expr": "results.a.mcp_path"}
+    pub resource_path: InputTransform,
 }
 
 /// Tool that can be used by an AI agent - Serialize only

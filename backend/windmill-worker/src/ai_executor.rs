@@ -70,7 +70,24 @@ pub async fn handle_ai_agent_job(
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
 ) -> Result<Box<RawValue>, Error> {
-    let args = build_args_map(job, client, conn).await?;
+    let mut args = build_args_map(job, client, conn).await?;
+
+    // Extract resolved MCP paths from args (added by flow executor)
+    let mcp_resource_paths: Vec<String> = if let Some(ref args_map) = args {
+        if let Some(paths_raw) = args_map.get("_wm_mcp_resource_paths") {
+            serde_json::from_str(paths_raw.get())
+                .map_err(|e| Error::internal_err(format!("Failed to parse MCP paths: {}", e)))?
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    // Remove internal field before converting to AIAgentArgs
+    if let Some(ref mut args_map) = args {
+        args_map.remove("_wm_mcp_resource_paths");
+    }
 
     let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
 
@@ -118,17 +135,17 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    // Separate Windmill tools and MCP resource paths from the tools list
+    // Separate Windmill tools from MCP tools
     let mut windmill_modules: Vec<FlowModule> = Vec::new();
-    let mut mcp_resource_paths: Vec<String> = Vec::new();
 
     for tool in tools {
         match tool {
             windmill_common::flows::Tool::Windmill(module) => {
                 windmill_modules.push(*module);
             }
-            windmill_common::flows::Tool::Mcp(mcp_ref) => {
-                mcp_resource_paths.push(mcp_ref.resource_path);
+            windmill_common::flows::Tool::Mcp(_) => {
+                // MCP paths already resolved by flow executor
+                // (they're in mcp_resource_paths extracted earlier)
             }
         }
     }
