@@ -434,6 +434,7 @@ async fn spawn_dedicated_workers_for_flow(
                 FlowModuleValue::Flow { .. } => (),
                 FlowModuleValue::Identity => (),
                 FlowModuleValue::AIAgent { .. } => (),
+                FlowModuleValue::McpServer { .. } => (),
             }
         } else {
             tracing::error!("failed to get value for module: {:?}", module);

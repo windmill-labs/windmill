@@ -129,7 +129,7 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    let FlowModuleValue::AIAgent { tools, input_transforms, .. } = module.get_value()? else {
+    let FlowModuleValue::AIAgent { tools, .. } = module.get_value()? else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
         ));

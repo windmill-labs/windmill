@@ -175,7 +175,8 @@ impl FlowValue {
                 | RawScript { .. }
                 | Flow { .. }
                 | FlowScript { .. }
-                | Identity) => cb(&s, &module.id)?,
+                | Identity
+                | McpServer { .. }) => cb(&s, &module.id)?,
                 ForloopFlow { modules, .. }
                 | WhileloopFlow { modules, .. } => Self::traverse_leafs(&modules, cb)?,
                 AIAgent { tools, .. } => {
@@ -614,6 +615,11 @@ pub struct Branch {
 /// Reference to an MCP (Model Context Protocol) resource
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct McpToolRef {
+    /// Unique identifier for this MCP tool reference (for graph rendering)
+    pub id: String,
+    /// Display name / summary for this MCP server
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
     /// Path to the MCP resource - can be static or a JavaScript expression
     /// Static: {"type": "static", "value": "u/admin/my_mcp_server"}
     /// JS: {"type": "javascript", "expr": "flow_input.server"} or {"type": "javascript", "expr": "results.a.mcp_path"}
@@ -804,6 +810,16 @@ pub enum FlowModuleValue {
         input_transforms: HashMap<String, InputTransform>,
         tools: Vec<Tool>,
     },
+
+    // MCP (Model Context Protocol) server reference
+    // Provides configuration for loading tools from an MCP server
+    McpServer {
+        resource_path: InputTransform,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        include_tools: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        exclude_tools: Option<Vec<String>>,
+    },
 }
 
 fn is_none_or_empty(expr: &Option<String>) -> bool {
@@ -841,6 +857,9 @@ struct UntaggedFlowModuleValue {
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Box<RawValue>>,
     pass_flow_input_directly: Option<bool>,
+    resource_path: Option<Box<RawValue>>,
+    include_tools: Option<Vec<String>>,
+    exclude_tools: Option<Vec<String>>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -949,6 +968,20 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     tools,
                 })
             }
+            "mcpserver" => {
+                let resource_path_raw = untagged
+                    .resource_path
+                    .ok_or_else(|| serde::de::Error::missing_field("resource_path"))?;
+
+                let resource_path = serde_json::from_str::<InputTransform>(resource_path_raw.get())
+                    .map_err(|e| serde::de::Error::custom(format!("Failed to deserialize resource_path: {}", e)))?;
+
+                Ok(FlowModuleValue::McpServer {
+                    resource_path,
+                    include_tools: untagged.include_tools,
+                    exclude_tools: untagged.exclude_tools,
+                })
+            }
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &[
@@ -961,6 +994,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     "rawscript",
                     "identity",
                     "aiagent",
+                    "mcpserver",
                 ],
             )),
         }
