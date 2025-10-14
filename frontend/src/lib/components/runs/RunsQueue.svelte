@@ -22,6 +22,12 @@
 		onJobsWaiting,
 		onJobsSuspended
 	}: Props = $props()
+
+	function formatCount(count: number | undefined, limit: number = 99): string {
+		if (count === undefined || count === null) return '...'
+		if (count > limit) return `${limit}+`
+		return count.toFixed(0)
+	}
 </script>
 
 <div class="flex flex-row gap-4 items-center">
@@ -32,9 +38,10 @@
 					<Bot size={16} />
 					{#if queue_count && ($queue_count ?? 0) > 0}
 						<div
-							class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-yellow-500 rounded-full text-white text-xs h-4 min-w-4"
+							class="absolute top-0 right-0 translate-x-2/3 -translate-y-1/2 bg-yellow-500 rounded-full text-white text-xs h-4 px-1 flex items-center justify-center"
+							title={`${$queue_count ?? 0} waiting jobs`}
 						>
-							{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}
+							{formatCount($queue_count, 99)}
 						</div>
 					{/if}
 				</div>
@@ -54,9 +61,10 @@
 				<div class="relative">
 					<Hourglass size={16} />
 					<div
-						class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-surface-secondary-inverse rounded-full text-primary-inverse text-xs h-4 min-w-4"
+						class="absolute top-0 right-0 translate-x-2/3 -translate-y-1/2 bg-surface-secondary-inverse rounded-full text-primary-inverse text-2xs h-4 px-1 flex items-center justify-center"
+						title={`${$suspended_count ?? 0} suspended jobs`}
 					>
-						{suspended_count ? ($suspended_count ?? 0).toFixed(0) : '...'}
+						{formatCount($suspended_count, 99)}
 					</div>
 				</div>
 			{/snippet}
@@ -76,8 +84,9 @@
 		{/snippet}
 		<div
 			class={queue_count && ($queue_count ?? 0) > 0
-				? 'bg-yellow-500 text-white rounded-full w-6 h-6 flex center-center'
-				: ''}>{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}</div
+				? 'bg-yellow-500 text-white rounded-full min-w-6 h-6 flex center-center px-1 text-xs'
+				: ''}
+			title={`${$queue_count ?? 0} waiting jobs`}>{formatCount($queue_count, 999)}</div
 		>
 		<div class="truncate text-2xs !text-secondary mt-0.5">
 			<Button size="xs2" color="light" on:click={() => onJobsWaiting?.()}>
@@ -102,8 +111,9 @@
 			{/snippet}
 			<div
 				class={suspended_count && ($suspended_count ?? 0) > 0
-					? 'bg-surface-secondary-inverse text-primary-inverse rounded-full w-6 h-6 flex center-center'
-					: ''}>{suspended_count ? ($suspended_count ?? 0).toFixed(0) : '...'}</div
+					? 'bg-surface-secondary-inverse text-primary-inverse rounded-full min-w-6 h-6 flex center-center px-1 text-xs'
+					: ''}
+				title={`${$suspended_count ?? 0} suspended jobs`}>{formatCount($suspended_count, 999)}</div
 			>
 			<div class="truncate text-2xs !text-secondary">
 				<Button size="xs2" color="light" on:click={() => onJobsSuspended?.()}>
