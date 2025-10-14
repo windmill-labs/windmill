@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setContext, untrack } from 'svelte'
+	import { setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -39,25 +39,26 @@
 		deferSelectedUpdate = false
 	}: Props = $props()
 
+	// Single source of truth for tab state
 	const selectedStore = writable(selected)
+
+	function update(value: string) {
+		if (!deferSelectedUpdate) {
+			selected = value
+		}
+		dispatch('selected', value)
+	}
 
 	setContext<TabsContext>('Tabs', {
 		selected: selectedStore,
-		update: (value: string) => {
-			// Only update the bindable prop immediately if deferSelectedUpdate is false
-			if (!deferSelectedUpdate) {
-				selectedStore.set(value)
-				selected = value
-			} else {
-				dispatch('selected', value)
-			}
-		},
+		update,
 		hashNavigation
 	})
 
-	function updateSelected() {
+	// Sync external prop changes to store (single direction: prop → store)
+	$effect(() => {
 		selectedStore.set(selected)
-	}
+	})
 
 	let hashValues = $derived(values ? values.map((x) => '#' + x) : undefined)
 
@@ -66,22 +67,10 @@
 			const hash = window.location.hash
 			if (hash && hashValues?.includes(hash)) {
 				const id = hash.replace('#', '')
-				selectedStore.set(id)
-				selected = id
+				update(id)
 			}
 		}
 	}
-	$effect(() => {
-		selected && untrack(() => updateSelected())
-	})
-
-	let lastSelected: string | undefined = $state(selected)
-	$effect(() => {
-		if ($selectedStore !== untrack(() => lastSelected)) {
-			lastSelected = $selectedStore
-			$selectedStore && dispatch('selected', $selectedStore)
-		}
-	})
 </script>
 
 <svelte:window onhashchange={hashChange} />
