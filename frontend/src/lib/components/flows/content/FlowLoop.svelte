@@ -189,7 +189,7 @@
 						<Toggle
 							bind:checked={mod.value.parallel}
 							on:change={({ detail }) => {
-								if (detail == false) {
+								if (detail === false) {
 									;(mod.value as ForloopFlow).parallelism = undefined
 								}
 							}}
