@@ -301,4 +301,13 @@
 			isAgentTool
 		/>
 	{/each}
+{:else if flowModule.value.type === 'mcpserver'}
+	<div class="p-4">
+		<Alert type="info" title="MCP Server Configuration">
+			This module configures an MCP (Model Context Protocol) server that provides tools to the AI agent.
+			Resource path: {flowModule.value.resource_path.type === 'static'
+				? flowModule.value.resource_path.value
+				: flowModule.value.resource_path.expr}
+		</Alert>
+	</div>
 {/if}

@@ -490,23 +490,41 @@
 							} else {
 								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
 
-								await insertNewModuleAtIndex(
-									targetModules,
-									index,
-									detail.kind,
-									detail.script,
-									detail.flow,
-									detail.inlineScript
-								)
-								const id = targetModules[index].id
-								$selectedId = id
+								// Handle MCP server insertion
+								if (detail.kind === 'mcp_tool' && detail.mcpResource) {
+									push(history, flowStore.val)
+									const mcpModule = {
+										id: `mcp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+										summary: `MCP: ${detail.mcpResource}`,
+										value: {
+											type: 'mcpserver',
+											resource_path: {
+												type: 'static',
+												value: detail.mcpResource
+											}
+										}
+									}
+									targetModules.splice(index, 0, mcpModule as any)
+									$selectedId = detail.agentId
+								} else {
+									await insertNewModuleAtIndex(
+										targetModules,
+										index,
+										detail.kind,
+										detail.script,
+										detail.flow,
+										detail.inlineScript
+									)
+									const id = targetModules[index].id
+									$selectedId = id
 
-								if (detail.inlineScript?.instructions) {
-									dispatch('generateStep', {
-										moduleId: id,
-										lang: detail.inlineScript?.language,
-										instructions: detail.inlineScript?.instructions
-									})
+									if (detail.inlineScript?.instructions) {
+										dispatch('generateStep', {
+											moduleId: id,
+											lang: detail.inlineScript?.language,
+											instructions: detail.inlineScript?.instructions
+										})
+									}
 								}
 								if (detail.kind == 'trigger') {
 									await insertNewModuleAtIndex(

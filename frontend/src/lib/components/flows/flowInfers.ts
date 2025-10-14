@@ -45,15 +45,6 @@ export const AI_AGENT_SCHEMA = {
 			format: 'json-schema',
 			showExpr: "fields.output_type === 'text'"
 		},
-		mcp_resources: {
-			type: 'array',
-			description:
-				'List of MCP server resources. All the tools from these resources will be available to the AI agent. Only supports HTTP streamable servers.',
-			items: {
-				type: 'resource' as const,
-				resourceType: 'mcp'
-			}
-		},
 		user_images: {
 			type: 'array',
 			description:
