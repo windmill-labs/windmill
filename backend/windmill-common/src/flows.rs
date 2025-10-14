@@ -177,8 +177,18 @@ impl FlowValue {
                 | FlowScript { .. }
                 | Identity) => cb(&s, &module.id)?,
                 ForloopFlow { modules, .. }
-                | WhileloopFlow { modules, .. }
-                | AIAgent { tools: modules, .. } => Self::traverse_leafs(&modules, cb)?,
+                | WhileloopFlow { modules, .. } => Self::traverse_leafs(&modules, cb)?,
+                AIAgent { tools, .. } => {
+                    // Extract FlowModules from Tool enum
+                    let windmill_modules: Vec<FlowModule> = tools
+                        .iter()
+                        .filter_map(|tool| match tool {
+                            Tool::Windmill(module) => Some((**module).clone()),
+                            Tool::Mcp(_) => None, // MCP tools are not traversed as FlowModules
+                        })
+                        .collect();
+                    Self::traverse_leafs(&windmill_modules, cb)?
+                }
                 BranchOne { branches, .. } | BranchAll { branches, .. } => {
                     for branch in branches {
                         Self::traverse_leafs(&branch.modules, cb)?;
@@ -601,6 +611,71 @@ pub struct Branch {
     pub parallel: bool,
 }
 
+/// Reference to an MCP (Model Context Protocol) resource
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct McpToolRef {
+    /// Path to the MCP resource (e.g., "u/admin/my_mcp_server")
+    pub resource_path: String,
+}
+
+/// Tool that can be used by an AI agent - Serialize only
+#[derive(Serialize, Debug, Clone)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum Tool {
+    /// Windmill flow module
+    #[serde(rename = "windmill")]
+    Windmill(Box<FlowModule>),
+    /// MCP resource reference
+    #[serde(rename = "mcp")]
+    Mcp(McpToolRef),
+}
+
+/// Helper struct for deserializing Tool enum with type tag
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum ToolHelper {
+    #[serde(rename = "windmill")]
+    Windmill(Box<FlowModule>),
+    #[serde(rename = "mcp")]
+    Mcp(McpToolRef),
+}
+
+impl From<ToolHelper> for Tool {
+    fn from(helper: ToolHelper) -> Self {
+        match helper {
+            ToolHelper::Windmill(module) => Tool::Windmill(module),
+            ToolHelper::Mcp(mcp) => Tool::Mcp(mcp),
+        }
+    }
+}
+
+/// Custom Deserialize implementation for Tool with backward compatibility
+impl<'de> Deserialize<'de> for Tool {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::Error as DeError;
+
+        // Deserialize as RawValue to inspect the data
+        let raw = Box::<RawValue>::deserialize(deserializer)?;
+
+        // Try new format first (Tool enum with type field: {type: "windmill"|"mcp", ...})
+        if let Ok(tool_helper) = serde_json::from_str::<ToolHelper>(raw.get()) {
+            return Ok(tool_helper.into());
+        }
+
+        // Fall back to old format (FlowModule without type field)
+        if let Ok(module) = serde_json::from_str::<FlowModule>(raw.get()) {
+            return Ok(Tool::Windmill(Box::new(module)));
+        }
+
+        Err(DeError::custom(
+            "Failed to deserialize as Tool (neither new format with type field nor old FlowModule format)",
+        ))
+    }
+}
+
 #[derive(Serialize, Debug, Clone)]
 #[serde(
     tag = "type",
@@ -725,7 +800,7 @@ pub enum FlowModuleValue {
     // AI agent node
     AIAgent {
         input_transforms: HashMap<String, InputTransform>,
-        tools: Vec<FlowModule>,
+        tools: Vec<Tool>,
     },
 }
 
@@ -762,7 +837,7 @@ struct UntaggedFlowModuleValue {
     default_node: Option<FlowNodeId>,
     modules_node: Option<FlowNodeId>,
     assets: Option<Vec<AssetWithAltAccessType>>,
-    tools: Option<Vec<FlowModule>>,
+    tools: Option<Box<RawValue>>,
     pass_flow_input_directly: Option<bool>,
 }
 
@@ -858,12 +933,20 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 assets: untagged.assets,
             }),
             "identity" => Ok(FlowModuleValue::Identity),
-            "aiagent" => Ok(FlowModuleValue::AIAgent {
-                input_transforms: untagged.input_transforms.unwrap_or_default(),
-                tools: untagged
+            "aiagent" => {
+                let tools_raw = untagged
                     .tools
-                    .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
-            }),
+                    .ok_or_else(|| serde::de::Error::missing_field("tools"))?;
+
+                // Deserialize as Vec<Tool> - backward compatibility is handled by Tool's custom Deserialize impl
+                let tools = serde_json::from_str::<Vec<Tool>>(tools_raw.get())
+                    .map_err(|e| serde::de::Error::custom(format!("Failed to deserialize tools: {}", e)))?;
+
+                Ok(FlowModuleValue::AIAgent {
+                    input_transforms: untagged.input_transforms.unwrap_or_default(),
+                    tools,
+                })
+            }
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &[
