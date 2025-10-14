@@ -2,9 +2,10 @@ use crate::{
     db::ApiAuthed,
     native_triggers::{
         delete_native_trigger, get_workspace_integration, list_native_triggers,
-        store_native_trigger, update_native_trigger, External, NativeTrigger, NativeTriggerData,
-        ServiceName,
+        store_native_trigger, update_native_trigger, EventType, External, NativeTrigger,
+        NativeTriggerData, ServiceName,
     },
+    users::{create_token_internal, NewToken},
     utils::check_scopes,
 };
 use axum::{
@@ -13,13 +14,13 @@ use axum::{
     Extension, Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use sqlx::Postgres;
+use sqlx::{PgConnection, Postgres};
 use std::sync::Arc;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    utils::{RunnableKind, StripPath},
+    utils::{rd_string, RunnableKind, StripPath},
     DB,
 };
 
@@ -41,6 +42,39 @@ pub struct CreateTriggerResponse {
     pub id: i64,
 }
 
+async fn new_webhook_token(
+    tx: &mut PgConnection,
+    db: &DB,
+    authed: &ApiAuthed,
+    runnable_path: &str,
+    runnable_kind: RunnableKind,
+    workspace_id: &str,
+    service_name: ServiceName,
+) -> Result<String> {
+    let kind = if runnable_kind == RunnableKind::Script {
+        "scripts"
+    } else {
+        "flows"
+    };
+
+    let scopes = vec![format!("jobs:run:{kind}:{runnable_path}")];
+    let label = format!(
+        "native-triggers-webhook-{}-{}",
+        service_name.as_str(),
+        rd_string(5)
+    );
+    let token_config = NewToken::new(
+        Some(label),
+        None,
+        None,
+        Some(scopes),
+        Some(workspace_id.to_owned()),
+    );
+    let token = create_token_internal(&mut *tx, &db, &authed, token_config).await?;
+
+    Ok(token)
+}
+
 async fn create_native_trigger<T: External>(
     Extension(handler): Extension<Arc<T>>,
     Extension(service_name): Extension<ServiceName>,
@@ -48,15 +82,28 @@ async fn create_native_trigger<T: External>(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
-    Json(data): Json<NativeTriggerData<T::Payload>>,
+    Json(mut data): Json<NativeTriggerData<T::Payload>>,
 ) -> JsonResult<CreateTriggerResponse> {
-    let _ = handler.validate_data_config(&data);
-
     check_scopes(&authed, || {
         format!("native_triggers:write:{}", &data.runnable_path)
     })?;
 
+    let _ = handler.validate_data_config(&data);
     let mut tx = user_db.begin(&authed).await?;
+
+    let EventType::Webhook(webhook) = &mut data.event_type;
+
+    webhook.token = new_webhook_token(
+        &mut *tx,
+        &db,
+        &authed,
+        &data.runnable_path,
+        data.runnable_kind,
+        &workspace_id,
+        service_name,
+    )
+    .await?;
+
     let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
 
     let oauth_data: T::OAuthData = serde_json::from_value(integration.oauth_data).map_err(|e| {
@@ -106,22 +153,6 @@ async fn create_native_trigger<T: External>(
     )
     .await?;
 
-    /*handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &workspace_id,
-        DeployedObject::NativeTrigger { path: data.path.clone() },
-        Some(format!(
-            "{} native trigger '{}' created",
-            T::DISPLAY_NAME,
-            data.path
-        )),
-        true,
-    )
-    .await?;
-    */
-
     tx.commit().await?;
 
     Ok(Json(CreateTriggerResponse { id: trigger_id }))
@@ -134,17 +165,22 @@ async fn update_native_trigger_handler<T: External>(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, id)): Path<(String, i64)>,
-    Json(data): Json<NativeTriggerData<T::Payload>>,
+    Json(mut data): Json<NativeTriggerData<T::Payload>>,
 ) -> Result<String> {
-    let _ = handler.validate_data_config(&data);
-
     check_scopes(&authed, || {
         format!("native_triggers:write:{}", &data.runnable_path)
     })?;
+    let _ = handler.validate_data_config(&data);
 
     let mut tx = user_db.begin(&authed).await?;
 
+    let EventType::Webhook(webhook) = &mut data.event_type;
+
     let existing = get_native_trigger(&mut *tx, &workspace_id, id, service_name).await?;
+
+    let EventType::Webhook(exist_webhook_token) = existing.event_type.0;
+    
+    webhook.token = exist_webhook_token.token;
 
     let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
 
@@ -180,21 +216,6 @@ async fn update_native_trigger_handler<T: External>(
         None,
     )
     .await?;
-
-    /*handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &workspace_id,
-        DeployedObject::NativeTrigger { path: data.path.clone() },
-        Some(format!(
-            "{} native trigger '{}' updated",
-            T::DISPLAY_NAME,
-            data.path
-        )),
-        true,
-    )
-    .await?;*/
 
     tx.commit().await?;
 
@@ -419,6 +440,7 @@ pub async fn get_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>>(
         SELECT
             id,
             runnable_path,
+            event_type AS "event_type!: sqlx::types::Json<EventType>",
             runnable_kind AS "runnable_kind!: RunnableKind",
             service_name as "service_name!: ServiceName",
             external_id,

@@ -1,20 +1,21 @@
 <script lang="ts">
 	import { NativeTriggerService } from '$lib/gen/services.gen'
 	import type { EventType, NativeServiceName, RunnableKind } from '$lib/gen/types.gen'
-	import type { ExtendedNativeTrigger } from './utils'
+	import type { EventTypeVal, ExtendedNativeTrigger } from './utils'
 	import { validateCommonFields, getServiceConfig, getTemplateUrl } from './utils'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { generateRandomString, sendUserToast } from '$lib/utils'
-	import { Button, Drawer, Url } from '$lib/components/common'
+	import { workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/utils'
+	import { Button, Drawer } from '$lib/components/common'
 	import { X, Save, Pipette } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import NextcloudTriggerForm from './services/nextcloud/NextcloudTriggerForm.svelte'
-	import CreateToken from '$lib/components/settings/CreateToken.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
 
 	interface Props {
 		service: NativeServiceName
@@ -53,9 +54,8 @@
 	let errors = $state<Record<string, string>>({})
 	let showCustomRawEditor = $state(false)
 	let customRawConfig = $state('')
-	let token = $state('')
 	let request_type: 'async' | 'sync' = $state('async')
-	let event_type: 'webhook' = $state('webhook')
+	let event_type: EventTypeVal = $state('webhook')
 	let runnablePath = $state('')
 	let runnableKind = $state<RunnableKind>('script')
 	let summary = $state('')
@@ -65,7 +65,6 @@
 		isNew = true
 		config = {}
 		externalData = null
-		token = ''
 		event_type = 'webhook'
 		errors = {}
 		runnablePath = ''
@@ -99,6 +98,8 @@
 				path: trigger.runnable_path,
 				id: trigger.id
 			})
+
+			console.log({ fullTrigger })
 
 			externalData = fullTrigger.external_data
 
@@ -136,13 +137,9 @@
 			return {}
 		}
 
-		const commonErrors = validateCommonFields(
-			{
-				runnable_path: runnablePath,
-				token
-			},
-			event_type
-		)
+		const commonErrors = validateCommonFields({
+			runnable_path: runnablePath
+		})
 
 		let serviceErrors: Record<string, string> = {}
 		if (serviceFormRef?.validate) {
@@ -157,7 +154,7 @@
 	async function save() {
 		loading = true
 		try {
-			let event_type: EventType = { request_type, token, type: 'webhook' }
+			let event_type: EventType = { request_type, type: 'webhook' }
 			const payload = {
 				external_id: '',
 				runnable_path: runnablePath,
@@ -268,51 +265,33 @@
 							class="windmill-input"
 						/>
 					</div>
-					<ToggleButtonGroup bind:selected={event_type}>
-						{#snippet children({ item })}
-							<ToggleButton value="webhook" label="Webhook" {item} />
-						{/snippet}
-					</ToggleButtonGroup>
+					<Tabs bind:selected={event_type}>
+						<Tab value="webhook">Webhook configuration</Tab>
+					</Tabs>
 
 					{#if event_type === 'webhook'}
-						{#if isNew}
-							<p class="text-xs"
-								>Generate a unique token that will be used to securely authenticate your webhook <Required
-									required
-								/></p
-							>
-						{:else}
-							<p class="text-xs"
-								>Re-Generate a unique token that will be used to securely authenticate your webhook <Required
-									required
-								/></p
-							>
-						{/if}
-						<div class="flex flex-col gap-2">
-							<CreateToken
-								onTokenCreated={(newToken) => {
-									token = newToken
-								}}
-								newTokenLabel={`native-triggers-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
-								scopes={[
-									runnableKind === 'script'
-										? `jobs:run:scripts:${runnablePath}`
-										: `jobs:run:flows:${runnablePath}`
-								]}
-								displayCreateToken={false}
-							/>
-
-							{#if token.trim().length > 0}
-								<Url text={token} label="Generated Token" />
-							{/if}
-
-							<ToggleButtonGroup bind:selected={request_type}>
-								{#snippet children({ item })}
-									<ToggleButton value="async" label="Async" {item} />
-									<ToggleButton value="sync" label="Sync" {item} />
-								{/snippet}
-							</ToggleButtonGroup>
-						</div>
+						<Label label="Request type" class="w-full">
+							{#snippet action()}
+								<ToggleButtonGroup class="w-auto h-full" bind:selected={request_type}>
+									{#snippet children({ item, disabled })}
+										<ToggleButton
+											label="Async"
+											value="async"
+											tooltip="The returning value is the uuid of the job assigned to execute the job."
+											{item}
+											{disabled}
+										/>
+										<ToggleButton
+											label="Sync"
+											value="sync"
+											tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+											{item}
+											{disabled}
+										/>
+									{/snippet}
+								</ToggleButtonGroup>
+							{/snippet}
+						</Label>
 					{/if}
 				</div>
 

@@ -257,6 +257,9 @@ pub enum ScopeDomain {
     PostgresTriggers,
     EmailTriggers,
 
+    // Native trigger domains
+    NativeTriggers,
+
     // System domains
     Audit,
     Settings,
@@ -310,6 +313,7 @@ impl ScopeDomain {
             Self::GcpTriggers => "gcp_triggers",
             Self::PostgresTriggers => "postgres_triggers",
             Self::EmailTriggers => "email_triggers",
+            Self::NativeTriggers => "native_triggers",
             Self::Audit => "audit",
             Self::Settings => "settings",
             Self::Workers => "workers",
@@ -366,6 +370,7 @@ impl ScopeDomain {
             "ai" => Some(Self::AI),
             "indexer" | "srch" => Some(Self::Indexer),
             "teams" => Some(Self::Teams),
+            "native_triggers" => Some(Self::NativeTriggers),
             "git_sync" | "github_app" => Some(Self::GitSync),
             "capture" => Some(Self::Capture),
             "drafts" => Some(Self::Drafts),

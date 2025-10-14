@@ -9,7 +9,7 @@
 #![allow(non_snake_case)]
 
 use quick_cache::sync::Cache;
-use sqlx::{Postgres, Transaction};
+use sqlx::{PgConnection, Postgres, Transaction};
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -379,6 +379,18 @@ pub struct NewToken {
     pub impersonate_email: Option<String>,
     pub scopes: Option<Vec<String>>,
     pub workspace_id: Option<String>,
+}
+
+impl NewToken {
+    pub fn new(
+        label: Option<String>,
+        expiration: Option<chrono::DateTime<chrono::Utc>>,
+        impersonate_email: Option<String>,
+        scopes: Option<Vec<String>>,
+        workspace_id: Option<String>,
+    ) -> NewToken {
+        NewToken { label, expiration, impersonate_email, scopes, workspace_id }
+    }
 }
 
 #[derive(Deserialize)]
@@ -1385,7 +1397,9 @@ async fn convert_user_to_group(
     // Check if user is already a group user
     if let Some(added_via) = &user_info.added_via {
         if added_via.get("source").and_then(|v| v.as_str()) == Some("instance_group") {
-            return Err(Error::BadRequest("User is already a group user".to_string()));
+            return Err(Error::BadRequest(
+                "User is already a group user".to_string(),
+            ));
         }
     }
 
@@ -1408,16 +1422,18 @@ async fn convert_user_to_group(
 
     if eligible_groups.is_empty() {
         return Err(Error::BadRequest(
-            "User is not a member of any instance groups configured for auto-add in this workspace".to_string()
+            "User is not a member of any instance groups configured for auto-add in this workspace"
+                .to_string(),
         ));
     }
 
     // Determine the group with highest precedence (same logic as process_instance_group_auto_adds)
-    let roles: std::collections::HashMap<String, String> = if let Some(roles_json) = &eligible_groups[0].auto_add_instance_groups_roles {
-        serde_json::from_value(roles_json.clone()).unwrap_or_default()
-    } else {
-        std::collections::HashMap::new()
-    };
+    let roles: std::collections::HashMap<String, String> =
+        if let Some(roles_json) = &eligible_groups[0].auto_add_instance_groups_roles {
+            serde_json::from_value(roles_json.clone()).unwrap_or_default()
+        } else {
+            std::collections::HashMap::new()
+        };
 
     let mut best_group = &eligible_groups[0].group_name;
     let mut best_precedence = 0u8;
@@ -1443,7 +1459,10 @@ async fn convert_user_to_group(
 
     // Determine role from group configuration using the selected primary group
     let default_role = "developer".to_string();
-    let role = roles.get(primary_group_name).unwrap_or(&default_role).as_str();
+    let role = roles
+        .get(primary_group_name)
+        .unwrap_or(&default_role)
+        .as_str();
 
     let (is_admin, is_operator) = match role {
         "admin" => (true, false),
@@ -1487,12 +1506,18 @@ async fn convert_user_to_group(
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::User { email: user_info.email.clone() },
-        Some(format!("Converted user '{}' to group user (group: {}, role: {})", &user_info.email, primary_group_name, role)),
+        Some(format!(
+            "Converted user '{}' to group user (group: {}, role: {})",
+            &user_info.email, primary_group_name, role
+        )),
         true,
     )
     .await?;
 
-    Ok(format!("User {} converted to group user (group: {}, role: {})", username_to_convert, primary_group_name, role))
+    Ok(format!(
+        "User {} converted to group user (group: {}, role: {})",
+        username_to_convert, primary_group_name, role
+    ))
 }
 
 async fn update_user(
@@ -1594,9 +1619,12 @@ async fn delete_user(
     }
 
     // Remove user from all instance groups email_to_igroup
-    sqlx::query!("DELETE FROM email_to_igroup WHERE email = $1", &email_to_delete)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "DELETE FROM email_to_igroup WHERE email = $1",
+        &email_to_delete
+    )
+    .execute(&mut *tx)
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -2048,13 +2076,13 @@ pub async fn create_session_token<'c>(
     Ok(token)
 }
 
-async fn create_token(
-    Extension(db): Extension<DB>,
-    authed: ApiAuthed,
-    Json(new_token): Json<NewToken>,
-) -> Result<(StatusCode, String)> {
+pub async fn create_token_internal(
+    tx: &mut PgConnection,
+    db: &DB,
+    authed: &ApiAuthed,
+    token_config: NewToken,
+) -> Result<String> {
     let token = rd_string(32);
-    let mut tx = db.begin().await?;
 
     let is_super_admin = sqlx::query_scalar!(
         "SELECT super_admin FROM password WHERE email = $1",
@@ -2066,7 +2094,7 @@ async fn create_token(
     if *CLOUD_HOSTED {
         let nb_tokens =
             sqlx::query_scalar!("SELECT COUNT(*) FROM token WHERE email = $1", &authed.email)
-                .fetch_one(&db)
+                .fetch_one(db)
                 .await?;
         if nb_tokens.unwrap_or(0) >= 10000 {
             return Err(Error::BadRequest(
@@ -2081,18 +2109,18 @@ async fn create_token(
             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         token,
         authed.email,
-        new_token.label,
-        new_token.expiration,
+        token_config.label,
+        token_config.expiration,
         is_super_admin,
-        new_token.scopes.as_ref().map(|x| x.as_slice()),
-        new_token.workspace_id,
+        token_config.scopes.as_ref().map(|x| x.as_slice()),
+        token_config.workspace_id,
     )
     .execute(&mut *tx)
     .await?;
 
     audit_log(
         &mut *tx,
-        &authed,
+        authed,
         "users.token.create",
         ActionKind::Create,
         &"global",
@@ -2101,6 +2129,19 @@ async fn create_token(
     )
     .instrument(tracing::info_span!("token", email = &authed.email))
     .await?;
+
+    Ok(token)
+}
+
+async fn create_token(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(token_config): Json<NewToken>,
+) -> Result<(StatusCode, String)> {
+    let mut tx = db.begin().await?;
+
+    let token = create_token_internal(&mut *tx, &db, &authed, token_config).await?;
+
     tx.commit().await?;
     Ok((StatusCode::CREATED, token))
 }

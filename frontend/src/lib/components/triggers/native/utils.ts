@@ -76,6 +76,8 @@ export function getServiceConfig(service: NativeServiceName): NativeTriggerConfi
 	return NATIVE_TRIGGER_SERVICES[service]
 }
 
+export type EventTypeVal = 'webhook'
+
 export interface ExtendedNativeTrigger extends NativeTrigger {
 	id: number
 	runnable_path: string
@@ -91,20 +93,11 @@ export interface ServiceFormProps {
 	disabled?: boolean
 }
 
-export function validateCommonFields(
-	config: Record<string, any>,
-	event_type: 'webhook'
-): Record<string, string> {
+export function validateCommonFields(config: Record<string, any>): Record<string, string> {
 	const errors: Record<string, string> = {}
 
 	if (!config.runnable_path?.trim()) {
 		errors.runnable_path = 'Script/Flow path is required'
-	}
-
-	if (event_type === 'webhook') {
-		if (!config.token?.trim()) {
-			errors.token = 'Please generate a token'
-		}
 	}
 
 	return errors

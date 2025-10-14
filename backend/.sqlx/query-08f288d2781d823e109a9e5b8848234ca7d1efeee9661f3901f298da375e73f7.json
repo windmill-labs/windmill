@@ -157,6 +157,11 @@
         "ordinal": 30,
         "name": "auto_add_instance_groups_roles",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 31,
+        "name": "oauth_configs",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -193,6 +198,7 @@
       true,
       true,
       false,
+      true,
       true,
       true,
       true

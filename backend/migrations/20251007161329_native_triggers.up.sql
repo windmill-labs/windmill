@@ -12,6 +12,7 @@ CREATE TABLE native_triggers (
     external_id VARCHAR(255) NOT NULL,
     runnable_path VARCHAR(255) NOT NULL,
     runnable_kind RUNNABLE_KIND NOT NULL,
+    event_type JSONB NOT NULL,
     workspace_id VARCHAR(50) NOT NULL,
     summary TEXT,
     metadata JSONB NULL,

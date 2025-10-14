@@ -57,6 +57,7 @@ pub struct NativeTrigger {
     pub workspace_id: String,
     pub runnable_path: String,
     pub runnable_kind: RunnableKind,
+    pub event_type: sqlx::types::Json<EventType>,
     pub summary: Option<String>,
     pub metadata: Option<serde_json::Value>,
     pub edited_by: String,
@@ -74,10 +75,11 @@ pub enum WebhookRequestType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookConfig {
     pub request_type: WebhookRequestType,
+    #[serde(default)]
     pub token: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum EventType {
     Webhook(WebhookConfig),
@@ -509,6 +511,7 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
         r#"
         INSERT INTO native_triggers (
             service_name,
+            event_type,
             external_id,
             runnable_path,
             runnable_kind,
@@ -519,11 +522,12 @@ pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>
             email,
             edited_at
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, now()
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now()
         )
         RETURNING id
         "#,
         service_name as ServiceName,
+        serde_json::to_value(native_trigger_data.event_type.clone()).unwrap(),
         &native_trigger_data.external_id,
         &native_trigger_data.runnable_path,
         native_trigger_data.runnable_kind as RunnableKind,
@@ -617,6 +621,7 @@ pub async fn get_native_trigger_by_external_id(
         r#"
         SELECT
             id,
+            event_type AS "event_type!: sqlx::types::Json<EventType>",
             runnable_path,
             runnable_kind AS "runnable_kind!: RunnableKind",
             service_name AS "service_name!: ServiceName",
@@ -660,6 +665,7 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
             SELECT
                 id,
                 runnable_path,
+                event_type AS "event_type!: sqlx::types::Json<EventType>",
                 runnable_kind AS "runnable_kind!: RunnableKind",
                 service_name AS "service_name!: ServiceName",
                 external_id,

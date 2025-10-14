@@ -19838,14 +19838,16 @@ components:
           enum: [webhook]
         request_type:
           $ref: '#/components/schemas/WebhookRequestType'
-        token:
-          type: string
-      required: [type, request_type, token]
+      required:
+        - type
+        - request_type
 
     WebhookRequestType:
       type: string
       description: The type of webhook request (define possible values here)
-      enum: [async, sync]
+      enum:
+        - async
+        - sync
 
     RedirectUri:
       type: object
