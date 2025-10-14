@@ -657,20 +657,47 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             to_raw_value(&()),
         );
 
-        // IMPORTANT:
-        // Lock debounce key row, so no jobs at this moment can mutate latest version of flow/app/script
+        // === DEBOUNCE COORDINATION (PHASE 3 - PULL) ===
+        //
+        // Lock the debounce_key entry FOR UPDATE to coordinate with the push side.
+        // This prevents concurrent modifications during dependency job scheduling.
+        //
+        // The lock serves two purposes:
+        // 1. Ensures we get the current debounce_job_id atomically
+        // 2. Blocks new push requests from modifying this key until we commit
+        //
+        // After our transaction commits, any pending push requests can proceed with
+        // their debounce logic (either merging into existing job or creating new entry).
         let debounce_job_id_o = {
             let key = format!("{w_id}:{}:dependency", s.importer_path.clone());
+            tracing::debug!(
+                workspace_id = %w_id,
+                importer_path = %s.importer_path,
+                debounce_key = %key,
+                "Locking debounce_key for dependency job scheduling"
+            );
+
             sqlx::query_scalar!(
                 "SELECT job_id FROM debounce_key WHERE key = $1 FOR UPDATE",
-                // Lock it for update. After we commit this tx, if there is a job pulled it will be able to proceed.
                 key
             )
             .fetch_optional(&mut *tx)
-            .await?
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    error = %e,
+                    debounce_key = %key,
+                    "Failed to query/lock debounce_key"
+                );
+                e
+            })?
         };
 
-        tracing::debug!("debounce_job_id_0: {:?}", debounce_job_id_o.clone());
+        tracing::debug!(
+            debounce_job_id = ?debounce_job_id_o,
+            importer_path = %s.importer_path,
+            "Retrieved debounce job ID (if exists)"
+        );
 
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
