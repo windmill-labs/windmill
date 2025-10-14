@@ -263,24 +263,24 @@
 						onSelected={(v) => {
 							setQuery($page.url, 'kind', v, window.location.hash)
 						}}
-						class="w-fit h-10"
+						noWFull
 					>
 						{#snippet children({ item })}
-							<ToggleButton value="script" label="Scripts" icon={Code} class="px-4 py-2" {item} />
+							<ToggleButton value="script" label="Scripts" icon={Code} {item} size="lg" />
 							<ToggleButton
 								value="flow"
 								label="Flows"
 								icon={FlowIcon}
-								class="px-4 py-2"
 								selectedColor="#14b8a6"
+								size="lg"
 								{item}
 							/>
 							<ToggleButton
 								value="app"
 								label="Apps"
 								icon={LayoutDashboard}
-								class="px-4 py-2"
 								selectedColor="#fb923c"
+								size="lg"
 								{item}
 							/>
 						{/snippet}
@@ -290,8 +290,7 @@
 						target="_blank"
 						href={$hubBaseUrlStore}
 						variant="default"
-						size="sm"
-						wrapperClasses="h-10"
+						unifiedSize="lg"
 					>
 						Hub
 					</Button>

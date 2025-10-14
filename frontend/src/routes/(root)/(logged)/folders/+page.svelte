@@ -100,7 +100,9 @@
 					contentClasses="flex flex-col gap-2 p-4"
 				>
 					{#snippet trigger()}
-						<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New folder</Button>
+						<Button variant="accent" unifiedSize="lg" startIcon={{ icon: Plus }} nonCaptureEvent
+							>New folder</Button
+						>
 					{/snippet}
 					{#snippet content({ close })}
 						<input
@@ -112,7 +114,7 @@
 
 						<div>
 							<Button
-								size="md"
+								variant="accent"
 								startIcon={{ icon: Plus }}
 								disabled={!newFolderName}
 								on:click={() => {
@@ -155,7 +157,7 @@
 					{:else}
 						{#if folders.length === 0}
 							<tr>
-								<td colspan="4" class="text-tertiary mt-2">No folders yet, create one!</td>
+								<td colspan="4" class="text-primary mt-2">No folders yet, create one!</td>
 							</tr>
 						{/if}
 

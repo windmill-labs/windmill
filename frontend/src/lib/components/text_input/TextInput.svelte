@@ -16,7 +16,15 @@
 	}
 
 	export const inputBaseClass =
-		'rounded-md focus:ring-0 no-default-style text-xs text-primary font-normal !bg-surface-tertiary disabled:!bg-surface-disabled/20 disabled:!border-none disabled:!text-disabled disabled:cursor-not-allowed shadow-none py-2 px-3 placeholder-hint'
+		'rounded-md focus:ring-0 no-default-style text-xs text-primary font-normal !bg-surface-tertiary disabled:!bg-surface-disabled/20 disabled:!border-none disabled:!text-disabled disabled:cursor-not-allowed shadow-none placeholder-hint'
+
+	import { ButtonType } from '$lib/components/common/button/model'
+
+	export const inputSizeClasses = {
+		sm: `${ButtonType.UnifiedSizingClasses.sm} ${ButtonType.UnifiedHeightClasses.sm}`,
+		md: `${ButtonType.UnifiedSizingClasses.md} ${ButtonType.UnifiedHeightClasses.md}`,
+		lg: `${ButtonType.UnifiedSizingClasses.lg} ${ButtonType.UnifiedHeightClasses.lg}`
+	}
 </script>
 
 <script lang="ts">
@@ -28,6 +36,7 @@
 		value?: string
 		class?: string
 		error?: string | boolean
+		size?: 'sm' | 'md' | 'lg'
 	}
 
 	export function focus() {
@@ -36,13 +45,20 @@
 
 	let inputEl: HTMLInputElement | undefined = $state()
 
-	let { inputProps, value = $bindable(), class: className = '', error }: Props = $props()
+	let {
+		inputProps,
+		value = $bindable(),
+		class: className = '',
+		error,
+		size = 'md'
+	}: Props = $props()
 </script>
 
 <input
 	{...inputProps}
 	class={twMerge(
 		inputBaseClass,
+		inputSizeClasses[size],
 		'w-full',
 		'[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
 		inputBorderClass({ error: !!error }),

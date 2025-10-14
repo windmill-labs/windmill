@@ -3,6 +3,7 @@
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import { type ToggleGroupElements, type ToggleGroupItemProps, melt } from '@melt-ui/svelte'
 	import { Info } from 'lucide-svelte'
+	import { ButtonType } from '$lib/components/common/button/model'
 
 	interface Props {
 		label?: string | undefined
@@ -12,6 +13,7 @@
 		disabled?: boolean
 		selectedColor?: string | undefined
 		small?: boolean
+		size?: 'sm' | 'md' | 'lg'
 		iconProps?: Record<string, any>
 		showTooltipIcon?: boolean
 		documentationLink?: string | undefined
@@ -29,6 +31,7 @@
 		disabled = false,
 		selectedColor = undefined,
 		small = false,
+		size = undefined,
 		iconProps = {},
 		showTooltipIcon = false,
 		documentationLink = undefined,
@@ -37,6 +40,18 @@
 		value,
 		class: className = ''
 	}: Props = $props()
+
+	// Handle backward compatibility: small prop maps to size="sm"
+	const actualSize = $derived(size ?? (small ? 'sm' : 'md'))
+
+	// Direct access to unified sizing
+	const horizontalPadding = $derived(
+		iconOnly
+			? ButtonType.UnifiedIconOnlySizingClasses[actualSize]
+			: ButtonType.UnifiedSizingClasses[actualSize]
+	)
+	const height = $derived(ButtonType.UnifiedHeightClasses[actualSize])
+	const iconSize = $derived(ButtonType.UnifiedIconSizes[actualSize])
 </script>
 
 <Tooltip
@@ -49,8 +64,9 @@
 		{id}
 		{disabled}
 		class={twMerge(
-			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center justify-center border',
-			small ? 'px-1.5 py-0.5 text-2xs min-h-6 min-w-6' : 'px-2 py-2 text-xs min-h-8 min-w-8',
+			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center justify-center border text-xs',
+			horizontalPadding,
+			height,
 			'text-primary data-[state=on]:text-emphasis',
 			'data-[state=on]:bg-surface-tertiary data-[state=off]:border-transparent data-[state=on]:border-border-normal',
 			'bg-surface-transparent hover:bg-surface-hover',
@@ -63,7 +79,7 @@
 		{#if icon}
 			{@const SvelteComponent = icon}
 			<SvelteComponent
-				size={small ? 12 : 14}
+				size={iconSize}
 				{...iconProps}
 				class={twMerge(
 					'text-primary',
@@ -78,7 +94,7 @@
 			{label}
 		{/if}
 		{#if showTooltipIcon}
-			<Info size={14} class="text-gray-400" />
+			<Info size={iconSize} class="text-gray-400" />
 		{/if}
 	</button>
 

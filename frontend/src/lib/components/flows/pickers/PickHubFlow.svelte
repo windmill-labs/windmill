@@ -47,7 +47,8 @@
 			placeholder: 'Search Hub Flows'
 		}}
 		bind:value={filter}
-		class="grow !pr-9 !h-10"
+		size="lg"
+		class="grow !pr-9"
 	/>
 </div>
 <ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />

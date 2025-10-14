@@ -14,6 +14,7 @@ export const BUTTON_COLORS = [
 
 export namespace ButtonType {
 	export type Size = 'xs3' | 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+	export type UnifiedSize = 'sm' | 'md' | 'lg'
 	export type Color =
 		| 'blue'
 		| 'red'
@@ -209,5 +210,30 @@ export namespace ButtonType {
 		md: 'px-2 py-[7px]',
 		lg: 'px-2.5 py-[9px]',
 		xl: 'px-2.5 py-[9px]'
+	}
+
+	// New unified sizing system
+	export const UnifiedSizingClasses: Record<ButtonType.UnifiedSize, string> = {
+		sm: 'px-1', // Regular horizontal padding
+		md: 'px-2',
+		lg: 'px-4'
+	}
+
+	export const UnifiedIconOnlySizingClasses: Record<ButtonType.UnifiedSize, string> = {
+		sm: 'px-1', // Square padding for icon-only (same as width padding)
+		md: 'px-2',
+		lg: 'px-4'
+	}
+
+	export const UnifiedHeightClasses: Record<ButtonType.UnifiedSize, string> = {
+		sm: 'h-5',
+		md: 'h-8',
+		lg: 'h-10'
+	}
+
+	export const UnifiedIconSizes: Record<ButtonType.UnifiedSize, number> = {
+		sm: 12,
+		md: 14,
+		lg: 16
 	}
 }

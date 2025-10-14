@@ -377,18 +377,17 @@
 					}
 					setQuery($page.url, 'kind', v)
 				}}
-				class="h-10"
 			>
 				{#snippet children({ item })}
-					<ToggleButton value="all" label="All" class="px-4 py-2" {item} />
-					<ToggleButton value="script" icon={Code2} label="Scripts" class="px-4 py-2" {item} />
+					<ToggleButton value="all" label="All" size="lg" {item} />
+					<ToggleButton value="script" icon={Code2} label="Scripts" size="lg" {item} />
 					{#if HOME_SEARCH_SHOW_FLOW}
 						<ToggleButton
 							value="flow"
 							label="Flows"
 							icon={FlowIcon}
-							class="px-4 py-2"
 							selectedColor="#14b8a6"
+							size="lg"
 							{item}
 						/>
 					{/if}
@@ -396,8 +395,8 @@
 						value="app"
 						label="Apps"
 						icon={LayoutDashboard}
-						class="px-4 py-2"
 						selectedColor="#fb923c"
+						size="lg"
 						{item}
 					/>
 				{/snippet}
@@ -411,8 +410,9 @@
 					autofocus: true,
 					placeholder: HOME_SEARCH_PLACEHOLDER
 				}}
+				size="lg"
 				bind:value={filter}
-				class="bg-surface !h-10 !px-4 !pr-10 !rounded-lg text-xs font-normal focus:outline-none"
+				class="!pr-10"
 			/>
 			<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-3 mr-4">
 				<svg
@@ -438,9 +438,7 @@
 		<Button
 			on:click={() => openSearchWithPrefilledText('#')}
 			variant="default"
-			size="sm"
-			spacingSize="lg"
-			wrapperClasses="h-10"
+			unifiedSize="lg"
 			endIcon={{
 				icon: SearchCode
 			}}

@@ -27,6 +27,7 @@
 		aiDescription?: string | undefined
 		size?: ButtonType.Size
 		spacingSize?: ButtonType.Size
+		unifiedSize?: ButtonType.UnifiedSize
 		color?: ButtonType.Color | string
 		variant?: ButtonType.Variant
 		btnClasses?: string
@@ -74,6 +75,7 @@
 		aiDescription = undefined,
 		size = 'md',
 		spacingSize = size,
+		unifiedSize = undefined,
 		color = 'blue',
 		variant = 'contained',
 		btnClasses = '',
@@ -164,7 +166,16 @@
 		}
 	}
 
-	function getSpacingClass(variant, size, spacingSize) {
+	function getSpacingClass(variant, size, spacingSize, iconOnly, unifiedSize) {
+		// Check if using new unified sizing system
+		if (unifiedSize) {
+			const horizontalPadding = iconOnly
+				? ButtonType.UnifiedIconOnlySizingClasses[unifiedSize]
+				: ButtonType.UnifiedSizingClasses[unifiedSize]
+			const height = ButtonType.UnifiedHeightClasses[unifiedSize]
+			return `${horizontalPadding} ${height}`
+		}
+
 		// Check if using new design system variants
 		if (iconOnly) {
 			return ButtonType.IconOnlyVariantSpacingClasses[spacingSize]
@@ -203,9 +214,9 @@
 			getStyleClass(color, variant),
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
-			getSpacingClass(variant, size, spacingSize),
+			getSpacingClass(variant, size, spacingSize, iconOnly, unifiedSize),
 			'focus-visible:ring-2 font-normal',
-			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md h-full' : 'rounded-md',
+			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md' : 'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
 			'active:opacity-80 transition-all',
 			disabled
@@ -231,7 +242,9 @@
 		xl: 18
 	}
 
-	let lucideIconSize = $derived((iconMap[size] ?? 12) * 1)
+	let lucideIconSize = $derived(
+		unifiedSize ? ButtonType.UnifiedIconSizes[unifiedSize] : (iconMap[size] ?? 12)
+	)
 
 	const {
 		elements: { trigger, content },

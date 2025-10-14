@@ -125,7 +125,8 @@
 				placeholder: 'Search Hub Scripts'
 			}}
 			bind:value={filter}
-			class="grow !pr-9 !h-10"
+			class="grow !pr-9"
+			size="lg"
 		/>
 		{#if loading}
 			<Loader2 class="animate-spin text-gray-400 absolute right-2 top-2.5" />
