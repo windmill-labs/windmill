@@ -78,7 +78,8 @@
 	let outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false,
-		jobId: undefined
+		jobId: undefined,
+		submitted: undefined
 	})
 
 	if (controls) {
@@ -197,6 +198,21 @@
 	$effect.pre(() => {
 		resolvedConfig.afterIcon && afterIconComponent && untrack(() => handleAfterIcon())
 	})
+	let hasTriggeredBackgroundSuccess = $state(false)
+
+	$effect(() => {
+		// For background jobs, trigger success handler immediately when job is submitted
+		if (resolvedConfig.runInBackground && outputs.submitted?.peak() === true && !hasTriggeredBackgroundSuccess) {
+			hasTriggeredBackgroundSuccess = true
+			untrack(() => {
+				runnableWrapper?.handleSideEffect(true)
+			})
+		}
+		// Reset the flag when submitted becomes undefined (new run)
+		if (outputs.submitted?.peak() === undefined) {
+			hasTriggeredBackgroundSuccess = false
+		}
+	})
 	let errorsMessage = $derived(
 		Object.values(errors)
 			.filter((x) => x != '')
@@ -244,6 +260,7 @@
 	{outputs}
 	{extraKey}
 	allowConcurentRequests={resolvedConfig.runInBackground}
+	skipSideEffectOnSuccess={resolvedConfig.runInBackground}
 	onSuccess={(r) => {
 		let inputOutput = { result: r, loading: false }
 		if (rowContext && rowInputs) {

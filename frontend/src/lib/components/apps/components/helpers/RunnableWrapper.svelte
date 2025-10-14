@@ -83,11 +83,13 @@
 			result: Output<any>
 			loading: Output<boolean>
 			jobId?: Output<any> | undefined
+			submitted?: Output<any> | undefined
 		}
 		extraKey?: string | undefined
 		refreshOnStart?: boolean
 		errorHandledByComponent?: boolean
 		allowConcurentRequests?: boolean
+		skipSideEffectOnSuccess?: boolean
 		onSuccess?: (result: any) => void
 		children?: import('svelte').Snippet
 		nonRenderedPlaceholder?: import('svelte').Snippet
@@ -120,6 +122,7 @@
 		refreshOnStart = false,
 		errorHandledByComponent = false,
 		allowConcurentRequests = false,
+		skipSideEffectOnSuccess = false,
 		onSuccess = () => {},
 		children,
 		nonRenderedPlaceholder
@@ -355,7 +358,9 @@
 		}}
 		on:success={(e) => {
 			onSuccess(e.detail)
-			handleSideEffect(true)
+			if (!skipSideEffectOnSuccess) {
+				handleSideEffect(true)
+			}
 		}}
 		on:handleError={(e) => handleSideEffect(false, e.detail)}
 		{outputs}

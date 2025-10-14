@@ -47,6 +47,7 @@
 			result: Output<any>
 			loading: Output<boolean>
 			jobId?: Output<any> | undefined
+			submitted?: Output<any> | undefined
 		}
 		extraKey?: string
 		initializing?: boolean
@@ -176,6 +177,7 @@
 				console.log('started', id)
 				loading = true
 				outputs.jobId?.set(id)
+				outputs.submitted?.set(true)
 				dispatch('started', id)
 			},
 			doneWithoutCompute(r: any) {
@@ -349,6 +351,9 @@
 		dynamicArgsOverride?: Record<string, any>,
 		callbacks?: RunnableCallback
 	): Promise<string | undefined> {
+		// Reset submitted flag for new execution
+		outputs.submitted?.set(undefined)
+
 		let jobId: string | undefined
 		console.debug(`Executing ${id}`)
 		if (iterContext && $iterContext.disabled) {
