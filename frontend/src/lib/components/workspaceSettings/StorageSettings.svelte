@@ -26,7 +26,10 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
 
-	let { s3ResourceSettings = $bindable() }: { s3ResourceSettings: S3ResourceSettings } = $props()
+	let {
+		s3ResourceSettings = $bindable(),
+		onSave = undefined
+	}: { s3ResourceSettings: S3ResourceSettings; onSave?: () => void } = $props()
 
 	let s3FileViewer: S3FilePicker | undefined = $state()
 
@@ -40,6 +43,7 @@
 		})
 		console.log('Large file storage settings changed', large_file_storage)
 		sendUserToast(`Large file storage settings changed`)
+		onSave?.()
 	}
 </script>
 
