@@ -50,6 +50,7 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 	import type { EditorBarUi } from './custom_ui'
 	import EditorSettings from './EditorSettings.svelte'
+	import { quicktype, InputData, JSONSchemaInput, FetchingJSONSchemaStore } from 'quicktype-core'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
@@ -139,7 +140,14 @@
 			'csharp',
 			'nu',
 			'java',
-			'ruby'
+			'ruby',
+			'postgresql',
+			'mysql',
+			'bigquery',
+			'mssql',
+			'oracledb',
+			'snowflake',
+			'duckdb'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -194,8 +202,9 @@
 
 	let showResourceTypePicker = $derived(
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
-			lang === 'python3' ||
-			lang === 'php'
+		lang === 'python3' ||
+		lang === 'php' ||
+		lang === 'rust'
 	)
 
 	let codeViewer: Drawer | undefined = $state()
@@ -277,6 +286,22 @@
 		return rec(schema.properties, true)
 	}
 
+	async function quicktypeJSONSchema(targetLanguage, typeName, jsonSchemaString, rendererOptions) {
+		const schemaInput = new JSONSchemaInput(new FetchingJSONSchemaStore())
+
+		// We could add multiple schemas for multiple types,
+		// but here we're just making one type from JSON schema.
+		await schemaInput.addSource({ name: typeName, schema: jsonSchemaString })
+
+		const inputData = new InputData()
+		inputData.addInput(schemaInput)
+
+		return await quicktype({
+			inputData,
+			lang: targetLanguage,
+			rendererOptions
+		})
+	}
 	async function resourceTypePickCallback(name: string) {
 		if (!editor) return
 		const resourceType = await ResourceService.getResourceType({
@@ -298,6 +323,18 @@
 			editor.insertAtCursor(`if (!class_exists('${rtName}')) {\nclass ${rtName} {\n${phpSchema}\n`)
 			editor.backspace()
 			editor.insertAtCursor('}')
+		} else if (lang === 'rust') {
+			const { lines: lines } = await quicktypeJSONSchema(
+				'rust',
+				name,
+				JSON.stringify(resourceType.schema),
+				{
+					"leading-comments": false,
+					"density": "dense",
+					"derive-debug": true
+				}
+			)
+			editor.insertAtCurrentLine(lines.join('\n'))
 		} else {
 			const tsSchema = compile(resourceType.schema as any)
 			editor.insertAtCursor(`type ${toCamel(capitalize(name))} = ${tsSchema}`)
@@ -456,6 +493,12 @@
 			// for related places search: ADD_NEW_LANG
 		} else if (lang == 'ruby') {
 			editor.insertAtCursor(`ENV['${name}']`)
+		} else if (
+			['postgresql', 'mysql', 'bigquery', 'mssql', 'oracledb', 'snowflake', 'duckdb'].includes(
+				lang ?? ''
+			)
+		) {
+			editor.insertAtCursor(`%%${name}%%`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
