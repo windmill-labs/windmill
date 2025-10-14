@@ -233,7 +233,8 @@
 			{#if $userStore?.is_admin || $userStore?.is_super_admin}
 				<div class="flex flex-row gap-2">
 					<Button
-						size="md"
+						size="lg"
+						variant="default"
 						startIcon={{ icon: Plus }}
 						on:click={() => {
 							routesGenerator?.openDrawer()
@@ -242,7 +243,8 @@
 						From OpenAPI spec
 					</Button>
 					<Button
-						size="md"
+						size="lg"
+						variant="default"
 						startIcon={{ icon: Plus }}
 						on:click={() => {
 							openAPISpecGenerator?.openDrawer()
@@ -250,7 +252,12 @@
 					>
 						To OpenAPI spec
 					</Button>
-					<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor?.openNew(false)}>
+					<Button
+						size="lg"
+						variant="accent"
+						startIcon={{ icon: Plus }}
+						on:click={() => routeEditor?.openNew(false)}
+					>
 						New&nbsp;route
 					</Button>
 				</div>
@@ -259,8 +266,8 @@
 		<div class="w-full h-full flex flex-col">
 			<div class="w-full pb-4 pt-6">
 				<input type="text" placeholder="Search routes" bind:value={filter} class="search-item" />
-				<div class="flex flex-row items-center gap-2 mt-6">
-					<div class="text-sm shrink-0"> Filter by path of </div>
+				<div class="flex flex-row items-center gap-2 mt-2">
+					<div class="text-xs font-medium text-emphasis shrink-0"> Filter by path of </div>
 					<ToggleButtonGroup bind:selected={selectedFilterKind}>
 						{#snippet children({ item })}
 							<ToggleButton small value="trigger" label="Route" icon={Route} {item} />
@@ -287,17 +294,17 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !triggers?.length}
-				<div class="text-center text-sm text-tertiary mt-2"> No routes </div>
+				<div class="text-center text-sm font-semibold text-emphasis mt-2"> No routes </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_route, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 						<div
-							class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
+							class="bg-surface-tertiary hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
 				first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
 						>
-							<div class="w-full flex gap-5 items-center">
+							<div class="w-full flex gap-4 items-center">
 								<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
 								<a
@@ -305,7 +312,7 @@
 									onclick={() => routeEditor?.openEdit(path, is_flow)}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
-									<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
+									<div class="text-emphasis font-medium flex-wrap text-left text-xs mb-1 truncate">
 										{#if marked}
 											<span class="text-xs">
 												{@html marked}
@@ -317,10 +324,10 @@
 												: route_path}
 										{/if}
 									</div>
-									<div class="text-secondary text-xs truncate text-left font-light">
+									<div class="text-secondary text-xs truncate text-left font-normal">
 										{path}
 									</div>
-									<div class="text-secondary text-xs truncate text-left font-light">
+									<div class="text-secondary text-xs truncate text-left font-normal">
 										{#if static_asset_config}
 											file: {static_asset_config.s3}
 										{:else}
@@ -339,7 +346,7 @@
 											copyToClipboard(
 												getHttpRoute('r', route_path, workspaced_route ?? false, workspace_id)
 											)}
-										color="dark"
+										variant="default"
 										size="xs"
 										startIcon={{ icon: ClipboardCopy }}
 									>
@@ -353,7 +360,7 @@
 											: {
 													icon: Eye
 												}}
-										color="dark"
+										variant="default"
 									>
 										{canWrite ? 'Edit' : 'View'}
 									</Button>
@@ -423,9 +430,9 @@
 									/>
 								</div>
 							</div>
-							<div class="w-full flex justify-between items-baseline">
+							<div class="w-full flex justify-end items-baseline">
 								<div
-									class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
+									class="flex flex-wrap text-2xs font-normal text-secondary gap-1 items-center justify-end truncate pr-2"
 								>
 									<div class="truncate">edited by {edited_by}</div>
 									<div class="truncate">at {displayDate(edited_at)}</div>
@@ -439,9 +446,11 @@
 			{/if}
 		</div>
 		{#if items && items?.length > 15 && nbDisplayed < items.length}
-			<span class="text-xs"
+			<span class="text-xs font-normal text-primary"
 				>{nbDisplayed} items out of {items.length}
-				<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
+				<button class="ml-4 font-medium text-emphasis" onclick={() => (nbDisplayed += 30)}
+					>load 30 more</button
+				></span
 			>
 		{/if}
 	</CenteredPage>

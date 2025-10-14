@@ -10,6 +10,7 @@
 		required?: boolean
 		headerClass?: string
 		class?: string | undefined
+		for?: string | undefined
 		header?: import('svelte').Snippet
 		error?: import('svelte').Snippet
 		action?: import('svelte').Snippet
@@ -24,6 +25,7 @@
 		required = false,
 		headerClass = '',
 		class: clazz = undefined,
+		for: forAttr = undefined,
 		header,
 		error,
 		action,
@@ -36,10 +38,10 @@
 >
 	<div class="flex flex-row justify-between items-center w-full">
 		{#if !headless}
-			<div class={twMerge('flex flex-row items-center gap-2 mb-1', headerClass)}>
+			<div class={twMerge('flex flex-row items-center gap-2', headerClass)}>
 				<span
 					class="{primary ? 'text-primary' : 'text-emphasis'} text-xs font-medium whitespace-nowrap"
-					>{label}
+					><label for={forAttr}>{label}</label>
 					{#if required}
 						<Required required={true} />
 					{/if}
