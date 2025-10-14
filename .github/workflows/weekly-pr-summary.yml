@@ -29,7 +29,7 @@ jobs:
           prompt: |
             REPO: ${{ github.repository }}
 
-            Generate a comprehensive weekly summary of ONLY MERGED Pull Requests from the past 7 days.
+            Generate a minimalistic weekly summary of ONLY MERGED Pull Requests from the past 7 days.
 
             ## Your Task:
 
@@ -42,15 +42,17 @@ jobs:
                - Command: `gh pr list --repo ${{ github.repository }} --state merged --search "merged:>=$CUTOFF_DATE" --limit 100 --json number,title,author,mergedAt,url`
                - This returns ONLY PRs that were merged in the last 7 days
                - The --search flag filters by merge date using GitHub's search syntax
+               - **FILTER OUT** any PRs with titles starting with "chore: release" or "chore(release)"
 
             3. **Gather Details**: For each merged PR, include:
-               - PR number and title (with link)
+               - PR title (NO links)
                - Author (extract login from author.login in JSON)
-               - Merged date (from mergedAt field)
                - Brief summary: Use `gh pr view <number> --json body` to get PR description, then extract first paragraph or key points (1-2 sentences max)
 
-            4. **Generate Statistics**:
-               - Total PRs merged this week
+            4. **Character Limit Enforcement**:
+               - The final summary MUST be under 6000 characters
+               - Sort PRs by importance (breaking changes > features > bugfixes > other)
+               - If the summary exceeds 6000 characters, include only the most important PRs and add at the end: "and X more PRs" where X is the count of omitted PRs
 
             5. **Save Summary to Markdown File**: Write the summary to a file for webhook delivery:
                - Save the complete formatted markdown to: `summary.md`
@@ -59,45 +61,45 @@ jobs:
             ## Output Format:
 
             ```markdown
-            # 📊 Weekly Merged PRs Summary
-            ## Week of [Start Date] to [End Date]
+            📊 Week of [Start Date] to [End Date]
 
-            ### Statistics
-            - **Total PRs Merged**: X
+            **Total PRs Merged**: X
 
-            ---
+            **[PR Title]**
+            Author: @username
+            [1-2 sentence description from PR body]
 
-            ## ✅ Merged Pull Requests (X total)
+            [Repeat for each merged PR, sorted by importance]
 
-            ### #[PR_NUMBER]: [PR Title]
-            - **Author**: @username
-            - **Merged**: [Human-readable date, e.g., "Oct 13, 2025 at 14:30 UTC"]
-            - **Summary**: [1-2 sentence description from PR body]
-            - **Link**: [Full URL to PR]
-
-            [Repeat for each merged PR, sorted by merge date - most recent first]
-
-            ---
-
-            *🤖 Generated automatically on [Date]*
+            and X more PRs
             ```
 
             ## Important Notes:
             - **CRITICAL**: ONLY include PRs with state "merged" from the last 7 days
-            - Use the --search flag with "merged:>=DATE" syntax to filter by merge date
+            - **CRITICAL**: EXCLUDE all PRs with titles starting with "chore: release" or "chore(release)"
+            - **CRITICAL**: Total character count MUST be under 6000 characters
+            - Use minimal spacing - single line breaks between PRs
+            - NO markdown headers (###, ##) - only bold text for titles
+            - NO links to PRs
+            - NO merged date in output
             - Use GitHub CLI (`gh`) for all operations
-            - Sort PRs by merge date (most recent first) - you can use `jq` to sort the JSON if needed
+            - Sort PRs by importance: breaking changes > features > bugfixes > other
             - If a PR has no description, write "(No description provided)"
-            - If there are more than 50 merged PRs, include all but add a note about high activity
             - Extract meaningful summary from PR body - look for the first paragraph or key bullet points
-            - Format dates in human-readable format, not ISO format
             - Parse JSON responses carefully using `jq` or similar tools
+            - If summary exceeds 6000 chars, truncate less important PRs and add "and X more PRs" at the end
 
             ## Saving the Markdown Output:
             After generating the markdown summary, save it to a file, BUT DO NOT COMMIT IT TO THE REPOSITORY.
 
-            ## Write tool issue:
-             - If the Write tool returns an error, create the summary.md file with the echo bash command.
+            ## Write Tool Fallback:
+            - First, attempt to use the Write tool to create `summary.md` with the markdown content
+            - If the Write tool returns ANY error or fails:
+              1. Use the Bash tool with the `echo` command instead
+              2. Use a heredoc to write the content: `cat > summary.md << 'EOF'` followed by your markdown content and `EOF` on a new line
+              3. Example: `cat > summary.md << 'EOF'\n[your markdown content here]\nEOF`
+              4. This ensures the file is always created regardless of Write tool issues
+            - Verify the file was created by running: `ls -lh summary.md`
           claude_args: |
             --allowedTools "Edit,MultiEdit,Write,Read,Glob,Grep,LS,Bash"
 
