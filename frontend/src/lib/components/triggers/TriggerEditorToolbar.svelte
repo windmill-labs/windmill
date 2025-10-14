@@ -60,6 +60,7 @@
 	{#if canSave}
 		<Button
 			size="sm"
+			variant="accent"
 			startIcon={{ icon: Save }}
 			disabled={saveDisabled}
 			on:click={() => {

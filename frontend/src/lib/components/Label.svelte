@@ -31,12 +31,14 @@
 	}: Props = $props()
 </script>
 
-<div class={twMerge(disabled ? 'opacity-60 pointer-events-none' : '', clazz)}>
+<div
+	class={twMerge('flex flex-col gap-1', disabled ? 'opacity-60 pointer-events-none' : '', clazz)}
+>
 	<div class="flex flex-row justify-between items-center w-full">
 		{#if !headless}
-			<div class={twMerge('flex flex-row items-center gap-2', headerClass)}>
+			<div class={twMerge('flex flex-row items-center gap-2 mb-1', headerClass)}>
 				<span
-					class="{primary ? 'text-primary' : 'text-secondary'} text-sm leading-6 whitespace-nowrap"
+					class="{primary ? 'text-primary' : 'text-emphasis'} text-xs font-medium whitespace-nowrap"
 					>{label}
 					{#if required}
 						<Required required={true} />
