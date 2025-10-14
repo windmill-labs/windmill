@@ -959,7 +959,13 @@
 					initialS3ResourceSettings = clone(s3ResourceSettings)
 				}}
 			/>
-			<DucklakeSettings bind:ducklakeSettings bind:ducklakeSavedSettings />
+			<DucklakeSettings
+			bind:ducklakeSettings
+			bind:ducklakeSavedSettings
+			onSave={() => {
+				ducklakeSavedSettings = clone(ducklakeSettings)
+			}}
+		/>
 		{:else if tab == 'git_sync'}
 			{#if $workspaceStore}
 				<GitSyncSection />
