@@ -87,13 +87,8 @@
 	type Props = {
 		ducklakeSettings: DucklakeSettingsType
 		ducklakeSavedSettings: DucklakeSettingsType
-		onSave?: () => void
 	}
-	let {
-		ducklakeSettings = $bindable(),
-		ducklakeSavedSettings = $bindable(),
-		onSave = undefined
-	}: Props = $props()
+	let { ducklakeSettings = $bindable(), ducklakeSavedSettings = $bindable() }: Props = $props()
 
 	let isInstanceCatalogEnabled = $derived($superadmin && !isCloudHosted())
 
