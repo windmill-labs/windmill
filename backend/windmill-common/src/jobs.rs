@@ -425,6 +425,7 @@ pub enum JobPayload {
     Noop,
     AIAgent {
         path: String,
+        flow_node_id: Option<FlowNodeId>,
     },
 }
 

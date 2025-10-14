@@ -3605,7 +3605,7 @@ where
 }
 
 fn decode_payload<D: DeserializeOwned>(t: String) -> anyhow::Result<D> {
-    let vec = base64::engine::general_purpose::URL_SAFE
+    let vec = base64::engine::general_purpose::STANDARD
         .decode(t)
         .context("invalid base64")?;
     serde_json::from_slice(vec.as_slice()).context("invalid json")

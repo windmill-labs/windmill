@@ -3701,9 +3701,9 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::AIAgent { .. } => {
+        FlowModuleValue::AIAgent { modules_node, .. } => {
             let path = get_path(flow_job, status, module);
-            let payload = JobPayload::AIAgent { path };
+            let payload = JobPayload::AIAgent { path, flow_node_id: modules_node };
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
                     payload,

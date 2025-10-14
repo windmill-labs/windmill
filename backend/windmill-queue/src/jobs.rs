@@ -3737,7 +3737,8 @@ pub async fn push<'c, 'd>(
             if let Some(skip_handler) = skip_handler {
                 let mut skip_input_transforms = HashMap::<String, InputTransform>::new();
                 for (arg_name, arg_value) in skip_handler.args {
-                    skip_input_transforms.insert(arg_name, InputTransform::Static { value: arg_value });
+                    skip_input_transforms
+                        .insert(arg_name, InputTransform::Static { value: arg_value });
                 }
 
                 modules.push(FlowModule {
@@ -3872,7 +3873,7 @@ pub async fn push<'c, 'd>(
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
             (
-                None,  // No version needed - flow is stored in raw_flow like FlowPreview
+                None, // No version needed - flow is stored in raw_flow like FlowPreview
                 Some(path),
                 None,
                 JobKind::SingleStepFlow,
@@ -4071,8 +4072,8 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::AIAgent { path } => (
-            None,
+        JobPayload::AIAgent { path, flow_node_id } => (
+            flow_node_id.map(|id| id.0),
             Some(path),
             None,
             JobKind::AIAgent,
