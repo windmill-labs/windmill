@@ -2,7 +2,7 @@
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 
 	import Popover from '$lib/components/Popover.svelte'
-	import { classNames, getCssColor, type StateStore } from '$lib/utils'
+	import { classNames, type StateStore } from '$lib/utils'
 	import {
 		Bed,
 		Database,
@@ -42,6 +42,7 @@
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import type { FlowStatusModule, Job } from '$lib/gen'
+	import { getNodeColorClasses, type FlowNodeState } from '$lib/components/graph'
 
 	interface Props {
 		selected?: boolean
@@ -63,8 +64,7 @@
 		label: string
 		path?: string
 		modType?: string | undefined
-		bgColor?: string
-		bgHoverColor?: string
+		nodeState?: FlowNodeState
 		concurrency?: boolean
 		retries?: number | undefined
 		warningMessage?: string | undefined
@@ -100,8 +100,7 @@
 		label,
 		path = '',
 		modType = undefined,
-		bgColor = '',
-		bgHoverColor = '',
+		nodeState,
 		concurrency = false,
 		retries = undefined,
 		warningMessage = undefined,
@@ -120,6 +119,8 @@
 		darkMode,
 		skipped
 	}: Props = $props()
+
+	let colorClasses = $derived(getNodeColorClasses(nodeState, selected))
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
@@ -266,13 +267,10 @@
 	<div
 		class={classNames(
 			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
-			deletable ? aiModuleActionToBgColor(action) : ''
+			deletable ? aiModuleActionToBgColor(action) : '',
+			colorClasses.bg
 		)}
-		style="width: 275px; height: 34px; background-color: {selected
-			? getCssColor('surface-accent-selected')
-			: hover && bgHoverColor
-				? bgHoverColor
-				: bgColor};"
+		style="width: 275px; height: 34px;"
 		onmouseenter={() => (hover = true)}
 		onmouseleave={() => (hover = false)}
 		onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
@@ -281,10 +279,7 @@
 			<ModuleAcceptReject {action} {id} />
 		{/if}
 		<div
-			class={classNames(
-				'absolute z-0 rounded-md outline-offset-0 outline-luminance-blue-300',
-				selected ? 'outline outline-1' : 'active:outline active:outline-1'
-			)}
+			class={classNames('absolute z-0 rounded-md outline-offset-0', colorClasses.outline)}
 			style={`width: 275px; height: 34px;`}
 		></div>
 		<div
@@ -415,6 +410,7 @@
 				bind:editId
 				{hover}
 				{selected}
+				{colorClasses}
 			>
 				{#snippet icon()}
 					{@render icon_render?.()}

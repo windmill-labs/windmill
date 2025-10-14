@@ -15,14 +15,14 @@
 	import { checkIfParentLoop } from '$lib/components/flows/utils'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
+	import type { FlowNodeState } from '$lib/components/graph'
 
 	interface Props {
 		moduleId: string
 		mod: FlowModule
 		insertable: boolean
 		annotation?: string | undefined
-		bgColor?: string
-		bgHoverColor?: string
+		nodeState?: FlowNodeState
 		moving?: string | undefined
 		duration_ms?: number | undefined
 		retries?: number | undefined
@@ -56,8 +56,7 @@
 		mod = $bindable(),
 		insertable,
 		annotation = undefined,
-		bgColor = '',
-		bgHoverColor = '',
+		nodeState,
 		moving = undefined,
 		duration_ms = undefined,
 		retries = undefined,
@@ -168,8 +167,7 @@
 						onUpdateMock?.({ id: mod.id, mock })
 					}}
 					{...itemProps}
-					{bgColor}
-					{bgHoverColor}
+					{nodeState}
 					warningMessage={mod?.value?.type === 'forloopflow' &&
 					mod?.value?.iterator?.type === 'javascript' &&
 					mod?.value?.iterator?.expr === ''
@@ -196,8 +194,7 @@
 					{...itemProps}
 					id={mod.id}
 					label={mod.summary || 'Run one branch'}
-					{bgColor}
-					{bgHoverColor}
+					{nodeState}
 					{onTestUpTo}
 					{type}
 					{darkMode}
@@ -217,8 +214,7 @@
 					id={mod.id}
 					{...itemProps}
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
-					{bgColor}
-					{bgHoverColor}
+					{nodeState}
 					{onTestUpTo}
 					{type}
 					{darkMode}
@@ -245,8 +241,7 @@
 					id={mod.id}
 					{...itemProps}
 					modType={mod.value.type}
-					{bgColor}
-					{bgHoverColor}
+					{nodeState}
 					label={mod.summary ||
 						(mod.value.type === 'aiagent' ? 'AI Agent' : undefined) ||
 						(mod.id === 'preprocessor'

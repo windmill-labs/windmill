@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { type FlowNodeColorClasses } from '$lib/components/graph'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -7,29 +8,24 @@
 	interface Props {
 		label: string | undefined
 		selectable: boolean
-		selected: boolean
 		id: string | undefined
 		onTop?: boolean
-		bgColor: string
-		bgHoverColor?: string
 		children?: import('svelte').Snippet<[any]>
 		outputPickerVisible?: boolean
 		className?: string
 		previewButton?: import('svelte').Snippet
+		colorClasses: FlowNodeColorClasses
 	}
 
 	let {
 		label,
 		selectable,
-		selected,
 		id,
 		onTop = false,
-		bgColor,
-		bgHoverColor = '',
 		children,
-		outputPickerVisible = false,
 		className,
-		previewButton
+		previewButton,
+		colorClasses
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -51,12 +47,11 @@
 	<div
 		class={classNames(
 			'w-full flex relative rounded-md drop-shadow-base',
+			colorClasses.bg,
 			onTop ? 'z-[901]' : '',
 			className
 		)}
-		style="width: 275px; max-height: 34px; background-color: {hover && bgHoverColor && selectable
-			? bgHoverColor
-			: bgColor};"
+		style="width: 275px; max-height: 34px;"
 		onpointerdown={() => {
 			if (selectable) {
 				dispatch('select', id || label || '')
@@ -73,9 +68,9 @@
 	>
 		<div
 			class={twMerge(
-				'absolute  outline-luminance-blue-300 rounded-md',
-				selected ? 'outline outline-1' : '',
-				selectable ? 'cursor-pointer active:outline active:outline-1' : ''
+				'absolute rounded-md',
+				colorClasses.outline,
+				selectable ? 'cursor-pointer' : ''
 			)}
 			style={`width: 275px; height: 33px;`}
 		>

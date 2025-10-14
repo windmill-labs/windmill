@@ -10,6 +10,9 @@ export const NODE = {
 	}
 }
 
+/**
+ * @deprecated Use getNodeColorClasses instead
+ */
 export function getStateColor(
 	state: FlowStatusModule['type'] | undefined,
 	isDark: boolean,
@@ -40,6 +43,9 @@ export function getStateColor(
 	}
 }
 
+/**
+ * @deprecated Use getNodeColorClasses instead
+ */
 export function getStateHoverColor(
 	state: FlowStatusModule['type'] | undefined,
 	isDark: boolean,
@@ -54,5 +60,45 @@ export function getStateHoverColor(
 		case 'WaitingForExecutor':
 		default:
 			return getStateColor(state, isDark, nonVirtualItem, isSkipped)
+	}
+}
+
+export type FlowNodeColorClasses = {
+	text: string
+	bg: string
+	outline: string
+}
+export type FlowNodeState = FlowStatusModule['type'] | '_VirtualItem' | '_Skipped' | undefined
+
+export function getNodeColorClasses(state: FlowNodeState, selected: boolean): FlowNodeColorClasses {
+	let outlined = ' outline outline-1 active:outline active:outline-1'
+	// return {
+	// 	bg: 'bg-red-100',
+	// 	outline: 'outline-red-500' + outlined,
+	// 	text: 'text-red-800'
+	// }
+	switch (state) {
+		case '_VirtualItem':
+			if (!selected) {
+				return {
+					bg: 'bg-component-virtual-node',
+					outline: '',
+					text: 'text-emphasis'
+				}
+			}
+		default:
+			if (selected) {
+				return {
+					bg: 'bg-surface-accent-selected',
+					outline: 'outline-luminance-blue-300' + outlined,
+					text: 'text-accent'
+				}
+			} else {
+				return {
+					bg: 'bg-surface-tertiary',
+					outline: '',
+					text: 'text-emphasis'
+				}
+			}
 	}
 }

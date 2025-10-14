@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { NODE } from '../../util'
+	import { NODE, type FlowNodeColorClasses } from '../../util'
 	import { createEventDispatcher } from 'svelte'
 	import type { TriggerType } from '$lib/components/triggers/utils'
 	import TriggersBadge from './TriggersBadge.svelte'
@@ -20,6 +20,7 @@
 		bgColor: string
 		bgHoverColor?: string
 		showDraft?: boolean
+		colorClasses: FlowNodeColorClasses
 		onSelect?: (triggerIndex: number) => void
 		onAddDraftTrigger?: (type: TriggerType) => void
 	}
@@ -34,6 +35,7 @@
 		bgHoverColor = '',
 		showDraft,
 		onSelect,
+		colorClasses,
 		onAddDraftTrigger
 	}: Props = $props()
 
@@ -57,10 +59,7 @@
 
 <div style={`width: ${NODE.width}px;`} use:floatingRef>
 	<button
-		style="background-color: {hover && bgHoverColor ? bgHoverColor : bgColor};"
-		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center justify-center rounded-md drop-shadow-base {selected
-			? 'outline  outline-1  outline-luminance-blue-300 dark:bg-white/5'
-			: ''}"
+		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center justify-center rounded-md drop-shadow-base {colorClasses.outline} {colorClasses.bg}"
 		onclick={() => {
 			dispatch('select')
 		}}
@@ -70,6 +69,7 @@
 		<div
 			class={twMerge(
 				'flex flex-row items-center text-2xs font-normal',
+				colorClasses.text,
 				numberOfTriggers > 6 ? 'absolute left-0 -top-[20px]' : ''
 			)}
 		>

@@ -5,7 +5,7 @@
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import { Maximize2, Minimize2, Calendar } from 'lucide-svelte'
-	import { getStateColor, getStateHoverColor } from '../../util'
+	import { getNodeColorClasses, getStateColor, getStateHoverColor } from '../../util'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
 	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
@@ -43,6 +43,8 @@
 						schedule: triggersCount?.primary_schedule?.schedule
 					}
 	}
+
+	$: colorClasses = getNodeColorClasses('_VirtualItem', $selectedId == 'triggers')
 </script>
 
 <NodeWrapper>
@@ -55,6 +57,7 @@
 				bgColor={getStateColor(undefined, darkMode)}
 				bgHoverColor={getStateHoverColor(undefined, darkMode)}
 				showDraft={data.isEditor ?? false}
+				{colorClasses}
 				on:new={(e) => {
 					data?.eventHandlers.insert({
 						index: 0,
@@ -94,12 +97,11 @@
 			<VirtualItemWrapper
 				label="Check for new events"
 				selectable={true}
-				selected={$selectedId == 'triggers'}
 				id={'triggers'}
-				bgColor={getStateColor(undefined, darkMode)}
 				on:select={(e) => {
 					data?.eventHandlers?.select(e.detail)
 				}}
+				{colorClasses}
 			>
 				{#if triggersState.triggers.some((t) => t.isPrimary) || $triggersCount?.primary_schedule}
 					{@const { enabled, schedule } = getScheduleCfg(

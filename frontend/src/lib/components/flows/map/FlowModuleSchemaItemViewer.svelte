@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Popover from '$lib/components/Popover.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import type { FlowNodeColorClasses } from '$lib/components/graph'
 	import { Pencil } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
@@ -16,6 +17,7 @@
 		editId?: boolean
 		hover?: boolean
 		selected?: boolean
+		colorClasses?: FlowNodeColorClasses
 		icon?: import('svelte').Snippet
 		onclick?: () => void
 	}
@@ -29,6 +31,7 @@
 		editId = $bindable(false),
 		hover = false,
 		selected = false,
+		colorClasses,
 		icon,
 		onclick
 	}: Props = $props()
@@ -38,10 +41,10 @@
 
 <div
 	class="relative flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
-	 p-2 text-2xs module text-primary"
+	 p-2 text-2xs module text-primary {colorClasses?.text}"
 >
 	{#if icon && true}
-		<div class="flex-none {selected ? 'text-accent' : ''}" bind:clientWidth={iconWidth}>
+		<div class="flex-none" bind:clientWidth={iconWidth}>
 			{@render icon?.()}
 		</div>
 	{/if}
@@ -50,11 +53,7 @@
 		class="absolute left-1/2 transform -translate-x-1/2 center-center"
 		style="max-width: calc(100% - {marginLeft}px)"
 	>
-		<div
-			class="text-center truncate {bold ? '!font-bold' : 'font-normal'} {selected
-				? 'text-accent'
-				: ''}"
-		>
+		<div class="text-center {colorClasses?.text} truncate {bold ? '!font-bold' : 'font-normal'}">
 			{label}
 		</div>
 		{#snippet text()}
@@ -71,7 +70,9 @@
 				color={selected ? 'transparent' : 'indigo'}
 				wrapperClass={twMerge(
 					'max-w-full rounded-md',
-					selected ? 'outline outline-1 outline-luminance-blue-300 text-accent' : ''
+					selected
+						? `outline outline-1 ${colorClasses?.outline ?? ''} ${colorClasses?.text ?? ''}`
+						: ''
 				)}
 				baseClass={twMerge(
 					'!px-1',
