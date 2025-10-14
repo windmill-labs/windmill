@@ -226,6 +226,7 @@ components:
         - $ref: "#/components/schemas/BranchAll"
         - $ref: "#/components/schemas/Identity"
         - $ref: "#/components/schemas/AiAgent"
+        - $ref: "#/components/schemas/McpServer"
       discriminator:
         propertyName: type
         mapping:
@@ -238,6 +239,7 @@ components:
           branchall: "#/components/schemas/BranchAll"
           identity: "#/components/schemas/Identity"
           aiagent: "#/components/schemas/AiAgent"
+          mcpserver: "#/components/schemas/McpServer"
 
     RawScript:
       type: object
@@ -463,6 +465,46 @@ components:
         - branches
         - type
 
+    Tool:
+      oneOf:
+        - $ref: "#/components/schemas/WindmillTool"
+        - $ref: "#/components/schemas/McpTool"
+      discriminator:
+        propertyName: type
+        mapping:
+          windmill: "#/components/schemas/WindmillTool"
+          mcp: "#/components/schemas/McpTool"
+
+    WindmillTool:
+      allOf:
+        - $ref: "#/components/schemas/FlowModule"
+        - type: object
+          properties:
+            type:
+              type: string
+              enum:
+                - windmill
+          required:
+            - type
+
+    McpTool:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - mcp
+        id:
+          type: string
+        summary:
+          type: string
+        resource_path:
+          $ref: "#/components/schemas/InputTransform"
+      required:
+        - type
+        - id
+        - resource_path
+
     AiAgent:
       type: object
       properties:
@@ -473,7 +515,7 @@ components:
         tools:
           type: array
           items:
-            $ref: "#/components/schemas/FlowModule"
+            $ref: "#/components/schemas/Tool"
         type:
           type: string
           enum:
@@ -496,6 +538,27 @@ components:
           type: boolean
 
       required:
+        - type
+
+    McpServer:
+      type: object
+      properties:
+        resource_path:
+          $ref: "#/components/schemas/InputTransform"
+        include_tools:
+          type: array
+          items:
+            type: string
+        exclude_tools:
+          type: array
+          items:
+            type: string
+        type:
+          type: string
+          enum:
+            - mcpserver
+      required:
+        - resource_path
         - type
 
     FlowStatus:
