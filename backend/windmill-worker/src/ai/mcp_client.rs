@@ -70,12 +70,15 @@ impl McpClient {
         // Build custom reqwest client with headers if provided
         let mut headers = HeaderMap::new();
         if let Some(token_path) = &resource.token {
-            let value =
-                get_secret_value_as_admin(db, w_id, token_path.trim_start_matches("$var:")).await?;
-            headers.insert(
-                HeaderName::from_static("authorization"),
-                HeaderValue::from_str(format!("Bearer {}", value).as_str())?,
-            );
+            if token_path.len() > 0 {
+                let value =
+                    get_secret_value_as_admin(db, w_id, token_path.trim_start_matches("$var:"))
+                        .await?;
+                headers.insert(
+                    HeaderName::from_static("authorization"),
+                    HeaderValue::from_str(format!("Bearer {}", value).as_str())?,
+                );
+            }
         }
         if let Some(resource_headers) = &resource.headers {
             for (key, value) in resource_headers {
