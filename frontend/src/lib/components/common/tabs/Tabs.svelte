@@ -17,6 +17,13 @@
 		values?: string[] | undefined
 		children?: import('svelte').Snippet<[any]>
 		content?: import('svelte').Snippet
+		/**
+		 * If true, the tab component will only update the internal store when a tab is clicked,
+		 * but will NOT immediately update the bindable 'selected' prop. This allows the parent
+		 * component to control when the tab actually changes (e.g., after navigation completes).
+		 * Use this when you want to prevent navigation before checking for unsaved changes.
+		 */
+		deferSelectedUpdate?: boolean
 	}
 
 	let {
@@ -28,7 +35,8 @@
 		hashNavigation = false,
 		values = undefined,
 		children,
-		content
+		content,
+		deferSelectedUpdate = false
 	}: Props = $props()
 
 	const selectedStore = writable(selected)
@@ -36,8 +44,13 @@
 	setContext<TabsContext>('Tabs', {
 		selected: selectedStore,
 		update: (value: string) => {
-			selectedStore.set(value)
-			selected = value
+			// Only update the bindable prop immediately if deferSelectedUpdate is false
+			if (!deferSelectedUpdate) {
+				selectedStore.set(value)
+				selected = value
+			} else {
+				dispatch('selected', value)
+			}
 		},
 		hashNavigation
 	})

@@ -87,8 +87,13 @@
 	type Props = {
 		ducklakeSettings: DucklakeSettingsType
 		ducklakeSavedSettings: DucklakeSettingsType
+		onSave?: () => void
 	}
-	let { ducklakeSettings = $bindable(), ducklakeSavedSettings = $bindable() }: Props = $props()
+	let {
+		ducklakeSettings = $bindable(),
+		ducklakeSavedSettings = $bindable(),
+		onSave = undefined
+	}: Props = $props()
 
 	let isInstanceCatalogEnabled = $derived($superadmin && !isCloudHosted())
 
@@ -151,6 +156,7 @@
 			})
 			ducklakeSavedSettings = clone(ducklakeSettings)
 			sendUserToast('Ducklake settings saved successfully')
+			onSave?.()
 		} catch (e) {
 			sendUserToast(e, true)
 			console.error('Error saving ducklake settings', e)
