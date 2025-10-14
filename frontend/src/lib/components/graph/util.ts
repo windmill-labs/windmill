@@ -6,7 +6,7 @@ export const NODE = {
 	height: 34,
 	gap: {
 		horizontal: 50,
-		vertical: 50
+		vertical: 62
 	}
 }
 
@@ -52,13 +52,7 @@ export function getStateHoverColor(
 		case 'InProgress':
 		case 'WaitingForEvents':
 		case 'WaitingForExecutor':
-			return getStateColor(state, isDark, nonVirtualItem, isSkipped)
-
 		default:
-			if (nonVirtualItem) {
-				return isDark ? '#343B46' : '#f6f6f6'
-			} else {
-				return isDark ? '#343B46' : '#d5dee8'
-			}
+			return getStateColor(state, isDark, nonVirtualItem, isSkipped)
 	}
 }

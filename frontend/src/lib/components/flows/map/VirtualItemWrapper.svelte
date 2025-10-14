@@ -73,7 +73,7 @@
 				selected ? 'outline outline-1' : '',
 				selectable ? 'cursor-pointer active:outline active:outline-1' : ''
 			)}
-			style={`width: 275px; height: ${outputPickerVisible ? '53px' : '34px'};`}
+			style={`width: 275px; height: 33px;`}
 		>
 		</div>
 		{@render children?.({ hover })}

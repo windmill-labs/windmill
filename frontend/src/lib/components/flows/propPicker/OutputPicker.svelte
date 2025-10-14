@@ -10,6 +10,7 @@
 	import { getStateColor } from '$lib/components/graph/util'
 	import type { FlowStatusModule } from '$lib/gen'
 	import type { FlowEditorContext } from '../types'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	interface Props {
 		selected?: boolean
@@ -122,30 +123,29 @@
 </script>
 
 <div
-	class="relative h-0 w-[275px]"
+	class="relative h-0 w-[275px] -z-10"
 	onpointerdown={(e) => {
 		e.preventDefault()
 		e.stopPropagation()
 	}}
 >
 	<!-- Invisible hover area to maintain consistent height -->
-	<div class="absolute w-full h-[20px]"></div>
+	<div class="absolute w-full h-[22px]"></div>
 	<div
 		class={twMerge(
-			'absolute w-full bg-surface',
+			'absolute w-full top-1',
 			variant === 'virtual' ? `` : ``,
-			'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-md',
 			'group transition-all duration-100',
 			'flex flex-row items-center justify-center',
-			'h-0 hover:h-[20px]',
-			bottomBarOpen && 'h-[20px]'
+			'h-0 hover:h-[22px]',
+			bottomBarOpen && 'h-[22px]'
 		)}
 		style:background-color={type && type !== 'WaitingForEvents'
 			? getStateColor(type, !!darkMode, true, skipped)
 			: undefined}
 		data-prop-picker
 	>
-		<div class="flex flex-row items-center justify-center w-full h-full">
+		<div class="flex flex-row gap-2 items-center justify-center w-full h-full">
 			{#if showInput}
 				<Popover
 					enableFlyTransition
@@ -173,16 +173,20 @@
 					bind:this={inputPopover}
 				>
 					{#snippet trigger({ isOpen })}
-						<button
-							class={twMerge(
-								'h-full center-center transition-opacity duration-150 w-full',
+						<Button
+							variant="default"
+							selected={inputOpen}
+							wrapperClasses={twMerge(
+								'w-full h-full',
 								bottomBarOpen ? 'opacity-100' : 'opacity-0',
-								'text-2xs font-normal w-full h-full border-t-2 border-transparent',
-								inputOpen ? 'border-primary' : 'hover:border-primary/20'
+								'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-md'
 							)}
+							btnClasses="bg-surface"
+							endIcon={{ icon: ChevronDown }}
+							size="xs3"
 						>
 							In
-						</button>
+						</Button>
 					{/snippet}
 					{#snippet content()}
 						<InputPickerInner {inputTransform} {id} {onEditInput} />
@@ -224,12 +228,16 @@
 						baseRadius="2px"
 						marginWidth="1px"
 					>
-						<button
-							class={twMerge(
-								'text-2xs font-normal w-full h-full border-t-2 border-transparent',
-								outputOpen ? 'border-primary' : 'hover:border-primary/20',
-								showConnecting ? 'bg-surface-hover rounded-sm border-0' : ''
+						<Button
+							variant="default"
+							selected={outputOpen}
+							wrapperClasses={twMerge(
+								'w-full h-full',
+								'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-md'
 							)}
+							btnClasses="bg-surface-tertiary"
+							endIcon={showInput ? { icon: ChevronDown } : undefined}
+							size="xs3"
 						>
 							{#if showInput}
 								Out
@@ -238,7 +246,7 @@
 							{:else}
 								<ChevronDown size={12} class="w-full" />
 							{/if}
-						</button>
+						</Button>
 					</AnimatedButton>
 				{/snippet}
 				{#snippet content()}

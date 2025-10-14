@@ -282,10 +282,10 @@
 		{/if}
 		<div
 			class={classNames(
-				'absolute rounded-md outline-offset-0 outline-luminance-blue-300',
+				'absolute z-0 rounded-md outline-offset-0 outline-luminance-blue-300',
 				selected ? 'outline outline-1' : 'active:outline active:outline-1'
 			)}
-			style={`width: 275px; height: ${outputPickerVisible ? '54px' : '34px'};`}
+			style={`width: 275px; height: 34px;`}
 		></div>
 		<div
 			class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"

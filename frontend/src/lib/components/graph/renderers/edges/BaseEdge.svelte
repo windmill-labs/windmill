@@ -81,7 +81,7 @@
 
 <EdgeLabel
 	x={sourceX}
-	y={sourceY + 28 + (data.shouldOffsetInsertBtnDueToAssetNode ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)}
+	y={sourceY + 32 + (data.shouldOffsetInsertBtnDueToAssetNode ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)}
 	class="base-edge"
 	style=""
 >
