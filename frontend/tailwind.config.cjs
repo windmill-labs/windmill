@@ -479,6 +479,9 @@ const config = {
 				qhd: '2500px',
 				'4k': '3800px'
 			},
+			dropShadow: {
+				base: ['0 2px 1px rgba(0, 0, 0, 0.06)', '0 2px 2px rgba(0, 0, 0, 0.1)']
+			},
 			animation: {
 				'spin-counter-clockwise': 'spin-counter-clockwise 1s linear infinite',
 				'zoom-in': 'zoom-in 0.25s ease-in-out',

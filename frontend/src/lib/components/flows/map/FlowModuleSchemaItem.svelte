@@ -265,7 +265,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={classNames(
-			'w-full module flex rounded-md cursor-pointer max-w-full',
+			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
 			deletable ? aiModuleActionToBgColor(action) : ''
 		)}
 		style="width: 275px; height: 34px; background-color: {selected

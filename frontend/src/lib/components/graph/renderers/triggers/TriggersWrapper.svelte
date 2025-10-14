@@ -58,7 +58,7 @@
 <div style={`width: ${NODE.width}px;`} use:floatingRef>
 	<button
 		style="background-color: {hover && bgHoverColor ? bgHoverColor : bgColor};"
-		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center justify-center rounded-md {selected
+		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center justify-center rounded-md drop-shadow-base {selected
 			? 'outline  outline-1  outline-luminance-blue-300 dark:bg-white/5'
 			: ''}"
 		onclick={() => {

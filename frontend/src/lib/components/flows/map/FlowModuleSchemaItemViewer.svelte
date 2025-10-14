@@ -65,7 +65,7 @@
 		{/snippet}
 	</Popover>
 
-	<div class="flex items-center space-x-2 relative max-w-[25%]" bind:clientWidth={idBadgeWidth}>
+	<div class="flex items-center space-x-2 relative" bind:clientWidth={idBadgeWidth}>
 		{#if id && id !== 'preprocessor' && !id.startsWith('failure') && !id.startsWith('subflow:')}
 			<Badge
 				color={selected ? 'transparent' : 'indigo'}
@@ -74,7 +74,7 @@
 					selected ? 'outline outline-1 outline-luminance-blue-300 text-accent' : ''
 				)}
 				baseClass={twMerge(
-					'max-w-full truncate !px-1 transition-colors',
+					'!px-1',
 					selected ? 'hover:bg-surface-hover' : 'hover:bg-surface-accent-selected'
 				)}
 				title={id}
@@ -88,10 +88,12 @@
 				<span class="max-w-full text-2xs truncate flex items-center">
 					{#if editId || (hover && deletable)}
 						<span transition:slide={{ axis: 'x', duration: 100 }}>
-							<Pencil size={12} class="mr-1" />
+							<Pencil size={10} class="mr-1" />
 						</span>
 					{/if}
-					{id}
+					<span class="max-w-12 truncate">
+						{id}
+					</span>
 				</span>
 			</Badge>
 		{:else if id?.startsWith('subflow:')}
