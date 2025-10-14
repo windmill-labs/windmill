@@ -3,7 +3,6 @@
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { Button } from '$lib/components/common'
-	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { RefreshCw, Info } from 'lucide-svelte'
@@ -35,7 +34,11 @@
 	]
 
 	let summary = $state(flowModule.summary || '')
-	let resourcePath = $state(flowModule.value.resource_path)
+	let resourcePath = $state<string>(
+		typeof flowModule.value.resource_path === 'string'
+			? flowModule.value.resource_path
+			: ''
+	)
 	let includeTools = $state<string[]>(flowModule.value.include_tools || [])
 	let excludeTools = $state<string[]>(flowModule.value.exclude_tools || [])
 	let availableTools = $state(HARDCODED_TOOLS)
@@ -55,7 +58,12 @@
 	// Watch for changes and sync back to flowModule
 	$effect(() => {
 		flowModule.summary = summary
-		if (flowModule.value.type === 'mcpserver') {
+		// For MCP tools in AI agent (type === 'mcp')
+		if ('resource_path' in flowModule && flowModule.type === 'mcp') {
+			flowModule.resource_path = resourcePath
+		}
+		// For McpServer flow module (type === 'mcpserver')
+		else if (flowModule.value.type === 'mcpserver') {
 			flowModule.value.resource_path = resourcePath
 
 			// Clear both arrays first
@@ -104,17 +112,17 @@
 	<!-- Resource Path Section -->
 	<Section label="MCP Resource Path">
 		<div class="w-full">
-			<InputTransformForm
-				bind:arg={resourcePath}
-				argName="resource_path"
-				{noEditor}
-				schema={{
-					type: 'string',
-					description: 'Path to the MCP server resource (e.g., $res:my/mcp/server)'
-				}}
-				previousModuleId={undefined}
-				extraLib="missing extraLib"
-			/>
+			<Label label="Resource Path">
+				<input
+					type="text"
+					bind:value={resourcePath}
+					placeholder="u/admin/my_mcp_server"
+					class="text-sm w-full"
+				/>
+			</Label>
+			<div class="text-xs text-secondary mt-1">
+				Path to the MCP server resource (e.g., u/admin/my_mcp_server)
+			</div>
 		</div>
 	</Section>
 

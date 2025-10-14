@@ -82,14 +82,14 @@
 				name: string
 				stateType?: GraphModuleState['type']
 			}[] = node.data.module.value.tools.map((t, idx) => {
-				// Check if it's an MCP tool
-				if (t.type === 'mcp') {
+				// Check if it's an MCP tool (FlowModule with value.type === 'mcpserver')
+				if (t.value?.type === 'mcpserver') {
 					return {
-						id: t.id || `mcp-${idx}`, // Use MCP tool's id field
-						name: t.summary || `MCP: ${t.resource_path?.value || t.resource_path?.expr || 'Unknown'}` // Use summary or extract path from InputTransform
+						id: t.id || `mcp-${idx}`,
+						name: t.summary || `MCP: ${t.value.resource_path || 'Unknown'}`
 					}
 				}
-				// Windmill tool (existing behavior)
+				// Regular Windmill tool (FlowModule)
 				return {
 					id: t.id,
 					name: t.summary ?? ''

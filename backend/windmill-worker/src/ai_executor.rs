@@ -122,13 +122,16 @@ pub async fn handle_ai_agent_job(
     let mut mcp_resource_paths: Vec<String> = Vec::new();
 
     for tool in tools {
-        match tool {
-            windmill_common::flows::Tool::Windmill(module) => {
-                windmill_modules.push(*module);
+        match tool.get_value()? {
+            FlowModuleValue::McpServer { resource_path, .. } => {
+                // This is an MCP server module - extract resource path
+                println!("MCP server module: {:?}", resource_path);
+                mcp_resource_paths.push(resource_path.clone());
             }
-            windmill_common::flows::Tool::Mcp(mcp_ref) => {
-                // Extract resource path from MCP tool reference
-                mcp_resource_paths.push(mcp_ref.resource_path.clone());
+            _ => {
+                // Regular Windmill flow module (script, flow, etc.)
+                println!("Windmill module: {:?}", tool);
+                windmill_modules.push(tool.clone());
             }
         }
     }
@@ -175,9 +178,14 @@ pub async fn handle_ai_agent_job(
                             .await?;
                             Ok(Some(hub_script.schema))
                         } else {
-                            let hash = get_latest_hash_for_path(db, &job.workspace_id, path.as_str(), true)
-                                .await?
-                                .0;
+                            let hash = get_latest_hash_for_path(
+                                db,
+                                &job.workspace_id,
+                                path.as_str(),
+                                true,
+                            )
+                            .await?
+                            .0;
                             // update module definition to use a fixed hash so all tool calls match the same schema
                             t.value = to_raw_value(&FlowModuleValue::Script {
                                 hash: Some(hash),
@@ -239,7 +247,8 @@ pub async fn handle_ai_agent_job(
     // Load MCP tools if configured
     let mut tools = tools;
     let mcp_clients = if !mcp_resource_paths.is_empty() {
-        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_resource_paths).await?;
+        let (clients, mcp_tools) =
+            load_mcp_tools(db, &job.workspace_id, mcp_resource_paths).await?;
         tools.extend(mcp_tools);
         clients
     } else {

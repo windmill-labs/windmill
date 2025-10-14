@@ -498,10 +498,7 @@
 										summary: `MCP: ${detail.mcpResource}`,
 										value: {
 											type: 'mcpserver',
-											resource_path: {
-												type: 'static',
-												value: detail.mcpResource
-											}
+											resource_path: detail.mcpResource
 										}
 									}
 									targetModules.splice(index, 0, mcpModule as any)
