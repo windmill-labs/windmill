@@ -10,8 +10,8 @@ use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
-use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel, AZURE_API_VERSION};
 use windmill_common::error::{to_anyhow, Error, Result};
 
 lazy_static::lazy_static! {
@@ -24,9 +24,6 @@ lazy_static::lazy_static! {
 
     pub static ref AI_REQUEST_CACHE: Cache<(String, AIProvider), ExpiringAIRequestConfig> = Cache::new(500);
 }
-
-const AZURE_API_VERSION: &str = "2025-04-01-preview";
-const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
 #[derive(Deserialize, Debug)]
 struct AIOAuthResource {
@@ -154,21 +151,13 @@ impl AIRequestConfig {
 
         let base_url = self.base_url.trim_end_matches('/');
 
-        let is_azure = matches!(provider, AIProvider::OpenAI) && base_url != OPENAI_BASE_URL
-            || matches!(provider, AIProvider::AzureOpenAI);
+        let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
 
         let url = if is_azure && method != Method::GET {
-            if base_url.ends_with("/deployments") {
-                let model = Self::get_azure_model(&body)?;
-                format!("{}/{}/{}", base_url, model, path)
-            } else if base_url.ends_with("/openai") {
-                let model = Self::get_azure_model(&body)?;
-                format!("{}/deployments/{}/{}", base_url, model, path)
-            } else {
-                format!("{}/{}", base_url, path)
-            }
+            let model = AIProvider::extract_model_from_body(&body)?;
+            AIProvider::build_azure_openai_url(base_url, &model, path)
         } else if is_anthropic_sdk {
             let truncated_base_url = base_url.trim_end_matches("/v1");
             format!("{}/{}", truncated_base_url, path)
@@ -233,18 +222,6 @@ impl AIRequestConfig {
             .map_err(|e| Error::internal_err(format!("Failed to reserialize request body: {}", e)))?
             .into())
     }
-
-    fn get_azure_model(body: &Bytes) -> Result<String> {
-        #[derive(Deserialize, Debug)]
-        struct AzureModel {
-            model: String,
-        }
-
-        let azure_model: AzureModel = serde_json::from_slice(body)
-            .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
-
-        Ok(azure_model.model)
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -272,6 +249,8 @@ pub struct AIConfig {
     pub code_completion_model: Option<ProviderModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_prompts: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens_per_model: Option<HashMap<String, i32>>,
 }
 
 pub fn global_service() -> Router {

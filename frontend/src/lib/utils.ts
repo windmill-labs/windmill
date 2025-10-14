@@ -10,7 +10,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, Script, ScriptLang } from './gen'
+import type { Job, RunnableKind, Script, ScriptLang } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -248,6 +248,28 @@ export function msToReadableTime(ms: number | undefined, maximumFractionDigits?:
 	}
 }
 
+export function msToReadableTimeShort(
+	ms: number | undefined,
+	maximumFractionDigits?: number
+): string {
+	if (ms === undefined) return '?'
+
+	const seconds = Math.floor(ms / 1000)
+	const minutes = Math.floor(seconds / 60)
+	const hours = Math.floor(minutes / 60)
+	const days = Math.floor(hours / 24)
+
+	if (days > 0) {
+		return `${days}d`
+	} else if (hours > 0) {
+		return `${hours}h`
+	} else if (minutes > 0) {
+		return `${minutes}m`
+	} else {
+		return `${msToSec(ms, maximumFractionDigits)}s`
+	}
+}
+
 export function getToday() {
 	var today = new Date()
 	return today
@@ -287,6 +309,7 @@ interface ClickOutsideOptions {
 	exclude?: (() => Promise<HTMLElement[]>) | HTMLElement[] | undefined
 	stopPropagation?: boolean
 	customEventName?: string
+	eventToListenName?: 'click' | 'pointerdown'
 	// on:click_outside cannot be used with svelte 5
 	onClickOutside?: (event: MouseEvent) => void
 }
@@ -333,14 +356,15 @@ export function clickOutside(
 	}
 
 	const capture = typeof options === 'boolean' ? options : (options?.capture ?? true)
-	document.addEventListener('click', handleClick, capture ?? true)
+	const eventToListenName = (typeof options === 'object' && options.eventToListenName) || 'click'
+	document.addEventListener(eventToListenName, handleClick, capture ?? true)
 
 	return {
 		update(newOptions: ClickOutsideOptions | boolean) {
 			options = newOptions
 		},
 		destroy() {
-			document.removeEventListener('click', handleClick, capture ?? true)
+			document.removeEventListener(eventToListenName, handleClick, capture ?? true)
 		}
 	}
 }
@@ -599,8 +623,8 @@ export namespace DynamicInput {
 	const DYN_FORMAT_PREFIX = ['dynmultiselect-', 'dynselect-']
 
 	export type HelperScript =
-		| { type: 'inline'; path?: string; lang: Script['language']; code: string }
-		| { type: 'hash'; hash: string }
+		| { source: 'deployed'; path: string; runnable_kind: RunnableKind }
+		| { source: 'inline'; code: string; lang: ScriptLang }
 
 	export const generatePythonFnTemplate = (functionName: string): string => {
 		return `
@@ -666,9 +690,7 @@ export function setInputCat(
 		return 'object'
 	} else if (type == 'string' && enum_) {
 		return 'enum'
-	} else if (type == 'string' && format == 'date-time') {
-		return 'date'
-	} else if (type == 'string' && format == 'date') {
+	} else if (type == 'string' && ['date-time', 'naive-date-time', 'date'].includes(format!)) {
 		return 'date'
 	} else if (type == 'string' && format == 'sql') {
 		return 'sql'
@@ -1014,6 +1036,14 @@ export function isCodeInjection(expr: string | undefined): boolean {
 	return dynamicTemplateRegex.test(expr)
 }
 
+export function urlParamsToObject(params: URLSearchParams): Record<string, string> {
+	const result: Record<string, string> = {}
+	params.forEach((value, key) => {
+		result[key] = value
+	})
+	return result
+}
+
 export async function tryEvery({
 	tryCode,
 	timeoutCode,
@@ -1040,18 +1070,17 @@ export async function tryEvery({
 		timeoutCode()
 	}
 }
-
-export function roughSizeOfObject(object: object | string) {
-	if (typeof object == 'string') {
+export function roughSizeOfObject(object: object | string | any) {
+	if (typeof object === 'string') {
 		return object.length * 2
 	}
 
-	var objectList: any[] = []
-	var stack = [object]
-	var bytes = 0
+	const visited = new Set<object>()
+	const stack = [object]
+	let bytes = 0
 
 	while (stack.length) {
-		let value: any = stack.pop()
+		const value = stack.pop()
 
 		if (typeof value === 'boolean') {
 			bytes += 4
@@ -1059,12 +1088,12 @@ export function roughSizeOfObject(object: object | string) {
 			bytes += value.length * 2
 		} else if (typeof value === 'number') {
 			bytes += 8
-		} else if (typeof value === 'object' && objectList.indexOf(value) === -1) {
-			objectList.push(value)
+		} else if (typeof value === 'object' && value !== null && !visited.has(value)) {
+			visited.add(value)
 
-			for (var i in value) {
-				bytes += 2 * i.length
-				stack.push(value[i])
+			for (const key in value) {
+				bytes += 2 * key.length
+				stack.push(value[key])
 			}
 		}
 	}
@@ -1287,7 +1316,7 @@ export function isFlowPreview(job_kind: Job['job_kind'] | undefined) {
 }
 
 export function isNotFlow(job_kind: Job['job_kind'] | undefined) {
-	return job_kind !== 'flow' && job_kind !== 'singlescriptflow' && !isFlowPreview(job_kind)
+	return job_kind !== 'flow' && job_kind !== 'singlestepflow' && !isFlowPreview(job_kind)
 }
 
 export function isScriptPreview(job_kind: Job['job_kind'] | undefined) {
@@ -1551,4 +1580,45 @@ export function assert(msg: string, condition: boolean, value?: any) {
 		sendUserToast(m, true)
 		console.error(m)
 	}
+}
+
+export function createCache<Keys extends Record<string, any>, T, InitialKeys extends Keys = Keys>(
+	compute: (keys: Keys) => T,
+	params?: { maxSize?: number; initial?: InitialKeys; invalidateMs?: number }
+): (keys: Keys) => T {
+	let cache = new Map<string, { value: T; timestamp: number }>()
+	const maxSize = params?.maxSize ?? 15
+
+	if (params?.initial) {
+		let key = JSON.stringify(params.initial, Object.keys(params.initial).sort())
+		let value = compute(params.initial)
+		cache.set(key, { value, timestamp: Date.now() })
+	}
+
+	return (keys: Keys) => {
+		if (typeof params?.invalidateMs === 'number') {
+			for (const [key, entry] of cache.entries()) {
+				if (Date.now() - entry.timestamp > params.invalidateMs) {
+					cache.delete(key)
+				}
+			}
+		}
+
+		let key = JSON.stringify(keys, Object.keys(keys).sort())
+		if (!cache.get(key)) {
+			let value = compute(keys)
+			cache.set(key, { value, timestamp: Date.now() })
+
+			if (cache.size > maxSize) {
+				// remove the oldest entry (first inserted)
+				const oldestKey = cache.keys().next().value!
+				cache.delete(oldestKey)
+			}
+		}
+		return cache.get(key)!.value
+	}
+}
+
+export async function wait(ms: number) {
+	return new Promise((resolve) => setTimeout(() => resolve(undefined), ms))
 }

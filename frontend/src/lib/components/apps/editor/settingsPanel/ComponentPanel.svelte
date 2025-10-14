@@ -177,7 +177,7 @@
 		}
 	}
 
-	let templateChangeTimeout: NodeJS.Timeout | undefined = undefined
+	let templateChangeTimeout: number | undefined = undefined
 	function onTemplateChange(e: CustomEvent<{ code: string }>) {
 		const currentItem = item
 		if (currentItem.data.componentInput?.type === 'templatev2') {
@@ -391,8 +391,10 @@
 			<GridTab
 				bind:tabs={item.data.tabs}
 				bind:disabledTabs={item.data.disabledTabs}
+				bind:hiddenTabs={item.data.hiddenTabs}
 				bind:component={item.data}
 				canDisableTabs
+				canHideTabs
 			/>
 		{:else if item.data.type === 'aggridcomponentee'}
 			<GridAgGridLicenseKey bind:license={item.data.license} />

@@ -8,7 +8,7 @@
 
 <script lang="ts">
 	import { createPopover, createSync, melt } from '@melt-ui/svelte'
-	import { fade } from 'svelte/transition'
+	import { fly } from 'svelte/transition'
 	import { X, Minimize2, Maximize2 } from 'lucide-svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { debounce, pointerDownOutside } from '$lib/utils'
@@ -38,6 +38,7 @@
 	export let documentationLink: string | undefined = undefined
 	export let disableFocusTrap: boolean = false
 	export let escapeBehavior: EscapeBehaviorType = 'close'
+	export let enableFlyTransition: boolean = false
 
 	let fullScreen = false
 	const dispatch = createEventDispatcher()
@@ -168,7 +169,7 @@
 		}}
 		on:mouseleave={debounceClose}
 		use:melt={$content}
-		transition:fade={{ duration: 0 }}
+		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
 		class={twMerge(
 			'relative border rounded-md bg-surface shadow-lg',
 			fullScreen

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.542.0
+  version: 1.558.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -62,6 +62,9 @@ components:
           type: number
         early_return:
           type: string
+        chat_input_enabled:
+          type: boolean
+          description: Whether this flow accepts chat-style input
       required:
         - modules
 
@@ -89,7 +92,7 @@ components:
               minimum: 0
               maximum: 100
         retry_if:
-          $ref: '#/components/schemas/RetryIf'
+          $ref: "#/components/schemas/RetryIf"
 
     RetryIf:
       type: object
@@ -370,7 +373,7 @@ components:
         parallel:
           type: boolean
         parallelism:
-          type: integer
+          $ref: "#/components/schemas/InputTransform"
       required:
         - modules
         - iterator
@@ -393,7 +396,7 @@ components:
         parallel:
           type: boolean
         parallelism:
-          type: integer
+          $ref: "#/components/schemas/InputTransform"
       required:
         - modules
         - skip_failures
@@ -569,6 +572,17 @@ components:
           type: array
           items:
             type: boolean
+        flow_jobs_duration:
+          type: object
+          properties:
+            started_at:
+              type: array
+              items:
+                type: string
+            duration_ms:
+              type: array
+              items:
+                type: integer
         branch_chosen:
           type: object
           properties:

@@ -7,51 +7,6 @@
 	import '@codingame/monaco-vscode-standalone-css-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import '@codingame/monaco-vscode-standalone-html-language-features'
-	import {
-		editor as meditor,
-		KeyCode,
-		KeyMod,
-		Uri as mUri,
-		languages,
-		type IRange,
-		type IDisposable,
-		type IPosition
-	} from 'monaco-editor'
-
-	languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noSemanticValidation: false,
-		noLib: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-	})
-	function setDiagnosticsOptions() {
-		languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-			noSemanticValidation: false,
-			noSyntaxValidation: false,
-			noSuggestionDiagnostics: false,
-			diagnosticCodesToIgnore: [1108]
-		})
-	}
-	setDiagnosticsOptions()
-	languages.json.jsonDefaults.setDiagnosticsOptions({
-		validate: true,
-		allowComments: false,
-		schemas: [],
-		enableSchemaRequest: true
-	})
-	languages.json.jsonDefaults.setModeConfiguration({
-		documentRangeFormattingEdits: false,
-		documentFormattingEdits: true,
-		hovers: true,
-		completionItems: true,
-		documentSymbols: true,
-		tokens: true,
-		colors: true,
-		foldingRanges: true,
-		selectionRanges: true,
-		diagnostics: true
-	})
 </script>
 
 <script lang="ts">
@@ -83,6 +38,17 @@
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { langToExt } from '$lib/editorLangUtils'
+	import {
+		editor as meditor,
+		KeyCode,
+		KeyMod,
+		Uri as mUri,
+		languages,
+		type IRange,
+		type IDisposable,
+		type IPosition
+	} from 'monaco-editor'
+	import { setMonacoJavascriptOptions, setMonacoJsonOptions } from './monacoLanguagesOptions'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -119,10 +85,13 @@
 		allowVim = false,
 		tailwindClasses = [],
 		class: className = '',
+		fakeMonacoPlaceholderClass = '',
 		loadAsync = false,
 		key,
 		disabled = false,
-		minHeight = 1000
+		minHeight = 1000,
+		renderLineHighlight = 'none',
+		yPadding
 	}: {
 		lang: string
 		code?: string
@@ -144,11 +113,14 @@
 		allowVim?: boolean
 		tailwindClasses?: string[]
 		class?: string
+		fakeMonacoPlaceholderClass?: string
 		loadAsync?: boolean
 		initialCursorPos?: IPosition
 		key?: string
 		disabled?: boolean
 		minHeight?: number
+		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
+		yPadding?: number
 	} = $props()
 
 	const dispatch = createEventDispatcher()
@@ -334,31 +306,11 @@
 	let fontSize = $derived(small ? 12 : 14)
 
 	async function loadMonaco() {
+		setMonacoJsonOptions()
+		setMonacoJavascriptOptions()
 		await initializeVscode()
 		initialized = true
 
-		// if (lang === 'javascript') {
-		// 	languages.typescript.javascriptDefaults.setCompilerOptions({
-		// 		target: languages.typescript.ScriptTarget.Latest,
-		// 		allowNonTsExtensions: true,
-		// 		noSemanticValidation: false,
-		// 		noLib: true,
-		// 		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-		// 	})
-		// 	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-		// 		noSemanticValidation: false,
-		// 		noSyntaxValidation: false,
-		// 		noSuggestionDiagnostics: false,
-		// 		diagnosticCodesToIgnore: [1108]
-		// 	})
-		// } else if (lang === 'json') {
-		// 	languages.json.jsonDefaults.setDiagnosticsOptions({
-		// 		validate: true,
-		// 		allowComments: false,
-		// 		schemas: [],
-		// 		enableSchemaRequest: true
-		// 	})
-		// }
 		try {
 			model = meditor.createModel(code ?? '', lang, mUri.parse(uri))
 		} catch (err) {
@@ -386,6 +338,8 @@
 					$relativeLineNumbers
 				),
 				model,
+				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {}),
+				renderLineHighlight,
 				lineDecorationsWidth: 6,
 				lineNumbersMinChars: 2,
 				fontSize: fontSize,
@@ -413,7 +367,7 @@
 		}
 		keepModelAroundToAvoidDisposalOfWorkers()
 
-		let timeoutModel: NodeJS.Timeout | undefined = undefined
+		let timeoutModel: number | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
 			suggestion = ''
 			timeoutModel && clearTimeout(timeoutModel)
@@ -656,9 +610,11 @@
 	<FakeMonacoPlaceHolder
 		{code}
 		autoheight
-		lineNumbersWidth={(23 * fontSize) / 14}
+		lineNumbersWidth={hideLineNumbers ? 0 : (23 * fontSize) / 14}
 		lineNumbersOffset={fontSize == 14 ? -8 : -11}
 		{fontSize}
+		showNumbers={!hideLineNumbers}
+		class={fakeMonacoPlaceholderClass}
 	/>
 {/if}
 

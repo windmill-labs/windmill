@@ -40,11 +40,12 @@
 	import ResolveStyle from '../../helpers/ResolveStyle.svelte'
 
 	import AppAggridTableActions from './AppAggridTableActions.svelte'
-	import { cellRendererFactory, defaultCellRenderer } from './utils'
+	import { cellRendererFactory, transformColumnDefs, type WindmillColumnDef } from './utils'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Button } from '$lib/components/common'
 	import InputValue from '../../helpers/InputValue.svelte'
 	import { stateSnapshot, withProps } from '$lib/svelte5Utils.svelte'
+	import { get } from 'svelte/store'
 
 	interface Props {
 		// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
@@ -56,6 +57,7 @@
 		customCss?: ComponentCustomCSS<'aggridcomponent'> | undefined
 		actions?: TableAction[] | undefined
 		actionsOrder?: RichConfiguration | undefined
+		onChange?: string[] | undefined
 	}
 
 	let {
@@ -66,7 +68,8 @@
 		render,
 		customCss = undefined,
 		actions = undefined,
-		actionsOrder = undefined
+		actionsOrder = undefined,
+		onChange = undefined
 	}: Props = $props()
 
 	const context = getContext<AppViewerContext>('AppViewerContext')
@@ -188,6 +191,13 @@
 	let clientHeight: number = $state(0)
 	let clientWidth: number = $state(0)
 
+	function fireOnChange() {
+		let runnableComponents = get(context.runnableComponents)
+		if (onChange) {
+			onChange.forEach((id) => runnableComponents?.[id]?.cb?.forEach((cb) => cb()))
+		}
+	}
+
 	function onCellValueChanged(event) {
 		if (result) {
 			let dataCell = event.newValue
@@ -207,6 +217,7 @@
 			let data = { ...result[idx] }
 			outputs?.selectedRow?.set(data)
 			resolvedConfig?.extraConfig?.['defaultColDef']?.['onCellValueChanged']?.(event)
+			fireOnChange()
 		}
 	}
 
@@ -303,6 +314,12 @@
 				taComponent.props.rowIndex = params.node.rowIndex ?? 0
 				taComponent.props.row = params.data
 				taComponent.props.p = params
+				const nextActions: TableAction[] | undefined = computedOrder
+					? (computedOrder
+							.map((key) => actions?.find((a) => a.id === key))
+							.filter(Boolean) as TableAction[])
+					: actions
+				taComponent.props.actions = nextActions
 			}
 		}
 	})
@@ -317,36 +334,25 @@
 		// console.log(resolvedConfig?.extraConfig)
 		if (eGui) {
 			try {
-				let columnDefs =
-					Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-						? [...resolvedConfig?.columnDefs] // Clone to avoid direct mutation
-						: []
-
-				// Add the action column if actions are defined
-				if (actions && actions.length > 0) {
-					columnDefs.push({
-						headerName: resolvedConfig?.customActionsHeader
-							? resolvedConfig?.customActionsHeader
-							: 'Actions',
-						cellRenderer: tableActionsFactory,
-						autoHeight: true,
-						cellStyle: { textAlign: 'center' },
-						cellClass: 'grid-cell-centered',
-						...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
-					})
-				}
+				const agColumnDefs = transformColumnDefs({
+					columnDefs:
+						Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
+							? ([...resolvedConfig?.columnDefs] as WindmillColumnDef[])
+							: [],
+					actions,
+					customActionsHeader: resolvedConfig?.customActionsHeader,
+					wrapActions: resolvedConfig?.wrapActions,
+					tableActionsFactory,
+					onInvalidColumnDefs: (errors) => {
+						sendUserToast(`Invalid columnDefs: ${errors.join('\n')}`, true)
+					}
+				})
 
 				createGrid(
 					eGui,
 					{
 						rowData: value,
-						columnDefs: columnDefs.map((fields) => {
-							let cr = defaultCellRenderer(fields.cellRendererType)
-							return {
-								...fields,
-								...(cr ? { cellRenderer: cr } : {})
-							}
-						}),
+						columnDefs: agColumnDefs,
 						pagination: resolvedConfig?.pagination,
 						paginationAutoPageSize: resolvedConfig?.pagination,
 						suppressPaginationPanel: true,
@@ -476,34 +482,23 @@
 
 	function updateOptions() {
 		try {
-			const columnDefs =
-				Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
-					? [...resolvedConfig?.columnDefs] // Clone to avoid direct mutation
-					: []
-
-			// Add the action column if actions are defined
-			if (actions && actions.length > 0) {
-				columnDefs.push({
-					headerName: resolvedConfig?.customActionsHeader
-						? resolvedConfig?.customActionsHeader
-						: 'Actions',
-					cellRenderer: tableActionsFactory,
-					autoHeight: true,
-					cellStyle: { textAlign: 'center' },
-					cellClass: 'grid-cell-centered',
-					...(!resolvedConfig?.wrapActions ? { minWidth: 130 * actions?.length } : {})
-				})
-			}
+			const agColumnDefs = transformColumnDefs({
+				columnDefs:
+					Array.isArray(resolvedConfig?.columnDefs) && resolvedConfig.columnDefs.every(isObject)
+						? ([...resolvedConfig?.columnDefs] as WindmillColumnDef[])
+						: [],
+				actions,
+				customActionsHeader: resolvedConfig?.customActionsHeader,
+				wrapActions: resolvedConfig?.wrapActions,
+				tableActionsFactory,
+				onInvalidColumnDefs: (errors) => {
+					sendUserToast(`Invalid columnDefs: ${errors.join('\n')}`, true)
+				}
+			})
 
 			api?.updateGridOptions({
 				rowData: value,
-				columnDefs: columnDefs.map((fields) => {
-					let cr = defaultCellRenderer(fields.cellRendererType)
-					return {
-						...fields,
-						...(cr ? { cellRenderer: cr } : {})
-					}
-				}),
+				columnDefs: agColumnDefs,
 				pagination: resolvedConfig?.pagination,
 				paginationAutoPageSize: resolvedConfig?.pagination,
 				suppressPaginationPanel: true,
@@ -523,6 +518,10 @@
 					...resolvedConfig?.extraConfig?.['defaultColDef']
 				}
 			})
+			// Force refresh to re-render cell renderers after actions change
+			api?.refreshCells({ force: true })
+			// Force complete redraw to clear stale inline styles
+			api?.redrawRows()
 		} catch (e) {
 			console.error(e)
 			sendUserToast("Couldn't update the grid:" + e, true)
@@ -609,7 +608,13 @@
 	bind:loading
 	hideRefreshButton={true}
 >
-	<SyncColumnDefs {id} columnDefs={resolvedConfig.columnDefs} {result}>
+	<SyncColumnDefs
+		{id}
+		columnDefs={resolvedConfig.columnDefs}
+		{result}
+		actionsPresent={Array.isArray(actions) && actions.length > 0}
+		customActionsHeader={resolvedConfig?.customActionsHeader}
+	>
 		<div
 			class={twMerge(
 				'flex flex-col h-full component-wrapper divide-y',

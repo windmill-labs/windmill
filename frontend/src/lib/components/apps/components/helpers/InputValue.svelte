@@ -71,7 +71,7 @@
 
 	const { worldStore, state: stateStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	let firstDebounce = true
 	const debounce_ms = 50

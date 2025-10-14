@@ -13,6 +13,8 @@ use anyhow::anyhow;
 use futures::TryFutureExt;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
+use windmill_common::scripts::hash_to_codebase_id;
+use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
 use windmill_common::{
@@ -20,7 +22,6 @@ use windmill_common::{
     apps::AppScriptId,
     cache::{future::FutureCachedExt, ScriptData, ScriptMetadata},
     schema::{should_validate_schema, SchemaValidator},
-    scripts::PREVIEW_IS_TAR_CODEBASE_HASH,
     utils::{create_directory_async, WarnAfterExt},
     worker::{
         make_pull_query, write_file, Connection, HttpClient, MAX_TIMEOUT,
@@ -56,6 +57,7 @@ use std::{
     time::Duration,
 };
 use windmill_parser::MainArgSignature;
+use windmill_queue::PulledJobResultToJobErr;
 
 use uuid::Uuid;
 
@@ -64,7 +66,7 @@ use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::FlowNodeId,
     jobs::JobKind,
-    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang, PREVIEW_IS_CODEBASE_HASH},
+    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     utils::StripPath,
     worker::{CLOUD_HOSTED, NO_LOGS, WORKER_CONFIG, WORKER_GROUP},
     DB, IS_READY,
@@ -101,9 +103,10 @@ use tokio::{
 use rand::Rng;
 
 use crate::ai_executor::handle_ai_agent_job;
+use crate::common::StreamNotifier;
 use crate::{
     agent_workers::{queue_init_job, queue_periodic_job},
-    bash_executor::{handle_bash_job, handle_powershell_job},
+    bash_executor::handle_bash_job,
     bun_executor::handle_bun_job,
     common::{
         build_args_map, cached_result_path, error_to_value, get_cached_resource_value_if_valid,
@@ -118,6 +121,7 @@ use crate::{
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
+    pwsh_executor::handle_powershell_job,
     result_processor::{process_result, start_background_processor},
     schema::schema_validator_from_main_arg_sig,
     worker_flow::handle_flow,
@@ -157,7 +161,7 @@ use crate::mysql_executor::do_mysql;
 #[cfg(feature = "duckdb")]
 use crate::duckdb_executor::do_duckdb;
 
-#[cfg(feature = "oracledb")]
+#[cfg(all(feature = "enterprise", feature = "oracledb"))]
 use crate::oracledb_executor::do_oracledb;
 
 #[cfg(feature = "enterprise")]
@@ -261,6 +265,12 @@ const DOTNET_DEFAULT_PATH: &str = "/usr/bin/dotnet";
 pub const SAME_WORKER_REQUIREMENTS: &'static str =
     "SameWorkerSender is required because this job may be part of a flow";
 
+#[derive(Deserialize, Clone)]
+pub struct PowershellRepo {
+    pub url: String,
+    pub pat: String,
+}
+
 lazy_static::lazy_static! {
 
     pub static ref SLEEP_QUEUE: u64 = std::env::var("SLEEP_QUEUE")
@@ -342,6 +352,8 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
     pub static ref NUGET_CONFIG: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref POWERSHELL_REPO_URL: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
+    pub static ref POWERSHELL_REPO_PAT: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref MAVEN_REPOS: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
     pub static ref NO_DEFAULT_MAVEN: AtomicBool = AtomicBool::new(std::env::var("NO_DEFAULT_MAVEN")
         .ok()
@@ -764,6 +776,8 @@ pub async fn handle_all_job_kind_error(
                         cached_res_path: None,
                         token: authed_client.token.clone(),
                         duration: None,
+                        has_stream: Some(false),
+                        from_cache: None,
                     },
                     false,
                 )
@@ -790,6 +804,7 @@ pub fn start_interactive_worker_shell(
 
         loop {
             if let Ok(_) = killpill_rx.try_recv() {
+                tracing::info!("Received killpill, exiting worker shell");
                 break;
             } else {
                 let pulled_job = match &conn {
@@ -809,7 +824,18 @@ pub fn start_interactive_worker_shell(
                         )
                         .await;
 
-                        job.map(|x| x.job.map(NextJob::Sql))
+                        match job {
+                            Ok(j) => match j.to_pulled_job() {
+                                Ok(j) => Ok(j.map(NextJob::Sql)),
+                                Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc)) => {
+                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
+                                        tracing::error!("An error occurred while sending job completed (missing concurrency key): {:#?}", err)
+                                    }
+                                    Ok(None)
+                                }
+                            },
+                            Err(err) => Err(err),
+                        }
                     }
                     Connection::Http(client) => {
                         crate::agent_workers::pull_job(&client, None, Some(true))
@@ -1619,7 +1645,18 @@ pub async fn run_worker(
                                 }
                             }
                         }
-                        job.map(|x| x.job.map(NextJob::Sql))
+                        match job {
+                            Ok(pulled_job_result) => match pulled_job_result.to_pulled_job() {
+                                Ok(j) => Ok(j.map(NextJob::Sql)),
+                                Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc)) => {
+                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
+                                        tracing::error!("An error occurred while sending job completed (missing concurrency key): {:#?}", err)
+                                    }
+                                    Ok(None)
+                                }
+                            },
+                            Err(err) => Err(err),
+                        }
                     }
                     Connection::Http(client) => crate::agent_workers::pull_job(&client, None, None)
                         .await
@@ -1685,6 +1722,8 @@ pub async fn run_worker(
                                 token: "".to_string(),
                                 canceled_by: None,
                                 duration: None,
+                                has_stream: Some(false),
+                                from_cache: None,
                             },
                             true,
                         )
@@ -2040,8 +2079,14 @@ pub async fn run_worker(
     }
     tracing::info!(worker = %worker_name, hostname = %hostname, "waiting for interactive_shell to finish");
     if let Some(interactive_shell) = interactive_shell {
-        if let Err(e) = interactive_shell.await {
-            tracing::error!("error in awaiting interactive_shell process: {e:?}")
+        match tokio::time::timeout(Duration::from_secs(10), interactive_shell).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => {
+                tracing::error!("error in interactive_shell process: {e:?}")
+            }
+            Err(_) => {
+                tracing::error!("timed out awaiting interactive_shell process")
+            }
         }
     }
     tracing::info!(worker = %worker_name, hostname = %hostname, "worker {} exited", worker_name);
@@ -2221,6 +2266,7 @@ async fn do_nativets(
     canceled_by: &mut Option<CanceledBy>,
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    has_stream: &mut bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let args = build_args_map(job, client, conn).await?.map(Json);
     let job_args = if args.is_some() {
@@ -2228,6 +2274,8 @@ async fn do_nativets(
     } else {
         job.args.as_ref()
     };
+
+    let stream_notifier = StreamNotifier::new(conn, job);
 
     Ok(eval_fetch_timeout(
         env_code,
@@ -2244,6 +2292,8 @@ async fn do_nativets(
         &job.workspace_id,
         true,
         occupancy_metrics,
+        stream_notifier,
+        has_stream,
     )
     .await?)
 }
@@ -2344,15 +2394,19 @@ pub async fn handle_queued_job(
             | JobKind::Dependencies
             | JobKind::FlowPreview
             | JobKind::Flow
-            | JobKind::FlowDependencies,
+            | JobKind::FlowDependencies
+            | JobKind::SingleStepFlow,
             x,
-        ) => match x.map(|x| x.0) {
-            None | Some(PREVIEW_IS_CODEBASE_HASH) | Some(PREVIEW_IS_TAR_CODEBASE_HASH) => Some(
-                cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow.clone())
-                    .await?,
-            ),
-            _ => None,
-        },
+        ) => {
+            if x.map(|x| x.0).is_none_or(|x| is_special_codebase_hash(x)) {
+                Some(
+                    cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow.clone())
+                        .await?,
+                )
+            } else {
+                None
+            }
+        }
         _ => None,
     };
 
@@ -2397,6 +2451,8 @@ pub async fn handle_queued_job(
                             cached_res_path: None,
                             token: client.token.clone(),
                             duration: None,
+                            has_stream: Some(false),
+                            from_cache: Some(true),
                         },
                         true,
                     )
@@ -2480,6 +2536,7 @@ pub async fn handle_queued_job(
 
         let mut column_order: Option<Vec<String>> = None;
         let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
+        let mut has_stream = false;
         let result = match job.kind {
             JobKind::Dependencies => match conn {
                 Connection::Sql(db) => {
@@ -2571,6 +2628,7 @@ pub async fn handle_queued_job(
                         worker_name,
                         hostname,
                         killpill_rx,
+                        &mut has_stream,
                     )
                     .await
                 }
@@ -2603,6 +2661,7 @@ pub async fn handle_queued_job(
                     occupancy_metrics,
                     killpill_rx,
                     precomputed_agent_info,
+                    &mut has_stream,
                 )
                 .await;
                 occupancy_metrics.total_duration_of_running_jobs +=
@@ -2635,6 +2694,7 @@ pub async fn handle_queued_job(
             new_args,
             conn,
             Some(started.elapsed().as_millis() as i64),
+            has_stream,
         )
         .await
     }
@@ -2755,7 +2815,7 @@ async fn try_validate_schema(
                 JobKind::Script_Hub => 3,
                 JobKind::Preview => 4,
                 JobKind::DeploymentCallback => 5,
-                JobKind::SingleScriptFlow => 6,
+                JobKind::SingleStepFlow => 6,
                 JobKind::Dependencies => 7,
                 JobKind::Flow => 8,
                 JobKind::FlowPreview => 9,
@@ -2822,6 +2882,7 @@ async fn handle_code_execution_job(
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
     let script_hash = || {
         job.runnable_id
@@ -2838,12 +2899,9 @@ async fn handle_code_execution_job(
         ScriptMetadata { language, envs, codebase, schema_validator, schema },
     ) = match job.kind {
         JobKind::Preview => {
-            let codebase = match job.runnable_id.map(|x| x.0) {
-                Some(PREVIEW_IS_CODEBASE_HASH) => Some(job.id.to_string()),
-                Some(PREVIEW_IS_TAR_CODEBASE_HASH) => Some(format!("{}.tar", job.id)),
-                _ => None,
-            };
-
+            let codebase = job
+                .runnable_id
+                .and_then(|x| hash_to_codebase_id(&job.id.to_string(), x.0));
             if codebase.is_none() && job.runnable_id.is_some() {
                 (arc_data, arc_metadata) =
                     cache::script::fetch(conn, job.runnable_id.unwrap()).await?;
@@ -3161,6 +3219,7 @@ async fn handle_code_execution_job(
             canceled_by,
             worker_name,
             occupancy_metrics,
+            has_stream,
         )
         .await?;
         return Ok(result);
@@ -3234,6 +3293,7 @@ mount {{
                 new_args,
                 occupancy_metrics,
                 precomputed_agent_info,
+                has_stream,
             )
             .await
         }
@@ -3253,6 +3313,7 @@ mount {{
                 envs,
                 new_args,
                 occupancy_metrics,
+                has_stream,
             )
             .await
         }
@@ -3275,6 +3336,7 @@ mount {{
                 new_args,
                 occupancy_metrics,
                 precomputed_agent_info,
+                has_stream,
             )
             .await
         }

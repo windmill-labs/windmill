@@ -50,11 +50,11 @@
           xmlsec.dev
           libxslt.dev
           libclang.dev
+          libffi  # For deno_ffi
           libtool
           nodejs
           postgresql
           pkg-config
-          glibc.dev
           clang
           cmake
         ];
@@ -312,9 +312,10 @@
           # included we need to look in a few places.
           # See https://web.archive.org/web/20220523141208/https://hoverbear.org/blog/rust-bindgen-in-nix/
           BINDGEN_EXTRA_CLANG_ARGS =
-            "${builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"} ${
+            # Prevent clang from using system headers - only use Nix headers
+            "-nostdinc ${builtins.readFile "${stdenv.cc}/nix-support/libc-crt1-cflags"} ${
               builtins.readFile "${stdenv.cc}/nix-support/libc-cflags"
-            }${builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"}${
+            } ${builtins.readFile "${stdenv.cc}/nix-support/cc-cflags"} ${
               builtins.readFile "${stdenv.cc}/nix-support/libcxx-cxxflags"
             } -idirafter ${pkgs.libiconv}/include ${
               lib.optionalString stdenv.cc.isClang
@@ -327,9 +328,10 @@
                 lib.getVersion stdenv.cc.cc
               } -isystem ${stdenv.cc.cc}/include/c++/${
                 lib.getVersion stdenv.cc.cc
-              }/${stdenv.hostPlatform.config} -idirafter ${stdenv.cc.cc}/lib/gcc/${stdenv.hostPlatform.config}/14.2.1/include"
-            }"; # NOTE: It is hardcoded to 14.2.1 -------------------------------------------------------------^^^^^^
-          # Please update the version here as well if you want to update flake.
+              }/${stdenv.hostPlatform.config} -idirafter ${stdenv.cc.cc}/lib/gcc/${stdenv.hostPlatform.config}/${
+                lib.getVersion stdenv.cc.cc
+              }/include"
+            }";
         };
         packages.default = self.packages.${system}.windmill;
         packages.windmill-client = pkgs.buildNpmPackage {

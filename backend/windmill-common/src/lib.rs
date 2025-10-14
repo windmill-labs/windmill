@@ -18,7 +18,7 @@ use std::{
     },
 };
 
-use tokio::sync::broadcast;
+use tokio::{spawn, sync::broadcast};
 
 use ee_oss::CriticalErrorChannel;
 use error::Error;
@@ -43,6 +43,7 @@ pub mod email_ee;
 pub mod email_oss;
 pub mod error;
 pub mod external_ip;
+pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
 pub mod global_settings;
@@ -152,6 +153,7 @@ lazy_static::lazy_static! {
 
     pub static ref DEPLOYED_SCRIPT_HASH_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
     pub static ref FLOW_VERSION_CACHE: Cache<(String, String), ExpiringLatestVersionId> = Cache::new(1000);
+    pub static ref DYNAMIC_INPUT_CACHE: Cache<String, Arc<jobs::DynamicInput>> = Cache::new(1000);
     pub static ref DEPLOYED_SCRIPT_INFO_CACHE: Cache<(String, i64), ScriptHashInfo> = Cache::new(1000);
     pub static ref FLOW_INFO_CACHE: Cache<(String, i64), FlowVersionInfo> = Cache::new(1000);
 
@@ -197,8 +199,47 @@ pub async fn shutdown_signal(
         },
     }
 
+    spawn(async move {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        tokio::select! {
+            _ = terminate() => {
+                tracing::info!("2nd shutdown monitor received terminate");
+            },
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("2nd shutdown monitor received ctrl-c");
+            },
+        }
+
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = rx.recv() => {
+                tracing::info!("2nd shutdown monitor received killpill");
+            },
+        }
+
+        tracing::info!("Second terminate signal received, forcefully exiting");
+
+        let handle = tokio::runtime::Handle::current();
+        let metrics = handle.metrics();
+        tracing::info!(
+            "Alive tasks: {}, global queue depth: {}",
+            metrics.num_alive_tasks(),
+            metrics.global_queue_depth()
+        );
+
+        std::process::exit(1);
+    });
+
     tracing::info!("signal received, starting graceful shutdown");
     let _ = tx.send();
+
+    spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(24 * 7 * 60 * 60)).await;
+        tracing::info!("Forcefully exiting after 7 days");
+        std::process::exit(1);
+    });
+
     Ok(())
 }
 
@@ -623,6 +664,7 @@ pub struct FlowVersionInfo {
     pub tag: Option<String>,
     pub early_return: Option<String>,
     pub has_preprocessor: Option<bool>,
+    pub chat_input_enabled: Option<bool>,
     pub on_behalf_of_email: Option<String>,
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
@@ -744,7 +786,7 @@ pub fn get_latest_flow_version_info_for_path_from_version<
                 let mut conn = db.acquire().await?;
                 let info = sqlx::query_as!(
                     FlowVersionInfo,
-                    "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, on_behalf_of_email, edited_by, flow_version.id AS version
+                    "SELECT tag, dedicated_worker, flow_version.value->>'early_return' as early_return, flow_version.value->>'preprocessor_module' IS NOT NULL as has_preprocessor, (flow_version.value->>'chat_input_enabled')::boolean as chat_input_enabled, on_behalf_of_email, edited_by, flow_version.id AS version
                     FROM flow
                     INNER JOIN flow_version
                         ON flow_version.id = $3

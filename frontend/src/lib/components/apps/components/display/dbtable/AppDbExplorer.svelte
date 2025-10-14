@@ -38,7 +38,7 @@
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import InsertRowDrawerButton from '../InsertRowDrawerButton.svelte'
-	import { assert } from '$lib/utils'
+	import { getDucklakeSchema, type DbInput } from '$lib/components/dbOps'
 
 	interface Props {
 		id: string
@@ -94,7 +94,7 @@
 		initConfig(components['dbexplorercomponent'].initialData.configuration, configuration)
 	)
 
-	let timeoutInput: NodeJS.Timeout | undefined = undefined
+	let timeoutInput: number | undefined = undefined
 
 	function computeInput(columnDefs: any, whereClause: string | undefined, resource: any) {
 		if (timeoutInput) {
@@ -105,11 +105,10 @@
 			console.log('compute input')
 
 			input = getSelectInput(
-				resource,
+				dbInput,
 				resolvedConfig.type.configuration[resolvedConfig.type.selected].table,
 				columnDefs,
-				whereClause,
-				resolvedConfig.type.selected as DbType
+				whereClause
 			)
 		}, 1000)
 	}
@@ -133,6 +132,27 @@
 	let componentContainerHeight: number | undefined = $state(undefined)
 	let buttonContainerHeight: number | undefined = $state(undefined)
 
+	let dbPath = $derived(
+		resolvedConfig.type.selected !== 'ducklake'
+			? resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
+			: resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.ducklake
+	)
+	let dbInput: DbInput = $derived(
+		resolvedConfig.type.selected === 'ducklake'
+			? {
+					type: 'ducklake',
+					ducklake: dbPath.split('ducklake://')[1]
+				}
+			: {
+					type: 'database',
+					resourcePath: dbPath.split('$res:')[1],
+					resourceType: resolvedConfig.type.selected as DbType
+				}
+	)
+	let dbtype = $derived(
+		resolvedConfig.type.selected === 'ducklake' ? ('duckdb' as const) : resolvedConfig.type.selected
+	)
+
 	function onUpdate(
 		e: CustomEvent<{
 			row: number
@@ -146,14 +166,13 @@
 		const { columnDef, value, data, oldValue } = e.detail
 
 		updateCell?.triggerUpdate(
-			resolvedConfig.type.configuration[resolvedConfig.type.selected].resource,
+			dbInput,
 			resolvedConfig.type.configuration[resolvedConfig.type.selected].table ?? 'unknown',
 			columnDef,
 			resolvedConfig.columnDefs,
 			value,
 			data,
-			oldValue,
-			resolvedConfig.type.selected as DbType
+			oldValue
 		)
 	}
 
@@ -193,44 +212,40 @@
 	}
 
 	async function listTables() {
-		let resource = resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource
+		if (!dbPath) return
+		if (lastResource === dbPath) return
+		lastResource = dbPath
 
-		if (!resource) return
-
-		if (lastResource === resource) return
-		lastResource = resource
 		const gridItem = findGridItem($app, id)
-
-		if (!gridItem) {
-			return
-		}
+		if (!gridItem) return
 
 		updateOneOfConfiguration(
 			gridItem.data.configuration.type as OneOfConfiguration,
 			resolvedConfig.type,
-			{
-				table: {
-					selectOptions: [],
-					loading: true
-				}
-			}
+			{ table: { selectOptions: [], loading: true } }
 		)
 
-		if (!resolvedConfig.type?.configuration?.[resolvedConfig.type.selected]?.resource) {
+		if (!dbPath) {
 			$app = $app
 			return
 		}
 
 		try {
 			const dbSchemas: DBSchemas = {}
-
-			await getDbSchemas(
-				resolvedConfig?.type?.selected,
-				resolvedConfig.type.configuration[resolvedConfig?.type?.selected].resource.split(':')[1],
-				$workspaceStore,
-				dbSchemas,
-				() => {}
-			)
+			if (resolvedConfig?.type?.selected === 'ducklake') {
+				dbSchemas[dbPath] = await getDucklakeSchema({
+					workspace: $workspaceStore!,
+					ducklake: dbPath.split('ducklake://')[1]
+				})
+			} else {
+				await getDbSchemas(
+					resolvedConfig?.type?.selected,
+					dbPath.split('$res:')[1],
+					$workspaceStore,
+					dbSchemas,
+					() => {}
+				)
+			}
 
 			updateOneOfConfiguration(
 				gridItem.data.configuration.type as OneOfConfiguration,
@@ -238,12 +253,7 @@
 				{
 					table: {
 						selectOptions: dbSchemas
-							? await getTablesByResource(
-									dbSchemas,
-									resolvedConfig?.type?.selected,
-									resource.split(':')[1],
-									$workspaceStore!
-								)
+							? await getTablesByResource(dbSchemas, dbtype, dbPath, $workspaceStore!)
 							: [],
 						loading: false
 					}
@@ -318,7 +328,7 @@
 	})
 
 	let lastTable: string | undefined = $state(undefined)
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: number | undefined = undefined
 
 	function isSubset(subset: Record<string, any>, superset: Record<string, any>) {
 		return Object.keys(subset).every((key) => {
@@ -366,14 +376,17 @@
 		gridItem.data = gridItem.data
 		$app = $app
 
-		let resource = resolvedConfig.type.configuration[selected].resource
-		assert('resource starts with $res:', resource?.startsWith('$res:'), resource)
 		let tableMetadata = await loadTableMetaData(
-			{
-				type: 'database',
-				resourcePath: resource.substring(5),
-				resourceType: selected
-			},
+			resolvedConfig.type.selected === 'ducklake'
+				? {
+						type: 'ducklake',
+						ducklake: dbPath.split('ducklake://')[1]
+					}
+				: {
+						type: 'database',
+						resourcePath: dbPath.split('$res:')[1],
+						resourceType: dbtype
+					},
 			$workspaceStore,
 			resolvedConfig.type.configuration[selected].table
 		)
@@ -505,12 +518,11 @@
 			const selected = resolvedConfig.type.selected
 
 			await insertRowRunnable?.insertRow(
-				resolvedConfig.type.configuration[selected].resource,
+				dbInput,
 				$workspaceStore,
 				resolvedConfig.type.configuration[selected].table,
 				resolvedConfig.columnDefs,
-				args,
-				selected
+				args
 			)
 
 			insertDrawer?.closeDrawer()
@@ -530,14 +542,11 @@
 		const data = { ...e.detail }
 		delete data['__index']
 
-		const selected = resolvedConfig.type.selected
-
 		deleteRow?.triggerDelete(
-			resolvedConfig.type.configuration[selected].resource,
-			resolvedConfig.type.configuration[selected].table ?? 'unknown',
+			dbInput,
+			resolvedConfig.type.configuration[resolvedConfig.type.selected].table ?? 'unknown',
 			resolvedConfig.columnDefs,
-			data,
-			selected
+			data
 		)
 	}
 
@@ -555,18 +564,14 @@
 		resolvedConfig.type.selected &&
 			render &&
 			untrack(() => {
-				computeInput(
-					resolvedConfig.columnDefs,
-					resolvedConfig.whereClause,
-					resolvedConfig.type.configuration[resolvedConfig.type.selected].resource
-				)
+				computeInput(resolvedConfig.columnDefs, resolvedConfig.whereClause, dbPath)
 			})
 	})
 	$effect(() => {
 		editorContext != undefined &&
 			$mode == 'dnd' &&
 			resolvedConfig.type &&
-			resolvedConfig.type.configuration?.[resolvedConfig.type.selected]?.resource &&
+			dbPath &&
 			untrack(() => listTables())
 	})
 	$effect(() => {
@@ -628,8 +633,7 @@
 		{id}
 		{quicksearch}
 		{table}
-		resource={resolvedConfig?.type?.configuration?.[resolvedConfig?.type?.selected]?.resource}
-		resourceType={resolvedConfig?.type?.selected}
+		{dbInput}
 		columnDefs={resolvedConfig?.columnDefs}
 		whereClause={resolvedConfig?.whereClause}
 	/>
@@ -672,14 +676,14 @@
 					{#if hideInsert !== true}
 						<InsertRowDrawerButton
 							columnDefs={resolvedConfig.columnDefs}
-							dbType={resolvedConfig.type.selected}
+							dbType={dbtype}
 							onInsert={(args) => insert(args)}
 						/>
 					{/if}
 				</div>
 			</div>
 		{/if}
-		{#if resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.resource && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
+		{#if dbPath && resolvedConfig.type.configuration?.[resolvedConfig?.type?.selected]?.table}
 			<!-- {JSON.stringify(lastInput)} -->
 			<!-- <span class="text-xs">{JSON.stringify(configuration.columnDefs)}</span> -->
 			{#key renderCount && render}

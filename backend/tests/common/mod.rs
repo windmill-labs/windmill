@@ -11,7 +11,13 @@ use uuid::Uuid;
 use windmill_api_client::types::NewScript;
 #[cfg(feature = "python")]
 use windmill_common::flow_status::FlowStatusModule;
-use windmill_common::{jobs::{JobKind, JobPayload, RawCode}, jwt::JWT_SECRET, scripts::{ ScriptHash, ScriptLang}, worker::WORKER_CONFIG, KillpillSender};
+use windmill_common::{
+    jobs::{JobKind, JobPayload, RawCode},
+    jwt::JWT_SECRET,
+    scripts::{ScriptHash, ScriptLang},
+    worker::WORKER_CONFIG,
+    KillpillSender,
+};
 use windmill_queue::PushIsolationLevel;
 
 /// it's important this is unique between tests as there is one prometheus registry and
@@ -76,10 +82,13 @@ impl ApiServer {
         ));
 
         tracing::info!("waiting for server port for name={name}");
-        _port_rx.await.map_err(|e| {
+        if let Err(e) = _port_rx.await {
             tracing::error!("failed to receive port for name={name}: {e}");
-            anyhow::anyhow!("failed to receive port for name={name}: {e}")
-        })?;
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            return Err(anyhow::anyhow!(
+                "failed to receive port for name={name}: {e}"
+            ));
+        }
 
         // clear the cache between tests
         windmill_common::cache::clear();
@@ -95,7 +104,6 @@ impl ApiServer {
         task.await.unwrap()
     }
 }
-
 
 pub struct RunJob {
     pub payload: JobPayload,
@@ -148,6 +156,7 @@ impl RunJob {
             None,
             None,
             false,
+            None,
         )
         .await
         .expect("push has to succeed");
@@ -283,17 +292,20 @@ pub async fn listen_for_uuid_on(
     let mut listener = PgListener::connect_with(db).await.unwrap();
     listener.listen(channel).await.unwrap();
 
-    Box::pin(futures::stream::unfold(listener, |mut listener| async move {
-        let uuid = listener
-            .try_recv()
-            .await
-            .unwrap()
-            .expect("lost database connection")
-            .payload()
-            .parse::<Uuid>()
-            .expect("invalid uuid");
-        Some((uuid, listener))
-    }))
+    Box::pin(futures::stream::unfold(
+        listener,
+        |mut listener| async move {
+            let uuid = listener
+                .try_recv()
+                .await
+                .unwrap()
+                .expect("lost database connection")
+                .payload()
+                .parse::<Uuid>()
+                .expect("invalid uuid");
+            Some((uuid, listener))
+        },
+    ))
 }
 
 pub async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
@@ -319,7 +331,6 @@ pub trait StreamFind: futures::Stream + Unpin + Sized {
 }
 
 impl<T: futures::Stream + Unpin + Sized> StreamFind for T {}
-
 
 #[cfg(feature = "python")]
 pub fn get_module(cjob: &CompletedJob, id: &str) -> Option<FlowStatusModule> {
@@ -428,7 +439,8 @@ pub async fn assert_lockfile(
         .create_script(
             "test-workspace",
             &NewScript {
-                language: windmill_api_client::types::ScriptLang::from_str(language.as_str()).unwrap(),
+                language: windmill_api_client::types::ScriptLang::from_str(language.as_str())
+                    .unwrap(),
                 content: script_content,
                 path: "f/system/test_import".to_string(),
                 concurrent_limit: None,
@@ -506,8 +518,6 @@ pub async fn assert_lockfile(
     Ok(())
 }
 
-
-
 pub async fn run_deployed_relative_imports(
     db: &Pool<Postgres>,
     script_content: String,
@@ -525,7 +535,8 @@ pub async fn run_deployed_relative_imports(
         .create_script(
             "test-workspace",
             &NewScript {
-                language: windmill_api_client::types::ScriptLang::from_str(language.as_str()).unwrap(),
+                language: windmill_api_client::types::ScriptLang::from_str(language.as_str())
+                    .unwrap(),
                 content: script_content,
                 path: "f/system/test_import".to_string(),
                 concurrent_limit: None,

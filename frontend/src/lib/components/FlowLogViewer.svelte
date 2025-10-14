@@ -24,14 +24,14 @@
 	import { updateLinks } from '$lib/keyboardChain'
 	import FlowLogRow from './FlowLogRow.svelte'
 	import { Tooltip } from './meltComponents'
+	import FlowTimelineBar from './FlowTimelineBar.svelte'
 
 	type RootJobData = Partial<Job>
 
 	interface Props {
 		modules: FlowModule[]
 		localModuleStates: Record<string, GraphModuleState>
-		rootJob: RootJobData
-		flowStatus: FlowStatusModule['type'] | undefined
+		rootJob: RootJobData | undefined
 		expandedRows: Record<string, boolean>
 		allExpanded?: boolean
 		showResultsInputs?: boolean
@@ -41,7 +41,7 @@
 		render: boolean
 		level?: number
 		flowId: string
-		onSelectedIteration: (
+		onSelectedIteration?: (
 			detail:
 				| { id: string; index: number; manuallySet: true; moduleId: string }
 				| { manuallySet: false; moduleId: string }
@@ -52,13 +52,22 @@
 		currentId?: string | null
 		navigationChain?: NavigationChain
 		select: (id: string) => void
+		timelineMin?: number
+		timelineTotal?: number
+		timelineItems?: Record<
+			string,
+			Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
+		>
+		timelineNow: number
+		timelineAvailableWidths: Record<string, number>
+		timelinelWidth: number
+		showTimeline?: boolean
 	}
 
 	let {
 		modules,
 		localModuleStates,
 		rootJob,
-		flowStatus,
 		expandedRows,
 		allExpanded,
 		showResultsInputs,
@@ -74,7 +83,14 @@
 		mode = 'flow',
 		currentId,
 		navigationChain = $bindable(),
-		select
+		select,
+		timelineMin: timelineMinAbsolute,
+		timelineTotal: timelineTotalAbsolute,
+		timelineItems,
+		timelineNow,
+		timelineAvailableWidths = $bindable(),
+		timelinelWidth,
+		showTimeline = true
 	}: Props = $props()
 
 	function getJobLink(jobId: string | undefined): string {
@@ -94,7 +110,8 @@
 		return status ? statusColors[status] : 'text-gray-400'
 	}
 
-	function getFlowStatus(job: RootJobData): FlowStatusModule['type'] | undefined {
+	function getFlowStatus(job: RootJobData | undefined): FlowStatusModule['type'] | undefined {
+		if (!job) return undefined
 		if (job.type === 'CompletedJob') {
 			return job.success ? 'Success' : 'Failure'
 		} else if (job.type === 'QueuedJob') {
@@ -104,8 +121,8 @@
 		}
 	}
 
-	function getStepProgress(job: RootJobData, totalSteps: number): string {
-		if (totalSteps === 0) return ''
+	function getStepProgress(job: RootJobData | undefined, totalSteps: number): string {
+		if (!job || totalSteps === 0) return ''
 
 		const stepWord = mode === 'aiagent' ? 'action' : 'step'
 
@@ -206,6 +223,7 @@
 
 	// Get flow info for display
 	const flowInfo = $derived.by(() => {
+		if (!rootJob) return undefined
 		const parentsWithErrors = findParentsOfErrors(modules)
 		return {
 			jobId: rootJob.id,
@@ -221,6 +239,8 @@
 
 	let subloopNavigationChains = $state<Record<string, NavigationChain>>({})
 
+	let useRelativeTimeline = $state(false)
+
 	function buildNavigationLinks(): NavigationChain {
 		const items: string[] = []
 
@@ -232,7 +252,12 @@
 		}
 
 		// Flow input (if exists and shown)
-		if (showResultsInputs && flowInfo.inputs && Object.keys(flowInfo.inputs).length > 0) {
+		if (
+			showResultsInputs &&
+			flowInfo &&
+			flowInfo.inputs &&
+			Object.keys(flowInfo.inputs).length > 0
+		) {
 			items.push(`flow-${flowId}-input`)
 		}
 
@@ -276,7 +301,12 @@
 		})
 
 		// Flow result (if exists and shown)
-		if (showResultsInputs && flowInfo.result !== undefined && rootJob.type === 'CompletedJob') {
+		if (
+			showResultsInputs &&
+			flowInfo &&
+			flowInfo.result !== undefined &&
+			rootJob?.type === 'CompletedJob'
+		) {
 			items.push(`flow-${flowId}-result`)
 		}
 
@@ -338,6 +368,15 @@
 				flowId: `${module.id}-subflow`
 			})
 		} else if (module.value.type === 'branchall' || module.value.type === 'branchone') {
+			// Add default branch for branchone
+			if (module.value.type === 'branchone') {
+				subflows.push({
+					modules: module.value.default,
+					label: 'default',
+					flowId: `${module.id}-subflow-default`
+				})
+			}
+
 			// Add all branches
 			for (let i = 0; i < module.value.branches.length; i++) {
 				const branch = module.value.branches[i]
@@ -347,17 +386,96 @@
 					flowId: `${module.id}-subflow-${i}`
 				})
 			}
-			// Add default branch for branchone
-			if (module.value.type === 'branchone') {
-				subflows.push({
-					modules: module.value.default,
-					label: 'default',
-					flowId: `${module.id}-subflow-default`
-				})
-			}
 		}
 
 		return subflows
+	}
+
+	const { timelineMin, timelineTotal } = $derived({
+		timelineMin:
+			useRelativeTimeline && rootJob?.started_at
+				? new Date(rootJob.started_at).getTime()
+				: timelineMinAbsolute,
+		timelineTotal:
+			useRelativeTimeline && rootJob?.['duration_ms']
+				? rootJob['duration_ms']
+				: timelineTotalAbsolute
+	})
+
+	function getSubflowJob(
+		moduleId: string,
+		idx: number,
+		branchChosen: number | undefined,
+		moduleType: FlowModuleValue['type']
+	) {
+		// if a branch is chosen, ignore the other branches
+		if (branchChosen !== undefined && branchChosen !== idx) {
+			return undefined
+		}
+
+		const jobType =
+			localModuleStates[moduleId]?.type === 'Failure' ||
+			localModuleStates[moduleId]?.type === 'Success'
+				? 'CompletedJob'
+				: ('QueuedJob' as Job['type'])
+		let jobId = localModuleStates[moduleId]?.job_id
+		let timelineItem = timelineItems?.[moduleId]?.find((item) => item.id === jobId)
+		let success = localModuleStates[moduleId]?.type === 'Success'
+		let result = localModuleStates[moduleId]?.result
+
+		// if the subflow is part of a loop or branchAll
+		if (localModuleStates[moduleId]?.flow_jobs) {
+			const index =
+				moduleType === 'forloopflow' || moduleType === 'whileloopflow'
+					? (localModuleStates[moduleId]?.selectedForloopIndex ?? idx)
+					: idx
+			jobId = localModuleStates[moduleId]?.flow_jobs[index]
+			timelineItem = timelineItems?.[moduleId]?.find((item) => item.id === jobId)
+			result = localModuleStates[moduleId]?.flow_jobs_results?.[index]
+			success = localModuleStates[moduleId]?.flow_jobs_success?.[index] ?? false
+		}
+		return {
+			id: jobId,
+			type: jobType,
+			logs: localModuleStates[moduleId]?.logs,
+			result: result,
+			args: localModuleStates[moduleId]?.args,
+			success: success,
+			started_at: timelineItem?.started_at,
+			created_at: timelineItem?.created_at,
+			duration_ms: timelineItem?.duration_ms
+		} as RootJobData
+	}
+
+	function getSelectedIndex(
+		moduleId: string,
+		moduleItems:
+			| Array<{ created_at?: number; started_at?: number; duration_ms?: number; id: string }>
+			| undefined
+	) {
+		if (!moduleItems || !localModuleStates[moduleId]) return undefined
+
+		const idToFind =
+			localModuleStates[moduleId].selectedForloop ?? localModuleStates[moduleId].job_id
+		const index = moduleItems?.findIndex((item) => item.id === idToFind)
+		if (index === -1) {
+			return undefined
+		}
+		return index
+	}
+
+	function isJobFailure(jobId?: string, moduleId?: string) {
+		if (!moduleId) {
+			return rootJob?.type === 'CompletedJob' && rootJob?.['success'] === false
+		}
+		// if a jobId is provided, check the flow_jobs_success array for a specific job
+		if (localModuleStates[moduleId]?.flow_jobs_success && !!jobId) {
+			const index = localModuleStates[moduleId]?.flow_jobs?.indexOf(jobId)
+			if (index !== undefined && index >= 0) {
+				return localModuleStates[moduleId]?.flow_jobs_success?.[index] === false
+			}
+		}
+		return localModuleStates[moduleId]?.type === 'Failure'
 	}
 </script>
 
@@ -370,6 +488,20 @@
 				{/snippet}
 				<Keyboard size={16} class="text-tertiary" />
 			</Tooltip>
+			<div class="flex items-center gap-2 whitespace-nowrap">
+				<label for="showTimeline" class="text-xs text-tertiary hover:text-primary transition-colors"
+					>Show timeline</label
+				>
+				<div class="flex-shrink-0">
+					<input
+						type="checkbox"
+						name="showTimeline"
+						id="showTimeline"
+						bind:checked={showTimeline}
+						class="w-3 h-4 accent-primary -my-1"
+					/>
+				</div>
+			</div>
 			<div class="flex items-center gap-2 whitespace-nowrap">
 				<label
 					for="showResultsInputs"
@@ -404,27 +536,60 @@
 		<FlowLogRow
 			id={`flow-${flowId}`}
 			isCollapsible={level > 0}
-			isRunning={rootJob.type === 'QueuedJob'}
+			isRunning={rootJob?.type === 'QueuedJob'}
 			{isCurrent}
 			{isExpanded}
 			{toggleExpanded}
-			class={rootJob.type === undefined ? 'opacity-50' : ''}
+			class={rootJob?.type === undefined ? 'opacity-50' : ''}
 			{select}
 		>
 			{#snippet label()}
 				<div class="flex items-center gap-2">
 					<!-- Flow icon -->
-					{@render flowIcon(level == 0 ? getFlowStatus(rootJob) : flowStatus, flowInfo.hasErrors)}
+					{@render flowIcon(getFlowStatus(rootJob), flowInfo?.hasErrors)}
 
-					<div class="text-xs text-left font-mono grow min-w-0">
+					<div class="text-xs text-left font-mono">
 						{mode === 'aiagent' ? 'AI Agent' : level == 0 ? 'Flow' : 'Subflow'}
-						{#if flowInfo.label}
+						{#if flowInfo?.label}
 							: {flowInfo.label}
 						{/if}
 						<span class="text-tertiary">{getStepProgress(rootJob, modules.length)}</span>
 					</div>
 
-					{#if flowInfo.jobId}
+					<div
+						class="min-w-min grow group"
+						bind:clientWidth={
+							() => timelineAvailableWidths[flowId] ?? 0,
+							(v) => (timelineAvailableWidths[flowId] = v)
+						}
+					>
+						{#if timelineItems && showTimeline && timelineMin != undefined && timelineTotal}
+							{@const moduleItems = [
+								{
+									started_at: rootJob?.started_at
+										? new Date(rootJob.started_at).getTime()
+										: undefined,
+									duration_ms: rootJob?.['duration_ms'] ?? timelineTotal,
+									id: flowId
+								}
+							]}
+							<FlowTimelineBar
+								total={timelineTotal}
+								min={timelineMin}
+								items={moduleItems}
+								now={timelineNow}
+								{timelinelWidth}
+								showZoomButtons={level > 0 && isExpanded(`flow-${flowId}`)}
+								onZoom={() => {
+									useRelativeTimeline = !useRelativeTimeline
+								}}
+								zoom={useRelativeTimeline ? 'in' : 'out'}
+								isJobFailure={(id) => isJobFailure(id)}
+							/>
+						{/if}
+					</div>
+
+					{#if flowInfo?.jobId}
 						<a
 							href={getJobLink(flowInfo.jobId)}
 							class="text-xs text-gray-400 hover:text-primary pl-1"
@@ -438,10 +603,10 @@
 				</div>
 			{/snippet}
 
-			{#if level === 0 || isExpanded(`flow-${flowId}`, rootJob.type === 'QueuedJob')}
+			{#if level === 0 || isExpanded(`flow-${flowId}`, rootJob?.type === 'QueuedJob')}
 				<div class="mb-2 transition-all duration-200 ease-in-out w-full">
 					<!-- Flow logs -->
-					{#if flowInfo.logs}
+					{#if flowInfo?.logs}
 						<LogViewer
 							content={flowInfo.logs}
 							jobId={flowInfo.jobId}
@@ -458,7 +623,7 @@
 					<!-- Flow steps - nested as children -->
 					<ul class="w-full font-mono text-xs bg-surface-secondary list-none border-l">
 						<!-- Flow inputs as first row entry -->
-						{#if showResultsInputs && flowInfo.inputs && Object.keys(flowInfo.inputs).length > 0}
+						{#if showResultsInputs && flowInfo?.inputs && Object.keys(flowInfo.inputs).length > 0}
 							<FlowLogRow
 								id={`flow-${flowId}-input`}
 								isCollapsible={true}
@@ -491,6 +656,12 @@
 								{@const isRunning = status === 'InProgress' || status === 'WaitingForExecutor'}
 								{@const hasEmptySubflowValue = hasEmptySubflow(module.id, module.value.type)}
 								{@const isCollapsible = !hasEmptySubflowValue}
+								{@const jobId = localModuleStates[module.id]?.job_id}
+								{@const moduleItems = timelineItems?.[module.id]}
+								{@const branchChosen =
+									module.value.type === 'branchone'
+										? (localModuleStates[module.id]?.branchChosen ?? 0)
+										: undefined}
 								<FlowLogRow
 									id={module.id}
 									{isCollapsible}
@@ -512,12 +683,12 @@
 													: ''
 											)}
 										>
-											<div class="flex items-center gap-2 grow min-w-0">
+											<div class="flex items-center gap-2">
 												<!-- Step icon -->
 												{@render stepIcon(
 													module.value.type,
 													status as FlowStatusModule['type'],
-													flowInfo.parentsWithErrors.has(module.id)
+													flowInfo?.parentsWithErrors.has(module.id)
 												)}
 
 												<div class="flex items-center gap-2">
@@ -559,7 +730,7 @@
 													</span>
 													{#if !hasEmptySubflowValue && localModuleStates[module.id]?.flow_jobs && (module.value.type === 'forloopflow' || module.value.type === 'whileloopflow')}
 														<span
-															class="text-xs font-mono font-medium inline-flex items-center grow min-w-0 -my-2"
+															class="text-xs font-mono font-medium inline-flex items-center -my-2"
 														>
 															<button onclick={(e) => e.stopPropagation()}>
 																<FlowJobsMenu
@@ -582,49 +753,78 @@
 												</div>
 											</div>
 
-											{#if isLeafStep}
-												{@const jobId = localModuleStates[module.id]?.job_id}
-												{#if jobId}
-													<a
-														href={getJobLink(jobId ?? '')}
-														class="text-xs text-gray-400 hover:text-primary pl-1"
-														target="_blank"
-														rel="noopener noreferrer"
-													>
-														<ExternalLink size={12} />
-													</a>
+											<div
+												class="min-w-min grow {isLeafStep ? 'mr-2' : 'mr-6'} min-h-2"
+												bind:clientWidth={
+													() => timelineAvailableWidths[module.id] ?? 0,
+													(v) => (timelineAvailableWidths[module.id] = v)
+												}
+											>
+												{#if timelineMin != undefined && timelineTotal && moduleItems && showTimeline}
+													<FlowTimelineBar
+														total={timelineTotal}
+														min={timelineMin}
+														items={moduleItems ?? []}
+														now={timelineNow}
+														{timelinelWidth}
+														onSelectIteration={(id) => {
+															if (
+																module.value.type !== 'forloopflow' &&
+																module.value.type !== 'whileloopflow'
+															) {
+																return
+															}
+															const index =
+																localModuleStates[module.id]?.flow_jobs?.indexOf(id) ?? undefined
+															if (index !== undefined) {
+																onSelectedIteration?.({
+																	id,
+																	index,
+																	manuallySet: true,
+																	moduleId: module.id
+																})
+															}
+														}}
+														showIterations={localModuleStates[module.id]?.flow_jobs}
+														selectedIndex={getSelectedIndex(module.id, moduleItems)}
+														idToIterationIndex={(id) => {
+															return localModuleStates[module.id]?.flow_jobs?.indexOf(id)
+														}}
+														isJobFailure={() => isJobFailure(undefined, module.id)}
+													/>
 												{/if}
+											</div>
+
+											{#if isLeafStep && jobId}
+												<a
+													href={getJobLink(jobId ?? '')}
+													class="text-xs text-gray-400 hover:text-primary pl-1"
+													target="_blank"
+													rel="noopener noreferrer"
+												>
+													<ExternalLink size={12} />
+												</a>
 											{/if}
 										</div>
 									{/snippet}
 
 									{#if isCollapsible && isExpanded(module.id, isRunning)}
-										{@const args = localModuleStates[module.id]?.args}
-										{@const logs = localModuleStates[module.id]?.logs}
-										{@const result = localModuleStates[module.id]?.result}
-										{@const jobId = localModuleStates[module.id]?.job_id}
+										{@const subflows = getSubflows(module)}
 										<div class="my-1 transition-all duration-200 ease-in-out border-l">
 											<!-- Show child steps if they exist -->
-											{#each getSubflows(module) as subflow}
-												{@const subflowJob = {
-													id: jobId,
-													type:
-														localModuleStates[module.id]?.type === 'Failure' ||
-														localModuleStates[module.id]?.type === 'Success'
-															? 'CompletedJob'
-															: ('QueuedJob' as Job['type']),
-													logs,
-													result,
-													args,
-													success: localModuleStates[module.id]?.type === 'Success'
-												}}
+											{#each subflows as subflow, idx}
+												{@const subflowJob = getSubflowJob(
+													module.id,
+													idx,
+													branchChosen,
+													module.value.type
+												)}
 												<div class="border-l mb-2">
 													<!-- Recursively render child steps using FlowLogViewer -->
 													<FlowLogViewer
 														modules={subflow.modules}
 														{localModuleStates}
 														rootJob={subflowJob}
-														flowStatus={localModuleStates[module.id]?.type}
 														{expandedRows}
 														{allExpanded}
 														{showResultsInputs}
@@ -640,11 +840,22 @@
 														{currentId}
 														bind:navigationChain={subloopNavigationChains[subflow.flowId]}
 														{select}
+														{timelineNow}
+														{timelineMin}
+														{timelineTotal}
+														{timelineItems}
+														bind:timelineAvailableWidths
+														{timelinelWidth}
+														{showTimeline}
 													/>
 												</div>
 											{/each}
 
-											{#if getSubflows(module).length === 0}
+											{#if subflows.length === 0}
+												{@const args = localModuleStates[module.id]?.args}
+												{@const logs = localModuleStates[module.id]?.logs}
+												{@const result = localModuleStates[module.id]?.result}
+												{@const jobId = localModuleStates[module.id]?.job_id}
 												<!-- Show input arguments -->
 												{#if showResultsInputs && isLeafStep && args && Object.keys(args).length > 0}
 													<FlowLogRow
@@ -738,7 +949,7 @@
 						{/if}
 
 						<!-- Flow result as last row entry -->
-						{#if showResultsInputs && flowInfo.result !== undefined && rootJob.type === 'CompletedJob'}
+						{#if showResultsInputs && flowInfo?.result !== undefined && rootJob?.type === 'CompletedJob'}
 							<FlowLogRow
 								id={`flow-${flowId}-result`}
 								isCollapsible={true}
@@ -764,7 +975,7 @@
 	</ul>
 {/if}
 
-{#snippet flowIcon(status: FlowStatusModule['type'] | undefined, hasErrors: boolean)}
+{#snippet flowIcon(status: FlowStatusModule['type'] | undefined, hasErrors: boolean | undefined)}
 	{@const colorClass = getStatusColor(status)}
 	<div class="relative flex items-center">
 		<BarsStaggered
@@ -783,7 +994,7 @@
 {#snippet stepIcon(
 	stepType: string | undefined,
 	status: FlowStatusModule['type'] | undefined,
-	hasErrors: boolean
+	hasErrors: boolean | undefined
 )}
 	{@const colorClass = getStatusColor(status)}
 	{@const animationClass = status === 'InProgress' ? 'animate-pulse' : ''}

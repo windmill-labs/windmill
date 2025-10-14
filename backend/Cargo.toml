@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.542.0"
+version = "1.558.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -34,7 +34,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.542.0"
+version = "1.558.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -68,6 +68,7 @@ jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemal
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "windmill-api/deno_core", "dep:deno_core", "dep:v8"]
+deno_core_mac = ["deno_core", "windmill-worker/libffi_mac"]
 kafka = ["windmill-api/kafka"]
 nats = ["windmill-api/nats"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
@@ -101,6 +102,10 @@ ruby = ["windmill-worker/ruby"]
 all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java", "ruby"]
 # For windows we have another set of languages enabled
 all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
+all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "loki", "embedding", "parquet", "prometheus", "flow_testing",
+ "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "nats", "otel", "dind", "websocket", "http_trigger",
+  "postgres_trigger", "mcp", "mqtt_trigger", "sqs_trigger", "gcp_trigger", "smtp", "stripe",
+   "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server"]
 
 [patch.crates-io]
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" }
@@ -151,6 +156,9 @@ aws-sdk-config.workspace = true
 kube.workspace = true
 k8s-openapi.workspace = true
 libloading.workspace = true
+bitflags.workspace = true
+nom.workspace = true
+globset.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -197,16 +205,18 @@ windmill-api-client = { path = "./windmill-api-client" }
 reqwest-retry = "^0"
 reqwest-middleware = { version = "^0", features = ["json"] }
 
+bitflags = "2.9.4"
 memchr = "2.7.4"
-axum = { version = "^0.7", features = ["multipart"] }
+axum = { version = "^0.7", features = ["multipart", "macros"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
 tokio = { version = "=1.46.1", features = ["full", "tracing", "time"] }
 tokio-stream = { version = "0.1.17" }
 tower = "^0"
-tower-http = { version = "^0.6", features = ["trace", "cors"] }
+tower-http = { version = "^0.6", features = ["trace", "cors", "catch-panic"] }
 tower-cookies = "^0.10"
-serde = "^1"
+#stuck because of swc for now
+serde = "=1.0.219"
 serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
 serde_yml = "0.0.12"
 uuid = { version = "^1", features = ["serde", "v4"] }
@@ -269,6 +279,9 @@ deno_permissions = "0.49.0"
 deno_runtime = { version = "0.198.0", features = ["transpile"] }
 deno_telemetry = "0.12.0"
 deno_error = "=0.5.5"
+
+# only used with special deno_core_mac feature to prevent ffi issue on macos, requires libffi to be installed
+libffi-sys = { version = "2.3.0", features = ["system"]}
 
 google-cloud-pubsub = "0.30.0"
 google-cloud-googleapis = {version = "0.16.1", features = ["pubsub"]}
@@ -355,6 +368,8 @@ pg_escape = "0.1.1"
 async-nats = "0.38.0"
 nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
+nom = "8.0.0"
+globset = "0.4.16"
 
 process-wrap = { version = "8.2.1", features = ["tokio1"] }
 

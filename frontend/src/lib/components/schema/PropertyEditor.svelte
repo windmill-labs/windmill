@@ -16,6 +16,7 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import { createEventDispatcher, onMount, untrack } from 'svelte'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import TextInput, { inputBaseClass, inputBorderClass } from '../text_input/TextInput.svelte'
 
 	interface Props {
 		description?: string
@@ -179,6 +180,7 @@
 				onkeydown={onKeyDown}
 				onchange={() => dispatch('change')}
 				placeholder="Field description"
+				class={twMerge(inputBorderClass(), inputBaseClass, 'w-full')}
 			></textarea>
 		</Label>
 
@@ -186,30 +188,31 @@
 			{#snippet header()}
 				<Tooltip light>Will be displayed in the UI instead of the field name.</Tooltip>
 			{/snippet}
-			<input
+			<TextInput
 				bind:value={title}
-				onchange={() => dispatch('change')}
-				onkeydown={onKeyDown}
-				placeholder="Field title"
+				inputProps={{ placeholder: 'Field title', onkeydown, onchange: () => dispatch('change') }}
 			/>
 		</Label>
 
-		<Label label="Placeholder">
-			{#snippet header()}
-				<Tooltip light>
-					Will be displayed in the input field when the field is empty. If not set, the default
-					value will be used. The placeholder is disabled depending on the field type, format, etc.
-				</Tooltip>
-			{/snippet}
+		{#if shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
+			<Label label="Placeholder">
+				{#snippet header()}
+					<Tooltip light>
+						Will be displayed in the input field when the field is empty. If not set, the default
+						value will be used. The placeholder is disabled depending on the field type, format,
+						etc.
+					</Tooltip>
+				{/snippet}
 
-			<textarea
-				placeholder="Enter a placeholder"
-				rows="1"
-				bind:value={placeholder}
-				onchange={() => dispatch('change')}
-				disabled={!shouldDisplayPlaceholder(type, format, enum_, contentEncoding, pattern, extra)}
-			></textarea>
-		</Label>
+				<textarea
+					placeholder="Enter a placeholder"
+					rows="1"
+					bind:value={placeholder}
+					onchange={() => dispatch('change')}
+					class={twMerge(inputBorderClass(), inputBaseClass, 'w-full')}
+				></textarea>
+			</Label>
+		{/if}
 
 		{#if type == 'array'}
 			<ArrayTypeNarrowing
@@ -285,11 +288,3 @@
 		{@render children?.()}
 	</div>
 </div>
-
-<style>
-	input::-webkit-outer-spin-button,
-	input::-webkit-inner-spin-button {
-		-webkit-appearance: none !important;
-		margin: 0;
-	}
-</style>

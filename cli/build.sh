@@ -17,3 +17,4 @@ echo "Running dnt..."
 deno run -A dnt.ts
 
 echo "Build complete!"
+

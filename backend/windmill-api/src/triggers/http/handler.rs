@@ -33,7 +33,6 @@ use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
-use tower_http::cors::CorsLayer;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
@@ -598,17 +597,62 @@ impl TriggerCrud for HttpTrigger {
     }
 }
 
+async fn conditional_cors_middleware(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let mut response = next.run(req).await;
+
+    let headers = response.headers_mut();
+
+    // Check existing headers first to determine what not to insert
+    let mut not_insert_origin = false;
+    let mut not_insert_methods = false;
+    let mut not_insert_headers = false;
+
+    for key in headers.keys() {
+        if !not_insert_origin && key == http::header::ACCESS_CONTROL_ALLOW_ORIGIN {
+            not_insert_origin = true;
+        }
+        if !not_insert_methods && key == http::header::ACCESS_CONTROL_ALLOW_METHODS {
+            not_insert_methods = true;
+        }
+        if !not_insert_headers && key == http::header::ACCESS_CONTROL_ALLOW_HEADERS {
+            not_insert_headers = true;
+        }
+
+        // Early exit if all headers are already present
+        if not_insert_origin && not_insert_methods && not_insert_headers {
+            break;
+        }
+    }
+
+    // Insert only the missing headers
+    if !not_insert_origin {
+        headers.insert(
+            http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            http::HeaderValue::from_static("*"),
+        );
+    }
+
+    if !not_insert_methods {
+        headers.insert(
+            http::header::ACCESS_CONTROL_ALLOW_METHODS,
+            http::HeaderValue::from_static("GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS"),
+        );
+    }
+
+    if !not_insert_headers {
+        headers.insert(
+            http::header::ACCESS_CONTROL_ALLOW_HEADERS,
+            http::HeaderValue::from_static("content-type, authorization"),
+        );
+    }
+
+    response
+}
+
 pub fn http_route_trigger_handler() -> Router {
-    let cors = CorsLayer::new()
-        .allow_methods([
-            http::Method::GET,
-            http::Method::POST,
-            http::Method::DELETE,
-            http::Method::PUT,
-            http::Method::PATCH,
-        ])
-        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
-        .allow_origin(tower_http::cors::Any);
     Router::new()
         .route(
             "/*path",
@@ -617,9 +661,10 @@ pub fn http_route_trigger_handler() -> Router {
                 .delete(route_job)
                 .put(route_job)
                 .patch(route_job)
-                .head(|| async { "" }),
+                .head(|| async { "" })
+                .options(|| async { "" }),
         )
-        .layer(cors)
+        .layer(axum::middleware::from_fn(conditional_cors_middleware))
 }
 
 async fn get_http_route_trigger(
@@ -989,6 +1034,7 @@ async fn route_job(
             trigger.error_handler_path.as_deref(),
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
+            None,
         )
         .await
         .map_err(|e| e.into_response())

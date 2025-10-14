@@ -182,7 +182,7 @@
 		}
 	})
 	run(() => {
-		canSave = can_write && isValid && jsonError == ''
+		canSave = (can_write && isValid && jsonError == '') || (viewJsonSchema && jsonError == '')
 	})
 	$effect(() => {
 		onChange && onChange({ path, args, description })
@@ -291,10 +291,9 @@
 					<h5 class="mt-4 inline-flex items-center gap-4 pb-2">
 						File content ({resourceTypeInfo.format_extension})
 					</h5>
-					<div class="h-full w-full border p-1 rounded">
+					<div class="">
 						<SimpleEditor
 							autoHeight
-							class="editor"
 							lang={resourceTypeInfo.format_extension}
 							bind:code={textFileContent}
 							fixedOverflowWidgets={false}
@@ -324,14 +323,8 @@
 				{#if !emptyString(jsonError)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 						>{jsonError}</span
 					>{:else}<div class="py-2"></div>{/if}
-				<div class="h-full w-full border p-1 rounded">
-					<SimpleEditor
-						autoHeight
-						class="editor"
-						lang="json"
-						bind:code={rawCode}
-						fixedOverflowWidgets={false}
-					/>
+				<div class="bg-surface-secondary rounded-md border py-2.5">
+					<SimpleEditor autoHeight lang="json" bind:code={rawCode} />
 				</div>
 			{/if}
 		</div>

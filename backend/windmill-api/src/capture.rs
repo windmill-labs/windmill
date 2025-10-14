@@ -46,10 +46,10 @@ use serde::de::DeserializeOwned;
 use windmill_common::error::Error;
 
 #[cfg(all(feature = "enterprise", feature = "kafka", feature = "private"))]
-use crate::kafka_triggers_ee::KafkaTriggerConfigConnection;
+use crate::triggers::kafka::KafkaTriggerConfigConnection;
 
 #[cfg(feature = "mqtt_trigger")]
-use crate::mqtt_triggers::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
+use crate::triggers::mqtt::{MqttClientVersion, MqttV3Config, MqttV5Config, SubscribeTopic};
 
 #[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
 use crate::triggers::nats::NatsTriggerConfigConnection;
@@ -183,6 +183,7 @@ pub struct GcpTriggerConfig {
     pub create_update: Option<CreateUpdateConfig>,
     pub topic_id: String,
     pub auto_acknowledge_msg: Option<bool>,
+    pub ack_deadline: Option<i32>,
 }
 
 #[cfg(all(feature = "enterprise", feature = "nats", feature = "private"))]
@@ -397,6 +398,7 @@ async fn set_gcp_trigger_config(
         gcp_config.create_update,
         false,
         capture_config.is_flow,
+        gcp_config.ack_deadline
     )
     .await?;
     gcp_config.create_update = Some(config);

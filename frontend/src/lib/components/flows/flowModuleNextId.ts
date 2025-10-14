@@ -6,6 +6,7 @@ import { charsToNumber, numberToChars } from './idUtils'
 // Computes the next available id
 export function nextId(flowState: FlowState, fullFlow: OpenFlow): string {
 	const allIds = dfs(fullFlow.value.modules, (fm) => fm.id)
+
 	const max = allIds.concat(Object.keys(flowState)).reduce((acc, key) => {
 		if (key.length >= 4) {
 			return acc

@@ -11,7 +11,6 @@ use rumqttc::{
     AsyncClient as V3AsyncClient, EventLoop as V3EventLoop, MqttOptions as V3MqttOptions,
     QoS as V3QoS, SubscribeFilter, TlsConfiguration, Transport,
 };
-use crate::mqtt_triggers::EventLoop;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::{types::Json as SqlxJson, FromRow, Type};
@@ -22,9 +21,10 @@ use windmill_common::{
     worker::to_raw_value,
 };
 
-use crate::triggers::{ trigger_helpers::TriggerJobArgs};
+use crate::triggers::{mqtt::listener::EventLoop, trigger_helpers::TriggerJobArgs};
 
 pub mod handler;
+pub mod listener;
 
 #[derive(Clone, Copy)]
 pub struct MqttTrigger;

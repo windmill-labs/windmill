@@ -157,7 +157,7 @@
 </script>
 
 {#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
-	<div class={classNames('flex gap-1', 'flex-col')}>
+	<div class={classNames('flex gap-1 flex-col group')}>
 		<div class="flex justify-between items-end">
 			<div class="flex flex-row gap-4 items-center">
 				<div class="flex items-center">
@@ -188,8 +188,16 @@
 
 			<div class={classNames('flex gap-x-2 gap-y-1 justify-end items-center')}>
 				{#if componentInput?.type && allowTypeChange !== false}
+					<ConnectionButton
+						small
+						{closeConnection}
+						{openConnection}
+						isOpen={!!$connectingInput.opened}
+						btnWrapperClasses={'h-6 w-8 opacity-0 group-hover:opacity-100 transition-opacity'}
+						id="schema-plug-{key}"
+					/>
 					<ToggleButtonGroup
-						class="h-7"
+						class="h-6"
 						bind:selected={componentInput.type}
 						on:selected={(e) => {
 							if (
@@ -197,7 +205,7 @@
 								componentInput['value'] != undefined &&
 								(componentInput['expr'] == '' || componentInput['expr'] == undefined)
 							) {
-								componentInput['expr'] = JSON.stringify(componentInput['value'])
+								componentInput['expr'] = JSON.stringify(componentInput['value'], null, 2)
 							} else if (fileUploadS3 && fieldType === 'text' && e.detail != 'uploadS3') {
 								componentInput['value'] = ''
 							} else if (e.detail == 'uploadS3') {
@@ -211,38 +219,81 @@
 						}}
 					>
 						{#snippet children({ item })}
-							<ToggleButton value="static" icon={Pen} iconOnly tooltip="Static" {item} />
+							<ToggleButton
+								small
+								light
+								value="static"
+								icon={Pen}
+								iconOnly
+								tooltip="Static"
+								{item}
+							/>
 							{#if userInputEnabled}
-								<ToggleButton value="user" icon={User} iconOnly tooltip="User Input" {item} />
+								<ToggleButton
+									small
+									light
+									value="user"
+									icon={User}
+									iconOnly
+									tooltip="User Input"
+									{item}
+								/>
 							{/if}
 							{#if fileUpload}
-								<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" {item} />
+								<ToggleButton
+									small
+									light
+									value="upload"
+									icon={Upload}
+									iconOnly
+									tooltip="Upload"
+									{item}
+								/>
 							{/if}
 							{#if fileUploadS3}
 								<ToggleButton
 									value="uploadS3"
 									icon={UploadCloud}
 									iconOnly
+									light
+									small
 									tooltip="Upload S3"
 									{item}
 								/>
 							{/if}
 							{#if componentInput?.type === 'connected'}
-								<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" {item} />
+								<ToggleButton
+									light
+									value="connected"
+									icon={Plug2}
+									iconOnly
+									small
+									tooltip="Connect"
+									{item}
+								/>
 							{/if}
 							{#if componentInput?.type === 'eval'}
 								<ToggleButton
 									value="eval"
 									icon={FunctionSquare}
 									iconOnly
+									light
+									small
 									tooltip="Eval Legacy"
 									{item}
 								/>
 							{/if}
-							<ToggleButton value="evalv2" icon={FunctionSquare} iconOnly tooltip="Eval" {item} />
+							<ToggleButton
+								value="evalv2"
+								light
+								icon={FunctionSquare}
+								iconOnly
+								small
+								tooltip="Eval"
+								{item}
+							/>
 						{/snippet}
 					</ToggleButtonGroup>
-					<ConnectionButton {closeConnection} {openConnection} isOpen={!!$connectingInput.opened} />
 				{/if}
 			</div>
 		</div>

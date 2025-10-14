@@ -258,7 +258,7 @@ lazy_static::lazy_static! {
     // Features flags:
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
 
-    pub static ref ROOT_STANDALONE_BUNDLE_DIR: String = format!("{}/.windmill/standalone_bundle/", std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
+    pub static ref ROOT_STANDALONE_BUNDLE_DIR: String = format!("{}/.windmill/standalone_bundle", std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
 }
 
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
@@ -395,7 +395,7 @@ fn format_pull_query(peek: String) -> String {
             j.timeout, j.flow_step_id, j.cache_ttl, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
             j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
-            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
+            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
         FROM q, j
             LEFT JOIN v2_job_status f USING (id)
             LEFT JOIN job_perms p ON p.job_id = j.id
@@ -457,6 +457,7 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
 
 pub const TMP_DIR: &str = "/tmp/windmill";
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
+pub const TMP_MEMORY_DIR: &str = concatcp!(TMP_DIR, "/memory");
 
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 
@@ -470,9 +471,8 @@ pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     Ok(file)
 }
 
-pub fn write_file_bytes(dir: &str, path: &str, content: &Bytes) -> error::Result<File> {
-    let path = format!("{}/{}", dir, path);
-    let mut file = File::create(&path)?;
+pub fn write_file_bytes(path: &str, content: &Bytes) -> error::Result<File> {
+    let mut file = File::create(path)?;
     file.write_all(content)?;
     file.flush()?;
     Ok(file)
@@ -1352,7 +1352,11 @@ pub async fn update_job_ping_query(
         if let Some(i) = r {
             Ok(i)
         } else {
-            Err(anyhow::anyhow!("Job not found"))
+            Ok(PingJobStatusResponse {
+                canceled_by: None,
+                canceled_reason: None,
+                already_completed: true,
+            })
         }
     } else {
         Err(to_anyhow(ro.unwrap_err()))

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use crate::{
     db::{ApiAuthed, DB},
     users::{maybe_refresh_folders, require_owner_of_path, Tokened},
-    utils::{check_scopes, BulkDeleteRequest},
+    utils::{check_scopes, require_super_admin, BulkDeleteRequest},
     var_resource_cache::{cache_resource, get_cached_resource},
     webhook_util::{WebhookMessage, WebhookShared},
 };
@@ -36,9 +36,11 @@ use windmill_audit::ActionKind;
 use windmill_common::{
     db::{UserDB, UserDbWithOptAuthed},
     error::{Error, JsonResult, Result},
+    get_database_url, parse_postgres_url,
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
     worker::CLOUD_HOSTED,
+    workspaces::get_ducklake_instance_pg_catalog_password,
 };
 
 pub fn workspaced_service() -> Router {
@@ -465,6 +467,20 @@ pub async fn get_resource_value_interpolated_internal(
     token: &str,
     allow_cache: bool,
 ) -> Result<Option<serde_json::Value>> {
+    // This is a special syntax to help debugging ducklake catalogs stored in the instance
+    if let Some(dbname) = path.strip_prefix("INSTANCE_DUCKLAKE_CATALOG/") {
+        require_super_admin(db, &authed.email).await?;
+        let pg_creds = parse_postgres_url(&get_database_url().await?)?;
+        return Ok(Some(serde_json::json!({
+            "dbname": dbname,
+            "host": pg_creds.host,
+            "port": pg_creds.port,
+            "user": "ducklake_user",
+            "sslmode": pg_creds.ssl_mode,
+            "password": get_ducklake_instance_pg_catalog_password(&db).await?,
+        })));
+    }
+
     if allow_cache {
         if let Some(cached_value) = get_cached_resource(&workspace, &path) {
             return Ok(Some(cached_value));
@@ -619,6 +635,7 @@ pub async fn transform_json_value<'c>(
                 job.flow_innermost_root_job.map(|x| x.to_string()),
                 job.root_job.map(|x| x.to_string()),
                 Some(job.scheduled_for.clone()),
+                None,
                 None,
             )
             .await;

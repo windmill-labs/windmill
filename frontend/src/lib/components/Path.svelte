@@ -210,7 +210,7 @@
 		validateName(meta) && validatePath(path, kind)
 	}
 
-	let validateTimeout: NodeJS.Timeout | undefined = undefined
+	let validateTimeout: number | undefined = undefined
 
 	async function validatePath(path: string, kind: PathKind): Promise<void> {
 		if (validateTimeout) {
@@ -420,10 +420,7 @@
 							<ToggleButton
 								icon={User}
 								disabled={disabled || disableEditing}
-								light
-								size="xs"
 								value="user"
-								position="left"
 								label="User"
 								{item}
 							/>
@@ -431,10 +428,7 @@
 							<ToggleButton
 								icon={Folder}
 								disabled={disabled || disableEditing}
-								light
-								size="xs"
 								value="folder"
-								position="right"
 								label="Folder"
 								{item}
 							/>
@@ -443,7 +437,7 @@
 				</div>
 			{/if}
 			{#if !hideUser}
-				<div class="text-xl">/</div>
+				<div class="text-xl text-tertiary">/</div>
 			{/if}
 			<div>
 				{#if meta.ownerKind === 'user'}
@@ -465,7 +459,7 @@
 					</label>
 				{/if}
 			</div>
-			<span class="text-xl">/</span>
+			<span class="text-xl text-tertiary">/</span>
 			<label class="block grow w-full max-w-md">
 				<!-- svelte-ignore a11y_autofocus -->
 				<input

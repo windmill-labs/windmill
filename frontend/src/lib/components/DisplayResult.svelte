@@ -36,7 +36,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 	import type { DisplayResultUi } from './custom_ui'
-	import { getContext, hasContext, createEventDispatcher, onDestroy } from 'svelte'
+	import { getContext, hasContext, createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { toJsonStr } from '$lib/utils'
 	import { userStore } from '$lib/stores'
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
@@ -139,24 +139,32 @@
 
 	function isTableRowObject(json) {
 		// check array of objects (with possible a first row of headers)
+		const hasHeaders =
+			Array.isArray(json[0]) &&
+			json[0].length > 0 &&
+			json[0].length <= 50 &&
+			json[0].every((item) => typeof item === 'string')
+		return isTableRowObjectInner(json, hasHeaders)
+	}
+
+	function isTableRowObjectInner(json: any, hasHeaders: boolean) {
 		return (
 			Array.isArray(json) &&
-			json.length > 0 &&
-			(json.every(
-				(item) =>
-					item && typeof item === 'object' && Object.keys(item).length > 0 && !Array.isArray(item)
-			) ||
-				(Array.isArray(json[0]) &&
-					json[0].every((item) => typeof item === 'string') &&
-					json
-						.slice(1)
-						.every(
-							(item) =>
-								item &&
-								typeof item === 'object' &&
-								Object.keys(item).length > 0 &&
-								!Array.isArray(item)
-						)))
+			json.length > (hasHeaders ? 1 : 0) &&
+			json.every((item, index) => {
+				if (hasHeaders && index === 0) {
+					return true
+				}
+				if (item && typeof item === 'object') {
+					let keys = Object.keys(item)
+					if (keys.length > 0 && !Array.isArray(item)) {
+						if (hasHeaders || keys.length <= 50) {
+							return true
+						}
+					}
+				}
+				return false
+			})
 		)
 	}
 
@@ -200,6 +208,7 @@
 				}
 
 				let size = roughSizeOfObject(result)
+				console.debug('size of object', size)
 				// Otherwise, check if the result is too large (10kb) for json
 
 				if (size > TABLE_MAX_SIZE) {
@@ -363,28 +372,23 @@
 			json.length > 0 &&
 			Array.isArray(json[0]) &&
 			json[0].length > 0 &&
-			json[0].every((item) => typeof item === 'string') &&
-			json
-				.slice(1)
-				.every(
-					(item) =>
-						item && typeof item === 'object' && Object.keys(item).length > 0 && !Array.isArray(item)
-				)
+			json[0].every((item) => typeof item === 'string')
 		) {
 			const headers = json[0]
-			const rows = json.slice(1)
+			const rows: { [key: string]: string }[] = new Array(json.length - 1)
 
-			const result = rows.map((row) => {
+			for (let i = 1; i < json.length; i++) {
 				const obj: { [key: string]: string } = {}
+				const row = json[i]
 
-				for (const header of headers) {
-					obj[header] = row[header]
+				for (let j = 0; j < headers.length; j++) {
+					obj[headers[j]] = row[headers[j]]
 				}
 
-				return obj
-			})
+				rows[i - 1] = obj
+			}
 
-			return result
+			return rows
 		}
 
 		return json
@@ -479,7 +483,9 @@
 
 	$effect(() => {
 		;[result]
-		resultKind = inferResultKind(result)
+		untrack(() => {
+			resultKind = inferResultKind(result)
+		})
 	})
 	$effect(() => {
 		chooseToolbarLocation(

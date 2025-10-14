@@ -28,6 +28,7 @@
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import FileUpload from '$lib/components/common/fileUpload/FileUpload.svelte'
+	import DucklakePicker from '$lib/components/DucklakePicker.svelte'
 
 	interface Props {
 		componentInput: StaticInput<any> | undefined
@@ -144,6 +145,15 @@
 					}
 				}
 				resourceType="s3"
+			/>
+		{:else if fieldType === 'ducklake'}
+			<DucklakePicker
+				class="w-full"
+				bind:value={
+					() => componentInput?.value?.split('ducklake://')?.[1],
+					(v) => componentInput && (componentInput.value = v ? `ducklake://${v}` : undefined)
+				}
+				showSchemaExplorer
 			/>
 		{:else if fieldType === 'labeledresource'}
 			{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value && (componentInput.value?.['value'] == undefined || typeof componentInput.value?.['value'] == 'string')}
@@ -299,11 +309,19 @@
 		{:else if fieldType === 'ag-grid'}
 			<div class="flex flex-row rounded-md bg-surface items-center h-full">
 				<div class="relative w-full">
-					<input
-						class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
-						bind:value={componentInput.value.field}
-						placeholder="Field"
-					/>
+					{#if componentInput.value._isActionsColumn === true}
+						<div
+							class="text-xs px-2 border w-full flex flex-row items-center rounded-r-md h-8 text-primary"
+						>
+							Actions Column
+						</div>
+					{:else}
+						<input
+							class="text-xs px-2 border-y w-full flex flex-row items-center border-r rounded-r-md h-8"
+							bind:value={componentInput.value.field}
+							placeholder="Field"
+						/>
+					{/if}
 					<div class="absolute top-1 right-1">
 						<AgGridWizard bind:value={componentInput.value}>
 							{#snippet trigger()}

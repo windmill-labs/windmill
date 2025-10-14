@@ -1,3 +1,7 @@
+<script lang="ts" module>
+	let refreshCount = $state({ val: 0 })
+</script>
+
 <script lang="ts">
 	import { createEventDispatcher, getContext } from 'svelte'
 	import StepGenQuick from '$lib/components/copilot/StepGenQuick.svelte'
@@ -5,8 +9,7 @@
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
-
-	// import type { Writable } from 'svelte/store'
+	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 
 	const dispatch = createEventDispatcher()
 	interface Props {
@@ -32,25 +35,13 @@
 		$state(kind)
 	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
 	let loading = $state(false)
-	let small = $state(false)
+	let small = $derived(kind === 'preprocessor' || kind === 'failure')
 
 	let width = $state(0)
 	let height = $state(0)
-
+	let owners = $state([])
 	let displayPath = $derived(width > 650 || height > 400)
-
-	$effect(() => {
-		small = kind === 'preprocessor' || kind === 'failure'
-	})
 </script>
-
-<!-- <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close> -->
-
-<!-- {floatingConfig}
-floatingClasses="mt-2"
-containerClasses="border rounded-lg shadow-lg  bg-surface"
-noTransition
-shouldUsePortal={true} -->
 
 <div
 	id="flow-editor-insert-module"
@@ -78,6 +69,7 @@ shouldUsePortal={true} -->
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		{/if}
+		<RefreshButton size="md" light {loading} on:click={() => (refreshCount.val += 1)} />
 	</div>
 
 	<div class="flex flex-row grow min-h-0">
@@ -153,13 +145,15 @@ shouldUsePortal={true} -->
 						dispatch('new', { kind: 'branchall' })
 					}}
 				/>
-				<TopLevelNode
-					label="AI Agent"
-					on:select={() => {
-						dispatch('close')
-						dispatch('new', { kind: 'aiagent' })
-					}}
-				/>
+				{#if customUi?.aiAgent != false}
+					<TopLevelNode
+						label="AI Agent"
+						on:select={() => {
+							dispatch('close')
+							dispatch('new', { kind: 'aiagent' })
+						}}
+					/>
+				{/if}
 			</div>
 		{/if}
 
@@ -170,6 +164,7 @@ shouldUsePortal={true} -->
 			{disableAi}
 			{funcDesc}
 			{kind}
+			bind:owners
 			on:close={() => {
 				dispatch('close')
 			}}
@@ -179,6 +174,7 @@ shouldUsePortal={true} -->
 			{preFilter}
 			{small}
 			{displayPath}
+			refreshCount={refreshCount.val}
 		/>
 	</div>
 </div>

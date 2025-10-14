@@ -8,6 +8,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
+	import ToggleButtonMore from './common/toggleButton-v2/ToggleButtonMore.svelte'
 
 	interface ProviderValue {
 		kind?: AIProvider
@@ -40,12 +41,19 @@
 	let modelsCache = new Map<AIProvider, string[]>()
 
 	// Reactive items for the Select component
-	let items = $derived(
-		availableModels.map((model) => ({
+	let items = $derived.by(() => {
+		const r = availableModels.map((model) => ({
 			label: model,
 			value: model
 		}))
-	)
+		if (value?.model && !availableModels.find((model) => model === value.model)) {
+			r.push({
+				label: value.model,
+				value: value.model
+			})
+		}
+		return r
+	})
 
 	// Provider options for the toggle button group
 	const providerOptions = Object.entries(AI_PROVIDERS).map(([key, details]) => ({
@@ -147,22 +155,36 @@
 	}
 </script>
 
-<div class="w-full flex flex-col gap-3">
+<div
+	class="w-full flex flex-col gap-1 bg-surface-secondary border-[1px] border-nord-400 dark:border-nord-300 rounded-md"
+>
 	<!-- Provider Selection -->
-	<div class="flex flex-col gap-2">
-		<ToggleButtonGroup selected={value?.kind} onSelected={onProviderChange} {disabled} wrap>
+	<div class="flex flex-col gap-2 m-[-1px] mt-[-1px]">
+		<ToggleButtonGroup
+			selected={value?.kind}
+			onSelected={onProviderChange}
+			{disabled}
+			wrap
+			tabListClass="w-full bg-transparent"
+		>
 			{#snippet children({ item })}
-				{#each providerOptions as option}
-					<ToggleButton value={option.value} label={option.label} {item} />
+				{#each providerOptions.slice(0, 3) as option}
+					<ToggleButton value={option.value} label={option.label} {item} class="bg-transparent" />
 				{/each}
+				<ToggleButtonMore
+					class="ml-auto"
+					togglableItems={providerOptions.slice(3)}
+					{item}
+					bind:selected={() => value?.kind, (v) => v && onProviderChange(v)}
+				/>
 			{/snippet}
 		</ToggleButtonGroup>
 	</div>
 
 	<!-- Resource Selection -->
-	<div class="flex flex-col border border-gray-200 rounded-md p-2 gap-2">
+	<div class="flex flex-col rounded-md p-2 gap-2">
 		<div class="flex flex-col gap-1">
-			<p class="text-sm font-medium text-primary">resource</p>
+			<p class="text-sm font-normal text-tertiary">resource</p>
 			<ResourcePicker
 				bind:value={
 					() => resourceValueToPath(value?.resource),
@@ -176,21 +198,28 @@
 				disabled={disabled || !value?.kind}
 				placeholder="Select resource"
 				selectFirst={true}
+				selectInputClass="!bg-surface"
 			/>
 		</div>
 
 		<!-- Model Selection -->
 		<div class="flex flex-col gap-1">
-			<p class="text-sm font-medium text-primary">model</p>
+			<p class="text-sm font-normal text-tertiary">model</p>
 			<Select
 				{items}
 				bind:value={value.model}
 				placeholder="Select model"
 				disabled={disabled || !value?.kind || !resourceValueToPath(value?.resource)}
+				onCreateItem={(r) => {
+					availableModels.push(r)
+					value.model = r
+				}}
+				createText="Press enter to use custom model"
 				{loading}
 				clearable={false}
 				noItemsMsg={'No models available'}
 				bind:filterText
+				inputClass="min-h-10 !bg-surface disabled:!bg-surface-disabled"
 			/>
 		</div>
 	</div>

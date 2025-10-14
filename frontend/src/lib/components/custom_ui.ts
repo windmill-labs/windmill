@@ -38,6 +38,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 	tagSelectPlaceholder?: string
 	tagSelectNoLabel?: boolean
 	tagLabel?: string
+	aiAgent?: boolean
 }
 
 export type DisplayResultUi = {
@@ -64,6 +65,7 @@ export type EditorBarUi = {
 	assistants?: boolean
 	multiplayer?: boolean
 	autoformatting?: boolean
+	editorSettings?: boolean
 	vimMode?: boolean
 	relativeLineNumbers?: boolean
 	aiGen?: boolean

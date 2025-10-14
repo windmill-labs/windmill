@@ -33,6 +33,8 @@
 		EmailTriggerService
 	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import Alert from '../common/alert/Alert.svelte'
+	import type { FlowEditorContext } from '../flows/types'
 
 	interface Props {
 		noEditor: boolean
@@ -79,6 +81,11 @@
 
 	const useVerticalTriggerBar = $derived(width < 1000)
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
+
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const chatInputEnabled = $derived(
+		Boolean(flowEditorContext?.flowStore?.val?.value?.chat_input_enabled)
+	)
 
 	const dispatch = createEventDispatcher()
 	onDestroy(() => {
@@ -279,6 +286,13 @@
 </script>
 
 <div bind:clientWidth={width} class="h-full w-full">
+	{#if chatInputEnabled}
+		<div class="p-2 pb-0">
+			<Alert type="warning" title="Chat Input Mode Enabled" size="xs">
+				This flow will only accept <span class="font-mono text-xs bg-surface-secondary px-1 rounded">user_message</span> as input parameter.
+			</Alert>
+		</div>
+	{/if}
 	<FlowCard {noEditor} noHeader>
 		<Splitpanes horizontal>
 			<Pane>
@@ -377,7 +391,7 @@
 							{/key}
 						{:else}
 							<span class="text-sm text-tertiary text-center mx-auto mt-2"
-								>{`Select a trigger from the ${useVerticalTriggerBar ? 'left toolbar' : 'table'} or a create a new one`}</span
+								>{`Select a trigger from the ${useVerticalTriggerBar ? 'left toolbar' : 'table'} or create a new one`}</span
 							>
 						{/if}
 					</div>

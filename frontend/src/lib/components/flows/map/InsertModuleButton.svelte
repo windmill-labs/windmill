@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { preventDefault, stopPropagation } from 'svelte/legacy'
-
-	import { createEventDispatcher } from 'svelte'
 	import { Bug, Cross } from 'lucide-svelte'
 	import InsertModuleInner from './InsertModuleInner.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -13,19 +10,18 @@
 
 	// import type { Writable } from 'svelte/store'
 
-	const dispatch = createEventDispatcher()
-
 	type Alignment = 'start' | 'end' | 'center'
 	type Side = 'top' | 'bottom'
 	type Placement = `${Side}-${Alignment}`
 
 	interface Props {
-		index?: number
+		index?: number | 'error-handler-button'
 		funcDesc?: string
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		iconSize?: number
 		clazz?: string
 		placement?: Placement
+		disableAi?: boolean
 	}
 
 	let {
@@ -34,7 +30,8 @@
 		kind = 'script',
 		iconSize = 12,
 		clazz = '',
-		placement = 'bottom-center'
+		placement = 'bottom-center',
+		disableAi = false
 	}: Props = $props()
 
 	let floatingConfig: ComputeConfig = {
@@ -46,6 +43,7 @@
 	}
 
 	let open = $state(false)
+
 	$effect(() => {
 		!open && (funcDesc = '')
 	})
@@ -60,7 +58,7 @@ noTransition
 shouldUsePortal={true} -->
 
 <PopupV2 {floatingConfig} bind:open target="#flow-editor">
-	{#snippet button({ pointerdown, pointerup })}
+	{#snippet button()}
 		<button
 			title={`Add ${
 				kind === 'failure'
@@ -77,13 +75,9 @@ shouldUsePortal={true} -->
 				'w-[17.5px] h-[17.5px] flex items-center justify-center !outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded',
 				clazz
 			)}
-			onpointerdown={stopPropagation(
-				preventDefault(() => {
-					dispatch('open')
-					pointerdown()
-				})
-			)}
-			onpointerup={pointerup}
+			onpointerdown={() => {
+				open = !open
+			}}
 		>
 			{#if kind === 'trigger'}
 				<SchedulePollIcon size={14} />
@@ -99,13 +93,14 @@ shouldUsePortal={true} -->
 	{/snippet}
 	{#snippet children({ close })}
 		<InsertModuleInner
-			on:close={() => close(null)}
+			on:close={() => close()}
 			on:insert
 			on:new
 			on:pickFlow
 			on:pickScript
 			allowTrigger={index == 0}
 			{kind}
+			{disableAi}
 		/>
 	{/snippet}
 </PopupV2>

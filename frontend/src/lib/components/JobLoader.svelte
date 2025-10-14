@@ -15,10 +15,10 @@
 		type OpenFlow
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { onDestroy, tick, untrack } from 'svelte'
+	import { getContext, onDestroy, tick, untrack } from 'svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import { sendUserToast } from '$lib/toast'
-	import { isScriptPreview } from '$lib/utils'
+	import { DynamicInput, isScriptPreview } from '$lib/utils'
 
 	// Will be set to number if job is not a flow
 
@@ -68,15 +68,6 @@
 		children
 	}: Props = $props()
 
-	/// Last time asked for job progress
-	let lastTimeCheckedProgress: number | undefined = undefined
-
-	/// Will try to poll progress every 5s and if once progress returned was not undefined, will be ignored
-	/// and getProgressRate will be used instead
-	const getProgressRetryRate: number = 5000
-	/// How often loader poll progress
-	const getProgressRate: number = 1000
-
 	let workspace = $derived(workspaceOverride ?? $workspaceStore)
 
 	let syncIteration: number = 0
@@ -92,9 +83,11 @@
 
 	let lastStartedAt: number = Date.now()
 	let currentId: string | undefined = $state(undefined)
-	let noPingTimeout: NodeJS.Timeout | undefined = undefined
+	let noPingTimeout: number | undefined = undefined
 	let lastNoLogs = $state(noLogs)
 	let lastCompletedJobId = $state<string | undefined>(undefined)
+
+	let token = getContext<{ token?: string }>('AuthToken')
 
 	$effect(() => {
 		let newIsLoading = currentId !== undefined
@@ -144,6 +137,7 @@
 	export async function abstractRun(fn: () => Promise<string>, callbacks?: Callbacks) {
 		try {
 			isLoading = true
+			scriptProgress = undefined
 			lastCompletedJobId = undefined
 			clearCurrentJob()
 			lastCallbacks = callbacks
@@ -252,9 +246,6 @@
 		if (logOffset == 0) {
 			logOffset = job?.logs?.length ? job.logs?.length + 1 : 0
 		}
-		if (resultStreamOffset == 0) {
-			resultStreamOffset = job?.result_stream?.length ? job.result_stream?.length + 1 : 0
-		}
 	}
 	export async function getLogs() {
 		if (job) {
@@ -273,6 +264,22 @@
 		}
 	}
 
+	export async function runDynamicInputScript(
+		entrypoint_function: string,
+		runnable_ref: DynamicInput.HelperScript,
+		args: Record<string, any>,
+		callbacks?: Callbacks
+	): Promise<string> {
+		return abstractRun(
+			() =>
+				JobService.runDynamicSelect({
+					workspace: $workspaceStore!,
+					requestBody: { entrypoint_function, args, runnable_ref }
+				}),
+			callbacks
+		)
+	}
+
 	export async function runPreview(
 		path: string | undefined,
 		code: string,
@@ -283,10 +290,6 @@
 		hash?: string,
 		callbacks?: Callbacks
 	): Promise<string> {
-		// Reset in case we rerun job without reloading
-		scriptProgress = undefined
-		lastTimeCheckedProgress = undefined
-
 		return abstractRun(
 			() =>
 				JobService.runScriptPreview({
@@ -348,6 +351,7 @@
 		syncIteration = 0
 		errorIteration = 0
 		currentId = testId
+		scriptProgress = undefined
 		if (loadPlaceholderJobOnStart) {
 			job = structuredClone(loadPlaceholderJobOnStart)
 		} else {
@@ -367,33 +371,6 @@
 		}
 	}
 
-	function setJobProgress(job: Job) {
-		let getProgress: boolean | undefined = undefined
-
-		// We only pull individual job progress this way
-		// Flow's progress we are getting from FlowStatusModule of flow job
-		if (job.job_kind == 'script' || isScriptPreview(job.job_kind)) {
-			// First time, before running job, lastTimeCheckedProgress is always undefined
-			if (lastTimeCheckedProgress) {
-				const lastTimeCheckedMs = Date.now() - lastTimeCheckedProgress
-				// Ask for progress if the last time we asked is >5s OR the progress was once not undefined
-				if (
-					lastTimeCheckedMs > getProgressRetryRate ||
-					(scriptProgress != undefined && lastTimeCheckedMs > getProgressRate)
-				) {
-					lastTimeCheckedProgress = Date.now()
-					getProgress = true
-				}
-			} else {
-				// Make it think we asked for progress, but in reality we didnt. First 5s we want to wait without putting extra work on db
-				// 99.99% of the jobs won't have progress be set so we have to do a balance between having low-latency for jobs that use it and job that don't
-				// we would usually not care to have progress the first 5s and jobs that are less than 5s
-				lastTimeCheckedProgress = Date.now()
-			}
-		}
-		return getProgress
-	}
-
 	const clamp = (num: number, min: number, max: number) => Math.min(Math.max(num, min), max)
 
 	function updateJobFromProgress(
@@ -409,6 +386,7 @@
 			}
 		}
 		if (previewJobUpdates.progress) {
+			console.log('progress', previewJobUpdates.progress)
 			// Progress cannot go back and cannot be set to 100
 			scriptProgress = clamp(previewJobUpdates.progress, scriptProgress ?? 0, 99)
 		}
@@ -469,7 +447,6 @@
 			try {
 				if (job && `running` in job) {
 					callbacks?.running?.({ id })
-					let getProgress: boolean | undefined = setJobProgress(job)
 
 					refreshLogOffset()
 
@@ -478,7 +455,8 @@
 						id,
 						running: job.running,
 						logOffset: logOffset,
-						getProgress: getProgress
+						streamOffset: resultStreamOffset,
+						getProgress: false
 					})
 
 					if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
@@ -624,7 +602,9 @@
 					}
 
 					let getProgress: boolean | undefined =
-						onlyResult || !job ? undefined : setJobProgress(job)
+						onlyResult || !job
+							? undefined
+							: job.job_kind == 'script' || isScriptPreview(job.job_kind)
 
 					refreshLogOffset()
 					// Build SSE URL with query parameters
@@ -652,6 +632,16 @@
 					}
 					if (resultStreamOffset) {
 						params.set('stream_offset', resultStreamOffset.toString())
+					}
+					if (job) {
+						params.set(
+							'is_flow',
+							(job.job_kind === 'flow' || job.job_kind === 'flowpreview').toString()
+						)
+					}
+
+					if (token?.token && token.token != '') {
+						params.set('token', token.token)
 					}
 
 					const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${id}?${params.toString()}`

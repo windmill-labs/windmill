@@ -134,7 +134,7 @@
 	}
 
 	async function loadUsage() {
-		if (isCloudHosted()) {
+		if (isCloudHosted() && $workspaceStore) {
 			$usageStore = await UserService.getUsage()
 			$workspaceUsageStore = await WorkspaceService.getWorkspaceUsage({
 				workspace: $workspaceStore!
@@ -265,7 +265,7 @@
 			$defaultScripts = await WorkspaceService.getDefaultScripts({ workspace })
 		}
 	}
-	let timeout: NodeJS.Timeout | undefined
+	let timeout: number | undefined
 	async function onUserStore(u: UserExt | undefined) {
 		if (u && timeout) {
 			clearTimeout(timeout)

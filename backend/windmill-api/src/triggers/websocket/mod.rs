@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     db::ApiAuthed,
-    triggers::trigger_helpers::{trigger_runnable_and_wait_for_raw_result, TriggerJobArgs},
+    triggers::trigger_helpers::{trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -16,6 +16,7 @@ use windmill_common::{
 use windmill_queue::PushArgsOwned;
 
 mod handler;
+mod listener;
 
 #[derive(Copy, Clone)]
 pub struct WebsocketTrigger;
@@ -39,6 +40,8 @@ pub struct WebsocketConfig {
     pub url_runnable_args: Option<SqlxJson<Box<RawValue>>>,
     #[serde(default)]
     pub can_return_message: bool,
+    #[serde(default)]
+    pub can_return_error_result: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +51,7 @@ pub struct WebsocketConfigRequest {
     initial_messages: Option<Vec<serde_json::Value>>,
     url_runnable_args: Option<serde_json::Value>,
     can_return_message: bool,
+    can_return_error_result: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,11 +61,11 @@ pub struct TestWebsocketConfig {
 }
 
 pub fn value_to_args_hashmap(
-    args: Option<&serde_json::Value>,
+    args: Option<&Box<RawValue>>,
 ) -> Result<HashMap<String, Box<RawValue>>> {
     let args = if let Some(args) = args {
         let args_map: Option<HashMap<String, serde_json::Value>> =
-            serde_json::from_value(args.clone())
+            serde_json::from_str(args.get())
                 .map_err(|e| Error::BadRequest(format!("invalid json: {}", e)))?;
 
         args_map
@@ -85,7 +89,7 @@ pub async fn get_url_from_runnable_value(
     is_flow: bool,
     db: &DB,
     authed: ApiAuthed,
-    args: Option<&serde_json::Value>,
+    args: Option<&Box<RawValue>>,
     workspace_id: &str,
 ) -> Result<String> {
     tracing::info!(
@@ -96,7 +100,7 @@ pub async fn get_url_from_runnable_value(
 
     let args = value_to_args_hashmap(args)?;
 
-    let result = trigger_runnable_and_wait_for_raw_result(
+    let result = trigger_runnable_and_wait_for_raw_result_with_error_ctx(
         db,
         None,
         authed,

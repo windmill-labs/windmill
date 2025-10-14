@@ -93,7 +93,7 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
 }
 
-#[derive(Debug, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct NewFlow {
     pub path: String,
     pub summary: String,
@@ -137,6 +137,8 @@ pub struct FlowValue {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_input_enabled: Option<bool>,
 }
 
 impl FlowValue {
@@ -146,10 +148,10 @@ impl FlowValue {
                 .preprocessor_module
                 .as_deref()
                 .with_context(|| format!("no preprocessor module")),
-            Step::Step(i) => self
+            Step::Step { idx, .. } => self
                 .modules
-                .get(i)
-                .with_context(|| format!("no module found at index: {i}")),
+                .get(idx)
+                .with_context(|| format!("no module found at index: {idx}")),
             Step::FailureStep => self
                 .failure_module
                 .as_deref()
@@ -158,11 +160,39 @@ impl FlowValue {
 
         flow_module
     }
+
+    /// Traverse FlowValue while invoking provided by caller callback on leafs
+    // #[async_recursion::async_recursion(?Send)]
+    // TODO: We may be want this async.
+    pub fn traverse_leafs<C: FnMut(&FlowModuleValue, &String) -> crate::error::Result<()>>(
+        modules: &Vec<FlowModule>,
+        cb: &mut C,
+    ) -> crate::error::Result<()> {
+        use FlowModuleValue::*;
+        for module in modules {
+            match serde_json::from_str::<FlowModuleValue>(module.value.get())? {
+                s @ (Script { .. }
+                | RawScript { .. }
+                | Flow { .. }
+                | FlowScript { .. }
+                | Identity) => cb(&s, &module.id)?,
+                ForloopFlow { modules, .. }
+                | WhileloopFlow { modules, .. }
+                | AIAgent { tools: modules, .. } => Self::traverse_leafs(&modules, cb)?,
+                BranchOne { branches, .. } | BranchAll { branches, .. } => {
+                    for branch in branches {
+                        Self::traverse_leafs(&branch.modules, cb)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
 pub enum Step {
-    Step(usize),
+    Step { idx: usize, len: usize },
     PreprocessorStep,
     FailureStep,
 }
@@ -172,7 +202,7 @@ impl Step {
         if step < 0 {
             Step::PreprocessorStep
         } else if (step as usize) < len {
-            Step::Step(step as usize)
+            Step::Step { idx: step as usize, len }
         } else {
             Step::FailureStep
         }
@@ -180,13 +210,13 @@ impl Step {
 
     pub fn get_step_index(&self) -> Option<usize> {
         match self {
-            Step::Step(index) => Some(*index),
+            Step::Step { idx, .. } => Some(*idx),
             _ => None,
         }
     }
 
     pub fn is_index_step(&self) -> bool {
-        matches!(self, Step::Step(_))
+        matches!(self, Step::Step { .. })
     }
 
     pub fn is_preprocessor_step(&self) -> bool {
@@ -195,6 +225,10 @@ impl Step {
 
     pub fn is_failure_step(&self) -> bool {
         matches!(self, Step::FailureStep)
+    }
+
+    pub fn is_last_step(&self) -> bool {
+        matches!(self, Step::Step { idx, len } if *idx == len - 1)
     }
 }
 
@@ -359,6 +393,8 @@ pub struct FlowModule {
     pub skip_if: Option<SkipIf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub apply_preprocessor: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pass_flow_input_directly: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -371,14 +407,24 @@ pub struct FlowModuleValueWithParallel {
     #[serde(rename = "type")]
     pub type_: String,
     pub parallel: Option<bool>,
-    pub parallelism: Option<u16>,
+    #[serde(
+        default,
+        deserialize_with = "raw_value_to_input_transform::<_, u16>",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parallelism: Option<InputTransform>,
 }
 
 #[derive(Deserialize)]
 pub struct FlowModuleValueWithSkipFailures {
     pub skip_failures: Option<bool>,
     pub parallel: Option<bool>,
-    pub parallelism: Option<u16>,
+    #[serde(
+        default,
+        deserialize_with = "raw_value_to_input_transform::<_, u16>",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parallelism: Option<InputTransform>,
 }
 
 #[derive(Deserialize)]
@@ -561,6 +607,7 @@ pub struct Branch {
     rename_all(serialize = "lowercase", deserialize = "lowercase")
 )]
 pub enum FlowModuleValue {
+    /// Reference to another script on the workspace
     Script {
         #[serde(default)]
         #[serde(alias = "input_transform")]
@@ -572,13 +619,21 @@ pub enum FlowModuleValue {
         tag_override: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pass_flow_input_directly: Option<bool>,
     },
+
+    /// Reference to another flow on the workspace
     Flow {
         #[serde(default)]
         #[serde(alias = "input_transform")]
         input_transforms: HashMap<String, InputTransform>,
         path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pass_flow_input_directly: Option<bool>,
     },
+
+    /// For loop node
     ForloopFlow {
         iterator: InputTransform,
         modules: Vec<FlowModule>,
@@ -588,8 +643,10 @@ pub enum FlowModuleValue {
         skip_failures: bool,
         parallel: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
-        parallelism: Option<u16>,
+        parallelism: Option<InputTransform>,
     },
+
+    /// While loop node
     WhileloopFlow {
         modules: Vec<FlowModule>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -597,17 +654,24 @@ pub enum FlowModuleValue {
         #[serde(default = "default_false")]
         skip_failures: bool,
     },
+
+    /// Branch-one node
     BranchOne {
         branches: Vec<Branch>,
         default: Vec<FlowModule>,
         #[serde(skip_serializing_if = "Option::is_none")]
         default_node: Option<FlowNodeId>,
     },
+
+    /// Branch-all node
     BranchAll {
         branches: Vec<Branch>,
         #[serde(default = "default_true")]
         parallel: bool,
     },
+
+    /// Inline script node
+    /// Only exists if parsed from value from `flow_version` | `flow` table.
     RawScript {
         #[serde(default)]
         #[serde(alias = "input_transform", serialize_with = "ordered_map")]
@@ -631,8 +695,13 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         assets: Option<Vec<AssetWithAltAccessType>>,
     },
+
+    /// Just a placeholder
     Identity,
-    // Internal only, never exposed to the frontend.
+
+    /// Also Inline script node, but instead of being baked into flow, it references `flow_node`
+    /// Internal only, never exposed to the frontend.
+    /// Only exists if parsed from value from `flow_version_lite` table.
     FlowScript {
         #[serde(default)]
         #[serde(alias = "input_transform", serialize_with = "ordered_map")]
@@ -652,6 +721,8 @@ pub enum FlowModuleValue {
         #[serde(skip_serializing_if = "Option::is_none")]
         assets: Option<Vec<AssetWithAltAccessType>>,
     },
+
+    // AI agent node
     AIAgent {
         input_transforms: HashMap<String, InputTransform>,
         tools: Vec<FlowModule>,
@@ -675,7 +746,8 @@ struct UntaggedFlowModuleValue {
     modules: Option<Vec<FlowModule>>,
     skip_failures: Option<bool>,
     parallel: Option<bool>,
-    parallelism: Option<u16>,
+    #[serde(default, deserialize_with = "raw_value_to_input_transform::<_, u16>")]
+    parallelism: Option<InputTransform>,
     branches: Option<Vec<Branch>>,
     default: Option<Vec<FlowModule>>,
     content: Option<String>,
@@ -691,6 +763,7 @@ struct UntaggedFlowModuleValue {
     modules_node: Option<FlowNodeId>,
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Vec<FlowModule>>,
+    pass_flow_input_directly: Option<bool>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -709,12 +782,14 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 hash: untagged.hash,
                 tag_override: untagged.tag_override,
                 is_trigger: untagged.is_trigger,
+                pass_flow_input_directly: untagged.pass_flow_input_directly,
             }),
             "flow" => Ok(FlowModuleValue::Flow {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
                 path: untagged
                     .path
                     .ok_or_else(|| serde::de::Error::missing_field("path"))?,
+                pass_flow_input_directly: untagged.pass_flow_input_directly,
             }),
             "forloopflow" => Ok(FlowModuleValue::ForloopFlow {
                 iterator: untagged
@@ -856,6 +931,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             continue_on_error: None,
             skip_if: None,
             apply_preprocessor: None,
+            pass_flow_input_directly: None,
         });
     }
 }

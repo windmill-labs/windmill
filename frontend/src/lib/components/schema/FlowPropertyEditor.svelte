@@ -77,6 +77,12 @@
 
 	let oneOfSelected: string | undefined = $state(oneOf?.[0]?.title)
 
+	$effect(() => {
+		if (oneOf?.length && !oneOfSelected) {
+			oneOfSelected = oneOf[0].title
+		}
+	})
+
 	const dispatch = createEventDispatcher()
 
 	function getResourceTypesFromFormat(format: string | undefined): string[] {
@@ -444,9 +450,10 @@
 			showExpr = showExpr ? undefined : 'true //fields.foo == 42'
 		}}
 	/>
-	{#if showExpr != undefined}
-		<div class="border">
+	{#if showExpr}
+		<div class="mt-2 bg-surface-secondary rounded-md pl-4">
 			<SimpleEditor
+				yPadding={8}
 				extraLib={`declare const fields: Record<${propsNames
 					?.filter((x) => x != name)
 					.map((x) => `"${x}"`)
@@ -455,6 +462,7 @@
 				bind:code={showExpr}
 				shouldBindKey={false}
 				fixedOverflowWidgets={false}
+				hideLineNumbers
 				autoHeight
 			/>
 		</div>

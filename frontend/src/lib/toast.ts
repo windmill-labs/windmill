@@ -42,7 +42,8 @@ export function sendUserToast(
 		initial: 0,
 		theme: {
 			'--toastPadding': '0',
-			'--toastMsgPadding': '0'
+			'--toastMsgPadding': '0',
+			'--toastBackground': 'var(--color-surface)'
 		}
 	})
 }

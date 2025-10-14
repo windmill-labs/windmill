@@ -36,7 +36,7 @@ import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
 import { get } from 'svelte/store'
-import { getCurrentModel, type DBSchemas, copilotInfo } from '$lib/stores'
+import { type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type { ContextElement } from './context'
@@ -45,6 +45,7 @@ import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 import type { ReviewChangesOpts } from './monaco-adapter'
+import { copilotInfo, getCurrentModel } from '$lib/aiStore'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -126,7 +127,7 @@ class AIChatManager {
 		return (
 			estimatedTokens >
 			modelContextWindow -
-				Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
+			Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
 		)
 	}
 
@@ -209,11 +210,12 @@ class AIChatManager {
 		this.pendingPrompt = pendingPrompt ?? ''
 		if (mode === AIMode.SCRIPT) {
 			const customPrompt = get(copilotInfo).customPrompts?.[mode]
-			this.systemMessage = prepareScriptSystemMessage(customPrompt)
+			const currentModel = getCurrentModel()
+			this.systemMessage = prepareScriptSystemMessage(currentModel, customPrompt)
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			const context = this.contextManager.getSelectedContext()
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
-			this.tools = [this.changeModeTool, ...prepareScriptTools(lang, context)]
+			this.tools = [this.changeModeTool, ...prepareScriptTools(currentModel, lang, context)]
 			this.helpers = {
 				getScriptOptions: () => {
 					return {
@@ -478,8 +480,8 @@ class AIChatManager {
 					onNewToken: (token: string) => {
 						reply += token
 					},
-					onMessageEnd: () => {},
-					setToolStatus: () => {}
+					onMessageEnd: () => { },
+					setToolStatus: () => { }
 				},
 				systemMessage
 			}
@@ -885,15 +887,15 @@ class AIChatManager {
 				const editorRelated =
 					currentEditor && currentEditor.type === 'script' && currentEditor.stepId === module.id
 						? {
-								diffMode: currentEditor.diffMode,
-								lastDeployedCode: currentEditor.lastDeployedCode,
-								lastSavedCode: undefined
-							}
+							diffMode: currentEditor.diffMode,
+							lastDeployedCode: currentEditor.lastDeployedCode,
+							lastSavedCode: undefined
+						}
 						: {
-								diffMode: false,
-								lastDeployedCode: undefined,
-								lastSavedCode: undefined
-							}
+							diffMode: false,
+							lastDeployedCode: undefined,
+							lastSavedCode: undefined
+						}
 
 				return {
 					args: moduleState?.previewArgs ?? {},

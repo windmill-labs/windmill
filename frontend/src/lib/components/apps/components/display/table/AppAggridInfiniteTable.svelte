@@ -21,6 +21,7 @@
 	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
 	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 	import RunnableComponent from '../../helpers/RunnableComponent.svelte'
+	import { CancelablePromise } from '$lib/gen'
 
 	interface Props {
 		id: string
@@ -30,6 +31,7 @@
 		render: boolean
 		customCss?: ComponentCustomCSS<'aggridinfinitecomponent'> | undefined
 		actions?: TableAction[] | undefined
+		onChange?: string[] | undefined
 	}
 
 	let {
@@ -39,7 +41,8 @@
 		initializing = $bindable(undefined),
 		render,
 		customCss = undefined,
-		actions = undefined
+		actions = undefined,
+		onChange = undefined
 	}: Props = $props()
 
 	let runnableComponent: RunnableComponent | undefined = $state(undefined)
@@ -163,6 +166,8 @@
 	$effect(() => {
 		searchValue !== undefined && untrack(() => updateSearchInOutputs())
 	})
+
+	let ignoreFirst = true
 </script>
 
 {#each Object.keys(components['aggridinfinitecomponent'].initialData.configuration) as key (key)}
@@ -194,10 +199,17 @@
 	bind:result
 	bind:loading
 	bind:runnableComponent
-	on:recompute={() => {
-		console.log('recompute')
-		clear()
-	}}
+	preventDefaultRefresh
+	overrideCallback={() =>
+		new CancelablePromise(async (resolve) => {
+			if (ignoreFirst) {
+				ignoreFirst = false
+				resolve()
+				return
+			}
+			clear()
+			resolve()
+		})}
 	{render}
 	autoRefresh={true}
 	allowConcurentRequests
@@ -222,6 +234,7 @@
 			{result}
 			{actions}
 			allowDelete={false}
+			{onChange}
 			bind:this={aggrid}
 		/>
 	</div>

@@ -70,7 +70,7 @@
 		jobKindsCat = undefined,
 		minTs = $bindable(undefined),
 		maxTs = $bindable(undefined),
-		jobKinds = $bindable(''),
+		jobKinds = $bindable(undefined),
 		queue_count = $bindable(undefined),
 		suspended_count = $bindable(undefined),
 		autoRefresh = true,
@@ -90,7 +90,7 @@
 		perPage = undefined,
 		allowWildcards = false
 	}: Props = $props()
-	let intervalId: NodeJS.Timeout | undefined = $state()
+	let intervalId: number | undefined = $state()
 	let sync = true
 
 	function onParamChanges() {
@@ -118,7 +118,7 @@
 			let kinds: CompletedJob['job_kind'][] = ['deploymentcallback']
 			return kinds.join(',')
 		} else if (jobKindsCat == 'runs') {
-			let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'singlescriptflow']
+			let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'singlestepflow']
 			return kinds.join(',')
 		} else {
 			let kinds: CompletedJob['job_kind'][] = [
@@ -176,7 +176,7 @@
 						: success == 'waiting'
 							? false
 							: undefined,
-				isSkipped: isSkipped ? undefined : false,
+				isSkipped: isSkipped ? true : undefined,
 				// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 				hasNullParent: jobKindsCat != 'all' ? true : undefined,
 				label: label === null || label === '' ? undefined : label,
@@ -231,7 +231,7 @@
 				jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
 				success: success == 'success' ? true : success == 'failure' ? false : undefined,
 				running: success == 'running' ? true : undefined,
-				isSkipped: isSkipped ? undefined : false,
+				isSkipped: isSkipped ? true : undefined,
 				isFlowStep: jobKindsCat != 'all' ? false : undefined,
 				label: label === null || label === '' ? undefined : label,
 				tag: tag === null || tag === '' ? undefined : tag,

@@ -26,6 +26,7 @@ use axum::{
     Json, Router,
 };
 use futures::future::try_join_all;
+use http::header;
 use hyper::StatusCode;
 use itertools::Itertools;
 use quick_cache::sync::Cache;
@@ -42,6 +43,7 @@ use windmill_worker::process_relative_imports;
 use windmill_common::{
     assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
     error::to_anyhow,
+    s3_helpers::upload_artifact_to_store,
     scripts::hash_script,
     utils::WarnAfterExt,
     worker::CLOUD_HOSTED,
@@ -420,45 +422,13 @@ async fn create_snapshot_script(
 
             uploaded = true;
 
-            #[cfg(all(feature = "enterprise", feature = "parquet"))]
-            let object_store = windmill_common::s3_helpers::get_object_store().await;
-
-            #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-            let object_store: Option<()> = None;
-
-            if &windmill_common::utils::MODE_AND_ADDONS.mode
-                == &windmill_common::utils::Mode::Standalone
-                && object_store.is_none()
-            {
-                std::fs::create_dir_all(
-                    windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR.clone(),
-                )?;
-                windmill_common::worker::write_file_bytes(
-                    &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
-                    &hash,
-                    &data,
-                )?;
-            } else {
-                #[cfg(not(all(feature = "enterprise", feature = "parquet")))]
-                {
-                    return Err(Error::ExecutionErr("codebase is an EE feature".to_string()));
-                }
-
-                #[cfg(all(feature = "enterprise", feature = "parquet"))]
-                if let Some(os) = object_store {
-                    let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
-
-                    if let Err(e) = os
-                        .put(&object_store::path::Path::from(path.clone()), data.into())
-                        .await
-                    {
-                        tracing::info!("Failed to put snapshot to s3 at {path}: {:?}", e);
-                        return Err(Error::ExecutionErr(format!("Failed to put {path} to s3")));
-                    }
-                } else {
-                    return Err(Error::BadConfig("Object store is required for snapshot script and is not configured for servers".to_string()));
-                }
-            }
+            let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
+            upload_artifact_to_store(
+                &path,
+                data,
+                &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+            )
+            .await?;
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
     }
@@ -895,11 +865,21 @@ async fn create_script_internal<'c>(
             schedulables.push(schedule);
         }
 
+        // Update dynamic_skip references when script is renamed
+        sqlx::query!(
+            "UPDATE schedule SET dynamic_skip = $1 WHERE dynamic_skip = $2 AND workspace_id = $3",
+            &ns.path,
+            &p_path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+
         for schedule in schedulables {
             clear_schedule(&mut tx, &schedule.path, &w_id).await?;
 
             if schedule.enabled {
-                tx = push_scheduled_job(&db, tx, &schedule, None).await?;
+                tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
             }
         }
     } else {
@@ -1019,6 +999,7 @@ async fn create_script_internal<'c>(
             None,
             Some(&authed.clone().into()),
             false,
+            None,
         )
         .await?;
         Ok((hash, new_tx, None))
@@ -1035,6 +1016,9 @@ async fn create_script_internal<'c>(
             let content = ns.content.clone();
             let language = ns.language.clone();
             tokio::spawn(async move {
+                // TODO: I don't think we want this. We might want to send dependency job. But skip any calculations if lock is already present.
+                // It will allow us to make code more consistent and predictable.
+
                 // wait for 10 seconds to make sure the script is deployed and that the CLI sync that pushed it (f one) is complete
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                 if let Err(e) = process_relative_imports(
@@ -1367,7 +1351,7 @@ async fn get_tokened_raw_script_by_path(
     Extension(cache): Extension<Arc<AuthCache>>,
     Path((w_id, token, path)): Path<(String, String, StripPath)>,
     Query(query): Query<RawScriptByPathQuery>,
-) -> Result<String> {
+) -> Result<StringWithLength> {
     let authed = cache
         .get_authed(Some(w_id.clone()), &token)
         .await
@@ -1393,17 +1377,28 @@ struct RawScriptByPathQuery {
     // used specifically for python to cache folders on import success to avoid extra db calls on package fetch
     cache_folders: Option<bool>,
 }
+
+struct StringWithLength(String);
+
+impl IntoResponse for StringWithLength {
+    fn into_response(self) -> axum::response::Response {
+        let len = self.0.len();
+        ([(header::CONTENT_LENGTH, len.to_string())], self.0).into_response()
+    }
+}
+
 async fn raw_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<RawScriptByPathQuery>,
-) -> Result<String> {
+) -> Result<StringWithLength> {
     if *DEBUG_RAW_SCRIPT_ENDPOINTS {
         tracing::warn!("Raw script by path request: {}", path.to_path());
     }
-    raw_script_by_path_internal(path, user_db, db, authed, w_id, false, query).await
+    let r = raw_script_by_path_internal(path, user_db, db, authed, w_id, false, query).await?;
+    Ok(StringWithLength(r))
 }
 
 async fn raw_script_by_path_unpinned(
@@ -1412,8 +1407,9 @@ async fn raw_script_by_path_unpinned(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<RawScriptByPathQuery>,
-) -> Result<String> {
-    raw_script_by_path_internal(path, user_db, db, authed, w_id, true, query).await
+) -> Result<StringWithLength> {
+    let r = raw_script_by_path_internal(path, user_db, db, authed, w_id, true, query).await?;
+    Ok(StringWithLength(r))
 }
 
 lazy_static::lazy_static! {
@@ -1494,7 +1490,10 @@ async fn raw_script_by_path_internal(
                 return Ok("WINDMILL_IS_FOLDER".to_string());
             } else {
                 if *DEBUG_RAW_SCRIPT_ENDPOINTS {
-                    tracing::warn!("Raw script by path request: {} (cached folders expired)", path);
+                    tracing::warn!(
+                        "Raw script by path request: {} (cached folders expired)",
+                        path
+                    );
                 }
             }
         }
@@ -1512,7 +1511,11 @@ async fn raw_script_by_path_internal(
     .await?;
     tx.commit().await?;
     if *DEBUG_RAW_SCRIPT_ENDPOINTS {
-        tracing::warn!("Raw script by path request: {} (content: {:?})", path, content_o);
+        tracing::warn!(
+            "Raw script by path request: {} (content: {:?})",
+            path,
+            content_o
+        );
     }
 
     if content_o.is_none() {
@@ -1796,9 +1799,10 @@ async fn archive_script_by_hash(
     let mut tx = user_db.begin(&authed).await?;
 
     let script = sqlx::query_as::<_, Script>(
-        "UPDATE script SET archived = true WHERE hash = $1 RETURNING *",
+        "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2 RETURNING *",
     )
     .bind(&hash.0)
+    .bind(&w_id)
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;

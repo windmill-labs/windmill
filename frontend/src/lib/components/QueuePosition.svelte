@@ -8,7 +8,7 @@
 		minimal = false
 	}: { jobId: string; workspaceId?: string | undefined; minimal?: boolean } = $props()
 
-	let queuePositionInterval: NodeJS.Timeout | undefined
+	let queuePositionInterval: number | undefined
 	let queueState = $state(undefined) as undefined | { position?: number }
 
 	let fetchingQueuePosition = false
@@ -17,18 +17,26 @@
 
 	let scheduledFor = $state(undefined) as undefined | number
 
-	let scheduledForTimeout: NodeJS.Timeout | undefined
+	let scheduledForTimeout: number | undefined
 	$effect(() => {
 		if (jobId && workspace) {
 			clearTimeout(scheduledForTimeout)
 			queueState = undefined
 			scheduledForTimeout = setTimeout(() => {
-				JobService.getScheduledFor({
-					workspace: workspace,
-					id: jobId
-				}).then((response) => {
-					scheduledFor = response
-				})
+				try {
+					JobService.getScheduledFor({
+						workspace: workspace,
+						id: jobId
+					})
+						.then((response) => {
+							scheduledFor = response
+						})
+						.catch((error) => {
+							console.error('Failed to fetch scheduled for:', error)
+						})
+				} catch (error) {
+					console.error('Failed to fetch scheduled for:', error)
+				}
 			}, 2000)
 		}
 	})
@@ -53,8 +61,8 @@
 		}
 
 		return () => {
+			scheduledForTimeout && clearTimeout(scheduledForTimeout)
 			if (queuePositionInterval) {
-				scheduledForTimeout && clearTimeout(scheduledForTimeout)
 				clearInterval(queuePositionInterval)
 			}
 		}

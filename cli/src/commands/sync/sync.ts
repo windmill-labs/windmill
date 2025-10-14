@@ -65,7 +65,10 @@ import {
 } from "../../utils/metadata.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
-import { newPathAssigner, PathAssigner } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
+import {
+  newPathAssigner,
+  PathAssigner,
+} from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -158,7 +161,9 @@ async function addCodebaseDigestIfRelevant(
       try {
         parsed = yamlParseContent(path, content);
       } catch (error) {
-        log.error(`Failed to parse YAML content for codebase digest at path: ${path}`);
+        log.error(
+          `Failed to parse YAML content for codebase digest at path: ${path}`
+        );
         throw error;
       }
       if (parsed && typeof parsed == "object") {
@@ -258,7 +263,10 @@ export interface InlineScript {
   content: string;
 }
 
-export function extractInlineScriptsForApps(rec: any, pathAssigner: PathAssigner): InlineScript[] {
+export function extractInlineScriptsForApps(
+  rec: any,
+  pathAssigner: PathAssigner
+): InlineScript[] {
   if (!rec) {
     return [];
   }
@@ -349,10 +357,12 @@ function ZipFSElement(
                 flow.value.modules,
                 {},
                 SEP,
-                defaultTs,
+                defaultTs
               );
             } catch (error) {
-              log.error(`Failed to extract inline scripts for flow at path: ${p}`);
+              log.error(
+                `Failed to extract inline scripts for flow at path: ${p}`
+              );
               throw error;
             }
             for (const s of inlineScripts) {
@@ -386,9 +396,14 @@ function ZipFSElement(
             }
             let inlineScripts;
             try {
-              inlineScripts = extractInlineScriptsForApps(app?.["value"], newPathAssigner(defaultTs));
+              inlineScripts = extractInlineScriptsForApps(
+                app?.["value"],
+                newPathAssigner(defaultTs)
+              );
             } catch (error) {
-              log.error(`Failed to extract inline scripts for app at path: ${p}`);
+              log.error(
+                `Failed to extract inline scripts for app at path: ${p}`
+              );
               throw error;
             }
             for (const s of inlineScripts) {
@@ -913,13 +928,17 @@ async function compareDynFSElement(
         try {
           parsedV = JSON.parse(v);
         } catch (error) {
-          log.error(`Failed to parse new JSON content for comparison at path: ${k}`);
+          log.error(
+            `Failed to parse new JSON content for comparison at path: ${k}`
+          );
           throw error;
         }
         try {
           parsedM2 = JSON.parse(m2[k]);
         } catch (error) {
-          log.error(`Failed to parse existing JSON content for comparison at path: ${k}`);
+          log.error(
+            `Failed to parse existing JSON content for comparison at path: ${k}`
+          );
           throw error;
         }
         if (deepEqual(parsedV, parsedM2)) {
@@ -932,11 +951,11 @@ async function compareDynFSElement(
           continue;
         }
         if (!ignoreCodebaseChanges) {
-          if (before.codebase != undefined) {
+          if (before?.codebase != undefined) {
             delete before.codebase;
             m2[k] = yamlStringify(before, yamlOptions);
           }
-          if (after.codebase != undefined) {
+          if (after?.codebase != undefined) {
             if (before.codebase != after.codebase) {
               codebaseChanges[k] = after.codebase;
             }
@@ -1241,13 +1260,12 @@ export async function pull(
   opts: GlobalOptions &
     SyncOptions & { repository?: string; promotion?: string }
 ) {
-
   const originalCliOpts = { ...opts };
   opts = await mergeConfigWithConfigFile(opts);
 
   // Validate branch configuration early
   try {
-    await validateBranchConfiguration(false, opts.yes);
+    await validateBranchConfiguration(opts);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -1345,7 +1363,10 @@ export async function pull(
         ...(specificItems && isSpecificItem(change.path, specificItems)
           ? {
               branch_specific: true,
-              branch_specific_path: getBranchSpecificPath(change.path, specificItems)
+              branch_specific_path: getBranchSpecificPath(
+                change.path,
+                specificItems
+              ),
             }
           : {}),
       })),
@@ -1380,7 +1401,10 @@ export async function pull(
       // Determine if this file should be written to a branch-specific path
       let targetPath = change.path;
       if (specificItems && isSpecificItem(change.path, specificItems)) {
-        const branchSpecificPath = getBranchSpecificPath(change.path, specificItems);
+        const branchSpecificPath = getBranchSpecificPath(
+          change.path,
+          specificItems
+        );
         if (branchSpecificPath) {
           targetPath = branchSpecificPath;
         }
@@ -1430,12 +1454,24 @@ export async function pull(
           }
         }
         if (exts.some((e) => change.path.endsWith(e))) {
-          log.info(`Editing script content of ${targetPath}${targetPath !== change.path ? colors.gray(` (branch-specific override for ${change.path})`) : ""}`);
+          log.info(
+            `Editing script content of ${targetPath}${
+              targetPath !== change.path
+                ? colors.gray(` (branch-specific override for ${change.path})`)
+                : ""
+            }`
+          );
         } else if (
           change.path.endsWith(".yaml") ||
           change.path.endsWith(".json")
         ) {
-          log.info(`Editing ${getTypeStrFromPath(change.path)} ${targetPath}${targetPath !== change.path ? colors.gray(` (branch-specific override for ${change.path})`) : ""}`);
+          log.info(
+            `Editing ${getTypeStrFromPath(change.path)} ${targetPath}${
+              targetPath !== change.path
+                ? colors.gray(` (branch-specific override for ${change.path})`)
+                : ""
+            }`
+          );
         }
         await Deno.writeTextFile(target, change.after);
 
@@ -1447,10 +1483,22 @@ export async function pull(
         await ensureDir(path.dirname(target));
         if (opts.stateful) {
           await ensureDir(path.dirname(stateTarget));
-          log.info(`Adding ${getTypeStrFromPath(change.path)} ${targetPath}${targetPath !== change.path ? colors.gray(` (branch-specific override for ${change.path})`) : ""}`);
+          log.info(
+            `Adding ${getTypeStrFromPath(change.path)} ${targetPath}${
+              targetPath !== change.path
+                ? colors.gray(` (branch-specific override for ${change.path})`)
+                : ""
+            }`
+          );
         }
         await Deno.writeTextFile(target, change.content);
-        log.info(`Writing ${getTypeStrFromPath(change.path)} ${targetPath}${targetPath !== change.path ? colors.gray(` (branch-specific override for ${change.path})`) : ""}`);
+        log.info(
+          `Writing ${getTypeStrFromPath(change.path)} ${targetPath}${
+            targetPath !== change.path
+              ? colors.gray(` (branch-specific override for ${change.path})`)
+              : ""
+          }`
+        );
         if (opts.stateful) {
           await Deno.copyFile(target, stateTarget);
         }
@@ -1528,7 +1576,10 @@ export async function pull(
           ...(specificItems && isSpecificItem(change.path, specificItems)
             ? {
                 branch_specific: true,
-                branch_specific_path: getBranchSpecificPath(change.path, specificItems)
+                branch_specific_path: getBranchSpecificPath(
+                  change.path,
+                  specificItems
+                ),
               }
             : {}),
         })),
@@ -1560,7 +1611,10 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
 
     // Check if this will be written as a branch-specific file
     if (specificItems && isSpecificItem(change.path, specificItems)) {
-      const branchSpecificPath = getBranchSpecificPath(change.path, specificItems);
+      const branchSpecificPath = getBranchSpecificPath(
+        change.path,
+        specificItems
+      );
       if (branchSpecificPath) {
         displayPath = branchSpecificPath;
         branchNote = " (branch-specific)";
@@ -1569,17 +1623,26 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
 
     if (change.name === "added") {
       log.info(
-        colors.green(`+ ${getTypeStrFromPath(change.path)} ` + displayPath + colors.gray(branchNote))
+        colors.green(
+          `+ ${getTypeStrFromPath(change.path)} ` +
+            displayPath +
+            colors.gray(branchNote)
+        )
       );
     } else if (change.name === "deleted") {
       log.info(
-        colors.red(`- ${getTypeStrFromPath(change.path)} ` + displayPath + colors.gray(branchNote))
+        colors.red(
+          `- ${getTypeStrFromPath(change.path)} ` +
+            displayPath +
+            colors.gray(branchNote)
+        )
       );
     } else if (change.name === "edited") {
       log.info(
         colors.yellow(
           `~ ${getTypeStrFromPath(change.path)} ` +
-            displayPath + colors.gray(branchNote) +
+            displayPath +
+            colors.gray(branchNote) +
             (change.codebase ? ` (codebase changed)` : "")
         )
       );
@@ -1627,7 +1690,7 @@ export async function push(
 
   // Validate branch configuration early
   try {
-    await validateBranchConfiguration(false, opts.yes);
+    await validateBranchConfiguration(opts);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -1794,7 +1857,10 @@ export async function push(
         ...(specificItems && isSpecificItem(change.path, specificItems)
           ? {
               branch_specific: true,
-              branch_specific_path: getBranchSpecificPath(change.path, specificItems)
+              branch_specific_path: getBranchSpecificPath(
+                change.path,
+                specificItems
+              ),
             }
           : {}),
       })),
@@ -1938,7 +2004,10 @@ export async function push(
                   const currentBranch = getCurrentGitBranch();
 
                   if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
-                    serverPath = fromBranchSpecificPath(resourceFilePath, currentBranch);
+                    serverPath = fromBranchSpecificPath(
+                      resourceFilePath,
+                      currentBranch
+                    );
                   }
 
                   await pushResource(
@@ -1960,7 +2029,10 @@ export async function push(
               // Check if this is a branch-specific item and get the original branch-specific path
               let originalBranchSpecificPath: string | undefined;
               if (specificItems && isSpecificItem(change.path, specificItems)) {
-                originalBranchSpecificPath = getBranchSpecificPath(change.path, specificItems);
+                originalBranchSpecificPath = getBranchSpecificPath(
+                  change.path,
+                  specificItems
+                );
               }
 
               await pushObj(
@@ -2010,7 +2082,10 @@ export async function push(
               // For branch-specific items, we read from branch-specific files but push to base server paths
               let localFilePath = change.path;
               if (specificItems && isSpecificItem(change.path, specificItems)) {
-                const branchSpecificPath = getBranchSpecificPath(change.path, specificItems);
+                const branchSpecificPath = getBranchSpecificPath(
+                  change.path,
+                  specificItems
+                );
                 if (branchSpecificPath) {
                   localFilePath = branchSpecificPath;
                 }
@@ -2024,7 +2099,7 @@ export async function push(
                 opts.plainSecrets ?? false,
                 [],
                 opts.message,
-                localFilePath  // Pass the actual local file path
+                localFilePath // Pass the actual local file path
               );
 
               if (stateTarget) {
@@ -2216,7 +2291,10 @@ export async function push(
           ...(specificItems && isSpecificItem(change.path, specificItems)
             ? {
                 branch_specific: true,
-                branch_specific_path: getBranchSpecificPath(change.path, specificItems)
+                branch_specific_path: getBranchSpecificPath(
+                  change.path,
+                  specificItems
+                ),
               }
             : {}),
         })),
@@ -2280,6 +2358,7 @@ const command = new Command()
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
   .option("--include-key", "Include workspace encryption key")
+  .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
   .option(
     "-i --includes <patterns:file[]>",
@@ -2327,6 +2406,7 @@ const command = new Command()
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
   .option("--include-key", "Include workspace encryption key")
+  .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
   .option(
     "-i --includes <patterns:file[]>",

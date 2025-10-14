@@ -29,6 +29,14 @@ use crate::{
     FlowVersionInfo, ScriptHashInfo,
 };
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct DynamicInput {
+    #[serde(rename = "x-windmill-dyn-select-code")]
+    pub x_windmill_dyn_select_code: String,
+    #[serde(rename = "x-windmill-dyn-select-lang")]
+    pub x_windmill_dyn_select_lang: ScriptLang,
+}
+
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
 #[sqlx(type_name = "JOB_TRIGGER_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -76,7 +84,7 @@ pub enum JobKind {
     Dependencies,
     Flow,
     FlowPreview,
-    SingleScriptFlow,
+    SingleStepFlow,
     Identity,
     FlowDependencies,
     AppDependencies,
@@ -92,7 +100,7 @@ impl JobKind {
     pub fn is_flow(&self) -> bool {
         matches!(
             self,
-            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleStepFlow | JobKind::FlowNode
         )
     }
 
@@ -392,13 +400,15 @@ pub enum JobPayload {
         path: Option<String>,
         restarted_from: Option<RestartedFrom>,
     },
-    SingleScriptFlow {
+    SingleStepFlow {
         path: String,
-        hash: ScriptHash,
+        hash: Option<ScriptHash>,
+        flow_version: Option<i64>,
         args: HashMap<String, Box<serde_json::value::RawValue>>,
         retry: Option<Retry>,
         error_handler_path: Option<String>,
         error_handler_args: Option<HashMap<String, Box<RawValue>>>,
+        skip_handler: Option<SkipHandler>,
         custom_concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
@@ -416,6 +426,14 @@ pub enum JobPayload {
     AIAgent {
         path: String,
     },
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct SkipHandler {
+    pub path: String,
+    pub args: HashMap<String, Box<RawValue>>,
+    pub stop_condition: String,
+    pub stop_message: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
@@ -547,6 +565,11 @@ pub async fn script_path_to_payload<'e>(
         script_timeout,
         on_behalf_of,
     ))
+}
+
+#[inline(always)]
+pub fn generate_dynamic_input_key(workspace_id: &str, path: &str) -> String {
+    format!("{workspace_id}:{path}")
 }
 
 pub async fn get_payload_tag_from_prefixed_path(

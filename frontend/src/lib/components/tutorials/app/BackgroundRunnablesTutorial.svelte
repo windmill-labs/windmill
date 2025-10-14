@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { updateProgress } from '$lib/tutorialUtils'
+	import { type DriveStep } from 'driver.js'
 	import Tutorial from '../Tutorial.svelte'
 	import { clickButtonBySelector } from '../utils'
 
@@ -20,7 +21,7 @@
 	on:error
 	on:skipAll
 	getSteps={(driver, options) => {
-		const steps = [
+		const steps: DriveStep[] = [
 			{
 				element: '#app-editor-runnable-panel',
 				popover: {
@@ -37,10 +38,7 @@
 						'Click here to create a runnable. Runnables are scripts that can be executed in the background. You can add as many runnables as you want.',
 					onNextClick: () => {
 						clickButtonBySelector('#create-background-runnable')
-
-						setTimeout(() => {
-							driver.moveNext()
-						})
+						setTimeout(() => driver.moveNext())
 					}
 				}
 			},

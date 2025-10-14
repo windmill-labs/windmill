@@ -1,5 +1,403 @@
 # Changelog
 
+## [1.558.1](https://github.com/windmill-labs/windmill/compare/v1.558.0...v1.558.1) (2025-10-09)
+
+
+### Bug Fixes
+
+* support pg jsonb array ([#6788](https://github.com/windmill-labs/windmill/issues/6788)) ([1c9faf9](https://github.com/windmill-labs/windmill/commit/1c9faf9d03edd663e9a50161b9c37ac24bb3c422))
+
+## [1.558.0](https://github.com/windmill-labs/windmill/compare/v1.557.0...v1.558.0) (2025-10-09)
+
+
+### Features
+
+* allow setting custom cors header on http trigger ([#6786](https://github.com/windmill-labs/windmill/issues/6786)) ([705a177](https://github.com/windmill-labs/windmill/commit/705a1770054ff7f0f65729e9b7c71124bc4bf7a4))
+* **backend:** allow specifying powershell module versions ([#6781](https://github.com/windmill-labs/windmill/issues/6781)) ([bd3e5e6](https://github.com/windmill-labs/windmill/commit/bd3e5e67bbf44f6b1616bca7f926c068427625d4))
+* Database manager for Ducklake instance catalogs ([#6785](https://github.com/windmill-labs/windmill/issues/6785)) ([f798ff4](https://github.com/windmill-labs/windmill/commit/f798ff4535f44ce1c6258ce716277258d2d176ab))
+
+## [1.557.0](https://github.com/windmill-labs/windmill/compare/v1.556.1...v1.557.0) (2025-10-09)
+
+
+### Features
+
+* **flow:** show tool usage in flow conversations ([#6771](https://github.com/windmill-labs/windmill/issues/6771)) ([dc4582a](https://github.com/windmill-labs/windmill/commit/dc4582a1bbc7c0679bfbd4dd139cc14f7cc76ec5))
+
+
+### Bug Fixes
+
+* validate that instance group exists before adding to workspace ([#6777](https://github.com/windmill-labs/windmill/issues/6777)) ([b070ed9](https://github.com/windmill-labs/windmill/commit/b070ed955322f01c853427b9f725d104c9c9ea0e))
+
+## [1.556.1](https://github.com/windmill-labs/windmill/compare/v1.556.0...v1.556.1) (2025-10-08)
+
+
+### Bug Fixes
+
+* better handle already completed jobs cases ([8073e5d](https://github.com/windmill-labs/windmill/commit/8073e5daeba451eb130ca3dffd53c6ec3ffb7726))
+
+## [1.556.0](https://github.com/windmill-labs/windmill/compare/v1.555.2...v1.556.0) (2025-10-08)
+
+
+### Features
+
+* add dynamic skip for schedules ([#6739](https://github.com/windmill-labs/windmill/issues/6739)) ([ae8d37f](https://github.com/windmill-labs/windmill/commit/ae8d37fc3478ff689f69b26ee9833281ed5c5311))
+* parallel loop as expr ([#6743](https://github.com/windmill-labs/windmill/issues/6743)) ([27d7809](https://github.com/windmill-labs/windmill/commit/27d7809ef942f75ba2b38ca46209d5e43ba754be))
+* support for protected private hub ([#6762](https://github.com/windmill-labs/windmill/issues/6762)) ([e1d2eb2](https://github.com/windmill-labs/windmill/commit/e1d2eb2870bc358901d6da9b95747e26e1c157c3))
+
+
+### Bug Fixes
+
+* better ducklake setup ([#6763](https://github.com/windmill-labs/windmill/issues/6763)) ([258b275](https://github.com/windmill-labs/windmill/commit/258b275f9bfb54323d55001f2adb71a8f55c5a60))
+* correct otel log levels ([#6772](https://github.com/windmill-labs/windmill/issues/6772)) ([c9dae95](https://github.com/windmill-labs/windmill/commit/c9dae9580a195f08245ec047a02dbfc4d3ff823f))
+* fix runnable inputs not being retriggered on change in some rare cases ([50a6106](https://github.com/windmill-labs/windmill/commit/50a61064368ced16e4aa2e24cf80f2478290ca37))
+* fix scheduling of flows with cached results based on inputs ([#6774](https://github.com/windmill-labs/windmill/issues/6774)) ([5ad6182](https://github.com/windmill-labs/windmill/commit/5ad61829e4b60efac2a451d0e8813fda77529efd))
+
+## [1.555.2](https://github.com/windmill-labs/windmill/compare/v1.555.1...v1.555.2) (2025-10-06)
+
+
+### Bug Fixes
+
+* **backend:** use correct ai tool job dir ([#6757](https://github.com/windmill-labs/windmill/issues/6757)) ([7c757b6](https://github.com/windmill-labs/windmill/commit/7c757b68f64bf3cf770cd080c5025f202d40201c))
+
+## [1.555.1](https://github.com/windmill-labs/windmill/compare/v1.555.0...v1.555.1) (2025-10-04)
+
+
+### Bug Fixes
+
+* app button tooltip also when disabled + audit log filters ([#6751](https://github.com/windmill-labs/windmill/issues/6751)) ([605c552](https://github.com/windmill-labs/windmill/commit/605c5526f83d3b985f04570039bb4671cc5912f4))
+* init git repo preview save ([#6753](https://github.com/windmill-labs/windmill/issues/6753)) ([d9c01e0](https://github.com/windmill-labs/windmill/commit/d9c01e0c0392f13e52ad92f87c4216e64e89a3bc))
+
+## [1.555.0](https://github.com/windmill-labs/windmill/compare/v1.554.1...v1.555.0) (2025-10-03)
+
+
+### Features
+
+* end user email env var ([#6750](https://github.com/windmill-labs/windmill/issues/6750)) ([3907c9f](https://github.com/windmill-labs/windmill/commit/3907c9f9512ebd73daf0a2f3ee2e8db6fb9f4df6))
+* **flow:** add option to turn flow into chat ([#6658](https://github.com/windmill-labs/windmill/issues/6658)) ([047420e](https://github.com/windmill-labs/windmill/commit/047420e5ad7b6178291bc7ed75d029794760d18b))
+
+
+### Bug Fixes
+
+* **backend:** prevent s3 file upload infinite loop ([#6742](https://github.com/windmill-labs/windmill/issues/6742)) ([6d436d7](https://github.com/windmill-labs/windmill/commit/6d436d745994f954a37f33ca2cc2e9f0801b16b9))
+* show that user is disabled in workspacelist ([#6748](https://github.com/windmill-labs/windmill/issues/6748)) ([c658f32](https://github.com/windmill-labs/windmill/commit/c658f321d68e2d72622d9d167b20cac67364651c))
+* top level assigment doesn't propagate to setContext ([#6745](https://github.com/windmill-labs/windmill/issues/6745)) ([06b152b](https://github.com/windmill-labs/windmill/commit/06b152b295cd4892d7309651d382a05cdcf7d378))
+
+## [1.554.1](https://github.com/windmill-labs/windmill/compare/v1.554.0...v1.554.1) (2025-10-02)
+
+
+### Bug Fixes
+
+* **backend:** concurrency limits preprocessor ([#6727](https://github.com/windmill-labs/windmill/issues/6727)) ([cdb7524](https://github.com/windmill-labs/windmill/commit/cdb75241188ee0a6d7bc62ca6dd639606eef426a))
+
+## [1.554.0](https://github.com/windmill-labs/windmill/compare/v1.553.0...v1.554.0) (2025-10-01)
+
+
+### Features
+
+* **cli:** allow skipping branch validation ([#6721](https://github.com/windmill-labs/windmill/issues/6721)) ([9e6ceba](https://github.com/windmill-labs/windmill/commit/9e6cebac557fd9a8530df54c227e915435fd2de5))
+
+
+### Bug Fixes
+
+* allow running scripts in json view ([74a7543](https://github.com/windmill-labs/windmill/commit/74a75431c072e9f084a43b8d8f195ca7757faf07))
+* fix job duration unwrap crash ([e2e3ae9](https://github.com/windmill-labs/windmill/commit/e2e3ae9f0280d4369f77064ed85e5fde7e9d5a0d))
+
+## [1.553.0](https://github.com/windmill-labs/windmill/compare/v1.552.1...v1.553.0) (2025-09-30)
+
+
+### Features
+
+* **backend:** allow multiple workspaces in jwt ([#6714](https://github.com/windmill-labs/windmill/issues/6714)) ([526dfd7](https://github.com/windmill-labs/windmill/commit/526dfd72377b90fb47b9c2c3924a1377e2715ae1))
+* **backend:** array and object params support in pwsh ([#6706](https://github.com/windmill-labs/windmill/issues/6706)) ([898eb62](https://github.com/windmill-labs/windmill/commit/898eb6231beb5ca45d59da069f458f7828f427f0))
+* support esm mode for codebase bundles ([#6709](https://github.com/windmill-labs/windmill/issues/6709)) ([d382ea7](https://github.com/windmill-labs/windmill/commit/d382ea7c8b372471dd3393720ff93749fde898f5))
+
+
+### Bug Fixes
+
+* multiselect + jsoneditor nits ([5aeb3fa](https://github.com/windmill-labs/windmill/commit/5aeb3fa0b74fb0d72f0439ce540baf224654f1ae))
+
+## [1.552.1](https://github.com/windmill-labs/windmill/compare/v1.552.0...v1.552.1) (2025-09-29)
+
+
+### Bug Fixes
+
+* fix c# with nsjail ([2055e53](https://github.com/windmill-labs/windmill/commit/2055e536a7fcb9cfe155c0fa67de6ae49d925f97))
+* **frontend:** allow dates before 2000 in date picker ([#6707](https://github.com/windmill-labs/windmill/issues/6707)) ([ce653f8](https://github.com/windmill-labs/windmill/commit/ce653f8a0538fcc88ef78f6c50960a7340648b0f))
+
+## [1.552.0](https://github.com/windmill-labs/windmill/compare/v1.551.4...v1.552.0) (2025-09-29)
+
+
+### Features
+
+* powershell private repo support ([#6684](https://github.com/windmill-labs/windmill/issues/6684)) ([4bbbeb9](https://github.com/windmill-labs/windmill/commit/4bbbeb956f8f09ea5a8af241912a1bead1e06520))
+
+
+### Bug Fixes
+
+* external links in critical alert ([e2608f9](https://github.com/windmill-labs/windmill/commit/e2608f9aacd30e2a7aeb5b850802514f64a41380))
+* fix app schema form rendering ([481c877](https://github.com/windmill-labs/windmill/commit/481c8775377f7f01ad01b5db85a98ccffadada91))
+* **frontend:** prevent label interference with monaco editor in instance settings ([#6701](https://github.com/windmill-labs/windmill/issues/6701)) ([c751a5d](https://github.com/windmill-labs/windmill/commit/c751a5d6aa49e4bc0970f87b3f1e975e8ee58479))
+* **mcp:** filter out tools with long names ([#6692](https://github.com/windmill-labs/windmill/issues/6692)) ([cc2afdb](https://github.com/windmill-labs/windmill/commit/cc2afdb264b0eaa353e5f2736c98e475337b71f7))
+* show more autoscaling events ([#6704](https://github.com/windmill-labs/windmill/issues/6704)) ([d56dea4](https://github.com/windmill-labs/windmill/commit/d56dea4969ed5c6eec30c72cf9f1171889444007))
+* **uv:** log stdout on `uv pip install` error ([#6702](https://github.com/windmill-labs/windmill/issues/6702)) ([5f63ce6](https://github.com/windmill-labs/windmill/commit/5f63ce6dd8697533de1e0af786e463f3224912c2))
+
+## [1.551.4](https://github.com/windmill-labs/windmill/compare/v1.551.3...v1.551.4) (2025-09-29)
+
+
+### Bug Fixes
+
+* migrate dotnet from msft images to script install ([cfec8e9](https://github.com/windmill-labs/windmill/commit/cfec8e99fb55928dfed3b7e80fb63cc279553dec))
+
+## [1.551.3](https://github.com/windmill-labs/windmill/compare/v1.551.2...v1.551.3) (2025-09-29)
+
+
+### Bug Fixes
+
+* migrate dotnet from bitnami to microsoft images ([5ae525a](https://github.com/windmill-labs/windmill/commit/5ae525a9f14de20d45e6075baa979eb4aaac4850))
+
+## [1.551.2](https://github.com/windmill-labs/windmill/compare/v1.551.1...v1.551.2) (2025-09-29)
+
+
+### Bug Fixes
+
+* fix copy first step input ([81616cb](https://github.com/windmill-labs/windmill/commit/81616cbe1e27bc3f45cfa35cd359ce9a0f493f35))
+
+## [1.551.1](https://github.com/windmill-labs/windmill/compare/v1.551.0...v1.551.1) (2025-09-28)
+
+
+### Bug Fixes
+
+* buttons are back to semi-bold ([bdd36c0](https://github.com/windmill-labs/windmill/commit/bdd36c0b4d5c590e66bf471c8e4b5f681b9464aa))
+
+## [1.551.0](https://github.com/windmill-labs/windmill/compare/v1.550.0...v1.551.0) (2025-09-27)
+
+
+### Features
+
+* UX improvements (all inputs) ([72b744c](https://github.com/windmill-labs/windmill/commit/72b744c4e1bc3c1f3098f4d6de6c9474d7a8fb84))
+
+## [1.550.0](https://github.com/windmill-labs/windmill/compare/v1.549.1...v1.550.0) (2025-09-27)
+
+
+### Features
+
+* ai agent streaming ([#6644](https://github.com/windmill-labs/windmill/issues/6644)) ([f990107](https://github.com/windmill-labs/windmill/commit/f990107c45fbb2e955ef67439e92328976091eb0))
+
+
+### Bug Fixes
+
+* improve behavior for already completed jobs when doing immediate cancels ([341cdcf](https://github.com/windmill-labs/windmill/commit/341cdcf66efdfd504492be32d9b4f5cb9db2df2a))
+* improve dyn select as flow input ([6ece0ac](https://github.com/windmill-labs/windmill/commit/6ece0ac5758d4f5e8c0d55ee78a524e454ad264b))
+* improve graph rendering performances ([7add574](https://github.com/windmill-labs/windmill/commit/7add57499c02ac53a7f7adbabbb279d7c41ab275))
+* improve performance of flow viewer ([311b410](https://github.com/windmill-labs/windmill/commit/311b410f2f65c3bdfc483c80cc5ef72b6864118a))
+* limit auto data tables to tables of col &lt; 100 ([f28ed9a](https://github.com/windmill-labs/windmill/commit/f28ed9a5f5c6032c49734e6770c2f2c9e2e4a001))
+* make schedule more resilient in case of pg clock shifts ([8786130](https://github.com/windmill-labs/windmill/commit/87861301f28cab136fe7af094690539e3daa613f))
+* restore set_progress feature with sse ([7df13b3](https://github.com/windmill-labs/windmill/commit/7df13b3e7bb095475d0fe54b7f635e3861fb0f73))
+* scim group/users audit logs ([#6682](https://github.com/windmill-labs/windmill/issues/6682)) ([ca4f9ee](https://github.com/windmill-labs/windmill/commit/ca4f9ee8c12f01fc7c3bcedf5d41e59dc28eb1f2))
+* support label + value for dynamic enums of selects ([ec9e5a9](https://github.com/windmill-labs/windmill/commit/ec9e5a9acbd352b20399d403be55361c73084aff))
+
+## [1.549.1](https://github.com/windmill-labs/windmill/compare/v1.549.0...v1.549.1) (2025-09-26)
+
+
+### Bug Fixes
+
+* do not request unecessarily get_scheduled_for ([0269211](https://github.com/windmill-labs/windmill/commit/02692111a1a8eefb2675b14d53f109a66c1b9a78))
+* fix agent_workers completed job back-compatibility deserialization ([db4bc7e](https://github.com/windmill-labs/windmill/commit/db4bc7ee6963955abc7e290bd67ea913b0f5e2ad))
+
+## [1.549.0](https://github.com/windmill-labs/windmill/compare/v1.548.3...v1.549.0) (2025-09-26)
+
+
+### Features
+
+* **backend:** job result stream optimization ([#6673](https://github.com/windmill-labs/windmill/issues/6673)) ([8f4fef9](https://github.com/windmill-labs/windmill/commit/8f4fef98042c49346c89bdf5e0b9b1f2d52e371f))
+
+
+### Bug Fixes
+
+* scim group handling when deleting instance user + conversion ([#6677](https://github.com/windmill-labs/windmill/issues/6677)) ([4205e83](https://github.com/windmill-labs/windmill/commit/4205e83cfde453827eab23c31e76a0f0490d31b7))
+
+## [1.548.3](https://github.com/windmill-labs/windmill/compare/v1.548.2...v1.548.3) (2025-09-25)
+
+
+### Bug Fixes
+
+* fix job loader token initialization ([f5d238e](https://github.com/windmill-labs/windmill/commit/f5d238edcfed6b0f066d459cdc718679a7b51187))
+* websocket runnable [#6675](https://github.com/windmill-labs/windmill/issues/6675) ([a308782](https://github.com/windmill-labs/windmill/commit/a308782bcf7ef9913887521d74796b490619d0c8))
+
+## [1.548.2](https://github.com/windmill-labs/windmill/compare/v1.548.1...v1.548.2) (2025-09-24)
+
+
+### Bug Fixes
+
+* **ui:** workers button on navbar require a single click only ([afa8104](https://github.com/windmill-labs/windmill/commit/afa8104cb0c1a8f1a6fe124a6e01c1d32f049afa))
+
+## [1.548.1](https://github.com/windmill-labs/windmill/compare/v1.548.0...v1.548.1) (2025-09-24)
+
+
+### Bug Fixes
+
+* improve vscode dev mode for flows ([eda985d](https://github.com/windmill-labs/windmill/commit/eda985df1cce70ea3ce4117577c889a3dbc47c6a))
+* improve vscode dev mode layout for scripts ([574364a](https://github.com/windmill-labs/windmill/commit/574364af050f2cc66c986fed8001409aa48f3530))
+
+## [1.548.0](https://github.com/windmill-labs/windmill/compare/v1.547.0...v1.548.0) (2025-09-24)
+
+
+### Features
+
+* app button run in background option ([#6670](https://github.com/windmill-labs/windmill/issues/6670)) ([6b61262](https://github.com/windmill-labs/windmill/commit/6b61262603b247da717d9fd188746078ea779c34))
+* websocket trigger send runnable result even if error ([#6664](https://github.com/windmill-labs/windmill/issues/6664)) ([ef75ed3](https://github.com/windmill-labs/windmill/commit/ef75ed3df7bf99e735a579291078f4ea9db4fcf6))
+
+
+### Bug Fixes
+
+* **aichat:** in script mode use diff based edits for good providers only ([#6665](https://github.com/windmill-labs/windmill/issues/6665)) ([f66f131](https://github.com/windmill-labs/windmill/commit/f66f131fed88a71f00d2cadb404ed4fa7698deb6))
+* **backend:** rework `dependency_map` handling ([#6598](https://github.com/windmill-labs/windmill/issues/6598)) ([ed806bf](https://github.com/windmill-labs/windmill/commit/ed806bf9d07de9f22c8a00260984e94eafd6ddf8))
+* fix vscode extension dev mode ([31c2e36](https://github.com/windmill-labs/windmill/commit/31c2e3662f53e6acb6b290f8128cec4a9a98bf73))
+* flow quick picker refresh ([#6666](https://github.com/windmill-labs/windmill/issues/6666)) ([b0e7577](https://github.com/windmill-labs/windmill/commit/b0e7577955c954fef68d0a9d7218f5891100e1ab))
+
+## [1.547.0](https://github.com/windmill-labs/windmill/compare/v1.546.1...v1.547.0) (2025-09-23)
+
+
+### Features
+
+* add dyn select for flow step [#6662](https://github.com/windmill-labs/windmill/issues/6662) ([b64e509](https://github.com/windmill-labs/windmill/commit/b64e509e60fadc631ccd6090654d523d08c06e35))
+
+
+### Bug Fixes
+
+* **cli:** improve result printing of the CLI ([a7cbc28](https://github.com/windmill-labs/windmill/commit/a7cbc289af1eaacbb50d53f2bcb4a14f50d420ef))
+* improve scripts duplicity error in global search ([2de7134](https://github.com/windmill-labs/windmill/commit/2de7134b85d8249f661e3db34ff43c29b13fa0aa))
+
+## [1.546.1](https://github.com/windmill-labs/windmill/compare/v1.546.0...v1.546.1) (2025-09-23)
+
+
+### Bug Fixes
+
+* **mcp:** use stateless mode for openai sdk compatibility ([#6656](https://github.com/windmill-labs/windmill/issues/6656)) ([389b692](https://github.com/windmill-labs/windmill/commit/389b692523507a28916e96b481c60f3c49cd31da))
+
+## [1.546.0](https://github.com/windmill-labs/windmill/compare/v1.545.0...v1.546.0) (2025-09-23)
+
+
+### Features
+
+* app builder button tooltip ([#6652](https://github.com/windmill-labs/windmill/issues/6652)) ([08952c6](https://github.com/windmill-labs/windmill/commit/08952c6c6e0afdde8fc941f9f1d17870fe25878a))
+* dynamically hide tabs in app builder ([#6653](https://github.com/windmill-labs/windmill/issues/6653)) ([de7251d](https://github.com/windmill-labs/windmill/commit/de7251d85734757a1f3e222c715f807ba167d535))
+* split RUST_LOG into RUST_LOG and RUST_LOG_STDOUT ([7a13e9e](https://github.com/windmill-labs/windmill/commit/7a13e9e98840a456ef6625cea838e3e82def5c4b))
+
+
+### Bug Fixes
+
+* add settable poll delay for sse streams ([0392103](https://github.com/windmill-labs/windmill/commit/039210369383bcc3a15d95cba9efb591ee8e9891))
+* cli path on windows + error_handler_muted_on_cancel ([#6657](https://github.com/windmill-labs/windmill/issues/6657)) ([6ba3a43](https://github.com/windmill-labs/windmill/commit/6ba3a4397e439d40079d524de15507257442c5e1))
+* improve reliability of exits in case graceful handler didn't exit as expected ([f6dd78c](https://github.com/windmill-labs/windmill/commit/f6dd78cb11ee73408f66b4670c395ade99beedbe))
+
+## [1.545.0](https://github.com/windmill-labs/windmill/compare/v1.544.2...v1.545.0) (2025-09-20)
+
+
+### Features
+
+* force cancel in batch cancel ([2eeaf56](https://github.com/windmill-labs/windmill/commit/2eeaf5639dfcdb0114dc5fc323dbd10ef5ceaca5))
+* load for loop jobs timeline directly from for loop flow status ([#6646](https://github.com/windmill-labs/windmill/issues/6646)) ([f71f9b0](https://github.com/windmill-labs/windmill/commit/f71f9b089438fc29dfb26a21ec2b8aa5867d0296))
+
+
+### Bug Fixes
+
+* add termination handler earlier in lifecycle ([56cdb69](https://github.com/windmill-labs/windmill/commit/56cdb69e599e295a51284c58d6ff56498ad22fd7))
+* allow variable picker in password field ([194887e](https://github.com/windmill-labs/windmill/commit/194887e97b3250ef28b0ddf5c03932148858ca24))
+* fix flow quick picker stuck ([#6638](https://github.com/windmill-labs/windmill/issues/6638)) ([5cab802](https://github.com/windmill-labs/windmill/commit/5cab802c421c5aeda8c2b57242a4e0c4c074a5f8))
+* fix too strict aggrid coldef validation ([612d003](https://github.com/windmill-labs/windmill/commit/612d00367c2a288920c14449561433d199b95cae))
+* retry python relative imports on errno 104 ([81ff0dc](https://github.com/windmill-labs/windmill/commit/81ff0dcd8cc2fb1c5fc12a558702cbc950ca1eb4))
+* teams api improvements ([#6643](https://github.com/windmill-labs/windmill/issues/6643)) ([70e9ae1](https://github.com/windmill-labs/windmill/commit/70e9ae14a9541862aaa31b8435abb0185805d4b7))
+
+## [1.544.2](https://github.com/windmill-labs/windmill/compare/v1.544.1...v1.544.2) (2025-09-18)
+
+
+### Bug Fixes
+
+* improve flowtimeline ([74a8d8a](https://github.com/windmill-labs/windmill/commit/74a8d8a6f7cc7e16f23d6f7999e51e9f2f6581d4))
+
+## [1.544.1](https://github.com/windmill-labs/windmill/compare/v1.544.0...v1.544.1) (2025-09-18)
+
+
+### Bug Fixes
+
+* fix onLoad auth issue ([bb4699b](https://github.com/windmill-labs/windmill/commit/bb4699bdc6d4e458175594db92b34fdf12fadf1d))
+
+## [1.544.0](https://github.com/windmill-labs/windmill/compare/v1.543.0...v1.544.0) (2025-09-18)
+
+
+### Features
+
+* **ai agent:** allow multiple images input for ai agent + code cleaning ([#6591](https://github.com/windmill-labs/windmill/issues/6591)) ([3199f9f](https://github.com/windmill-labs/windmill/commit/3199f9fffd36c84d7cbb4a512935f7eb19fa5049))
+* **aichat:** add max tokens settings ([#6613](https://github.com/windmill-labs/windmill/issues/6613)) ([d837bad](https://github.com/windmill-labs/windmill/commit/d837badf2c70c483e260b099a663fdda3f1f509a))
+* allow operator to use script/flow with dynselect input ([#6616](https://github.com/windmill-labs/windmill/issues/6616)) ([e98bde6](https://github.com/windmill-labs/windmill/commit/e98bde6be6633e9a529b67672fcde5e4ce5f9129))
+* **backend:** flow streaming ([#6520](https://github.com/windmill-labs/windmill/issues/6520)) ([993baf4](https://github.com/windmill-labs/windmill/commit/993baf46bd46524b5cefe1d6ffc037e9c6ec32d2))
+* fix gcp cleanup and add ack-deadline for gcp push delivery [#6631](https://github.com/windmill-labs/windmill/issues/6631) ([4b71495](https://github.com/windmill-labs/windmill/commit/4b7149527b52ac42094af580e3788326c30a0c70))
+* **flow:** Add helper to add expression to arrays ([#6629](https://github.com/windmill-labs/windmill/issues/6629)) ([56ddad2](https://github.com/windmill-labs/windmill/commit/56ddad2d5a960c782fad89c2c86ad9cc2c4dd8cb))
+* **frontend:** allow publishing script to hub from list view ([#6634](https://github.com/windmill-labs/windmill/issues/6634)) ([39b2f54](https://github.com/windmill-labs/windmill/commit/39b2f547799a6d75012ca2595d532e87a3035e85))
+* simplify sync vs promotion mode ui in git sync settings ([#6615](https://github.com/windmill-labs/windmill/issues/6615)) ([7707bb8](https://github.com/windmill-labs/windmill/commit/7707bb8fecd85cc65a4e511f3033170a1c24fb1d))
+* update git sync script for email triggers ([#6582](https://github.com/windmill-labs/windmill/issues/6582)) ([e97c535](https://github.com/windmill-labs/windmill/commit/e97c535376177b8681fbb6b6553d6f241462f7a9))
+
+
+### Bug Fixes
+
+* add ack deadline gcp ([#6625](https://github.com/windmill-labs/windmill/issues/6625)) ([426065e](https://github.com/windmill-labs/windmill/commit/426065efee5e5e775dde403f7e7f7c78d002909a))
+* **aiagent:** fix endpoint for azure ([#6633](https://github.com/windmill-labs/windmill/issues/6633)) ([709a937](https://github.com/windmill-labs/windmill/commit/709a937ac2dab3d8a18b01f200976fa2d4625e89))
+* Don't reencrypt secrets on workspace forking ([#6622](https://github.com/windmill-labs/windmill/issues/6622)) ([9325f56](https://github.com/windmill-labs/windmill/commit/9325f5636c2e957a724bb051d41e15d2966b2899))
+* jumpcloud scim support + instance settings ui bug (nextcloud oauth) ([#6618](https://github.com/windmill-labs/windmill/issues/6618)) ([9ff4ca0](https://github.com/windmill-labs/windmill/commit/9ff4ca06629a0cf7da2996f2b22ea7915cc4705e))
+
+## [1.543.0](https://github.com/windmill-labs/windmill/compare/v1.542.4...v1.543.0) (2025-09-15)
+
+
+### Features
+
+* **ai agent:** handle images in ai agent ([#6572](https://github.com/windmill-labs/windmill/issues/6572)) ([20f48e6](https://github.com/windmill-labs/windmill/commit/20f48e6dedde8b494367f962e870a0ef7ab85e67))
+
+
+### Bug Fixes
+
+* fix navbapp app navigation ([223feed](https://github.com/windmill-labs/windmill/commit/223feede4d2cf5cb7a3079995ca5cb0a01a87f35))
+* **frontend:** add timeline to the flow log viewer ([#6577](https://github.com/windmill-labs/windmill/issues/6577)) ([b0495b7](https://github.com/windmill-labs/windmill/commit/b0495b7133550ecbfd04c8cc90dcf9e9ca57f99e))
+* run preprocessor even if empty flow ([#6609](https://github.com/windmill-labs/windmill/issues/6609)) ([c24c629](https://github.com/windmill-labs/windmill/commit/c24c6293179e584fbeddbe787176db6fc748cf4a))
+
+## [1.542.4](https://github.com/windmill-labs/windmill/compare/v1.542.3...v1.542.4) (2025-09-13)
+
+
+### Bug Fixes
+
+* **aichat:** fix tool usage for gemini models ([#6599](https://github.com/windmill-labs/windmill/issues/6599)) ([7dbf5ca](https://github.com/windmill-labs/windmill/commit/7dbf5ca561a4045a829a8642491ed242243ec825))
+* allow custom models in ai agent step ([eb7cbd2](https://github.com/windmill-labs/windmill/commit/eb7cbd29bf48a5587791ef586f642af56a4ab11c))
+* **backend:** email trigger fix build ([#6602](https://github.com/windmill-labs/windmill/issues/6602)) ([82dcb71](https://github.com/windmill-labs/windmill/commit/82dcb711ca46635683f51dfab9a67204662ddab9))
+* **backend:** email triggers error handler and retry ([#6601](https://github.com/windmill-labs/windmill/issues/6601)) ([41667d0](https://github.com/windmill-labs/windmill/commit/41667d06fc8552dbc0235feb7f297f18e060b01d))
+* custom tag helper ([bef6bb8](https://github.com/windmill-labs/windmill/commit/bef6bb826f1c72d91130fc6886bf062ebf809c0c))
+* fix first step's schema clone ([84757a6](https://github.com/windmill-labs/windmill/commit/84757a68d7122f6b1489cdaec417e9adcd827555))
+* improve aggrid actions column ([#6600](https://github.com/windmill-labs/windmill/issues/6600)) ([c755e2b](https://github.com/windmill-labs/windmill/commit/c755e2bad006a5cc147adb47417270af9d042d24))
+* use $var: syntax for empty string template fields ([#6603](https://github.com/windmill-labs/windmill/issues/6603)) ([0a7d762](https://github.com/windmill-labs/windmill/commit/0a7d762010002da129856414b4d3300bce09ac28))
+* workspace forks script versioning (hashes) ([#6604](https://github.com/windmill-labs/windmill/issues/6604)) ([9454ab5](https://github.com/windmill-labs/windmill/commit/9454ab5cc439aeba7eb9133bd34cfa5a9e27fcaf))
+
+## [1.542.3](https://github.com/windmill-labs/windmill/compare/v1.542.2...v1.542.3) (2025-09-11)
+
+
+### Bug Fixes
+
+* catchPanicLayer to handle axum panics more gracefully + onFailure tracing ([a8f67f4](https://github.com/windmill-labs/windmill/commit/a8f67f483c4a14cc80e529ae0add0e6678d4dd30))
+* **perf:** improve perf and reliablity using tcp_nodelay and content-length for intra worker requests ([6c34cd8](https://github.com/windmill-labs/windmill/commit/6c34cd8ad672058d7793b8727247d80e6afe7531))
+* scim members optional (jumpcloud) ([#6579](https://github.com/windmill-labs/windmill/issues/6579)) ([cb54437](https://github.com/windmill-labs/windmill/commit/cb54437e739570c7de6428348a5a3859543c5f3b))
+
+## [1.542.2](https://github.com/windmill-labs/windmill/compare/v1.542.1...v1.542.2) (2025-09-11)
+
+
+### Bug Fixes
+
+* archive by hash workspace specificity ([0518c46](https://github.com/windmill-labs/windmill/commit/0518c46059e934fe14e1dddac7d0bab3c5907c90))
+
+## [1.542.1](https://github.com/windmill-labs/windmill/compare/v1.542.0...v1.542.1) (2025-09-11)
+
+
+### Bug Fixes
+
+* **apps:** fix relative imports cache invalidation ([#6564](https://github.com/windmill-labs/windmill/issues/6564)) ([c4ccc4b](https://github.com/windmill-labs/windmill/commit/c4ccc4ba141bddb00d54c269119f57add0d5875a))
+
 ## [1.542.0](https://github.com/windmill-labs/windmill/compare/v1.541.1...v1.542.0) (2025-09-11)
 
 

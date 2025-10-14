@@ -1,19 +1,5 @@
 <script module>
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-
-	languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noSemanticValidation: false,
-		noLib: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
-	})
-	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
-		noSemanticValidation: false,
-		noSyntaxValidation: false,
-		noSuggestionDiagnostics: false,
-		diagnosticCodesToIgnore: [1108]
-	})
 </script>
 
 <script lang="ts">
@@ -39,6 +25,8 @@
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
+	import { setMonacoJsonOptions } from './monacoLanguagesOptions'
+	import { inputBorderClass } from './text_input/TextInput.svelte'
 
 	export const conf = {
 		wordPattern:
@@ -433,12 +421,11 @@
 
 	let initialized = false
 
-	let jsLoader: NodeJS.Timeout | undefined = undefined
-	let timeoutModel: NodeJS.Timeout | undefined = undefined
+	let jsLoader: number | undefined = undefined
+	let timeoutModel: number | undefined = undefined
 	async function loadMonaco() {
-		console.log('init template')
+		setMonacoJsonOptions()
 		await initializeVscode('templateEditor')
-		console.log('initialized')
 		initialized = true
 
 		languages.register({ id: 'template' })
@@ -463,7 +450,14 @@
 				lineDecorationsWidth: 6,
 				lineNumbersMinChars: 2,
 				fontSize,
-				suggestOnTriggerCharacters: true
+				suggestOnTriggerCharacters: true,
+				renderLineHighlight: 'none',
+				lineNumbers: 'off',
+
+				padding: {
+					bottom: 8,
+					top: 8
+				}
 			})
 		} catch (e) {
 			console.error('Error loading monaco:', e)
@@ -512,10 +506,12 @@
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
+			isFocus = true
 		})
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
+			isFocus = false
 			updateCode()
 		})
 
@@ -611,8 +607,9 @@
 		editor?.focus()
 	}
 
+	let isFocus = false
 	let mounted = false
-	let loadTimeout: NodeJS.Timeout | undefined = undefined
+	let loadTimeout: number | undefined = undefined
 	onMount(async () => {
 		try {
 			if (BROWSER) {
@@ -664,19 +661,18 @@
 {#if !editor}
 	<FakeMonacoPlaceHolder
 		autoheight
+		showNumbers={false}
 		{code}
-		lineNumbersWidth={23}
-		lineNumbersOffset={-8}
-		class="border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
+		lineNumbersWidth={14}
+		lineNumbersOffset={-20}
+		class="template nonmain-editor rounded-md min-h-4 bg-surface-secondary !py-[9px] overflow-clip"
 	/>
 {/if}
 <div
 	bind:this={divEl}
-	style="height: 18px;"
-	class="{$$props.class ??
-		''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip {!editor
-		? 'hidden'
-		: ''}"
+	style="height: 18px; padding-left: 6px;"
+	class="{inputBorderClass({ forceFocus: isFocus })} {$$props.class ??
+		''} template nonmain-editor rounded-md min-h-4 overflow-clip {!editor ? 'hidden' : ''}"
 	bind:clientWidth={width}
 ></div>
 

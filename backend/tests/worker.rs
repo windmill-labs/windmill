@@ -1,6 +1,5 @@
 use serde::de::DeserializeOwned;
 
-
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;
 
@@ -20,20 +19,18 @@ use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 use windmill_common::flows::InputTransform;
 
 #[cfg(any(feature = "python", feature = "deno_core"))]
-use windmill_common::flow_status::{RestartedFrom};
+use windmill_common::flow_status::RestartedFrom;
 
 use windmill_common::{
-    flows::{ FlowValue},
-    jobs::{ JobPayload, RawCode},
-    scripts::{ScriptLang},
-
+    flows::FlowValue,
+    jobs::{JobPayload, RawCode},
+    scripts::ScriptLang,
 };
 mod common;
 use common::*;
 
 #[cfg(feature = "enterprise")]
 use futures::StreamExt;
-
 
 // async fn _print_job(id: Uuid, db: &Pool<Postgres>) -> Result<(), anyhow::Error> {
 //     tracing::info!(
@@ -44,7 +41,6 @@ use futures::StreamExt;
 //     );
 //     Ok(())
 // }
-
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
@@ -167,8 +163,6 @@ async fn test_iteration_parallel(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-
-
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -214,6 +208,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -258,6 +253,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                             continue_on_error: None,
                             skip_if: None,
                             apply_preprocessor: None,
+                            pass_flow_input_directly: None,
                         }],
                         modules_node: None,
                     }
@@ -276,6 +272,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
             ],
             same_worker: false,
@@ -341,7 +338,6 @@ use windmill_common::flows::FlowModuleValue;
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
-
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
@@ -394,6 +390,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -448,6 +445,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                 continue_on_error: None,
                                 skip_if: None,
                                 apply_preprocessor: None,
+                                pass_flow_input_directly: None,
                             },
                             FlowModule {
                                 id: "e".to_string(),
@@ -489,6 +487,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                 continue_on_error: None,
                                 skip_if: None,
                                 apply_preprocessor: None,
+                                pass_flow_input_directly: None,
                             },
                         ],
                         modules_node: None,
@@ -507,6 +506,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -554,6 +554,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
             ],
             same_worker: true,
@@ -1137,8 +1138,6 @@ public class Main {
     assert_eq!(job.json_result(), Some(json!("hello world")));
     Ok(())
 }
-
-
 
 #[sqlx::test(fixtures("base"))]
 async fn test_bun_job_datetime(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -2311,7 +2310,7 @@ async fn test_rust_client(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 #[sqlx::test(fixtures("base", "schedule"))]
 async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -2468,7 +2467,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
     Ok(())
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 #[sqlx::test(fixtures("base", "schedule"))]
 async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -2627,7 +2626,6 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-
 #[sqlx::test(fixtures("base", "relative_bun"))]
 async fn test_relative_imports_bun(db: Pool<Postgres>) -> anyhow::Result<()> {
     let content = r#"
@@ -2698,8 +2696,6 @@ export async function main() {
     run_preview_relative_imports(&db, content, ScriptLang::Deno).await?;
     Ok(())
 }
-
-
 
 #[sqlx::test(fixtures("base", "result_format"))]
 async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -2929,4 +2925,3 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await;
     Ok(())
 }
-

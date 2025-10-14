@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { WorkspaceService, type AIConfig, type AIProvider } from '$lib/gen'
-	import { setCopilotInfo, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { AI_PROVIDERS, fetchAvailableModels } from '../copilot/lib'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
@@ -18,6 +18,8 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import autosize from '$lib/autosize'
+	import ModelTokenLimits from './ModelTokenLimits.svelte'
+	import { setCopilotInfo } from '$lib/aiStore'
 
 	const MAX_CUSTOM_PROMPT_LENGTH = 5000
 
@@ -26,12 +28,14 @@
 		codeCompletionModel = $bindable(),
 		defaultModel = $bindable(),
 		customPrompts = $bindable(),
+		maxTokensPerModel = $bindable(),
 		usingOpenaiClientCredentialsOauth = $bindable()
 	}: {
 		aiProviders: Exclude<AIConfig['providers'], undefined>
 		codeCompletionModel: string | undefined
 		defaultModel: string | undefined
 		customPrompts: Record<string, string>
+		maxTokensPerModel: Record<string, number>
 		usingOpenaiClientCredentialsOauth: boolean
 	} = $props()
 
@@ -101,7 +105,9 @@
 				providers: aiProviders,
 				code_completion_model,
 				default_model,
-				custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined
+				custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
+				max_tokens_per_model:
+					Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
 			}
 			await WorkspaceService.editCopilotConfig({
 				workspace: $workspaceStore!,
@@ -224,9 +230,9 @@
 										: provider}
 									initialValue={aiProviders[provider].resource_path}
 									bind:value={
-										() => aiProviders[provider].resource_path,
+										() => aiProviders[provider].resource_path || undefined,
 										(v) => {
-											aiProviders[provider].resource_path = v
+											aiProviders[provider].resource_path = v ?? ''
 											onAiProviderChange(provider as AIProvider)
 										}
 									}
@@ -315,6 +321,10 @@
 				</div>
 			</div>
 		</div>
+	{/if}
+
+	{#if Object.keys(aiProviders).length > 0}
+		<ModelTokenLimits {aiProviders} bind:maxTokensPerModel />
 	{/if}
 
 	{#if Object.keys(aiProviders).length > 0}

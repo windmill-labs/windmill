@@ -7,13 +7,14 @@
 	import { Button, Skeleton } from '$lib/components/common'
 	import { AppService, type AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { canWrite } from '$lib/utils'
+	import { canWrite, urlParamsToObject } from '$lib/utils'
 	import { Pen } from 'lucide-svelte'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 	import { page } from '$app/state'
-	let app: (AppWithLastVersion & { value: any }) | undefined = undefined
-	let can_write = false
+
+	let app: (AppWithLastVersion & { value: any }) | undefined = $state(undefined)
+	let can_write = $state(false)
 
 	async function loadApp() {
 		app = await AppService.getAppLiteByPath({
@@ -23,13 +24,15 @@
 		can_write = canWrite(app?.path, app?.extra_perms!, $userStore)
 	}
 
-	$: if ($workspaceStore && page.params.path) {
-		if (app && page.params.path === app.path) {
-			console.log('App already loaded')
-		} else {
-			loadApp()
+	$effect(() => {
+		if ($workspaceStore && page.params.path) {
+			if (app && page.params.path === app.path) {
+				console.log('App already loaded')
+			} else {
+				loadApp()
+			}
 		}
-	}
+	})
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
@@ -53,7 +56,7 @@
 					name: $userStore?.name,
 					username: $userStore?.username,
 					groups: $userStore?.groups,
-					query: Object.fromEntries(page.url.searchParams.entries()),
+					query: urlParamsToObject(page.url.searchParams),
 					hash: page.url.hash.substring(1)
 				}}
 				workspace={$workspaceStore ?? ''}
