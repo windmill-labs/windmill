@@ -5,6 +5,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
+	import Popover from '../Popover.svelte'
 	import {
 		FlowService,
 		IntegrationService,
@@ -20,6 +21,7 @@
 	import FolderPicker from '../FolderPicker.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
+	import { mcpEndpointTools } from '$lib/mcpEndpointTools'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -122,12 +124,14 @@
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
+
 	const warning = $derived(
-		newMcpScope === 'favorites'
-			? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.`
-			: 'Create your first scripts or flows to make them available via MCP.'
+		newMcpScope === 'all'
+			? 'Create your first scripts or flows to make them available via MCP.'
+			: newMcpScope === 'favorites'
+				? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.`
+				: `You do not have any scripts or flows in the selected folder.`
 	)
-	const noScriptsOrFlowsAvailableWarning = $derived(includedRunnables.length === 0 ? warning : '')
 	const longPathRunnables = $derived(
 		includedRunnables.filter((path) => path.length > MAX_PATH_LENGTH)
 	)
@@ -275,7 +279,7 @@
 					options={{
 						right: 'Generate MCP URL',
 						rightTooltip:
-							'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
+							'Generate a new MCP URL to make your scripts, flows, and API endpoints available as tools through your LLM clients.',
 						rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
 					}}
 					size="xs"
@@ -416,34 +420,49 @@
 					</div>
 				{:else}
 					<div class="flex flex-col gap-2 col-span-2 pr-4">
-						{#if noScriptsOrFlowsAvailableWarning}
-							<Alert type="info" title="No scripts or flows available" size="xs">
-								{noScriptsOrFlowsAvailableWarning}
+						{#if longPathWarning}
+							<Alert type="warning" title="Some paths are too long" size="xs">
+								{longPathWarning}
 							</Alert>
-						{:else}
-							{#if longPathWarning}
-								<Alert type="warning" title="Some paths are too long" size="xs">
-									{longPathWarning}
-								</Alert>
-							{/if}
-							<span class="block text-xs text-tertiary"
-								>Scripts & Flows that will be available via MCP</span
-							>
-							<div class="flex flex-wrap gap-1">
-								{#if validRunnables.length <= 5}
-									{#each validRunnables as scriptOrFlow}
-										<Badge rounded small color="blue">{scriptOrFlow}</Badge>
-									{/each}
-								{:else}
-									{#each validRunnables.slice(0, 3) as scriptOrFlow}
-										<Badge rounded small color="blue">{scriptOrFlow}</Badge>
-									{/each}
-									<Badge rounded small color="dark-gray">
-										+{validRunnables.length - 3} more
-									</Badge>
-								{/if}
-							</div>
 						{/if}
+						<span class="block text-xs">Scripts & Flows that will be available via MCP</span>
+						<div class="flex flex-wrap gap-1">
+							{#if validRunnables.length > 0 && validRunnables.length <= 5}
+								{#each validRunnables as scriptOrFlow}
+									<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+								{/each}
+							{:else if validRunnables.length > 0}
+								{#each validRunnables.slice(0, 3) as scriptOrFlow}
+									<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+								{/each}
+								<Badge rounded small color="dark-gray">
+									+{validRunnables.length - 3} more
+								</Badge>
+							{:else}
+								<p class="text-xs text-tertiary">
+									{warning}
+								</p>
+							{/if}
+						</div>
+
+						<span class="block text-xs mt-2">API endpoint tools that will be available via MCP</span
+						>
+						<div class="flex flex-wrap gap-1">
+							{#each mcpEndpointTools as endpoint}
+								<Popover notClickable>
+									{#snippet text()}
+										<div class="flex flex-col gap-1">
+											<div class="text-xs">{endpoint.description}</div>
+											<div class="text-xs">
+												{endpoint.method}
+												{endpoint.path}
+											</div>
+										</div>
+									{/snippet}
+									<Badge rounded small color="green">{endpoint.name}</Badge>
+								</Popover>
+							{/each}
+						</div>
 					</div>
 				{/if}
 			{/if}

@@ -56,6 +56,7 @@
 		type DucklakeSettingsType
 	} from '$lib/components/workspaceSettings/DucklakeSettings.svelte'
 	import { AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -83,7 +84,20 @@
 	let customPrompts: Record<string, string> = $state({})
 	let maxTokensPerModel: Record<string, number> = $state({})
 
+	// Track initial AI config for unsaved changes detection
+	let initialAiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
+	let initialCodeCompletionModel: string | undefined = $state(undefined)
+	let initialDefaultModel: string | undefined = $state(undefined)
+	let initialCustomPrompts: Record<string, string> = $state({})
+	let initialMaxTokensPerModel: Record<string, number> = $state({})
+
 	let s3ResourceSettings: S3ResourceSettings = $state({
+		resourceType: 's3',
+		resourcePath: undefined,
+		publicResource: undefined,
+		secondaryStorage: undefined
+	})
+	let initialS3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
 		resourcePath: undefined,
 		publicResource: undefined,
@@ -109,7 +123,12 @@
 			| 'general'
 			| 'webhook'
 			| 'deploy_to'
-			| 'error_handler') ?? 'users'
+			| 'error_handler'
+			| 'ai'
+			| 'windmill_lfs'
+			| 'git_sync'
+			| 'default_app'
+			| 'encryption') ?? 'users'
 	)
 	let usingOpenaiClientCredentialsOauth = $state(false)
 
@@ -253,6 +272,13 @@
 				customPrompts[mode] = ''
 			}
 		}
+
+		// Store initial AI config state for unsaved changes detection
+		initialAiProviders = clone(aiProviders)
+		initialDefaultModel = defaultModel
+		initialCodeCompletionModel = codeCompletionModel
+		initialCustomPrompts = clone(customPrompts)
+		initialMaxTokensPerModel = clone(maxTokensPerModel)
 		errorHandlerItemKind = settings.error_handler
 			? (settings.error_handler.split('/')[0] as 'flow' | 'script')
 			: 'script'
@@ -272,6 +298,7 @@
 			settings.large_file_storage,
 			!!$enterpriseLicense
 		)
+		initialS3ResourceSettings = clone(s3ResourceSettings)
 		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
 		ducklakeSavedSettings = clone(ducklakeSettings)
 
@@ -373,6 +400,102 @@
 			untrack(() => tab)
 		)
 	})
+
+	// Function to check if there are unsaved changes in AI settings
+	function getAiSettingsInitialAndModifiedValues() {
+		// Only check for unsaved changes when on the AI tab
+		if (tab !== 'ai') {
+			return {
+				savedValue: undefined,
+				modifiedValue: undefined
+			}
+		}
+
+		const savedValue = {
+			aiProviders: initialAiProviders,
+			defaultModel: initialDefaultModel,
+			codeCompletionModel: initialCodeCompletionModel,
+			customPrompts: initialCustomPrompts,
+			maxTokensPerModel: initialMaxTokensPerModel
+		}
+
+		const modifiedValue = {
+			aiProviders: aiProviders,
+			defaultModel: defaultModel,
+			codeCompletionModel: codeCompletionModel,
+			customPrompts: customPrompts,
+			maxTokensPerModel: maxTokensPerModel
+		}
+
+		return { savedValue, modifiedValue }
+	}
+
+	// Function to discard unsaved AI settings changes
+	function discardAiSettingsChanges() {
+		aiProviders = clone(initialAiProviders)
+		defaultModel = initialDefaultModel
+		codeCompletionModel = initialCodeCompletionModel
+		customPrompts = clone(initialCustomPrompts)
+		maxTokensPerModel = clone(initialMaxTokensPerModel)
+	}
+
+	// Function to check if there are unsaved changes in storage settings
+	function getStorageSettingsInitialAndModifiedValues() {
+		// Only check for unsaved changes when on the windmill_lfs tab
+		if (tab !== 'windmill_lfs') {
+			return {
+				savedValue: undefined,
+				modifiedValue: undefined
+			}
+		}
+
+		const savedValue = {
+			s3ResourceSettings: initialS3ResourceSettings,
+			ducklakeSettings: ducklakeSavedSettings
+		}
+
+		const modifiedValue = {
+			s3ResourceSettings: s3ResourceSettings,
+			ducklakeSettings: ducklakeSettings
+		}
+
+		return { savedValue, modifiedValue }
+	}
+
+	// Function to discard unsaved storage settings changes
+	function discardStorageSettingsChanges() {
+		s3ResourceSettings = clone(initialS3ResourceSettings)
+		ducklakeSettings = clone(ducklakeSavedSettings)
+	}
+
+	// Combined function to check for unsaved changes across all tabs
+	function getAllUnsavedChanges() {
+		// Check AI settings
+		const aiChanges = getAiSettingsInitialAndModifiedValues()
+		if (aiChanges.savedValue && aiChanges.modifiedValue) {
+			return aiChanges
+		}
+
+		// Check storage settings
+		const storageChanges = getStorageSettingsInitialAndModifiedValues()
+		if (storageChanges.savedValue && storageChanges.modifiedValue) {
+			return storageChanges
+		}
+
+		return {
+			savedValue: {},
+			modifiedValue: {}
+		}
+	}
+
+	// Combined function to discard changes based on current tab
+	function discardAllChanges() {
+		if (tab === 'ai') {
+			discardAiSettingsChanges()
+		} else if (tab === 'windmill_lfs') {
+			discardStorageSettingsChanges()
+		}
+	}
 </script>
 
 <CenteredPage>
@@ -393,10 +516,13 @@
 		<div class="overflow-x-auto scrollbar-hidden">
 			<Tabs
 				bind:selected={tab}
-				on:selected={() => {
+				deferSelectedUpdate={true}
+				on:selected={(e) => {
 					// setQueryWithoutLoad($page.url, [{ key: 'tab', value: tab }], 0)
-					$page.url.searchParams.set('tab', tab)
-					goto(`?${$page.url.searchParams.toString()}`)
+					const params = new URLSearchParams($page.url.searchParams)
+					const newTab = e.detail
+					params.set('tab', newTab)
+					goto(`?${params.toString()}`)
 				}}
 			>
 				<Tab
@@ -405,7 +531,7 @@
 					aiId="workspace-settings-users"
 					aiDescription="Users workspace settings"
 				>
-					<div class="flex gap-2 items-center my-1"> Users</div>
+					<div class="flex gap-2 items-center my-1">Users</div>
 				</Tab>
 				<Tab
 					size="xs"
@@ -430,7 +556,7 @@
 						aiId="workspace-settings-slack"
 						aiDescription="Slack / Teams workspace settings"
 					>
-						<div class="flex gap-2 items-center my-1"> Slack / Teams</div>
+						<div class="flex gap-2 items-center my-1">Slack / Teams</div>
 					</Tab>
 				{/if}
 				{#if isCloudHosted()}
@@ -440,7 +566,7 @@
 						aiId="workspace-settings-premium"
 						aiDescription="Premium plans workspace settings"
 					>
-						<div class="flex gap-2 items-center my-1"> Premium Plans </div>
+						<div class="flex gap-2 items-center my-1">Premium Plans</div>
 					</Tab>
 				{/if}
 				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
@@ -483,7 +609,7 @@
 					aiId="workspace-settings-windmill-lfs"
 					aiDescription="Object Storage (S3) workspace settings"
 				>
-					<div class="flex gap-2 items-center my-1"> Object Storage (S3)</div>
+					<div class="flex gap-2 items-center my-1">Object Storage (S3)</div>
 				</Tab>
 				<Tab
 					size="xs"
@@ -491,7 +617,7 @@
 					aiId="workspace-settings-default-app"
 					aiDescription="Default app workspace settings"
 				>
-					<div class="flex gap-2 items-center my-1"> Default App </div>
+					<div class="flex gap-2 items-center my-1">Default App</div>
 				</Tab>
 				<Tab
 					size="xs"
@@ -499,7 +625,7 @@
 					aiId="workspace-settings-encryption"
 					aiDescription="Encryption workspace settings"
 				>
-					<div class="flex gap-2 items-center my-1"> Encryption </div>
+					<div class="flex gap-2 items-center my-1">Encryption</div>
 				</Tab>
 				<Tab
 					size="xs"
@@ -507,7 +633,7 @@
 					aiId="workspace-settings-general"
 					aiDescription="General workspace settings"
 				>
-					<div class="flex gap-2 items-center my-1"> General </div>
+					<div class="flex gap-2 items-center my-1">General</div>
 				</Tab>
 			</Tabs>
 		</div>
@@ -825,10 +951,29 @@
 				bind:customPrompts
 				bind:maxTokensPerModel
 				bind:usingOpenaiClientCredentialsOauth
+				onSave={() => {
+					// Update initial state after successful save
+					initialAiProviders = clone(aiProviders)
+					initialDefaultModel = defaultModel
+					initialCodeCompletionModel = codeCompletionModel
+					initialCustomPrompts = clone(customPrompts)
+					initialMaxTokensPerModel = clone(maxTokensPerModel)
+				}}
 			/>
 		{:else if tab == 'windmill_lfs'}
-			<StorageSettings bind:s3ResourceSettings />
-			<DucklakeSettings bind:ducklakeSettings bind:ducklakeSavedSettings />
+			<StorageSettings
+				bind:s3ResourceSettings
+				onSave={() => {
+					initialS3ResourceSettings = clone(s3ResourceSettings)
+				}}
+			/>
+			<DucklakeSettings
+			bind:ducklakeSettings
+			bind:ducklakeSavedSettings
+			onSave={() => {
+				ducklakeSavedSettings = clone(ducklakeSettings)
+			}}
+		/>
 		{:else if tab == 'git_sync'}
 			{#if $workspaceStore}
 				<GitSyncSection />
@@ -940,6 +1085,12 @@
 		</div>
 	{/if}
 </CenteredPage>
+
+<UnsavedConfirmationModal
+	getInitialAndModifiedValues={getAllUnsavedChanges}
+	onDiscardChanges={discardAllChanges}
+	triggerOnSearchParamsChange={true}
+/>
 
 <style>
 </style>
