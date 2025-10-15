@@ -109,8 +109,8 @@ export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 export type Schema = {
 	$schema: string | undefined
 	type: string
-	"x-windmill-dyn-select-code": string
-	"x-windmill-dyn-select-lang": ScriptLang
+	"x-windmill-dyn-select-code"?: string
+	"x-windmill-dyn-select-lang"?: ScriptLang
 	properties: { [name: string]: SchemaProperty }
 	order?: string[]
 	required: string[]
