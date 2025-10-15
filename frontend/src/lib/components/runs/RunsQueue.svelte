@@ -76,7 +76,7 @@
 		{/snippet}
 		<div
 			class={queue_count && ($queue_count ?? 0) > 0
-				? 'bg-yellow-500 text-white rounded-full w-6 h-6 flex center-center'
+				? 'bg-yellow-500 text-white rounded-full min-w-6 h-6 flex center-center'
 				: ''}>{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}</div
 		>
 		<div class="truncate text-2xs !text-secondary mt-0.5">
@@ -102,7 +102,7 @@
 			{/snippet}
 			<div
 				class={suspended_count && ($suspended_count ?? 0) > 0
-					? 'bg-surface-secondary-inverse text-primary-inverse rounded-full w-6 h-6 flex center-center'
+					? 'bg-surface-secondary-inverse text-primary-inverse rounded-full min-w-6 h-6 flex center-center'
 					: ''}>{suspended_count ? ($suspended_count ?? 0).toFixed(0) : '...'}</div
 			>
 			<div class="truncate text-2xs !text-secondary">
