@@ -10,7 +10,7 @@
 	} from '$lib/consts'
 	import bash from 'svelte-highlight/languages/bash'
 	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
-	import { ArrowDownRight, ArrowUpRight, Clipboard, RssIcon } from 'lucide-svelte'
+	import { ArrowDownRight, ArrowUpRight, Clipboard } from 'lucide-svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
@@ -49,7 +49,6 @@
 				hash?: string
 				path: string
 			}
-			sse: {}
 		}
 		sync: {
 			get: {
@@ -59,7 +58,13 @@
 				hash?: string
 				path: string
 			}
-			sse: {
+		}
+		sync_sse: {
+			get: {
+				hash?: string
+				path: string
+			}
+			post: {
 				hash?: string
 				path: string
 			}
@@ -67,20 +72,14 @@
 	} = $derived(isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path))
 	let selectedTab: string = $state('rest')
 	let userSettings: UserSettings | undefined = $state()
-	let requestType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync'
-	let callMethod = $state('post') as 'get' | 'post' | 'sse'
+	let requestType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync' | 'sync_sse'
+	let callMethod = $state('post') as 'get' | 'post'
 	let runnableId = $state('path') as 'hash' | 'path'
 	let tokenType = $state('headers') as 'query' | 'headers'
 
 	$effect(() => {
-		if (requestType === 'async' && (callMethod === 'get' || callMethod === 'sse')) {
+		if (requestType === 'async' && callMethod === 'get') {
 			callMethod = 'post'
-		}
-	})
-
-	$effect(() => {
-		if (callMethod === 'sse' && tokenType === 'headers') {
-			tokenType = 'query'
 		}
 	})
 
@@ -94,7 +93,7 @@
 		webhooks[requestType][callMethod][runnableId] +
 			(tokenType === 'query'
 				? `?token=${token}${
-						callMethod === 'get' || callMethod === 'sse'
+						callMethod === 'get' || requestType === 'sync_sse'
 							? `&payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
 							: ''
 					}`
@@ -113,8 +112,7 @@
 				post: {
 					hash: `${webhookBase}/run/h/${hash}`,
 					path: `${webhookBase}/run/p/${path}`
-				},
-				sse: {}
+				}
 			},
 			sync: {
 				get: {
@@ -123,8 +121,14 @@
 				post: {
 					hash: `${webhookBase}/run_wait_result/h/${hash}`,
 					path: `${webhookBase}/run_wait_result/p/${path}`
+				}
+			},
+			sync_sse: {
+				get: {
+					path: `${webhookBase}/run_and_stream/p/${path}`,
+					hash: `${webhookBase}/run_and_stream/h/${hash}`
 				},
-				sse: {
+				post: {
 					hash: `${webhookBase}/run_and_stream/h/${hash}`,
 					path: `${webhookBase}/run_and_stream/p/${path}`
 				}
@@ -143,8 +147,7 @@
 				get: {},
 				post: {
 					path: urlAsync
-				},
-				sse: {}
+				}
 			},
 			sync: {
 				get: {
@@ -152,8 +155,13 @@
 				},
 				post: {
 					path: urlSync
+				}
+			},
+			sync_sse: {
+				get: {
+					path: urlStream
 				},
-				sse: {
+				post: {
 					path: urlStream
 				}
 			}
@@ -173,7 +181,7 @@
 	}
 
 	function fetchCode() {
-		if (callMethod === 'sse') {
+		if (requestType === 'sync_sse') {
 			return `
 import { EventSource } from "eventsource";
 
@@ -370,6 +378,15 @@ done`
 						tooltip="Triggers the execution, wait for the job to complete and return it as a response."
 						{item}
 					/>
+					<ToggleButton
+						label="Sync SSE"
+						value="sync_sse"
+						tooltip={'Triggers the execution and returns an SSE stream. ' +
+							(isFlow
+								? 'Only useful if the last step of the flow returns a stream.'
+								: 'Only useful if the script returns a stream.')}
+						{item}
+					/>
 				{/snippet}
 			</ToggleButtonGroup>
 		</div>
@@ -390,19 +407,7 @@ done`
 						selectedColor="#fb923c"
 						value="get"
 						{item}
-						disabled={requestType !== 'sync'}
-					/>
-					<ToggleButton
-						label="SSE"
-						value="sse"
-						icon={RssIcon}
-						selectedColor="#3B82F6"
-						disabled={requestType !== 'sync'}
-						tooltip={'Returns an SSE stream. ' +
-							(isFlow
-								? 'Only useful if the last step of the flow returns a stream.'
-								: 'Only useful if the script returns a stream.')}
-						{item}
+						disabled={requestType !== 'sync' && requestType !== 'sync_sse'}
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
@@ -426,12 +431,7 @@ done`
 			>
 			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
 				{#snippet children({ item })}
-					<ToggleButton
-						label="Token in Headers"
-						value="headers"
-						{item}
-						disabled={callMethod === 'sse'}
-					/>
+					<ToggleButton label="Token in Headers" value="headers" {item} />
 					<ToggleButton label="Token in Query" value="query" {item} />
 				{/snippet}
 			</ToggleButtonGroup>
@@ -443,12 +443,14 @@ done`
 	<div>
 		<Tabs bind:selected={selectedTab}>
 			<Tab value="rest" size="xs">REST</Tab>
-			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL && callMethod !== 'sse'}
+			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL && requestType !== 'sync_sse'}
 				<Tab value="curl" size="xs">Curl</Tab>
 			{/if}
-			<Tab value="fetch" size="xs">
-				{callMethod === 'sse' ? 'Event Source' : 'Fetch'}
-			</Tab>
+			{#if requestType !== 'sync_sse' || (callMethod === 'get' && tokenType === 'query')}
+				<Tab value="fetch" size="xs">
+					{requestType === 'sync_sse' ? 'Event Source' : 'Fetch'}
+				</Tab>
+			{/if}
 
 			{#snippet content()}
 				{#key token}

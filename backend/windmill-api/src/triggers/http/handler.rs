@@ -5,6 +5,7 @@ use super::{
 use crate::{
     auth::{AuthCache, OptTokened},
     db::{ApiAuthed, DB},
+    jobs::start_job_update_sse_stream,
     resources::try_get_resource_from_db_as,
     triggers::{
         http::{
@@ -12,7 +13,8 @@ use crate::{
             RouteExists, ROUTE_PATH_KEY_RE, VALID_ROUTE_PATH_RE,
         },
         trigger_helpers::{
-            get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result, RunnableId,
+            get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result,
+            trigger_runnable_inner, RunnableId,
         },
         Trigger, TriggerCrud, TriggerData,
     },
@@ -21,12 +23,14 @@ use crate::{
 };
 use axum::{
     async_trait,
-    extract::Path,
+    extract::{Path, Query},
     response::{IntoResponse, Response},
     routing::{get, post},
     Extension, Json, Router,
 };
+use futures::StreamExt;
 use http::{HeaderMap, StatusCode};
+use serde::Deserialize;
 use sqlx::PgConnection;
 use std::{
     borrow::Cow,
@@ -783,6 +787,11 @@ async fn get_http_route_trigger(
     Ok((trigger.clone(), route_path.to_string(), params, authed))
 }
 
+#[derive(Debug, Deserialize)]
+struct RouteJobQueryOptions {
+    as_stream: Option<bool>,
+}
+
 async fn route_job(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -790,9 +799,14 @@ async fn route_job(
     OptTokened { token }: OptTokened,
     Path(route_path): Path<StripPath>,
     headers: HeaderMap,
+    Query(query): Query<RouteJobQueryOptions>,
     args: RawHttpTriggerArgs,
 ) -> std::result::Result<impl IntoResponse, Response> {
     let route_path = route_path.to_path().trim_end_matches("/");
+
+    // Check if streaming is requested via query parameter
+    let as_stream = query.as_stream.unwrap_or(false);
+
     let (trigger, called_path, params, authed) = get_http_route_trigger(
         route_path,
         &auth_cache,
@@ -1021,7 +1035,67 @@ async fn route_job(
         )
         .map_err(|e| e.into_response())?;
 
-    if trigger.is_async {
+    // If streaming is requested, create a streaming response
+    if as_stream {
+        // Trigger the job (always async when streaming)
+        let (uuid, _, _) = trigger_runnable_inner(
+            &db,
+            Some(user_db.clone()),
+            authed.clone(),
+            &trigger.workspace_id,
+            &trigger.script_path,
+            trigger.is_flow,
+            args,
+            trigger.retry.as_ref(),
+            trigger.error_handler_path.as_deref(),
+            trigger.error_handler_args.as_ref(),
+            format!("http_trigger/{}", trigger.path),
+            None,
+        )
+        .await
+        .map_err(|e| e.into_response())?;
+
+        // Set up SSE stream
+        let opt_authed = Some(authed.clone());
+        let opt_tokened = OptTokened { token: None };
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+
+        let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|x| {
+            format!(
+                "data: {}\n\n",
+                serde_json::to_string(&x).unwrap_or_default()
+            )
+        });
+
+        start_job_update_sse_stream(
+            opt_authed,
+            opt_tokened,
+            db.clone(),
+            trigger.workspace_id.clone(),
+            uuid,
+            None,
+            None,
+            None,
+            None,
+            Some(true),
+            Some(true),
+            None,
+            None,
+            tx,
+            None,
+        );
+
+        let body = axum::body::Body::from_stream(
+            stream.map(std::result::Result::<_, std::convert::Infallible>::Ok),
+        );
+
+        Ok(Response::builder()
+            .status(200)
+            .header("Content-Type", "text/event-stream")
+            .header("Cache-Control", "no-cache")
+            .body(body)
+            .map_err(|e| Error::internal_err(e.to_string()).into_response())?)
+    } else if trigger.is_async {
         trigger_runnable(
             &db,
             Some(user_db),

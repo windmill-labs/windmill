@@ -6881,7 +6881,7 @@ async fn get_job_update_sse(
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
-enum JobUpdateSSEStream {
+pub enum JobUpdateSSEStream {
     Update(JobUpdate),
     Error { error: String },
     NotFound,
@@ -6889,7 +6889,7 @@ enum JobUpdateSSEStream {
     Ping,
 }
 
-fn start_job_update_sse_stream(
+pub fn start_job_update_sse_stream(
     opt_authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
     db: DB,
