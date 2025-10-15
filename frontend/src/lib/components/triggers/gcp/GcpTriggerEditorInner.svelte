@@ -271,6 +271,10 @@
 	})
 
 	$effect(() => {
+		is_flow = itemKind === 'flow'
+	})
+
+	$effect(() => {
 		if (!drawerLoading) {
 			handleConfigChange(gcpConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
