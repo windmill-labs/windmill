@@ -1,14 +1,11 @@
 <script lang="ts">
-	import { dfs } from '$lib/components/flows/dfs'
 	import FlowCard from '../common/FlowCard.svelte'
-	import { Alert, Badge } from '$lib/components/common'
-	import type { FlowModule, FlowModuleValue, InputTransform, PathScript, RawScript } from '$lib/gen'
+	import { Alert, Button } from '$lib/components/common'
 	import { getContext, setContext } from 'svelte'
 	import type { PropPickerWrapperContext } from '../propPicker/PropPickerWrapper.svelte'
 	import { writable } from 'svelte/store'
-	import Toggle from '../../Toggle.svelte'
-	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import type { FlowEditorContext } from '../types'
+	import { Trash, Plus } from 'lucide-svelte'
 
 	interface Props {
 		noEditor: boolean
@@ -16,75 +13,51 @@
 
 	let { noEditor }: Props = $props()
 
-	let hideOptional = $state(false)
-	const { flowStateStore, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let scriptModules = $derived(
-		dfs(flowStore.val.value.modules, (x) => x)
-			.map((x) => [x.value, x] as [FlowModuleValue, FlowModule])
-			.filter((x) => x[0].type == 'script' || x[0].type == 'rawscript' || x[0].type == 'flow') as [
-			PathScript | RawScript,
-			FlowModule
-		][]
-	)
+	// Initialize env_variables if it doesn't exist
+	if (!flowStore.val.value.env_variables) {
+		flowStore.val.value.env_variables = {}
+	}
 
-	let resources = $derived(
-		Object.fromEntries(
-			scriptModules
-				.map(([v, m]) => [
-					m.id,
-					Object.entries(v.input_transforms)
-						.map((x) => {
-							let schema = flowStateStore.val[m.id]?.schema
-							let val: { argName: string; type: string } | undefined = undefined
+	let envVariables = $derived(flowStore.val.value.env_variables ?? {})
+	let envEntries = $derived(Object.entries(envVariables))
 
-							const [k, inputTransform] = x
-							const v = schema?.properties[k]
-
-							if (
-								v?.format?.includes('resource') &&
-								inputTransform.type === 'static' &&
-								(inputTransform.value === '' ||
-									inputTransform.value === undefined ||
-									inputTransform.value === null)
-							) {
-								val = {
-									argName: k,
-									type: v.format.split('-')[1]
-								}
-							}
-							return val
-						})
-						.filter(Boolean)
-				])
-				.filter((x) => x[1].length > 0)
-		) as {
-			[k: string]: {
-				argName: string
-				type: string
-			}[]
+	function addEnvVariable() {
+		if (!flowStore.val.value.env_variables) {
+			flowStore.val.value.env_variables = {}
 		}
-	)
 
-	let steps = $derived(
-		scriptModules
-			.map(
-				([v, m]) =>
-					[
-						v.input_transforms,
-						Object.entries(v.input_transforms)
-							.filter((x) => {
-								const shouldDisplay = hideOptional
-									? flowStateStore.val[m.id]?.schema?.required?.includes(x[0])
-									: true
-								return x[1].type == 'static' && shouldDisplay
-							})
-							.map((x) => x[0]),
-						m
-					] as [Record<string, InputTransform>, string[], FlowModule]
-			)
-			.filter(([i, f, m]) => f.length > 0)
-	)
+		// Find a unique key name
+		let counter = 1
+		let newKey = `NEW_VAR`
+		while (flowStore.val.value.env_variables[newKey]) {
+			newKey = `NEW_VAR_${counter}`
+			counter++
+		}
+
+		flowStore.val.value.env_variables[newKey] = ''
+	}
+
+	function removeEnvVariable(key: string) {
+		if (flowStore.val.value.env_variables) {
+			delete flowStore.val.value.env_variables[key]
+		}
+	}
+
+	function updateEnvVariableKey(oldKey: string, newKey: string) {
+		if (flowStore.val.value.env_variables && oldKey !== newKey) {
+			const value = flowStore.val.value.env_variables[oldKey]
+			delete flowStore.val.value.env_variables[oldKey]
+			flowStore.val.value.env_variables[newKey] = value
+		}
+	}
+
+	function updateEnvVariableValue(key: string, value: string) {
+		if (flowStore.val.value.env_variables) {
+			flowStore.val.value.env_variables[key] = value
+		}
+	}
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		inputMatches: writable(undefined),
@@ -95,63 +68,78 @@
 </script>
 
 <div class="min-h-full">
-	<FlowCard {noEditor} title="All Static Inputs">
+	<FlowCard {noEditor} title="Environment Variables">
 		{#snippet header()}
-			<Toggle bind:checked={hideOptional} options={{ left: 'Hide optional inputs' }} />
+			<Button
+				size="xs"
+				color="blue"
+				variant="border"
+				startIcon={{ icon: Plus }}
+				onclick={addEnvVariable}
+			>
+				Add Variable
+			</Button>
 		{/snippet}
 		<div class="min-h-full flex-1">
-			<Alert type="info" title="Static Inputs" class="m-4"
-				>This page centralizes the static inputs of every steps. It is aking to a file containing
-				all constants. Modifying a value here modifies it in the step input directly. It is
-				especially useful when forking a flow to get an overview of all the variables to parametrize
-				that are not exposed directly as flow inputs.</Alert
-			>
-			{#if Object.keys(resources).length > 0}
-				<Alert type="warning" title="Missing resources" class="m-4">
-					The following resources are missing and the flow will not be fully runnable until they are
-					set. Add your own resources:
-					{#each Object.entries(resources) as [id, r]}
-						{#each r as resource}
-							<div class="mt-2">
-								<Badge color="red">{id}</Badge> is missing a resource of type{' '}
-								<Badge color="red">{resource?.type}</Badge> for the input{' '}
-								<Badge color="red">{resource?.argName}</Badge>
-							</div>
-						{/each}
-					{/each}
-				</Alert>
-			{/if}
-			{#if steps.length == 0}
-				<div class="mt-2"></div>
-				{#if flowStore.val.value.modules.length == 0}
-					<Alert type="warning" title="No steps" class="m-4">
-						This flow has no steps. Add a step to see its static inputs.
-					</Alert>
-				{:else}
-					<Alert type="warning" title="No static inputs" class="m-4">
-						This flow has no steps with static inputs. Add a step with static inputs to see them
-						here.
-					</Alert>
-				{/if}
-			{/if}
-			{#each steps as [_args, filter, m], index (m.id + index)}
-				{#if filter.length > 0}
-					<div class="relative h-full border-t p-4">
-						<h2 class="sticky w-full top-0 z-10 inline-flex items-center py-2">
-							<span class="mr-4">{m.summary || m.value['path'] || 'Inline script'}</span>
-							<Badge large color="indigo">{m.id}</Badge>
-						</h2>
+			<Alert type="info" title="Environment Variables" class="m-4">
+				Define environment variables that can be referenced throughout your flow using the
+				<code class="text-xs">env</code> prefix (e.g., <code class="text-xs">env.FOO</code>).
+				These variables are stored in the flow definition and can be easily updated when deploying
+				or forking the flow.
+			</Alert>
 
-						<InputTransformSchemaForm
-							noDynamicToggle
-							{filter}
-							class="mt-2"
-							schema={flowStateStore.val[m.id]?.schema ?? {}}
-							bind:args={steps[index][0]}
-						/>
-					</div>
-				{/if}
-			{/each}
+			{#if envEntries.length === 0}
+				<Alert type="warning" title="No environment variables" class="m-4">
+					This flow has no environment variables defined. Click "Add Variable" to create one.
+				</Alert>
+			{:else}
+				<div class="p-4 space-y-3">
+					{#each envEntries as [key, value], index (key + index)}
+						<div class="flex items-center gap-2 p-3 border rounded bg-surface-secondary">
+							<div class="flex-1 grid grid-cols-2 gap-2">
+								<div>
+									<label class="text-xs text-secondary mb-1 block">Variable Name</label>
+									<input
+										type="text"
+										class="windmill-input"
+										placeholder="VARIABLE_NAME"
+										value={key}
+										oninput={(e) => {
+											const target = e.currentTarget as HTMLInputElement
+											const newKey = target.value
+											if (newKey && newKey !== key) {
+												updateEnvVariableKey(key, newKey)
+											}
+										}}
+									/>
+								</div>
+								<div>
+									<label class="text-xs text-secondary mb-1 block">Value</label>
+									<input
+										type="text"
+										class="windmill-input"
+										placeholder="value"
+										value={value}
+										oninput={(e) => {
+											const target = e.currentTarget as HTMLInputElement
+											updateEnvVariableValue(key, target.value)
+										}}
+									/>
+								</div>
+							</div>
+							<Button
+								size="xs"
+								color="red"
+								variant="border"
+								startIcon={{ icon: Trash }}
+								iconOnly
+								onclick={() => removeEnvVariable(key)}
+								aria-label="Remove variable"
+							/>
+						</div>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	</FlowCard>
 </div>

@@ -37,6 +37,7 @@
 	export let result: any = undefined
 	export let extraResults: any = undefined
 	export let flow_input: any = undefined
+	export let env: any = undefined
 	export let error: boolean = false
 	export let displayContext = true
 	export let notSelectable = false
@@ -125,6 +126,7 @@
 						{result}
 						{extraResults}
 						{flow_input}
+						{env}
 						allowCopy={!notSelectable && !$propPickerConfig}
 						on:select={({ detail }) => {
 							dispatch('select', detail)

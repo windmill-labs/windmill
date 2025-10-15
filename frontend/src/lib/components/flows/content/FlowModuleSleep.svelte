@@ -77,6 +77,7 @@
 					noFlowPlugConnect={true}
 					flow_input={stepPropPicker.pickableProperties.flow_input}
 					notSelectable
+					env={flowStore.val.value.env_variables}
 					{result}
 					displayContext={false}
 					pickableProperties={undefined}

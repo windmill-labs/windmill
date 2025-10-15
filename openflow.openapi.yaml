@@ -65,6 +65,11 @@ components:
         chat_input_enabled:
           type: boolean
           description: Whether this flow accepts chat-style input
+        env_variables:
+          type: object
+          additionalProperties:
+            type: string
+          description: Environment variables for the flow
       required:
         - modules
 

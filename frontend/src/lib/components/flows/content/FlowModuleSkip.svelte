@@ -71,6 +71,7 @@
 				<div class="border w-full">
 					<PropPickerWrapper
 						notSelectable
+						env={flowStore.val.value.env_variables}
 						pickableProperties={stepPropPicker.pickableProperties}
 						on:select={({ detail }) => {
 							editor?.insertAtCursor(detail)
@@ -82,7 +83,8 @@
 							lang="javascript"
 							bind:code={flowModule.skip_if.expr}
 							class="few-lines-editor"
-							extraLib={stepPropPicker.extraLib}
+							extraLib={stepPropPicker.extraLib +
+								`\ndeclare const env = ${JSON.stringify(flowStore.val.value.env_variables)};`}
 						/>
 					</PropPickerWrapper>
 				</div>

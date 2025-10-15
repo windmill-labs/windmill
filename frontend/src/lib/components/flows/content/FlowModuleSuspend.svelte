@@ -18,7 +18,8 @@
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 
-	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, flowStateStore, flowStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	const result = flowStateStore.val[$selectedId]?.previewResult ?? {}
 	let editor: SimpleEditor | undefined = $state(undefined)
 
@@ -219,6 +220,7 @@
 							<PropPickerWrapper
 								{result}
 								noFlowPlugConnect
+								env={flowStore.val.value.env_variables}
 								displayContext={false}
 								pickableProperties={undefined}
 								on:select={({ detail }) => {

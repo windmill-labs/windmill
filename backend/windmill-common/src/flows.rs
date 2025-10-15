@@ -139,6 +139,9 @@ pub struct FlowValue {
     pub concurrency_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chat_input_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub env_variables: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize)]
