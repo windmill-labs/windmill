@@ -74,4 +74,7 @@ mv windmill-api/README.md.tmp windmill-api/README.md
 cd windmill-api && poetry build
 cd ../wmill && poetry build
 cd ../wmill_pg && poetry build
-cd .. && echo "windmill-api/" >> .gitignore 
+cd .. && echo "windmill-api/" >> .gitignore
+
+# Build documentation (similar to typescript-client/build_typedoc.sh)
+./build_pdoc.sh 
