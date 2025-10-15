@@ -7,8 +7,8 @@ use sqlx::{Pool, Postgres};
 
 #[cfg(not(feature = "private"))]
 pub async fn get_github_app_token_internal(
-    db: &Pool<Postgres>,
-    job_token: &str,
+    _db: &Pool<Postgres>,
+    _job_token: &str,
 ) -> crate::error::Result<String> {
     return Err(crate::error::Error::BadRequest("Github app authentication is not availlable on the open source build".to_string()))
 }
