@@ -31,7 +31,6 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 
 	let drawer: Drawer | undefined = $state(undefined)
-	let is_flow: boolean = $state(false)
 	let initialPath = $state('')
 	let edit = $state(true)
 	let delivery_type: DeliveryType = $state('pull')
@@ -132,7 +131,6 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
-			is_flow = nis_flow
 			itemKind = nis_flow ? 'flow' : 'script'
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
@@ -184,7 +182,6 @@
 		subscription_id = cfg?.subscription_id
 		delivery_config = cfg?.delivery_config
 		subscription_mode = cfg?.subscription_mode
-		is_flow = cfg?.is_flow
 		path = cfg?.path
 		enabled = cfg?.enabled
 		topic_id = cfg?.topic_id ?? ''
@@ -229,7 +226,7 @@
 			path,
 			script_path,
 			enabled,
-			is_flow,
+			is_flow : itemKind === 'flow',
 			error_handler_path,
 			error_handler_args,
 			retry,
