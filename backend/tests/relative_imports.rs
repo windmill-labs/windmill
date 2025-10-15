@@ -809,7 +809,7 @@ def main():
             use crate::common::RunJob;
 
             // TODO: We don't care about timer. If there is no timer, it will be set automatically for djobs??
-            let (client, port, _s) = init_client(db.clone()).await;
+            let (_client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
 
             // Trigger both at the same time.
@@ -1513,7 +1513,7 @@ WHERE
             use crate::common::RunJob;
 
             // TODO: We don't care about timer. If there is no timer, it will be set automatically for djobs??
-            let (client, port, _s) = init_client(db.clone()).await;
+            let (_client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
 
             let mut args = std::collections::HashMap::new();
@@ -1528,7 +1528,7 @@ WHERE
                 windmill_common::worker::to_raw_value(&()),
             );
 
-            let (flow_id, new_tx) = windmill_queue::push(
+            let (_flow_id, new_tx) = windmill_queue::push(
                 &db,
                 windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
                 "test-workspace",
@@ -1652,7 +1652,7 @@ WHERE
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_3(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             // This tests checks if concurrency limit works correcly and there is no race conditions.
-            let (client, port, _s) = init_client(db.clone()).await;
+            let (_client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
 
             // At this point we should have two
@@ -2070,7 +2070,7 @@ WHERE
             use crate::common::RunJob;
 
             // TODO: We don't care about timer. If there is no timer, it will be set automatically for djobs??
-            let (client, port, _s) = init_client(db.clone()).await;
+            let (_client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
 
             // Trigger both at the same time.
