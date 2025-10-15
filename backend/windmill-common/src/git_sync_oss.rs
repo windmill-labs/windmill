@@ -1,15 +1,16 @@
 #[cfg(feature = "private")]
 #[allow(unused)]
 pub use crate::git_sync_ee::*;
-
 use url::Url;
+#[cfg(not(feature = "private"))]
+use sqlx::{Pool, Postgres};
 
 #[cfg(not(feature = "private"))]
 pub async fn get_github_app_token_internal(
     db: &Pool<Postgres>,
     job_token: &str,
 ) -> crate::error::Result<String> {
-    return Err("Github app authentication is not availlable on the open source build")
+    return Err(crate::error::Error::BadRequest("Github app authentication is not availlable on the open source build".to_string()))
 }
 
 pub fn prepend_token_to_github_url(
