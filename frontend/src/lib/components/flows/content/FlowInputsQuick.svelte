@@ -41,7 +41,6 @@
 		kind: 'trigger' | 'script' | 'preprocessor' | 'failure' | 'approval'
 		selectedKind?: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 		displayPath?: boolean
-		toolMode?: boolean
 		refreshCount?: number
 	}
 
@@ -57,7 +56,6 @@
 		kind,
 		selectedKind = kind,
 		displayPath = false,
-		toolMode = false,
 		refreshCount = 0
 	}: Props = $props()
 

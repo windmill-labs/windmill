@@ -189,7 +189,6 @@
 			{preFilter}
 			{small}
 			{displayPath}
-			{toolMode}
 			refreshCount={refreshCount.val}
 		/>
 	</div>

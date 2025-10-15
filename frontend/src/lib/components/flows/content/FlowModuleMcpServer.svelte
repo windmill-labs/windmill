@@ -1,3 +1,21 @@
+<script module lang="ts">
+	import { get } from 'svelte/store'
+	import { workspaceStore, userStore } from '$lib/stores'
+	import { ResourceService } from '$lib/gen'
+	import { createCache } from '$lib/utils'
+
+	let loadToolsCached = createCache(
+		({ workspace, path }: { workspace?: string; path?: string; refreshCount?: number }) =>
+			workspace && path && get(userStore)
+				? ResourceService.getMcpTools({ workspace, path })
+				: undefined,
+		{
+			initial: { workspace: get(workspaceStore), path: undefined, refreshCount: 0 },
+			invalidateMs: 1000 * 60
+		} // Cache for 60 seconds
+	)
+</script>
+
 <script lang="ts">
 	import type { FlowModule } from '$lib/gen'
 	import Section from '$lib/components/Section.svelte'
@@ -6,10 +24,9 @@
 	import { RefreshCw } from 'lucide-svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
-	import { ResourceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/toast'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		flowModule: FlowModule
@@ -18,19 +35,35 @@
 
 	let { flowModule = $bindable() }: Props = $props()
 
-	interface McpToolInfo {
-		name: string
-		description?: string
-		parameters: any
-	}
-
 	let summary = $state(flowModule.summary || '')
-	let availableTools = $state<McpToolInfo[]>([])
-	let loadingTools = $state(false)
-	let toolsError = $state<string | undefined>(undefined)
+	let refreshCount = $state(0)
+
+	let tools = usePromise(
+		async () =>
+			await loadToolsCached({
+				workspace: $workspaceStore!,
+				path: flowModule.value.type === 'mcpserver' ? flowModule.value.resource_path : undefined,
+				refreshCount
+			}),
+		{ loadInit: false, clearValueOnRefresh: false }
+	)
 
 	// Options for the multiselect
-	let toolOptions = $derived(safeSelectItems(availableTools.map((t) => t.name)))
+	let toolOptions = $derived(safeSelectItems((tools.value ?? []).map((t) => t.name)))
+
+	// Watch for resource_path changes and refresh tools
+	$effect(() => {
+		// Track reactive dependencies
+		flowModule.value.type === 'mcpserver' && flowModule.value.resource_path
+		$workspaceStore
+		refreshCount
+		// Trigger refresh when resource_path or workspace changes
+		untrack(() => {
+			if (flowModule.value.type === 'mcpserver' && flowModule.value.resource_path?.length > 0) {
+				tools.refresh()
+			}
+		})
+	})
 
 	$effect(() => {
 		if (flowModule.value.type === 'mcpserver') {
@@ -42,44 +75,6 @@
 			}
 		}
 	})
-
-	$effect(() => {
-		if (flowModule.value.type === 'mcpserver') {
-			refreshTools()
-		}
-	})
-
-	async function refreshTools() {
-		if (
-			flowModule.value.type !== 'mcpserver' ||
-			!flowModule.value.resource_path ||
-			!$workspaceStore
-		) {
-			return
-		}
-
-		loadingTools = true
-		toolsError = undefined
-
-		try {
-			// Call the API to get MCP tools
-			const tools = await ResourceService.getMcpTools({
-				workspace: $workspaceStore,
-				path: flowModule.value.resource_path
-			})
-
-			availableTools = tools
-		} catch (error: any) {
-			console.error('Failed to load MCP tools:', error)
-			toolsError = error.body?.message || error.message || 'Failed to load tools from MCP server'
-			if (toolsError) {
-				sendUserToast(toolsError, true)
-			}
-			availableTools = []
-		} finally {
-			loadingTools = false
-		}
-	}
 </script>
 
 {#if flowModule.value.type === 'mcpserver'}
@@ -109,31 +104,33 @@
 				<Button
 					size="xs"
 					color="light"
-					on:click={refreshTools}
+					on:click={() => (refreshCount += 1)}
 					startIcon={{ icon: RefreshCw }}
-					disabled={loadingTools}
+					disabled={tools.status === 'loading'}
 				>
-					{loadingTools ? 'Loading...' : 'Refresh Tools'}
+					{tools.status === 'loading' ? 'Loading...' : 'Refresh Tools'}
 				</Button>
 			{/snippet}
 			<div class="w-full flex flex-col gap-2">
-				{#if toolsError}
+				{#if tools.error}
 					<div class="text-xs text-red-600 p-2 border border-red-300 rounded bg-red-50">
-						{toolsError}
+						{tools.error?.body?.message ||
+							tools.error?.message ||
+							'Failed to load tools from MCP server'}
 					</div>
 				{/if}
 				<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
-					{#if loadingTools}
+					{#if tools.status === 'loading'}
 						<div class="text-xs text-secondary italic">Loading tools...</div>
-					{:else if availableTools.length === 0}
+					{:else if (tools.value ?? []).length === 0}
 						<div class="text-xs text-secondary italic">
-							{toolsError
+							{tools.error
 								? 'Failed to load tools. Please check the resource path and try again.'
 								: 'No tools loaded yet. Click "Refresh Tools" to fetch tools from the MCP server.'}
 						</div>
 					{:else}
 						<div class="flex flex-col gap-1">
-							{#each availableTools as tool}
+							{#each tools.value ?? [] as tool}
 								<div class="text-xs">
 									<span class="font-semibold">{tool.name}</span>
 									{#if tool.description}
