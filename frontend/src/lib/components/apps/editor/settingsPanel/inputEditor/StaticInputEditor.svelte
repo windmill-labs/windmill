@@ -28,6 +28,7 @@
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import FileUpload from '$lib/components/common/fileUpload/FileUpload.svelte'
+	import DucklakePicker from '$lib/components/DucklakePicker.svelte'
 
 	interface Props {
 		componentInput: StaticInput<any> | undefined
@@ -144,6 +145,15 @@
 					}
 				}
 				resourceType="s3"
+			/>
+		{:else if fieldType === 'ducklake'}
+			<DucklakePicker
+				class="w-full"
+				bind:value={
+					() => componentInput?.value?.split('ducklake://')?.[1],
+					(v) => componentInput && (componentInput.value = v ? `ducklake://${v}` : undefined)
+				}
+				showSchemaExplorer
 			/>
 		{:else if fieldType === 'labeledresource'}
 			{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value && (componentInput.value?.['value'] == undefined || typeof componentInput.value?.['value'] == 'string')}

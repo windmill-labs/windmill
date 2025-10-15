@@ -33,7 +33,9 @@
 	let flowStateStore = $state({ val: {} })
 
 	let customUi: FlowBuilderWhitelabelCustomUi = {
-		tagLabel: 'agent'
+		tagLabel: 'agent',
+
+		aiAgent: true
 		// disableAi: true
 	}
 </script>

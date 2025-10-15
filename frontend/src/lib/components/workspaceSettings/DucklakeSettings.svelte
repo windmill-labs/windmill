@@ -87,8 +87,13 @@
 	type Props = {
 		ducklakeSettings: DucklakeSettingsType
 		ducklakeSavedSettings: DucklakeSettingsType
+		onSave?: () => void
 	}
-	let { ducklakeSettings = $bindable(), ducklakeSavedSettings = $bindable() }: Props = $props()
+	let {
+		ducklakeSettings = $bindable(),
+		ducklakeSavedSettings = $bindable(),
+		onSave: onSaveProp = undefined
+	}: Props = $props()
 
 	let isInstanceCatalogEnabled = $derived($superadmin && !isCloudHosted())
 
@@ -151,6 +156,7 @@
 			})
 			ducklakeSavedSettings = clone(ducklakeSettings)
 			sendUserToast('Ducklake settings saved successfully')
+			onSaveProp?.()
 		} catch (e) {
 			sendUserToast(e, true)
 			console.error('Error saving ducklake settings', e)
@@ -176,6 +182,7 @@
 	}
 
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let instanceCatalogPopover: Popover | undefined = $state()
 	let confirmationModal = createAsyncConfirmationModal()
 </script>
 
@@ -291,7 +298,7 @@
 									contentClasses="py-5 px-6 w-[34rem] bg-surface-secondary -translate-y-2"
 									closeOnOtherPopoverOpen
 									closeOnOutsideClick
-									{...confirmationModal.props.open ? { isOpen: false } : {}}
+									bind:this={instanceCatalogPopover}
 								>
 									<svelte:fragment slot="trigger">
 										<Button spacingSize="xs2" variant="border" color="light" btnClasses="h-6">
@@ -397,6 +404,8 @@
 	status: DucklakeInstanceCatalogDbStatus | undefined,
 	dbname: string
 )}
+	{@const showManageCatalogButton =
+		status?.logs.created_database === 'OK' || status?.logs.created_database === 'SKIP'}
 	{#if !status}
 		<div class="mb-4 text-secondary text-sm">
 			{dbname} needs to be configured in the Windmill postgres instance
@@ -461,51 +470,71 @@
 			status?.error ?? undefined
 		)}
 	/>
+	{#if showManageCatalogButton}
+		<div class="text-tertiary text-xs mt-6">
+			Note: the 'Manage catalog' button below is different from the Manage Ducklake button. This
+			will show you the content of the PostgreSQL database used as a catalog, while the other button
+			shows you the actual content of the ducklake (the parquet files).
+		</div>
+	{/if}
+	<div class="flex gap-2 mt-2">
+		<Button
+			wrapperClasses="flex-1"
+			size="sm"
+			disabled={!isInstanceCatalogEnabled}
+			onClick={async () => {
+				if (instanceCatalogSetupIsRunning) return
 
-	<Button
-		wrapperClasses="mt-6"
-		size="sm"
-		disabled={!isInstanceCatalogEnabled}
-		onClick={async () => {
-			if (instanceCatalogSetupIsRunning) return
-
-			let wasAlreadySuccessful = status?.success ?? false
-			if (status?.logs.created_database != 'OK' && status?.logs.created_database != 'SKIP') {
-				let confirm = await confirmationModal.ask({
-					title: 'Confirm setup',
-					children: `This will create a new database ${dbname} in the Windmill PostgreSQL instance`,
-					confirmationText: 'Setup catalog'
-				})
-				if (!confirm) return
-			}
-
-			try {
-				instanceCatalogSetupIsRunning = true
-				let result = await SettingService.setupDucklakeCatalogDb({ name: dbname })
-				await instanceCatalogStatuses.refresh()
-				if (result.success) {
-					if (!wasAlreadySuccessful) sendUserToast('Setup successful')
-					else sendUserToast('Everything OK')
-				} else {
-					sendUserToast(result.error ?? 'An error occured', true)
+				let wasAlreadySuccessful = status?.success ?? false
+				if (status?.logs.created_database != 'OK' && status?.logs.created_database != 'SKIP') {
+					instanceCatalogPopover?.close()
+					let confirm = await confirmationModal.ask({
+						title: 'Confirm setup',
+						children: `This will create a new database ${dbname} in the Windmill PostgreSQL instance`,
+						confirmationText: 'Setup catalog'
+					})
+					instanceCatalogPopover?.open()
+					if (!confirm) return
 				}
-			} catch (e) {
-				sendUserToast('Unexpected error, check console for details', true)
-				console.error('Error setting up ducklake instance catalog', e)
-			} finally {
-				instanceCatalogSetupIsRunning = false
-			}
-		}}
-		loading={instanceCatalogSetupIsRunning}
-	>
-		{#if !isInstanceCatalogEnabled}
-			Only superadmins can setup instance catalogs
-		{:else if status?.success}
-			Check again
-		{:else if status?.error}
-			Try again
-		{:else}
-			Setup {dbname}
+
+				try {
+					instanceCatalogSetupIsRunning = true
+					let result = await SettingService.setupDucklakeCatalogDb({ name: dbname })
+					await instanceCatalogStatuses.refresh()
+					if (result.success) {
+						if (!wasAlreadySuccessful) sendUserToast('Setup successful')
+						else sendUserToast('Everything OK')
+					} else {
+						sendUserToast(result.error ?? 'An error occured', true)
+					}
+				} catch (e) {
+					sendUserToast('Unexpected error, check console for details', true)
+					console.error('Error setting up ducklake instance catalog', e)
+				} finally {
+					instanceCatalogSetupIsRunning = false
+				}
+			}}
+			loading={instanceCatalogSetupIsRunning}
+		>
+			{#if !isInstanceCatalogEnabled}
+				Only superadmins can setup instance catalogs
+			{:else if status?.success}
+				Check again
+			{:else if status?.error}
+				Try again
+			{:else}
+				Setup {dbname}
+			{/if}
+		</Button>
+		{#if showManageCatalogButton}
+			<ExploreAssetButton
+				class="flex-1"
+				asset={{ kind: 'resource', path: 'INSTANCE_DUCKLAKE_CATALOG/' + dbname }}
+				_resourceMetadata={{ resource_type: 'postgresql' }}
+				{dbManagerDrawer}
+				disabled={!isInstanceCatalogEnabled}
+				onClick={() => instanceCatalogPopover?.close()}
+			/>
 		{/if}
-	</Button>
+	</div>
 {/snippet}

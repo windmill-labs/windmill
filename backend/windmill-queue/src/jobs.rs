@@ -4168,8 +4168,8 @@ pub async fn push<'c, 'd>(
             None,
             None,
         ),
-        JobPayload::AIAgent { path } => (
-            None,
+        JobPayload::AIAgent { path, flow_node_id } => (
+            flow_node_id.map(|id| id.0),
             Some(path),
             None,
             JobKind::AIAgent,

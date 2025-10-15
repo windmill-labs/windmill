@@ -1,4 +1,7 @@
-use crate::memory_oss::{read_from_memory, write_to_memory};
+use crate::{
+    memory_oss::{read_from_memory, write_to_memory},
+    worker_flow::JobPayloadWithTag,
+};
 use anyhow::Context;
 use async_recursion::async_recursion;
 use regex::Regex;
@@ -14,9 +17,9 @@ use windmill_common::{
     error::{self, to_anyhow, Error},
     flow_conversations::{add_message_to_conversation_tx, MessageType},
     flow_status::AgentAction,
-    flows::{FlowModuleValue, FlowValue, Step},
+    flows::{FlowModuleValue, FlowNodeId, Step},
     get_latest_hash_for_path,
-    jobs::JobKind,
+    jobs::{JobKind, JobPayload},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
@@ -206,36 +209,51 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    let flow_job = get_flow_job_runnable_and_raw_flow(db, &parent_job).await?;
+    let (tools, summary) = if let Some(ScriptHash(flow_node_id)) = job.runnable_id {
+        tracing::debug!(
+            "Fetching AI Agent flow data using flow node id {}",
+            flow_node_id
+        );
+        let flow_data = cache::flow::fetch_flow(db, FlowNodeId(flow_node_id)).await?;
 
-    let flow_data = match flow_job.kind {
-        JobKind::Flow | JobKind::FlowNode => {
-            cache::job::fetch_flow(db, &flow_job.kind, flow_job.runnable_id).await?
-        }
-        JobKind::FlowPreview => {
-            cache::job::fetch_preview_flow(db, &parent_job, flow_job.raw_flow).await?
-        }
-        _ => {
+        let value = flow_data.value();
+
+        (value.modules.clone(), flow_data.summary.clone())
+    } else {
+        tracing::debug!("Fetching flow data for parent job of AI Agent job");
+        let flow_job = get_flow_job_runnable_and_raw_flow(db, &parent_job).await?;
+
+        let flow_data = match flow_job.kind {
+            JobKind::Flow | JobKind::FlowNode => {
+                cache::job::fetch_flow(db, &flow_job.kind, flow_job.runnable_id).await?
+            }
+            JobKind::FlowPreview => {
+                cache::job::fetch_preview_flow(db, &parent_job, flow_job.raw_flow).await?
+            }
+            _ => {
+                return Err(Error::internal_err(
+                    "expected parent flow, flow preview or flow node for ai agent job".to_string(),
+                ));
+            }
+        };
+
+        let value = flow_data.value();
+
+        let module = value.modules.iter().find(|m| m.id == *flow_step_id);
+
+        let Some(module) = module else {
             return Err(Error::internal_err(
-                "expected parent flow, flow preview or flow node for ai agent job".to_string(),
+                "AI agent module not found in flow".to_string(),
             ));
-        }
-    };
+        };
 
-    let value = flow_data.value();
+        let FlowModuleValue::AIAgent { tools, .. } = module.get_value()? else {
+            return Err(Error::internal_err(
+                "AI agent module is not an AI agent".to_string(),
+            ));
+        };
 
-    let module = value.modules.iter().find(|m| m.id == *flow_step_id);
-
-    let Some(module) = module else {
-        return Err(Error::internal_err(
-            "AI agent module not found in flow".to_string(),
-        ));
-    };
-
-    let FlowModuleValue::AIAgent { tools, .. } = module.get_value()? else {
-        return Err(Error::internal_err(
-            "AI agent module is not an AI agent".to_string(),
-        ));
+        (tools, module.summary.clone())
     };
 
     let tools = futures::future::try_join_all(tools.into_iter().map(|mut t| {
@@ -303,6 +321,10 @@ pub async fn handle_ai_agent_job(
                 Ok(FlowModuleValue::RawScript { content, language, .. }) => {
                     Ok(Some(parse_raw_script_schema(&content, &language)?))
                 }
+                Ok(FlowModuleValue::FlowScript { id, language, .. }) => {
+                    let script_data = cache::flow::fetch_script(conn, id.clone()).await?;
+                    Ok(Some(parse_raw_script_schema(&script_data.code, &language)?))
+                }
                 Err(e) => {
                     return Err(Error::internal_err(format!(
                         "Invalid tool {}: {}",
@@ -354,7 +376,7 @@ pub async fn handle_ai_agent_job(
         parent_job,
         &args,
         &tools,
-        value,
+        summary.as_deref(),
         client,
         &mut inner_occupancy_metrics,
         job_completed_tx,
@@ -469,14 +491,12 @@ async fn update_flow_status_module_with_actions_success(
 }
 
 /// Get step name from the flow module (summary if exists, else id)
-fn get_step_name_from_flow(flow_value: &FlowValue, flow_step_id: Option<&str>) -> Option<String> {
+fn get_step_name_from_flow(summary: Option<&str>, flow_step_id: Option<&str>) -> Option<String> {
     let flow_step_id = flow_step_id?;
-    let module = flow_value.modules.iter().find(|m| m.id == flow_step_id)?;
     Some(
-        module
-            .summary
-            .clone()
-            .unwrap_or_else(|| format!("AI Agent Step {}", module.id)),
+        summary
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("AI Agent Step {}", flow_step_id)),
     )
 }
 
@@ -499,7 +519,7 @@ pub async fn run_agent(
     parent_job: &Uuid,
     args: &AIAgentArgs,
     tools: &[Tool],
-    flow_value: &FlowValue,
+    summary: Option<&str>,
 
     // job execution context
     client: &AuthedClient,
@@ -751,7 +771,7 @@ pub async fn run_agent(
                                     let db_clone = db.clone();
                                     let message_content = response_content.clone();
                                     let step_name = get_step_name_from_flow(
-                                        flow_value,
+                                        summary,
                                         job.flow_step_id.as_deref(),
                                     );
 
@@ -912,6 +932,43 @@ pub async fn run_agent(
                                             tag,
                                             tool.module.delete_after_use.unwrap_or(false),
                                         );
+                                        payload
+                                    }
+                                    FlowModuleValue::FlowScript {
+                                        id,
+                                        language,
+                                        custom_concurrency_key,
+                                        concurrent_limit,
+                                        concurrency_time_window_s,
+                                        tag,
+                                        ..
+                                    } => {
+                                        let path = format!(
+                                            "{}/tools/{}",
+                                            job.runnable_path(),
+                                            tool.module.id
+                                        );
+
+                                        let payload = JobPayloadWithTag {
+                                            payload: JobPayload::FlowScript {
+                                                id,
+                                                language,
+                                                custom_concurrency_key: custom_concurrency_key
+                                                    .clone(),
+                                                concurrent_limit,
+                                                concurrency_time_window_s,
+                                                cache_ttl: tool.module.cache_ttl.map(|x| x as i32),
+                                                dedicated_worker: None,
+                                                path,
+                                            },
+                                            tag: tag.clone(),
+                                            delete_after_use: tool
+                                                .module
+                                                .delete_after_use
+                                                .unwrap_or(false),
+                                            timeout: None,
+                                            on_behalf_of: None,
+                                        };
                                         payload
                                     }
                                     _ => {
@@ -1122,7 +1179,7 @@ pub async fn run_agent(
                                                 let tool_job_id = job_id;
                                                 let db_clone = db.clone();
                                                 let step_name = get_step_name_from_flow(
-                                                    flow_value,
+                                                    summary,
                                                     job.flow_step_id.as_deref(),
                                                 );
 
@@ -1229,7 +1286,7 @@ pub async fn run_agent(
                                                 let db_clone = db.clone();
                                                 let tool_name = tool_call.function.name.clone();
                                                 let step_name = get_step_name_from_flow(
-                                                    flow_value,
+                                                    summary,
                                                     job.flow_step_id.as_deref(),
                                                 );
                                                 let content = if success {

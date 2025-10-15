@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.557.0
+  version: 1.559.0
   title: Windmill API
 
   contact:
@@ -1718,6 +1718,11 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: only_delete_forks
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: status
