@@ -326,15 +326,10 @@
 				}
 				break
 			case 'flow':
-				const schema = flowStateStore.val[flowModule.id].schema
-				const code = schema?.['x-windmill-dyn-select-code']
-				const lang = schema?.['x-windmill-dyn-select-lang']
-				if (code && lang) {
-					helperScript = {
-						source: 'inline',
-						code,
-						lang
-					}
+				helperScript = {
+					source: 'deployed',
+					path: value.path,
+					runnable_kind: 'flow'
 				}
 				break
 			default:
