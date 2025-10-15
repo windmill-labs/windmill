@@ -178,7 +178,7 @@
 						{/if}
 					{:else if selectedTab == 'test'}
 						<SplitPanesWrapper>
-							<Splitpanes class="grow">
+							<Splitpanes horizontal class="grow">
 								<Pane size={50}>
 									<div class="px-2 py-3 h-full overflow-auto">
 										<SchemaForm

@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
 	import type { HiddenRunnable, JobById } from '../apps/types'
@@ -15,6 +13,7 @@
 	import { genWmillTs } from './utils'
 	import HideButton from '../apps/editor/settingsPanel/HideButton.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
+	import RawAppSidebar from './RawAppSidebar.svelte'
 
 	interface Props {
 		initFiles: Record<string, string>
@@ -75,7 +74,7 @@
 
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
 
-	let appPanelSize = $state(70)
+	let appPanelSize = $state(10)
 
 	let jobs: string[] = $state([])
 	let jobsById: Record<string, JobById> = $state({})
@@ -104,11 +103,14 @@
 
 	let selectedRunnable: string | undefined = $state(undefined)
 
+	let modules = $state({}) as Record<string, boolean>
 	function listener(e: MessageEvent) {
 		if (e.data.type === 'setFiles') {
 			files = e.data.files
 		} else if (e.data.type === 'getBundle') {
 			getBundleResolve?.(e.data.bundle)
+		} else if (e.data.type === 'updateModules') {
+			modules = e.data.modules
 		}
 	}
 
@@ -127,20 +129,22 @@
 	}
 
 	let darkMode: boolean = $state(false)
-	run(() => {
+	$effect(() => {
 		runnables && files && saveFrontendDraft()
 	})
-	run(() => {
+	$effect(() => {
 		iframe?.addEventListener('load', () => {
 			iframeLoaded = true
 		})
 	})
-	run(() => {
+	$effect(() => {
 		iframe && iframeLoaded && initFiles && populateFiles()
 	})
-	run(() => {
+	$effect(() => {
 		iframe && iframeLoaded && runnables && populateRunnables()
 	})
+
+	const devMode = true
 </script>
 
 <svelte:window onmessage={listener} />
@@ -172,33 +176,26 @@
 		{runnables}
 		{getBundle}
 	/>
-	<Splitpanes id="o2" horizontal class="grow">
+
+	<Splitpanes id="o2" class="grow">
 		<Pane bind:size={appPanelSize}>
-			<!-- <iframe
-				bind:this={iframe}
-				title="UI builder"
-				src="http://localhost:4000/ui_builder/index.html?dark={darkMode}"
-				class="w-full h-full"
-			></iframe> -->
-			<iframe
-				bind:this={iframe}
-				title="UI builder"
-				src="/ui_builder/index.html?dark={darkMode}"
-				class="w-full h-full"
-			></iframe>
+			<RawAppSidebar {files} bind:selectedRunnable {runnables} {modules}></RawAppSidebar>
 		</Pane>
 		<Pane>
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<div class="flex h-full w-full">
-				<RawAppInlineScriptsPanel
-					on:hidePanel={() => {
-						appPanelSize = 100
-					}}
-					appPath={path}
-					bind:selectedRunnable
-					{runnables}
-				/>
-			</div>
+			{#if selectedRunnable == undefined}
+				<iframe
+					bind:this={iframe}
+					title="UI builder"
+					src="{devMode ? 'http://localhost:4000' : ''}/ui_builder/index.html?dark={darkMode}"
+					class="w-full h-full"
+				></iframe>
+			{:else}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div class="flex h-full w-full">
+					<RawAppInlineScriptsPanel appPath={path} {selectedRunnable} {runnables} />
+				</div>
+			{/if}
+
 			<!-- <div class="bg-red-400 h-full w-full" /> -->
 		</Pane>
 	</Splitpanes>
