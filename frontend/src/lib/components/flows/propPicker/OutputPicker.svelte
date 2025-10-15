@@ -130,15 +130,15 @@
 	}}
 >
 	<!-- Invisible hover area to maintain consistent height -->
-	<div class="absolute w-full h-[22px]"></div>
+	<div class="absolute w-full h-[18px]"></div>
 	<div
 		class={twMerge(
 			'absolute w-full top-1',
 			variant === 'virtual' ? `` : ``,
 			'group transition-all duration-100',
 			'flex flex-row items-center justify-center',
-			'h-0 hover:h-[22px]',
-			bottomBarOpen && 'h-[22px]'
+			'h-0 hover:h-[18px]',
+			bottomBarOpen && 'h-[18px]'
 		)}
 		data-prop-picker
 	>

@@ -70,7 +70,7 @@
 					'/' +
 					(state?.iteration_total ?? '?')
 				: ''}
-			nodeState={state?.skipped ? '_Skipped' : data.editMode ? undefined : type}
+			nodeState={state?.skipped ? '_Skipped' : type}
 			moving={data.moving}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}

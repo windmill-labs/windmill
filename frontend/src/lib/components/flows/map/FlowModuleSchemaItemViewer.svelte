@@ -16,7 +16,6 @@
 		bold?: boolean
 		editId?: boolean
 		hover?: boolean
-		selected?: boolean
 		colorClasses?: FlowNodeColorClasses
 		icon?: import('svelte').Snippet
 		onclick?: () => void
@@ -30,7 +29,6 @@
 		bold = false,
 		editId = $bindable(false),
 		hover = false,
-		selected = false,
 		colorClasses,
 		icon,
 		onclick
@@ -41,7 +39,7 @@
 
 <div
 	class="relative flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
-	 p-2 text-2xs module text-primary {colorClasses?.text}"
+	 p-2 text-2xs module text-primary"
 >
 	{#if icon && true}
 		<div class="flex-none" bind:clientWidth={iconWidth}>
@@ -67,17 +65,12 @@
 	<div class="flex items-center space-x-2 relative" bind:clientWidth={idBadgeWidth}>
 		{#if id && id !== 'preprocessor' && !id.startsWith('failure') && !id.startsWith('subflow:')}
 			<Badge
-				color={selected ? 'transparent' : 'indigo'}
+				color={'transparent'}
 				wrapperClass={twMerge(
-					'max-w-full rounded-md',
-					selected
-						? `outline outline-1 ${colorClasses?.outline ?? ''} ${colorClasses?.text ?? ''}`
-						: ''
+					'max-w-full rounded-md hover:opacity-60 transition-opacity',
+					colorClasses?.badge
 				)}
-				baseClass={twMerge(
-					'!px-1',
-					selected ? 'hover:bg-surface-hover' : 'hover:bg-surface-accent-selected'
-				)}
+				baseClass={twMerge('!px-1')}
 				title={id}
 				on:click={(e) => {
 					e?.preventDefault()
