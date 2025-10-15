@@ -167,7 +167,8 @@
 			<div class="flex flex-row justify-end">
 				{#if tab == 'contextual' && ($userStore?.is_admin || $userStore?.is_super_admin)}
 					<Button
-						size="md"
+						unifiedSize="lg"
+						variant="accent"
 						startIcon={{ icon: Plus }}
 						on:click={() => contextualVariableEditor?.initNew()}
 					>
@@ -175,7 +176,7 @@
 					</Button>
 				{:else}
 					<Button
-						size="xl"
+						unifiedSize="lg"
 						variant="accent"
 						startIcon={{ icon: Plus }}
 						on:click={() => variableEditor?.initNew()}
@@ -452,7 +453,9 @@
 					<PageHeader title="Custom contextual variables" primary={false} />
 					{#if contextualVariables.filter((x) => x.is_custom).length === 0}
 						<div class="flex flex-col items-center justify-center h-full">
-							<div class="text-md font-medium">No custom contextual variables found</div>
+							<div class="text-xs text-primary font-normal"
+								>No custom contextual variables found</div
+							>
 						</div>
 					{:else}
 						<TableSimple
