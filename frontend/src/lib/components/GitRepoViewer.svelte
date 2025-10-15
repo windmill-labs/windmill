@@ -160,7 +160,7 @@
 		<Alert type="warning" title="Repository Not Available">
 			<p>The git repository content is not yet available in storage.</p>
 		</Alert>
-		<Button onclick={populateS3WithGitRepo} color="blue">Populate Repository Content</Button>
+		<Button onclick={populateS3WithGitRepo} color="blue">Load Repository Contents</Button>
 	</div>
 {:else if commitHash && pathExists === true}
 	<S3FilePickerInner

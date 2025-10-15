@@ -219,7 +219,6 @@ export function extractDelegateToGitRepoConfig(code: string): DelegateToGitRepoC
  * @returns The modified YAML script content
  */
 export function insertAdditionalInventories(code: string, inventoryPaths: string[]): string {
-	console.log("asdasdassdadas")
 	const lines = code.split('\n')
 
 	// Find and update existing additional_inventories section if it exists

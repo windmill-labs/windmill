@@ -234,7 +234,7 @@
 				<input
 					type="text"
 					bind:value={inventoriesLocation}
-					placeholder="e.g., ./inventories"
+					placeholder="e.g., hosts"
 					class="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 				/>
 				<p class="text-xs text-tertiary">
@@ -255,7 +255,7 @@
 							{#if loadingInventories}
 								Loading inventories...
 							{:else}
-								Add available inventories to script
+								Add available inventories to script as options
 							{/if}
 						</Button>
 					</div>
