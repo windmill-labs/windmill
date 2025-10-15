@@ -35,7 +35,6 @@
 
 	let { flowModule = $bindable() }: Props = $props()
 
-	let summary = $state(flowModule.summary || '')
 	let refreshCount = $state(0)
 
 	let tools = usePromise(
@@ -75,6 +74,16 @@
 			}
 		}
 	})
+
+	$effect(() => {
+		if (
+			flowModule.value.type === 'mcpserver' &&
+			flowModule.value.resource_path?.length > 0 &&
+			flowModule.summary?.length === 0
+		) {
+			flowModule.summary = `MCP: ${flowModule.value.resource_path}`
+		}
+	})
 </script>
 
 {#if flowModule.value.type === 'mcpserver'}
@@ -84,7 +93,7 @@
 			<Label label="Summary">
 				<input
 					type="text"
-					bind:value={summary}
+					bind:value={flowModule.summary}
 					placeholder="e.g., GitHub MCP"
 					class="text-sm w-full"
 				/>
@@ -99,77 +108,79 @@
 		</div>
 
 		<!-- Available Tools Section -->
-		<Section label="Available Tools">
-			{#snippet action()}
-				<Button
-					size="xs"
-					color="light"
-					on:click={() => (refreshCount += 1)}
-					startIcon={{ icon: RefreshCw }}
-					disabled={tools.status === 'loading'}
-				>
-					{tools.status === 'loading' ? 'Loading...' : 'Refresh Tools'}
-				</Button>
-			{/snippet}
-			<div class="w-full flex flex-col gap-2">
-				{#if tools.error}
-					<div class="text-xs text-red-600 p-2 border border-red-300 rounded bg-red-50">
-						{tools.error?.body?.message ||
-							tools.error?.message ||
-							'Failed to load tools from MCP server'}
-					</div>
-				{/if}
-				<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
-					{#if tools.status === 'loading'}
-						<div class="text-xs text-secondary italic">Loading tools...</div>
-					{:else if (tools.value ?? []).length === 0}
-						<div class="text-xs text-secondary italic">
-							{tools.error
-								? 'Failed to load tools. Please check the resource path and try again.'
-								: 'No tools loaded yet. Click "Refresh Tools" to fetch tools from the MCP server.'}
-						</div>
-					{:else}
-						<div class="flex flex-col gap-1">
-							{#each tools.value ?? [] as tool}
-								<div class="text-xs">
-									<span class="font-semibold">{tool.name}</span>
-									{#if tool.description}
-										<span class="text-secondary">— {tool.description}</span>
-									{/if}
-								</div>
-							{/each}
+		{#if flowModule.value.resource_path?.length > 0}
+			<Section label="Available Tools">
+				{#snippet action()}
+					<Button
+						size="xs"
+						color="light"
+						on:click={() => (refreshCount += 1)}
+						startIcon={{ icon: RefreshCw }}
+						disabled={tools.status === 'loading'}
+					>
+						{tools.status === 'loading' ? 'Loading...' : 'Refresh Tools'}
+					</Button>
+				{/snippet}
+				<div class="w-full flex flex-col gap-2">
+					{#if tools.error}
+						<div class="text-xs text-red-600 p-2 border border-red-300 rounded bg-red-50">
+							{tools.error?.body?.message ||
+								tools.error?.message ||
+								'Failed to load tools from MCP server'}
 						</div>
 					{/if}
-				</div>
-			</div>
-		</Section>
-
-		<!-- Tool Filtering Section -->
-		{#if flowModule.value.include_tools && flowModule.value.exclude_tools}
-			<Section label="Tool Filtering">
-				<div class="w-full flex flex-col gap-3">
-					<div class="flex flex-col gap-2">
-						<Label label="Select tools to include">
-							<MultiSelect
-								bind:value={flowModule.value.include_tools}
-								items={toolOptions}
-								placeholder="Choose tools to include..."
-								disablePortal
-							/>
-						</Label>
-					</div>
-					<div class="flex flex-col gap-2">
-						<Label label="Select tools to exclude">
-							<MultiSelect
-								bind:value={flowModule.value.exclude_tools}
-								items={toolOptions}
-								placeholder="Choose tools to exclude..."
-								disablePortal
-							/>
-						</Label>
+					<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
+						{#if tools.status === 'loading'}
+							<div class="text-xs text-secondary italic">Loading tools...</div>
+						{:else if (tools.value ?? []).length === 0}
+							<div class="text-xs text-secondary italic">
+								{tools.error
+									? 'Failed to load tools. Please check the resource path and try again.'
+									: 'No tools loaded yet. Click "Refresh Tools" to fetch tools from the MCP server.'}
+							</div>
+						{:else}
+							<div class="flex flex-col gap-1">
+								{#each tools.value ?? [] as tool}
+									<div class="text-xs">
+										<span class="font-semibold">{tool.name}</span>
+										{#if tool.description}
+											<span class="text-secondary">— {tool.description}</span>
+										{/if}
+									</div>
+								{/each}
+							</div>
+						{/if}
 					</div>
 				</div>
 			</Section>
+
+			<!-- Tool Filtering Section -->
+			{#if flowModule.value.include_tools && flowModule.value.exclude_tools}
+				<Section label="Tool Filtering">
+					<div class="w-full flex flex-col gap-3">
+						<div class="flex flex-col gap-2">
+							<Label label="Only include specified tools">
+								<MultiSelect
+									bind:value={flowModule.value.include_tools}
+									items={toolOptions}
+									placeholder="Choose tools to include..."
+									disablePortal
+								/>
+							</Label>
+						</div>
+						<div class="flex flex-col gap-2">
+							<Label label="Exclude specified tools">
+								<MultiSelect
+									bind:value={flowModule.value.exclude_tools}
+									items={toolOptions}
+									placeholder="Choose tools to exclude..."
+									disablePortal
+								/>
+							</Label>
+						</div>
+					</div>
+				</Section>
+			{/if}
 		{/if}
 	</div>
 {/if}
