@@ -206,7 +206,7 @@ def main():
                             ",
                     windmill_api_client::types::ScriptLang::Python3,
                     "f/rel/root_script",
-                    Some(format!("# from requirements.txt")),
+                    Some("# from requirements.txt".to_string()),
                     Some("000000000005165B".into()),
                 ),
             )
@@ -258,7 +258,7 @@ def main():
                     windmill_api_client::types::ScriptLang::Python3,
                     "f/rel/root_script",
                     // We still want to pass lock to it.
-                    Some(format!("# py311")),
+                    Some("# py311".to_string()),
                     Some("000000000005165B".into()),
                 ),
             )
@@ -806,7 +806,7 @@ def main():
         #[cfg(feature = "python")]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_left(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-            use crate::common::{RunJob, StreamFind};
+            use crate::common::RunJob;
 
             // TODO: We don't care about timer. If there is no timer, it will be set automatically for djobs??
             let (client, port, _s) = init_client(db.clone()).await;
@@ -1510,7 +1510,7 @@ WHERE
         #[cfg(feature = "python")]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_left(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-            use crate::common::{RunJob, StreamFind};
+            use crate::common::RunJob;
 
             // TODO: We don't care about timer. If there is no timer, it will be set automatically for djobs??
             let (client, port, _s) = init_client(db.clone()).await;
@@ -2067,7 +2067,7 @@ WHERE
         #[cfg(feature = "python")]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_left(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
-            use crate::common::{RunJob, StreamFind};
+            use crate::common::RunJob;
 
             // TODO: We don't care about timer. If there is no timer, it will be set automatically for djobs??
             let (client, port, _s) = init_client(db.clone()).await;
