@@ -9,14 +9,12 @@
 	interface Props {
 		open: boolean
 		currentResource?: string
-		currentCode?: string
 		currentCommit?: string
 	}
 
 	let {
 		open = $bindable(),
 		currentResource = undefined,
-		currentCode = undefined,
 		currentCommit = undefined
 	}: Props = $props()
 
@@ -126,11 +124,15 @@
 						workspace: $workspaceStore!,
 						path: selectedResource
 					})
-					commitHash = result.hash
+					commitHash = result.commit_hash
 				} catch (err) {
 					console.error('Failed to get commit hash:', err)
 					throw new Error('Could not get commit hash for repository')
 				}
+			}
+
+			if (!commitHash) {
+				throw new Error('No commit hash available')
 			}
 
 			const inventoryFiles = await getInventoryFiles(

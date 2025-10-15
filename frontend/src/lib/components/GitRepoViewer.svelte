@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { HelpersService, SettingService, ResourceService, JobService } from '$lib/gen'
-	import { onMount, untrack } from 'svelte'
+	import { JobService, HelpersService, ResourceService, SettingService } from '$lib/gen'
+	import { untrack } from 'svelte'
 	import { Alert, Button } from './common'
 	import S3FilePickerInner from './S3FilePickerInner.svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -53,15 +53,13 @@
 		})
 
 		let jobSuccess = false
-		let result: any = {}
 		await tryEvery({
 			tryCode: async () => {
 				const testResult = await JobService.getCompletedJob({ workspace, id: jobId })
 				jobSuccess = !!testResult.success
 				console.log("res", testResult)
 				if (jobSuccess) {
-					const jobResult = await JobService.getCompletedJobResult({ workspace, id: jobId })
-					result = jobResult
+					await JobService.getCompletedJobResult({ workspace, id: jobId })
 				} else {
 					error = (testResult.result as any).error.message ?? "Failed to clone"
 				}

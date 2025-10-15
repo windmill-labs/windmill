@@ -1,4 +1,3 @@
-import { HelpersService, SettingService, ResourceService, JobService } from '$lib/gen'
 interface DelegateToGitRepoConfig {
 	resource?: string
 	playbook?: string

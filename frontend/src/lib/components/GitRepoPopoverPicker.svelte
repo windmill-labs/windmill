@@ -7,10 +7,12 @@
 
 	interface Props {
 		isOpen?: boolean
+		children?: import('svelte').Snippet
 	}
 
 	let {
-		isOpen = $bindable(false)
+		isOpen = $bindable(false),
+		children
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -58,10 +60,10 @@
 	bind:isOpen
 	escapeBehavior="ignore"
 >
-	<svelte:fragment slot="trigger">
-		<slot />
-	</svelte:fragment>
-	<svelte:fragment slot="content">
+	{#snippet trigger()}
+		{@render children?.()}
+	{/snippet}
+	{#snippet content()}
 		<div class="w-64 max-h-72 overflow-y-auto">
 			{#if loading}
 				<div class="flex items-center gap-2 p-3">
@@ -93,5 +95,5 @@
 				</div>
 			{/if}
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </Popover>

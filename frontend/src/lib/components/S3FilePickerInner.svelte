@@ -10,7 +10,6 @@
 		Loader2,
 		Download,
 		Trash,
-		FileUp,
 		MoveRight
 	} from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -32,7 +31,6 @@
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import Select from './select/Select.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	let deletionModalOpen = $state(false)
@@ -461,7 +459,7 @@
 		}
 	}
 
-	async function selectAndClose() {
+	export async function selectAndClose() {
 		if (selectedFileKey?.s3) {
 			dispatch('selectAndClose', { s3: selectedFileKey.s3, storage })
 		}
@@ -826,47 +824,6 @@
 	</div>
 {/if}
 
-{#snippet actions()}
-	<div class="flex gap-1">
-		{#if secondaryStorageNames.value?.length}
-			<Select
-				inputClass="h-10 min-w-44 !placeholder-secondary"
-				items={[
-					{ value: undefined, label: 'Default storage' },
-					...secondaryStorageNames.value.map((value) => ({ value }))
-				]}
-				placeholder="Default storage"
-				bind:value={
-					() => storage,
-					(v) => {
-						if (v === storage) return
-						storage = v
-						reloadContent()
-					}
-				}
-			/>
-		{/if}
-		{#if !readOnlyMode}
-			<Button
-				variant="border"
-				color="light"
-				disabled={workspaceSettingsInitialized === false}
-				startIcon={{ icon: FileUp }}
-				on:click={() => {
-					uploadModalOpen = true
-				}}>Upload File</Button
-			>
-			{#if !fromWorkspaceSettings}
-				<Button
-					disabled={selectedFileKey === undefined ||
-						emptyString(selectedFileKey.s3) ||
-						(folderOnly && allFilesByKey[selectedFileKey.s3]?.type !== 'folder')}
-					on:click={selectAndClose}>Select</Button
-				>
-			{/if}
-		{/if}
-	</div>
-{/snippet}
 
 <ConfirmationModal
 	open={deletionModalOpen}

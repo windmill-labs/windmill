@@ -2,7 +2,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { type CompletedJob, HelpersService, type Job, JobService, type Preview, type ScriptLang, SettingService } from '$lib/gen'
+	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
@@ -14,7 +14,7 @@
 	import JobLoader from './JobLoader.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import { createEventDispatcher, onDestroy, onMount, untrack } from 'svelte'
-	import { Alert, Button } from './common'
+	import { Button } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import * as Y from 'yjs'
@@ -51,10 +51,9 @@
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
 	import { editor as meditor } from 'monaco-editor'
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
-	import S3FilePicker from './S3FilePicker.svelte'
 	import GitRepoViewer from './GitRepoViewer.svelte'
 	import GitRepoResourcePicker from './GitRepoResourcePicker.svelte'
-	import { insertDelegateToGitRepoInCode, updateDelegateToGitRepoConfig, insertAdditionalInventories } from '$lib/ansibleUtils'
+	import { updateDelegateToGitRepoConfig, insertAdditionalInventories } from '$lib/ansibleUtils'
 	import { copilotInfo } from '$lib/aiStore'
 
 	interface Props {
@@ -123,7 +122,6 @@
 		enablePreprocessorSnippet = false
 	}: Props = $props()
 
-	let s3FilePicker: S3FilePicker | undefined = $state()
 	$effect.pre(() => {
 		if (schema == undefined) {
 			schema = emptySchema()
@@ -195,7 +193,7 @@
 	let peers: { name: string }[] = $state([])
 	let showCollabPopup = $state(false)
 
-	let ansibleAlternativeExecutionMode = $state()
+	let ansibleAlternativeExecutionMode = $state<{ resource?: string; commit?: string } | null | undefined>()
 
 	const url = new URL(window.location.toString())
 	let initialCollab = /true|1/i.test(url.searchParams.get('collab') ?? '0')
@@ -292,25 +290,14 @@
 		}
 	}
 
-	let gitRepoViewer: GitRepoViewer | undefined = $state()
 	let gitRepoResourcePickerOpen = $state(false)
-	let commitHashForGitRepo = $state<string | undefined>(ansibleAlternativeExecutionMode?.commit)
+	let commitHashForGitRepo = $derived(ansibleAlternativeExecutionMode?.commit)
 
 	// Check if delegate_to_git_repo exists in the code
 	let hasDelegateToGitRepo = $derived(
 		code && code.includes('delegate_to_git_repo:')
 	)
 
-	function insertDelegateToGitRepo(resourcePath: string) {
-		if (!editor) return
-
-		const currentCode = editor.getCode()
-		const newCode = insertDelegateToGitRepoInCode(currentCode, resourcePath)
-		editor.setCode(newCode)
-
-		// Trigger schema inference to update assets
-		inferSchema(newCode)
-	}
 
 	function handleDelegateConfigUpdate(event: { detail: { resourcePath: string; playbook?: string; inventoriesLocation?: string } }) {
 		if (!editor) return
@@ -453,7 +440,6 @@
 	let codePanelSize = $state(70)
 	let testPanelSize = $state(30)
 	let storedTestPanelSize = untrack(() => testPanelSize)
-	let selectedS3File = $state(undefined)
 
 	function toggleTestPanel() {
 		if (testPanelSize > 0) {
@@ -618,8 +604,7 @@
 								<h4 class="text-sm font-semibold text-primary">File Browser</h4>
 							</div>
 								<GitRepoViewer
-									bind:this={gitRepoViewer}
-									gitRepoResourcePath={ansibleAlternativeExecutionMode.resource}
+									gitRepoResourcePath={ansibleAlternativeExecutionMode?.resource || ''}
 									bind:commitHashInput={commitHashForGitRepo}
 								/>
 						</div>
@@ -922,7 +907,6 @@
 <GitRepoResourcePicker
 	bind:open={gitRepoResourcePickerOpen}
 	currentResource={ansibleAlternativeExecutionMode?.resource}
-	currentCode={code}
 	currentCommit={commitHashForGitRepo || ansibleAlternativeExecutionMode?.commit}
 	on:selected={handleDelegateConfigUpdate}
 	on:addInventories={handleAddInventories}
