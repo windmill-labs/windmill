@@ -178,11 +178,8 @@ impl FlowValue {
                 | Identity
                 | McpServer { .. }) => cb(&s, &module.id)?,
                 ForloopFlow { modules, .. }
-                | WhileloopFlow { modules, .. } => Self::traverse_leafs(&modules, cb)?,
-                AIAgent { tools, .. } => {
-                    // tools are already FlowModules
-                    Self::traverse_leafs(&tools, cb)?
-                }
+                | WhileloopFlow { modules, .. }
+                | AIAgent { tools: modules, .. } => Self::traverse_leafs(&modules, cb)?,
                 BranchOne { branches, .. } | BranchAll { branches, .. } => {
                     for branch in branches {
                         Self::traverse_leafs(&branch.modules, cb)?;
@@ -776,9 +773,9 @@ struct UntaggedFlowModuleValue {
     default_node: Option<FlowNodeId>,
     modules_node: Option<FlowNodeId>,
     assets: Option<Vec<AssetWithAltAccessType>>,
-    tools: Option<Box<RawValue>>,
+    tools: Option<Vec<FlowModule>>,
     pass_flow_input_directly: Option<bool>,
-    resource_path: Option<Box<RawValue>>,
+    resource_path: Option<String>,
     include_tools: Option<Vec<String>>,
     exclude_tools: Option<Vec<String>>,
 }
@@ -875,34 +872,19 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 assets: untagged.assets,
             }),
             "identity" => Ok(FlowModuleValue::Identity),
-            "aiagent" => {
-                let tools_raw = untagged
+            "aiagent" => Ok(FlowModuleValue::AIAgent {
+                input_transforms: untagged.input_transforms.unwrap_or_default(),
+                tools: untagged
                     .tools
-                    .ok_or_else(|| serde::de::Error::missing_field("tools"))?;
-
-                // Deserialize as Vec<FlowModule>
-                let tools = serde_json::from_str::<Vec<FlowModule>>(tools_raw.get())
-                    .map_err(|e| serde::de::Error::custom(format!("Failed to deserialize tools: {}", e)))?;
-
-                Ok(FlowModuleValue::AIAgent {
-                    input_transforms: untagged.input_transforms.unwrap_or_default(),
-                    tools,
-                })
-            }
-            "mcpserver" => {
-                let resource_path_raw = untagged
+                    .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
+            }),
+            "mcpserver" => Ok(FlowModuleValue::McpServer {
+                resource_path: untagged
                     .resource_path
-                    .ok_or_else(|| serde::de::Error::missing_field("resource_path"))?;
-
-                let resource_path = serde_json::from_str::<String>(resource_path_raw.get())
-                    .map_err(|e| serde::de::Error::custom(format!("Failed to deserialize resource_path: {}", e)))?;
-
-                Ok(FlowModuleValue::McpServer {
-                    resource_path,
-                    include_tools: untagged.include_tools,
-                    exclude_tools: untagged.exclude_tools,
-                })
-            }
+                    .ok_or_else(|| serde::de::Error::missing_field("resource_path"))?,
+                include_tools: untagged.include_tools,
+                exclude_tools: untagged.exclude_tools,
+            }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &[

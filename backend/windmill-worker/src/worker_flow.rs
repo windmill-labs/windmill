@@ -2763,42 +2763,12 @@ async fn push_next_flow_job(
                 .map(Marc::new)
                 .map_err(|e| error::Error::internal_err(format!("identity: {e:#}")))
             }
-            Ok(FlowModuleValue::AIAgent { input_transforms, .. }) => {
-                let ctx = get_transform_context(&flow_job, &previous_id, &status)
-                    .warn_after_seconds(3)
-                    .await?;
-                transform_context = Some(ctx);
-                let by_id = transform_context.as_ref().unwrap();
-
-                // if a failure step, we add flow job id and started_at to the context. This is for error handling of triggers where we wrap scripts into single step flows
-                // It's to make its arguments consistent with global/workspace/schedule error handlers.
-                let failure_context = match step {
-                    Step::FailureStep if flow_job.started_at.is_some() => Some(FailureContext {
-                        started_at: Arc::new(to_raw_value(&flow_job.started_at.unwrap())),
-                        flow_job_id: flow_job.id,
-                    }),
-                    _ => None,
-                };
-                transform_input(
-                    arc_flow_job_args.clone(),
-                    arc_last_job_result.clone(),
-                    input_transforms,
-                    resumes.clone(),
-                    resume.clone(),
-                    approvers.clone(),
-                    failure_context,
-                    by_id,
-                    client,
-                )
-                .warn_after_seconds(3)
-                .await
-                .map(Marc::new)
-            }
             Ok(
                 FlowModuleValue::Script { input_transforms, .. }
                 | FlowModuleValue::RawScript { input_transforms, .. }
                 | FlowModuleValue::FlowScript { input_transforms, .. }
-                | FlowModuleValue::Flow { input_transforms, .. },
+                | FlowModuleValue::Flow { input_transforms, .. }
+                | FlowModuleValue::AIAgent { input_transforms, .. },
             ) => {
                 let ctx = get_transform_context(&flow_job, &previous_id, &status)
                     .warn_after_seconds(3)

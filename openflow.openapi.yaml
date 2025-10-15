@@ -465,46 +465,6 @@ components:
         - branches
         - type
 
-    Tool:
-      oneOf:
-        - $ref: "#/components/schemas/WindmillTool"
-        - $ref: "#/components/schemas/McpTool"
-      discriminator:
-        propertyName: type
-        mapping:
-          windmill: "#/components/schemas/WindmillTool"
-          mcp: "#/components/schemas/McpTool"
-
-    WindmillTool:
-      allOf:
-        - $ref: "#/components/schemas/FlowModule"
-        - type: object
-          properties:
-            type:
-              type: string
-              enum:
-                - windmill
-          required:
-            - type
-
-    McpTool:
-      type: object
-      properties:
-        type:
-          type: string
-          enum:
-            - mcp
-        id:
-          type: string
-        summary:
-          type: string
-        resource_path:
-          $ref: "#/components/schemas/InputTransform"
-      required:
-        - type
-        - id
-        - resource_path
-
     AiAgent:
       type: object
       properties:
@@ -515,7 +475,7 @@ components:
         tools:
           type: array
           items:
-            $ref: "#/components/schemas/Tool"
+            $ref: "#/components/schemas/FlowModule"
         type:
           type: string
           enum:
@@ -544,7 +504,7 @@ components:
       type: object
       properties:
         resource_path:
-          $ref: "#/components/schemas/InputTransform"
+          type: string
         include_tools:
           type: array
           items:
