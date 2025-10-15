@@ -2,7 +2,7 @@
 	import { NativeTriggerService } from '$lib/gen/services.gen'
 	import type { EventType, NativeServiceName, RunnableKind } from '$lib/gen/types.gen'
 	import type { EventTypeVal, ExtendedNativeTrigger } from './utils'
-	import { validateCommonFields, getServiceConfig, getTemplateUrl } from './utils'
+	import { validateCommonFields, getServiceConfig, getTemplatePath } from './utils'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { Button, Drawer } from '$lib/components/common'
@@ -26,12 +26,12 @@
 
 	const serviceConfig = $derived(getServiceConfig(service))
 	const scriptTemplateUrl = $derived.by(() => {
-		const templateId = getTemplateUrl(service, 'script')
-		return templateId ? `/scripts/add?hub=${encodeURIComponent(templateId)}` : undefined
+		const templateId = getTemplatePath(service, 'script')
+		return templateId
 	})
 	const flowTemplateUrl = $derived.by(() => {
-		const templateId = getTemplateUrl(service, 'flow')
-		return templateId ? `/flows/add?hub=${encodeURIComponent(templateId)}` : undefined
+		const templateId = getTemplatePath(service, 'flow')
+		return templateId
 	})
 
 	let serviceFormRef = $state<any>(null)

@@ -22,8 +22,8 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 		supportsFetchConfig: true,
 		isCloudCompatible: true,
 		templates: {
-			script: 'hub/19826/nextcloud-script-with-preprocessor-template-windmill',
-			flow: 'hub/19824/nextcloud-flow-with-preprocessor-template-windmill'
+			script: '/scripts/add?hub=hub%2F19826',
+			flow: '/flows/add?hub=73'
 		}
 	}
 }
@@ -132,7 +132,7 @@ export function getServiceTemplates(
 	return config?.templates
 }
 
-export function getTemplateUrl(
+export function getTemplatePath(
 	service: NativeServiceName,
 	type: 'script' | 'flow'
 ): string | undefined {
