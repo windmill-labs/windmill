@@ -165,6 +165,8 @@
 						v !== undefined &&
 						(v === null ||
 							v.resource !== ansibleAlternativeExecutionMode?.resource ||
+							v.playbook !== ansibleAlternativeExecutionMode?.playbook ||
+							v.inventories_location !== ansibleAlternativeExecutionMode?.inventories_location ||
 							v.commit !== ansibleAlternativeExecutionMode?.commit)
 					) {
 						ansibleAlternativeExecutionMode = v
@@ -193,7 +195,11 @@
 	let peers: { name: string }[] = $state([])
 	let showCollabPopup = $state(false)
 
-	let ansibleAlternativeExecutionMode = $state<{ resource?: string; commit?: string } | null | undefined>()
+	let ansibleAlternativeExecutionMode = $state<
+		| { resource?: string; commit?: string; inventories_location?: string; playbook?: string }
+		| null
+		| undefined
+	>()
 
 	const url = new URL(window.location.toString())
 	let initialCollab = /true|1/i.test(url.searchParams.get('collab') ?? '0')
@@ -294,12 +300,11 @@
 	let commitHashForGitRepo = $derived(ansibleAlternativeExecutionMode?.commit)
 
 	// Check if delegate_to_git_repo exists in the code
-	let hasDelegateToGitRepo = $derived(
-		code && code.includes('delegate_to_git_repo:')
-	)
+	let hasDelegateToGitRepo = $derived(code && code.includes('delegate_to_git_repo:'))
 
-
-	function handleDelegateConfigUpdate(event: { detail: { resourcePath: string; playbook?: string; inventoriesLocation?: string } }) {
+	function handleDelegateConfigUpdate(event: {
+		detail: { resourcePath: string; playbook?: string; inventoriesLocation?: string }
+	}) {
 		if (!editor) return
 
 		const currentCode = editor.getCode()
@@ -599,14 +604,16 @@
 						{@render editorContent()}
 					</Pane>
 					<Pane size={40} minSize={20} class="!overflow-visible">
-						<div class="h-full flex flex-col bg-surface border-l border-gray-200 dark:border-gray-700">
+						<div
+							class="h-full flex flex-col bg-surface border-l border-gray-200 dark:border-gray-700"
+						>
 							<div class="p-3 border-b border-gray-200 dark:border-gray-700">
 								<h4 class="text-sm font-semibold text-primary">File Browser</h4>
 							</div>
-								<GitRepoViewer
-									gitRepoResourcePath={ansibleAlternativeExecutionMode?.resource || ''}
-									bind:commitHashInput={commitHashForGitRepo}
-								/>
+							<GitRepoViewer
+								gitRepoResourcePath={ansibleAlternativeExecutionMode?.resource || ''}
+								bind:commitHashInput={commitHashForGitRepo}
+							/>
 						</div>
 					</Pane>
 				</Splitpanes>
@@ -904,10 +911,13 @@
 	</div>
 {/snippet}
 
+{console.log(ansibleAlternativeExecutionMode)}
 <GitRepoResourcePicker
 	bind:open={gitRepoResourcePickerOpen}
 	currentResource={ansibleAlternativeExecutionMode?.resource}
 	currentCommit={commitHashForGitRepo || ansibleAlternativeExecutionMode?.commit}
+	currentInventories={ansibleAlternativeExecutionMode?.inventories_location}
+	currentPlaybook={ansibleAlternativeExecutionMode?.playbook}
 	on:selected={handleDelegateConfigUpdate}
 	on:addInventories={handleAddInventories}
 />

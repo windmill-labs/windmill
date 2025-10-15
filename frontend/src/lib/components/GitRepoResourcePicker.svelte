@@ -10,12 +10,16 @@
 		open: boolean
 		currentResource?: string
 		currentCommit?: string
+		currentInventories?: string
+		currentPlaybook?: string
 	}
 
 	let {
 		open = $bindable(),
 		currentResource = undefined,
-		currentCommit = undefined
+		currentCommit = undefined,
+		currentInventories = undefined,
+		currentPlaybook = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -33,8 +37,8 @@
 	let loading = $state(false)
 	let gitRepoResources = $state<{ value: string; label: string }[]>([])
 	let selectedResource = $state<string | undefined>(undefined)
-	let playbook = $state('')
-	let inventoriesLocation = $state('')
+	let playbook = $derived(currentPlaybook ?? '')
+	let inventoriesLocation = $derived(currentInventories ?? '')
 	let loadingInventories = $state(false)
 
 	async function loadGitRepoResources() {
@@ -80,8 +84,6 @@
 
 	function handleClose() {
 		selectedResource = undefined
-		playbook = ''
-		inventoriesLocation = ''
 		loadingInventories = false
 		open = false
 	}
@@ -104,9 +106,7 @@
 
 		console.log(rootPath, inventoriesPath, files)
 
-		const fileNames = files.windmill_large_files.map((f) =>
-			f.s3.slice(rootPath.length)
-		)
+		const fileNames = files.windmill_large_files.map((f) => f.s3.slice(rootPath.length))
 
 		// Return dummy data for testing
 		return fileNames
@@ -147,7 +147,6 @@
 			})
 
 			// TODO: Add success feedback
-			console.log('Added inventories:', inventoryFiles)
 		} catch (error) {
 			console.error('Failed to load inventory files:', error)
 			// TODO: Add error feedback
@@ -226,41 +225,6 @@
 			</div>
 
 			<!-- Inventories Location Configuration -->
-			<div class="flex flex-col gap-2">
-				<div class="text-sm font-medium text-primary">
-					Inventories Location
-					<span class="text-xs text-tertiary font-normal ml-1">(optional)</span>
-				</div>
-				<input
-					type="text"
-					bind:value={inventoriesLocation}
-					placeholder="e.g., hosts"
-					class="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-				/>
-				<p class="text-xs text-tertiary">
-					Specify the directory containing your inventory files relative to the git repository root
-				</p>
-
-				{#if inventoriesLocation.trim() && selectedResource}
-					<div class="mt-2">
-						<Button
-							color="light"
-							variant="border"
-							size="xs"
-							disabled={loadingInventories}
-							startIcon={{ icon: loadingInventories ? Loader2 : FolderOpen }}
-							onclick={handleAddInventories}
-							btnClasses={loadingInventories ? 'animate-pulse' : ''}
-						>
-							{#if loadingInventories}
-								Loading inventories...
-							{:else}
-								Add available inventories to script as options
-							{/if}
-						</Button>
-					</div>
-				{/if}
-			</div>
 
 			<div class="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
 				<Button color="light" variant="border" on:click={handleClose}>Cancel</Button>
@@ -273,6 +237,41 @@
 					Apply Configuration
 				</Button>
 			</div>
+			{#if selectedResource}
+				<div class="flex flex-col gap-2">
+					<div class="text-sm font-medium text-primary">
+						Inventories Location
+					</div>
+					<input
+						type="text"
+						bind:value={inventoriesLocation}
+						placeholder="e.g., hosts"
+						class="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+					/>
+					<p class="text-xs text-tertiary">
+						Specify the directory containing your inventory files relative to the git repository
+						root
+					</p>
+
+					<div class="mt-2">
+						<Button
+							color="light"
+							variant="border"
+							size="xs"
+							disabled={loadingInventories || !inventoriesLocation.trim()}
+							startIcon={{ icon: loadingInventories ? Loader2 : FolderOpen }}
+							onclick={handleAddInventories}
+							btnClasses={loadingInventories ? 'animate-pulse' : ''}
+						>
+							{#if loadingInventories}
+								Loading inventories...
+							{:else}
+								Add available inventories to script as options
+							{/if}
+						</Button>
+					</div>
+				</div>
+			{/if}
 		</div>
 	</DrawerContent>
 </Drawer>
