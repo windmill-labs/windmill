@@ -3,10 +3,7 @@
 	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { Button } from '$lib/components/common'
-	import { getContext } from 'svelte'
-	import type { FlowEditorContext } from '../types'
-	import { RefreshCw, Info } from 'lucide-svelte'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { RefreshCw } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
@@ -17,9 +14,7 @@
 		noEditor: boolean
 	}
 
-	let { flowModule = $bindable(), noEditor }: Props = $props()
-
-	const { flowStore, saveDraft } = getContext<FlowEditorContext>('FlowEditorContext')
+	let { flowModule = $bindable() }: Props = $props()
 
 	// Hardcoded tools for demo (TODO: Replace with API call)
 	const HARDCODED_TOOLS = [
@@ -35,12 +30,14 @@
 
 	let summary = $state(flowModule.summary || '')
 	let resourcePath = $state<string>(
-		typeof flowModule.value.resource_path === 'string'
-			? flowModule.value.resource_path
-			: ''
+		flowModule.value.type === 'mcpserver' ? flowModule.value.resource_path : ''
 	)
-	let includeTools = $state<string[]>(flowModule.value.include_tools || [])
-	let excludeTools = $state<string[]>(flowModule.value.exclude_tools || [])
+	let includeTools = $state<string[]>(
+		flowModule.value.type === 'mcpserver' ? flowModule.value.include_tools || [] : []
+	)
+	let excludeTools = $state<string[]>(
+		flowModule.value.type === 'mcpserver' ? flowModule.value.exclude_tools || [] : []
+	)
 	let availableTools = $state(HARDCODED_TOOLS)
 	let loadingTools = $state(false)
 
@@ -53,29 +50,15 @@
 	let toolOptions = $derived(safeSelectItems(availableTools.map((t) => t.name)))
 
 	// Selected tools based on mode
-	let selectedTools = $state<string[]>(filterMode === 'include' ? includeTools : excludeTools)
+	let selectedTools = $derived(filterMode === 'include' ? includeTools : excludeTools)
 
 	// Watch for changes and sync back to flowModule
 	$effect(() => {
-		flowModule.summary = summary
-		// For MCP tools in AI agent (type === 'mcp')
-		if ('resource_path' in flowModule && flowModule.type === 'mcp') {
-			flowModule.resource_path = resourcePath
-		}
-		// For McpServer flow module (type === 'mcpserver')
-		else if (flowModule.value.type === 'mcpserver') {
+		if (flowModule.value.type === 'mcpserver') {
+			flowModule.summary = summary
 			flowModule.value.resource_path = resourcePath
-
-			// Clear both arrays first
-			flowModule.value.include_tools = undefined
-			flowModule.value.exclude_tools = undefined
-
-			// Set the appropriate one based on mode
-			if (filterMode === 'include' && selectedTools.length > 0) {
-				flowModule.value.include_tools = selectedTools
-			} else if (filterMode === 'exclude' && selectedTools.length > 0) {
-				flowModule.value.exclude_tools = selectedTools
-			}
+			flowModule.value.include_tools = includeTools
+			flowModule.value.exclude_tools = excludeTools
 		}
 	})
 
@@ -96,66 +79,43 @@
 
 <div class="flex flex-col gap-4 p-4">
 	<!-- Summary Section -->
-	<Section label="Summary">
-		<div class="w-full">
-			<Label label="Module Description">
-				<input
-					type="text"
-					bind:value={summary}
-					placeholder="e.g., GitHub API tools"
-					class="text-sm w-full"
-				/>
-			</Label>
-		</div>
-	</Section>
+	<div class="w-full">
+		<Label label="Summary">
+			<input
+				type="text"
+				bind:value={summary}
+				placeholder="e.g., GitHub API tools"
+				class="text-sm w-full"
+			/>
+		</Label>
+	</div>
 
 	<!-- Resource Path Section -->
-	<Section label="MCP Resource Path">
-		<div class="w-full">
-			<Label label="Resource Path">
-				<input
-					type="text"
-					bind:value={resourcePath}
-					placeholder="u/admin/my_mcp_server"
-					class="text-sm w-full"
-				/>
-			</Label>
-			<div class="text-xs text-secondary mt-1">
-				Path to the MCP server resource (e.g., u/admin/my_mcp_server)
-			</div>
-		</div>
-	</Section>
+	<div class="w-full">
+		<Label label="Resource Path">
+			<input
+				type="text"
+				bind:value={resourcePath}
+				placeholder="u/admin/my_mcp_server"
+				class="text-sm w-full"
+			/>
+		</Label>
+	</div>
 
 	<!-- Available Tools Section -->
 	<Section label="Available Tools">
+		{#snippet action()}
+			<Button
+				size="xs"
+				color="light"
+				on:click={refreshTools}
+				startIcon={{ icon: RefreshCw }}
+				disabled={loadingTools}
+			>
+				{loadingTools ? 'Loading...' : 'Refresh Tools'}
+			</Button>
+		{/snippet}
 		<div class="w-full flex flex-col gap-2">
-			<div class="flex items-center justify-between">
-				<div class="flex items-center gap-2">
-					<Button
-						size="xs"
-						color="light"
-						on:click={refreshTools}
-						startIcon={{ icon: RefreshCw }}
-						disabled={loadingTools}
-					>
-						{loadingTools ? 'Loading...' : 'Refresh Tools'}
-					</Button>
-					<span class="text-xs text-secondary">
-						{availableTools.length} tools available
-					</span>
-				</div>
-			</div>
-
-			<Alert type="info" size="xs">
-				<div class="flex items-start gap-2">
-					<Info size={16} class="mt-0.5 flex-shrink-0" />
-					<div class="text-xs">
-						These are the tools provided by the MCP server. Use the filtering options below to
-						control which tools are available to the AI agent.
-					</div>
-				</div>
-			</Alert>
-
 			<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
 				{#if loadingTools}
 					<div class="text-xs text-secondary italic">Loading tools...</div>
@@ -184,9 +144,9 @@
 				<Label label="Filter Mode">
 					<ToggleButtonGroup bind:selected={filterMode} onSelected={(value) => onModeChange(value)}>
 						{#snippet children({ item })}
-							<ToggleButton value="none" label="All Tools" size="xs" {item} />
-							<ToggleButton value="include" label="Include Only" size="xs" {item} />
-							<ToggleButton value="exclude" label="Exclude" size="xs" {item} />
+							<ToggleButton value="none" label="All Tools" {item} />
+							<ToggleButton value="include" label="Include Only" {item} />
+							<ToggleButton value="exclude" label="Exclude" {item} />
 						{/snippet}
 					</ToggleButtonGroup>
 				</Label>
