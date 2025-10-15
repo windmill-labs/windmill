@@ -2393,7 +2393,7 @@ pub async fn pull(
             bench,
         )
         .await?;
-        let Some(mut job) = job else {
+        let Some(job) = job else {
             return Ok(PulledJobResult { job: None, suspended, missing_concurrency_key: false });
         };
 
@@ -2430,7 +2430,7 @@ pub async fn pull(
         if cfg!(feature = "enterprise")
             || (pulled_job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)
         {
-            if let Some(mut pulled_job) =
+            if let Some(pulled_job) =
                 crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, pulled_job)
                     .await?
             {
@@ -4185,6 +4185,11 @@ pub async fn push<'c, 'd>(
         ),
     };
 
+    // Enforce concurrency limit on all dependency jobs.
+    // TODO: We can ignore this for scripts djobs. The main reason we need all djobs to be sequential is because we have
+    // nodes_to_relock and we need all locks whose corresponding steps aren't in nodes_to_relock be already present.
+    //
+    // This is not the case for scripts, so we can potentially have multiple djobs for scripts at the same time.
     if let (Some(path), true) = (
         &script_path,
         cfg!(feature = "private") && job_kind.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING,
@@ -4323,6 +4328,8 @@ pub async fn push<'c, 'd>(
         Ulid::new().into()
     };
 
+    // TODO: Where is push called from?
+
     // Dependency job debouncing: When multiple dependency jobs are scheduled for the same script/flow/app,
     // we want to deduplicate them to avoid redundant work. The debouncing mechanism works by:
     // 1. Creating a unique debounce key for each dependency target (dependency:workspace/type/path)
@@ -4343,15 +4350,15 @@ pub async fn push<'c, 'd>(
         // reducing redundant work when many scripts/flows/apps are updated simultaneously.
         //
         // Prerequisites for debouncing (all must be true):
-        // 1. Job is scheduled in the future (debounce_delay > 0) - provides consolidation window
-        // 2. Job is a dependency job (JobKind::Dependencies)
+        // 1. Job is scheduled in the future (debounce_delay is not None) - provides consolidation window
+        // 2. Job is a dependency job
         // 3. Object path is provided (script/flow/app path)
         // 4. Fallback mode is disabled (normal operation)
         // 5. Job was created by relative imports (triggered by dependency chain)
         //
         // How it works:
         //
-        // PHASE 1 - PUSH (here in push_internal):
+        // PHASE 1 - PUSH (in jobs.rs::push):
         //   When a dependency job is scheduled with delay, check debounce_key table
         //   - If key exists: Merge request into existing job, accumulate nodes/components
         //   - If key doesn't exist: Create new entry and store initial nodes/components
@@ -4361,7 +4368,7 @@ pub async fn push<'c, 'd>(
         //   - Each request adds nodes/components to debounce_stale_data table
         //   - SQL DISTINCT automatically removes duplicates during merge
         //
-        // PHASE 3 - PULL (in worker_lockfiles.rs):
+        // PHASE 3 - PULL (in jobs.rs::pull):
         //   When the delayed job finally executes:
         //   - Lock debounce_key FOR UPDATE to prevent races
         //   - Retrieve all accumulated nodes/components from debounce_stale_data
@@ -4381,6 +4388,8 @@ pub async fn push<'c, 'd>(
 
             // Check if there's already a pending job registered for this debounce key
             // The debounce_job_id_o is passed in by the caller after locking the key FOR UPDATE
+            // IMPORTANT: This is assumed that the caller will lock debounce_key row in this transaction.
+            // We do this to block puller from further actions until we are done with consolidation and stuff that we do here in push.
             if let Some(debounce_job_id) = debounce_job_id_o {
                 tracing::debug!(
                     existing_job_id = %debounce_job_id,
@@ -4388,20 +4397,18 @@ pub async fn push<'c, 'd>(
                     "Found existing debounced job, merging this request"
                 );
 
-                // Race condition handling note:
+                // NOTE: Race condition handling:
                 // In rare cases, the debounce_key entry may still exist even though the job
                 // has been pulled and is running. This can happen because:
                 // - Job pull marks job as running first
                 // - Then debounce_key cleanup happens (without transaction for performance)
                 // - Between these steps, new requests might see the old debounce_key
                 //
-                // This is acceptable because:
-                // - The request will accumulate its data to the existing job
-                // - If that job finishes before cleanup, data won't be lost
-                // - Worker handles missing stale data gracefully
-                // - Next request cycle will create a new debounce window
-
+                // This is acceptable because the puller will be blocked and cannot proceed until this transaction finishes.
+                // This will give us some space to add consolidated data (if such) and debounce the request.
+                // Once tx is commited, the puller will be unblocked and continue execution.
                 // Accumulate the nodes/components that need relocking from this request
+
                 // This ensures all dependency updates are handled even if jobs are debounced
                 if let Some(to_relock) = extract_to_relock_from_args(&args.args) {
                     tracing::debug!(
@@ -4436,6 +4443,8 @@ pub async fn push<'c, 'd>(
                     skipped_job_id = %job_id,
                     "Debounced: returning existing job ID instead of creating new job"
                 );
+
+                // We will skip some of the work downstream and just debounce the job.
                 return Ok((debounce_job_id, tx));
             } else {
                 // No existing debounce entry - this is the first request in the debounce window
@@ -5151,6 +5160,7 @@ pub async fn debouncing_job_preprocessor(job: &mut PulledJob, db: &DB) -> error:
             &job.runnable_path
         );
 
+        let key = format!("{}:{}:dependency", &job.workspace_id, job.runnable_path());
         let mut tx = db.begin().await?;
         // TODO:
         // 1. What if we update from UI and the job is getting debounced? what about triggered_by_dependencies?
@@ -5163,11 +5173,17 @@ pub async fn debouncing_job_preprocessor(job: &mut PulledJob, db: &DB) -> error:
         //
         // Clean up the debounce_key entry for this job (if it exists).
         //
-        // IMPORTANT: We delete by job_id (not debounce_key) to avoid race conditions:
-        // - During the debounce window, the debounce_key may point to different job_ids
-        // - If the original job finishes and a new job takes over the same key
-        // - Deleting by key could accidentally remove the new job's entry
-        // - Deleting by job_id ensures we only clean up OUR entry
+        // IMPORTANT: We delete by key (not job_id) to avoid race conditions:
+        // If pusher has locked this row then this call will be blocked until all txs are commited.
+        //
+        // The idea is that the worker_lockfiles::trigger_dependents_to_recompute_locks will fetch the latest version of the obj.
+        // This object needs to be created before the djob is executed and it happens right here.
+        //
+        // This way the next pusher can fetch the latest version of object and base their djob payload on newest version.
+        // The concurrency limit on djobs will make sure that by the time next djob is started executing the base version it is referencing
+        // has already calculated all locks. This way even next djob will always use the fully finalized version of object.
+        //
+        //
         //
         // Note: We don't use a transaction here for performance (it's called during job pull).
         // This means there's a tiny window where the job is running but key isn't deleted yet,
@@ -5177,7 +5193,12 @@ pub async fn debouncing_job_preprocessor(job: &mut PulledJob, db: &DB) -> error:
             "Cleaning up debounce_key entry for completed/pulled job"
         );
 
-        sqlx::query!("DELETE FROM debounce_key WHERE job_id = $1", &job.id)
+        // This will either:
+        // 1. Block until pusher pushed. Which gives us:
+        //   - If there was any stale data in pusher, then we will read it here (couple of lines below)
+        // 2. Block pusher until we are done here. This gives us:
+        //   - We will clone objects and retrieve the latest version. So when we are done the pusher can read latest version.
+        sqlx::query!("DELETE FROM debounce_key WHERE key = $1", &key)
             .execute(&mut *tx)
             .await
             .map_err(|e| {
@@ -5197,7 +5218,8 @@ pub async fn debouncing_job_preprocessor(job: &mut PulledJob, db: &DB) -> error:
         {
             let Some(base_hash) = job.runnable_id else {
                 return Err(Error::InternalErr(
-                    "Missing runnable_id for dependency job triggered by relative import".to_string()
+                    "Missing runnable_id for dependency job triggered by relative import"
+                        .to_string(),
                 ));
             };
 
@@ -5217,8 +5239,25 @@ pub async fn debouncing_job_preprocessor(job: &mut PulledJob, db: &DB) -> error:
 
                     // TODO: This script should be removed if failed.
                     // TODO: Test if script fails.
-                    windmill_common::scripts::clone_script(base_hash, &job.workspace_id, &mut tx)
-                        .await?
+                    let new_hash = windmill_common::scripts::clone_script(
+                        base_hash,
+                        &job.workspace_id,
+                        &mut tx,
+                    )
+                    .await?;
+
+                    // sqlx::query!(
+                    //     "
+                    //     INSERT INTO unlocked_script_latest_version (key, version) VALUES ($1, $2)
+                    //     ON CONFLICT (key) DO UPDATE SET version = $2
+                    //     ",
+                    //     key,
+                    //     new_hash,
+                    // )
+                    // .execute(&mut *tx)
+                    // .await?;
+
+                    new_hash
                 }
                 JobKind::FlowDependencies => {
                     sqlx::query_scalar!(
@@ -5315,6 +5354,7 @@ pub async fn debouncing_job_preprocessor(job: &mut PulledJob, db: &DB) -> error:
             }
         }
 
+        // This will unblock pusher.
         tx.commit().await?;
     }
 

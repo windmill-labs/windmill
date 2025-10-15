@@ -1610,8 +1610,11 @@ pub async fn run_worker(
                             ..
                         }) = &mut job
                         {
-                            // TODO: Do proper error handling
-                            debouncing_job_preprocessor(pulled_job, &db).await.unwrap();
+                            // TODO: Test if this fails
+                            if let Err(e) = debouncing_job_preprocessor(pulled_job, &db).await {
+                                tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor failed: {e:?}");
+                                job = Err(e);
+                            }
                         }
 
                         add_time!(bench, "job pulled from DB");

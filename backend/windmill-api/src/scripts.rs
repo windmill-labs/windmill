@@ -817,6 +817,20 @@ async fn create_script_internal<'c>(
     )
     .execute(&mut *tx)
     .await?;
+
+    // TODO:
+    // let key = format!("{}:{}:dependency", &w_id, &ns.path);
+    // sqlx::query!(
+    //     "
+    //     INSERT INTO unlocked_script_latest_version (key, version) VALUES ($1, $2)
+    //     ON CONFLICT (key) DO UPDATE SET version = $2
+    //     ",
+    //     key,
+    //     &hash.0,
+    // )
+    // .execute(&mut *tx)
+    // .await?;
+
     let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
     if let Some(ref p_path) = p_path_opt {
         sqlx::query!(

@@ -801,5 +801,15 @@ pub async fn clone_script<'c>(
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
             ", new_hash, base_hash.0, w_id).execute(&mut **tx).await?;
+
+    // Archive base.
+    sqlx::query!(
+        "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2",
+        *base_hash,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
     Ok(new_hash)
 }
