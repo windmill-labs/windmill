@@ -117,20 +117,25 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    // Separate Windmill tools from MCP tools and extract MCP resource paths
+    // Separate Windmill tools from MCP tools and extract MCP resource configs
     let mut windmill_modules: Vec<FlowModule> = Vec::new();
-    let mut mcp_resource_paths: Vec<String> = Vec::new();
+    let mut mcp_configs: Vec<crate::ai::utils::McpResourceConfig> = Vec::new();
 
     for tool in tools {
         match tool.get_value()? {
-            FlowModuleValue::McpServer { resource_path, .. } => {
-                // This is an MCP server module - extract resource path
-                println!("MCP server module: {:?}", resource_path);
-                mcp_resource_paths.push(resource_path.clone());
+            FlowModuleValue::McpServer { resource_path, include_tools, exclude_tools } => {
+                // This is an MCP server module - extract full config
+                tracing::debug!("MCP server module: path={}, include={:?}, exclude={:?}",
+                    resource_path, include_tools, exclude_tools);
+                mcp_configs.push(crate::ai::utils::McpResourceConfig {
+                    resource_path: resource_path.clone(),
+                    include_tools: include_tools.clone(),
+                    exclude_tools: exclude_tools.clone(),
+                });
             }
             _ => {
                 // Regular Windmill flow module (script, flow, etc.)
-                println!("Windmill module: {:?}", tool);
+                tracing::debug!("Windmill module: {:?}", tool.id);
                 windmill_modules.push(tool.clone());
             }
         }
@@ -246,9 +251,9 @@ pub async fn handle_ai_agent_job(
 
     // Load MCP tools if configured
     let mut tools = tools;
-    let mcp_clients = if !mcp_resource_paths.is_empty() {
+    let mcp_clients = if !mcp_configs.is_empty() {
         let (clients, mcp_tools) =
-            load_mcp_tools(db, &job.workspace_id, mcp_resource_paths).await?;
+            load_mcp_tools(db, &job.workspace_id, mcp_configs).await?;
         tools.extend(mcp_tools);
         clients
     } else {
