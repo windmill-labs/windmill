@@ -128,6 +128,7 @@
 			| 'windmill_lfs'
 			| 'git_sync'
 			| 'default_app'
+			| 'native_triggers'
 			| 'encryption') ?? 'users'
 	)
 	let usingOpenaiClientCredentialsOauth = $state(false)
@@ -597,11 +598,11 @@
 				</Tab>
 				<Tab
 					size="xs"
-					value="integrations"
+					value="native_triggers"
 					aiId="workspace-settings-integrations"
 					aiDescription="Workspace integrations for native triggers"
 				>
-					<div class="flex gap-2 items-center my-1">Integrations</div>
+					<div class="flex gap-2 items-center my-1">Native Triggers</div>
 				</Tab>
 				<Tab
 					size="xs"
@@ -1016,7 +1017,7 @@
 					/>
 				{/key}
 			</div>
-		{:else if tab == 'integrations'}
+		{:else if tab == 'native_triggers'}
 			{#if $workspaceStore}
 				{#await import('$lib/components/workspaceSettings/WorkspaceIntegrations.svelte') then { default: WorkspaceIntegrations }}
 					<WorkspaceIntegrations />

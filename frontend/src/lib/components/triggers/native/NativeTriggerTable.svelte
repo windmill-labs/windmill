@@ -9,7 +9,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import { Eye, Pen, Trash, Download, Share } from 'lucide-svelte'
+	import { Eye, Pen, Trash, Download } from 'lucide-svelte'
 	import { base } from '$app/paths'
 	import { NextcloudIcon } from '$lib/components/icons'
 
@@ -22,7 +22,7 @@
 		shareModal?: any
 	}
 
-	let { service, triggers = [], loading = false, onEdit, shareModal }: Props = $props()
+	let { service, triggers = [], loading = false, onEdit }: Props = $props()
 
 	const serviceConfig = $derived(getServiceConfig(service))
 
@@ -90,7 +90,7 @@
 				>
 					<div class="w-full flex gap-5 items-center">
 						{#if service === 'nextcloud'}
-							<NextcloudIcon />
+							<NextcloudIcon size={24} />
 						{:else}
 							<RowIcon kind={isFlow ? 'flow' : 'script'} />
 						{/if}
@@ -144,11 +144,6 @@
 										displayName: 'Audit logs',
 										icon: Eye,
 										href: `${base}/audit_logs?resource=${trigger.external_id}`
-									},
-									{
-										displayName: 'Share',
-										icon: Share,
-										action: () => shareModal?.openDrawer(trigger.external_id, 'native_trigger')
 									}
 								]}
 							/>

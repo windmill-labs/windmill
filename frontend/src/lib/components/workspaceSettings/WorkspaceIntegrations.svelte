@@ -200,7 +200,6 @@
 
 <div class="flex flex-col gap-6 my-8">
 	<div class="flex flex-col gap-2">
-		<div class="text-primary text-lg font-semibold">Workspace Integrations</div>
 		<Description>
 			Connect your workspace to external services for native triggers and enhanced functionality.
 			These connections are shared across all workspace members and are required for native triggers

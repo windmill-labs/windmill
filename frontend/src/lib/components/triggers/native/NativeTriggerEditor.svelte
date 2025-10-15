@@ -6,16 +6,12 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { Button, Drawer } from '$lib/components/common'
-	import { X, Save, Pipette } from 'lucide-svelte'
+	import { Save, Pipette } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import NextcloudTriggerForm from './services/nextcloud/NextcloudTriggerForm.svelte'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import Tab from '$lib/components/common/tabs/Tab.svelte'
 
 	interface Props {
 		service: NativeServiceName
@@ -209,19 +205,14 @@
 				{serviceConfig?.serviceDisplayName} Trigger
 			</h2>
 
-			<div class="flex gap-2">
-				<Button
-					color="blue"
-					startIcon={{ icon: Save }}
-					on:click={save}
-					disabled={loading || !isValid}
-				>
-					{isNew ? 'Create' : 'Update'} Trigger
-				</Button>
-				<Button size="xs" color="ghost" on:click={close}>
-					<X size={16} />
-				</Button>
-			</div>
+			<Button
+				color="blue"
+				startIcon={{ icon: Save }}
+				on:click={save}
+				disabled={loading || !isValid}
+			>
+				{isNew ? 'Create' : 'Update'} Trigger
+			</Button>
 		</div>
 
 		<div class="flex-1 overflow-y-auto p-4">
@@ -232,24 +223,22 @@
 							Pick a script or flow to be triggered <Required required={true} />
 						</p>
 						<div class="flex gap-2 items-end">
-							<div class="flex-1">
-								<ScriptPicker
-									bind:scriptPath={runnablePath}
-									allowRefresh={true}
-									bind:itemKind={runnableKind}
-									kinds={['script']}
-									allowFlow={true}
-									clearable
-								/>
-							</div>
+							<ScriptPicker
+								bind:scriptPath={runnablePath}
+								allowRefresh={true}
+								bind:itemKind={runnableKind}
+								kinds={['script']}
+								allowFlow={true}
+								clearable
+							/>
 							<Button
-								size="md"
+								size="xs"
 								href={templateUrl}
 								target="_blank"
 								startIcon={{ icon: Pipette }}
 								disabled={loading}
 							>
-								Create from {serviceConfig?.serviceDisplayName} template
+								Create from template
 							</Button>
 						</div>
 						{#if errors.runnable_path}
@@ -265,9 +254,11 @@
 							class="windmill-input"
 						/>
 					</div>
-					<Tabs bind:selected={event_type}>
-						<Tab value="webhook">Webhook configuration</Tab>
-					</Tabs>
+
+					<!-- Uncomment if new config are now supported
+						<Tabs bind:selected={event_type}>
+							<Tab value="webhook">Webhook configuration</Tab>
+						</Tabs> 
 
 					{#if event_type === 'webhook'}
 						<Label label="Request type" class="w-full">
@@ -293,6 +284,8 @@
 							{/snippet}
 						</Label>
 					{/if}
+
+					-->
 				</div>
 
 				{#if loadingConfig}
