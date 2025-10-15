@@ -13,7 +13,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    git_sync_ee::{get_github_app_token_internal, prepend_token_to_github_url},
+    git_sync_oss::{get_github_app_token_internal, prepend_token_to_github_url},
     worker::{
         is_allowed_file_location, to_raw_value, write_file, write_file_at_user_defined_location,
         Connection, WORKER_CONFIG,
