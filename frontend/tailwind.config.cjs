@@ -4,8 +4,10 @@ const {
 } = require('./src/lib/components/apps/editor/componentsPanel/tailwindUtils')
 const { zIndexes } = require('./src/lib/zIndexes')
 
-const tokens = makeRgb(require('./src/lib/assets/tokens/tokens.json'))
-const primitives = tokens.primitives.light
+const figmaTokens = makeRgb(require('./src/lib/assets/tokens/tokens.json'))
+
+const tokens = { dark: figmaTokens.tokens['dark-3'], light: figmaTokens.tokens.light }
+const primitives = figmaTokens.primitives.light
 
 /** @type {import('tailwindcss').Config} */
 const config = {
@@ -508,18 +510,12 @@ const config = {
 		require('@tailwindcss/typography'),
 		plugin(({ addBase, addComponents, addUtilities, theme }) => {
 			let lightColorVariables = Object.fromEntries([
-				...Object.entries(tokens.tokens.light).map(([key, value]) => [`--color-${key}`, value]),
-				...Object.entries(tokens.tokens.dark).map(([key, value]) => [
-					`--color-${key}-inverse`,
-					value
-				])
+				...Object.entries(tokens.light).map(([key, value]) => [`--color-${key}`, value]),
+				...Object.entries(tokens.dark).map(([key, value]) => [`--color-${key}-inverse`, value])
 			])
 			let darkColorVariables = Object.fromEntries([
-				...Object.entries(tokens.tokens.dark).map(([key, value]) => [`--color-${key}`, value]),
-				...Object.entries(tokens.tokens.light).map(([key, value]) => [
-					`--color-${key}-inverse`,
-					value
-				])
+				...Object.entries(tokens.dark).map(([key, value]) => [`--color-${key}`, value]),
+				...Object.entries(tokens.light).map(([key, value]) => [`--color-${key}-inverse`, value])
 			])
 
 			addBase({
@@ -545,8 +541,8 @@ const config = {
 					},
 
 					'&.dark': {
-						backgroundColor: `rgb(${tokens.tokens.dark['surface-primary']})`,
-						color: `rgb(${tokens.tokens.dark['text-primary']})`,
+						backgroundColor: `rgb(${tokens.dark['surface-primary']})`,
+						color: `rgb(${tokens.dark['text-primary']})`,
 
 						...darkColorVariables,
 
@@ -783,19 +779,19 @@ const config = {
 					)})`
 				},
 				'.splitpanes__pane': {
-					backgroundColor: `rgb(${tokens.tokens.light['surface-primary']})` + ' !important',
+					backgroundColor: `rgb(${tokens.light['surface-primary']})` + ' !important',
 					overflow: 'auto !important'
 				},
 				'.dark .splitpanes__pane': {
-					backgroundColor: `rgb(${tokens.tokens.dark['surface-primary']})` + ' !important',
+					backgroundColor: `rgb(${tokens.dark['surface-primary']})` + ' !important',
 					overflow: 'auto !important'
 				},
 				'.splitpanes__splitter': {
-					backgroundColor: `rgb(${tokens.tokens.light['border-light']})` + ' !important',
+					backgroundColor: `rgb(${tokens.light['border-light']})` + ' !important',
 					margin: '0 !important',
 					border: 'none !important',
 					'&::after': {
-						backgroundColor: `rgb(${tokens.tokens.light['border-light']})` + ' !important',
+						backgroundColor: `rgb(${tokens.light['border-light']})` + ' !important',
 						margin: '0 !important',
 						transform: 'none !important',
 						transition: 'opacity 200ms !important',
@@ -809,9 +805,9 @@ const config = {
 					}
 				},
 				'.dark .splitpanes__splitter': {
-					backgroundColor: `rgb(${tokens.tokens.dark['border-light']})` + ' !important',
+					backgroundColor: `rgb(${tokens.dark['border-light']})` + ' !important',
 					'&::after': {
-						backgroundColor: `rgb(${tokens.tokens.dark['border-light']})` + ' !important'
+						backgroundColor: `rgb(${tokens.dark['border-light']})` + ' !important'
 					}
 				},
 				'.splitpanes--vertical>.splitpanes__splitter': {
@@ -845,22 +841,22 @@ const config = {
 				// Windmill Tab classes
 
 				'.wm-tab-active': {
-					borderColor: `rgb(${tokens.tokens.dark['border-light']})`,
-					color: `rgb(${tokens.tokens.light['text-primary']})`
+					borderColor: `rgb(${tokens.dark['border-light']})`,
+					color: `rgb(${tokens.light['text-primary']})`
 				},
 
 				'.dark .wm-tab-active': {
-					borderColor: `rgb(${tokens.tokens.dark['border-light']})`,
-					color: `rgb(${tokens.tokens.dark['text-primary']})`
+					borderColor: `rgb(${tokens.dark['border-light']})`,
+					color: `rgb(${tokens.dark['text-primary']})`
 				}
 			})
 
 			addUtilities({
 				'.separator': {
-					backgroundColor: `${`rgb(${tokens.tokens.dark['border-light']})`} !important`
+					backgroundColor: `${`rgb(${tokens.dark['border-light']})`} !important`
 				},
 				'.dark .separator': {
-					backgroundColor: `${`rgb(${tokens.tokens.dark['border-light']})`} !important`
+					backgroundColor: `${`rgb(${tokens.dark['border-light']})`} !important`
 				},
 				'.center-center': {
 					display: 'flex',
@@ -868,10 +864,10 @@ const config = {
 					alignItems: 'center'
 				},
 				'.inner-border': {
-					boxShadow: `inset 0 0 0 1px ${`rgb(${tokens.tokens.dark['border-light']})`}`
+					boxShadow: `inset 0 0 0 1px ${`rgb(${tokens.dark['border-light']})`}`
 				},
 				'.dark .inner-border': {
-					boxShadow: `inset 0 0 0 1px ${`rgb(${tokens.tokens.dark['border-light']})`}`
+					boxShadow: `inset 0 0 0 1px ${`rgb(${tokens.dark['border-light']})`}`
 				},
 				'.z5000': {
 					zIndex: '5000 !important'
