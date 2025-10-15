@@ -30,7 +30,7 @@
 	let clientSecret = $state('')
 	let baseUrl = $state('')
 	let workspace = $workspaceStore!
-	redirectUri = `${window.location.origin}/workspace_settings?tab=integrations&service=${serviceName}&workspace=${workspace}`
+	redirectUri = `${window.location.origin}/workspace_settings?tab=native_triggers&service=${serviceName}&workspace=${workspace}`
 	$effect(() => {
 		if (existingConfig) {
 			clientId = existingConfig.client_id
