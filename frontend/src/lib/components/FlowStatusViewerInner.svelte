@@ -1802,11 +1802,9 @@
 								durationStatuses={localDurationStatuses}
 							/>
 						{:else if rightColumnSelect == 'node_status'}
-							<div class="pt-2 grow flex flex-col">
+							<div class="p-2 grow flex flex-col gap-6">
 								{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
-									<div class="pt-2 px-4 pb-4">
-										<Alert type="info" title="Message output is available on the AI agent node" />
-									</div>
+									<Alert type="info" title="Message output is available on the AI agent node" />
 								{:else if selectedNode}
 									{@const node = localModuleStates[selectedNode]}
 									{#if selectedNode == 'end'}
@@ -1842,93 +1840,103 @@
 											module && module.value.type === 'aiagent' ? module.value.tools : undefined}
 										{@const parentLoopsPrefix = getParentLoopsPrefix(module?.id ?? '')}
 										{#if node.flow_jobs_results}
-											<span class="pl-1 text-tertiary"
-												>Result of step as collection of all subflows</span
-											>
-											<div class="overflow-auto max-h-[200px] p-2">
-												<DisplayResult
-													workspaceId={job?.workspace_id}
-													result={node.flow_jobs_results}
-													nodeId={selectedNode}
-													jobId={job?.id}
-													language={job?.language}
-												/>
-											</div>
-											<span class="pl-1 text-tertiary text-lg pt-4">Selected subflow</span>
-										{/if}
-										<div class="px-2 flex gap-2 min-w-0 w-full">
-											<ModuleStatus
-												type={node.type}
-												scheduled_for={node.scheduled_for}
-												skipped={node.skipped}
-											/>
-											{#if node.duration_ms}
-												<Badge>
-													<Hourglass class="mr-2" size={10} />
-													{msToSec(node.duration_ms)} s
-												</Badge>
-											{/if}
-											{#if node.job_id}
-												<div class="grow w-full flex flex-row-reverse">
-													<a
-														class="text-right text-xs"
-														rel="noreferrer"
-														target="_blank"
-														href="{base}/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
-													>
-														{truncateRev(node.job_id ?? '', 10)}
-													</a>
+											<div>
+												<span class="pl-1 text-emphasis text-xs font-medium"
+													>Result of step as collection of all subflows</span
+												>
+												<div class="overflow-auto max-h-[200px] p-2">
+													<DisplayResult
+														workspaceId={job?.workspace_id}
+														result={node.flow_jobs_results}
+														nodeId={selectedNode}
+														jobId={job?.id}
+														language={job?.language}
+													/>
 												</div>
-											{/if}
-										</div>
-										{#if !node.isListJob}
-											<div class="px-1 py-1">
-												<JobArgs
-													id={node.job_id}
-													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
-													args={node.args}
-												/>
 											</div>
 										{/if}
-										<FlowJobResult
-											tagLabel={customUi?.tagLabel}
-											workspaceId={job?.workspace_id}
-											jobId={node.job_id}
-											noBorder
-											loading={node.type != 'Success' && node.type != 'Failure'}
-											waitingForExecutor={node.type == 'WaitingForExecutor'}
-											refreshLog={node.type == 'InProgress'}
-											col
-											result_stream={resultStreams[node.job_id ?? '']}
-											result={node.result}
-											tag={node.tag}
-											logs={node.logs}
-											downloadLogs={!hideDownloadLogs}
-											aiAgentStatus={agentTools &&
-											node?.job_id &&
-											(node.type === 'Success' || node.type === 'Failure')
-												? {
-														tools: agentTools,
-														agentJob: {
-															id: node.job_id,
-															result: node.result,
-															logs: node.logs,
-															args: node.args,
-															success: node.type === 'Success',
-															type: 'CompletedJob'
-														},
-														storedToolCallJobs: module
-															? toolCallStore?.getLocalToolCallJobs(parentLoopsPrefix)
-															: undefined,
-														onToolJobLoaded: (job, idx) => {
-															if (module) {
-																const storeKey = parentLoopsPrefix + module.id + '-' + idx
-																toolCallStore?.setStoredToolCallJob(storeKey, job)
+										<div class="flex flex-col gap-2">
+											{#if node.flow_jobs_results}
+												<span class="pl-1 text-xs font-medium text-emphasis pt-4"
+													>Selected subflow</span
+												>
+											{/if}
+											<div class="flex flex-col gap-6">
+												<div class="flex flex-col gap-1">
+													<div class="flex gap-2 min-w-0 w-full items-center">
+														<ModuleStatus
+															type={node.type}
+															scheduled_for={node.scheduled_for}
+															skipped={node.skipped}
+														/>
+														{#if node.duration_ms}
+															<Badge>
+																<Hourglass class="mr-2" size={10} />
+																{msToSec(node.duration_ms)} s
+															</Badge>
+														{/if}
+														{#if node.job_id}
+															<div class="grow w-full flex flex-row-reverse">
+																<a
+																	class="text-right text-xs"
+																	rel="noreferrer"
+																	target="_blank"
+																	href="{base}/run/{node.job_id ??
+																		''}?workspace={job?.workspace_id}"
+																>
+																	{truncateRev(node.job_id ?? '', 10)}
+																</a>
+															</div>
+														{/if}
+													</div>
+													{#if !node.isListJob}
+														<JobArgs
+															id={node.job_id}
+															workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+															args={node.args}
+														/>
+													{/if}
+												</div>
+												<FlowJobResult
+													tagLabel={customUi?.tagLabel}
+													workspaceId={job?.workspace_id}
+													jobId={node.job_id}
+													loading={node.type != 'Success' && node.type != 'Failure'}
+													waitingForExecutor={node.type == 'WaitingForExecutor'}
+													refreshLog={node.type == 'InProgress'}
+													col
+													result_stream={resultStreams[node.job_id ?? '']}
+													result={node.result}
+													tag={node.tag}
+													logs={node.logs}
+													downloadLogs={!hideDownloadLogs}
+													aiAgentStatus={agentTools &&
+													node?.job_id &&
+													(node.type === 'Success' || node.type === 'Failure')
+														? {
+																tools: agentTools,
+																agentJob: {
+																	id: node.job_id,
+																	result: node.result,
+																	logs: node.logs,
+																	args: node.args,
+																	success: node.type === 'Success',
+																	type: 'CompletedJob'
+																},
+																storedToolCallJobs: module
+																	? toolCallStore?.getLocalToolCallJobs(parentLoopsPrefix)
+																	: undefined,
+																onToolJobLoaded: (job, idx) => {
+																	if (module) {
+																		const storeKey = parentLoopsPrefix + module.id + '-' + idx
+																		toolCallStore?.setStoredToolCallJob(storeKey, job)
+																	}
+																}
 															}
-														}
-													}
-												: undefined}
-										/>
+														: undefined}
+												/>
+											</div>
+										</div>
 									{:else}
 										<p class="p-2 text-tertiary italic"
 											>The execution of this node has no information attached to it. The job likely

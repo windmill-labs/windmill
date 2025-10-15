@@ -515,16 +515,14 @@
 		{#if !noControls}
 			<div class="text-tertiary text-sm">
 				<ToggleButtonGroup
-					class="h-6"
 					selected={globalForceJson ? 'json' : 'pretty'}
 					on:selected={(ev) => {
 						globalForceJson = ev.detail === 'json'
 					}}
 				>
 					{#snippet children({ item })}
-						<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} {item} />
-
-						<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
+						<ToggleButton value="pretty" label="Pretty" icon={Highlighter} {item} />
+						<ToggleButton value="json" label="JSON" icon={Braces} {item} />
 					{/snippet}
 				</ToggleButtonGroup>
 			</div>
@@ -563,7 +561,6 @@
 					bind:clientHeight={resultHeaderHeight}
 				>
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
-							class="h-6"
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
 							on:selected={(ev) => {
 								forceJson = ev.detail === 'json'
@@ -571,17 +568,11 @@
 						>
 							{#snippet children({ item })}
 								{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
-									<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} {item} />
+									<ToggleButton value="table" label="Table" icon={Table2} {item} />
 								{:else}
-									<ToggleButton
-										class="px-1.5"
-										value="pretty"
-										label="Pretty"
-										icon={Highlighter}
-										{item}
-									/>
+									<ToggleButton value="pretty" label="Pretty" icon={Highlighter} {item} />
 								{/if}
-								<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
+								<ToggleButton value="json" label="JSON" icon={Braces} {item} />
 							{/snippet}
 						</ToggleButtonGroup>
 					{/if}
@@ -788,8 +779,7 @@
 						class="flex flex-col gap-3 mt-2 mx-4"
 					>
 						<Button
-							color="green"
-							variant="border"
+							variant="accent"
 							on:click={() =>
 								fetch(result['resume'], {
 									method: 'POST',
@@ -799,7 +789,7 @@
 						>
 							Resume</Button
 						>
-						<Button color="red" variant="border" on:click={() => fetch(result['cancel'])}
+						<Button variant="default" destructive on:click={() => fetch(result['cancel'])}
 							>Cancel</Button
 						>
 						<div class="center-center"
@@ -926,7 +916,7 @@
 										code={toJsonStr(s3object).replace(/\\n/g, '\n')}
 									/>
 									<button
-										class="text-secondary text-2xs whitespace-nowrap"
+										class="text-primary text-2xs whitespace-nowrap"
 										onclick={() => {
 											s3FileViewer?.open?.(s3object)
 										}}
@@ -937,7 +927,7 @@
 								{:else if !s3object?.disable_download}
 									<FileDownload {workspaceId} {s3object} {appPath} />
 								{:else}
-									<div class="flex text-secondary pt-2">{s3object?.s3} (download disabled)</div>
+									<div class="flex text-primary pt-2">{s3object?.s3} (download disabled)</div>
 								{/if}
 								{#if s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv')}
 									{#if seeS3PreviewFileFromList == s3object?.s3}
@@ -948,7 +938,7 @@
 											storage={s3object?.storage}
 										/>{:else}
 										<button
-											class="text-secondary whitespace-nowrap flex gap-2 items-center"
+											class="text-primary whitespace-nowrap flex gap-2 items-center"
 											onclick={() => {
 												seeS3PreviewFileFromList = s3object?.s3
 											}}
@@ -968,7 +958,7 @@
 										</div>
 									{:else}
 										<button
-											class="text-secondary whitespace-nowrap flex gap-2 items-center"
+											class="text-primary whitespace-nowrap flex gap-2 items-center"
 											onclick={() => {
 												seeS3PreviewFileFromList = s3object?.s3
 											}}
@@ -1007,7 +997,7 @@
 						</div>
 					{:else}
 						{#if largeObject}
-							<div class="text-sm text-tertiary"
+							<div class="text-xs text-emphasis"
 								><a
 									download="{filename ?? 'result'}.json"
 									href={workspaceId && jobId
@@ -1042,14 +1032,14 @@
 					{/if}
 				{:else if typeof result === 'string' && result.length > 0}
 					<pre class="text-sm">{result}</pre>{#if !noControls}<div class="flex">
-							<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
+							<Button on:click={() => copyToClipboard(result)} variant="subtle" unifiedSize="md">
 								<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
 							</Button>
 						</div>
 					{/if}
 				{:else}
 					<Highlight
-						class={forceJson ? 'pt-1' : 'h-full w-full'}
+						class={twMerge(forceJson ? 'pt-1' : 'h-full w-full', '!bg-surface-primary')}
 						language={json}
 						code={toJsonStr(result).replace(/\\n/g, '\n')}
 					/>
@@ -1060,14 +1050,14 @@
 				<pre>{result}</pre>
 				{#if !noControls}
 					<div class="flex">
-						<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
+						<Button on:click={() => copyToClipboard(result)} variant="subtle" unifiedSize="md">
 							<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
 						</Button>
 					</div>
 				{/if}
 			</div>
 		{:else}
-			<div class="text-tertiary text-sm">No result: {toJsonStr(result)}</div>
+			<div class="text-primary text-xs">No result: {toJsonStr(result)}</div>
 		{/if}
 	</div>
 
@@ -1084,16 +1074,16 @@
 									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
 								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 							startIcon={{ icon: Download }}
-							color="light"
-							size="xs"
+							variant="subtle"
+							unifiedSize="md"
 						>
 							Download
 						</Button>
 					{/if}
 					<Button
 						on:click={() => copyToClipboard(toJsonStr(result))}
-						color="light"
-						size="xs"
+						variant="subtle"
+						unifiedSize="md"
 						startIcon={{
 							icon: ClipboardCopy
 						}}

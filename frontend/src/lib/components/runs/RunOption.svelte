@@ -15,7 +15,9 @@
 <div class="flex flex-col items-start w-fit gap-0.5">
 	<div class="text-xs truncate">
 		{#if forAttr}
-			<label for={forAttr} class="text-hint" class:text-transparent={noLabel}>{label}</label>
+			<label for={forAttr} class="text-hint text-2xs font-normal" class:text-transparent={noLabel}
+				>{label}</label
+			>
 		{:else}
 			<span class:text-transparent={noLabel}>{label}</span>
 		{/if}

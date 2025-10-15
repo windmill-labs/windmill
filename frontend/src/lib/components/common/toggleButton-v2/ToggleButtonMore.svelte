@@ -13,7 +13,6 @@
 	interface Props {
 		disabled?: boolean
 		small?: boolean
-
 		id?: string | undefined
 		item?: any | undefined
 		selected?: string | undefined
@@ -24,7 +23,6 @@
 	let {
 		disabled = false,
 		small = false,
-
 		id = undefined,
 		item = undefined,
 		selected = $bindable(undefined),
@@ -64,7 +62,7 @@
 			/>
 		{/if}
 		<div class="flex items-center">
-			<DropdownV2 enableFlyTransition {items} />
+			<DropdownV2 enableFlyTransition {items} size={small ? 'sm' : 'md'} />
 		</div>
 	</div>
 </Popover>

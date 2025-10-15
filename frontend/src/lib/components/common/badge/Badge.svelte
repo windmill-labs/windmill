@@ -10,17 +10,17 @@
 	export let rounded = false
 	export let dismissable = false
 	export let wrapperClass = ''
-	export let baseClass = 'text-center'
+	export let baseClass = 'text-center text-primary font-normal'
 	export let capitalize = false
 	export let icon: BadgeIconProps | undefined = undefined
 	export let verySmall = false
 
 	let hidden = false
 	const colors: Record<BadgeColor, string> = {
-		gray: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
+		gray: 'bg-gray-200 text-gray-800 dark:bg-gray-800 dark:text-gray-200',
 		blue: 'bg-blue-100 text-blue-800 dark:bg-blue-200 dark:text-blue-800',
 		red: 'bg-red-100 text-red-800 dark:bg-red-200 dark:text-red-900',
-		green: 'bg-green-100 text-green-800 dark:bg-green-200 dark:text-green-900',
+		green: 'bg-green-100 text-green-700 dark:bg-green-200 dark:text-green-900',
 		yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-100 dark:text-yellow-900',
 		orange: 'bg-orange-100 text-orange-800 dark:bg-orange-100 dark:text-orange-900',
 		indigo: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-200 dark:text-indigo-900',
@@ -36,7 +36,7 @@
 		transparent: 'bg-transparent'
 	}
 	const hovers: Partial<Record<BadgeColor, string>> = {
-		gray: 'hover:bg-gray-200 dark:hover:bg-gray-300',
+		gray: 'hover:bg-gray-300 dark:hover:bg-gray-300',
 		blue: 'hover:bg-blue-200 dark:hover:bg-blue-300',
 		red: 'hover:bg-red-200 dark:hover:bg-red-300',
 		green: 'hover:bg-green-200 dark:hover:bg-green-300',
@@ -48,17 +48,11 @@
 
 	$: badgeClass = classNames(
 		baseClass,
-		small
-			? 'text-xs font-normal'
-			: verySmall
-				? 'text-2xs font-normal'
-				: large
-					? 'text-xs font-medium'
-					: 'text-2xs font-normal',
+		small ? 'text-xs' : verySmall ? 'text-2xs' : large ? 'text-xs' : 'text-2xs',
 		colors[color],
 		href &&
 			(color.startsWith(ColorModifier) ? hovers[color.replace(ColorModifier, '')] : hovers[color]),
-		rounded ? 'rounded-full px-2 py-1' : 'rounded px-2.5 py-0.5',
+		rounded ? 'rounded-full px-2 py-1' : 'rounded-md px-2 py-0.5',
 		verySmall ? 'px-0.5 py-0.5' : '',
 		'flex flex-row gap-1 items-center',
 		$$props.class
@@ -81,11 +75,11 @@
 		class:capitalize
 	>
 		{#if icon?.icon && icon.position === 'left'}
-			<svelte:component this={icon.icon} size={14} />
+			<svelte:component this={icon.icon} size={12} />
 		{/if}
 		<slot />
 		{#if icon?.icon && icon.position === 'right'}
-			<svelte:component this={icon.icon} size={14} />
+			<svelte:component this={icon.icon} size={12} />
 		{/if}
 		{#if dismissable}
 			<button on:click={handleHide}>

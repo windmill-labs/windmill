@@ -19,6 +19,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { untrack } from 'svelte'
 	import { fly } from 'svelte/transition'
+	import { ButtonType } from './common/button/model'
 
 	interface Props {
 		aiId?: string | undefined
@@ -35,6 +36,7 @@
 		customMenu?: boolean
 		class?: string | undefined
 		enableFlyTransition?: boolean
+		size?: ButtonType.UnifiedSize
 		buttonReplacement?: import('svelte').Snippet
 		menu?: import('svelte').Snippet
 	}
@@ -54,6 +56,7 @@
 		customMenu = false,
 		class: classNames = undefined,
 		enableFlyTransition = false,
+		size = 'md',
 		buttonReplacement,
 		menu
 	}: Props = $props()
@@ -142,7 +145,7 @@
 	{:else}
 		<Button
 			nonCaptureEvent
-			size="xs"
+			unifiedSize={size}
 			color="light"
 			startIcon={{ icon: MoreVertical }}
 			btnClasses="bg-transparent"

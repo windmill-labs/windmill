@@ -16,7 +16,7 @@
 	import Popover from '../Popover.svelte'
 	import { isFlowPreview, isScriptPreview, truncateRev } from '$lib/utils'
 	import { createEventDispatcher, setContext, untrack } from 'svelte'
-	import { ListFilter, LoaderCircle } from 'lucide-svelte'
+	import { Calendar, ListFilter, LoaderCircle } from 'lucide-svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from '../flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '../assets/JobAssetsViewer.svelte'
 
@@ -183,11 +183,10 @@
 			</div>
 			<a
 				href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
-				class="flex flex-row gap-1 items-center"
+				class="text-xs font-medium"
 				target={blankLink ? '_blank' : undefined}
 			>
-				<span class="font-semibold text-sm leading-6">ID:</span>
-				<span class="text-sm">{job?.id ?? ''}</span>
+				ID: {job?.id ?? ''}
 			</a>
 
 			<div class="w-full">
@@ -199,9 +198,16 @@
 			</div>
 
 			{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
-				<div class="text-sm font-semibold text-tertiary mb-1">
-					<div>Job is scheduled for</div>
-					<div>{new Date(job?.['scheduled_for']).toLocaleString()}</div>
+				<div
+					class="flex flex-row gap-4 items-center mb-1 w-full bg-surface-tertiary rounded-md p-4 border"
+				>
+					<Calendar size={16} class="text-accent" />
+					<div class="flex flex-col gap-1">
+						<span class="text-2xs font-normal text-secondary">Job is scheduled for</span>
+						<span class="text-xs font-medium text-emphasis"
+							>{new Date(job?.['scheduled_for']).toLocaleString()}</span
+						>
+					</div>
 				</div>
 			{/if}
 
