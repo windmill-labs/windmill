@@ -25,12 +25,7 @@ export function dfs<T>(
 			}
 		} else if (module.value.type == 'aiagent' && !opts.skipToolNodes) {
 			result = result.concat(f(module, modules, [module.value.tools]))
-			// Filter and traverse only Windmill tools (FlowModules) from Tool discriminated union
-			// Tool type can be either { type: "windmill", ...FlowModule } or { type: "mcp", ... }
-			const windmillTools = module.value.tools
-				.filter((t) => t.type === 'windmill')
-				.map((t) => t as any) as FlowModule[]
-			result = result.concat(dfs(windmillTools, f, opts))
+			result = result.concat(dfs(module.value.tools, f, opts))
 		} else {
 			result.push(f(module, modules, []))
 		}

@@ -116,7 +116,8 @@
 		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
-		inlineScript?: InlineScript
+		inlineScript?: InlineScript,
+		mcpResource?: string
 	): Promise<FlowModule[]> {
 		push(history, flowStore.val)
 		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
@@ -142,6 +143,11 @@
 			;[module, state] = await createBranchAll(module.id)
 		} else if (kind == 'aiagent') {
 			;[module, state] = await createAiAgent(module.id)
+		} else if (kind == 'mcpserver') {
+			module.value = {
+				type: 'mcpserver',
+				resource_path: mcpResource ?? ''
+			}
 		} else if (inlineScript) {
 			const { language, kind, subkind, summary } = inlineScript
 			;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
@@ -490,38 +496,24 @@
 							} else {
 								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
 
-								// Handle MCP server insertion
-								if (detail.kind === 'mcp_tool' && detail.mcpResource) {
-									push(history, flowStore.val)
-									const mcpModule = {
-										id: `mcp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-										summary: `MCP: ${detail.mcpResource}`,
-										value: {
-											type: 'mcpserver',
-											resource_path: detail.mcpResource
-										}
-									}
-									targetModules.splice(index, 0, mcpModule as any)
-									$selectedId = detail.agentId
-								} else {
-									await insertNewModuleAtIndex(
-										targetModules,
-										index,
-										detail.kind,
-										detail.script,
-										detail.flow,
-										detail.inlineScript
-									)
-									const id = targetModules[index].id
-									$selectedId = id
+								await insertNewModuleAtIndex(
+									targetModules,
+									index,
+									detail.kind,
+									detail.script,
+									detail.flow,
+									detail.inlineScript,
+									detail.mcpResource
+								)
+								const id = targetModules[index].id
+								$selectedId = id
 
-									if (detail.inlineScript?.instructions) {
-										dispatch('generateStep', {
-											moduleId: id,
-											lang: detail.inlineScript?.language,
-											instructions: detail.inlineScript?.instructions
-										})
-									}
+								if (detail.inlineScript?.instructions) {
+									dispatch('generateStep', {
+										moduleId: id,
+										lang: detail.inlineScript?.language,
+										instructions: detail.inlineScript?.instructions
+									})
 								}
 								if (detail.kind == 'trigger') {
 									await insertNewModuleAtIndex(

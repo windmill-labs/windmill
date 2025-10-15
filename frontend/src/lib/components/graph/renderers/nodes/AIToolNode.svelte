@@ -81,20 +81,10 @@
 				id: string
 				name: string
 				stateType?: GraphModuleState['type']
-			}[] = node.data.module.value.tools.map((t, idx) => {
-				// Check if it's an MCP tool (FlowModule with value.type === 'mcpserver')
-				if (t.value?.type === 'mcpserver') {
-					return {
-						id: t.id || `mcp-${idx}`,
-						name: t.summary || `MCP: ${t.value.resource_path || 'Unknown'}`
-					}
-				}
-				// Regular Windmill tool (FlowModule)
-				return {
-					id: t.id,
-					name: t.summary ?? ''
-				}
-			})
+			}[] = node.data.module.value.tools.map((t, idx) => ({
+				id: t.id,
+				name: t.summary ?? ''
+			}))
 
 			const agentActions = !insertable && flowModuleStates?.[node.id]?.agent_actions
 			if (agentActions) {

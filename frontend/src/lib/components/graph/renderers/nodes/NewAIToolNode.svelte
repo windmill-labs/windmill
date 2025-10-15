@@ -27,14 +27,12 @@
 	let showMcpInput = $state(false)
 	let mcpResourcePath = $state('')
 
-	$inspect(open, showMcpInput, mcpResourcePath)
-
 	function addMcpTool() {
 		if (mcpResourcePath.trim()) {
 			data.eventHandlers.insert({
 				index: -1,
 				agentId: data.agentModuleId,
-				kind: 'mcp_tool',
+				kind: 'mcpserver',
 				mcpResource: mcpResourcePath.trim()
 			})
 			mcpResourcePath = ''
