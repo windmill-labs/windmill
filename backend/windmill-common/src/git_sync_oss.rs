@@ -10,7 +10,7 @@ pub async fn get_github_app_token_internal(
     _db: &Pool<Postgres>,
     _job_token: &str,
 ) -> crate::error::Result<String> {
-    return Err(crate::error::Error::BadRequest("Github app authentication is not availlable on the open source build".to_string()))
+    return Err(crate::error::Error::BadRequest("Github app authentication is not available on the open source build".to_string()))
 }
 
 pub fn prepend_token_to_github_url(
