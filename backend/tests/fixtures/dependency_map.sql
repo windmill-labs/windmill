@@ -98,6 +98,7 @@ INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_script', 'script', 'f/rel/leaf_1', '');
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_script', 'script', 'f/rel/leaf_2', '');
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_app', 'app', 'f/rel/leaf_2', 'dontpressmeplz');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'f/rel/leaf_2', 'failure');
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'f/rel/branch', 'nstep1');
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'f/rel/leaf_1', 'nstep1');
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'f/rel/leaf_2', 'nstep1');
@@ -106,6 +107,9 @@ INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'f/rel/branch', 'nstep5_1');
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'f/rel/leaf_1', 'nstep5_1');
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'f/rel/leaf_2', 'nstep5_1');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'f/rel/branch', 'preprocessor');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'f/rel/leaf_1', 'preprocessor');
+INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_flow', 'flow', 'f/rel/leaf_2', 'preprocessor');
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_app', 'app', 'f/rel/branch', 'pressmeplz');
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_app', 'app', 'f/rel/leaf_1', 'pressmeplz');
 INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id) VALUES ('test-workspace', 'f/rel/root_app', 'app', 'f/rel/leaf_2', 'pressmeplz');
