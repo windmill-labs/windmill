@@ -2997,6 +2997,8 @@ paths:
                     type: boolean
                   email_used:
                     type: boolean
+                  nextcloud_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
@@ -3007,6 +3009,7 @@ paths:
                   - gcp_used
                   - sqs_used
                   - email_used
+                  - nextcloud_used
   /w/{workspace}/users/list:
     get:
       summary: list users
@@ -10476,6 +10479,414 @@ paths:
       responses:
         "200":
           description: successfuly connected to sqs
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/integrations/list:
+    get:
+      summary: list available native trigger services
+      operationId: listNativeTriggerServices
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: native trigger services list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkspaceIntegrations"
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/exists:
+    get:
+      summary: check if integrations for a particular service exists
+      operationId: checkIfNativeTriggersServiceExists
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      responses:
+        "200":
+          description: integration exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/create:
+    post:
+      summary: create native trigger service
+      operationId: createNativeTriggerService
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      requestBody:
+        description: new native trigger service
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceOAuthConfig"
+      responses:
+        "201":
+          description: native trigger service created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/generate_connect_url:
+    post:
+      summary: generate connect url for native trigger service
+      operationId: generateNativeTriggerServiceConnectUrl
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      requestBody:
+        description: redirect_uri
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedirectUri"
+      responses:
+        "200":
+          description: native trigger service connect url
+          content:
+            application/json:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/delete:
+    delete:
+      summary: delete native trigger service
+      operationId: deleteNativeTriggerService
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      responses:
+        "200":
+          description: native trigger service deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/callback/{code}/{state}:
+    post:
+      summary: native trigger service oauth callback
+      operationId: nativeTriggerServiceCallback
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: redirect_uri
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedirectUri"
+      responses:
+        "200":
+          description: native trigger service oauth completed
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/{service_name}/create:
+    post:
+      summary: create native trigger
+      operationId: createNativeTrigger
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      requestBody:
+        description: new native trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NativeTriggerData"
+      responses:
+        "201":
+          description: native trigger created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateTriggerResponse"
+
+  /w/{workspace}/native_triggers/{service_name}/update/{id}:
+    post:
+      summary: update native trigger
+      operationId: updateNativeTrigger
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      requestBody:
+        description: updated native trigger
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NativeTriggerData"
+      responses:
+        "200":
+          description: native trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/{service_name}/get/{id}/{path}:
+    get:
+      summary: get native trigger
+      operationId: getNativeTrigger
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: native trigger with external configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FullTriggerResponse"
+
+  /w/{workspace}/native_triggers/{service_name}/delete:
+    delete:
+      summary: delete native trigger
+      operationId: deleteNativeTrigger
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      requestBody:
+        description: trigger id and runnable path
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdAndRunnablePath"
+      responses:
+        "200":
+          description: native trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/{service_name}/list:
+    get:
+      summary: list native triggers
+      operationId: listNativeTriggers
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+          required: true
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: native triggers list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NativeTrigger"
+
+  /w/{workspace}/native_triggers/{service_name}/exists:
+    post:
+      summary: does native trigger exist
+      operationId: existsNativeTrigger
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      requestBody:
+        description: trigger id and runnable path
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdAndRunnablePath"
+      responses:
+        "200":
+          description: native trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/native_triggers/{service_name}/sync:
+    post:
+      summary: sync native triggers with external service
+      operationId: syncNativeTriggers
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      responses:
+        "200":
+          description: sync completed successfully
+
+  /w/{workspace}/native_triggers/nextcloud/events:
+    get:
+      summary: list available NextCloud events
+      operationId: listNextCloudEvents
+      tags:
+        - native_trigger
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: list of available NextCloud events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NextCloudEventType"
+
+  /native_triggers/{service_name}/w/{workspace_id}/webhook/{internal_id}:
+    post:
+      summary: receive webhook from external native trigger service
+      operationId: nativeTriggerWebhook
+      tags:
+        - native_trigger
+      parameters:
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: internal_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: The internal database ID of the trigger
+      requestBody:
+        description: webhook payload from external service
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+          text/plain:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: webhook received successfully
           content:
             text/plain:
               schema:
@@ -19315,3 +19726,223 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+
+    NativeServiceName:
+      type: string
+      enum:
+        - nextcloud
+
+    NativeTrigger:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        service_name:
+          $ref: "#/components/schemas/NativeServiceName"
+        external_id:
+          type: string
+        workspace_id:
+          type: string
+        resource_path:
+          type: string
+        runnable_path:
+          type: string
+        runnable_kind:
+          $ref: "#/components/schemas/RunnableKind"
+        summary:
+          type: string
+        metadata:
+          type: object
+        edited_by:
+          type: string
+        email:
+          type: string
+        edited_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - service_name
+        - external_id
+        - workspace_id
+        - resource_path
+        - runnable_path
+        - runnable_kind
+        - summary
+        - edited_by
+        - email
+        - edited_at
+
+    FullTriggerResponse:
+      type: object
+      description: Full trigger response containing both Windmill data and external service data
+      allOf:
+        - $ref: "#/components/schemas/NativeTrigger"
+        - type: object
+          properties:
+            external_data:
+              type: object
+              description: Configuration data from the external service
+              additionalProperties: true
+          required:
+            - external_data
+
+    WorkspaceIntegrations:
+      type: object
+      properties:
+        service_name:
+          $ref: '#/components/schemas/NativeServiceName'
+        oauth_data:
+          nullable: true
+          $ref: '#/components/schemas/WorkspaceOAuthConfig'
+      required:
+        - service_name
+
+
+    WorkspaceOAuthConfig:
+      type: object
+      properties:
+        client_id:
+          type: string
+          description: The OAuth client ID for the workspace
+        client_secret:
+          type: string
+          description: The OAuth client secret for the workspace
+        base_url:
+          type: string
+          format: uri
+          description: The base URL of the workspace
+        redirect_uri:
+          type: string
+          format: uri
+          description: The OAuth redirect URI
+      required:
+        - client_id
+        - client_secret
+        - base_url
+        - redirect_uri
+
+    EventType:
+      oneOf:
+        - $ref: '#/components/schemas/WebhookEvent'
+      discriminator:
+        propertyName: type
+        mapping:
+          webhook: '#/components/schemas/WebhookEvent'
+
+    WebhookEvent:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [webhook]
+        request_type:
+          $ref: '#/components/schemas/WebhookRequestType'
+      required:
+        - type
+        - request_type
+
+    WebhookRequestType:
+      type: string
+      description: The type of webhook request (define possible values here)
+      enum:
+        - async
+        - sync
+
+    RedirectUri:
+      type: object
+      properties:
+        redirect_uri:
+          type:
+            string
+      required:
+        - redirect_uri
+
+
+    NativeTriggerData:
+      type: object
+      properties:
+        runnable_path:
+          type: string
+        runnable_kind:
+          $ref: "#/components/schemas/RunnableKind"
+        summary:
+          type: string
+        external_id:
+          type: string
+        event_type:
+          $ref: "#/components/schemas/EventType"
+        payload:
+          type: object
+          description: Service-specific configuration payload
+          additionalProperties: true
+      required:
+        - runnable_path
+        - runnable_kind
+        - resource_path
+        - external_id
+        - payload
+        - event_type
+
+    CreateTriggerResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: The internal database ID of the created trigger
+      required:
+        - id
+
+    IdAndRunnablePath:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        runnable_path:
+          type: string
+      required:
+        - id
+        - runnable_path
+
+    SyncResult:
+      type: object
+      properties:
+        already_in_sync:
+          type: boolean
+        added_count:
+          type: integer
+        added_triggers:
+          type: array
+          items:
+            type: string
+        total_external:
+          type: integer
+        total_windmill:
+          type: integer
+      required:
+        - already_in_sync
+        - added_count
+        - added_triggers
+        - total_external
+        - total_windmill
+
+    NextCloudEventType:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        path:
+          type: string
+      required:
+        - id
+        - name
+        - path

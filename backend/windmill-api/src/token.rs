@@ -124,6 +124,12 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
             "Git synchronization management",
             false,
         ),
+        (
+            "native_triggers",
+            "Native Triggers",
+            "Native triggers management",
+            true,
+        ),
     ];
 
     STANDARD_DOMAINS

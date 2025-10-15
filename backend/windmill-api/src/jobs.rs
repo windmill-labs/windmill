@@ -1760,6 +1760,8 @@ pub struct RunJobQuery {
     pub skip_preprocessor: Option<bool>,
     pub poll_delay_ms: Option<u64>,
     pub memory_id: Option<Uuid>,
+    pub internal_id: Option<String>,
+    pub service_name: Option<String>,
 }
 
 impl RunJobQuery {
@@ -4000,15 +4002,17 @@ pub async fn run_flow_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = args
-        .to_args_from_runnable(
-            &authed,
-            &db,
-            &w_id,
-            RunnableId::from_flow_path(flow_path.to_path()),
-            run_query.skip_preprocessor,
-        )
-        .await?;
+    let args = generate_args_runnable(
+        &db,
+        &authed,
+        user_db.clone(),
+        flow_path.to_path(),
+        &run_query,
+        &w_id,
+        args,
+        true,
+    )
+    .await?;
 
     let (uuid, _) =
         run_flow_by_path_inner(authed, db, user_db, w_id, flow_path, run_query, args).await?;
@@ -4231,20 +4235,91 @@ pub async fn run_script_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = args
-        .to_args_from_runnable(
-            &authed,
-            &db,
-            &w_id,
-            RunnableId::from_script_path(script_path.to_path()),
-            run_query.skip_preprocessor,
-        )
-        .await?;
+    let args = generate_args_runnable(
+        &db,
+        &authed,
+        user_db.clone(),
+        script_path.to_path(),
+        &run_query,
+        &w_id,
+        args,
+        false,
+    )
+    .await?;
 
     let (uuid, _) =
         run_script_by_path_inner(authed, db, user_db, w_id, script_path, run_query, args).await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+#[allow(unused)]
+pub async fn generate_args_runnable(
+    db: &DB,
+    authed: &ApiAuthed,
+    user_db: UserDB,
+    runnable_path: &str,
+    run_query: &RunJobQuery,
+    w_id: &str,
+    args: RawWebhookArgs,
+    is_flow: bool,
+) -> error::Result<PushArgsOwned> {
+    #[cfg(feature = "native_triggers")]
+    if let (Some(service_name), Some(internal_id)) =
+        (&run_query.service_name, &run_query.internal_id)
+    {
+        use crate::native_triggers::{handler::get_native_trigger, ServiceName};
+
+        let service_name = ServiceName::try_from(service_name.to_owned())?;
+        let id = internal_id
+            .parse::<i64>()
+            .map_err(|_| Error::BadRequest("Invalid native trigger id".to_string()))?;
+        let mut tx = user_db.begin(authed).await?;
+        let native_trigger = get_native_trigger(&mut *tx, &w_id, id, service_name).await?;
+        tx.commit().await?;
+        if native_trigger.runnable_path != runnable_path {
+            return Err(Error::BadRequest(format!(
+                "Expected to run runnable: {} not: {}",
+                &native_trigger.runnable_path, runnable_path
+            )));
+        }
+
+        let args = match service_name {
+            ServiceName::Nextcloud => {
+                use crate::{
+                    native_triggers::nextcloud::NextCloud,
+                    triggers::trigger_helpers::TriggerJobArgs,
+                };
+
+                let webhook_payload = args.process_args(authed, db, w_id, None).await?;
+                let args = NextCloud::build_job_args(
+                    runnable_path,
+                    is_flow,
+                    w_id,
+                    db,
+                    to_raw_value(&webhook_payload.body),
+                    webhook_payload.metadata.headers,
+                )
+                .await?;
+                args
+            }
+        };
+        println!("Args: {:#?}", &args);
+
+        return Ok(args);
+    }
+
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_script_path(runnable_path),
+            run_query.skip_preprocessor,
+        )
+        .await?;
+
+    Ok(args)
 }
 
 pub async fn run_script_by_path_inner(

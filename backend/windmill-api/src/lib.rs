@@ -150,6 +150,8 @@ mod smtp_server_oss;
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
 
+#[cfg(feature = "native_triggers")]
+pub mod native_triggers;
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
 pub mod stripe_ee;
@@ -454,6 +456,18 @@ pub async fn run_server(
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
+                        .nest("/native_triggers", {
+                            #[cfg(feature = "native_triggers")]
+                            {
+                                native_triggers::handler::generate_native_trigger_routers().merge(
+                                    native_triggers::workspace_integrations::workspaced_service(),
+                                )
+                            }
+                            #[cfg(not(feature = "native_triggers"))]
+                            {
+                                axum::Router::new()
+                            }
+                        })
                         .nest("/oauth", {
                             #[cfg(feature = "oauth2")]
                             {

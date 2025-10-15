@@ -31,7 +31,8 @@
                 "sqs",
                 "mqtt",
                 "gcp",
-                "default_email"
+                "default_email",
+                "nextcloud"
               ]
             }
           }
@@ -68,7 +69,8 @@
                 "sqs",
                 "mqtt",
                 "gcp",
-                "default_email"
+                "default_email",
+                "nextcloud"
               ]
             }
           }
