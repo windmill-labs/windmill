@@ -157,7 +157,6 @@ mod dependency_map {
         ("f/rel/root_script", "script", "f/rel/leaf_2", ""),
         ("f/rel/root_app", "app", "f/rel/leaf_2", "dontpressmeplz"),
         ("f/rel/root_flow", "flow", "f/rel/leaf_2", "failure"),
-        ("f/rel/root_flow", "flow", "f/rel/leaf_2", "mytool1"),
         ("f/rel/root_flow", "flow", "f/rel/branch", "nstep1"),
         ("f/rel/root_flow", "flow", "f/rel/leaf_1", "nstep1"),
         ("f/rel/root_flow", "flow", "f/rel/leaf_2", "nstep1"),
@@ -172,6 +171,7 @@ mod dependency_map {
         ("f/rel/root_app", "app", "f/rel/branch", "pressmeplz"),
         ("f/rel/root_app", "app", "f/rel/leaf_1", "pressmeplz"),
         ("f/rel/root_app", "app", "f/rel/leaf_2", "pressmeplz"),
+        ("f/rel/root_flow", "flow", "f/rel/leaf_2", "qtool1"),
         ("f/rel/root_app", "app", "f/rel/branch", "youcanpressme")];
     }
 
