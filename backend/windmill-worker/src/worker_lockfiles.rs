@@ -1511,7 +1511,7 @@ async fn lock_modules<'c>(
                     .execute(&mut *tx)
                     .await?;
                 }
-                FlowModuleValue::AIAgent { input_transforms, tools } => {
+                FlowModuleValue::AIAgent { input_transforms, tools, modules_node } => {
                     let ntools;
                     (ntools, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
                         tools,
@@ -1533,7 +1533,9 @@ async fn lock_modules<'c>(
                         dependency_map,
                     ))
                     .await?;
-                    e.value = FlowModuleValue::AIAgent { input_transforms, tools: ntools }.into();
+                    e.value =
+                        FlowModuleValue::AIAgent { input_transforms, tools: ntools, modules_node }
+                            .into();
                 }
                 _ => (),
             };
