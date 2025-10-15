@@ -175,7 +175,7 @@
 				>
 					{@render header?.()}
 					{#if processedItems?.length === 0}
-						<div class="py-8 px-4 text-center text-primary">{noItemsMsg}</div>
+						<div class="py-8 px-4 text-center text-primary text-xs">{noItemsMsg}</div>
 					{/if}
 					<ul class={twMerge('flex-1 overflow-y-auto flex flex-col', ulClass)}>
 						{#each processedItems ?? [] as item, itemIndex}

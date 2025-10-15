@@ -624,7 +624,7 @@ const config = {
 					fontWeight: theme('fontWeight.semibold')
 				},
 				a: {
-					color: theme('colors.blue.500')
+					color: 'rgb(var(--color-text-accent))'
 				},
 				'.dark input::placeholder': {
 					color: theme('colors.gray.400')
