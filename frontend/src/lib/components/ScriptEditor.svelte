@@ -911,7 +911,6 @@
 	</div>
 {/snippet}
 
-{console.log(ansibleAlternativeExecutionMode)}
 <GitRepoResourcePicker
 	bind:open={gitRepoResourcePickerOpen}
 	currentResource={ansibleAlternativeExecutionMode?.resource}

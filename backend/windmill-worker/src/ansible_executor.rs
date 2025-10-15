@@ -22,7 +22,7 @@ use windmill_common::{
 use windmill_queue::MiniPulledJob;
 
 use windmill_parser_yaml::{
-    AnsibleRequirements, GitRepo, PreexisitingAnsibleInventory, ResourceOrVariablePath,
+    AnsibleRequirements, GitRepo, PreexistingAnsibleInventory, ResourceOrVariablePath,
 };
 use windmill_queue::{append_logs, CanceledBy};
 
@@ -206,7 +206,6 @@ async fn clone_repo_without_history(
     let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
 
     create_empty_dir(&target_path)?;
-    tracing::error!("crwh branch is: {:?}", repo.branch);
 
     let mut init_cmd = Command::new(GIT_PATH.as_str());
     init_cmd
@@ -901,8 +900,8 @@ pub async fn handle_ansible_job(
                 .additional_inventories
                 .iter()
                 .map(|i| match i {
-                    PreexisitingAnsibleInventory::Static(name) => Ok(Some(vec![name.clone()])),
-                    PreexisitingAnsibleInventory::PassedInArgs(inv_def) => interpolated_args
+                    PreexistingAnsibleInventory::Static(name) => Ok(Some(vec![name.clone()])),
+                    PreexistingAnsibleInventory::PassedInArgs(inv_def) => interpolated_args
                         .as_ref()
                         .and_then(|args| args.get(&inv_def.name))
                         .and_then(|v| serde_json::from_str(v.get()).transpose())
@@ -949,7 +948,7 @@ pub async fn handle_ansible_job(
                 ));
             };
 
-            let mut url = git_repo_resource.get("url").and_then(|s| s.as_str()).map(|s| s.to_string())
+            let mut secret_url = git_repo_resource.get("url").and_then(|s| s.as_str()).map(|s| s.to_string())
                 .ok_or(anyhow!("Failed to get url from git repo resource, please check that the resource has the correct type (git_repository)"))?;
 
             let is_github_app = git_repo_resource.get("is_github_app").and_then(|s| s.as_bool())
@@ -958,9 +957,9 @@ pub async fn handle_ansible_job(
             if is_github_app {
                 if let Connection::Sql(db) = conn {
                     let token = get_github_app_token_internal(db, &client.token).await?;
-                    url = prepend_token_to_github_url(&url, &token)?;
+                    secret_url = prepend_token_to_github_url(&secret_url, &token)?;
                 } else {
-                    return Err(windmill_common::error::Error::BadRequest("Github App authentication is currently unavailable for agent workers. Contact the windmill team to equest this feature".to_string()));
+                    return Err(windmill_common::error::Error::BadRequest("Github App authentication is currently unavailable for agent workers. Contact the windmill team to request this feature".to_string()));
                 }
             }
 
@@ -970,7 +969,7 @@ pub async fn handle_ansible_job(
             let target_path = "delegate_git_repository".to_string();
 
             let repo =
-                GitRepo { url, commit: delegated_git_repo.commit.clone(), branch, target_path };
+                GitRepo { url: secret_url, commit: delegated_git_repo.commit.clone(), branch, target_path };
             append_logs(
                 &job.id,
                 &job.workspace_id,

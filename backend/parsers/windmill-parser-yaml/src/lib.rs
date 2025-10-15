@@ -72,7 +72,7 @@ pub fn parse_ansible_sig(inner_content: &str) -> anyhow::Result<MainArgSignature
                 }
                 Yaml::String(key) if key == "additional_inventories" => {
                     for inv in parse_additional_inventories(value)? {
-                        if let PreexisitingAnsibleInventory::PassedInArgs(i) = inv {
+                        if let PreexistingAnsibleInventory::PassedInArgs(i) = inv {
                             args.push(Arg {
                                 name: i.name,
                                 otyp: None,
@@ -237,7 +237,7 @@ pub struct AnsibleInventory {
 }
 
 #[derive(Debug, Clone)]
-pub enum PreexisitingAnsibleInventory {
+pub enum PreexistingAnsibleInventory {
     Static(String),
     PassedInArgs(InventoryFilenameListDefinition),
 }
@@ -271,7 +271,7 @@ pub struct AnsibleRequirements {
     pub roles_and_collections: Option<String>,
     pub file_resources: Vec<FileResource>,
     pub inventories: Vec<AnsibleInventory>,
-    pub additional_inventories: Vec<PreexisitingAnsibleInventory>,
+    pub additional_inventories: Vec<PreexistingAnsibleInventory>,
     pub vars: Vec<(String, String)>,
     pub resources: Vec<(String, String)>,
     pub options: AnsiblePlaybookOptions,
@@ -310,13 +310,13 @@ impl Default for AnsibleRequirements {
 
 fn parse_additional_inventories(
     inventory_yaml: &Yaml,
-) -> anyhow::Result<Vec<PreexisitingAnsibleInventory>> {
+) -> anyhow::Result<Vec<PreexistingAnsibleInventory>> {
     if let Yaml::Array(arr) = inventory_yaml {
         let mut ret = vec![];
         let mut count = -1;
         for inv in arr {
             if let Yaml::String(inv_name) = inv {
-                ret.push(PreexisitingAnsibleInventory::Static(inv_name.clone()));
+                ret.push(PreexistingAnsibleInventory::Static(inv_name.clone()));
             } else if let Yaml::Hash(inv) = inv {
                 if let Some(options) = inv.get(&Yaml::String("options".to_string())) {
                     let options = match options {
@@ -343,7 +343,7 @@ fn parse_additional_inventories(
                             }
                         });
 
-                    ret.push(PreexisitingAnsibleInventory::PassedInArgs(
+                    ret.push(PreexistingAnsibleInventory::PassedInArgs(
                         InventoryFilenameListDefinition { options, name },
                     ))
                 }
