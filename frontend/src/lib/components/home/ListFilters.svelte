@@ -90,7 +90,6 @@
 						}
 					}}
 					color={filter === selectedFilter ? 'blue' : 'gray'}
-					baseClass={filter === selectedFilter ? 'border border-blue-500' : 'border'}
 				>
 					<span style="height: 12px" class="-mt-0.5">
 						{#if resourceType}
