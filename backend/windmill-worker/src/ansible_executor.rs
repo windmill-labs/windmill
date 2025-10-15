@@ -75,7 +75,6 @@ async fn clone_repo(
         .args(["clone", "--quiet"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    tracing::error!("branch is: {:?}", repo.branch);
     if let Some(branch) = &repo.branch {
         clone_cmd.args(["--branch", branch]);
     }
