@@ -13562,7 +13562,7 @@ paths:
 
   /w/{workspace}/job_helpers/load_git_repo_file_metadata:
     get:
-      summary: Load file meatadata from instance storage with resource-based access control
+      summary: Load file metadata from instance storage with resource-based access control
       operationId: loadGitRepoFileMetadata
       tags:
         - helpers
