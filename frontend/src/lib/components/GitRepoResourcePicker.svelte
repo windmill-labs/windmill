@@ -104,8 +104,6 @@
 			prefix: `${rootPath}/${inventoriesPath}`
 		})
 
-		console.log(rootPath, inventoriesPath, files)
-
 		const fileNames = files.windmill_large_files.map((f) => f.s3.slice(rootPath.length))
 
 		// Return dummy data for testing

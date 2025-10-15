@@ -25,16 +25,6 @@
 
 	let commitHash = $derived(commitHashInput);
 
-	export async function enhanceInferredArgs(nschema: any) {
-		const invs = nschema?.properties["Additional inventories"]
-		if (invs) {
-
-		}
-
-		return nschema
-
-	}
-
 	async function populateS3WithGitRepo() {
 		const workspace = $workspaceStore
 		if (!workspace) return
