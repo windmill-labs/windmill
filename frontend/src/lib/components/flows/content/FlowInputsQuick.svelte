@@ -33,7 +33,7 @@
 		summary?: string | undefined
 		filter?: string
 		disableAi?: boolean
-		preFilter?: 'all' | 'workspace' | 'hub' | 'mcp'
+		preFilter?: 'all' | 'workspace' | 'hub'
 		funcDesc: string
 		owners?: string[]
 		loading?: boolean
@@ -146,7 +146,7 @@
 	function computeInlineScriptChoices(
 		funcDesc: string,
 		selected: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined,
-		preFilter: 'all' | 'workspace' | 'hub' | 'mcp',
+		preFilter: 'all' | 'workspace' | 'hub',
 		selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 	) {
 		if (['script', 'trigger', 'failure', 'approval', 'preprocessor'].includes(selectedKind)) {
@@ -176,7 +176,7 @@
 	let topLevelNodes: [string, string][] = $state([])
 	function computeToplevelNodeChoices(
 		funcDesc: string,
-		preFilter: 'all' | 'workspace' | 'hub' | 'mcp'
+		preFilter: 'all' | 'workspace' | 'hub'
 	) {
 		if (funcDesc.length > 0 && preFilter == 'all' && kind == 'script') {
 			topLevelNodes = allToplevelNodes.filter((node) =>
@@ -187,7 +187,7 @@
 		}
 	}
 
-	function onPrefilterChange(preFilter: 'all' | 'workspace' | 'hub' | 'mcp') {
+	function onPrefilterChange(preFilter: 'all' | 'workspace' | 'hub') {
 		if (preFilter == 'workspace') {
 			hubCompletions = []
 		} else if (preFilter == 'hub') {
@@ -507,22 +507,6 @@
 					/>
 				{/await}
 			{/if}
-		{/if}
-		{#if toolMode && preFilter === 'mcp'}
-			{#await import('../pickers/McpResourcePickerQuick.svelte') then Module}
-				<Module.default
-					filter={funcDesc}
-					selected={selectedByKeyboard -
-						inlineScripts?.length -
-						aiLength -
-						filteredWorkspaceItems?.length -
-						topLevelNodes.length -
-						hubCompletions?.length}
-					on:pickMcpResource
-					{displayPath}
-					{refreshCount}
-				/>
-			{/await}
 		{/if}
 	</Scrollable>
 </div>

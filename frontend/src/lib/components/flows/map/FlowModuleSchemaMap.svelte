@@ -144,7 +144,7 @@
 		} else if (kind == 'aiagent') {
 			;[module, state] = await createAiAgent(module.id)
 		} else if (kind == 'mcpserver') {
-			module.summary = `MCP: ${mcpResource ?? ''}`
+			module.summary = mcpResource ? `MCP: ${mcpResource}` : ''
 			module.value = {
 				type: 'mcpserver',
 				resource_path: mcpResource ?? ''

@@ -9,6 +9,7 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
+	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 
 	interface Props {
 		flowModule: FlowModule
@@ -54,7 +55,6 @@
 			!flowModule.value.resource_path ||
 			!$workspaceStore
 		) {
-			sendUserToast('Please specify a resource path first', true)
 			return
 		}
 
@@ -90,7 +90,7 @@
 				<input
 					type="text"
 					bind:value={summary}
-					placeholder="e.g., GitHub API tools"
+					placeholder="e.g., GitHub MCP"
 					class="text-sm w-full"
 				/>
 			</Label>
@@ -99,12 +99,7 @@
 		<!-- Resource Path Section -->
 		<div class="w-full">
 			<Label label="Resource Path">
-				<input
-					type="text"
-					bind:value={flowModule.value.resource_path}
-					placeholder="u/admin/my_mcp_server"
-					class="text-sm w-full"
-				/>
+				<ResourcePicker resourceType="mcp" bind:value={flowModule.value.resource_path} />
 			</Label>
 		</div>
 

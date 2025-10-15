@@ -10,6 +10,8 @@
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
+	import { Button } from '$lib/components/common'
+	import { Plug } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
 	interface Props {
@@ -33,7 +35,7 @@
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 	let selectedKind: 'script' | 'trigger' | 'preprocessor' | 'approval' | 'flow' | 'failure' =
 		$state(kind)
-	let preFilter: 'all' | 'workspace' | 'hub' | 'mcp' = $state('all')
+	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
 	let loading = $state(false)
 	let small = $derived(kind === 'preprocessor' || kind === 'failure')
 
@@ -67,7 +69,20 @@
 			{loading}
 		/>
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
-			<ToggleHubWorkspaceQuick bind:selected={preFilter} showMcp={toolMode} />
+			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
+		{/if}
+		{#if toolMode}
+			<Button
+				size="xs"
+				color="light"
+				startIcon={{ icon: Plug }}
+				on:click={() => {
+					dispatch('pickMcpResource', { path: '' })
+					dispatch('close')
+				}}
+			>
+				MCP
+			</Button>
 		{/if}
 		<RefreshButton size="md" light {loading} on:click={() => (refreshCount.val += 1)} />
 	</div>
@@ -171,7 +186,6 @@
 			on:new
 			on:pickScript
 			on:pickFlow
-			on:pickMcpResource
 			{preFilter}
 			{small}
 			{displayPath}
