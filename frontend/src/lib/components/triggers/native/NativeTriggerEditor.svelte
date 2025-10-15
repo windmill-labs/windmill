@@ -329,10 +329,10 @@
 								size="xs"
 								color="light"
 								variant="border"
-								href="/workspace_settings?tab=integrations"
+								href="/workspace_settings?tab=native_triggers"
 								target="_blank"
 							>
-								Manage Workspace Integrations
+								Manage Native Triggers
 							</Button>
 						</div>
 					</div>

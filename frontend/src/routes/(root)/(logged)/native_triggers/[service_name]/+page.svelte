@@ -41,6 +41,12 @@
 
 		if ($workspaceStore) {
 			serviceAvailable = await isServiceAvailable(serviceName, $workspaceStore)
+			if (!serviceAvailable) {
+				sendUserToast(
+					`${serviceName} integration not available, set it in the workspace settings`,
+					true
+				)
+			}
 		}
 	}
 
@@ -173,8 +179,8 @@
 							>
 						</ul>
 						<div class="flex gap-2">
-							<Button size="xs" color="blue" href="/workspace_settings?tab=integrations">
-								Manage Workspace Integrations
+							<Button size="xs" color="blue" href="/workspace_settings?tab=native_triggers">
+								Manage Native Triggers
 							</Button>
 							<Button
 								size="xs"
