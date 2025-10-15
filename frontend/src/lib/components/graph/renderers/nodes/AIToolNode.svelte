@@ -80,11 +80,15 @@
 			let tools: {
 				id: string
 				name: string
+				type?: string
 				stateType?: GraphModuleState['type']
-			}[] = node.data.module.value.tools.map((t, idx) => ({
-				id: t.id,
-				name: t.summary ?? ''
-			}))
+			}[] = node.data.module.value.tools.map((t, idx) => {
+				return {
+					id: t.id,
+					name: t.summary ?? '',
+					type: t.value?.type
+				}
+			})
 
 			const agentActions = !insertable && flowModuleStates?.[node.id]?.agent_actions
 			if (agentActions) {
@@ -135,6 +139,7 @@
 					parentId: node.id,
 					data: {
 						tool: tool.name,
+						type: tool.type,
 						eventHandlers,
 						moduleId: tool.id,
 						insertable,
@@ -287,7 +292,7 @@
 				<span
 					class={twMerge(
 						'text-3xs truncate flex-1',
-						!validateToolName(data.tool) && 'text-red-400'
+						data.type !== 'mcpserver' && !validateToolName(data.tool) && 'text-red-400'
 					)}
 				>
 					{data.tool || 'No tool name'}
