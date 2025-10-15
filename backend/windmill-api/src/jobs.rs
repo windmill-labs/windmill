@@ -4257,8 +4257,7 @@ pub async fn run_script_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-#[cfg(feature = "native_triggers")]
-
+#[allow(unused)]
 pub async fn generate_args_runnable(
     db: &DB,
     authed: &ApiAuthed,
@@ -4288,7 +4287,7 @@ pub async fn generate_args_runnable(
                 &native_trigger.runnable_path, runnable_path
             )));
         }
-        println!("Paath: {:#?}", runnable_path);
+
         let args = match service_name {
             ServiceName::Nextcloud => {
                 use crate::{
