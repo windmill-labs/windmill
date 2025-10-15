@@ -33,7 +33,7 @@
 		summary?: string | undefined
 		filter?: string
 		disableAi?: boolean
-		preFilter?: 'all' | 'workspace' | 'hub'
+		preFilter?: 'all' | 'workspace' | 'hub' | 'mcp'
 		funcDesc: string
 		owners?: string[]
 		loading?: boolean
@@ -41,6 +41,7 @@
 		kind: 'trigger' | 'script' | 'preprocessor' | 'failure' | 'approval'
 		selectedKind?: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 		displayPath?: boolean
+		toolMode?: boolean
 		refreshCount?: number
 	}
 
@@ -56,6 +57,7 @@
 		kind,
 		selectedKind = kind,
 		displayPath = false,
+		toolMode = false,
 		refreshCount = 0
 	}: Props = $props()
 
@@ -144,7 +146,7 @@
 	function computeInlineScriptChoices(
 		funcDesc: string,
 		selected: { kind: 'owner' | 'integrations'; name: string | undefined } | undefined,
-		preFilter: 'all' | 'workspace' | 'hub',
+		preFilter: 'all' | 'workspace' | 'hub' | 'mcp',
 		selectedKind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 	) {
 		if (['script', 'trigger', 'failure', 'approval', 'preprocessor'].includes(selectedKind)) {
@@ -172,7 +174,10 @@
 	]
 
 	let topLevelNodes: [string, string][] = $state([])
-	function computeToplevelNodeChoices(funcDesc: string, preFilter: 'all' | 'workspace' | 'hub') {
+	function computeToplevelNodeChoices(
+		funcDesc: string,
+		preFilter: 'all' | 'workspace' | 'hub' | 'mcp'
+	) {
 		if (funcDesc.length > 0 && preFilter == 'all' && kind == 'script') {
 			topLevelNodes = allToplevelNodes.filter((node) =>
 				node[0].toLowerCase().startsWith(funcDesc.toLowerCase())
@@ -182,7 +187,7 @@
 		}
 	}
 
-	function onPrefilterChange(preFilter: 'all' | 'workspace' | 'hub') {
+	function onPrefilterChange(preFilter: 'all' | 'workspace' | 'hub' | 'mcp') {
 		if (preFilter == 'workspace') {
 			hubCompletions = []
 		} else if (preFilter == 'hub') {
@@ -502,6 +507,22 @@
 					/>
 				{/await}
 			{/if}
+		{/if}
+		{#if toolMode && preFilter === 'mcp'}
+			{#await import('../pickers/McpResourcePickerQuick.svelte') then Module}
+				<Module.default
+					filter={funcDesc}
+					selected={selectedByKeyboard -
+						inlineScripts?.length -
+						aiLength -
+						filteredWorkspaceItems?.length -
+						topLevelNodes.length -
+						hubCompletions?.length}
+					on:pickMcpResource
+					{displayPath}
+					{refreshCount}
+				/>
+			{/await}
 		{/if}
 	</Scrollable>
 </div>

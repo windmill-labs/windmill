@@ -18,7 +18,7 @@
 		disableAi?: boolean
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		allowTrigger?: boolean
-		scriptOnly?: boolean
+		toolMode?: boolean
 	}
 
 	let {
@@ -27,13 +27,13 @@
 		disableAi = false,
 		kind = 'script',
 		allowTrigger = true,
-		scriptOnly = false
+		toolMode = false
 	}: Props = $props()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 	let selectedKind: 'script' | 'trigger' | 'preprocessor' | 'approval' | 'flow' | 'failure' =
 		$state(kind)
-	let preFilter: 'all' | 'workspace' | 'hub' = $state('all')
+	let preFilter: 'all' | 'workspace' | 'hub' | 'mcp' = $state('all')
 	let loading = $state(false)
 	let small = $derived(kind === 'preprocessor' || kind === 'failure')
 
@@ -67,13 +67,13 @@
 			{loading}
 		/>
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
-			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
+			<ToggleHubWorkspaceQuick bind:selected={preFilter} showMcp={toolMode} />
 		{/if}
 		<RefreshButton size="md" light {loading} on:click={() => (refreshCount.val += 1)} />
 	</div>
 
 	<div class="flex flex-row grow min-h-0">
-		{#if kind === 'script' && !scriptOnly}
+		{#if kind === 'script' && !toolMode}
 			<div class="flex-none flex flex-col text-xs text-primary">
 				<TopLevelNode
 					label="Action"
@@ -171,9 +171,11 @@
 			on:new
 			on:pickScript
 			on:pickFlow
+			on:pickMcpResource
 			{preFilter}
 			{small}
 			{displayPath}
+			{toolMode}
 			refreshCount={refreshCount.val}
 		/>
 	</div>
