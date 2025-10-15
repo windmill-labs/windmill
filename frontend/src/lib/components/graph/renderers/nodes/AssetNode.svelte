@@ -282,7 +282,7 @@
 						btnClasses="rounded-none"
 						asset={data.asset}
 						noText
-						buttonVariant="contained"
+						buttonVariant="accent"
 						s3FilePicker={flowGraphAssetsCtx?.val.s3FilePicker}
 						dbManagerDrawer={flowGraphAssetsCtx?.val.dbManagerDrawer}
 						_resourceMetadata={cachedResourceMetadata}
