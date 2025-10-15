@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::{get_git_repos_lock, AnsibleDependencyLocks};
-use crate::scoped_dependency_map::{ScopedDependencyMap, WMDEBUG_NO_DMAP_DISSOLVE};
+use crate::scoped_dependency_map::ScopedDependencyMap;
 use async_recursion::async_recursion;
 use chrono::{Duration, Utc};
 use itertools::Itertools;
@@ -18,9 +18,8 @@ use windmill_common::assets::{clear_asset_usage, insert_asset_usage, AssetUsageK
 use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeFlow, FlowNodeId};
-use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
-use windmill_common::scripts::{hash_script, NewScript, ScriptHash};
+use windmill_common::scripts::ScriptHash;
 #[cfg(feature = "python")]
 use windmill_common::worker::PythonAnnotations;
 use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
@@ -794,7 +793,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
 }
 
 pub async fn handle_flow_dependency_job(
-    mut job: MiniPulledJob,
+    job: MiniPulledJob,
     preview_data: Option<&RawData>,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -2114,7 +2113,7 @@ async fn lock_modules_app(
 }
 
 pub async fn handle_app_dependency_job(
-    mut job: MiniPulledJob,
+    job: MiniPulledJob,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job_dir: &str,
@@ -2131,7 +2130,7 @@ pub async fn handle_app_dependency_job(
         )
     })?;
 
-    let mut id = job
+    let id = job
         .runnable_id
         .clone()
         .ok_or_else(|| Error::internal_err("App Dependency requires script hash".to_owned()))?
@@ -2152,30 +2151,6 @@ pub async fn handle_app_dependency_job(
         .as_ref()
         .map(|x| x.get("triggered_by_relative_import").is_some())
         .unwrap_or_default();
-
-    if let Some(runnable_id) = &mut job.runnable_id {
-        // if triggered_by_relative_import {
-        //     let new_version = sqlx::query_scalar!(
-        //         "INSERT INTO app_version
-        //         (app_id, value, created_by, raw_app)
-        //     SELECT app_id, value, created_by, raw_app
-        //     FROM app_version WHERE id = $1
-        //     RETURNING id",
-        //         **runnable_id
-        //     )
-        //     .fetch_one(db)
-        //     .await
-        //     .map_err(|e| {
-        //         error::Error::internal_err(format!(
-        //             "Error updating App due to App history insert: {e:#}"
-        //         ))
-        //     })?;
-
-        //     // Update version, so downstream code will use new one.
-        //     *runnable_id = ScriptHash(new_version);
-        //     id = new_version;
-        // }
-    }
 
     sqlx::query!(
         "DELETE FROM workspace_runnable_dependencies WHERE app_path = $1 AND workspace_id = $2",

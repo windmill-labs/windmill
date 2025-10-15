@@ -4218,6 +4218,7 @@ pub async fn restart_flow(
         Some(&authed.clone().into()),
         false,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
