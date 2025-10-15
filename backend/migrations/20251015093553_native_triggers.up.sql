@@ -1,12 +1,10 @@
 -- Add up migration script here
 
--- Create enum for native trigger service names
 CREATE TYPE native_trigger_service AS ENUM ('nextcloud');
 CREATE TYPE runnable_kind AS ENUM ('script', 'flow');
 ALTER TYPE TRIGGER_KIND ADD VALUE IF NOT EXISTS 'nextcloud';
 ALTER TYPE job_trigger_kind ADD VALUE IF NOT EXISTS 'nextcloud';
 
--- Create native_triggers table
 CREATE TABLE native_triggers (
     id BIGSERIAL PRIMARY KEY,
     service_name native_trigger_service NOT NULL,

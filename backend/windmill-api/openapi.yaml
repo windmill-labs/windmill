@@ -10517,6 +10517,7 @@ paths:
             $ref: "#/components/schemas/NativeServiceName"
       responses:
         "200":
+          description: integration exists
           content:
             application/json:
               schema:
@@ -19945,25 +19946,3 @@ components:
         - id
         - name
         - path
-
-    NextCloudTriggerData:
-      type: object
-      properties:
-        id:
-          type: string
-        event_type:
-          type: string
-        resource_path:
-          type: string
-        config:
-          type: object
-        status:
-          type: string
-        created_at:
-          type: string
-        updated_at:
-          type: string
-      required:
-        - id
-        - event_type
-        - status

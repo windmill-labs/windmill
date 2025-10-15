@@ -381,6 +381,7 @@ pub struct NewToken {
     pub workspace_id: Option<String>,
 }
 
+#[cfg(feature = "native_triggers")]
 impl NewToken {
     pub fn new(
         label: Option<String>,

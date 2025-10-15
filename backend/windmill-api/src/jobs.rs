@@ -28,8 +28,6 @@ use tower::ServiceBuilder;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
-#[cfg(feature = "native_triggers")]
-use windmill_common::db;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_conversations::add_message_to_conversation_tx;
@@ -39,8 +37,6 @@ use windmill_common::jobs::{
     DynamicInput, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
-#[cfg(feature = "native_triggers")]
-use windmill_common::triggers::TriggerKind;
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 use windmill_common::DYNAMIC_INPUT_CACHE;
