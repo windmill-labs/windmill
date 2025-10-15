@@ -15409,6 +15409,7 @@ dependencies = [
  "reqwest 0.12.23",
  "reqwest-middleware",
  "reqwest-retry",
+ "rmcp",
  "semver 1.0.27",
  "serde",
  "serde_json",

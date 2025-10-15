@@ -1,8 +1,9 @@
-use crate::ai::mcp_client::{McpClient, McpResource, McpToolSource};
+use crate::ai::types::{ToolDef, ToolDefFunction};
 use anyhow::Context;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
+use windmill_common::mcp_client::{McpClient, McpResource, McpToolSource};
 use windmill_common::{
     ai_providers::AIProvider,
     db::DB,
@@ -276,6 +277,51 @@ pub async fn cleanup_mcp_clients(mcp_clients: HashMap<String, Arc<McpClient>>) {
     }
 }
 
+/// Convert raw MCP tools to Windmill Tool format with source tracking
+fn convert_mcp_tools_to_windmill_tools(
+    mcp_tools: &[rmcp::model::Tool],
+    resource_name: &str,
+    resource_path: &str,
+) -> Result<Vec<Tool>, Error> {
+    mcp_tools
+        .iter()
+        .map(|mcp_tool| {
+            let tool_name = format!("mcp_{}_{}", resource_name, mcp_tool.name);
+
+            let schema_value = serde_json::to_value(&*mcp_tool.input_schema)
+                .context("Failed to convert MCP schema to JSON value")?;
+            let fixed_schema = McpClient::fix_array_schemas(schema_value);
+            let parameters = to_raw_value(&fixed_schema);
+
+            // Build the description from title and description
+            let description = if let Some(title) = &mcp_tool.title {
+                if let Some(desc) = &mcp_tool.description {
+                    Some(format!("{}: {}", title, desc))
+                } else {
+                    Some(title.to_string())
+                }
+            } else {
+                mcp_tool.description.as_ref().map(|d| d.to_string())
+            };
+
+            let tool_def_function =
+                ToolDefFunction { name: tool_name.clone(), description, parameters };
+
+            let tool_def = ToolDef { r#type: "function".to_string(), function: tool_def_function };
+
+            Ok(Tool {
+                def: tool_def,
+                module: None,
+                mcp_source: Some(McpToolSource {
+                    name: resource_name.to_string(),
+                    tool_name: mcp_tool.name.to_string(),
+                    resource_path: resource_path.to_string(),
+                }),
+            })
+        })
+        .collect()
+}
+
 /// Load tools from MCP servers and return both the clients and tools
 /// Returns a map of resource name -> client, and a vector of tools
 pub async fn load_mcp_tools(
@@ -310,18 +356,20 @@ pub async fn load_mcp_tools(
 
         // Create new MCP client for this execution
         tracing::debug!("Creating fresh MCP client for {}", resource_name);
-        let client = McpClient::from_resource(mcp_resource, db, workspace_id, &path)
+        let client = McpClient::from_resource(mcp_resource, db, workspace_id)
             .await
             .context("Failed to create MCP client")?;
 
-        let mcp_client = Arc::new(client);
+        // Get raw MCP tools from client
+        let raw_mcp_tools = client.available_tools();
 
-        // Get all available tools
-        let available_tools = mcp_client.available_tools();
-
-        all_mcp_tools.extend(available_tools.iter().cloned());
+        // Convert to Windmill Tool format
+        let converted_tools =
+            convert_mcp_tools_to_windmill_tools(raw_mcp_tools, &resource_name, &path)?;
+        all_mcp_tools.extend(converted_tools);
 
         // Store client for later use and cleanup
+        let mcp_client = Arc::new(client);
         mcp_clients.insert(resource_name, mcp_client);
     }
 

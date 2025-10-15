@@ -1,5 +1,5 @@
-use crate::ai::mcp_client::McpClient;
 use crate::ai::providers::openai::OpenAIToolCall;
+use windmill_common::mcp_client::{McpClient, McpToolSource};
 use crate::ai::query_builder::StreamEventProcessor;
 use crate::ai::types::*;
 use crate::ai::utils::{
@@ -154,7 +154,7 @@ async fn execute_mcp_tool_call(
     ctx: &mut ToolExecutionContext<'_>,
     tool_call: &OpenAIToolCall,
     mcp_clients: &HashMap<String, Arc<McpClient>>,
-    mcp_source: &crate::ai::mcp_client::McpToolSource,
+    mcp_source: &McpToolSource,
     actions: &mut Vec<AgentAction>,
     messages: &mut Vec<OpenAIMessage>,
     final_events_str: &mut String,

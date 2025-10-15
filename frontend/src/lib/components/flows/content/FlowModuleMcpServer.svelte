@@ -8,6 +8,9 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
+	import { ResourceService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		flowModule: FlowModule
@@ -16,17 +19,11 @@
 
 	let { flowModule = $bindable() }: Props = $props()
 
-	// Hardcoded tools for demo (TODO: Replace with API call)
-	const HARDCODED_TOOLS = [
-		{ name: 'filesystem_read', description: 'Read files from the filesystem' },
-		{ name: 'filesystem_write', description: 'Write files to the filesystem' },
-		{ name: 'filesystem_list', description: 'List directory contents' },
-		{ name: 'database_query', description: 'Execute SQL queries' },
-		{ name: 'database_insert', description: 'Insert data into database' },
-		{ name: 'api_request', description: 'Make HTTP API requests' },
-		{ name: 'search_web', description: 'Search the web for information' },
-		{ name: 'send_email', description: 'Send emails via SMTP' }
-	]
+	interface McpToolInfo {
+		name: string
+		description?: string
+		parameters: any
+	}
 
 	let summary = $state(flowModule.summary || '')
 	let resourcePath = $state<string>(
@@ -38,8 +35,9 @@
 	let excludeTools = $state<string[]>(
 		flowModule.value.type === 'mcpserver' ? flowModule.value.exclude_tools || [] : []
 	)
-	let availableTools = $state(HARDCODED_TOOLS)
+	let availableTools = $state<McpToolInfo[]>([])
 	let loadingTools = $state(false)
+	let toolsError = $state<string | undefined>(undefined)
 
 	// Determine current filter mode
 	let filterMode = $state<'include' | 'exclude' | 'none'>(
@@ -68,12 +66,34 @@
 		selectedTools = []
 	}
 
-	function refreshTools() {
+	async function refreshTools() {
+		if (!resourcePath || !$workspaceStore) {
+			sendUserToast('Please specify a resource path first', true)
+			return
+		}
+
 		loadingTools = true
-		// Simulate API call
-		setTimeout(() => {
+		toolsError = undefined
+
+		try {
+			// Call the API to get MCP tools
+			const tools = await ResourceService.getMcpTools({
+				workspace: $workspaceStore,
+				path: resourcePath
+			})
+
+			availableTools = tools
+			sendUserToast(`Loaded ${tools.length} tools from MCP server`)
+		} catch (error: any) {
+			console.error('Failed to load MCP tools:', error)
+			toolsError = error.body?.message || error.message || 'Failed to load tools from MCP server'
+			if (toolsError) {
+				sendUserToast(toolsError, true)
+			}
+			availableTools = []
+		} finally {
 			loadingTools = false
-		}, 500)
+		}
 	}
 </script>
 
@@ -116,11 +136,20 @@
 			</Button>
 		{/snippet}
 		<div class="w-full flex flex-col gap-2">
+			{#if toolsError}
+				<div class="text-xs text-red-600 p-2 border border-red-300 rounded bg-red-50">
+					{toolsError}
+				</div>
+			{/if}
 			<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
 				{#if loadingTools}
 					<div class="text-xs text-secondary italic">Loading tools...</div>
 				{:else if availableTools.length === 0}
-					<div class="text-xs text-secondary italic">No tools available</div>
+					<div class="text-xs text-secondary italic">
+						{toolsError
+							? 'Failed to load tools. Please check the resource path and try again.'
+							: 'No tools loaded yet. Click "Refresh Tools" to fetch tools from the MCP server.'}
+					</div>
 				{:else}
 					<div class="flex flex-col gap-1">
 						{#each availableTools as tool}

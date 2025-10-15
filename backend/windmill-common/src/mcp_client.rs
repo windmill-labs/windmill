@@ -1,12 +1,9 @@
+use crate::variables::get_secret_value_as_admin;
+use crate::DB;
 use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use serde_json::{json, value::RawValue, Value};
+use serde_json::{json, Value};
 use std::str::FromStr;
-use windmill_common::variables::get_secret_value_as_admin;
-use windmill_common::worker::to_raw_value;
-use windmill_common::DB;
-
-use crate::ai::types::{Tool, ToolDef, ToolDefFunction};
 
 use rmcp::model::Tool as McpTool;
 use rmcp::{
@@ -55,18 +52,13 @@ pub struct McpToolSource {
 pub struct McpClient {
     /// The underlying rmcp client
     client: RunningService<RoleClient, InitializeRequestParam>,
-    /// Cached list of available tools from the server, already converted to Windmill tools
-    available_tools: Vec<Tool>,
+    /// Cached list of available tools from the server
+    available_tools: Vec<McpTool>,
 }
 
 impl McpClient {
     /// Create a new MCP client from a resource configuration
-    pub async fn from_resource(
-        resource: McpResource,
-        db: &DB,
-        w_id: &str,
-        resource_path: &str,
-    ) -> Result<Self> {
+    pub async fn from_resource(resource: McpResource, db: &DB, w_id: &str) -> Result<Self> {
         // Build custom reqwest client with headers if provided
         let mut headers = HeaderMap::new();
         if let Some(token_path) = &resource.token {
@@ -128,28 +120,11 @@ impl McpClient {
             .context("Failed to list tools from MCP server")?
             .tools;
 
-        // Convert MCP tools to Windmill tools
-        let available_tools = available_tools
-            .into_iter()
-            .map(|mcp_tool| {
-                let tool_def = Self::mcp_tool_to_tooldef(&mcp_tool, &resource.name)?;
-                Ok(Tool {
-                    def: tool_def,
-                    module: None,
-                    mcp_source: Some(McpToolSource {
-                        name: resource.name.clone(),
-                        tool_name: mcp_tool.name.to_string(),
-                        resource_path: resource_path.to_string(),
-                    }),
-                })
-            })
-            .collect::<Result<Vec<Tool>>>()?;
-
         Ok(Self { client, available_tools })
     }
 
     /// Get the list of available tools from the MCP server
-    pub fn available_tools(&self) -> &[Tool] {
+    pub fn available_tools(&self) -> &[McpTool] {
         &self.available_tools
     }
 
@@ -182,7 +157,7 @@ impl McpClient {
     /// Fix array schemas to ensure they have the required 'items' property
     /// OpenAI requires all array types to have an 'items' field. MCP servers may
     /// return schemas without this field, so we add a default.
-    fn fix_array_schemas(schema: Value) -> Value {
+    pub fn fix_array_schemas(schema: Value) -> Value {
         match schema {
             Value::Object(mut obj) => {
                 // Check if this is an array type
@@ -233,32 +208,6 @@ impl McpClient {
             }
             other => other,
         }
-    }
-
-    /// Convert an MCP tool to Windmill's ToolDef format
-    fn mcp_tool_to_tooldef(mcp_tool: &McpTool, name: &str) -> Result<ToolDef> {
-        let tool_name = format!("mcp_{}_{}", name, mcp_tool.name);
-
-        let schema_value = serde_json::to_value(&*mcp_tool.input_schema)
-            .context("Failed to convert MCP schema to JSON value")?;
-        let fixed_schema = Self::fix_array_schemas(schema_value);
-        let parameters: Box<RawValue> = to_raw_value(&fixed_schema);
-
-        // Build the description from title and description
-        let description = if let Some(title) = &mcp_tool.title {
-            if let Some(desc) = &mcp_tool.description {
-                Some(format!("{}: {}", title, desc))
-            } else {
-                Some(title.to_string())
-            }
-        } else {
-            mcp_tool.description.as_ref().map(|d| d.to_string())
-        };
-
-        let tool_def_function =
-            ToolDefFunction { name: tool_name.clone(), description, parameters };
-
-        Ok(ToolDef { r#type: "function".to_string(), function: tool_def_function })
     }
 
     /// Convert OpenAI-style tool call arguments to MCP format

@@ -1,5 +1,5 @@
-use crate::ai::mcp_client::McpClient;
 use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
+use windmill_common::mcp_client::McpClient;
 use crate::ai::utils::{
     add_message_to_conversation, cleanup_mcp_clients, find_unique_tool_name,
     get_flow_chat_settings, get_flow_job_runnable_and_raw_flow, get_step_name_from_flow,
