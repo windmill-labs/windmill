@@ -325,6 +325,18 @@
 					lang: value.language
 				}
 				break
+			case 'flow':
+				const schema = flowStateStore.val[flowModule.id].schema
+				const code = schema?.['x-windmill-dyn-select-code']
+				const lang = schema?.['x-windmill-dyn-select-lang']
+				if (code && lang) {
+					helperScript = {
+						source: 'inline',
+						code,
+						lang
+					}
+				}
+				break
 			default:
 				helperScript = undefined
 		}
