@@ -170,10 +170,10 @@
 								}}
 							>
 								<Cell first>
-									<span class="text-blue-500">{name}</span>
+									<span class="text-emphasis text-xs font-medium">{name}</span>
 									{#if summary}
 										<br />
-										<span class="text-gray-500">{summary}</span>
+										<span class="text-2xs font-normal text-secondary">{summary}</span>
 									{/if}
 								</Cell>
 								<FolderUsageInfo {name} tabular />
