@@ -2,15 +2,17 @@ use crate::db::ApiAuthed;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use http::StatusCode;
+use itertools::Itertools;
 use reqwest::{Client, Method};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use sqlx::{FromRow, PgConnection, Postgres};
 use std::{collections::HashMap, fmt::Debug};
-use strum::EnumIter;
+use strum::{EnumIter, IntoEnumIterator};
 use tokio::task;
 use windmill_common::{
     error::{to_anyhow, Error, Result},
+    triggers::TriggerKind,
     utils::RunnableKind,
     variables::{build_crypt, decrypt, encrypt},
     DB,
@@ -31,10 +33,33 @@ pub enum ServiceName {
     Nextcloud,
 }
 
+impl TryFrom<String> for ServiceName {
+    type Error = Error;
+    fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
+        let service = match value.as_str() {
+            "nextcloud" => ServiceName::Nextcloud,
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unknown service, currently supported services are: [{}]",
+                    ServiceName::iter().join(",")
+                )
+                .into())
+            }
+        };
+
+        Ok(service)
+    }
+}
+
 impl ServiceName {
     pub fn as_str(&self) -> &'static str {
         match self {
             ServiceName::Nextcloud => "nextcloud",
+        }
+    }
+    pub fn as_trigger_kind(&self) -> TriggerKind {
+        match self {
+            ServiceName::Nextcloud => TriggerKind::Nextcloud,
         }
     }
 }

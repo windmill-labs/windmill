@@ -6,10 +6,8 @@ use std::collections::HashMap;
 use windmill_common::{
     error::{Error, Result},
     triggers::TriggerKind,
-    worker::to_raw_value,
     BASE_URL, DB,
 };
-use windmill_queue::PushArgsOwned;
 
 use crate::{
     native_triggers::{
@@ -102,9 +100,9 @@ pub struct Node {
 
 impl TriggerJobArgs for NextCloud {
     const TRIGGER_KIND: TriggerKind = TriggerKind::Nextcloud;
-    type Payload = WebhookPayload;
+    type Payload = Box<RawValue>;
     fn v1_payload_fn(payload: &Self::Payload) -> HashMap<String, Box<RawValue>> {
-        HashMap::from([("payload".to_string(), to_raw_value(&payload))])
+        HashMap::from([("payload".to_owned(), payload.to_owned())])
     }
 }
 
@@ -250,29 +248,6 @@ impl External for NextCloud {
             })?;
 
         Ok(())
-    }
-
-    async fn prepare_webhook(
-        &self,
-        db: &DB,
-        w_id: &str,
-        header: HashMap<String, String>,
-        body: String,
-        runnable_path: &str,
-        is_flow: bool,
-    ) -> Result<PushArgsOwned> {
-        let payload = serde_json::from_str::<WebhookPayload>(&body)?;
-        let job_args = Self::build_job_args(
-            runnable_path,
-            is_flow,
-            w_id,
-            &db,
-            payload,
-            HashMap::from([("headers".to_string(), to_raw_value(&header))]),
-        )
-        .await?;
-
-        Ok(job_args)
     }
 
     async fn exists(

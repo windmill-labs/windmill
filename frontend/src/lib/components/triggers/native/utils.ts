@@ -22,7 +22,7 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 		supportsFetchConfig: true,
 		isCloudCompatible: true,
 		templates: {
-			script: 'hub/19824/nextcloud-script-with-preprocessor-template-windmill',
+			script: 'hub/19826/nextcloud-script-with-preprocessor-template-windmill',
 			flow: 'hub/19824/nextcloud-flow-with-preprocessor-template-windmill'
 		}
 	}
