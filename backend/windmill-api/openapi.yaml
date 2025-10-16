@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.558.1
+  version: 1.561.0
   title: Windmill API
 
   contact:
@@ -1718,6 +1718,11 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: only_delete_forks
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: status
@@ -4186,6 +4191,29 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/resources/git_commit_hash/{path}:
+    get:
+      summary: get git repository latest commit hash
+      operationId: getGitCommitHash
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: git commit hash
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  commit_hash:
+                    type: string
+                    description: Latest commit hash from git ls-remote
+                required:
+                  - commit_hash
 
   /w/{workspace}/resources/exists/{path}:
     get:
@@ -13436,6 +13464,160 @@ paths:
               schema:
                 $ref: "#/components/schemas/WindmillFilePreview"
 
+  /w/{workspace}/job_helpers/list_git_repo_files:
+    get:
+      summary: List the file keys available in instance object storage with resource-based access control
+      operationId: listGitRepoFiles
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: max_keys
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: marker
+          in: query
+          schema:
+            type: string
+        - name: prefix
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of file keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  next_marker:
+                    type: string
+                  windmill_large_files:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WindmillLargeFile"
+                  restricted_access:
+                    type: boolean
+                required:
+                  - windmill_large_files
+
+  /w/{workspace}/job_helpers/load_git_repo_file_preview:
+    get:
+      summary: Load a preview of a file from instance storage with resource-based access control
+      operationId: loadGitRepoFilePreview
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: file_size_in_bytes
+          in: query
+          schema:
+            type: integer
+        - name: file_mime_type
+          in: query
+          schema:
+            type: string
+        - name: csv_separator
+          in: query
+          schema:
+            type: string
+        - name: csv_has_header
+          in: query
+          schema:
+            type: boolean
+        - name: read_bytes_from
+          in: query
+          schema:
+            type: integer
+        - name: read_bytes_length
+          in: query
+          schema:
+            type: integer
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FilePreview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFilePreview"
+
+  /w/{workspace}/job_helpers/load_git_repo_file_metadata:
+    get:
+      summary: Load file metadata from instance storage with resource-based access control
+      operationId: loadGitRepoFileMetadata
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FileMetadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFileMetadata"
+
+  /w/{workspace}/job_helpers/check_s3_folder_exists:
+    get:
+      summary: Check if S3 path exists and is a folder
+      operationId: checkS3FolderExists
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          description: S3 file key to check (e.g., gitrepos/{workspace_id}/u/user/resource/{commit_hash})
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: S3 folder existence check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exists:
+                    type: boolean
+                    description: Whether the path exists
+                  is_folder:
+                    type: boolean
+                    description: Whether the path is a folder (true) or file (false)
+                required:
+                  - exists
+                  - is_folder
+
   /w/{workspace}/job_helpers/load_parquet_preview/{path}:
     get:
       summary: Load a preview of a parquet file
@@ -13615,6 +13797,67 @@ paths:
     post:
       summary: Upload file to S3 bucket
       operationId: fileUpload
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: file_extension
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - name: content_type
+          in: query
+          schema:
+            type: string
+        - name: content_disposition
+          in: query
+          schema:
+            type: string
+      requestBody:
+        description: File content
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: File upload status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_key:
+                    type: string
+                required:
+                  - file_key
+
+  /w/{workspace}/job_helpers/upload_git_repo_file_to_instance_storage:
+    post:
+      summary: Upload a file to the instance storage gitrepos section for viewing
+      operationId: gitRepoViewerFileUpload
       tags:
         - helpers
       parameters:

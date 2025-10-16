@@ -374,7 +374,7 @@ pub async fn append_logs(
     match conn {
         Connection::Sql(pool) => {
             if let Err(err) = sqlx::query!(
-                "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, $1::text)",
+                "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, EXCLUDED.logs)",
                 logs.as_ref(),
                 job_id,
                 workspace.as_ref(),
@@ -1429,7 +1429,7 @@ fn apply_completed_job_cloud_usage(
                 let _ = sqlx::query!(
                     "INSERT INTO usage (id, is_workspace, month_, usage) 
                     VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
-                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
+                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + EXCLUDED.usage",
                     w_id,
                     additional_usage as i32
                 )
@@ -1443,7 +1443,7 @@ fn apply_completed_job_cloud_usage(
                     let _ = sqlx::query!(
                         "INSERT INTO usage (id, is_workspace, month_, usage) 
                         VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
-                        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
+                        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + EXCLUDED.usage",
                         email,
                         additional_usage as i32
                     )
@@ -4327,7 +4327,7 @@ pub async fn push<'c, 'd>(
         inserted_job_perms AS (
             INSERT INTO job_perms (job_id, email, username, is_admin, is_operator, folders, groups, workspace_id, end_user_email) 
             values ($1, $32, $33, $34, $35, $36, $37, $2, $41) 
-            ON CONFLICT (job_id) DO UPDATE SET email = $32, username = $33, is_admin = $34, is_operator = $35, folders = $36, groups = $37, workspace_id = $2
+            ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email
         )
         INSERT INTO v2_job_queue
             (workspace_id, id, running, scheduled_for, started_at, tag, priority)

@@ -29,7 +29,8 @@
 		defaultModel = $bindable(),
 		customPrompts = $bindable(),
 		maxTokensPerModel = $bindable(),
-		usingOpenaiClientCredentialsOauth = $bindable()
+		usingOpenaiClientCredentialsOauth = $bindable(),
+		onSave
 	}: {
 		aiProviders: Exclude<AIConfig['providers'], undefined>
 		codeCompletionModel: string | undefined
@@ -37,6 +38,7 @@
 		customPrompts: Record<string, string>
 		maxTokensPerModel: Record<string, number>
 		usingOpenaiClientCredentialsOauth: boolean
+		onSave?: () => void
 	} = $props()
 
 	let fetchedAiModels = $state(false)
@@ -122,6 +124,7 @@
 			setCopilotInfo({})
 		}
 		sendUserToast(`Copilot settings updated`)
+		onSave?.()
 	}
 
 	async function onAiProviderChange(provider: AIProvider) {

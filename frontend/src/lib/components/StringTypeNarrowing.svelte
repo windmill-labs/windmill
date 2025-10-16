@@ -375,10 +375,14 @@
 		/>
 	{/if}
 
-	{#if kind == 'none' || kind == 'pattern'}
+	{#if kind == 'none' || kind == 'pattern' || kind == 'format'}
 		<Toggle
 			size="xs"
-			options={{ right: 'Is Password' }}
+			options={{
+				right: 'Is Password/Sensitive',
+				rightTooltip:
+					'The value will be stored as an ephemeral secret variable in the user space of the caller of the job, only viewable by him.'
+			}}
 			checked={password}
 			on:change={(e) => {
 				if (e.detail) {

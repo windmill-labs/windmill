@@ -21,7 +21,9 @@ use windmill_parser_sql::{parse_db_resource, parse_mssql_sig, parse_s3_mode};
 use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
-use crate::common::{build_args_values, s3_mode_args_to_worker_data, OccupancyMetrics};
+use crate::common::{
+    build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, OccupancyMetrics,
+};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use windmill_common::client::AuthedClient;
@@ -56,7 +58,7 @@ lazy_static::lazy_static! {
 
 pub async fn do_mssql(
     job: &MiniPulledJob,
-    client: &AuthedClient,
+    authed_client: &AuthedClient,
     query: &str,
     conn: &Connection,
     mem_peak: &mut i32,
@@ -64,15 +66,17 @@ pub async fn do_mssql(
     worker_name: &str,
     occupancy_metrics: &mut OccupancyMetrics,
     job_dir: &str,
+    parent_runnable_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
-    let mssql_args = build_args_values(job, client, conn).await?;
+    let mssql_args = build_args_values(job, authed_client, conn).await?;
 
     let inline_db_res_path = parse_db_resource(&query);
-    let s3 = parse_s3_mode(&query)?.map(|s3| s3_mode_args_to_worker_data(s3, client.clone(), job));
+    let s3 = parse_s3_mode(&query)?
+        .map(|s3| s3_mode_args_to_worker_data(s3, authed_client.clone(), job));
 
     let db_arg = if let Some(inline_db_res_path) = inline_db_res_path {
         Some(
-            client
+            authed_client
                 .get_resource_value_interpolated::<serde_json::Value>(
                     &inline_db_res_path,
                     Some(job.id.to_string()),
@@ -189,8 +193,11 @@ pub async fn do_mssql(
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
+    let reserved_variables =
+        get_reserved_variables(job, &authed_client.token, conn, parent_runnable_path).await?;
+
     let (query, args_to_skip) =
-        &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &mssql_args)?;
+        &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &mssql_args, &reserved_variables)?;
 
     let mut prepared_query = Query::new(query.to_owned());
     for arg in &sig {
