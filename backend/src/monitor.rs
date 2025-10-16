@@ -2726,7 +2726,7 @@ pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<(
 async fn generate_and_save_jwt_secret(db: &DB) -> error::Result<String> {
     let secret = rd_string(32);
     sqlx::query!(
-        "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2",
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
         JWT_SECRET_SETTING,
         serde_json::to_value(&secret).unwrap()
     ).execute(db).await?;

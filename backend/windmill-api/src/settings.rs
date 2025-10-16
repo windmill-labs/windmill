@@ -334,7 +334,7 @@ pub async fn set_global_setting_internal(
         }
         v => {
             sqlx::query!(
-                 "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
+                 "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
                  key,
                  v
              )

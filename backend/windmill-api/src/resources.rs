@@ -28,6 +28,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
 use sql_builder::{bind::Bind, quote, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
+use std::process::Stdio;
+use tokio::process::Command;
 use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
@@ -58,6 +60,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_resource))
         .route("/delete_bulk", delete(delete_resources_bulk))
         .route("/create", post(create_resource))
+        .route("/git_commit_hash/*path", get(get_git_commit_hash))
         .route("/type/list", get(list_resource_types))
         .route("/type/listnames", get(list_resource_types_names))
         .route("/type/get/:name", get(get_resource_type))
@@ -737,7 +740,7 @@ async fn create_resource(
         "INSERT INTO resource
             (workspace_id, path, value, description, resource_type, created_by, edited_at)
             VALUES ($1, $2, $3, $4, $5, $6, now()) ON CONFLICT (workspace_id, path)
-            DO UPDATE SET value = $3, description = $4, resource_type = $5, edited_at = now()",
+            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now()",
         w_id,
         resource.path,
         raw_json as sqlx::types::Json<&RawValue>,
@@ -1386,4 +1389,101 @@ where
     };
 
     Ok(resource)
+}
+
+#[derive(Deserialize, Serialize)]
+struct GitRepositoryResource {
+    url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch: Option<String>,
+}
+
+#[derive(Serialize)]
+struct GitCommitHashResponse {
+    commit_hash: String,
+}
+
+async fn get_git_commit_hash(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<GitCommitHashResponse> {
+    let path = path.to_path();
+
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+
+    let git_repo_resource_value = get_resource_value_interpolated_internal(
+        &authed,
+        Some(user_db),
+        &db,
+        &w_id,
+        path,
+        None,
+        &token,
+        false,
+    )
+    .await
+    .map_err(|e| Error::NotAuthorized(format!("Access to resource {} denied: ({e})", path)))?;
+
+    let git_resource: GitRepositoryResource = match git_repo_resource_value {
+        Some(value) => serde_json::from_value(value).map_err(|e| {
+            Error::BadRequest(format!("Invalid git repository resource format: {}", e))
+        })?,
+        None => return Err(Error::NotFound(format!("Resource {} not found", path)).into()),
+    };
+
+    let commit_hash = get_repo_latest_commit_hash(&git_resource).await?;
+
+    Ok(Json(GitCommitHashResponse { commit_hash }))
+}
+
+async fn get_repo_latest_commit_hash(git_resource: &GitRepositoryResource) -> Result<String> {
+    let mut git_cmd = Command::new("git");
+
+    let ref_spec = git_resource
+        .branch
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("HEAD");
+
+    git_cmd.args(["ls-remote", &git_resource.url, ref_spec]);
+    git_cmd.stderr(Stdio::piped());
+
+    let output = git_cmd
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute git command: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)
+            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        return Err(Error::BadRequest(format!(
+            "Error getting git repo commit hash: {}",
+            stderr
+        )));
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| Error::internal_err(format!("Failed to decode git output: {}", e)))?;
+
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    if lines.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "No commits found for reference '{}' in repository '{}'",
+            ref_spec, git_resource.url
+        )));
+    }
+
+    let commit_hash = lines
+        .first()
+        .and_then(|line| line.split_whitespace().next())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            Error::BadRequest("Unexpected output format for git ls-remote".to_string())
+        })?;
+
+    Ok(commit_hash)
 }

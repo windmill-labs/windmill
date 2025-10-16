@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.560.0](https://github.com/windmill-labs/windmill/compare/v1.559.0...v1.560.0) (2025-10-15)
+
+
+### Features
+
+* add support for zoho oauth ([#6809](https://github.com/windmill-labs/windmill/issues/6809)) ([9d9c29f](https://github.com/windmill-labs/windmill/commit/9d9c29fdfa15cc655854ec909dea944d10ce7374))
+* **backend:** use flow nodes opti for ai agent steps ([#6808](https://github.com/windmill-labs/windmill/issues/6808)) ([8d5acda](https://github.com/windmill-labs/windmill/commit/8d5acda340cd105c5b0dfc2bfe59b7e996bd2707))
+* build pydoc for wmill python client and mount in container image ([#6828](https://github.com/windmill-labs/windmill/issues/6828)) ([d75e9e3](https://github.com/windmill-labs/windmill/commit/d75e9e3d92d43f449a6296b367018f8fa3da6507))
+* **settings:** add unsaved changes warning for workspace settings ([#6813](https://github.com/windmill-labs/windmill/issues/6813)) ([cb88187](https://github.com/windmill-labs/windmill/commit/cb8818796ddd68d2b2ee1dea5f9b0a648f0c1ec9))
+
+
+### Bug Fixes
+
+* always create instance groups with uuid ([#6826](https://github.com/windmill-labs/windmill/issues/6826)) ([48acc57](https://github.com/windmill-labs/windmill/commit/48acc57823792c9e795f9735712e1b2ed6d2b4e2))
+* bug for loop flow inconsistent state ([#6815](https://github.com/windmill-labs/windmill/issues/6815)) ([2565222](https://github.com/windmill-labs/windmill/commit/256522273ee65b67075ac91408825b1c6e91ef06))
+* fix concurrency key filter ([892ce64](https://github.com/windmill-labs/windmill/commit/892ce64ea8550c22d65180c71f57c90a65583832))
+* gcp script picker ([#6837](https://github.com/windmill-labs/windmill/issues/6837)) ([d12c8f3](https://github.com/windmill-labs/windmill/commit/d12c8f34efe5ebbdbbf85ae41bb11307dc5d8ea3))
+* resource editor should not autoselect resources for optional fields ([#6821](https://github.com/windmill-labs/windmill/issues/6821)) ([85d1b8a](https://github.com/windmill-labs/windmill/commit/85d1b8a3e6af41bba93128ebcb88ada383ed2d65))
+* support dyn select for sub flow ([#6835](https://github.com/windmill-labs/windmill/issues/6835)) ([b211155](https://github.com/windmill-labs/windmill/commit/b211155784135b1377975a2759f2ddca1cffcea2))
+
 ## [1.559.0](https://github.com/windmill-labs/windmill/compare/v1.558.1...v1.559.0) (2025-10-14)
 
 

@@ -18,7 +18,7 @@ use uuid::Uuid;
 use windmill_common::assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind};
 use windmill_common::error::Error;
 use windmill_common::error::Result;
-use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeFlow, FlowNodeId};
+use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::utils::WarnAfterExt;
@@ -1485,10 +1485,8 @@ async fn insert_flow_modules<'c>(
     workspace_id: &str,
     failure_module: Option<&Box<FlowModule>>,
     same_worker: bool,
-    summary: Option<String>,
     modules: &mut Vec<FlowModule>,
     modules_node: &mut Option<FlowNodeId>,
-    force_insert: bool,
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     tx = Box::pin(reduce_flow(
         tx,
@@ -1499,22 +1497,9 @@ async fn insert_flow_modules<'c>(
         same_worker,
     ))
     .await?;
-    if !force_insert
-        && (modules.is_empty() || crate::worker_flow::is_simple_modules(modules, failure_module))
-    {
+    if modules.is_empty() || crate::worker_flow::is_simple_modules(modules, failure_module) {
         return Ok(tx);
     }
-
-    let flow_node_flow = FlowNodeFlow {
-        value: FlowValue {
-            modules: std::mem::take(modules),
-            failure_module: failure_module.cloned(),
-            same_worker,
-            ..Default::default()
-        },
-        summary,
-    };
-
     let id;
     (tx, id) = insert_flow_node(
         tx,
@@ -1522,7 +1507,12 @@ async fn insert_flow_modules<'c>(
         workspace_id,
         None,
         None,
-        Some(&Json(to_raw_value(&flow_node_flow))),
+        Some(&Json(to_raw_value(&FlowValue {
+            modules: std::mem::take(modules),
+            failure_module: failure_module.cloned(),
+            same_worker,
+            ..Default::default()
+        }))),
         None,
     )
     .await?;
@@ -1599,10 +1589,8 @@ async fn reduce_flow<'c>(
                     workspace_id,
                     failure_module,
                     same_worker,
-                    None,
                     modules,
                     modules_node,
-                    false,
                 )
                 .await?;
             }
@@ -1614,10 +1602,8 @@ async fn reduce_flow<'c>(
                         workspace_id,
                         failure_module,
                         same_worker,
-                        None,
                         &mut branch.modules,
                         &mut branch.modules_node,
-                        false,
                     )
                     .await?;
                 }
@@ -1627,10 +1613,8 @@ async fn reduce_flow<'c>(
                     workspace_id,
                     failure_module,
                     same_worker,
-                    None,
                     default,
                     default_node,
-                    false,
                 )
                 .await?;
             }
@@ -1642,27 +1626,11 @@ async fn reduce_flow<'c>(
                         workspace_id,
                         failure_module,
                         same_worker,
-                        None,
                         &mut branch.modules,
                         &mut branch.modules_node,
-                        false,
                     )
                     .await?;
                 }
-            }
-            AIAgent { tools, modules_node, .. } => {
-                tx = insert_flow_modules(
-                    tx,
-                    path,
-                    workspace_id,
-                    failure_module,
-                    same_worker,
-                    module.summary.clone(), // we only include summary for ai agents modules
-                    tools,
-                    modules_node,
-                    true,
-                )
-                .await?;
             }
             _ => {}
         }
