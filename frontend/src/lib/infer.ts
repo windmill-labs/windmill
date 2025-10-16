@@ -114,7 +114,7 @@ export async function inferAssets(
 	return []
 }
 
-export async function inferAnsibleExecutionMode(code: string) {
+export async function inferAnsibleExecutionMode(code: string): any {
 	try {
 		await initWasmYaml()
 		return JSON.parse(parse_ansible_delegate(code))
