@@ -450,9 +450,9 @@
 </script>
 
 {#if arg != undefined && !hidden}
-	<div class={twMerge('pt-2 pb-2 relative group', className)}>
-		<div class="flex flex-row justify-between gap-1 pb-1">
-			<div class="flex flex-wrap grow min-h-7 items-end">
+	<div class={twMerge('relative group flex flex-col gap-1', className)}>
+		<div class="flex flex-row flex-wrap justify-between gap-1">
+			<div class="flex grow min-h-7 items-end">
 				<FieldHeader
 					label={argName}
 					simpleTooltip={headerTooltip}
@@ -608,10 +608,16 @@
 										value="static"
 										label={'${}'}
 										{item}
-										class="h-full"
+										class="h-full text-3xs"
 									/>
 								{:else}
-									<ToggleButton small label="static" value="static" {item} class="h-full" />
+									<ToggleButton
+										small
+										label="static"
+										value="static"
+										{item}
+										class="h-full text-3xs"
+									/>
 								{/if}
 
 								{#if codeInjectionDetected && propertyType == 'static'}
@@ -644,7 +650,6 @@
 			{/if}
 		</div>
 
-		<div class="max-w-xs"></div>
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="relative" onkeyup={handleKeyUp}>
 			<!-- {#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
@@ -656,10 +661,17 @@
 			{/if} -->
 			<!-- {inputCat}
 			{propertyType} -->
-			<div class="relative flex flex-row items-top gap-2 justify-between">
+			<div class="relative flex flex-row items-top gap-1 justify-between">
 				<div class="min-w-0 grow">
 					{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-						<div>
+						<div class="flex flex-col gap-1">
+							{#if argName && schema?.properties?.[argName]?.description}
+								<div class="text-xs text-primary">
+									<pre class="font-main whitespace-normal">
+										{schema.properties[argName].description}
+										</pre>
+								</div>
+							{/if}
 							{#if arg}
 								<TemplateEditor
 									yPadding={7}
@@ -677,13 +689,6 @@
 									loadAsync
 									class="bg-surface-tertiary"
 								/>
-							{/if}
-							{#if argName && schema?.properties?.[argName]?.description}
-								<div class="text-xs italic py-1 text-hint">
-									<pre class="font-main whitespace-normal"
-										>{schema.properties[argName].description}</pre
-									>
-								</div>
 							{/if}
 						</div>
 					{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}

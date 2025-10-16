@@ -102,7 +102,7 @@
 	{#if keys.length > 0}
 		{#each keys as argName, index (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
-				<ResizeTransitionWrapper class="mt-2 relative" innerClass="w-full" vertical>
+				<ResizeTransitionWrapper class="mt-6 relative" innerClass="w-full" vertical>
 					<InputTransformForm
 						{previousModuleId}
 						bind:arg={args[argName]}

@@ -24,8 +24,8 @@
 	<span
 		class={twMerge(
 			disabled ? 'text-tertiary' : '',
-			'font-semibold',
-			lightHeader ? 'text-secondary text-sm font-normal' : '',
+			'font-medium text-xs',
+			lightHeader ? 'text-secondary font-normal' : 'text-emphasis',
 			labelClass
 		)}
 	>
@@ -40,7 +40,7 @@
 	{/if}
 
 	{#if displayType}
-		<span class="text-xs italic ml-2 text-hint">
+		<span class="text-3xs italic ml-2 text-hint">
 			{#if format && !format.startsWith('resource') && !format.startsWith('jsonschema-')}
 				{format}
 			{:else}

@@ -558,7 +558,7 @@
 <!-- svelte-ignore a11y_autofocus -->
 <div
 	class={twMerge(
-		'flex flex-col w-full rounded-md relative group',
+		'flex flex-col gap-1 w-full rounded-md relative group',
 		minW ? 'min-w-[250px]' : '',
 		diffStatus?.diff ? 'px-2' : '',
 		diffStatus?.diff == 'added'
@@ -573,6 +573,12 @@
 	)}
 	data-schema-picker
 >
+	{#if description}
+		<div class={twMerge('text-xs text-primary', css?.description?.class)}>
+			<pre class="font-main whitespace-normal">{description}</pre>
+		</div>
+	{/if}
+
 	{#if diffStatus && typeof diffStatus === 'object' && diffStatus.diff !== 'same'}
 		<div
 			class="absolute top-0 right-2 rounded-md rounded-t-none flex flex-row overflow-hidden bg-surface"
@@ -1292,7 +1298,6 @@
 						dispatch('blur')
 					}}
 					enumLabels={extra['enumLabels']}
-					selectClass="min-h-10"
 				/>
 			</div>
 		{:else if inputCat == 'date'}
@@ -1432,12 +1437,6 @@
 		{/if}
 		{@render actions?.()}
 	</div>
-
-	{#if description}
-		<div class={twMerge('text-2xs italic py-1 text-hint', css?.description?.class)}>
-			<pre class="font-main whitespace-normal">{description}</pre>
-		</div>
-	{/if}
 
 	{#if !compact || (error && error != '')}
 		{#if disabled || error === ''}
