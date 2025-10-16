@@ -8,7 +8,7 @@ use crate::ai::utils::{
 };
 use crate::common::{error_to_value, OccupancyMetrics};
 use crate::result_processor::handle_non_flow_job_error;
-use crate::worker_flow::{raw_script_to_payload, script_to_payload};
+use crate::worker_flow::{raw_script_to_payload, script_to_payload, JobPayloadWithTag};
 use crate::{
     create_job_dir, handle_queued_job, JobCompletedReceiver, JobCompletedSender, SendResult,
     SendResultPayload,
@@ -17,6 +17,7 @@ use anyhow::Context;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
+use windmill_common::jobs::JobPayload;
 use windmill_common::mcp_client::{McpClient, McpToolSource};
 use windmill_common::{
     client::AuthedClient,
@@ -323,6 +324,35 @@ async fn execute_windmill_tool(
                 tag,
                 tool_module.delete_after_use.unwrap_or(false),
             )
+        }
+        FlowModuleValue::FlowScript {
+            id,
+            language,
+            custom_concurrency_key,
+            concurrent_limit,
+            concurrency_time_window_s,
+            tag,
+            ..
+        } => {
+            let path = format!("{}/tools/{}", ctx.job.runnable_path(), tool_module.id);
+
+            let payload = JobPayloadWithTag {
+                payload: JobPayload::FlowScript {
+                    id,
+                    language,
+                    custom_concurrency_key: custom_concurrency_key.clone(),
+                    concurrent_limit,
+                    concurrency_time_window_s,
+                    cache_ttl: tool_module.cache_ttl.map(|x| x as i32),
+                    dedicated_worker: None,
+                    path,
+                },
+                tag: tag.clone(),
+                delete_after_use: tool_module.delete_after_use.unwrap_or(false),
+                timeout: None,
+                on_behalf_of: None,
+            };
+            payload
         }
         _ => {
             return Err(Error::internal_err(format!(
