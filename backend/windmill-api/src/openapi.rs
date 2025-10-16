@@ -9,6 +9,7 @@ use axum::{
 };
 use http::{header, HeaderValue, Method, StatusCode};
 use indexmap::IndexMap;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{to_value, Map, Value};
 use sqlx::PgConnection;
@@ -20,18 +21,13 @@ use windmill_common::{
     DB,
 };
 
-use crate::{db::ApiAuthed, triggers::http::RequestType};
-
-#[cfg(feature = "http_trigger")]
-use {
-    crate::{
-        resources::try_get_resource_from_db_as,
-        triggers::http::{
-            http_trigger_args::HttpMethod, http_trigger_auth::ApiKeyAuthentication,
-            AuthenticationMethod,
-        },
+use crate::{
+    db::ApiAuthed,
+    resources::try_get_resource_from_db_as,
+    triggers::http::{
+        http_trigger_args::HttpMethod, http_trigger_auth::ApiKeyAuthentication,
+        AuthenticationMethod, RequestType,
     },
-    itertools::Itertools,
 };
 
 lazy_static::lazy_static! {
@@ -441,19 +437,6 @@ pub fn transform_to_minified_postgres_regex(glob: &str) -> String {
     regex
 }
 
-#[derive(Debug, Default)]
-pub struct ServerToSet {
-    pub http_route: bool,
-    pub webhook_flow: bool,
-    pub webhook_script: bool,
-}
-
-impl ServerToSet {
-    pub fn new(http_route: bool, webhook_flow: bool, webhook_script: bool) -> ServerToSet {
-        ServerToSet { http_route, webhook_flow, webhook_script }
-    }
-}
-
 fn header_to_pascal_case(header: &str) -> String {
     header
         .split(|c: char| c == '-' || c == '_' || c == ' ')
@@ -675,7 +658,6 @@ struct GenerateOpenAPI {
     openapi_spec_format: Format,
 }
 
-#[cfg(feature = "http_trigger")]
 async fn http_routes_to_future_paths(
     db: &DB,
     user_db: UserDB,
@@ -687,8 +669,6 @@ async fn http_routes_to_future_paths(
     let mut http_routes = Vec::new();
 
     if let Some(http_route_filters) = http_route_filters {
-        use crate::triggers::http::RequestType;
-
         let path_regex = http_route_filters
             .iter()
             .map(|filter| {
@@ -800,18 +780,6 @@ async fn http_routes_to_future_paths(
     }
 
     Ok(openapi_future_paths)
-}
-
-#[cfg(not(feature = "http_trigger"))]
-async fn http_routes_to_future_paths(
-    _db: &DB,
-    _user_db: UserDB,
-    _authed: &ApiAuthed,
-    _pg_pool: &mut PgConnection,
-    _http_route_filters: Option<&[HttpRouteFilter]>,
-    _w_id: &str,
-) -> Result<Vec<FuturePath>> {
-    Ok(Vec::new())
 }
 
 async fn webhook_to_future_paths(
