@@ -13,6 +13,7 @@ use serde_json::value::RawValue;
 use serde_json::{from_value, json, Value};
 use sha2::Digest;
 use sqlx::types::Json;
+use tokio::time::timeout;
 use uuid::Uuid;
 use windmill_common::assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind};
 use windmill_common::error::Error;
@@ -20,6 +21,7 @@ use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeFlow, FlowNodeId};
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::ScriptHash;
+use windmill_common::utils::WarnAfterExt;
 #[cfg(feature = "python")]
 use windmill_common::worker::PythonAnnotations;
 use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
@@ -476,17 +478,21 @@ pub async fn process_relative_imports(
 
         // But currently we will do this extra db call for every script regardless of whether they have relative imports or not
         // Script might have no relative imports but still be referenced by someone else.
-        if let Err(e) = trigger_dependents_to_recompute_dependencies(
-            w_id,
-            script_path,
-            deployment_message,
-            parent_path,
-            permissioned_as_email,
-            created_by,
-            permissioned_as,
-            db,
-            already_visited,
+        if let Err(e) = timeout(
+            core::time::Duration::from_secs(60),
+            trigger_dependents_to_recompute_dependencies(
+                w_id,
+                script_path,
+                deployment_message,
+                parent_path,
+                permissioned_as_email,
+                created_by,
+                permissioned_as,
+                db,
+                already_visited,
+            ),
         )
+        .warn_after_seconds(10)
         .await
         {
             tracing::error!(%e, "error triggering dependents to recompute dependencies");

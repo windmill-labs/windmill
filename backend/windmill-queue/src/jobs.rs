@@ -3695,9 +3695,17 @@ pub async fn push<'c, 'd>(
             None,
         ),
         JobPayload::FlowDependencies { path, dedicated_worker, version } => {
+            #[cfg(test)]
+            let skip_compat = args
+                .args
+                .contains_key("dbg_create_job_for_unexistant_flow_version");
+
+            #[cfg(not(test))]
+            let skip_compat = false;
+
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
-            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
+            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await && !skip_compat {
                 let mut ntx = tx.into_tx().await?;
                 // The version has been inserted only within the transaction.
                 let data = cache::flow::fetch_version(&mut *ntx, version).await?;
@@ -5132,8 +5140,7 @@ pub async fn get_same_worker_job(
     })
 }
 
-/// TODO: Comms
-pub async fn debouncing_job_preprocessor(job: &mut PulledJob, db: &DB) -> error::Result<()> {
+pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::Result<()> {
     let kind = job.kind;
     // Handle dependency job debouncing cleanup when a job is pulled for execution
     if kind.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING {
@@ -5245,17 +5252,6 @@ pub async fn debouncing_job_preprocessor(job: &mut PulledJob, db: &DB) -> error:
                         &mut tx,
                     )
                     .await?;
-
-                    // sqlx::query!(
-                    //     "
-                    //     INSERT INTO unlocked_script_latest_version (key, version) VALUES ($1, $2)
-                    //     ON CONFLICT (key) DO UPDATE SET version = $2
-                    //     ",
-                    //     key,
-                    //     new_hash,
-                    // )
-                    // .execute(&mut *tx)
-                    // .await?;
 
                     new_hash
                 }

@@ -58,7 +58,7 @@ use std::{
     time::Duration,
 };
 use windmill_parser::MainArgSignature;
-use windmill_queue::debouncing_job_preprocessor;
+use windmill_queue::preprocess_dependency_job;
 use windmill_queue::PulledJobResultToJobErr;
 
 use uuid::Uuid;
@@ -1610,10 +1610,15 @@ pub async fn run_worker(
                             ..
                         }) = &mut job
                         {
-                            // TODO: Test if this fails
-                            if let Err(e) = debouncing_job_preprocessor(pulled_job, &db).await {
+                            if let Err(e) = timeout(
+                                core::time::Duration::from_secs(10),
+                                preprocess_dependency_job(pulled_job, &db),
+                            )
+                            .warn_after_seconds(2)
+                            .await
+                            {
                                 tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor failed: {e:?}");
-                                job = Err(e);
+                                job = Err(e.into());
                             }
                         }
 
