@@ -43,7 +43,7 @@
 		size="sm"
 		variant="accent-secondary"
 		btnClasses={twMerge(
-			'relative p-1.5 h-[36px] transition-all duration-200',
+			'relative p-1.5 mt-[2.5px] h-[33px] transition-all duration-200 drop-shadow-base',
 			wide ? 'w-[120px]' : 'w-[44.5px]'
 		)}
 		on:click={() => {
