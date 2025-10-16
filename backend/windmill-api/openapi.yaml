@@ -4201,6 +4201,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - name: git_ssh_identity
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: git commit hash

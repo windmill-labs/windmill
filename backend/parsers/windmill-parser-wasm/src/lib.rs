@@ -222,7 +222,6 @@ pub fn parse_assets_ansible(code: &str) -> String {
         return serde_json::to_string(&r).unwrap();
     } else {
         return format!("err: {:?}", o.err().unwrap());
-        return "Invalid".to_string();
     }
 }
 

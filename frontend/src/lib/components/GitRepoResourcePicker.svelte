@@ -12,6 +12,7 @@
 		currentCommit?: string
 		currentInventories?: string
 		currentPlaybook?: string
+		gitSshIdentity?: string[]
 	}
 
 	let {
@@ -19,7 +20,8 @@
 		currentResource = undefined,
 		currentCommit = undefined,
 		currentInventories = undefined,
-		currentPlaybook = undefined
+		currentPlaybook = undefined,
+		gitSshIdentity = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -120,7 +122,8 @@
 				try {
 					const result = await ResourceService.getGitCommitHash({
 						workspace: $workspaceStore!,
-						path: selectedResource
+						path: selectedResource,
+						gitSshIdentity: gitSshIdentity?.join(",")
 					})
 					commitHash = result.commit_hash
 				} catch (err) {

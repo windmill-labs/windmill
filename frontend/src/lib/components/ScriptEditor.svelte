@@ -163,13 +163,15 @@
 				inferAnsibleExecutionMode(code).then((v) => {
 					if (
 						v !== undefined &&
-						(v === null ||
-							v.resource !== ansibleAlternativeExecutionMode?.resource ||
-							v.playbook !== ansibleAlternativeExecutionMode?.playbook ||
-							v.inventories_location !== ansibleAlternativeExecutionMode?.inventories_location ||
-							v.commit !== ansibleAlternativeExecutionMode?.commit)
+						(v.delegate_to_git_repo_details === null ||
+							v.delegate_to_git_repo_details.resource !== ansibleAlternativeExecutionMode?.resource ||
+							v.delegate_to_git_repo_details.playbook !== ansibleAlternativeExecutionMode?.playbook ||
+							v.delegate_to_git_repo_details.inventories_location !== ansibleAlternativeExecutionMode?.inventories_location ||
+							v.delegate_to_git_repo_details.commit !== ansibleAlternativeExecutionMode?.commit ||
+							v.git_ssh_identity !== ansibleGitSshIdentity)
 					) {
-						ansibleAlternativeExecutionMode = v
+						ansibleAlternativeExecutionMode = v.delegate_to_git_repo_details
+						ansibleGitSshIdentity = v.git_ssh_identity
 					}
 				})
 			}
@@ -200,6 +202,7 @@
 		| null
 		| undefined
 	>()
+	let ansibleGitSshIdentity = $state<string[]>([])
 
 	const url = new URL(window.location.toString())
 	let initialCollab = /true|1/i.test(url.searchParams.get('collab') ?? '0')
@@ -612,7 +615,9 @@
 							</div>
 							<GitRepoViewer
 								gitRepoResourcePath={ansibleAlternativeExecutionMode?.resource || ''}
+								gitSshIdentity={ansibleGitSshIdentity}
 								bind:commitHashInput={commitHashForGitRepo}
+
 							/>
 						</div>
 					</Pane>
@@ -917,6 +922,7 @@
 	currentCommit={commitHashForGitRepo || ansibleAlternativeExecutionMode?.commit}
 	currentInventories={ansibleAlternativeExecutionMode?.inventories_location}
 	currentPlaybook={ansibleAlternativeExecutionMode?.playbook}
+	gitSshIdentity={ansibleGitSshIdentity}
 	on:selected={handleDelegateConfigUpdate}
 	on:addInventories={handleAddInventories}
 />
