@@ -997,7 +997,7 @@ pub async fn save_in_cache(
         "INSERT INTO resource
         (workspace_id, path, value, resource_type, created_by, edited_at)
         VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (workspace_id, path)
-        DO UPDATE SET value = $3, edited_at = now()",
+        DO UPDATE SET value = EXCLUDED.value, edited_at = now()",
         job.workspace_id,
         &cached_path,
         raw_json as Json<&CachedResource>,

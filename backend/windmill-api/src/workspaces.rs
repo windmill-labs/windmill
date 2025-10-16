@@ -1901,7 +1901,7 @@ async fn set_environment_variable(
     match value {
         Some(value) => {
             sqlx::query!(
-                "INSERT INTO workspace_env (workspace_id, name, value) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, name) DO UPDATE SET value = $3",
+                "INSERT INTO workspace_env (workspace_id, name, value) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, name) DO UPDATE SET value = EXCLUDED.value",
                 &w_id,
                 name,
                 value
@@ -3155,7 +3155,7 @@ async fn invite_user(
         "INSERT INTO workspace_invite
             (workspace_id, email, is_admin, operator)
             VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, email)
-            DO UPDATE SET is_admin = $3, operator = $4",
+            DO UPDATE SET is_admin = EXCLUDED.is_admin, operator = EXCLUDED.operator",
         &w_id,
         nu.email,
         nu.is_admin,

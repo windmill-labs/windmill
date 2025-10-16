@@ -740,7 +740,7 @@ async fn create_resource(
         "INSERT INTO resource
             (workspace_id, path, value, description, resource_type, created_by, edited_at)
             VALUES ($1, $2, $3, $4, $5, $6, now()) ON CONFLICT (workspace_id, path)
-            DO UPDATE SET value = $3, description = $4, resource_type = $5, edited_at = now()",
+            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now()",
         w_id,
         resource.path,
         raw_json as sqlx::types::Json<&RawValue>,
