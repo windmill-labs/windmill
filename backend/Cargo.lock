@@ -15701,6 +15701,7 @@ name = "windmill-parser-yaml"
 version = "1.560.0"
 dependencies = [
  "anyhow",
+ "serde",
  "serde_json",
  "windmill-parser",
  "yaml-rust",
