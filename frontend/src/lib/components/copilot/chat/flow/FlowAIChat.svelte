@@ -325,6 +325,17 @@
 					)
 					break
 				}
+				case 'aiagent': {
+					if (location.type === 'preprocessor' || location.type === 'failure') {
+						throw new Error('Cannot insert an AI agent module for preprocessing or error handling')
+					}
+					newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
+						modules,
+						indexToInsertAt,
+						step.type
+					)
+					break
+				}
 				default: {
 					throw new Error('Unknown step type')
 				}
@@ -363,7 +374,7 @@
 				throw new Error('Module not found')
 			}
 			const inputs =
-				module.value.type === 'script' || module.value.type === 'rawscript'
+				module.value.type === 'script' || module.value.type === 'rawscript' || module.value.type === 'aiagent'
 					? module.value.input_transforms
 					: {}
 
@@ -397,8 +408,8 @@
 					throw new Error('Module not found')
 				}
 
-				if (module.value.type !== 'script' && module.value.type !== 'rawscript') {
-					throw new Error('Module is not a script or rawscript')
+				if (module.value.type !== 'script' && module.value.type !== 'rawscript' && module.value.type !== 'aiagent') {
+					throw new Error('Module is not a script, rawscript, or aiagent')
 				}
 
 				for (const { input, value } of parsedInputs) {
