@@ -14,6 +14,8 @@
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { validateToolName } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
+	import { inputBorderClass } from '../text_input/TextInput.svelte'
+	import { flowAIBtnClasses } from './chat/flow/FlowAIButton.svelte'
 
 	type PromptConfig = {
 		system: string
@@ -263,10 +265,8 @@ Generate a tool name for the script below:
 		{#if active}
 			<span
 				class={twMerge(
-					'absolute text-xs bg-violet-100 text-violet-800 dark:bg-gray-700 dark:text-violet-400 px-1 py-0.5 rounded-md flex flex-row items-center justify-center gap-2 transition-all shrink-0',
-					!loading && generatedContent.length > 0
-						? 'bg-green-100 text-green-800 dark:text-green-400 dark:bg-green-700'
-						: ''
+					'rounded-md px-1 border',
+					flowAIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'default')
 				)}
 			>
 				<span class="px-0.5 py-0.5 rounded-md text-2xs text-bold flex flex-row items-center gap-1">
@@ -316,10 +316,10 @@ Generate a tool name for the script below:
 			bind:value={content}
 			placeholder={!active ? elementProps.placeholder : ''}
 			class={twMerge(
-				active ? '!indent-[3.5rem]' : '',
-				promptConfigName === 'agentToolFunctionName' &&
-					!validateToolName(content ?? '') &&
-					'!border-red-400'
+				inputBorderClass({
+					error: promptConfigName === 'agentToolFunctionName' && !validateToolName(content ?? '')
+				}),
+				active ? '!indent-[3.5rem]' : ''
 			)}
 			on:focus={() => (focused = true)}
 			on:blur={() => (focused = false)}

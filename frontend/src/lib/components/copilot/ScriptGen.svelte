@@ -24,13 +24,13 @@
 	import { fade } from 'svelte/transition'
 	import { isInitialCode } from '$lib/script_helpers'
 	import { twMerge } from 'tailwind-merge'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, type ComponentProps } from 'svelte'
 	import ProviderModelSelector from './chat/ProviderModelSelector.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 
 	interface Props {
 		// props
-		iconOnly?: boolean
+		btnProps?: ComponentProps<typeof Button>
 		lang: SupportedLanguage | 'bunnative' | 'frontend' | undefined
 		editor: Editor | SimpleEditor | undefined
 		diffEditor: DiffEditor | undefined
@@ -40,7 +40,7 @@
 	}
 
 	let {
-		iconOnly = false,
+		btnProps,
 		lang = $bindable(),
 		editor,
 		diffEditor,
@@ -315,6 +315,7 @@
 				variant="contained"
 				startIcon={{ icon: X }}
 				iconOnly
+				{...btnProps}
 			/>
 			<Button
 				title="Accept generated code"
@@ -324,6 +325,7 @@
 				on:click={acceptDiff}
 				iconOnly
 				startIcon={{ icon: Check }}
+				{...btnProps}
 			/>
 		</div>
 	{:else}
@@ -336,7 +338,7 @@
 				on:click={rejectDiff}
 				variant="contained"
 				startIcon={{ icon: X }}
-				{iconOnly}
+				{...btnProps}
 			>
 				Discard
 			</Button><Button
@@ -346,7 +348,7 @@
 				color="green"
 				on:click={acceptDiff}
 				startIcon={{ icon: Check }}
-				{iconOnly}
+				{...btnProps}
 			>
 				Accept
 			</Button>
@@ -378,6 +380,7 @@
 					startIcon={genLoading
 						? { icon: Ban }
 						: { icon: Wand2, classes: 'text-violet-800 dark:text-violet-400' }}
+					{...btnProps}
 				/>
 			{:else}
 				<Button
@@ -393,7 +396,7 @@
 					propagateEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
-					{iconOnly}
+					{...btnProps}
 				>
 					{#if genLoading}
 						Stop

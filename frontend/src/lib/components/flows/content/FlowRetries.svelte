@@ -108,7 +108,7 @@
 <div class="h-full flex flex-col gap-4">
 	<ToggleButtonGroup
 		bind:selected={delayType}
-		class={`h-10 ${disabled ? 'disabled' : ''}`}
+		class={`${disabled ? 'disabled' : ''}`}
 		on:selected={(e) => {
 			flowModuleRetry = undefined
 			if (e.detail === 'constant') {

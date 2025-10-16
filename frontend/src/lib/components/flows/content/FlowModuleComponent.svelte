@@ -347,7 +347,7 @@
 <svelte:window onkeydown={onKeyDown} />
 
 {#if flowModule.value}
-	<div class="h-full" bind:clientWidth={width}>
+	<div class="h-full bg-surface-tertiary" bind:clientWidth={width}>
 		<FlowCard
 			flowModuleValue={flowModule?.value}
 			on:reload={() => {

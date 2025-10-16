@@ -1460,7 +1460,7 @@ export function getOS() {
 
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import type { Snippet } from 'svelte'
+import type { Component, Snippet } from 'svelte'
 import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
 import type { IPosition } from 'monaco-editor'
 
@@ -1632,4 +1632,4 @@ export function getCssColor(color: CssColor, alpha = 1): string {
 	return `rgb(${rgb} / ${alpha})`
 }
 
-export type IconType = typeof import('lucide-svelte').Dot
+export type IconType = Component<{ size: number }> | typeof import('lucide-svelte').Dot
