@@ -116,7 +116,6 @@
 			script?: { path: string; summary: string; hash: string | undefined }
 			flow?: { path: string; summary: string }
 			kind: InsertKind
-			mcpResource?: string
 		}) => Promise<void>
 		onNewBranch?: (id: string) => Promise<void>
 		onSelect?: (id: string | FlowModule) => void

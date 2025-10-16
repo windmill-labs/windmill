@@ -517,37 +517,13 @@
 										instructions: detail.inlineScript?.instructions
 									})
 								}
-							} else if (detail.agentId) {
-								// Inserting into AI Agent tools array
-								const index = targetModules?.length ?? 0
-
-								// Determine tool kind based on detail.kind
-								const toolKind = detail.kind === 'mcpTool' ? 'mcpTool' : 'flowmoduleTool'
-
-								// Use unified insertion logic
-								await insertNewModuleAtIndex(
-									targetModules as AgentTool[],
-									index,
-									detail.kind, // For mcpTool, kind doesn't matter (creates empty module)
-									detail.script,
-									detail.flow,
-									detail.inlineScript,
-									toolKind // Pass toolKind parameter
-								)
-
-								const id = targetModules[index].id
-								$selectedId = id
-
-								// Handle AI step generation for inline scripts
-								if (detail.inlineScript?.instructions) {
-									dispatch('generateStep', {
-										moduleId: id,
-										lang: detail.inlineScript?.language,
-										instructions: detail.inlineScript?.instructions
-									})
-								}
 							} else {
-								const index = detail.index ?? 0
+								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
+								const toolKind = detail.agentId
+									? detail.kind === 'mcpTool'
+										? 'mcpTool'
+										: 'flowmoduleTool'
+									: undefined
 
 								await insertNewModuleAtIndex(
 									targetModules,
@@ -555,7 +531,8 @@
 									detail.kind,
 									detail.script,
 									detail.flow,
-									detail.inlineScript
+									detail.inlineScript,
+									toolKind
 								)
 								const id = targetModules[index].id
 								$selectedId = id
