@@ -22,7 +22,6 @@
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { formatCron } from '$lib/utils'
 	import AgentToolWrapper from './AgentToolWrapper.svelte'
-	import { type AgentTool } from '../agentToolUtils'
 
 	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 

@@ -1,6 +1,12 @@
 <script lang="ts">
 	import type { GraphModuleState } from './graph'
-	import { JobService, type CompletedJob, type FlowStatusModule, type Job } from '$lib/gen'
+	import {
+		JobService,
+		type CompletedJob,
+		type FlowModule,
+		type FlowStatusModule,
+		type Job
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import FlowLogViewerWrapper from './FlowLogViewerWrapper.svelte'
 	import { z } from 'zod'
@@ -151,10 +157,10 @@
 						} else {
 							const module = tools.find((m) => m.summary === toolCall.function_name)
 							return module
-								? {
+								? ({
 										...module,
 										id: idx.toString()
-									}
+									} as FlowModule)
 								: undefined
 						}
 					})
