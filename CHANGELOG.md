@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.562.0](https://github.com/windmill-labs/windmill/compare/v1.561.0...v1.562.0) (2025-10-16)
+
+
+### Features
+
+* add support for sage intacct oauth ([#6794](https://github.com/windmill-labs/windmill/issues/6794)) ([c86b344](https://github.com/windmill-labs/windmill/commit/c86b3448b86e008f14a25280285cc2f498eb926a))
+* dependency job debouncing ([#6769](https://github.com/windmill-labs/windmill/issues/6769)) ([defb6c9](https://github.com/windmill-labs/windmill/commit/defb6c9694ac294dbf19ba5cd42ce7399ad1b9ac))
+
+
+### Bug Fixes
+
+* add configurable timeout sse stream ([f723a1f](https://github.com/windmill-labs/windmill/commit/f723a1fb7227ae45661fea5cf2e6f9928a39672b))
+
 ## [1.561.0](https://github.com/windmill-labs/windmill/compare/v1.560.0...v1.561.0) (2025-10-16)
 
 
