@@ -5140,6 +5140,7 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
     // Handle dependency job debouncing cleanup when a job is pulled for execution
     if kind.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING {
         return Box::pin(async move {
+            
             // Only used for testing in tests/relative_imports.rs
             // Give us some space to work with.
             #[cfg(debug_assertions)]
