@@ -21,10 +21,10 @@ use windmill_common::{
     error::{self, Error},
     flow_conversations::MessageType,
     flow_status::AgentAction,
-    flows::{AgentTool, FlowModule, FlowModuleValue, FlowNodeId, ToolValue},
+    flows::{FlowModule, FlowModuleValue, ToolValue},
     get_latest_hash_for_path,
     jobs::JobKind,
-    scripts::{get_full_hub_script_by_path, ScriptHash},
+    scripts::get_full_hub_script_by_path,
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
 };
@@ -85,59 +85,37 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    let (tools, summary) = if let Some(ScriptHash(flow_node_id)) = job.runnable_id {
-        tracing::debug!(
-            "Fetching AI Agent flow data using flow node id {}",
-            flow_node_id
-        );
-        let flow_data = cache::flow::fetch_flow(db, FlowNodeId(flow_node_id)).await?;
+    let flow_job = get_flow_job_runnable_and_raw_flow(db, &parent_job).await?;
 
-        let value = flow_data.value();
-
-        (
-            value
-                .modules
-                .clone()
-                .into_iter()
-                .map(AgentTool::from)
-                .collect(),
-            flow_data.summary.clone(),
-        )
-    } else {
-        tracing::debug!("Fetching flow data for parent job of AI Agent job");
-        let flow_job = get_flow_job_runnable_and_raw_flow(db, &parent_job).await?;
-
-        let flow_data = match flow_job.kind {
-            JobKind::Flow | JobKind::FlowNode => {
-                cache::job::fetch_flow(db, &flow_job.kind, flow_job.runnable_id).await?
-            }
-            JobKind::FlowPreview => {
-                cache::job::fetch_preview_flow(db, &parent_job, flow_job.raw_flow).await?
-            }
-            _ => {
-                return Err(Error::internal_err(
-                    "expected parent flow, flow preview or flow node for ai agent job".to_string(),
-                ));
-            }
-        };
-
-        let value = flow_data.value();
-
-        let module = value.modules.iter().find(|m| m.id == *flow_step_id);
-
-        let Some(module) = module else {
+    let flow_data = match flow_job.kind {
+        JobKind::Flow | JobKind::FlowNode => {
+            cache::job::fetch_flow(db, &flow_job.kind, flow_job.runnable_id).await?
+        }
+        JobKind::FlowPreview => {
+            cache::job::fetch_preview_flow(db, &parent_job, flow_job.raw_flow).await?
+        }
+        _ => {
             return Err(Error::internal_err(
-                "AI agent module not found in flow".to_string(),
+                "expected parent flow, flow preview or flow node for ai agent job".to_string(),
             ));
-        };
+        }
+    };
 
-        let FlowModuleValue::AIAgent { tools, .. } = module.get_value()? else {
-            return Err(Error::internal_err(
-                "AI agent module is not an AI agent".to_string(),
-            ));
-        };
+    let value = flow_data.value();
 
-        (tools, module.summary.clone())
+    let module = value.modules.iter().find(|m| m.id == *flow_step_id);
+    let summary = module.as_ref().and_then(|m| m.summary.clone());
+
+    let Some(module) = module else {
+        return Err(Error::internal_err(
+            "AI agent module not found in flow".to_string(),
+        ));
+    };
+
+    let FlowModuleValue::AIAgent { tools, .. } = module.get_value()? else {
+        return Err(Error::internal_err(
+            "AI agent module is not an AI agent".to_string(),
+        ));
     };
 
     // Separate Windmill tools from MCP tools and extract MCP resource configs
@@ -240,10 +218,6 @@ pub async fn handle_ai_agent_job(
                 },
                 Ok(FlowModuleValue::RawScript { content, language, .. }) => {
                     Ok(Some(parse_raw_script_schema(&content, &language)?))
-                }
-                Ok(FlowModuleValue::FlowScript { id, language, .. }) => {
-                    let script_data = cache::flow::fetch_script(conn, id.clone()).await?;
-                    Ok(Some(parse_raw_script_schema(&script_data.code, &language)?))
                 }
                 Err(e) => {
                     return Err(Error::internal_err(format!(

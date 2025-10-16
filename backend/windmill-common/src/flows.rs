@@ -141,13 +141,6 @@ pub struct FlowValue {
     pub chat_input_enabled: Option<bool>,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct FlowNodeFlow {
-    pub value: FlowValue,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-}
-
 impl FlowValue {
     pub fn get_flow_module_at_step(&self, step: Step) -> anyhow::Result<&FlowModule> {
         let flow_module = match step {
@@ -827,8 +820,6 @@ pub enum FlowModuleValue {
     AIAgent {
         input_transforms: HashMap<String, InputTransform>,
         tools: Vec<AgentTool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        modules_node: Option<FlowNodeId>,
     },
 }
 
@@ -966,7 +957,6 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 tools: untagged
                     .tools
                     .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
-                modules_node: untagged.modules_node,
             }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
@@ -1157,37 +1147,6 @@ pub async fn resolve_module(
                 )
                 .await?;
             }
-        }
-        AIAgent { tools, modules_node, .. } => {
-            // Convert AgentTools to FlowModules (filtering out MCP tools which don't need resolution)
-            let mut flow_modules: Vec<FlowModule> = tools
-                .iter()
-                .filter_map(|tool| Option::<FlowModule>::from(tool))
-                .collect();
-
-            // Reuse existing resolve_modules function
-            resolve_modules(
-                db,
-                workspace_id,
-                &mut flow_modules,
-                modules_node.take(),
-                with_code,
-            )
-            .await?;
-
-            // Convert back: resolved FlowModules -> AgentTools
-            let mut resolved_tools: Vec<AgentTool> =
-                flow_modules.into_iter().map(AgentTool::from).collect();
-
-            // Add back MCP tools (they don't need resolution)
-            resolved_tools.extend(
-                tools
-                    .iter()
-                    .filter(|t| matches!(t.value, ToolValue::Mcp(_)))
-                    .cloned(),
-            );
-
-            *tools = resolved_tools;
         }
         _ => {}
     }

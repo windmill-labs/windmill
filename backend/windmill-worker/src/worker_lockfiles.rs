@@ -16,7 +16,7 @@ use uuid::Uuid;
 use windmill_common::assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind};
 use windmill_common::error::Error;
 use windmill_common::error::Result;
-use windmill_common::flows::{AgentTool, FlowModule, FlowModuleValue, FlowNodeFlow, FlowNodeId, ToolValue};
+use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::{hash_script, NewScript, ScriptHash};
@@ -1635,10 +1635,8 @@ async fn insert_flow_modules<'c>(
     workspace_id: &str,
     failure_module: Option<&Box<FlowModule>>,
     same_worker: bool,
-    summary: Option<String>,
     modules: &mut Vec<FlowModule>,
     modules_node: &mut Option<FlowNodeId>,
-    force_insert: bool,
 ) -> Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     tx = Box::pin(reduce_flow(
         tx,
@@ -1649,22 +1647,9 @@ async fn insert_flow_modules<'c>(
         same_worker,
     ))
     .await?;
-    if !force_insert
-        && (modules.is_empty() || crate::worker_flow::is_simple_modules(modules, failure_module))
-    {
+    if modules.is_empty() || crate::worker_flow::is_simple_modules(modules, failure_module) {
         return Ok(tx);
     }
-
-    let flow_node_flow = FlowNodeFlow {
-        value: FlowValue {
-            modules: std::mem::take(modules),
-            failure_module: failure_module.cloned(),
-            same_worker,
-            ..Default::default()
-        },
-        summary,
-    };
-
     let id;
     (tx, id) = insert_flow_node(
         tx,
@@ -1672,7 +1657,12 @@ async fn insert_flow_modules<'c>(
         workspace_id,
         None,
         None,
-        Some(&Json(to_raw_value(&flow_node_flow))),
+        Some(&Json(to_raw_value(&FlowValue {
+            modules: std::mem::take(modules),
+            failure_module: failure_module.cloned(),
+            same_worker,
+            ..Default::default()
+        }))),
         None,
     )
     .await?;
@@ -1749,10 +1739,8 @@ async fn reduce_flow<'c>(
                     workspace_id,
                     failure_module,
                     same_worker,
-                    None,
                     modules,
                     modules_node,
-                    false,
                 )
                 .await?;
             }
@@ -1764,10 +1752,8 @@ async fn reduce_flow<'c>(
                         workspace_id,
                         failure_module,
                         same_worker,
-                        None,
                         &mut branch.modules,
                         &mut branch.modules_node,
-                        false,
                     )
                     .await?;
                 }
@@ -1777,10 +1763,8 @@ async fn reduce_flow<'c>(
                     workspace_id,
                     failure_module,
                     same_worker,
-                    None,
                     default,
                     default_node,
-                    false,
                 )
                 .await?;
             }
@@ -1792,49 +1776,11 @@ async fn reduce_flow<'c>(
                         workspace_id,
                         failure_module,
                         same_worker,
-                        None,
                         &mut branch.modules,
                         &mut branch.modules_node,
-                        false,
                     )
                     .await?;
                 }
-            }
-            AIAgent { tools, modules_node, .. } => {
-                // Convert AgentTool -> FlowModule (only FlowModule type tools)
-                let mut flow_modules: Vec<FlowModule> = tools
-                    .iter()
-                    .filter_map(|tool| Option::<FlowModule>::from(tool))
-                    .collect();
-
-                // Insert flow modules (this handles lazy loading optimization)
-                tx = insert_flow_modules(
-                    tx,
-                    path,
-                    workspace_id,
-                    failure_module,
-                    same_worker,
-                    module.summary.clone(), // we only include summary for ai agents modules
-                    &mut flow_modules,
-                    modules_node,
-                    true,
-                )
-                .await?;
-
-                // Convert back: FlowModule -> AgentTool
-                let mut resolved_tools: Vec<AgentTool> = flow_modules
-                    .into_iter()
-                    .map(AgentTool::from)
-                    .collect();
-
-                // Add back MCP tools (they were filtered out above)
-                resolved_tools.extend(
-                    tools.iter()
-                        .filter(|t| matches!(t.value, ToolValue::Mcp(_)))
-                        .cloned()
-                );
-
-                *tools = resolved_tools;
             }
             _ => {}
         }

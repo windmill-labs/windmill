@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.561.0](https://github.com/windmill-labs/windmill/compare/v1.560.0...v1.561.0) (2025-10-16)
+
+
+### Features
+
+* ansible playbook execution git repo mode (repo viewer + UI utils) ([#6831](https://github.com/windmill-labs/windmill/issues/6831)) ([32fae7a](https://github.com/windmill-labs/windmill/commit/32fae7a10c769473c708970e18c1f8268d62183f))
+
+
+### Bug Fixes
+
+* **backend:** revert flow node opti for ai agents ([#6840](https://github.com/windmill-labs/windmill/issues/6840)) ([3b5c962](https://github.com/windmill-labs/windmill/commit/3b5c96247350b70fe947d204e9bff61f81be219c))
+* fix job loader in public apps with jwt token ([a238750](https://github.com/windmill-labs/windmill/commit/a2387505544a04675a7c9fddf2ed8c042f8bfa42))
+
 ## [1.560.0](https://github.com/windmill-labs/windmill/compare/v1.559.0...v1.560.0) (2025-10-15)
 
 
