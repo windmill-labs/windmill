@@ -20,6 +20,17 @@ use windmill_common::{
 };
 use windmill_queue::PushIsolationLevel;
 
+pub async fn init_client(db: Pool<Postgres>) -> (windmill_api_client::Client, u16, ApiServer) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db).await.unwrap();
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    (client, port, server)
+}
+
 /// it's important this is unique between tests as there is one prometheus registry and
 /// run_worker shouldn't register the same metric with the same worker name more than once.
 ///
@@ -131,7 +142,7 @@ impl RunJob {
 
         let tx = PushIsolationLevel::IsolatedRoot(db.clone());
         let (uuid, tx) = windmill_queue::push(
-            &db,
+            db,
             tx,
             "test-workspace",
             payload,
@@ -157,6 +168,7 @@ impl RunJob {
             None,
             false,
             None,
+            None,
         )
         .await
         .expect("push has to succeed");
@@ -170,8 +182,8 @@ impl RunJob {
         let uuid = self.push(db).await;
         let listener = listen_for_completed_jobs(db).await;
         in_test_worker(db, listener.find(&uuid), port).await;
-        let r = completed_job(uuid, db).await;
-        r
+        
+        completed_job(uuid, db).await
     }
 
     /// push the job, spawn a worker, wait until the job is in completed_job
@@ -185,8 +197,8 @@ impl RunJob {
         let listener = listen_for_completed_jobs(db).await;
         test(uuid).await;
         in_test_worker(db, listener.find(&uuid), port).await;
-        let r = completed_job(uuid, db).await;
-        r
+        
+        completed_job(uuid, db).await
     }
 }
 
@@ -251,10 +263,10 @@ pub fn spawn_test_worker(
         let base_internal_url = format!("http://localhost:{}", port);
         {
             let mut wc = WORKER_CONFIG.write().await;
-            (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
-            (*wc).priority_tags_sorted = vec![windmill_common::worker::PriorityTags {
+            wc.worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
+            wc.priority_tags_sorted = vec![windmill_common::worker::PriorityTags {
                 priority: 0,
-                tags: (*wc).worker_tags.clone(),
+                tags: wc.worker_tags.clone(),
             }];
             windmill_common::worker::store_suspended_pull_query(&wc).await;
             windmill_common::worker::store_pull_query(&wc).await;
@@ -349,7 +361,7 @@ fn find_module_in_vec(modules: Vec<FlowStatusModule>, id: &str) -> Option<FlowSt
     modules.into_iter().find(|s| s.id() == id)
 }
 
-pub async fn set_jwt_secret() -> () {
+pub async fn set_jwt_secret() {
     let secret = "mytestsecret".to_string();
     let mut l = JWT_SECRET.write().await;
     *l = secret;
@@ -475,10 +487,10 @@ pub async fn assert_lockfile(
         .await
         .unwrap();
 
-    let mut completed = listen_for_completed_jobs(&db).await;
+    let mut completed = listen_for_completed_jobs(db).await;
     let db2 = db.clone();
     in_test_worker(
-        &db,
+        db,
         async move {
             completed.next().await; // deployed script
 
@@ -571,10 +583,10 @@ pub async fn run_deployed_relative_imports(
         .await
         .unwrap();
 
-    let mut completed = listen_for_completed_jobs(&db).await;
+    let mut completed = listen_for_completed_jobs(db).await;
     let db2 = db.clone();
     in_test_worker(
-        &db,
+        db,
         async move {
             completed.next().await; // deployed script
 
@@ -631,10 +643,10 @@ pub async fn run_preview_relative_imports(
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    let mut completed = listen_for_completed_jobs(&db).await;
+    let mut completed = listen_for_completed_jobs(db).await;
     let db2 = db.clone();
     in_test_worker(
-        &db,
+        db,
         async move {
             let job = RunJob::from(JobPayload::Code(RawCode {
                 hash: None,
@@ -670,4 +682,22 @@ pub async fn run_preview_relative_imports(
     .await;
 
     Ok(())
+}
+
+/// IMPORTANT!:
+/// Do not run parallel in tests!
+///
+/// No tests can run this at the same time, will result into conflicts!!!
+pub async fn rebuild_dmap(client: &windmill_api_client::Client) -> bool {
+    client
+        .client()
+        .post(format!(
+            "{}/w/test-workspace/workspaces/rebuild_dependency_map",
+            client.baseurl()
+        ))
+        .send()
+        .await
+        .unwrap()
+        .status()
+        .is_success()
 }

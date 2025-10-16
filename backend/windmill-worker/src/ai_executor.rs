@@ -969,6 +969,7 @@ pub async fn run_agent(
                                     job_perms.as_ref(),
                                     true,
                                     None,
+                                    None,
                                 )
                                 .await?;
 
