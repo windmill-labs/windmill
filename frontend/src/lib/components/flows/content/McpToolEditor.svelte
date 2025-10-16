@@ -27,6 +27,7 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	interface Props {
 		tool: McpTool
@@ -81,27 +82,42 @@
 </script>
 
 <div class="flex flex-col gap-4 p-4">
-	<!-- Summary Section -->
-	<div class="w-full">
-		<Label label="Summary">
-			<input
-				type="text"
-				bind:value={tool.summary}
-				placeholder="e.g., GitHub MCP"
-				class="text-sm w-full"
-			/>
-		</Label>
-	</div>
+	<!-- Explanatory Section -->
+	<Alert type="info" title="MCP Client Configuration">
+		{#snippet children()}
+			<p class="mb-2 text-sm">
+				MCP clients allow AI agents to access and execute a list of tools made available by an MCP
+				server.
+				<br />
+				Choose an MCP resource to make its tools available to the agent.
+				<br />
+				<br />
+				<strong>Note:</strong> Only HTTP streamable MCP servers are supported.
+			</p>
+		{/snippet}
+	</Alert>
 
 	<!-- Resource Path Section -->
 	<div class="w-full">
-		<Label label="Resource Path">
+		<Label label="MCP Resource">
 			<ResourcePicker resourceType="mcp" bind:value={tool.value.resource_path} />
 		</Label>
 	</div>
 
-	<!-- Available Tools Section -->
 	{#if tool.value.resource_path?.length > 0}
+		<!-- Summary Section -->
+		<div class="w-full">
+			<Label label="Summary">
+				<input
+					type="text"
+					bind:value={tool.summary}
+					placeholder="e.g., GitHub MCP"
+					class="text-sm w-full"
+				/>
+			</Label>
+		</div>
+
+		<!-- Available Tools Section -->
 		<Section label="Available Tools">
 			{#snippet action()}
 				<Button
