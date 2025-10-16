@@ -21,7 +21,7 @@ use windmill_common::{
     error::{self, Error},
     flow_conversations::MessageType,
     flow_status::AgentAction,
-    flows::{FlowModule, FlowModuleValue, FlowNodeId},
+    flows::{AgentTool, FlowModule, FlowModuleValue, FlowNodeId, ToolValue},
     get_latest_hash_for_path,
     jobs::JobKind,
     scripts::{get_full_hub_script_by_path, ScriptHash},
@@ -94,7 +94,15 @@ pub async fn handle_ai_agent_job(
 
         let value = flow_data.value();
 
-        (value.modules.clone(), flow_data.summary.clone())
+        (
+            value
+                .modules
+                .clone()
+                .into_iter()
+                .map(AgentTool::from)
+                .collect(),
+            flow_data.summary.clone(),
+        )
     } else {
         tracing::debug!("Fetching flow data for parent job of AI Agent job");
         let flow_job = get_flow_job_runnable_and_raw_flow(db, &parent_job).await?;
@@ -137,25 +145,27 @@ pub async fn handle_ai_agent_job(
     let mut mcp_configs: Vec<crate::ai::utils::McpResourceConfig> = Vec::new();
 
     for tool in tools {
-        match tool.get_value()? {
-            FlowModuleValue::McpServer { resource_path, include_tools, exclude_tools } => {
-                // This is an MCP server module - extract full config
+        match &tool.value {
+            ToolValue::Mcp(mcp_config) => {
+                // This is an MCP tool - extract config
                 tracing::debug!(
                     "MCP server module: path={}, include={:?}, exclude={:?}",
-                    resource_path,
-                    include_tools,
-                    exclude_tools
+                    mcp_config.resource_path,
+                    mcp_config.include_tools,
+                    mcp_config.exclude_tools
                 );
                 mcp_configs.push(crate::ai::utils::McpResourceConfig {
-                    resource_path: resource_path.clone(),
-                    include_tools: include_tools.clone(),
-                    exclude_tools: exclude_tools.clone(),
+                    resource_path: mcp_config.resource_path.clone(),
+                    include_tools: Some(mcp_config.include_tools.clone()),
+                    exclude_tools: Some(mcp_config.exclude_tools.clone()),
                 });
             }
-            _ => {
-                // Regular Windmill flow module (script, flow, etc.)
+            ToolValue::FlowModule(_) => {
+                // Regular Windmill flow module (script, flow, etc.) - convert to FlowModule
                 tracing::debug!("Windmill module: {:?}", tool.id);
-                windmill_modules.push(tool.clone());
+                if let Some(flow_module) = Option::<FlowModule>::from(&tool) {
+                    windmill_modules.push(flow_module);
+                }
             }
         }
     }

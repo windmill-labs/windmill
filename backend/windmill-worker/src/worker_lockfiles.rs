@@ -16,7 +16,7 @@ use uuid::Uuid;
 use windmill_common::assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind};
 use windmill_common::error::Error;
 use windmill_common::error::Result;
-use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeFlow, FlowNodeId};
+use windmill_common::flows::{AgentTool, FlowModule, FlowModuleValue, FlowNodeFlow, FlowNodeId, ToolValue};
 use windmill_common::get_latest_deployed_hash_for_path;
 use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::{hash_script, NewScript, ScriptHash};
@@ -1801,6 +1801,13 @@ async fn reduce_flow<'c>(
                 }
             }
             AIAgent { tools, modules_node, .. } => {
+                // Convert AgentTool -> FlowModule (only FlowModule type tools)
+                let mut flow_modules: Vec<FlowModule> = tools
+                    .iter()
+                    .filter_map(|tool| Option::<FlowModule>::from(tool))
+                    .collect();
+
+                // Insert flow modules (this handles lazy loading optimization)
                 tx = insert_flow_modules(
                     tx,
                     path,
@@ -1808,11 +1815,26 @@ async fn reduce_flow<'c>(
                     failure_module,
                     same_worker,
                     module.summary.clone(), // we only include summary for ai agents modules
-                    tools,
+                    &mut flow_modules,
                     modules_node,
                     true,
                 )
                 .await?;
+
+                // Convert back: FlowModule -> AgentTool
+                let mut resolved_tools: Vec<AgentTool> = flow_modules
+                    .into_iter()
+                    .map(AgentTool::from)
+                    .collect();
+
+                // Add back MCP tools (they were filtered out above)
+                resolved_tools.extend(
+                    tools.iter()
+                        .filter(|t| matches!(t.value, ToolValue::Mcp(_)))
+                        .cloned()
+                );
+
+                *tools = resolved_tools;
             }
             _ => {}
         }
