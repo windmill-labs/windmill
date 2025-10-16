@@ -22,7 +22,9 @@ use windmill_common::jobs::JobPayload;
 use windmill_common::scripts::{hash_script, NewScript, ScriptHash};
 #[cfg(feature = "python")]
 use windmill_common::worker::PythonAnnotations;
-use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
+use windmill_common::worker::{
+    to_raw_value, to_raw_value_owned, write_file, Connection, MIN_VERSION_IS_AT_LEAST_1_560,
+};
 #[cfg(feature = "python")]
 use windmill_parser_yaml::AnsibleRequirements;
 
@@ -1655,27 +1657,21 @@ async fn insert_flow_modules<'c>(
         return Ok(tx);
     }
 
-    let flow_node_flow = FlowNodeFlow {
-        value: FlowValue {
-            modules: std::mem::take(modules),
-            failure_module: failure_module.cloned(),
-            same_worker,
-            ..Default::default()
-        },
-        summary,
+    let flow_value = FlowValue {
+        modules: std::mem::take(modules),
+        failure_module: failure_module.cloned(),
+        same_worker,
+        ..Default::default()
+    };
+    let flow = if *MIN_VERSION_IS_AT_LEAST_1_560.read().await {
+        to_raw_value(&FlowNodeFlow { value: flow_value, summary })
+    } else {
+        to_raw_value(&flow_value)
     };
 
     let id;
-    (tx, id) = insert_flow_node(
-        tx,
-        path,
-        workspace_id,
-        None,
-        None,
-        Some(&Json(to_raw_value(&flow_node_flow))),
-        None,
-    )
-    .await?;
+    (tx, id) =
+        insert_flow_node(tx, path, workspace_id, None, None, Some(&Json(flow)), None).await?;
     *modules_node = Some(id);
     Ok(tx)
 }
