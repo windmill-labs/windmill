@@ -66,7 +66,9 @@
 
 	async function loadUser() {
 		if (parsedSecret.jwt) {
-			OpenAPI.TOKEN = 'jwt_ext_' + parsedSecret.jwt
+			const token = 'jwt_ext_' + parsedSecret.jwt
+			OpenAPI.TOKEN = token
+			setContext<{ token?: string }>('AuthToken', { token })
 			jwtError = false
 		}
 		try {
