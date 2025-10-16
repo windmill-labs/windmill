@@ -16,7 +16,13 @@ use crate::{db::DB, webhook_util::WebhookShared};
 use argon2::Argon2;
 
 #[cfg(not(feature = "private"))]
+use axum::{extract::Extension, Json};
+
+#[cfg(not(feature = "private"))]
 use http::StatusCode;
+
+#[cfg(not(feature = "private"))]
+use serde::Deserialize;
 
 #[cfg(not(feature = "private"))]
 use windmill_common::error::{Error, Result};
@@ -52,4 +58,26 @@ pub fn send_email_if_possible(_subject: &str, _content: &str, _to: &str) {
     tracing::warn!(
         "send_email_if_possible is not implemented in Windmill's Open Source repository"
     );
+}
+
+#[cfg(not(feature = "private"))]
+#[derive(Deserialize, Debug)]
+pub struct OnboardingData {
+    pub email: String,
+    pub customer_id: Option<i64>,
+    pub is_ee_trial: Option<bool>,
+    pub touch_point: String,
+    pub use_case: String,
+}
+
+
+#[cfg(not(feature = "private"))]
+pub async fn submit_onboarding_data(
+    _authed: ApiAuthed,
+    Extension(_db): Extension<DB>,
+    Json(_data): Json<OnboardingData>,
+) -> Result<String> {
+    Err(Error::internal_err(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
 }
