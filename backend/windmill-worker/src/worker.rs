@@ -1598,7 +1598,7 @@ pub async fn run_worker(
                         {
                             match timeout(
                                 core::time::Duration::from_secs(10),
-                                Box::pin(preprocess_dependency_job(pulled_job, &db)),
+                                preprocess_dependency_job(pulled_job, &db),
                             )
                             .warn_after_seconds(2)
                             .await
