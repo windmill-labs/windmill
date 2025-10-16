@@ -58,6 +58,10 @@ components:
           type: string
         cache_ttl:
           type: number
+        env_vars:
+          type: object
+          additionalProperties:
+            type: string
         priority:
           type: number
         early_return:

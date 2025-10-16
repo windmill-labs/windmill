@@ -32,6 +32,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import type { FlowEditorContext } from '../types'
 
 	export let pickableProperties: PickableProperties | undefined
 	export let result: any = undefined
@@ -54,6 +55,10 @@
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 	flowPropPickerConfig.set(undefined)
+
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	let env = flowStore.val.value.env_vars
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
 		inputMatches,
@@ -125,6 +130,7 @@
 						{result}
 						{extraResults}
 						{flow_input}
+						{env}
 						allowCopy={!notSelectable && !$propPickerConfig}
 						on:select={({ detail }) => {
 							dispatch('select', detail)
@@ -138,6 +144,7 @@
 						{alwaysOn}
 						{displayContext}
 						{error}
+						{env}
 						previousId={pickableProperties?.previousId}
 						{pickableProperties}
 						allowCopy={!notSelectable && !$propPickerConfig}

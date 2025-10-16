@@ -5,7 +5,7 @@
 	import FlowSettings from './FlowSettings.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
-	import FlowConstants from './FlowConstants.svelte'
+	import FlowEnvironmentVariables from './FlowEnvironmentVariables.svelte'
 	import type { FlowModule, Flow, Job } from '$lib/gen'
 	import FlowPreprocessorModule from './FlowPreprocessorModule.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
@@ -102,7 +102,7 @@
 {:else if $selectedId === 'Result'}
 	<FlowResult {noEditor} {job} {isOwner} {suspendStatus} {onOpenDetails} />
 {:else if $selectedId === 'constants'}
-	<FlowConstants {noEditor} />
+	<FlowEnvironmentVariables {noEditor} />
 {:else if $selectedId === 'failure'}
 	<FlowFailureModule {noEditor} savedModule={savedFlow?.value.failure_module} />
 {:else if $selectedId === 'preprocessor'}
