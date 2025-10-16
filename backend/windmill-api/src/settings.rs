@@ -218,6 +218,10 @@ pub struct Value {
 }
 
 pub async fn delete_global_setting(db: &DB, key: &str) -> error::Result<()> {
+    if key == "ducklake_user_pg_pwd" || key == "ducklake_settings" {
+        tracing::error!("Tried to unset global setting {}, ignored", key);
+        return Ok(());
+    }
     sqlx::query!("DELETE FROM global_settings WHERE name = $1", key,)
         .execute(db)
         .await?;
