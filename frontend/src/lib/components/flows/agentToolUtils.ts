@@ -27,24 +27,6 @@ export function isMcpTool(tool: AgentTool): tool is McpTool {
 }
 
 /**
- * Create a FlowModule tool from a FlowModuleValue
- */
-export function createFlowModuleTool(
-	id: string,
-	summary: string | undefined,
-	value: FlowModuleValue
-): FlowModuleTool {
-	return {
-		id,
-		summary,
-		value: {
-			tool_type: 'flowmodule',
-			...value
-		} as FlowModuleTool['value']
-	}
-}
-
-/**
  * Create an MCP tool from resource path
  */
 export function createMcpTool(id: string): McpTool {
@@ -58,58 +40,6 @@ export function createMcpTool(id: string): McpTool {
 			exclude_tools: []
 		}
 	}
-}
-
-/**
- * Get display name for a tool
- */
-export function getToolDisplayName(tool: AgentTool): string {
-	if (tool.summary) {
-		return tool.summary
-	}
-	if (isMcpTool(tool)) {
-		return `MCP: ${tool.value.resource_path}`
-	}
-	if (isFlowModuleTool(tool)) {
-		if (tool.value.type === 'rawscript') {
-			return tool.id
-		}
-		if (tool.value.type === 'script') {
-			return tool.value.path ?? tool.id
-		}
-		if (tool.value.type === 'flow') {
-			return tool.value.path ?? tool.id
-		}
-	}
-	return tool.id
-}
-
-/**
- * Get the FlowModuleValue from a tool (only for FlowModule tools)
- */
-export function getFlowModuleValue(tool: AgentTool): FlowModuleValue | undefined {
-	if (isFlowModuleTool(tool)) {
-		const { tool_type, ...rest } = tool.value
-		return rest as FlowModuleValue
-	}
-	return undefined
-}
-
-/**
- * Convert an AgentTool to a FlowModule for use with existing components
- * This allows reusing existing FlowModule editing components
- */
-export function agentToolToFlowModule(tool: AgentTool): FlowModule | undefined {
-	if (isFlowModuleTool(tool)) {
-		const { tool_type, ...flowModuleValue } = tool.value
-		return {
-			id: tool.id,
-			summary: tool.summary,
-			value: flowModuleValue as FlowModuleValue
-		}
-	}
-	// MCP tools cannot be converted to FlowModule since mcpserver type no longer exists
-	return undefined
 }
 
 /**

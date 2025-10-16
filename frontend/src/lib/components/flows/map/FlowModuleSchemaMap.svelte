@@ -170,14 +170,13 @@
 
 		if (!modules) return [module]
 
-		// Convert to AgentTool if toolKind is specified
 		if (toolKind === 'mcpTool') {
-			// Convert FlowModule (with proper ID) to MCP AgentTool
+			// Create MCP AgentTool
 			const mcpTool = createMcpTool(module.id)
 			;(modules as AgentTool[]).splice(index, 0, mcpTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'flowmoduleTool') {
-			// Convert FlowModule to FlowModule AgentTool
+			// Create AgentTool from FlowModule
 			const agentTool = flowModuleToAgentTool(module)
 			;(modules as AgentTool[]).splice(index, 0, agentTool)
 			return modules as AgentTool[]

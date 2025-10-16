@@ -185,7 +185,6 @@ impl FlowValue {
                             ToolValue::FlowModule(module_value) => cb(module_value, &tool.id)?,
                             ToolValue::Mcp(_) => {
                                 // MCP tools don't have a FlowModuleValue to traverse
-                                // They are leaf nodes themselves
                             }
                         }
                     }
