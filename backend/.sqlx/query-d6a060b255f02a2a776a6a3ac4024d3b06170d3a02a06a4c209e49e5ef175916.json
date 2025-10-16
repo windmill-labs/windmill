@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT lock FROM script WHERE path = 'f/dre_script/script'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "lock",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "d6a060b255f02a2a776a6a3ac4024d3b06170d3a02a06a4c209e49e5ef175916"
+}
