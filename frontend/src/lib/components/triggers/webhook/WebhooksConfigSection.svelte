@@ -183,29 +183,55 @@
 	function fetchCode() {
 		if (requestType === 'sync_sse') {
 			return `
-import { EventSource } from "eventsource";
-
 export async function main() {
-	const endpoint = \`${url}\`;
+  const response = await fetch(\`${url}\`, {
+    method: '${callMethod === 'get' ? 'GET' : 'POST'}',
+    headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n    ')},
+    body: ${callMethod === 'get' ? 'undefined' : `JSON.stringify(${JSON.stringify(cleanedRunnableArgs ?? {}, null, 2).replaceAll('\n', '\n    ')})`}
+  });
+  
+  if (!response.ok) {
+	const text = await response.text()
+	throw new Error(\`\${response.status} \${text}\`)
+  }
 
-	return new Promise((resolve, reject) => {
-		const eventSource = new EventSource(endpoint);
+  if (!response.body) {
+    throw new Error("Response body is empty");
+  }
 
-		eventSource.onmessage = (event) => {
-			const data = JSON.parse(event.data);
-			console.log(data);
-			if (data.completed) {
-				eventSource.close();
-				resolve();
-			}
-		};
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
 
-		eventSource.onerror = (error) => {
-			console.error('EventSource error:', error);
-			eventSource.close();
-			reject(error);
-		};
-	});
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\\n");
+
+      // Keep the last incomplete line in buffer
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const jsonData = line.slice(6); // Remove 'data: ' prefix
+          const data = JSON.parse(jsonData);
+          console.log(data);
+
+          if (data.completed) {
+            reader.cancel();
+            return;
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Stream error:", error);
+    throw error;
+  }
 }`
 		}
 		if (requestType === 'sync') {
@@ -300,16 +326,17 @@ function waitForJobCompletion(UUID) {
 		return `TOKEN='${token}'
 ${callMethod !== 'get' ? `BODY='${JSON.stringify(cleanedRunnableArgs ?? {})}'` : ''}
 URL='${url}'
-${requestType === 'sync' ? 'RESULT' : 'UUID'}=$(curl -s ${
+${requestType === 'sync' ? 'RESULT=$(' : requestType === 'async' ? 'UUID=$(' : ''}curl -s ${
 			callMethod != 'get' ? "-H 'Content-Type: application/json'" : ''
 		} ${tokenType === 'headers' ? `-H "Authorization: Bearer $TOKEN"` : ''} -X ${
 			callMethod === 'get' ? 'GET' : 'POST'
-		} ${callMethod !== 'get' ? `-d "$BODY" ` : ''}$URL)
+		} ${callMethod !== 'get' ? `-d "$BODY" ` : ''}$URL${requestType === 'sync' || requestType === 'async' ? ')' : ''}
 
 ${
 	requestType === 'sync'
 		? 'echo -E $RESULT | jq'
-		: `
+		: requestType === 'async'
+			? `
 URL="${location.origin}/api/w/${$workspaceStore}/jobs_u/completed/get_result_maybe/$UUID"
 while true; do
   curl -s -H "Authorization: Bearer $TOKEN" $URL -o res.json
@@ -321,6 +348,7 @@ while true; do
     sleep 1
   fi
 done`
+			: ''
 }`
 	}
 </script>
@@ -443,14 +471,10 @@ done`
 	<div>
 		<Tabs bind:selected={selectedTab}>
 			<Tab value="rest" size="xs">REST</Tab>
-			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL && requestType !== 'sync_sse'}
+			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
 				<Tab value="curl" size="xs">Curl</Tab>
 			{/if}
-			{#if requestType !== 'sync_sse' || (callMethod === 'get' && tokenType === 'query')}
-				<Tab value="fetch" size="xs">
-					{requestType === 'sync_sse' ? 'Event Source' : 'Fetch'}
-				</Tab>
-			{/if}
+			<Tab value="fetch" size="xs">Fetch</Tab>
 
 			{#snippet content()}
 				{#key token}
@@ -488,7 +512,7 @@ done`
 												}}
 											>
 												<Highlight language={bash} code={curlCode()} />
-												<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
+												<Clipboard size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
 											</div>
 										{/key}
 									{/key}
@@ -510,7 +534,7 @@ done`
 												}}
 											>
 												<Highlight language={typescript} code={fetchCode()} />
-												<Clipboard size={14} class="w-8 top-2 right-2 absolute" />
+												<Clipboard size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
 											</div>
 										{/key}{/key}{/key}{/key}
 						{/key}
