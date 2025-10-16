@@ -79,12 +79,11 @@
 				})
 				close()
 			}}
-			on:pickMcpResource={(e) => {
+			on:pickMcpTool={(e) => {
 				data.eventHandlers.insert({
 					index: -1,
 					agentId: data.agentModuleId,
-					kind: 'mcpserver',
-					mcpResource: e.detail.path
+					kind: 'mcpTool'
 				})
 				close()
 			}}

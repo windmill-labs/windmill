@@ -77,7 +77,7 @@
 				color="light"
 				startIcon={{ icon: Plug }}
 				on:click={() => {
-					dispatch('pickMcpResource', { path: '' })
+					dispatch('pickMcpTool')
 					dispatch('close')
 				}}
 			>

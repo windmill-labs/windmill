@@ -41,6 +41,7 @@
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
+	import { type AgentTool, flowModuleToAgentTool, createMcpTool } from '../agentToolUtils'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -111,14 +112,14 @@
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 
 	export async function insertNewModuleAtIndex(
-		modules: FlowModule[],
+		modules: FlowModule[] | AgentTool[],
 		index: number,
 		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
 		inlineScript?: InlineScript,
-		mcpResource?: string
-	): Promise<FlowModule[]> {
+		toolKind?: 'mcpTool' | 'flowmoduleTool'
+	): Promise<FlowModule[] | AgentTool[]> {
 		push(history, flowStore.val)
 		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
 		let state = emptyFlowModuleState()
@@ -143,12 +144,6 @@
 			;[module, state] = await createBranchAll(module.id)
 		} else if (kind == 'aiagent') {
 			;[module, state] = await createAiAgent(module.id)
-		} else if (kind == 'mcpserver') {
-			module.summary = mcpResource ? `MCP: ${mcpResource}` : ''
-			module.value = {
-				type: 'mcpserver',
-				resource_path: mcpResource ?? ''
-			}
 		} else if (inlineScript) {
 			const { language, kind, subkind, summary } = inlineScript
 			;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
@@ -174,8 +169,36 @@
 		}
 
 		if (!modules) return [module]
-		modules.splice(index, 0, module)
-		return modules
+
+		// Convert to AgentTool if toolKind is specified
+		if (toolKind === 'mcpTool') {
+			// Convert FlowModule (with proper ID) to MCP AgentTool
+			const mcpTool = createMcpTool(module.id)
+			;(modules as AgentTool[]).splice(index, 0, mcpTool)
+			return modules as AgentTool[]
+		} else if (toolKind === 'flowmoduleTool') {
+			// Convert FlowModule to FlowModule AgentTool
+			const agentTool = flowModuleToAgentTool(module)
+			;(modules as AgentTool[]).splice(index, 0, agentTool)
+			return modules as AgentTool[]
+		} else {
+			// Standard FlowModule insertion (existing behavior)
+			modules.splice(index, 0, module)
+			return modules
+		}
+	}
+
+	/**
+	 * Helper function to remove an AgentTool by id from the tools array
+	 * Tools are always leaf nodes, so we just need to delete their state directly
+	 */
+	function removeAgentToolById(tools: AgentTool[], id: string): AgentTool[] {
+		const index = tools.findIndex((tool) => tool.id == id)
+		if (index != -1) {
+			const [removed] = tools.splice(index, 1)
+			deleteFlowStateById(removed.id, flowStateStore)
+		}
+		return tools
 	}
 
 	export function removeAtId(modules: FlowModule[], id: string): FlowModule[] {
@@ -201,7 +224,7 @@
 				})
 				mod.value.default = removeAtId(mod.value.default, id)
 			} else if (mod.value.type == 'aiagent') {
-				mod.value.tools = removeAtId(mod.value.tools, id)
+				mod.value.tools = removeAgentToolById(mod.value.tools, id)
 			}
 			return mod
 		})
@@ -494,8 +517,37 @@
 										instructions: detail.inlineScript?.instructions
 									})
 								}
+							} else if (detail.agentId) {
+								// Inserting into AI Agent tools array
+								const index = targetModules?.length ?? 0
+
+								// Determine tool kind based on detail.kind
+								const toolKind = detail.kind === 'mcpTool' ? 'mcpTool' : 'flowmoduleTool'
+
+								// Use unified insertion logic
+								await insertNewModuleAtIndex(
+									targetModules as AgentTool[],
+									index,
+									detail.kind, // For mcpTool, kind doesn't matter (creates empty module)
+									detail.script,
+									detail.flow,
+									detail.inlineScript,
+									toolKind // Pass toolKind parameter
+								)
+
+								const id = targetModules[index].id
+								$selectedId = id
+
+								// Handle AI step generation for inline scripts
+								if (detail.inlineScript?.instructions) {
+									dispatch('generateStep', {
+										moduleId: id,
+										lang: detail.inlineScript?.language,
+										instructions: detail.inlineScript?.instructions
+									})
+								}
 							} else {
-								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
+								const index = detail.index ?? 0
 
 								await insertNewModuleAtIndex(
 									targetModules,
@@ -503,8 +555,7 @@
 									detail.kind,
 									detail.script,
 									detail.flow,
-									detail.inlineScript,
-									detail.mcpResource
+									detail.inlineScript
 								)
 								const id = targetModules[index].id
 								$selectedId = id

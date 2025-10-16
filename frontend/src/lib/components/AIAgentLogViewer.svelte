@@ -11,6 +11,8 @@
 	import FlowLogViewerWrapper from './FlowLogViewerWrapper.svelte'
 	import { z } from 'zod'
 	import { onMount } from 'svelte'
+	import type { AgentTool } from './flows/agentToolUtils'
+	import { agentToolToFlowModule } from './flows/agentToolUtils'
 
 	type AgentActionWithContent = NonNullable<FlowStatusModule['agent_actions']>[number] & {
 		content?: unknown
@@ -46,7 +48,7 @@
 	})
 
 	interface Props {
-		tools: FlowModule[]
+		tools: AgentTool[]
 		agentJob: Partial<CompletedJob> & Pick<CompletedJob, 'id'> & { type: 'CompletedJob' }
 		workspaceId?: string | undefined
 		storedToolCallJobs?: Record<number, Job>
@@ -54,6 +56,11 @@
 	}
 
 	let { tools, agentJob, workspaceId, onToolJobLoaded, storedToolCallJobs }: Props = $props()
+
+	// Convert AgentTools to FlowModules for compatibility with existing display logic
+	const toolsAsModules = $derived(
+		tools.map(agentToolToFlowModule).filter((m): m is FlowModule => m !== undefined)
+	)
 
 	const fakeModuleStates: Record<string, GraphModuleState> = $state({})
 
@@ -154,7 +161,7 @@
 								arguments: toolCall.arguments
 							}
 						} else {
-							const module = tools.find((m) => m.summary === toolCall.function_name)
+							const module = toolsAsModules.find((m) => m.summary === toolCall.function_name)
 							return module
 								? {
 										...module,

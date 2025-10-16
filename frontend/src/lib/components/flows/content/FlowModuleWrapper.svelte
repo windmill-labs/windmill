@@ -21,6 +21,8 @@
 	import FlowWhileLoop from './FlowWhileLoop.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { formatCron } from '$lib/utils'
+	import AgentToolWrapper from './AgentToolWrapper.svelte'
+	import { type AgentTool } from '../agentToolUtils'
 
 	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -110,10 +112,24 @@
 		flowModule = module
 		flowStateStore.val[module.id] = state
 	}
+	$inspect('FLOW MODULE', flowModule)
+	$inspect('SELECTED ID', $selectedId)
+	$inspect('IS AGENT TOOL', isAgentTool)
+	$inspect('TOOL TYPE', flowModule.value.tool_type)
 </script>
 
 {#if flowModule.id === $selectedId}
-	{#if flowModule.value.type === 'forloopflow'}
+	{#if flowModule.value.tool_type !== undefined}
+		<AgentToolWrapper
+			{noEditor}
+			bind:tool={flowModule as AgentTool}
+			parentModule={flowModule}
+			{previousModule}
+			{enableAi}
+			{forceTestTab}
+			{highlightArg}
+		/>
+	{:else if flowModule.value.type === 'forloopflow'}
 		<FlowLoop {noEditor} bind:mod={flowModule} {parentModule} {previousModule} {enableAi} />
 	{:else if flowModule.value.type === 'whileloopflow'}
 		<FlowWhileLoop {noEditor} bind:mod={flowModule} {previousModule} {parentModule} />
@@ -206,10 +222,6 @@
 			highlightArg={highlightArg?.[flowModule.id]}
 			{isAgentTool}
 		/>
-	{:else if flowModule.value.type === 'mcpserver'}
-		{#await import('./FlowModuleMcpServer.svelte') then { default: FlowModuleMcpServer }}
-			<FlowModuleMcpServer bind:flowModule {noEditor} />
-		{/await}
 	{/if}
 {:else if flowModule.value.type === 'forloopflow' || flowModule.value.type == 'whileloopflow'}
 	{#each flowModule.value.modules as _, index (index)}
@@ -297,12 +309,16 @@
 		{/if}
 	{/each}
 {:else if flowModule.value.type === 'aiagent'}
-	{#each flowModule.value.tools as _, index (index)}
-		<FlowModuleWrapper
+	{@const toolIndex = flowModule.value.tools.findIndex((t) => t.id === $selectedId)}
+	{#if toolIndex !== -1}
+		<AgentToolWrapper
 			{noEditor}
-			bind:flowModule={flowModule.value.tools[index]}
-			bind:parentModule={flowModule}
-			isAgentTool
+			bind:tool={flowModule.value.tools[toolIndex]}
+			parentModule={flowModule}
+			{previousModule}
+			{enableAi}
+			{forceTestTab}
+			{highlightArg}
 		/>
-	{/each}
+	{/if}
 {/if}

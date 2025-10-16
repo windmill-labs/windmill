@@ -19,7 +19,7 @@ export type InsertKind =
 	| 'approval'
 	| 'end'
 	| 'aiagent'
-	| 'mcpserver'
+	| 'mcpTool'
 
 export type InlineScript = {
 	language: RawScript['language']

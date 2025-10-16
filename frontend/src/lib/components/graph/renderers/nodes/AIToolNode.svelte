@@ -83,10 +83,13 @@
 				type?: string
 				stateType?: GraphModuleState['type']
 			}[] = node.data.module.value.tools.map((t, idx) => {
+				// Handle both FlowModule tools and MCP tools
+				const toolType =
+					t.value.tool_type === 'mcp' ? 'mcp' : t.value.tool_type === 'flowmodule' ? t.value.type : undefined
 				return {
 					id: t.id,
 					name: t.summary ?? '',
-					type: t.value?.type
+					type: toolType
 				}
 			})
 
@@ -292,7 +295,7 @@
 				<span
 					class={twMerge(
 						'text-3xs truncate flex-1',
-						data.type !== 'mcpserver' && !validateToolName(data.tool) && 'text-red-400'
+						data.type !== 'mcp' && !validateToolName(data.tool) && 'text-red-400'
 					)}
 				>
 					{data.tool || 'No tool name'}
