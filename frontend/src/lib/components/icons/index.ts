@@ -100,6 +100,7 @@ import KafkaIcon from './KafkaIcon.svelte'
 import NatsIcon from './NatsIcon.svelte'
 import MqttIcon from './MqttIcon.svelte'
 import McpIcon from './McpIcon.svelte'
+import ZohoIcon from './ZohoIcon.svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
 	mysql: Mysql,
@@ -204,7 +205,8 @@ export const APP_TO_ICON_COMPONENT = {
 	kafka: KafkaIcon,
 	nats: NatsIcon,
 	mqtt: MqttIcon,
-	mcp: McpIcon
+	mcp: McpIcon,
+	zoho: ZohoIcon
 } as const
 
 export {
@@ -303,5 +305,6 @@ export {
 	KafkaIcon,
 	NatsIcon,
 	MqttIcon,
-	McpIcon
+	McpIcon,
+	ZohoIcon
 }

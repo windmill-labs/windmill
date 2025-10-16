@@ -1,5 +1,4 @@
 use crate::ai::providers::openai::OpenAIToolCall;
-use windmill_common::mcp_client::{McpClient, McpToolSource};
 use crate::ai::query_builder::StreamEventProcessor;
 use crate::ai::types::*;
 use crate::ai::utils::{
@@ -18,6 +17,7 @@ use anyhow::Context;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
+use windmill_common::mcp_client::{McpClient, McpToolSource};
 use windmill_common::{
     client::AuthedClient,
     db::DB,
@@ -25,7 +25,6 @@ use windmill_common::{
     flow_conversations::MessageType,
     flow_status::AgentAction,
     flows::FlowModuleValue,
-    flows::FlowValue,
     worker::Connection,
 };
 use windmill_queue::{
@@ -41,7 +40,7 @@ pub struct ToolExecutionContext<'a> {
     // Job context
     pub job: &'a MiniPulledJob,
     pub parent_job: &'a Uuid,
-    pub flow_value: &'a FlowValue,
+    pub summary: &'a Option<&'a str>,
 
     // Execution parameters
     pub client: &'a AuthedClient,
@@ -640,7 +639,7 @@ async fn add_tool_message_to_chat(
         if let Some(mid) = ctx.chat_settings.as_ref().and_then(|s| s.memory_id) {
             let db_clone = ctx.db.clone();
             let step_name =
-                get_step_name_from_flow(ctx.flow_value, ctx.job.flow_step_id.as_deref());
+                get_step_name_from_flow(ctx.summary.as_deref(), ctx.job.flow_step_id.as_deref());
             let content = content.to_string();
 
             // Spawn task because we do not need to wait for the result

@@ -3177,7 +3177,7 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
-        if value_with_parallel.type_ == "forloopflow" {
+        if value_with_parallel.type_ == "forloopflow" && value_with_parallel.parallel.unwrap_or(false) {
             if let Some(parallelism_transform) = &value_with_parallel.parallelism {
                 tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
 
@@ -3705,9 +3705,9 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::AIAgent { .. } => {
+        FlowModuleValue::AIAgent { modules_node, .. } => {
             let path = get_path(flow_job, status, module);
-            let payload = JobPayload::AIAgent { path };
+            let payload = JobPayload::AIAgent { path, flow_node_id: modules_node };
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
                     payload,

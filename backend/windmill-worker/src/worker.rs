@@ -106,7 +106,7 @@ use crate::ai_executor::handle_ai_agent_job;
 use crate::common::StreamNotifier;
 use crate::{
     agent_workers::{queue_init_job, queue_periodic_job},
-    bash_executor::{handle_bash_job, handle_powershell_job},
+    bash_executor::handle_bash_job,
     bun_executor::handle_bun_job,
     common::{
         build_args_map, cached_result_path, error_to_value, get_cached_resource_value_if_valid,
@@ -121,6 +121,7 @@ use crate::{
     job_logger::NO_LOGS_AT_ALL,
     js_eval::{eval_fetch_timeout, transpile_ts},
     pg_executor::do_postgresql,
+    pwsh_executor::handle_powershell_job,
     result_processor::{process_result, start_background_processor},
     schema::schema_validator_from_main_arg_sig,
     worker_flow::handle_flow,
@@ -3015,6 +3016,7 @@ async fn handle_code_execution_job(
             worker_name,
             column_order,
             occupancy_metrics,
+            parent_runnable_path,
         )
         .await;
     } else if language == Some(ScriptLang::Mysql) {
@@ -3034,6 +3036,7 @@ async fn handle_code_execution_job(
             worker_name,
             column_order,
             occupancy_metrics,
+            parent_runnable_path,
         )
         .await;
     } else if language == Some(ScriptLang::Bigquery) {
@@ -3064,6 +3067,7 @@ async fn handle_code_execution_job(
                 worker_name,
                 column_order,
                 occupancy_metrics,
+                parent_runnable_path,
             )
             .await;
         }
@@ -3087,6 +3091,7 @@ async fn handle_code_execution_job(
                 worker_name,
                 column_order,
                 occupancy_metrics,
+                parent_runnable_path,
             )
             .await;
         }
@@ -3118,6 +3123,7 @@ async fn handle_code_execution_job(
                 worker_name,
                 occupancy_metrics,
                 job_dir,
+                parent_runnable_path,
             )
             .await;
         }
@@ -3149,6 +3155,7 @@ async fn handle_code_execution_job(
                 worker_name,
                 column_order,
                 occupancy_metrics,
+                parent_runnable_path,
             )
             .await;
         }
@@ -3173,6 +3180,7 @@ async fn handle_code_execution_job(
                 worker_name,
                 column_order,
                 occupancy_metrics,
+                parent_runnable_path,
             )
             .await;
         }

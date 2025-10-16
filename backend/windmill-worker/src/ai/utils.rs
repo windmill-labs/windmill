@@ -10,7 +10,7 @@ use windmill_common::{
     error::Error,
     flow_conversations::{add_message_to_conversation_tx, MessageType},
     flow_status::AgentAction,
-    flows::{FlowValue, Step},
+    flows::Step,
     jobs::JobKind,
     scripts::{ScriptHash, ScriptLang},
     worker::to_raw_value,
@@ -227,16 +227,14 @@ pub async fn update_flow_status_module_with_actions_success(
 
 /// Get step name from the flow module (summary if exists, else id)
 pub fn get_step_name_from_flow(
-    flow_value: &FlowValue,
+    summary: Option<&str>,
     flow_step_id: Option<&str>,
 ) -> Option<String> {
     let flow_step_id = flow_step_id?;
-    let module = flow_value.modules.iter().find(|m| m.id == flow_step_id)?;
     Some(
-        module
-            .summary
-            .clone()
-            .unwrap_or_else(|| format!("AI Agent Step {}", module.id)),
+        summary
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("AI Agent Step {}", flow_step_id)),
     )
 }
 

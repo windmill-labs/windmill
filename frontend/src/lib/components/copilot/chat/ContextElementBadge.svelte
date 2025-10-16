@@ -83,7 +83,7 @@
 				<HighlightCode
 					language={contextElement.lang}
 					code={contextElement.content}
-					class="w-full p-2 "
+					className="w-full p-2 "
 				/>
 			</div>
 		{:else if contextElement.type === 'flow_module'}
@@ -92,7 +92,7 @@
 					<HighlightCode
 						language={contextElement.value.language}
 						code={contextElement.value.content}
-						class="w-full p-2 "
+						className="w-full p-2 "
 					/>
 				</div>
 			{:else}

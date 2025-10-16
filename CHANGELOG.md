@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.560.0](https://github.com/windmill-labs/windmill/compare/v1.559.0...v1.560.0) (2025-10-15)
+
+
+### Features
+
+* add support for zoho oauth ([#6809](https://github.com/windmill-labs/windmill/issues/6809)) ([9d9c29f](https://github.com/windmill-labs/windmill/commit/9d9c29fdfa15cc655854ec909dea944d10ce7374))
+* **backend:** use flow nodes opti for ai agent steps ([#6808](https://github.com/windmill-labs/windmill/issues/6808)) ([8d5acda](https://github.com/windmill-labs/windmill/commit/8d5acda340cd105c5b0dfc2bfe59b7e996bd2707))
+* build pydoc for wmill python client and mount in container image ([#6828](https://github.com/windmill-labs/windmill/issues/6828)) ([d75e9e3](https://github.com/windmill-labs/windmill/commit/d75e9e3d92d43f449a6296b367018f8fa3da6507))
+* **settings:** add unsaved changes warning for workspace settings ([#6813](https://github.com/windmill-labs/windmill/issues/6813)) ([cb88187](https://github.com/windmill-labs/windmill/commit/cb8818796ddd68d2b2ee1dea5f9b0a648f0c1ec9))
+
+
+### Bug Fixes
+
+* always create instance groups with uuid ([#6826](https://github.com/windmill-labs/windmill/issues/6826)) ([48acc57](https://github.com/windmill-labs/windmill/commit/48acc57823792c9e795f9735712e1b2ed6d2b4e2))
+* bug for loop flow inconsistent state ([#6815](https://github.com/windmill-labs/windmill/issues/6815)) ([2565222](https://github.com/windmill-labs/windmill/commit/256522273ee65b67075ac91408825b1c6e91ef06))
+* fix concurrency key filter ([892ce64](https://github.com/windmill-labs/windmill/commit/892ce64ea8550c22d65180c71f57c90a65583832))
+* gcp script picker ([#6837](https://github.com/windmill-labs/windmill/issues/6837)) ([d12c8f3](https://github.com/windmill-labs/windmill/commit/d12c8f34efe5ebbdbbf85ae41bb11307dc5d8ea3))
+* resource editor should not autoselect resources for optional fields ([#6821](https://github.com/windmill-labs/windmill/issues/6821)) ([85d1b8a](https://github.com/windmill-labs/windmill/commit/85d1b8a3e6af41bba93128ebcb88ada383ed2d65))
+* support dyn select for sub flow ([#6835](https://github.com/windmill-labs/windmill/issues/6835)) ([b211155](https://github.com/windmill-labs/windmill/commit/b211155784135b1377975a2759f2ddca1cffcea2))
+
+## [1.559.0](https://github.com/windmill-labs/windmill/compare/v1.558.1...v1.559.0) (2025-10-14)
+
+
+### Features
+
+* Add back apply code button in CodeDisplay ([#6800](https://github.com/windmill-labs/windmill/issues/6800)) ([b630208](https://github.com/windmill-labs/windmill/commit/b630208ece8aca9decd30b6964afb88aa8025f41))
+* add support for contextual vars in SQL ([#6791](https://github.com/windmill-labs/windmill/issues/6791)) ([b972eb9](https://github.com/windmill-labs/windmill/commit/b972eb97219d1aba4c820c2e9cd18d519cbd25b4))
+* **rust:** add resource types ([#5843](https://github.com/windmill-labs/windmill/issues/5843)) ([e2feba3](https://github.com/windmill-labs/windmill/commit/e2feba391c47fd62c3ba76556b4c2777e10dc192))
+
+
+### Bug Fixes
+
+* **internal:** no max turns ([#6805](https://github.com/windmill-labs/windmill/issues/6805)) ([1a0dbf7](https://github.com/windmill-labs/windmill/commit/1a0dbf7982a647eff40031439e930b1ff53ae615))
+* Safeguard prevents button from deleting non-fork workspaces ([#6795](https://github.com/windmill-labs/windmill/issues/6795)) ([9149faf](https://github.com/windmill-labs/windmill/commit/9149faf3053431633f6046aa3d20ef8fdfb05fea))
+* show workspace prefix to non superadmins for app deploy custom path ([#6793](https://github.com/windmill-labs/windmill/issues/6793)) ([e0d9017](https://github.com/windmill-labs/windmill/commit/e0d90170365d799f05222457feb0fc7f27edf945))
+
+## [1.558.1](https://github.com/windmill-labs/windmill/compare/v1.558.0...v1.558.1) (2025-10-09)
+
+
+### Bug Fixes
+
+* support pg jsonb array ([#6788](https://github.com/windmill-labs/windmill/issues/6788)) ([1c9faf9](https://github.com/windmill-labs/windmill/commit/1c9faf9d03edd663e9a50161b9c37ac24bb3c422))
+
+## [1.558.0](https://github.com/windmill-labs/windmill/compare/v1.557.0...v1.558.0) (2025-10-09)
+
+
+### Features
+
+* allow setting custom cors header on http trigger ([#6786](https://github.com/windmill-labs/windmill/issues/6786)) ([705a177](https://github.com/windmill-labs/windmill/commit/705a1770054ff7f0f65729e9b7c71124bc4bf7a4))
+* **backend:** allow specifying powershell module versions ([#6781](https://github.com/windmill-labs/windmill/issues/6781)) ([bd3e5e6](https://github.com/windmill-labs/windmill/commit/bd3e5e67bbf44f6b1616bca7f926c068427625d4))
+* Database manager for Ducklake instance catalogs ([#6785](https://github.com/windmill-labs/windmill/issues/6785)) ([f798ff4](https://github.com/windmill-labs/windmill/commit/f798ff4535f44ce1c6258ce716277258d2d176ab))
+
 ## [1.557.0](https://github.com/windmill-labs/windmill/compare/v1.556.1...v1.557.0) (2025-10-09)
 
 

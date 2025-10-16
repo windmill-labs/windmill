@@ -141,6 +141,13 @@ pub struct FlowValue {
     pub chat_input_enabled: Option<bool>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct FlowNodeFlow {
+    pub value: FlowValue,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
 impl FlowValue {
     pub fn get_flow_module_at_step(&self, step: Step) -> anyhow::Result<&FlowModule> {
         let flow_module = match step {
@@ -727,6 +734,8 @@ pub enum FlowModuleValue {
     AIAgent {
         input_transforms: HashMap<String, InputTransform>,
         tools: Vec<FlowModule>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        modules_node: Option<FlowNodeId>,
     },
 
     // MCP (Model Context Protocol) server reference
@@ -877,6 +886,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 tools: untagged
                     .tools
                     .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
+                modules_node: untagged.modules_node,
             }),
             "mcpserver" => Ok(FlowModuleValue::McpServer {
                 resource_path: untagged
@@ -1075,6 +1085,9 @@ pub async fn resolve_module(
                 )
                 .await?;
             }
+        }
+        AIAgent { tools, modules_node, .. } => {
+            resolve_modules(db, workspace_id, tools, modules_node.take(), with_code).await?;
         }
         _ => {}
     }

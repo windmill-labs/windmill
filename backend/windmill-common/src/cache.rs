@@ -282,12 +282,25 @@ pub mod future {
 pub struct FlowData {
     pub raw_flow: Box<RawValue>,
     pub flow: FlowValue,
+    pub summary: Option<String>,
 }
 
 impl FlowData {
     pub fn from_raw(raw_flow: Box<RawValue>) -> error::Result<Self> {
-        let flow = serde_json::from_str(raw_flow.get())?;
-        Ok(Self { raw_flow, flow })
+        let (flow, summary) = if let Ok(parsed) =
+            serde_json::from_str::<crate::flows::FlowNodeFlow>(raw_flow.get())
+        {
+            (parsed.value, parsed.summary)
+        } else {
+            // fallback to plain FlowValue
+            (
+                serde_json::from_str::<FlowValue>(raw_flow.get()).map_err(|e| {
+                    error::Error::internal_err(format!("Failed to parse as FlowValue: {}", e))
+                })?,
+                None,
+            )
+        };
+        Ok(Self { raw_flow, flow, summary })
     }
 
     pub fn value(&self) -> &FlowValue {
@@ -837,10 +850,12 @@ pub mod job {
             match (kind, hash.map(|ScriptHash(id)| id)) {
                 (FlowDependencies, Some(id)) => flow::fetch_version(db, id).await,
                 (FlowNode, Some(id)) => flow::fetch_flow(db, FlowNodeId(id)).await,
-                (Flow, Some(id)) | (SingleStepFlow, Some(id)) => match flow::fetch_version_lite(db, id).await {
-                    Ok(raw_flow) => Ok(raw_flow),
-                    Err(_) => flow::fetch_version(db, id).await,
-                },
+                (Flow, Some(id)) | (SingleStepFlow, Some(id)) => {
+                    match flow::fetch_version_lite(db, id).await {
+                        Ok(raw_flow) => Ok(raw_flow),
+                        Err(_) => flow::fetch_version(db, id).await,
+                    }
+                }
                 _ => Err(error::Error::internal_err(format!(
                     "Isn't a flow job {:?}",
                     kind

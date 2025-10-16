@@ -334,7 +334,7 @@ pub async fn set_global_setting_internal(
         }
         v => {
             sqlx::query!(
-                 "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
+                 "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
                  key,
                  v
              )
@@ -359,6 +359,7 @@ pub async fn get_global_setting(
         && key != HUB_BASE_URL_SETTING
         && key != HUB_ACCESSIBLE_URL_SETTING
         && key != EMAIL_DOMAIN_SETTING
+        && key != APP_WORKSPACED_ROUTE_SETTING
     {
         require_super_admin(&db, &authed.email).await?;
     }

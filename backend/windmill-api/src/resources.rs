@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use crate::{
     db::{ApiAuthed, DB},
     users::{maybe_refresh_folders, require_owner_of_path, Tokened},
-    utils::{check_scopes, BulkDeleteRequest},
+    utils::{check_scopes, require_super_admin, BulkDeleteRequest},
     var_resource_cache::{cache_resource, get_cached_resource},
     webhook_util::{WebhookMessage, WebhookShared},
 };
@@ -28,15 +28,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
 use sql_builder::{bind::Bind, quote, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
+use std::process::Stdio;
+use tokio::process::Command;
 use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::{UserDB, UserDbWithOptAuthed},
     error::{Error, JsonResult, Result},
+    get_database_url, parse_postgres_url,
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
     worker::CLOUD_HOSTED,
+    workspaces::get_ducklake_instance_pg_catalog_password,
 };
 
 pub fn workspaced_service() -> Router {
@@ -56,6 +60,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_resource))
         .route("/delete_bulk", delete(delete_resources_bulk))
         .route("/create", post(create_resource))
+        .route("/git_commit_hash/*path", get(get_git_commit_hash))
         .route("/type/list", get(list_resource_types))
         .route("/type/listnames", get(list_resource_types_names))
         .route("/type/get/:name", get(get_resource_type))
@@ -463,6 +468,20 @@ pub async fn get_resource_value_interpolated_internal(
     token: &str,
     allow_cache: bool,
 ) -> Result<Option<serde_json::Value>> {
+    // This is a special syntax to help debugging ducklake catalogs stored in the instance
+    if let Some(dbname) = path.strip_prefix("INSTANCE_DUCKLAKE_CATALOG/") {
+        require_super_admin(db, &authed.email).await?;
+        let pg_creds = parse_postgres_url(&get_database_url().await?)?;
+        return Ok(Some(serde_json::json!({
+            "dbname": dbname,
+            "host": pg_creds.host,
+            "port": pg_creds.port,
+            "user": "ducklake_user",
+            "sslmode": pg_creds.ssl_mode,
+            "password": get_ducklake_instance_pg_catalog_password(&db).await?,
+        })));
+    }
+
     if allow_cache {
         if let Some(cached_value) = get_cached_resource(&workspace, &path) {
             return Ok(Some(cached_value));
@@ -722,7 +741,7 @@ async fn create_resource(
         "INSERT INTO resource
             (workspace_id, path, value, description, resource_type, created_by, edited_at)
             VALUES ($1, $2, $3, $4, $5, $6, now()) ON CONFLICT (workspace_id, path)
-            DO UPDATE SET value = $3, description = $4, resource_type = $5, edited_at = now()",
+            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now()",
         w_id,
         resource.path,
         raw_json as sqlx::types::Json<&RawValue>,
@@ -1429,4 +1448,101 @@ async fn get_mcp_tools(
     }
 
     Ok(Json(tools))
+}
+
+#[derive(Deserialize, Serialize)]
+struct GitRepositoryResource {
+    url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch: Option<String>,
+}
+
+#[derive(Serialize)]
+struct GitCommitHashResponse {
+    commit_hash: String,
+}
+
+async fn get_git_commit_hash(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<GitCommitHashResponse> {
+    let path = path.to_path();
+
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+
+    let git_repo_resource_value = get_resource_value_interpolated_internal(
+        &authed,
+        Some(user_db),
+        &db,
+        &w_id,
+        path,
+        None,
+        &token,
+        false,
+    )
+    .await
+    .map_err(|e| Error::NotAuthorized(format!("Access to resource {} denied: ({e})", path)))?;
+
+    let git_resource: GitRepositoryResource = match git_repo_resource_value {
+        Some(value) => serde_json::from_value(value).map_err(|e| {
+            Error::BadRequest(format!("Invalid git repository resource format: {}", e))
+        })?,
+        None => return Err(Error::NotFound(format!("Resource {} not found", path)).into()),
+    };
+
+    let commit_hash = get_repo_latest_commit_hash(&git_resource).await?;
+
+    Ok(Json(GitCommitHashResponse { commit_hash }))
+}
+
+async fn get_repo_latest_commit_hash(git_resource: &GitRepositoryResource) -> Result<String> {
+    let mut git_cmd = Command::new("git");
+
+    let ref_spec = git_resource
+        .branch
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("HEAD");
+
+    git_cmd.args(["ls-remote", &git_resource.url, ref_spec]);
+    git_cmd.stderr(Stdio::piped());
+
+    let output = git_cmd
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute git command: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)
+            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        return Err(Error::BadRequest(format!(
+            "Error getting git repo commit hash: {}",
+            stderr
+        )));
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| Error::internal_err(format!("Failed to decode git output: {}", e)))?;
+
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    if lines.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "No commits found for reference '{}' in repository '{}'",
+            ref_spec, git_resource.url
+        )));
+    }
+
+    let commit_hash = lines
+        .first()
+        .and_then(|line| line.split_whitespace().next())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            Error::BadRequest("Unexpected output format for git ls-remote".to_string())
+        })?;
+
+    Ok(commit_hash)
 }
