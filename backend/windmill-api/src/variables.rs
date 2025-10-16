@@ -84,7 +84,6 @@ async fn list_contextual_variables(
             Some(chrono::offset::Utc::now()),
             Some(ScriptHash(1234567890)),
             None,
-            None,
         )
         .await
         .to_vec(),

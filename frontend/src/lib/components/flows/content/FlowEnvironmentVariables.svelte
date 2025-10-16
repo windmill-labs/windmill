@@ -7,7 +7,6 @@
 	import { Button } from '$lib/components/common'
 	import { Plus, Trash2 } from 'lucide-svelte'
 	import FlowCard from '../common/FlowCard.svelte'
-	import Select from '$lib/components/select/Select.svelte'
 
 	interface Props {
 		noEditor: boolean
@@ -20,8 +19,6 @@
 	if (!flowStore.val.value.env_vars) {
 		flowStore.val.value.env_vars = {}
 	}
-	let items = ['variable', 'resource', 'json']
-	let type: 'variable' | 'resource' | 'json' = $state('json')
 	let envVars = $derived(flowStore.val.value.env_vars || {})
 	let envEntries = $derived(
 		Object.entries(envVars).map(([key, value], index) => ({ id: `${key}_${index}`, key, value }))
@@ -113,28 +110,18 @@
 									placeholder="VARIABLE_NAME"
 								/>
 							</label>
+
 							<label class="flex flex-col gap-1 text-sm font-medium">
-								<span>Variable Type</span>
-								<Select
-									placeholder=""
-									bind:value={type}
-									items={items.map((item) => ({ value: item }))}
-									clearable={false}
+								<span>Value</span>
+								<input
+									type="text"
+									value={entry.value}
+									oninput={(e) => updateEnvValue(entry.key, e.currentTarget.value)}
+									disabled={noEditor}
+									class="input w-full"
+									placeholder="Variable value"
 								/>
 							</label>
-							{#if type === 'json'}
-								<label class="flex flex-col gap-1 text-sm font-medium">
-									<span>Value</span>
-									<input
-										type="text"
-										value={entry.value}
-										oninput={(e) => updateEnvValue(entry.key, e.currentTarget.value)}
-										disabled={noEditor}
-										class="input w-full"
-										placeholder="Variable value"
-									/>
-								</label>
-							{/if}
 							<div class="flex">
 								{#if !noEditor}
 									<Button

@@ -423,7 +423,7 @@
 			{/if}
 			{#if env && Object.keys(env).length > 0 && (!filterActive || $inputMatches?.some((match) => match.word === 'env'))}
 				<div class="overflow-y-auto pb-2">
-					<span class="font-normal text-xs text-secondary">Environment Variables:</span>
+					<span class="font-normal text-xs text-secondary">Flow Variables:</span>
 
 					{#if displayEnv}
 						<Button

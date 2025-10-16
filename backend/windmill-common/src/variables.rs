@@ -15,7 +15,6 @@ use chrono::{SecondsFormat, Utc};
 use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 lazy_static::lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
@@ -221,7 +220,6 @@ pub async fn get_reserved_variables(
     scheduled_for: Option<chrono::DateTime<Utc>>,
     runnable_id: Option<ScriptHash>,
     end_user_email: Option<String>,
-    flow_env_vars: Option<HashMap<String, String>>,
 ) -> Vec<ContextualVariable> {
     let state_path = {
         let trigger = if schedule_path.is_some() {
@@ -403,14 +401,7 @@ pub async fn get_reserved_variables(
     value,
     description: "Custom workspace environment variable".to_string(),
     is_custom: true,
-})).chain(
-    flow_env_vars.unwrap_or_default().into_iter().map(|(name, value)| ContextualVariable {
-        name: format!("env.{}", name),
-        value,
-        description: "Flow environment variable".to_string(),
-        is_custom: true,
-    })
-).collect()
+})).collect()
 }
 
 async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String, String)> {
@@ -447,7 +438,11 @@ async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String
     custom_envs
 }
 
-pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> crate::error::Result<String> {
+pub async fn get_variable_or_self(
+    path: String,
+    db: &DB,
+    w_id: &str,
+) -> crate::error::Result<String> {
     if !path.starts_with("$var:") {
         return Ok(path);
     }

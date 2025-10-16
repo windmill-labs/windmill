@@ -1846,6 +1846,7 @@ where
 /// resumes should be in order of timestamp ascending, so that more recent are at the end
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
+    env_args: Option<&HashMap<String, String>>,
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
     last_result: Arc<Box<RawValue>>,
     input_transforms: &HashMap<String, InputTransform>,
@@ -1869,6 +1870,9 @@ async fn transform_input(
         env.insert("resume".to_string(), resume);
         env.insert("resumes".to_string(), resumes);
         env.insert("approvers".to_string(), approvers);
+        if let Some(env_args) = env_args {
+            env.insert("env".to_string(), Arc::new(to_raw_value(&env_args)));
+        }
         if let Some(FailureContext { started_at, flow_job_id }) = failure_context {
             env.insert("started_at".to_string(), started_at);
             env.insert(
@@ -2095,13 +2099,14 @@ async fn push_next_flow_job(
     // tracing::error!("status_module: {status_module:#?}");
 
     let fj: mappable_rc::Marc<MiniPulledJob> = flow_job.clone().into();
-    let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> = Marc::map(fj, |x| {
-        if let Some(args) = &x.args {
-            &args.0
-        } else {
-            &EHM
-        }
-    });
+    let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> =
+        Marc::map(fj, |x: &MiniPulledJob| {
+            if let Some(args) = &x.args {
+                &args.0
+            } else {
+                &EHM
+            }
+        });
 
     // if this is an empty module without preprocessor of if the module has already been completed, successfully, update the parent flow
     if (flow.modules.is_empty() && !step.is_preprocessor_step())
@@ -2785,6 +2790,7 @@ async fn push_next_flow_job(
                     _ => None,
                 };
                 transform_input(
+                    flow.env_vars.as_ref(),
                     arc_flow_job_args.clone(),
                     arc_last_job_result.clone(),
                     input_transforms,
@@ -2959,6 +2965,7 @@ async fn push_next_flow_job(
                         .warn_after_seconds(3)
                         .await?;
                     let ti = transform_input(
+                        flow.env_vars.as_ref(),
                         Marc::new(args),
                         arc_last_job_result.clone(),
                         input_transforms,
@@ -3009,6 +3016,7 @@ async fn push_next_flow_job(
                             .warn_after_seconds(3)
                             .await?;
                         let ti = transform_input(
+                            flow.env_vars.as_ref(),
                             Marc::new(hm),
                             arc_last_job_result.clone(),
                             input_transforms,
@@ -3177,7 +3185,9 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
-        if value_with_parallel.type_ == "forloopflow" && value_with_parallel.parallel.unwrap_or(false) {
+        if value_with_parallel.type_ == "forloopflow"
+            && value_with_parallel.parallel.unwrap_or(false)
+        {
             if let Some(parallelism_transform) = &value_with_parallel.parallelism {
                 tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
 

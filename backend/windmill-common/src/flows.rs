@@ -141,7 +141,7 @@ pub struct FlowValue {
     pub chat_input_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    pub env_vars: Option<std::collections::HashMap<String, String>>,
+    pub env_vars: Option<HashMap<String, String>>,
 }
 
 #[derive(Serialize, Deserialize)]

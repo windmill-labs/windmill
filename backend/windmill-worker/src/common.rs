@@ -436,25 +436,6 @@ pub async fn get_reserved_variables(
         None
     };
 
-    let flow_env_vars = if let Some(flow_path_ref) = &flow_path {
-        match db {
-            Connection::Sql(db) => {
-                sqlx::query_scalar!("SELECT value FROM flow WHERE workspace_id = $1 AND path = $2", &job.workspace_id, flow_path_ref)
-                    .fetch_optional(db)
-                    .await
-                    .unwrap_or(None)
-                    .and_then(|value| {
-                        serde_json::from_value::<windmill_common::flows::FlowValue>(value)
-                            .ok()
-                            .and_then(|flow_value| flow_value.env_vars)
-                    })
-            }
-            Connection::Http(_) => None,
-        }
-    } else {
-        None
-    };
-
     let variables = variables::get_reserved_variables(
         db,
         &job.workspace_id,
@@ -473,7 +454,6 @@ pub async fn get_reserved_variables(
         Some(job.scheduled_for.clone()),
         job.runnable_id,
         job.permissioned_as_end_user_email.clone(),
-        flow_env_vars,
     )
     .await
     .to_vec();

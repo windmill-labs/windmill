@@ -130,7 +130,6 @@
 						{result}
 						{extraResults}
 						{flow_input}
-						{env}
 						allowCopy={!notSelectable && !$propPickerConfig}
 						on:select={({ detail }) => {
 							dispatch('select', detail)

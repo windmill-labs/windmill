@@ -637,7 +637,6 @@ pub async fn transform_json_value<'c>(
                 Some(job.scheduled_for.clone()),
                 None,
                 None,
-                None,
             )
             .await;
 
