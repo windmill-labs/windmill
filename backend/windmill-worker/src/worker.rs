@@ -956,7 +956,6 @@ pub async fn run_worker(
         );
     }
 
-    dbg!("start");
     let start_time = Instant::now();
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
@@ -997,16 +996,12 @@ pub async fn run_worker(
         });
     }
 
-    dbg!("python stuff is done");
-
     if let Some(ref netrc) = *NETRC {
         tracing::info!(worker = %worker_name, hostname = %hostname, "Writing netrc at {}/.netrc", HOME_ENV.as_str());
         write_file(&HOME_ENV, ".netrc", netrc).expect("could not write netrc");
     }
 
     create_directory_async(&worker_dir).await;
-
-    dbg!("worker dir created");
 
     if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -1390,7 +1385,6 @@ pub async fn run_worker(
 
     let mut killpill_rx2 = killpill_rx.resubscribe();
 
-    dbg!("starting loop");
     loop {
         let last_processing_duration_secs = last_processing_duration.load(Ordering::SeqCst);
         if last_processing_duration_secs > 5 {
