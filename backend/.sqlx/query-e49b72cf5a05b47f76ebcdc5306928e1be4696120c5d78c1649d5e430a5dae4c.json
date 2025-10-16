@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT jsonb_array_elements(value->'modules')->'value'->>'lock' AS lock FROM flow",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "lock",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e49b72cf5a05b47f76ebcdc5306928e1be4696120c5d78c1649d5e430a5dae4c"
+}

@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2",
+  "query": "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false ORDER BY created_at DESC LIMIT 1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "versions",
+        "name": "hash",
         "type_info": "Int8"
       }
     ],
@@ -16,8 +16,8 @@
       ]
     },
     "nullable": [
-      null
+      false
     ]
   },
-  "hash": "ca15fe5d43f0e94f50408efe5c9e359770b759e8661687b4503c4b692ecd245e"
+  "hash": "d5661c7557cf3a8dee7cf799cd364d21d38edb827d2c08b0ca7d72311b78d574"
 }
