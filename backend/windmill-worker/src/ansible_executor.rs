@@ -13,7 +13,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    git_sync_oss::{get_github_app_token_internal, prepend_token_to_github_url},
+    git_sync_oss::{prepend_token_to_github_url},
     worker::{
         is_allowed_file_location, to_raw_value, write_file, write_file_at_user_defined_location,
         Connection, WORKER_CONFIG,
@@ -958,7 +958,7 @@ pub async fn handle_ansible_job(
             #[cfg(feature = "enterprise")]
             if is_github_app {
                 if let Connection::Sql(db) = conn {
-                    let token = get_github_app_token_internal(db, &client.token).await?;
+                    let token = windmill_common::git_sync_oss::get_github_app_token_internal(db, &client.token).await?;
                     secret_url = prepend_token_to_github_url(&secret_url, &token)?;
                 } else {
                     return Err(windmill_common::error::Error::BadRequest("Github App authentication is currently unavailable for agent workers. Contact the windmill team to request this feature".to_string()));
