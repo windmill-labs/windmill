@@ -971,9 +971,12 @@ async fn resolve_value(
     value: &mut Box<JsonRawValue>,
     with_code: bool,
 ) -> Result<(), Error> {
-    let mut val = serde_json::from_str::<FlowValue>(value.get()).map_err(|err| {
-        Error::internal_err(format!("resolve: Failed to parse flow value: {}", err))
-    })?;
+    let mut val = match serde_json::from_str::<FlowNodeFlow>(value.get()) {
+        Ok(node_flow) => node_flow.value,
+        Err(_) => serde_json::from_str::<FlowValue>(value.get()).map_err(|err| {
+            Error::internal_err(format!("resolve: Failed to parse flow value: {}", err))
+        })?,
+    };
     for module in &mut val.modules {
         resolve_module(e, workspace_id, &mut module.value, with_code).await?;
     }
