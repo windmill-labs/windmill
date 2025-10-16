@@ -15,6 +15,7 @@ use crate::{
     scripts::{ScriptHash, ScriptLang},
 };
 use anyhow::anyhow;
+use serde_json::value::to_raw_value;
 
 #[cfg(feature = "scoped_cache")]
 use std::thread::ThreadId;
@@ -287,20 +288,17 @@ pub struct FlowData {
 
 impl FlowData {
     pub fn from_raw(raw_flow: Box<RawValue>) -> error::Result<Self> {
-        let (flow, summary) = if let Ok(parsed) =
-            serde_json::from_str::<crate::flows::FlowNodeFlow>(raw_flow.get())
-        {
-            (parsed.value, parsed.summary)
+        if let Ok(parsed) = serde_json::from_str::<crate::flows::FlowNodeFlow>(raw_flow.get()) {
+            // only save the value part in the raw flow
+            let raw_flow = to_raw_value(&parsed.value)?;
+            Ok(Self { raw_flow, flow: parsed.value, summary: parsed.summary })
         } else {
             // fallback to plain FlowValue
-            (
-                serde_json::from_str::<FlowValue>(raw_flow.get()).map_err(|e| {
-                    error::Error::internal_err(format!("Failed to parse as FlowValue: {}", e))
-                })?,
-                None,
-            )
-        };
-        Ok(Self { raw_flow, flow, summary })
+            let value = serde_json::from_str::<FlowValue>(raw_flow.get()).map_err(|e| {
+                error::Error::internal_err(format!("Failed to parse as FlowValue: {}", e))
+            })?;
+            Ok(Self { raw_flow, flow: value, summary: None })
+        }
     }
 
     pub fn value(&self) -> &FlowValue {
