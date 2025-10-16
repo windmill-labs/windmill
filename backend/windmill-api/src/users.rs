@@ -110,6 +110,7 @@ pub fn global_service() -> Router {
         .route("/leave_instance", post(leave_instance))
         .route("/export", get(export_global_users))
         .route("/overwrite", post(overwrite_global_users))
+        .route("/onboarding", post(submit_onboarding_data))
 
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
@@ -1625,6 +1626,14 @@ async fn create_user(
     Json(nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
     crate::users_oss::create_user(authed, db, webhook, argon2, nu).await
+}
+
+async fn submit_onboarding_data(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(data): Json<crate::users_oss::OnboardingData>,
+) -> Result<String> {
+    crate::users_oss::submit_onboarding_data(authed, Extension(db), Json(data)).await
 }
 
 /// Internal helper for updating workspace user permissions - used by both API and system operations
