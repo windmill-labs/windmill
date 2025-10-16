@@ -74,7 +74,7 @@
 </script>
 
 <div
-	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 pt-1 pb-4 flex-nowrap"
+	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 pt-1 pb-1 flex-nowrap"
 >
 	{#if flowModuleValue}
 		<span class="text-sm w-full mr-4">

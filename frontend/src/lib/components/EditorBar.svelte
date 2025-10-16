@@ -787,12 +787,12 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 />
 
 <div class="flex justify-between items-center overflow-y-auto w-full p-0.5">
-	<div class="flex items-center">
+	<div class="flex gap-3 items-center">
 		<div
 			title={validCode ? 'Main function parsable' : 'Main function not parsable'}
 			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
 		></div>
-		<div class="flex items-center gap-0.5">
+		<div class="flex items-center gap-2">
 			{#if showContextVarPicker && customUi?.contextVar != false}
 				<Button
 					aiId="editor-bar-add-context-variable"

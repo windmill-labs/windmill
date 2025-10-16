@@ -606,7 +606,7 @@
 		</div>
 	{/if}
 	{#if displayHeader}
-		<div class="flex min-h-7 items-end pb-1">
+		<div class="flex items-end">
 			<FieldHeader
 				prettify={prettifyHeader}
 				label={title && !emptyString(title) ? title : label}

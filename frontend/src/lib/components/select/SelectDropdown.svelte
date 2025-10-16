@@ -164,7 +164,7 @@
 		>
 			<div
 				class={twMerge(
-					'overflow-clip rounded-md bg-surface-secondary shadow-lg transition-height',
+					'overflow-clip rounded-md drop-shadow-base transition-height',
 					dropdownPos.isBelow ? '' : 'flex flex-col justify-end'
 				)}
 				style="height: {uiState.visible ? dropdownPos.height : 0}px;"
@@ -193,8 +193,11 @@
 								<button
 									class={twMerge(
 										'py-2 px-4 w-full font-normal text-left text-primary text-xs',
-										itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
-										item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover',
+										itemIndex === keyArrowPos
+											? 'bg-surface-hover'
+											: item.value === value
+												? 'bg-surface-hover'
+												: 'hover:bg-surface-hover',
 										itemButtonWrapperClasses
 									)}
 									onclick={(e) => {

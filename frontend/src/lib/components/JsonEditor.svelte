@@ -69,7 +69,7 @@
 	<div class="flex flex-col w-full">
 		<div
 			class={twMerge(
-				'w-full rounded-md bg-surface-tertiary',
+				'w-full rounded-md overflow-auto',
 				inputBorderClass({ error: !!error, forceFocus: focused })
 			)}
 		>
