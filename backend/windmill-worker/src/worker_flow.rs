@@ -3693,6 +3693,10 @@ async fn compute_next_flow_transform(
 
     match module.get_value()? {
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
+        FlowModuleValue::McpServer { .. } => {
+            // MCP server is configuration-only, treated like identity (no-op execution)
+            trivial_next_job(JobPayload::Identity)
+        }
         FlowModuleValue::Flow { path, .. } => {
             let payload =
                 flow_to_payload(path, delete_after_use, &flow_job.workspace_id, db).await?;

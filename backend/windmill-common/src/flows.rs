@@ -175,7 +175,8 @@ impl FlowValue {
                 | RawScript { .. }
                 | Flow { .. }
                 | FlowScript { .. }
-                | Identity) => cb(&s, &module.id)?,
+                | Identity
+                | McpServer { .. }) => cb(&s, &module.id)?,
                 ForloopFlow { modules, .. }
                 | WhileloopFlow { modules, .. }
                 | AIAgent { tools: modules, .. } => Self::traverse_leafs(&modules, cb)?,
@@ -727,6 +728,16 @@ pub enum FlowModuleValue {
         input_transforms: HashMap<String, InputTransform>,
         tools: Vec<FlowModule>,
     },
+
+    // MCP (Model Context Protocol) server reference
+    // Provides configuration for loading tools from an MCP server
+    McpServer {
+        resource_path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        include_tools: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        exclude_tools: Option<Vec<String>>,
+    },
 }
 
 fn is_none_or_empty(expr: &Option<String>) -> bool {
@@ -764,6 +775,9 @@ struct UntaggedFlowModuleValue {
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Vec<FlowModule>>,
     pass_flow_input_directly: Option<bool>,
+    resource_path: Option<String>,
+    include_tools: Option<Vec<String>>,
+    exclude_tools: Option<Vec<String>>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -864,6 +878,13 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .tools
                     .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
             }),
+            "mcpserver" => Ok(FlowModuleValue::McpServer {
+                resource_path: untagged
+                    .resource_path
+                    .ok_or_else(|| serde::de::Error::missing_field("resource_path"))?,
+                include_tools: untagged.include_tools,
+                exclude_tools: untagged.exclude_tools,
+            }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &[
@@ -876,6 +897,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     "rawscript",
                     "identity",
                     "aiagent",
+                    "mcpserver",
                 ],
             )),
         }

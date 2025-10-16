@@ -116,7 +116,8 @@
 		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
-		inlineScript?: InlineScript
+		inlineScript?: InlineScript,
+		mcpResource?: string
 	): Promise<FlowModule[]> {
 		push(history, flowStore.val)
 		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
@@ -142,6 +143,12 @@
 			;[module, state] = await createBranchAll(module.id)
 		} else if (kind == 'aiagent') {
 			;[module, state] = await createAiAgent(module.id)
+		} else if (kind == 'mcpserver') {
+			module.summary = mcpResource ? `MCP: ${mcpResource}` : ''
+			module.value = {
+				type: 'mcpserver',
+				resource_path: mcpResource ?? ''
+			}
 		} else if (inlineScript) {
 			const { language, kind, subkind, summary } = inlineScript
 			;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
@@ -496,7 +503,8 @@
 									detail.kind,
 									detail.script,
 									detail.flow,
-									detail.inlineScript
+									detail.inlineScript,
+									detail.mcpResource
 								)
 								const id = targetModules[index].id
 								$selectedId = id

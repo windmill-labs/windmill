@@ -4265,6 +4265,35 @@ paths:
                     - path
                     - value
 
+  /w/{workspace}/resources/mcp_tools/{path}:
+    get:
+      summary: get MCP tools from resource
+      operationId: getMcpTools
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: list of MCP tools
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+                    parameters:
+                      type: object
+                  required:
+                    - name
+                    - parameters
+
   /w/{workspace}/resources/list_names/{name}:
     get:
       summary: list resource names
@@ -14760,6 +14789,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/AiAgent"
     Identity:
       $ref: "../../openflow.openapi.yaml#/components/schemas/Identity"
+    McpServer:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/McpServer"
     FlowStatus:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
     FlowStatusModule:

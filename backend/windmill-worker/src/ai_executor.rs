@@ -1,5 +1,5 @@
-use crate::ai::mcp_client::McpClient;
 use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
+use windmill_common::mcp_client::McpClient;
 use crate::ai::utils::{
     add_message_to_conversation, cleanup_mcp_clients, find_unique_tool_name,
     get_flow_chat_settings, get_flow_job_runnable_and_raw_flow, get_step_name_from_flow,
@@ -21,7 +21,7 @@ use windmill_common::{
     error::{self, Error},
     flow_conversations::MessageType,
     flow_status::AgentAction,
-    flows::{FlowModuleValue, FlowValue, InputTransform},
+    flows::{FlowModule, FlowModuleValue, FlowValue},
     get_latest_hash_for_path,
     jobs::JobKind,
     scripts::get_full_hub_script_by_path,
@@ -71,7 +71,6 @@ pub async fn handle_ai_agent_job(
     has_stream: &mut bool,
 ) -> Result<Box<RawValue>, Error> {
     let args = build_args_map(job, client, conn).await?;
-
     let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
 
     let Some(flow_step_id) = &job.flow_step_id else {
@@ -112,23 +111,38 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    let FlowModuleValue::AIAgent { tools, input_transforms, .. } = module.get_value()? else {
+    let FlowModuleValue::AIAgent { tools, .. } = module.get_value()? else {
         return Err(Error::internal_err(
             "AI agent module is not an AI agent".to_string(),
         ));
     };
 
-    // Extract mcp_resources from input_transforms
-    let mcp_resources: Vec<String> = input_transforms
-        .get("mcp_resources")
-        .and_then(|it| match it {
-            InputTransform::Static { value } => Some(value),
-            _ => None,
-        })
-        .and_then(|v| serde_json::from_str::<Vec<String>>(v.get()).ok())
-        .unwrap_or_default();
+    // Separate Windmill tools from MCP tools and extract MCP resource configs
+    let mut windmill_modules: Vec<FlowModule> = Vec::new();
+    let mut mcp_configs: Vec<crate::ai::utils::McpResourceConfig> = Vec::new();
 
-    let tools = futures::future::try_join_all(tools.into_iter().map(|mut t| {
+    for tool in tools {
+        match tool.get_value()? {
+            FlowModuleValue::McpServer { resource_path, include_tools, exclude_tools } => {
+                // This is an MCP server module - extract full config
+                tracing::debug!("MCP server module: path={}, include={:?}, exclude={:?}",
+                    resource_path, include_tools, exclude_tools);
+                mcp_configs.push(crate::ai::utils::McpResourceConfig {
+                    resource_path: resource_path.clone(),
+                    include_tools: include_tools.clone(),
+                    exclude_tools: exclude_tools.clone(),
+                });
+            }
+            _ => {
+                // Regular Windmill flow module (script, flow, etc.)
+                tracing::debug!("Windmill module: {:?}", tool.id);
+                windmill_modules.push(tool.clone());
+            }
+        }
+    }
+
+    // Process Windmill flow modules into Tool definitions
+    let tools = futures::future::try_join_all(windmill_modules.into_iter().map(|mut t| {
         let conn = conn;
         let db = db;
         let job = job;
@@ -169,9 +183,14 @@ pub async fn handle_ai_agent_job(
                             .await?;
                             Ok(Some(hub_script.schema))
                         } else {
-                            let hash = get_latest_hash_for_path(db, &job.workspace_id, path, true)
-                                .await?
-                                .0;
+                            let hash = get_latest_hash_for_path(
+                                db,
+                                &job.workspace_id,
+                                path.as_str(),
+                                true,
+                            )
+                            .await?
+                            .0;
                             // update module definition to use a fixed hash so all tool calls match the same schema
                             t.value = to_raw_value(&FlowModuleValue::Script {
                                 hash: Some(hash),
@@ -232,8 +251,9 @@ pub async fn handle_ai_agent_job(
 
     // Load MCP tools if configured
     let mut tools = tools;
-    let mcp_clients = if !mcp_resources.is_empty() {
-        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_resources).await?;
+    let mcp_clients = if !mcp_configs.is_empty() {
+        let (clients, mcp_tools) =
+            load_mcp_tools(db, &job.workspace_id, mcp_configs).await?;
         tools.extend(mcp_tools);
         clients
     } else {

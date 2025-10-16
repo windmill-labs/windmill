@@ -19,6 +19,7 @@ export type InsertKind =
 	| 'approval'
 	| 'end'
 	| 'aiagent'
+	| 'mcpserver'
 
 export type InlineScript = {
 	language: RawScript['language']
@@ -46,6 +47,7 @@ export type GraphEventHandlers = {
 		script?: PathScript
 		flow?: { path: string; summary: string }
 		isPreprocessor?: boolean
+		mcpResource?: string
 	}) => void
 	deleteBranch: (detail: { id: string; index: number }, label: string) => void
 	select: (mod: string | FlowModule) => void
@@ -305,6 +307,7 @@ export type AiToolN = {
 	type: 'aiTool'
 	data: {
 		tool: string
+		type?: string
 		eventHandlers: GraphEventHandlers
 		moduleId: string
 		insertable: boolean

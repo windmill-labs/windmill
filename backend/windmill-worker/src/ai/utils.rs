@@ -1,8 +1,9 @@
-use crate::ai::mcp_client::{McpClient, McpResource, McpToolSource};
+use crate::ai::types::{ToolDef, ToolDefFunction};
 use anyhow::Context;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
+use windmill_common::mcp_client::{McpClient, McpResource, McpToolSource};
 use windmill_common::{
     ai_providers::AIProvider,
     db::DB,
@@ -276,20 +277,117 @@ pub async fn cleanup_mcp_clients(mcp_clients: HashMap<String, Arc<McpClient>>) {
     }
 }
 
+/// Convert raw MCP tools to Windmill Tool format with source tracking
+fn convert_mcp_tools_to_windmill_tools(
+    mcp_tools: &[rmcp::model::Tool],
+    resource_name: &str,
+    resource_path: &str,
+) -> Result<Vec<Tool>, Error> {
+    mcp_tools
+        .iter()
+        .map(|mcp_tool| {
+            let tool_name = format!("mcp_{}_{}", resource_name, mcp_tool.name);
+
+            let schema_value = serde_json::to_value(&*mcp_tool.input_schema)
+                .context("Failed to convert MCP schema to JSON value")?;
+            let fixed_schema = McpClient::fix_array_schemas(schema_value);
+            let parameters = to_raw_value(&fixed_schema);
+
+            // Build the description from title and description
+            let description = if let Some(title) = &mcp_tool.title {
+                if let Some(desc) = &mcp_tool.description {
+                    Some(format!("{}: {}", title, desc))
+                } else {
+                    Some(title.to_string())
+                }
+            } else {
+                mcp_tool.description.as_ref().map(|d| d.to_string())
+            };
+
+            let tool_def_function =
+                ToolDefFunction { name: tool_name.clone(), description, parameters };
+
+            let tool_def = ToolDef { r#type: "function".to_string(), function: tool_def_function };
+
+            Ok(Tool {
+                def: tool_def,
+                module: None,
+                mcp_source: Some(McpToolSource {
+                    name: resource_name.to_string(),
+                    tool_name: mcp_tool.name.to_string(),
+                    resource_path: resource_path.to_string(),
+                }),
+            })
+        })
+        .collect()
+}
+
+/// Configuration for loading tools from an MCP server resource
+#[derive(Debug, Clone)]
+pub struct McpResourceConfig {
+    pub resource_path: String,
+    pub include_tools: Option<Vec<String>>,
+    pub exclude_tools: Option<Vec<String>>,
+}
+
+/// Apply include/exclude filters to a list of tools
+/// Priority: include_tools > exclude_tools > all
+/// - If include_tools is Some and non-empty: whitelist approach (keep only listed tools)
+/// - Else if exclude_tools is Some and non-empty: blacklist approach (remove listed tools)
+/// - Otherwise: no filtering (keep all tools)
+fn apply_tool_filters(
+    tools: Vec<Tool>,
+    include_tools: &Option<Vec<String>>,
+    exclude_tools: &Option<Vec<String>>,
+) -> Vec<Tool> {
+    // If include_tools is specified and non-empty, use whitelist approach
+    if let Some(include_list) = include_tools {
+        if !include_list.is_empty() {
+            return tools
+                .into_iter()
+                .filter(|tool| {
+                    tool.mcp_source
+                        .as_ref()
+                        .map(|src| include_list.contains(&src.tool_name))
+                        .unwrap_or(false)
+                })
+                .collect();
+        }
+    }
+
+    // If exclude_tools is specified and non-empty, use blacklist approach
+    if let Some(exclude_list) = exclude_tools {
+        if !exclude_list.is_empty() {
+            return tools
+                .into_iter()
+                .filter(|tool| {
+                    tool.mcp_source
+                        .as_ref()
+                        .map(|src| !exclude_list.contains(&src.tool_name))
+                        .unwrap_or(true)
+                })
+                .collect();
+        }
+    }
+
+    // No filtering - return all tools
+    tools
+}
+
 /// Load tools from MCP servers and return both the clients and tools
 /// Returns a map of resource name -> client, and a vector of tools
 pub async fn load_mcp_tools(
     db: &DB,
     workspace_id: &str,
-    mcp_resource_paths: Vec<String>,
+    mcp_configs: Vec<McpResourceConfig>,
 ) -> Result<(HashMap<String, Arc<McpClient>>, Vec<Tool>), Error> {
     let mut all_mcp_tools = Vec::new();
     let mut mcp_clients = HashMap::new();
 
-    for resource_path in mcp_resource_paths {
-        tracing::debug!("Loading MCP tools from resource: {}", resource_path);
+    for config in mcp_configs {
+        tracing::debug!("Loading MCP tools from resource: {}", config.resource_path);
 
-        let path = resource_path.trim_start_matches("$res:");
+        let path = config.resource_path.trim_start_matches("$res:");
         let mcp_resource = {
             // Fetch the resource from database
             let resource= sqlx::query_scalar!(
@@ -299,8 +397,8 @@ pub async fn load_mcp_tools(
             )
             .fetch_optional(db)
             .await?
-            .ok_or_else(|| Error::NotFound(format!("Could not find the resource {}, update the resource path in the workspace settings", resource_path)))?
-            .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", resource_path)))?;
+            .ok_or_else(|| Error::NotFound(format!("Could not find the resource {}, update the resource path in the workspace settings", config.resource_path)))?
+            .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", config.resource_path)))?;
 
             serde_json::from_str::<McpResource>(resource.0.get())
                 .context("Failed to parse MCP resource")?
@@ -310,18 +408,35 @@ pub async fn load_mcp_tools(
 
         // Create new MCP client for this execution
         tracing::debug!("Creating fresh MCP client for {}", resource_name);
-        let client = McpClient::from_resource(mcp_resource, db, workspace_id, &path)
+        let client = McpClient::from_resource(mcp_resource, db, workspace_id)
             .await
             .context("Failed to create MCP client")?;
 
-        let mcp_client = Arc::new(client);
+        // Get raw MCP tools from client
+        let raw_mcp_tools = client.available_tools();
 
-        // Get all available tools
-        let available_tools = mcp_client.available_tools();
+        // Convert to Windmill Tool format
+        let converted_tools =
+            convert_mcp_tools_to_windmill_tools(raw_mcp_tools, &resource_name, &path)?;
 
-        all_mcp_tools.extend(available_tools.iter().cloned());
+        // Apply include/exclude filters
+        let filtered_tools = apply_tool_filters(
+            converted_tools,
+            &config.include_tools,
+            &config.exclude_tools,
+        );
+
+        tracing::info!(
+            "Loaded {} tools from MCP server '{}' (filtered from {} available tools)",
+            filtered_tools.len(),
+            resource_name,
+            raw_mcp_tools.len()
+        );
+
+        all_mcp_tools.extend(filtered_tools);
 
         // Store client for later use and cleanup
+        let mcp_client = Arc::new(client);
         mcp_clients.insert(resource_name, mcp_client);
     }
 

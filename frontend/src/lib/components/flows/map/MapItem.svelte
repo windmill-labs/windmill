@@ -262,7 +262,9 @@
 					isTrigger={isTriggerStep(mod)}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
-					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}
+					inputTransform={mod.value.type !== 'identity' && mod.value.type !== 'mcpserver'
+						? mod.value.input_transforms
+						: undefined}
 					{onTestUpTo}
 					{onEditInput}
 					{flowJob}

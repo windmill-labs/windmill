@@ -10,6 +10,8 @@
 	import ToggleHubWorkspaceQuick from '$lib/components/ToggleHubWorkspaceQuick.svelte'
 	import TopLevelNode from '../pickers/TopLevelNode.svelte'
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
+	import { Button } from '$lib/components/common'
+	import { Plug } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
 	interface Props {
@@ -18,7 +20,7 @@
 		disableAi?: boolean
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		allowTrigger?: boolean
-		scriptOnly?: boolean
+		toolMode?: boolean
 	}
 
 	let {
@@ -27,7 +29,7 @@
 		disableAi = false,
 		kind = 'script',
 		allowTrigger = true,
-		scriptOnly = false
+		toolMode = false
 	}: Props = $props()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
@@ -69,11 +71,24 @@
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		{/if}
+		{#if toolMode}
+			<Button
+				size="xs"
+				color="light"
+				startIcon={{ icon: Plug }}
+				on:click={() => {
+					dispatch('pickMcpResource', { path: '' })
+					dispatch('close')
+				}}
+			>
+				MCP
+			</Button>
+		{/if}
 		<RefreshButton size="md" light {loading} on:click={() => (refreshCount.val += 1)} />
 	</div>
 
 	<div class="flex flex-row grow min-h-0">
-		{#if kind === 'script' && !scriptOnly}
+		{#if kind === 'script' && !toolMode}
 			<div class="flex-none flex flex-col text-xs text-primary">
 				<TopLevelNode
 					label="Action"

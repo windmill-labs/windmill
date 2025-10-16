@@ -1,5 +1,5 @@
-use crate::ai::mcp_client::McpToolSource;
 use crate::ai::providers::openai::OpenAIToolCall;
+use windmill_common::mcp_client::McpToolSource;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
