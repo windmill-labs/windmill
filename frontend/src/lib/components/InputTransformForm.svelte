@@ -608,9 +608,10 @@
 										value="static"
 										label={'${}'}
 										{item}
+										class="h-full"
 									/>
 								{:else}
-									<ToggleButton small label="static" value="static" {item} />
+									<ToggleButton small label="static" value="static" {item} class="h-full" />
 								{/if}
 
 								{#if codeInjectionDetected && propertyType == 'static'}
@@ -633,6 +634,7 @@
 										value="javascript"
 										icon={FunctionSquare}
 										{item}
+										class="h-full"
 									/>
 								{/if}
 							{/snippet}
