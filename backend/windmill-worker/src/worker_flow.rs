@@ -3177,7 +3177,9 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
-        if value_with_parallel.type_ == "forloopflow" && value_with_parallel.parallel.unwrap_or(false) {
+        if value_with_parallel.type_ == "forloopflow"
+            && value_with_parallel.parallel.unwrap_or(false)
+        {
             if let Some(parallelism_transform) = &value_with_parallel.parallelism {
                 tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
 
@@ -3693,10 +3695,6 @@ async fn compute_next_flow_transform(
 
     match module.get_value()? {
         FlowModuleValue::Identity => trivial_next_job(JobPayload::Identity),
-        FlowModuleValue::McpServer { .. } => {
-            // MCP server is configuration-only, treated like identity (no-op execution)
-            trivial_next_job(JobPayload::Identity)
-        }
         FlowModuleValue::Flow { path, .. } => {
             let payload =
                 flow_to_payload(path, delete_after_use, &flow_job.workspace_id, db).await?;
