@@ -6904,6 +6904,12 @@ enum JobUpdateSSEStream {
     Ping,
 }
 
+lazy_static::lazy_static! {
+    pub static ref TIMEOUT_SSE_STREAM: u64 = 
+        std::env::var("TIMEOUT_SSE_STREAM").unwrap_or("60".to_string()).parse::<u64>().unwrap_or(60);
+}
+
+
 fn start_job_update_sse_stream(
     opt_authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
@@ -7036,7 +7042,7 @@ fn start_job_update_sse_stream(
                 last_ping = Instant::now();
             }
 
-            if start.elapsed().as_secs() > 30 {
+            if start.elapsed().as_secs() > *TIMEOUT_SSE_STREAM {
                 if tx.send(JobUpdateSSEStream::Timeout).await.is_err() {
                     tracing::warn!("Failed to send job timeout for job {job_id}");
                 }
