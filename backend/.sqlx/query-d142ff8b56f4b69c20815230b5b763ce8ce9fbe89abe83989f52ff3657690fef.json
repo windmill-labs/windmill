@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO job_result_stream_v2 (workspace_id, job_id, stream, idx)\n            VALUES (\n                $1, \n                $2,\n                $3, \n                $4\n            )\n            ON CONFLICT (job_id, idx) DO UPDATE SET stream = job_result_stream_v2.stream || EXCLUDED.stream\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d142ff8b56f4b69c20815230b5b763ce8ce9fbe89abe83989f52ff3657690fef"
+}
