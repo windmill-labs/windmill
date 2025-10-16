@@ -1005,6 +1005,10 @@ def main():
             in_test_worker(
                 &db2,
                 async {
+                    windmill_common::worker::update_min_version(
+                        &windmill_common::worker::Connection::Sql(db2.clone()),
+                    )
+                    .await;
                     // Small delay to ensure the job is marked as running
                     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
