@@ -364,7 +364,7 @@
 							}
 						]
 					: []),
-				...($workspaceStore?.startsWith('wm-fork')
+				...($workspaceStore?.startsWith('wm-fork-')
 					? [
 							{
 								label: 'Delete Forked Workspace',

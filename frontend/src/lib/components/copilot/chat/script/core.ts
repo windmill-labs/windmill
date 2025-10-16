@@ -31,7 +31,12 @@ const DOCS_CONTEXT_PERCENTAGE = 1
 // percentage of the context window for types of npm packages
 const TYPES_CONTEXT_PERCENTAGE = 1
 // good providers for diff-based edit
-const DIFF_BASED_EDIT_PROVIDERS: AIProvider[] = ['openai', 'anthropic', 'googleai', 'azure_openai']
+export const DIFF_BASED_EDIT_PROVIDERS: AIProvider[] = [
+	'openai',
+	'anthropic',
+	'googleai',
+	'azure_openai'
+]
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
@@ -218,9 +223,9 @@ export function getLangContext(
 		(isPreprocessor
 			? TS_PREPROCESSOR_INSTRUCTION
 			: TS_RESOURCE_TYPE_SYSTEM +
-			(allowResourcesFetch
-				? `To query the RT namespace, you can use the \`search_resource_types\` tool.\n`
-				: '')) + TS_WINDMILL_CLIENT_CONTEXT
+				(allowResourcesFetch
+					? `To query the RT namespace, you can use the \`search_resource_types\` tool.\n`
+					: '')) + TS_WINDMILL_CLIENT_CONTEXT
 
 	const mainFunctionName = isPreprocessor ? 'preprocessor' : 'main'
 
@@ -248,7 +253,7 @@ export function getLangContext(
 				(isPreprocessor
 					? PYTHON_PREPROCESSOR_INSTRUCTION
 					: PYTHON_RESOURCE_TYPE_SYSTEM +
-					`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}`) +
+						`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}`) +
 				PYTHON_WINDMILL_CLIENT_CONTEXT
 			)
 		case 'php':
@@ -775,7 +780,7 @@ export async function fetchNpmPackageTypes(
 						typeDefinitions.set(path, code)
 					}
 				},
-				localFile: () => { }
+				localFile: () => {}
 			}
 		})
 

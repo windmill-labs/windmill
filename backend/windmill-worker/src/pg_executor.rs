@@ -37,7 +37,8 @@ use windmill_parser_sql::{
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::common::{
-    build_args_values, s3_mode_args_to_worker_data, sizeof_val, OccupancyMetrics, S3ModeWorkerData,
+    build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, sizeof_val,
+    OccupancyMetrics, S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
@@ -186,6 +187,7 @@ pub async fn do_postgresql(
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    parent_runnable_path: Option<String>,
 ) -> error::Result<Box<RawValue>> {
     let pg_args = build_args_values(job, client, conn).await?;
 
@@ -312,7 +314,11 @@ pub async fn do_postgresql(
 
     let sig = parse_pgsql_sig(&query).map_err(|x| Error::ExecutionErr(x.to_string()))?;
 
-    let (query, _) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig.args, &pg_args)?;
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+
+    let (query, _) =
+        &sanitize_and_interpolate_unsafe_sql_args(query, &sig.args, &pg_args, &reserved_variables)?;
 
     let queries = parse_sql_blocks(query);
 

@@ -151,5 +151,15 @@
     "token_url": "https://identity.xero.com/connect/token",
     "scopes": ["offline_access", "accounting.transactions"]
   },
+  "zoho": {
+    "auth_url": "https://accounts.zoho.com/oauth/v2/auth",
+    "token_url": "https://accounts.zoho.com/oauth/v2/token",
+    "scopes": [
+      "ZohoAssist.sessionapi.ALL"
+    ],
+    "extra_params": {
+      "access_type": "offline"
+    }
+  },
   "snowflake_oauth": {}
 }

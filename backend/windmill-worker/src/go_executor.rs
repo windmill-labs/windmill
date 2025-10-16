@@ -406,7 +406,10 @@ func Run(req Req) (interface{{}}, error){{
         #[cfg(windows)]
         set_windows_env_vars(&mut run_go);
 
-        run_go.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        run_go
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         start_child_process(run_go, &compiled_executable_name, false).await?
     };
     let handle_result = handle_child(
@@ -647,7 +650,7 @@ pub async fn install_go_dependencies(
     if non_dep_job {
         if let Some(db) = conn.as_sql() {
             sqlx::query!(
-                "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('5 mins')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
+                "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('5 mins')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = EXCLUDED.lockfile",
                 hash,
                 req_content
             )

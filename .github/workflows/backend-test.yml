@@ -69,11 +69,10 @@ jobs:
           ./substitute_ee_code.sh --copy --dir ./windmill-ee-private
       - name: cargo test
         timeout-minutes: 16
-        run:
-          deno --version && bun -v && go version && python3 --version &&
+        run: deno --version && bun -v && go version && python3 --version &&
           SQLX_OFFLINE=true
           DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill
-          DISABLE_EMBEDDING=true RUST_LOG=info
+          DISABLE_EMBEDDING=true RUST_LOG=info RUST_LOG_STYLE=never
           DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go)
           UV_PATH=$(which uv) cargo test --features
           enterprise,deno_core,license,python,rust,scoped_cache,private --all --

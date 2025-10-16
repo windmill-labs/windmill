@@ -31,6 +31,7 @@
 		DiffIcon,
 		DollarSign,
 		File,
+		GitBranch,
 		History,
 		Library,
 		Link,
@@ -49,10 +50,13 @@
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
 	import type { EditorBarUi } from './custom_ui'
 	import EditorSettings from './EditorSettings.svelte'
+	import { quicktype, InputData, JSONSchemaInput, FetchingJSONSchemaStore } from 'quicktype-core'
 	import S3FilePicker from './S3FilePicker.svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
 	import ScriptGen from './copilot/ScriptGen.svelte'
+	import GitRepoPopoverPicker from './GitRepoPopoverPicker.svelte'
+	import { insertDelegateToGitRepoInCode } from '$lib/ansibleUtils'
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -119,6 +123,7 @@
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let ducklakePicker: ItemPicker | undefined = $state()
 	let databasePicker: ItemPicker | undefined = $state()
+	let gitRepoPickerOpen = $state(false)
 
 	let showContextVarPicker = $derived(
 		[
@@ -135,7 +140,14 @@
 			'csharp',
 			'nu',
 			'java',
-			'ruby'
+			'ruby',
+			'postgresql',
+			'mysql',
+			'bigquery',
+			'mssql',
+			'oracledb',
+			'snowflake',
+			'duckdb'
 			// for related places search: ADD_NEW_LANG
 		].includes(lang ?? '')
 	)
@@ -186,15 +198,25 @@
 	)
 	let showDucklakePicker = $derived(['duckdb'].includes(lang ?? ''))
 	let showDatabasePicker = $derived(['duckdb'].includes(lang ?? ''))
+	let showGitRepoPicker = $derived(lang === 'ansible')
 
 	let showResourceTypePicker = $derived(
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
-			lang === 'python3' ||
-			lang === 'php'
+		lang === 'python3' ||
+		lang === 'php' ||
+		lang === 'rust'
 	)
 
 	let codeViewer: Drawer | undefined = $state()
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
+
+	function insertDelegateToGitRepo(resourcePath: string) {
+		if (!editor) return
+
+		const currentCode = editor.getCode()
+		const newCode = insertDelegateToGitRepoInCode(currentCode, resourcePath)
+		editor.setCode(newCode)
+	}
 
 	function addEditorActions() {
 		editor?.addAction('insert-variable', 'Windmill: Insert variable', () => {
@@ -264,6 +286,22 @@
 		return rec(schema.properties, true)
 	}
 
+	async function quicktypeJSONSchema(targetLanguage, typeName, jsonSchemaString, rendererOptions) {
+		const schemaInput = new JSONSchemaInput(new FetchingJSONSchemaStore())
+
+		// We could add multiple schemas for multiple types,
+		// but here we're just making one type from JSON schema.
+		await schemaInput.addSource({ name: typeName, schema: jsonSchemaString })
+
+		const inputData = new InputData()
+		inputData.addInput(schemaInput)
+
+		return await quicktype({
+			inputData,
+			lang: targetLanguage,
+			rendererOptions
+		})
+	}
 	async function resourceTypePickCallback(name: string) {
 		if (!editor) return
 		const resourceType = await ResourceService.getResourceType({
@@ -285,6 +323,18 @@
 			editor.insertAtCursor(`if (!class_exists('${rtName}')) {\nclass ${rtName} {\n${phpSchema}\n`)
 			editor.backspace()
 			editor.insertAtCursor('}')
+		} else if (lang === 'rust') {
+			const { lines: lines } = await quicktypeJSONSchema(
+				'rust',
+				name,
+				JSON.stringify(resourceType.schema),
+				{
+					"leading-comments": false,
+					"density": "dense",
+					"derive-debug": true
+				}
+			)
+			editor.insertAtCurrentLine(lines.join('\n'))
 		} else {
 			const tsSchema = compile(resourceType.schema as any)
 			editor.insertAtCursor(`type ${toCamel(capitalize(name))} = ${tsSchema}`)
@@ -443,6 +493,12 @@
 			// for related places search: ADD_NEW_LANG
 		} else if (lang == 'ruby') {
 			editor.insertAtCursor(`ENV['${name}']`)
+		} else if (
+			['postgresql', 'mysql', 'bigquery', 'mssql', 'oracledb', 'snowflake', 'duckdb'].includes(
+				lang ?? ''
+			)
+		) {
+			editor.insertAtCursor(`%%${name}%%`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -800,6 +856,28 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				>
 					+Resource
 				</Button>
+			{/if}
+
+			{#if showGitRepoPicker && customUi?.resource != false}
+				<GitRepoPopoverPicker
+					bind:isOpen={gitRepoPickerOpen}
+					on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
+				>
+					<Button
+						aiId="editor-bar-add-git-repo"
+						aiDescription="Delegate to Git repository"
+						title="Delegate to Git repository"
+						btnClasses="!font-medium text-tertiary"
+						size="xs"
+						spacingSize="md"
+						color="light"
+						on:click={() => (gitRepoPickerOpen = true)}
+						{iconOnly}
+						startIcon={{ icon: GitBranch }}
+					>
+						+Git Repo
+					</Button>
+				</GitRepoPopoverPicker>
 			{/if}
 
 			{#if showResourceTypePicker && customUi?.type != false}

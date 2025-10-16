@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT versions FROM app WHERE path = 'f/dre_app/app'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "versions",
+        "type_info": "Int8Array"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5bedbfe98b3cacd1c6f4b2344a9a626245abe58c306392a76710252d16d0bd44"
+}
