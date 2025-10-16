@@ -512,8 +512,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             to_raw_value(&()),
         );
 
-        let key = format!("{w_id}:{}:dependency", s.importer_path.clone());
-
         // Lock the debounce_key entry FOR UPDATE to coordinate with the push side.
         // This prevents concurrent modifications during dependency job scheduling.
         //
@@ -524,29 +522,8 @@ pub async fn trigger_dependents_to_recompute_dependencies(
         //
         // After our transaction commits, any pending push/pull requests can proceed with
         // their debounce logic.
-        let debounce_job_id_o = {
-            tracing::debug!(
-                workspace_id = %w_id,
-                importer_path = %s.importer_path,
-                debounce_key = %key,
-                "Locking debounce_key for dependency job scheduling"
-            );
-
-            sqlx::query_scalar!(
-                "SELECT job_id FROM debounce_key WHERE key = $1 FOR UPDATE",
-                &key
-            )
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    error = %e,
-                    debounce_key = %key,
-                    "Failed to query/lock debounce_key"
-                );
-                e
-            })?
-        };
+        let debounce_job_id_o =
+            windmill_common::jobs::lock_debounce_key(w_id, &s.importer_path, &mut tx).await?;
 
         tracing::debug!(
             debounce_job_id = ?debounce_job_id_o,
@@ -609,7 +586,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             {
                 Some(version) => JobPayload::FlowDependencies {
                     path: s.importer_path.clone(),
-                    version: dbg!(version),
+                    version,
                     dedicated_worker: None,
                 },
                 None => {

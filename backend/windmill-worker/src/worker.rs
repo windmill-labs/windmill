@@ -816,7 +816,6 @@ pub fn start_interactive_worker_shell(
 
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
-                        // TODO: Test if suspend works in this branch.
                         let job = pull(
                             &db,
                             false,
@@ -1511,9 +1510,7 @@ pub async fn run_worker(
 
                 match &conn {
                     Connection::Sql(db) => {
-                        // TODO: Test if suspend works in this branch.
                         let job = get_same_worker_job(db, &same_worker_job).await;
-                        // tracing::error!("r: {:?}", r);
                         if job.is_err() && !same_worker_job.recoverable {
                             tracing::error!(
                                 worker = %worker_name, hostname = %hostname,
@@ -1528,7 +1525,6 @@ pub async fn run_worker(
                             job.map(|x| x.map(NextJob::Sql))
                         }
                     }
-                    // TODO: Test if suspend works in this branch.
                     Connection::Http(client) => client
                         .post(
                             &format!(
@@ -1571,7 +1567,6 @@ pub async fn run_worker(
                         let pull_time = Instant::now();
                         let likelihood_of_suspend = last_30jobs_suspended as f64 / 30.0;
 
-                        // TODO: WAT?
                         let suspend_first = suspend_first_success
                             || rand::random::<f64>() < likelihood_of_suspend
                             || last_suspend_first.elapsed().as_secs_f64() > 5.0;
@@ -1579,9 +1574,6 @@ pub async fn run_worker(
                         if suspend_first {
                             last_suspend_first = Instant::now();
                         }
-
-                        // TODO: Test if suspend works in dedicated worker.
-                        // TODO: Test if suspend works in this branch.
                         let mut job = match timeout(
                             Duration::from_secs(10),
                             pull(
@@ -1699,7 +1691,6 @@ pub async fn run_worker(
                         }
                     }
 
-                    // TODO: Test if suspend works in this branch.
                     Connection::Http(client) => crate::agent_workers::pull_job(&client, None, None)
                         .await
                         .map_err(|e| error::Error::InternalErr(e.to_string()))

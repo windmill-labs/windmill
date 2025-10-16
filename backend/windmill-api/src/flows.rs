@@ -32,7 +32,7 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_common::utils::query_elems_from_hub;
+use windmill_common::utils::{query_elems_from_hub, WarnAfterExt};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
@@ -884,6 +884,14 @@ async fn update_flow(
         .execute(&mut *tx)
         .await?;
     }
+
+    // Row lock debounce key for path. We need this to make all updates of runnables sequential and predictable.
+    tokio::time::timeout(
+        core::time::Duration::from_secs(60),
+        windmill_common::jobs::lock_debounce_key(&w_id, &nf.path, &mut tx),
+    )
+    .warn_after_seconds(10)
+    .await??;
 
     // This will lock anyone who is trying to iterate on flow_versions with given path and parameters.
     let version = sqlx::query_scalar!(

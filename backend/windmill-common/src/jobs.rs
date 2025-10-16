@@ -799,3 +799,26 @@ pub async fn check_tag_available_for_workspace_internal(
 
     return Ok(());
 }
+
+pub async fn lock_debounce_key<'c>(
+    w_id: &str,
+    runnable_path: &str,
+    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+) -> error::Result<Option<Uuid>> {
+    let key = format!("{w_id}:{runnable_path}:dependency");
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        runnable_path = %runnable_path,
+        debounce_key = %key,
+        "Locking debounce_key for dependency job scheduling"
+    );
+
+    sqlx::query_scalar!(
+        "SELECT job_id FROM debounce_key WHERE key = $1 FOR UPDATE",
+        &key
+    )
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(error::Error::from)
+}

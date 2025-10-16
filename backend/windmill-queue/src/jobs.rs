@@ -2309,7 +2309,6 @@ pub async fn pull(
             });
         }
 
-        // TODO: Used only for agent workers?
         if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
                 let job = if query_suspended.is_empty() {
@@ -2380,8 +2379,6 @@ pub async fn pull(
                     continue;
                 }
             }
-            // Will return njob with None on .job.
-            // This will trigger nap for worker upstream.
             return Ok(njob);
         };
 
@@ -4336,8 +4333,6 @@ pub async fn push<'c, 'd>(
         Ulid::new().into()
     };
 
-    // TODO: Where is push called from?
-
     // Dependency job debouncing: When multiple dependency jobs are scheduled for the same script/flow/app,
     // we want to deduplicate them to avoid redundant work. The debouncing mechanism works by:
     // 1. Creating a unique debounce key for each dependency target (dependency:workspace/type/path)
@@ -5203,10 +5198,10 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
             .execute(&mut *tx)
             .await
             .map_err(|e| {
-                tracing::warn!(
+                tracing::error!(
                     error = %e,
                     job_id = %job.id,
-                    "Failed to delete debounce_key (may not exist, which is OK)"
+                    "Failed to delete debounce_key"
                 );
                 e
             })?;
@@ -5259,7 +5254,7 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
                         ",
                         job.runnable_path(),
                         job.workspace_id,
-                        *(job.runnable_id.clone().unwrap())
+                        *base_hash,
                     )
                     .fetch_one(&mut *tx)
                     .await?
@@ -5271,12 +5266,17 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
                         SELECT app_id, value, created_by, raw_app
                         FROM app_version WHERE id = $1
                         RETURNING id",
-                        *(job.runnable_id.clone().unwrap()) // TODO: Unsafe unwrap()
+                        *base_hash
                     )
                     .fetch_one(&mut *tx)
                     .await?
                 }
-                _ => unreachable!(),
+                _ => {
+                    return Err(Error::InternalErr(format!(
+                        "Matched unexpected JobKind ({:?}). This is a bug!",
+                        kind
+                    )))
+                }
             };
 
             job.runnable_id.replace(new_id.into());

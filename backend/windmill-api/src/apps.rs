@@ -60,7 +60,7 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
-        Pagination, RunnableKind, StripPath,
+        Pagination, RunnableKind, StripPath, WarnAfterExt,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
@@ -1524,6 +1524,14 @@ async fn update_app_internal<'a>(
         path.to_owned()
     };
     let v_id = if let Some(nvalue) = &ns.value {
+        // Row lock debounce key for path. We need this to make all updates of runnables sequential and predictable.
+        tokio::time::timeout(
+            core::time::Duration::from_secs(60),
+            windmill_common::jobs::lock_debounce_key(&w_id, &npath, &mut tx),
+        )
+        .warn_after_seconds(10)
+        .await??;
+
         let app_id = sqlx::query_scalar!(
             "SELECT id FROM app WHERE path = $1 AND workspace_id = $2",
             npath,
