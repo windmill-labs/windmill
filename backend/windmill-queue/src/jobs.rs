@@ -5228,7 +5228,21 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
 
             let new_id = match kind {
                 JobKind::Dependencies => {
+                    let deployment_message = job
+                        .args
+                        .clone()
+                        .map(|hashmap| {
+                            hashmap
+                                .get("deployment_message")
+                                .map(|map_value| {
+                                    serde_json::from_str::<String>(map_value.get()).ok()
+                                })
+                                .flatten()
+                        })
+                        .flatten();
+
                     // This way we tell downstream which script we should archive when the resolution is finished.
+                    // (not used at the moment)
                     job.args
                         .as_mut()
                         .map(|args| args.insert("base_hash".to_owned(), to_raw_value(&*base_hash)));
@@ -5236,6 +5250,7 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
                     let new_hash = windmill_common::scripts::clone_script(
                         base_hash,
                         &job.workspace_id,
+                        deployment_message,
                         &mut tx,
                     )
                     .await?;

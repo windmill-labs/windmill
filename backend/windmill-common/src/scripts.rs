@@ -724,10 +724,10 @@ pub fn hash_script(ns: &NewScript) -> i64 {
     dh.finish() as i64
 }
 
-// TODO: Should not be viewable as latest.
 pub async fn clone_script<'c>(
     base_hash: ScriptHash,
     w_id: &str,
+    deployment_message: Option<String>,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> crate::error::Result<i64> {
     let s =
@@ -762,9 +762,7 @@ pub async fn clone_script<'c>(
         timeout: s.timeout,
         delete_after_use: s.delete_after_use,
         restart_unless_cancelled: s.restart_unless_cancelled,
-        // deployment_message: deployment_message.clone(),
-        // TODO:
-        deployment_message: None,
+        deployment_message,
         concurrency_key: s.concurrency_key,
         visible_to_runner_only: s.visible_to_runner_only,
         no_main_func: s.no_main_func,
