@@ -1610,15 +1610,22 @@ pub async fn run_worker(
                             ..
                         }) = &mut job
                         {
-                            if let Err(e) = timeout(
+                            match timeout(
                                 core::time::Duration::from_secs(10),
                                 preprocess_dependency_job(pulled_job, &db),
                             )
                             .warn_after_seconds(2)
                             .await
                             {
-                                tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor failed: {e:?}");
-                                job = Err(e.into());
+                                Ok(Err(e)) => {
+                                    tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor failed: {e:?}");
+                                    job = Err(e.into());
+                                }
+                                Err(e) => {
+                                    tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor has timed out: {e:?}");
+                                    job = Err(e.into());
+                                }
+                                _ => {}
                             }
                         }
 

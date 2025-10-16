@@ -5244,8 +5244,6 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
                         .as_mut()
                         .map(|args| args.insert("base_hash".to_owned(), to_raw_value(&*base_hash)));
 
-                    // TODO: This script should be removed if failed.
-                    // TODO: Test if script fails.
                     let new_hash = windmill_common::scripts::clone_script(
                         base_hash,
                         &job.workspace_id,

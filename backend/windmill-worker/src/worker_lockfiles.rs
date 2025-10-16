@@ -269,58 +269,9 @@ pub async fn handle_dependency_job(
             let current_hash = job.runnable_id.unwrap_or(ScriptHash(0));
             let w_id = &job.workspace_id;
 
-            // TODO: What if this thing is invalidated after we move update before it???
             let (deployment_message, parent_path) =
                 get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
-            // Archive current
-            // if let Some(base_hash) = base_hash {
-            //     let mut tx = db.begin().await?;
-
-            //     // Uncomment to get new behavior
-            //     // tracing::debug!(
-            //     //     "cloning script at path {:?} from '{}' to '{}'",
-            //     //     job.runnable_path.clone(),
-            //     //     base_hash,
-            //     //     current_hash.0
-            //     // );
-            //     // // Do the clone
-            //     // sqlx::query!(
-            //     //     "
-            //     // INSERT INTO script
-            //     // (workspace_id, hash, path, parent_hashes, summary, description, content, \
-            //     // created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
-            //     // draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
-            //     // dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-            //     // delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
-            //     // codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets)
-
-            //     // SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
-            //     //         content, created_by, schema, is_template, extra_perms, $4, language, kind, tag, \
-            //     //         draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
-            //     //         dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-            //     //         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
-            //     //         codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets
-
-            //     // FROM script WHERE hash = $2 AND workspace_id = $3;
-            //     //         ",
-            //     //     current_hash.0,
-            //     //     *base_hash,
-            //     //     w_id,
-            //     //     &content
-            //     // )
-            //     // .execute(&mut *tx)
-            //     // .await?;
-
-            //     // Archive base script
-
-            //     tracing::info!(
-            //         "Archived base script at path {:?} from dependency job {}",
-            //         job.runnable_path.clone(),
-            //         base_hash
-            //     );
-            //     tx.commit().await?;
-            // } else {
             // We do not create new row for this update
             // That means we can keep current hash and just update lock
             sqlx::query!(
@@ -478,7 +429,7 @@ pub async fn process_relative_imports(
 
         // But currently we will do this extra db call for every script regardless of whether they have relative imports or not
         // Script might have no relative imports but still be referenced by someone else.
-        if let Err(e) = timeout(
+        match timeout(
             core::time::Duration::from_secs(60),
             trigger_dependents_to_recompute_dependencies(
                 w_id,
@@ -495,7 +446,13 @@ pub async fn process_relative_imports(
         .warn_after_seconds(10)
         .await
         {
-            tracing::error!(%e, "error triggering dependents to recompute dependencies");
+            Ok(Err(e)) => {
+                tracing::error!(%e, "error triggering dependents to recompute dependencies")
+            }
+            Err(e) => {
+                tracing::error!(%e, "triggering dependents to recompute dependencies has timed out")
+            }
+            _ => {}
         }
     }
 
@@ -615,6 +572,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             "Retrieved debounce job ID (if exists)"
         );
 
+        // TODO: Timeout
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
             // Primary way of finding the latest version of the runnable. It is quick. And it can contain unexistant yet-to-lock and create script versions.
@@ -693,7 +651,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             {
                 Some(version) => JobPayload::FlowDependencies {
                     path: s.importer_path.clone(),
-                    version,
+                    version: dbg!(version),
                     dedicated_worker: None,
                 },
                 None => {
