@@ -182,11 +182,21 @@ impl FlowValue {
                 | RawScript { .. }
                 | Flow { .. }
                 | FlowScript { .. }
-                | Identity
-                | McpServer { .. }) => cb(&s, &module.id)?,
-                ForloopFlow { modules, .. }
-                | WhileloopFlow { modules, .. }
-                | AIAgent { tools: modules, .. } => Self::traverse_leafs(&modules, cb)?,
+                | Identity) => cb(&s, &module.id)?,
+                ForloopFlow { modules, .. } | WhileloopFlow { modules, .. } => {
+                    Self::traverse_leafs(&modules, cb)?
+                }
+                AIAgent { tools, .. } => {
+                    for tool in tools {
+                        match &tool.value {
+                            ToolValue::FlowModule(module_value) => cb(module_value, &tool.id)?,
+                            ToolValue::Mcp(_) => {
+                                // MCP tools don't have a FlowModuleValue to traverse
+                                // They are leaf nodes themselves
+                            }
+                        }
+                    }
+                }
                 BranchOne { branches, .. } | BranchAll { branches, .. } => {
                     for branch in branches {
                         Self::traverse_leafs(&branch.modules, cb)?;
@@ -609,6 +619,89 @@ pub struct Branch {
     pub parallel: bool,
 }
 
+// Tool types for AI Agent
+#[derive(Serialize, Debug, Clone)]
+pub struct AgentTool {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub value: ToolValue,
+}
+
+// Convert FlowModule -> AgentTool
+impl From<FlowModule> for AgentTool {
+    fn from(flow_module: FlowModule) -> Self {
+        let module_value = serde_json::from_str::<FlowModuleValue>(flow_module.value.get())
+            .unwrap_or(FlowModuleValue::Identity);
+
+        AgentTool {
+            id: flow_module.id,
+            summary: flow_module.summary,
+            value: ToolValue::FlowModule(module_value),
+        }
+    }
+}
+
+// Convert AgentTool -> FlowModule (only for FlowModule type tools)
+impl From<&AgentTool> for Option<FlowModule> {
+    fn from(tool: &AgentTool) -> Self {
+        match &tool.value {
+            ToolValue::FlowModule(module_value) => Some(FlowModule {
+                id: tool.id.clone(),
+                value: to_raw_value(module_value),
+                summary: tool.summary.clone(),
+                ..Default::default()
+            }),
+            ToolValue::Mcp(_) => None, // MCP tools can't be converted to FlowModule
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentTool {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum AgentToolOrFlowModule {
+            AgentTool {
+                id: String,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                summary: Option<String>,
+                value: ToolValue,
+            },
+            FlowModule(FlowModule),
+        }
+
+        match AgentToolOrFlowModule::deserialize(deserializer)? {
+            AgentToolOrFlowModule::AgentTool { id, summary, value } => {
+                Ok(AgentTool { id, summary, value })
+            }
+            AgentToolOrFlowModule::FlowModule(flow_module) => {
+                // Legacy format: convert FlowModule to AgentTool
+                Ok(AgentTool::from(flow_module))
+            }
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "tool_type", rename_all = "lowercase")]
+pub enum ToolValue {
+    FlowModule(FlowModuleValue),
+    Mcp(McpToolValue),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct McpToolValue {
+    pub resource_path: String,
+    #[serde(default)]
+    pub include_tools: Vec<String>,
+    #[serde(default)]
+    pub exclude_tools: Vec<String>,
+}
+
 #[derive(Serialize, Debug, Clone)]
 #[serde(
     tag = "type",
@@ -733,19 +826,9 @@ pub enum FlowModuleValue {
     // AI agent node
     AIAgent {
         input_transforms: HashMap<String, InputTransform>,
-        tools: Vec<FlowModule>,
+        tools: Vec<AgentTool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         modules_node: Option<FlowNodeId>,
-    },
-
-    // MCP (Model Context Protocol) server reference
-    // Provides configuration for loading tools from an MCP server
-    McpServer {
-        resource_path: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        include_tools: Option<Vec<String>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        exclude_tools: Option<Vec<String>>,
     },
 }
 
@@ -782,11 +865,8 @@ struct UntaggedFlowModuleValue {
     default_node: Option<FlowNodeId>,
     modules_node: Option<FlowNodeId>,
     assets: Option<Vec<AssetWithAltAccessType>>,
-    tools: Option<Vec<FlowModule>>,
+    tools: Option<Vec<AgentTool>>,
     pass_flow_input_directly: Option<bool>,
-    resource_path: Option<String>,
-    include_tools: Option<Vec<String>>,
-    exclude_tools: Option<Vec<String>>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -888,13 +968,6 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
                 modules_node: untagged.modules_node,
             }),
-            "mcpserver" => Ok(FlowModuleValue::McpServer {
-                resource_path: untagged
-                    .resource_path
-                    .ok_or_else(|| serde::de::Error::missing_field("resource_path"))?,
-                include_tools: untagged.include_tools,
-                exclude_tools: untagged.exclude_tools,
-            }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &[
@@ -907,7 +980,6 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     "rawscript",
                     "identity",
                     "aiagent",
-                    "mcpserver",
                 ],
             )),
         }
@@ -1087,7 +1159,35 @@ pub async fn resolve_module(
             }
         }
         AIAgent { tools, modules_node, .. } => {
-            resolve_modules(db, workspace_id, tools, modules_node.take(), with_code).await?;
+            // Convert AgentTools to FlowModules (filtering out MCP tools which don't need resolution)
+            let mut flow_modules: Vec<FlowModule> = tools
+                .iter()
+                .filter_map(|tool| Option::<FlowModule>::from(tool))
+                .collect();
+
+            // Reuse existing resolve_modules function
+            resolve_modules(
+                db,
+                workspace_id,
+                &mut flow_modules,
+                modules_node.take(),
+                with_code,
+            )
+            .await?;
+
+            // Convert back: resolved FlowModules -> AgentTools
+            let mut resolved_tools: Vec<AgentTool> =
+                flow_modules.into_iter().map(AgentTool::from).collect();
+
+            // Add back MCP tools (they don't need resolution)
+            resolved_tools.extend(
+                tools
+                    .iter()
+                    .filter(|t| matches!(t.value, ToolValue::Mcp(_)))
+                    .cloned(),
+            );
+
+            *tools = resolved_tools;
         }
         _ => {}
     }
