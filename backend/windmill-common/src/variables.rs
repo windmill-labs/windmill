@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::error;
+use crate::error::{self, Error};
 use crate::scripts::ScriptHash;
 use crate::utils::WarnAfterExt;
 use crate::worker::Connection;
@@ -437,4 +437,38 @@ async fn get_cached_workspace_envs(conn: &Connection, w_id: &str) -> Vec<(String
         custom_envs
     };
     custom_envs
+}
+
+pub async fn get_variable_or_self(path: String, db: &DB, w_id: &str) -> crate::error::Result<String> {
+    if !path.starts_with("$var:") {
+        return Ok(path);
+    }
+    let path = path.strip_prefix("$var:").unwrap().to_string();
+
+    let record = sqlx::query!(
+        "SELECT value, is_secret 
+         FROM variable 
+         WHERE path = $1 AND workspace_id = $2",
+        &path,
+        &w_id
+    )
+    .fetch_optional(db)
+    .await?;
+
+    if let Some(record) = record {
+        let mut value = record.value;
+        if record.is_secret {
+            let mc = build_crypt(db, w_id).await?;
+            value = decrypt(&mc, value).map_err(|e| {
+                Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
+            })?;
+        }
+
+        Ok(value)
+    } else {
+        Err(Error::NotFound(format!(
+            "Variable not found when resolving `$var:{}`",
+            path
+        )))
+    }
 }

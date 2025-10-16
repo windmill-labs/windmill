@@ -799,7 +799,7 @@
 		}
 	}
 
-	let forloop_selected = $state(
+	let forloop_selected = $derived(
 		getTopModuleStates?.[buildSubflowKey(flowJobIds?.moduleId ?? '', prefix)]?.selectedForloop
 	)
 
