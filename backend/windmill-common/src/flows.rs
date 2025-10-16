@@ -612,7 +612,7 @@ pub struct Branch {
 }
 
 // Tool types for AI Agent
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone, Deserialize)]
 pub struct AgentTool {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -649,40 +649,44 @@ impl From<&AgentTool> for Option<FlowModule> {
     }
 }
 
-impl<'de> Deserialize<'de> for AgentTool {
+#[derive(Serialize, Debug, Clone)]
+#[serde(tag = "tool_type", rename_all = "lowercase")]
+pub enum ToolValue {
+    FlowModule(FlowModuleValue),
+    Mcp(McpToolValue),
+}
+
+// Custom deserializer for backward compatibility with old flows
+impl<'de> Deserialize<'de> for ToolValue {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         #[derive(Deserialize)]
         #[serde(untagged)]
-        enum AgentToolOrFlowModule {
-            AgentTool {
-                id: String,
-                #[serde(skip_serializing_if = "Option::is_none")]
-                summary: Option<String>,
-                value: ToolValue,
-            },
-            FlowModule(FlowModule),
+        enum Helper {
+            // Try new format with tool_type tag
+            Tagged(TaggedToolValue),
+            // Fall back to old format (direct FlowModuleValue without tool_type)
+            Legacy(FlowModuleValue),
         }
 
-        match AgentToolOrFlowModule::deserialize(deserializer)? {
-            AgentToolOrFlowModule::AgentTool { id, summary, value } => {
-                Ok(AgentTool { id, summary, value })
-            }
-            AgentToolOrFlowModule::FlowModule(flow_module) => {
-                // Legacy format: convert FlowModule to AgentTool
-                Ok(AgentTool::from(flow_module))
+        #[derive(Deserialize)]
+        #[serde(tag = "tool_type", rename_all = "lowercase")]
+        enum TaggedToolValue {
+            FlowModule(FlowModuleValue),
+            Mcp(McpToolValue),
+        }
+
+        match Helper::deserialize(deserializer)? {
+            Helper::Tagged(TaggedToolValue::FlowModule(v)) => Ok(ToolValue::FlowModule(v)),
+            Helper::Tagged(TaggedToolValue::Mcp(v)) => Ok(ToolValue::Mcp(v)),
+            Helper::Legacy(v) => {
+                // Old format without tool_type - wrap as FlowModule
+                Ok(ToolValue::FlowModule(v))
             }
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(tag = "tool_type", rename_all = "lowercase")]
-pub enum ToolValue {
-    FlowModule(FlowModuleValue),
-    Mcp(McpToolValue),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
