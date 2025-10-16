@@ -15,6 +15,7 @@ use crate::{
     scripts::{ScriptHash, ScriptLang},
 };
 use anyhow::anyhow;
+use serde_json::value::to_raw_value;
 
 #[cfg(feature = "scoped_cache")]
 use std::thread::ThreadId;
@@ -282,25 +283,32 @@ pub mod future {
 pub struct FlowData {
     pub raw_flow: Box<RawValue>,
     pub flow: FlowValue,
-    pub summary: Option<String>,
+}
+
+/// !!!Shouldn't be used. Reverted optimization for ai agent steps.!!!
+#[derive(Deserialize)]
+struct RevertedFlowNodeFlow {
+    value: FlowValue,
 }
 
 impl FlowData {
     pub fn from_raw(raw_flow: Box<RawValue>) -> error::Result<Self> {
-        let (flow, summary) = if let Ok(parsed) =
-            serde_json::from_str::<crate::flows::FlowNodeFlow>(raw_flow.get())
-        {
-            (parsed.value, parsed.summary)
-        } else {
-            // fallback to plain FlowValue
-            (
-                serde_json::from_str::<FlowValue>(raw_flow.get()).map_err(|e| {
-                    error::Error::internal_err(format!("Failed to parse as FlowValue: {}", e))
-                })?,
-                None,
-            )
-        };
-        Ok(Self { raw_flow, flow, summary })
+        match serde_json::from_str::<FlowValue>(raw_flow.get()) {
+            Ok(flow) => Ok(FlowData { raw_flow, flow }),
+            _ => {
+                // fallback for compatibility with bad version 1.560.0
+                // TODO: remove this in a future version. Reverted optimization for ai agent steps.
+                let flow_node_flow = serde_json::from_str::<RevertedFlowNodeFlow>(raw_flow.get())
+                    .map_err(|e| {
+                    error::Error::internal_err(format!(
+                        "Failed to parse as RevertedFlowNodeFlow: {}",
+                        e
+                    ))
+                })?;
+                let raw_flow = to_raw_value(&flow_node_flow.value)?;
+                Ok(FlowData { raw_flow, flow: flow_node_flow.value })
+            }
+        }
     }
 
     pub fn value(&self) -> &FlowValue {
