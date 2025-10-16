@@ -99,6 +99,7 @@ import XeroIcon from './XeroIcon.svelte'
 import KafkaIcon from './KafkaIcon.svelte'
 import NatsIcon from './NatsIcon.svelte'
 import MqttIcon from './MqttIcon.svelte'
+import SageIcon from './SageIcon.svelte'
 import ZohoIcon from './ZohoIcon.svelte'
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -199,6 +200,7 @@ export const APP_TO_ICON_COMPONENT = {
 	jumpcloud: JumpCloudIcon,
 	keycloak: KeycloakIcon,
 	zitadel: ZitadelIcon,
+	sage_intacct: SageIcon,
 	spotify: SpotifyIcon,
 	xero: XeroIcon,
 	kafka: KafkaIcon,
