@@ -165,20 +165,6 @@ pub async fn handle_dependency_job(
         })
         .unwrap_or(false);
 
-    // If base hash is specified then the current runnable_id does not exist.
-    // The runnable_id represents the new hash that this function has to produce.
-    //
-    // We want to produce new script ONLY if the job succeeds. This is due to the thing that all unarchived scripts can be viewed as a latest.
-    // This can be changed in future.
-    // let base_hash = job
-    //     .args
-    //     .as_ref()
-    //     .and_then(|x| {
-    //         x.get("base_hash")
-    //             .and_then(|v| serde_json::from_str::<i64>(v.get()).ok())
-    //     })
-    //     .map(ScriptHash::from);
-
     let npm_mode = if job
         .script_lang
         .as_ref()
@@ -504,12 +490,8 @@ pub async fn trigger_dependents_to_recompute_dependencies(
         }
 
         let mut tx = db.clone().begin().await?;
-        // TODO: Is debounce_key already locked? Or it will be locked only when we do update it in push?
-        // TODO: Can anything pull while we are here?
         let mut args: HashMap<String, Box<RawValue>> = HashMap::new();
         if let Some(ref dm) = deployment_message {
-            // TODO: How to consolidate deployment messages?
-            // TODO: Will this even work with git sync?
             args.insert("deployment_message".to_string(), to_raw_value(&dm));
         }
         if let Some(ref p_path) = parent_path {
@@ -572,32 +554,8 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             "Retrieved debounce job ID (if exists)"
         );
 
-        // TODO: Timeout
         let kind = s.importer_kind.clone().unwrap_or_default();
         let job_payload = if kind == "script" {
-            // Primary way of finding the latest version of the runnable. It is quick. And it can contain unexistant yet-to-lock and create script versions.
-            // match match sqlx::query_scalar!(
-            //     "SELECT version FROM unlocked_script_latest_version WHERE key = $1",
-            //     &key
-            // )
-            // .fetch_optional(&mut *tx)
-            // .await?
-            // {
-            //     None => {
-            //         // If not found fallback to tiny bit slower approach, but this is still pretty fast.
-            //         // The main idea of using debounce_runnable_latest_version is to provide latest and may be even non-existant script version.
-            //         // We cannot allocate the script without making it viewable as a latest, so this is why we will use this channel in order
-            //         // to supply the latest but yet not locked script version.
-            //         sqlx::query_scalar!(
-            //             "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false ORDER BY created_at DESC LIMIT 1",
-            //             s.importer_path.clone(),
-            //             w_id
-            //         )
-            //         .fetch_optional(&mut *tx)
-            //         .await?
-            //     }
-            //     s => s,
-            // } {
             match sqlx::query_scalar!(
                 "SELECT hash FROM script WHERE path = $1 AND workspace_id = $2 AND deleted = false ORDER BY created_at DESC LIMIT 1",
                 s.importer_path.clone(),
@@ -670,8 +628,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             }
         } else if kind == "app" && !*WMDEBUG_NO_NEW_APP_VERSION_ON_DJ {
             tracing::debug!("Handling flow dependency update for: {}", s.importer_path);
-            // Create transaction to make operation atomic.
-            // let mut tx = db.begin().await?;
 
             args.insert(
                 "components_to_relock".to_string(),
@@ -736,7 +692,6 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             None,
             true,
             Some("dependency".into()),
-            // None,
             None,
             None,
             None,
@@ -798,52 +753,16 @@ pub async fn handle_flow_dependency_job(
     let version = if skip_flow_update {
         None
     } else {
-        let version = job
-            .runnable_id
-            .clone()
-            .ok_or_else(|| {
-                Error::internal_err(
-                    "Flow Dependency requires script hash (flow version)".to_owned(),
-                )
-            })?
-            .0;
-
-        // if triggered_by_relative_import {
-        //     // Find out what would be the next version.
-        //     // Also clone current flow_version to get new_version (which is usually c_v + 1).
-        //     // NOTE: It is fine if something goes wrong downstream and `flow` is not being appended with this new version.
-        //     // This version will just remain in db and cause no trouble.
-
-        //     // TODO: ^^^ Except it is viewable as a flow version in history.
-        //     let new_version = sqlx::query_scalar!(
-        //         "INSERT INTO flow_version
-        //         (workspace_id, path, value, schema, created_by)
-
-        //         SELECT workspace_id, path, value, schema, created_by
-        //         FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
-
-        //         RETURNING id",
-        //         &job_path,
-        //         &job.workspace_id,
-        //         &version
-        //     )
-        //     .fetch_one(db)
-        //     .await
-        //     .map_err(|e| {
-        //         error::Error::internal_err(format!(
-        //             "Error updating flow due to flow history insert: {e:#}"
-        //         ))
-        //     })?;
-
-        //     // Replace old value with the new one.
-        //     // It will be used downstream.
-        //     job.runnable_id.replace(ScriptHash(new_version));
-        //     // TODO: Do we need to update preview_data?
-
-        //     Some(new_version)
-        // } else {
-        Some(version)
-        // }
+        Some(
+            job.runnable_id
+                .clone()
+                .ok_or_else(|| {
+                    Error::internal_err(
+                        "Flow Dependency requires script hash (flow version)".to_owned(),
+                    )
+                })?
+                .0,
+        )
     };
 
     tracing::trace!("Job details: {:?}", &job);

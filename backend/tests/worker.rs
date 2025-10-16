@@ -28,10 +28,10 @@ use windmill_common::{
 mod common;
 use common::*;
 
-use windmill_common::flows::FlowModule;
-use windmill_common::flows::FlowModuleValue;
 #[cfg(feature = "enterprise")]
 use futures::StreamExt;
+use windmill_common::flows::FlowModule;
+use windmill_common::flows::FlowModuleValue;
 
 // async fn _print_job(id: Uuid, db: &Pool<Postgres>) -> Result<(), anyhow::Error> {
 //     tracing::info!(
@@ -332,7 +332,6 @@ async fn test_identity(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(result, serde_json::json!(42));
     Ok(())
 }
-
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
@@ -2923,11 +2922,3 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await;
     Ok(())
 }
-
-// TODO: Test job suspend
-// TODO: Test job concurrency limit
-// TODO: Test job debounce limit
-//
-// TODO: Create a map of tested/untested features.
-// If we can test things like suspend works and that essentials, we can rely on them that they work and do not write tests for suspend in higher level test
-

@@ -5169,12 +5169,6 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
 
         let key = format!("{}:{}:dependency", &job.workspace_id, job.runnable_path());
         let mut tx = db.begin().await?;
-        // TODO:
-        // 1. What if we update from UI and the job is getting debounced? what about triggered_by_dependencies?
-        // 2. Raw deps cannot be debounced?
-        // 3. npm_mode + others.
-        // 4. on UI deployment it is literally the same as triggered_by_dependencies. But it uses nodes_to_relock.
-        // except it does not create new version.
 
         // === DEBOUNCE CLEANUP ===
         //
