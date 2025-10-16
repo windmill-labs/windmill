@@ -342,8 +342,6 @@
 	function onJobDone() {
 		modulePreviewResultViewer?.getOutputPickerInner()?.setJobPreview()
 	}
-
-	$inspect('FLOW MODULE', flowModule)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />

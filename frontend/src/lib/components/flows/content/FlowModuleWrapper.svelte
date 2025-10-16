@@ -112,24 +112,10 @@
 		flowModule = module
 		flowStateStore.val[module.id] = state
 	}
-	$inspect('FLOW MODULE', flowModule)
-	$inspect('SELECTED ID', $selectedId)
-	$inspect('IS AGENT TOOL', isAgentTool)
-	$inspect('TOOL TYPE', flowModule.value.tool_type)
 </script>
 
 {#if flowModule.id === $selectedId}
-	{#if flowModule.value.tool_type !== undefined}
-		<AgentToolWrapper
-			{noEditor}
-			bind:tool={flowModule as AgentTool}
-			parentModule={flowModule}
-			{previousModule}
-			{enableAi}
-			{forceTestTab}
-			{highlightArg}
-		/>
-	{:else if flowModule.value.type === 'forloopflow'}
+	{#if flowModule.value.type === 'forloopflow'}
 		<FlowLoop {noEditor} bind:mod={flowModule} {parentModule} {previousModule} {enableAi} />
 	{:else if flowModule.value.type === 'whileloopflow'}
 		<FlowWhileLoop {noEditor} bind:mod={flowModule} {previousModule} {parentModule} />

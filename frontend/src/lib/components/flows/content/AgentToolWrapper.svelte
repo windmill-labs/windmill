@@ -24,8 +24,6 @@
 		forceTestTab,
 		highlightArg
 	}: Props = $props()
-
-	$inspect('AIAGENT TOOL', tool)
 </script>
 
 {#if isFlowModuleTool(tool)}

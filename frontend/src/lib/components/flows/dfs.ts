@@ -23,15 +23,6 @@ export function dfs<T>(
 			for (const branch of allBranches) {
 				result = result.concat(dfs(branch, f, opts))
 			}
-		} else if (module.value.type == 'aiagent' && !opts.skipToolNodes) {
-			// // Convert AgentTool[] to FlowModule[] for traversal
-			// // Only FlowModule tools can be traversed (MCP tools are leaf nodes)
-			// const toolsAsModules = module.value.tools
-			// 	.map(agentToolToFlowModule)
-			// 	.filter((m): m is FlowModule => m !== undefined)
-			// result = result.concat(f(module, modules, [toolsAsModules]))
-			// result = result.concat(dfs(toolsAsModules, f, opts))
-			result.push(f(module, modules, []))
 		} else {
 			result.push(f(module, modules, []))
 		}
