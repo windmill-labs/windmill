@@ -20,7 +20,7 @@ use windmill_common::{
     DB,
 };
 
-use crate::db::ApiAuthed;
+use crate::{db::ApiAuthed, triggers::http::RequestType};
 
 #[cfg(feature = "http_trigger")]
 use {
@@ -49,6 +49,7 @@ const BASIC_HTTP_AUTH_SCHEME: &'static str = "BasicHttp";
 const DEFAULT_REQUEST_KEY: &'static str = "defaultRequest";
 const DEFAULT_ASYNC_RESPONSE_KEY: &'static str = "AsyncResponse";
 const DEFAULT_SYNC_RESPONSE_KEY: &'static str = "SyncResponse";
+const DEFAULT_SYNC_SSE_RESPONSE_KEY: &'static str = "SyncSseResponse";
 const DEFAULT_PAYLOAD_PARAM_KEY: &'static str = "PayloadParam";
 
 pub fn openapi_service() -> Router {
@@ -166,7 +167,7 @@ pub enum Kind {
 pub struct FuturePath {
     route_path: String,
     kind: Kind,
-    is_async: Option<bool>,
+    request_type: Option<RequestType>,
     summary: Option<String>,
     description: Option<String>,
     security_scheme: Option<SecurityScheme>,
@@ -176,12 +177,12 @@ impl FuturePath {
     pub fn new(
         route_path: String,
         kind: Kind,
-        is_async: Option<bool>,
+        request_type: Option<RequestType>,
         summary: Option<String>,
         description: Option<String>,
         security_scheme: Option<SecurityScheme>,
     ) -> FuturePath {
-        FuturePath { route_path, kind, is_async, summary, description, security_scheme }
+        FuturePath { route_path, kind, request_type, summary, description, security_scheme }
     }
 }
 
@@ -241,6 +242,7 @@ fn from_route_path_to_openapi_path(
         vec![
             format!("/run/{}", &normalized_path),
             format!("/run_wait_result/{}", &normalized_path),
+            format!("/run_and_stream/{}", &normalized_path),
         ]
     };
 
@@ -282,19 +284,23 @@ fn generate_paths(
         })
     };
 
-    let generate_response = |is_async: bool| {
-        let responses = if is_async {
-            serde_json::json!({
+    let generate_response = |request_type: RequestType| {
+        let responses = match request_type {
+            RequestType::Async => serde_json::json!({
                 "200": {
                     "$ref": format!("#/components/responses/{DEFAULT_ASYNC_RESPONSE_KEY}")
                 }
-            })
-        } else {
-            serde_json::json!(serde_json::json!({
+            }),
+            RequestType::Sync => serde_json::json!({
                 "200": {
                     "$ref": format!("#/components/responses/{DEFAULT_SYNC_RESPONSE_KEY}")
                 }
-            }))
+            }),
+            RequestType::SyncSse => serde_json::json!({
+                "200": {
+                    "$ref": format!("#/components/responses/{DEFAULT_SYNC_SSE_RESPONSE_KEY}")
+                }
+            }),
         };
 
         responses
@@ -347,12 +353,19 @@ fn generate_paths(
                 path_object
             });
 
-            let is_async;
+            let request_type;
 
             let (methods, is_webhook) = match &path.kind {
                 Kind::Webhook(_) => {
-                    is_async = route_path.starts_with("/run/");
-                    let methods = if is_async {
+                    request_type = if route_path.starts_with("/run/") {
+                        RequestType::Async
+                    } else if route_path.starts_with("/run_and_stream/") {
+                        RequestType::SyncSse
+                    } else {
+                        RequestType::Sync
+                    };
+
+                    let methods = if request_type == RequestType::Async {
                         vec![Method::POST]
                     } else {
                         vec![Method::GET, Method::POST]
@@ -369,7 +382,7 @@ fn generate_paths(
                         )
                         .into());
                     }
-                    is_async = path.is_async.unwrap_or(true);
+                    request_type = path.request_type.unwrap_or(RequestType::Sync);
                     (vec![method.to_owned()], false)
                 }
             };
@@ -401,7 +414,7 @@ fn generate_paths(
                     );
                 }
 
-                method_map.insert("responses", generate_response(is_async));
+                method_map.insert("responses", generate_response(request_type));
 
                 path_object.insert(method.to_string().to_lowercase(), to_value(&method_map)?);
             }
@@ -582,7 +595,17 @@ fn generate_components(future_paths: &[FuturePath]) -> Map<String, Value> {
                 "application/octet-stream": {}
             }
         },
-
+        DEFAULT_SYNC_SSE_RESPONSE_KEY: {
+            "description": "Returns an SSE stream.",
+            "content": {
+                "text/event-stream": {
+                    "schema": {
+                        "type": "string",
+                        "description": "Stream of SSE"
+                    },
+                }
+            }
+        }
     }));
 
     components
@@ -664,6 +687,8 @@ async fn http_routes_to_future_paths(
     let mut http_routes = Vec::new();
 
     if let Some(http_route_filters) = http_route_filters {
+        use crate::triggers::http::RequestType;
+
         let path_regex = http_route_filters
             .iter()
             .map(|filter| {
@@ -683,7 +708,7 @@ async fn http_routes_to_future_paths(
         struct MinifiedHttpTrigger {
             route_path: String,
             http_method: HttpMethod,
-            is_async: bool,
+            request_type: RequestType,
             workspaced_route: bool,
             summary: Option<String>,
             description: Option<String>,
@@ -697,7 +722,7 @@ async fn http_routes_to_future_paths(
         SELECT
             route_path,
             http_method AS "http_method: _",
-            is_async,
+            request_type AS "request_type: _",
             workspaced_route,
             summary,
             description,
@@ -765,7 +790,7 @@ async fn http_routes_to_future_paths(
         let future_path = FuturePath::new(
             route_path,
             Kind::HttpRoute(HttpRouteConfig::new(method)),
-            Some(http_route.is_async),
+            Some(http_route.request_type),
             http_route.summary,
             http_route.description,
             auth_method,

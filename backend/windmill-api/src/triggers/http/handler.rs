@@ -1,6 +1,6 @@
 use super::{
-    http_trigger_args::RawHttpTriggerArgs, AuthenticationMethod, HttpMethod, TriggerRoute,
-    HTTP_ACCESS_CACHE, HTTP_AUTH_CACHE, HTTP_ROUTERS_CACHE,
+    http_trigger_args::RawHttpTriggerArgs, AuthenticationMethod, HttpMethod, RequestType,
+    TriggerRoute, HTTP_ACCESS_CACHE, HTTP_AUTH_CACHE, HTTP_ROUTERS_CACHE,
 };
 use crate::{
     auth::{AuthCache, OptTokened},
@@ -23,14 +23,13 @@ use crate::{
 };
 use axum::{
     async_trait,
-    extract::{Path, Query},
+    extract::Path,
     response::{IntoResponse, Response},
     routing::{get, post},
     Extension, Json, Router,
 };
 use futures::StreamExt;
 use http::{HeaderMap, StatusCode};
-use serde::Deserialize;
 use sqlx::PgConnection;
 use std::{
     borrow::Cow,
@@ -178,33 +177,35 @@ pub async fn insert_new_trigger_into_db(
 ) -> Result<()> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    let request_type = trigger.config.request_type;
+
     sqlx::query!(
             r#"
             INSERT INTO http_trigger (
-                workspace_id, 
-                path, 
-                route_path, 
+                workspace_id,
+                path,
+                route_path,
                 route_path_key,
                 workspaced_route,
                 authentication_resource_path,
                 wrap_body,
                 raw_string,
-                script_path, 
+                script_path,
                 summary,
                 description,
-                is_flow, 
-                is_async, 
-                authentication_method, 
-                http_method, 
-                static_asset_config, 
-                edited_by, 
-                email, 
-                edited_at, 
+                is_flow,
+                request_type,
+                authentication_method,
+                http_method,
+                static_asset_config,
+                edited_by,
+                email,
+                edited_at,
                 is_static_website,
                 error_handler_path,
                 error_handler_args,
                 retry
-            ) 
+            )
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19, $20, $21, $22
             )
@@ -221,7 +222,7 @@ pub async fn insert_new_trigger_into_db(
             trigger.config.summary,
             trigger.config.description,
             trigger.base.is_flow,
-            trigger.config.is_async,
+            request_type as _,
             trigger.config.authentication_method as _,
             trigger.config.http_method as _,
             trigger.config.static_asset_config as _,
@@ -362,7 +363,7 @@ impl TriggerCrud for HttpTrigger {
     const ADDITIONAL_SELECT_FIELDS: &[&'static str] = &[
         "route_path",
         "route_path_key",
-        "is_async",
+        "request_type",
         "authentication_method",
         "http_method",
         "summary",
@@ -463,35 +464,37 @@ impl TriggerCrud for HttpTrigger {
             let route_path_key =
                 check_if_route_exist(db, &trigger.config, workspace_id, Some(path)).await?;
 
+            let request_type = trigger.config.request_type;
+
             sqlx::query!(
                 r#"
-            UPDATE 
-                http_trigger 
-            SET 
-                route_path = $1, 
+            UPDATE
+                http_trigger
+            SET
+                route_path = $1,
                 route_path_key = $2,
                 workspaced_route = $3,
                 wrap_body = $4,
                 raw_string = $5,
                 authentication_resource_path = $6,
-                script_path = $7, 
-                path = $8, 
-                is_flow = $9, 
-                http_method = $10, 
-                static_asset_config = $11, 
-                edited_by = $12, 
-                email = $13, 
-                is_async = $14, 
-                authentication_method = $15, 
+                script_path = $7,
+                path = $8,
+                is_flow = $9,
+                http_method = $10,
+                static_asset_config = $11,
+                edited_by = $12,
+                email = $13,
+                request_type = $14,
+                authentication_method = $15,
                 summary = $16,
                 description = $17,
-                edited_at = now(), 
+                edited_at = now(),
                 is_static_website = $18,
                 error_handler_path = $19,
                 error_handler_args = $20,
                 retry = $21
-            WHERE 
-                workspace_id = $22 AND 
+            WHERE
+                workspace_id = $22 AND
                 path = $23
             "#,
                 route_path,
@@ -507,7 +510,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.config.static_asset_config as _,
                 &authed.username,
                 &authed.email,
-                trigger.config.is_async,
+                request_type as _,
                 trigger.config.authentication_method as _,
                 trigger.config.summary,
                 trigger.config.description,
@@ -521,32 +524,34 @@ impl TriggerCrud for HttpTrigger {
             .execute(&mut *tx)
             .await?;
         } else {
+            let request_type = trigger.config.request_type;
+
             sqlx::query!(
                 r#"
-            UPDATE 
-                http_trigger 
-            SET 
+            UPDATE
+                http_trigger
+            SET
                 wrap_body = $1,
                 raw_string = $2,
                 authentication_resource_path = $3,
-                script_path = $4, 
-                path = $5, 
-                is_flow = $6, 
-                http_method = $7, 
-                static_asset_config = $8, 
-                edited_by = $9, 
-                email = $10, 
-                is_async = $11, 
-                authentication_method = $12, 
+                script_path = $4,
+                path = $5,
+                is_flow = $6,
+                http_method = $7,
+                static_asset_config = $8,
+                edited_by = $9,
+                email = $10,
+                request_type = $11,
+                authentication_method = $12,
                 summary = $13,
                 description = $14,
-                edited_at = now(), 
+                edited_at = now(),
                 is_static_website = $15,
                 error_handler_path = $16,
                 error_handler_args = $17,
                 retry = $18
-            WHERE 
-                workspace_id = $19 AND 
+            WHERE
+                workspace_id = $19 AND
                 path = $20
             "#,
                 trigger.config.wrap_body,
@@ -559,7 +564,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.config.static_asset_config as _,
                 &authed.username,
                 &authed.email,
-                trigger.config.is_async,
+                request_type as _,
                 trigger.config.authentication_method as _,
                 trigger.config.summary,
                 trigger.config.description,
@@ -787,11 +792,6 @@ async fn get_http_route_trigger(
     Ok((trigger.clone(), route_path.to_string(), params, authed))
 }
 
-#[derive(Debug, Deserialize)]
-struct RouteJobQueryOptions {
-    as_stream: Option<bool>,
-}
-
 async fn route_job(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
@@ -799,13 +799,9 @@ async fn route_job(
     OptTokened { token }: OptTokened,
     Path(route_path): Path<StripPath>,
     headers: HeaderMap,
-    Query(query): Query<RouteJobQueryOptions>,
     args: RawHttpTriggerArgs,
 ) -> std::result::Result<impl IntoResponse, Response> {
     let route_path = route_path.to_path().trim_end_matches("/");
-
-    // Check if streaming is requested via query parameter
-    let as_stream = query.as_stream.unwrap_or(false);
 
     let (trigger, called_path, params, authed) = get_http_route_trigger(
         route_path,
@@ -1035,68 +1031,69 @@ async fn route_job(
         )
         .map_err(|e| e.into_response())?;
 
-    // If streaming is requested, create a streaming response
-    if as_stream {
-        // Trigger the job (always async when streaming)
-        let (uuid, _, _) = trigger_runnable_inner(
-            &db,
-            Some(user_db.clone()),
-            authed.clone(),
-            &trigger.workspace_id,
-            &trigger.script_path,
-            trigger.is_flow,
-            args,
-            trigger.retry.as_ref(),
-            trigger.error_handler_path.as_deref(),
-            trigger.error_handler_args.as_ref(),
-            format!("http_trigger/{}", trigger.path),
-            None,
-        )
-        .await
-        .map_err(|e| e.into_response())?;
-
-        // Set up SSE stream
-        let opt_authed = Some(authed.clone());
-        let opt_tokened = OptTokened { token: None };
-        let (tx, rx) = tokio::sync::mpsc::channel(32);
-
-        let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|x| {
-            format!(
-                "data: {}\n\n",
-                serde_json::to_string(&x).unwrap_or_default()
+    // Handle execution based on the execution mode
+    match trigger.request_type {
+        RequestType::SyncSse => {
+            // Trigger the job (always async when streaming)
+            let (uuid, _, _) = trigger_runnable_inner(
+                &db,
+                Some(user_db.clone()),
+                authed.clone(),
+                &trigger.workspace_id,
+                &trigger.script_path,
+                trigger.is_flow,
+                args,
+                trigger.retry.as_ref(),
+                trigger.error_handler_path.as_deref(),
+                trigger.error_handler_args.as_ref(),
+                format!("http_trigger/{}", trigger.path),
+                None,
             )
-        });
+            .await
+            .map_err(|e| e.into_response())?;
 
-        start_job_update_sse_stream(
-            opt_authed,
-            opt_tokened,
-            db.clone(),
-            trigger.workspace_id.clone(),
-            uuid,
-            None,
-            None,
-            None,
-            None,
-            Some(true),
-            Some(true),
-            None,
-            None,
-            tx,
-            None,
-        );
+            // Set up SSE stream
+            let opt_authed = Some(authed.clone());
+            let opt_tokened = OptTokened { token: None };
+            let (tx, rx) = tokio::sync::mpsc::channel(32);
 
-        let body = axum::body::Body::from_stream(
-            stream.map(std::result::Result::<_, std::convert::Infallible>::Ok),
-        );
+            let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|x| {
+                format!(
+                    "data: {}\n\n",
+                    serde_json::to_string(&x).unwrap_or_default()
+                )
+            });
 
-        Ok(Response::builder()
-            .status(200)
-            .header("Content-Type", "text/event-stream")
-            .header("Cache-Control", "no-cache")
-            .body(body)
-            .map_err(|e| Error::internal_err(e.to_string()).into_response())?)
-    } else if trigger.is_async {
-        trigger_runnable(
+            start_job_update_sse_stream(
+                opt_authed,
+                opt_tokened,
+                db.clone(),
+                trigger.workspace_id.clone(),
+                uuid,
+                None,
+                None,
+                None,
+                None,
+                Some(true),
+                Some(true),
+                None,
+                None,
+                tx,
+                None,
+            );
+
+            let body = axum::body::Body::from_stream(
+                stream.map(std::result::Result::<_, std::convert::Infallible>::Ok),
+            );
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "text/event-stream")
+                .header("Cache-Control", "no-cache")
+                .body(body)
+                .map_err(|e| Error::internal_err(e.to_string()).into_response())?)
+        }
+        RequestType::Async => trigger_runnable(
             &db,
             Some(user_db),
             authed,
@@ -1111,9 +1108,8 @@ async fn route_job(
             None,
         )
         .await
-        .map_err(|e| e.into_response())
-    } else {
-        trigger_runnable_and_wait_for_result(
+        .map_err(|e| e.into_response()),
+        RequestType::Sync => trigger_runnable_and_wait_for_result(
             &db,
             Some(user_db),
             authed,
@@ -1127,6 +1123,6 @@ async fn route_job(
             format!("http_trigger/{}", trigger.path),
         )
         .await
-        .map_err(|e| e.into_response())
+        .map_err(|e| e.into_response()),
     }
 }
