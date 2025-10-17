@@ -49,6 +49,8 @@
 			}
 			useAsDefault = false
 		}
+	} else {
+		useAsDefault = isSameAsStoredConfig(value)
 	}
 
 	// Reactive items for the Select component
@@ -71,6 +73,17 @@
 		value: key as AIProvider,
 		label: details.label
 	}))
+
+	// Check if the current config is the same as the stored config
+	function isSameAsStoredConfig(config: ProviderValue): boolean {
+		const storedConfig = loadStoredConfig()
+		return (
+			storedConfig !== undefined &&
+			storedConfig?.kind === config.kind &&
+			storedConfig?.resource === config.resource &&
+			storedConfig?.model === config.model
+		)
+	}
 
 	// Load stored configuration from localStorage
 	function loadStoredConfig(): ProviderValue | undefined {
@@ -102,16 +115,6 @@
 		} catch (e) {
 			console.error('Failed to save AI provider config to localStorage:', e)
 		}
-	}
-
-	function isSameAsStoredConfig(config: ProviderValue): boolean {
-		const storedConfig = loadStoredConfig()
-		return (
-			storedConfig !== undefined &&
-			storedConfig?.kind === config.kind &&
-			storedConfig?.resource === config.resource &&
-			storedConfig?.model === config.model
-		)
 	}
 
 	// Remove configuration from localStorage
@@ -197,13 +200,6 @@
 		}
 	}
 
-	// Set useAsDefault based on the stored config
-	$effect(() => {
-		if (value?.resource !== undefined) {
-			useAsDefault = isSameAsStoredConfig(value)
-		}
-	})
-
 	// Reload models when provider or resourcePath changes
 	$effect(() => {
 		const abortController = new AbortController()
@@ -226,18 +222,9 @@
 		}
 	})
 
-	// Save or remove configuration from localStorage based on useAsDefault checkbox
 	$effect(() => {
-		if (
-			value &&
-			value.resource !== undefined &&
-			value.kind !== undefined &&
-			value.model !== undefined &&
-			useAsDefault
-		) {
+		if (useAsDefault && value && value.kind && value.resource && value.model) {
 			saveConfig(value)
-		} else if (!useAsDefault) {
-			removeConfig()
 		}
 	})
 </script>
@@ -313,10 +300,17 @@
 		<!-- Use as Default Checkbox -->
 		<div class="flex justify-end pt-1">
 			<Toggle
+				disabled={disabled || !value?.kind || !value?.resource || !value?.model}
 				bind:checked={useAsDefault}
 				options={{ right: 'Use as default for other agents' }}
 				size="xs"
-				{disabled}
+				on:change={(e) => {
+					if (!e.detail) {
+						removeConfig()
+					} else {
+						saveConfig(value)
+					}
+				}}
 			/>
 		</div>
 	</div>
