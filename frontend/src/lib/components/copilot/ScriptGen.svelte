@@ -377,18 +377,13 @@
 					bind:element={button}
 					iconOnly
 					title="Generate code from prompt"
-					startIcon={genLoading
-						? { icon: Ban }
-						: { icon: Wand2, classes: 'text-violet-800 dark:text-violet-400' }}
+					startIcon={genLoading ? { icon: Ban } : { icon: Wand2, classes: 'text-ai' }}
 					{...btnProps}
 				/>
 			{:else}
 				<Button
 					title="Generate code from prompt"
-					btnClasses={twMerge(
-						'!font-medium',
-						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400'
-					)}
+					btnClasses={twMerge('!font-medium', genLoading ? 'z-[5000]' : 'text-ai')}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
@@ -451,7 +446,7 @@
 								size="xs"
 								color="light"
 								buttonType="button"
-								btnClasses="!h-[34px] qhd:!h-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+								btnClasses="!h-[34px] qhd:!h-[38px] !ml-2 text-ai bg-violet-100 dark:bg-gray-700"
 								title="Generate code from prompt"
 								aria-label="Generate"
 								on:click={() => {

@@ -31,7 +31,7 @@
 		{onClick}
 		iconOnly
 		title="Open AI chat"
-		startIcon={{ icon: WandSparkles, classes: 'text-violet-800 dark:text-violet-400' }}
+		startIcon={{ icon: WandSparkles, classes: 'text-ai' }}
 		{...btnProps}
 	/>
 {/snippet}
