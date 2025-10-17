@@ -545,7 +545,6 @@
 {#if insertable}
 	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 {/if}
-
 <div
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}
 	class="overflow-clip"
