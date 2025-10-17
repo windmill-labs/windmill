@@ -1,5 +1,8 @@
 <script module lang="ts">
-	export function validateToolName(name: string) {
+	export function validateToolName(name: string, type?: string) {
+		if (type === 'mcp') {
+			return name.length > 0
+		}
 		return /^[a-zA-Z0-9_]+$/.test(name)
 	}
 
@@ -85,7 +88,11 @@
 			}[] = node.data.module.value.tools.map((t, idx) => {
 				// Handle both FlowModule tools and MCP tools
 				const toolType =
-					t.value.tool_type === 'mcp' ? 'mcp' : t.value.tool_type === 'flowmodule' ? t.value.type : undefined
+					t.value.tool_type === 'mcp'
+						? 'mcp'
+						: t.value.tool_type === 'flowmodule'
+							? t.value.type
+							: undefined
 				return {
 					id: t.id,
 					name: t.summary ?? '',
@@ -244,7 +251,7 @@
 		NewAiToolN,
 		NodeLayout
 	} from '../../graphBuilder.svelte'
-	import { MessageCircle, Play, Wrench, X } from 'lucide-svelte'
+	import { MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getContext } from 'svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
@@ -288,6 +295,8 @@
 					<MessageCircle size={16} class="ml-1 shrink-0" />
 				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX) || data.moduleId.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
 					<Play size={16} class="ml-1 shrink-0" />
+				{:else if data.type === 'mcp'}
+					<Plug size={16} class="ml-1 shrink-0" />
 				{:else}
 					<Wrench size={16} class="ml-1 shrink-0" />
 				{/if}
@@ -295,10 +304,10 @@
 				<span
 					class={twMerge(
 						'text-3xs truncate flex-1',
-						data.type !== 'mcp' && !validateToolName(data.tool) && 'text-red-400'
+						!validateToolName(data.tool, data.type) && 'text-red-400'
 					)}
 				>
-					{data.tool || 'No tool name'}
+					{data.tool || 'Missing name'}
 				</span>
 			</button>
 			{#if data.insertable}
