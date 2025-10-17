@@ -14,7 +14,7 @@
 </script>
 
 <div
-	class={`flex ${message.message_type === 'user' ? 'justify-end' : 'justify-start'} ${message.loading || message.streaming ? 'min-h-[200px] items-start' : ''}`}
+	class={`flex ${message.message_type === 'user' ? 'justify-end' : 'justify-start'}`}
 	data-message-id={message.id}
 >
 	<div
@@ -50,9 +50,7 @@
 						<AlertTriangle class="w-3.5 h-3.5 text-red-500" />
 					{/if}
 				{/if}
-				<div
-					class="prose prose-sm dark:prose-invert break-words whitespace-pre-wrap prose-headings:!text-base"
-				>
+				<div class="prose prose-sm dark:prose-invert break-words prose-headings:!text-base">
 					<Markdown
 						md={message.content}
 						plugins={[
