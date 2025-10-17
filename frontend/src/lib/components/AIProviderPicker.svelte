@@ -24,13 +24,54 @@
 
 	let { value = $bindable(), disabled = false, actions }: Props = $props()
 
+	const STORAGE_KEY = 'windmill_ai_provider_config'
+
+	// Load stored configuration from localStorage
+	function loadStoredConfig(): ProviderValue | undefined {
+		if (typeof localStorage === 'undefined') {
+			return undefined
+		}
+		try {
+			const stored = localStorage.getItem(STORAGE_KEY)
+			if (stored) {
+				const parsed = JSON.parse(stored)
+				// Validate that the stored provider is still available
+				if (parsed.kind && AI_PROVIDERS[parsed.kind]) {
+					return parsed
+				}
+			}
+		} catch (e) {
+			console.error('Failed to load AI provider config from localStorage:', e)
+		}
+		return undefined
+	}
+
+	// Save configuration to localStorage
+	function saveConfig(config: ProviderValue) {
+		if (typeof localStorage === 'undefined') {
+			return
+		}
+		try {
+			localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
+		} catch (e) {
+			console.error('Failed to save AI provider config to localStorage:', e)
+		}
+	}
+
 	// Initialize value if undefined
 	if (!value) {
-		const providers = Object.keys(AI_PROVIDERS)
-		value = {
-			kind: providers.length > 0 ? (providers[0] as AIProvider) : undefined,
-			resource: undefined,
-			model: undefined
+		// Try to load from localStorage first
+		const storedConfig = loadStoredConfig()
+		if (storedConfig) {
+			value = storedConfig
+		} else {
+			// Fall back to default
+			const providers = Object.keys(AI_PROVIDERS)
+			value = {
+				kind: providers.length > 0 ? (providers[0] as AIProvider) : undefined,
+				resource: undefined,
+				model: undefined
+			}
 		}
 	}
 
@@ -118,6 +159,13 @@
 
 		return () => {
 			abortController.abort()
+		}
+	})
+
+	// Save configuration to localStorage whenever value changes
+	$effect(() => {
+		if (value) {
+			saveConfig(value)
 		}
 	})
 
