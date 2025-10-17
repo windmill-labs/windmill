@@ -157,56 +157,49 @@ impl McpClient {
     /// Fix array schemas to ensure they have the required 'items' property
     /// OpenAI requires all array types to have an 'items' field. MCP servers may
     /// return schemas without this field, so we add a default.
-    pub fn fix_array_schemas(schema: Value) -> Value {
-        match schema {
-            Value::Object(mut obj) => {
-                // Check if this is an array type
-                if let Some(type_val) = obj.get("type") {
-                    let is_array = match type_val {
-                        Value::String(s) => s == "array",
-                        Value::Array(arr) => arr.iter().any(|v| v.as_str() == Some("array")),
-                        _ => false,
-                    };
+    pub fn fix_array_schemas(schema: &mut Value) {
+        if let Value::Object(obj) = schema {
+            // Check if this is an array type
+            if let Some(type_val) = obj.get("type") {
+                let is_array = match type_val {
+                    Value::String(s) => s == "array",
+                    Value::Array(arr) => arr.iter().any(|v| v.as_str() == Some("array")),
+                    _ => false,
+                };
 
-                    // If it's an array and missing 'items', add a default
-                    if is_array && !obj.contains_key("items") {
-                        obj.insert("items".to_string(), json!({}));
-                    }
+                // If it's an array and missing 'items', add a default
+                if is_array && !obj.contains_key("items") {
+                    obj.insert("items".to_string(), json!({}));
                 }
-
-                // Recursively fix nested schemas
-                if let Some(properties) = obj.get_mut("properties") {
-                    if let Value::Object(props) = properties {
-                        for (_key, value) in props.iter_mut() {
-                            *value = Self::fix_array_schemas(value.clone());
-                        }
-                    }
-                }
-
-                // Fix items if present (for nested arrays)
-                if let Some(items) = obj.get_mut("items") {
-                    *items = Self::fix_array_schemas(items.clone());
-                }
-
-                // Fix oneOf, anyOf, allOf schemas
-                for key in &["oneOf", "anyOf", "allOf"] {
-                    if let Some(Value::Array(schemas)) = obj.get_mut(*key) {
-                        for schema in schemas.iter_mut() {
-                            *schema = Self::fix_array_schemas(schema.clone());
-                        }
-                    }
-                }
-
-                // Fix additionalProperties if it's a schema
-                if let Some(additional) = obj.get_mut("additionalProperties") {
-                    if additional.is_object() {
-                        *additional = Self::fix_array_schemas(additional.clone());
-                    }
-                }
-
-                Value::Object(obj)
             }
-            other => other,
+
+            // Recursively fix nested schemas
+            if let Some(Value::Object(props)) = obj.get_mut("properties") {
+                for value in props.values_mut() {
+                    Self::fix_array_schemas(value);
+                }
+            }
+
+            // Fix items if present (for nested arrays)
+            if let Some(items) = obj.get_mut("items") {
+                Self::fix_array_schemas(items);
+            }
+
+            // Fix oneOf, anyOf, allOf schemas
+            for key in &["oneOf", "anyOf", "allOf"] {
+                if let Some(Value::Array(schemas)) = obj.get_mut(*key) {
+                    for schema in schemas {
+                        Self::fix_array_schemas(schema);
+                    }
+                }
+            }
+
+            // Fix additionalProperties if it's a schema
+            if let Some(additional) = obj.get_mut("additionalProperties") {
+                if additional.is_object() {
+                    Self::fix_array_schemas(additional);
+                }
+            }
         }
     }
 

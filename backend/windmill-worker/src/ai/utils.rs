@@ -286,10 +286,10 @@ fn convert_mcp_tools_to_windmill_tools(
         .map(|mcp_tool| {
             let tool_name = format!("mcp_{}_{}", resource_name, mcp_tool.name);
 
-            let schema_value = serde_json::to_value(&*mcp_tool.input_schema)
+            let mut schema_value = serde_json::to_value(&*mcp_tool.input_schema)
                 .context("Failed to convert MCP schema to JSON value")?;
-            let fixed_schema = McpClient::fix_array_schemas(schema_value);
-            let parameters = to_raw_value(&fixed_schema);
+            McpClient::fix_array_schemas(&mut schema_value);
+            let parameters = to_raw_value(&schema_value);
 
             // Build the description from title and description
             let description = if let Some(title) = &mcp_tool.title {
