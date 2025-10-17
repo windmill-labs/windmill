@@ -112,7 +112,7 @@
 			<AnimatedButton
 				animate={$propPickerConfig?.insertionMode == 'connect'}
 				baseRadius="4px"
-				wrapperClasses="prop-picker-inputs h-full w-full pt-1 !bg-surface "
+				wrapperClasses="prop-picker-inputs h-full w-full pt-1 !bg-surface-secondary"
 				marginWidth="3px"
 				ringColor={$propPickerConfig?.insertionMode == 'insert' ||
 				$propPickerConfig?.insertionMode == 'append'

@@ -146,7 +146,6 @@
 				{#if customUi?.settingsTabs?.workerGroup != false}
 					<div>
 						<Toggle
-							textClass="font-normal text-sm"
 							color="nord"
 							size="xs"
 							checked={displayWorkerTagPicker}
@@ -194,7 +193,6 @@
 				{#if customUi?.settingsTabs?.cache != false}
 					<div>
 						<Toggle
-							textClass="font-normal text-sm"
 							color="nord"
 							size="xs"
 							checked={Boolean(flowStore.val.value.cache_ttl)}
@@ -233,7 +231,6 @@
 					<div>
 						<!-- documentationLink="https://www.windmill.dev/docs/flows/early_stop -->
 						<Toggle
-							textClass="font-normal text-sm"
 							color="nord"
 							size="xs"
 							checked={Boolean(flowStore.val.value.skip_expr)}
@@ -286,7 +283,6 @@
 				{#if customUi?.settingsTabs?.earlyReturn != false}
 					<div>
 						<Toggle
-							textClass="font-normal text-sm"
 							color="nord"
 							size="xs"
 							checked={Boolean(flowStore.val.value.early_return)}
@@ -330,7 +326,6 @@
 				<!-- Shared Directory Section -->
 				{#if customUi?.settingsTabs?.sharedDiretory != false}
 					<Toggle
-						textClass="font-normal text-sm"
 						color="nord"
 						size="xs"
 						bind:checked={flowStore.val.value.same_worker}
@@ -349,7 +344,6 @@
 
 				<!-- Visibility Section -->
 				<Toggle
-					textClass="font-normal text-sm"
 					color="nord"
 					size="xs"
 					checked={Boolean(flowStore.val.visible_to_runner_only)}
@@ -372,7 +366,6 @@
 
 				<!-- On behalf of last editor section -->
 				<Toggle
-					textClass="font-normal text-sm"
 					color="nord"
 					size="xs"
 					checked={Boolean(flowStore.val.on_behalf_of_email)}
@@ -414,7 +407,6 @@
 					<div>
 						<div class="flex flex-row items-center gap-2">
 							<Toggle
-								textClass="font-normal text-sm"
 								color="nord"
 								size="xs"
 								disabled={!$enterpriseLicense}
@@ -485,7 +477,6 @@
 
 				<!-- Priority Section -->
 				<Toggle
-					textClass="font-normal text-sm"
 					color="nord"
 					size="xs"
 					disabled={!$enterpriseLicense || isCloudHosted()}
@@ -535,7 +526,6 @@
 				<div>
 					<div class="flex flex-row items-center gap-2">
 						<Toggle
-							textClass="font-normal text-sm"
 							color="nord"
 							size="xs"
 							disabled={!$enterpriseLicense || isCloudHosted()}

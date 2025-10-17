@@ -5,6 +5,7 @@
 	import { InfoIcon } from 'lucide-svelte'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { getContext, hasContext } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 	interface Props {
 		light?: boolean
 		wrapperClass?: string
@@ -39,7 +40,10 @@
 	<Popover
 		notClickable
 		{placement}
-		class={wrapperClass}
+		class={twMerge(
+			'h-3 -mt-3', // Avoid taking vertical space
+			wrapperClass
+		)}
 		style="transform: scale({parseFloat(customSize) / 100});"
 		{documentationLink}
 	>

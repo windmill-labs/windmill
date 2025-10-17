@@ -470,7 +470,6 @@
 	{#snippet action()}
 		{#if !disabled}
 			<Toggle
-				textClass="font-normal text-sm"
 				size="sm"
 				checked={chatInputEnabled}
 				on:change={handleToggleChatMode}

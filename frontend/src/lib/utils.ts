@@ -1632,4 +1632,4 @@ export function getCssColor(color: CssColor, alpha = 1): string {
 	return `rgb(${rgb} / ${alpha})`
 }
 
-export type IconType = Component<{ size: number }> | typeof import('lucide-svelte').Dot
+export type IconType = Component<{ size?: number }> | typeof import('lucide-svelte').Dot

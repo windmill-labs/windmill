@@ -663,7 +663,8 @@
 		{code}
 		lineNumbersWidth={14}
 		lineNumbersOffset={-20}
-		class="template nonmain-editor rounded-md bg-surface-secondary !py-[9px] overflow-clip"
+		{fontSize}
+		class="template nonmain-editor bg-surface-tertiary rounded-md !py-[8px] overflow-clip"
 	/>
 {/if}
 <div
