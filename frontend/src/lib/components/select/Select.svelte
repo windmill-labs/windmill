@@ -156,7 +156,7 @@
 				}
 			}
 		}
-		placeholder={loading && !value ? 'Loading...' : !value ? placeholder : ''}
+		placeholder={loading && !value ? 'Loading...' : value ? valueEntry?.label : placeholder}
 		style={containerStyle}
 		class={twMerge(
 			inputBaseClass,
@@ -164,7 +164,8 @@
 			inputBorderClass({ error, forceFocus: open }),
 			'w-full',
 			open ? '' : 'cursor-pointer',
-			'placeholder-hint',
+			// Show value as placeholder when opening the dropdown and the search is empty
+			!value ? 'placeholder-hint' : '!placeholder-primary',
 			(clearable || RightIcon) && !disabled && value ? 'pr-8' : '',
 			inputClass ?? ''
 		)}
