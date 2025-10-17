@@ -101,7 +101,8 @@ mod inkeep_oss;
 mod inputs;
 mod integration;
 mod live_migrations;
-pub mod openapi;
+#[cfg(feature = "http_trigger")]
+mod openapi;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
@@ -475,7 +476,17 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_oss::workspaced_service())
-                        .nest("/openapi", openapi::openapi_service())
+                        .nest("/openapi", {
+                            #[cfg(feature = "http_trigger")]
+                            {
+                                openapi::openapi_service()
+                            }
+
+                            #[cfg(not(feature = "http_trigger"))]
+                            {
+                                Router::new()
+                            }
+                        })
                         .merge(triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())

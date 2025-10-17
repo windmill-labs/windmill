@@ -477,7 +477,7 @@ pub trait TriggerJobArgs {
 }
 
 #[allow(dead_code)]
-async fn trigger_runnable_inner(
+pub async fn trigger_runnable_inner(
     db: &DB,
     user_db: Option<UserDB>,
     authed: ApiAuthed,
