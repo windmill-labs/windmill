@@ -23,6 +23,9 @@ export function dfs<T>(
 			for (const branch of allBranches) {
 				result = result.concat(dfs(branch, f, opts))
 			}
+		} else if (module.value.type == 'aiagent' && !opts.skipToolNodes) {
+			result = result.concat(f(module, modules, [module.value.tools as FlowModule[]]))
+			result = result.concat(dfs(module.value.tools as FlowModule[], f, opts))
 		} else {
 			result.push(f(module, modules, []))
 		}

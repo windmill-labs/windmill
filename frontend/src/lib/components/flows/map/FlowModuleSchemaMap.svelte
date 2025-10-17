@@ -223,7 +223,9 @@
 				})
 				mod.value.default = removeAtId(mod.value.default, id)
 			} else if (mod.value.type == 'aiagent') {
+				console.log('removing tool', id)
 				mod.value.tools = removeAgentToolById(mod.value.tools, id)
+				console.log('mod.value.tools', mod.value.tools)
 			}
 			return mod
 		})
