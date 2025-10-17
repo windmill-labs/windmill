@@ -1843,6 +1843,13 @@ where
     }
 }
 
+#[inline]
+fn is_env_access<'env>(expr: &'env str) -> Option<&'env str> {
+    let env_key = expr.starts_with("env.").then_some(&expr[4..]);
+
+    env_key
+}
+
 /// resumes should be in order of timestamp ascending, so that more recent are at the end
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
@@ -1870,9 +1877,6 @@ async fn transform_input(
         env.insert("resume".to_string(), resume);
         env.insert("resumes".to_string(), resumes);
         env.insert("approvers".to_string(), approvers);
-        if let Some(env_args) = env_args {
-            env.insert("env".to_string(), Arc::new(to_raw_value(&env_args)));
-        }
         if let Some(FailureContext { started_at, flow_job_id }) = failure_context {
             env.insert("started_at".to_string(), started_at);
             env.insert(
@@ -1888,6 +1892,15 @@ async fn transform_input(
                 mapped.insert(key.to_string(), to_raw_value(&value));
             }
             InputTransform::Javascript { expr } => {
+                if let Some(var_name) = is_env_access(expr) {
+                    let env_value = env_args
+                        .and_then(|env| env.get(var_name))
+                        .map(|v| to_raw_value(&v))
+                        .unwrap_or_else(|| to_raw_value(&Value::Null));
+                    mapped.insert(key.to_owned(), env_value);
+                    continue;
+                }
+
                 let v = eval_timeout(
                     expr.to_string(),
                     env.clone(),
@@ -3615,6 +3628,7 @@ fn payload_from_modules<'a>(
     modules_node: Option<FlowNodeId>,
     failure_module: Option<&Box<FlowModule>>,
     same_worker: bool,
+    env_vars: Option<HashMap<String, String>>,
     id: impl FnOnce() -> String,
     path: impl FnOnce() -> String,
     opt_empty_inner_flows: bool,
@@ -3635,7 +3649,7 @@ fn payload_from_modules<'a>(
     }
 
     Some(JobPayload::RawFlow {
-        value: FlowValue { modules, failure_module, same_worker, ..Default::default() },
+        value: FlowValue { modules, failure_module, same_worker, env_vars, ..Default::default() },
         path: Some(path()),
         restarted_from: None,
     })
@@ -3918,6 +3932,7 @@ async fn compute_next_flow_transform(
                                 modules_node,
                                 flow.failure_module.as_ref(),
                                 flow.same_worker,
+                                flow.env_vars.clone(),
                                 || format!("{}-{i}", status.step),
                                 || format!("{}/forloop-{i}", flow_job.runnable_path()),
                                 true,
@@ -4008,6 +4023,7 @@ async fn compute_next_flow_transform(
                 modules_node,
                 flow.failure_module.as_ref(),
                 flow.same_worker,
+                flow.env_vars.clone(),
                 || status.step.to_string(),
                 || format!("{}/branchone-{}", flow_job.runnable_path(), branch_idx),
                 true,
@@ -4045,6 +4061,7 @@ async fn compute_next_flow_transform(
                                         modules_node,
                                         flow.failure_module.as_ref(),
                                         flow.same_worker,
+                                        flow.env_vars.clone(),
                                         || format!("{}-{i}", status.step),
                                         || format!("{}/branchall-{}", flow_job.runnable_path(), i),
                                         false,
@@ -4114,6 +4131,7 @@ async fn compute_next_flow_transform(
                 modules_node,
                 flow.failure_module.as_ref(),
                 flow.same_worker,
+                flow.env_vars.clone(),
                 || format!("{}-{}", status.step, branch_status.branch),
                 || {
                     format!(
@@ -4184,6 +4202,7 @@ async fn next_loop_iteration(
         modules_node,
         flow.failure_module.as_ref(),
         flow.same_worker,
+        flow.env_vars.clone(),
         || format!("{}-{}", status.step, ns.index),
         inner_path,
         true,
