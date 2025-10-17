@@ -16,10 +16,10 @@
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	if (!flowStore.val.value.env_vars) {
-		flowStore.val.value.env_vars = {}
+	if (!flowStore.val.value.flow_env) {
+		flowStore.val.value.flow_env = {}
 	}
-	let envVars = $derived(flowStore.val.value.env_vars || {})
+	let envVars = $derived(flowStore.val.value.flow_env || {})
 	let envEntries = $derived(
 		Object.entries(envVars).map(([key, value], index) => ({ id: `${key}_${index}`, key, value }))
 	)
@@ -33,32 +33,32 @@
 			newKey = `VAR_${counter}`
 		}
 
-		if (!flowStore.val.value.env_vars) {
-			flowStore.val.value.env_vars = {}
+		if (!flowStore.val.value.flow_env) {
+			flowStore.val.value.flow_env = {}
 		}
-		flowStore.val.value.env_vars[newKey] = ''
+		flowStore.val.value.flow_env[newKey] = ''
 		flowStore.val = flowStore.val
 	}
 
 	function removeEnvVar(key: string) {
-		if (flowStore.val.value.env_vars && key in flowStore.val.value.env_vars) {
-			delete flowStore.val.value.env_vars[key]
+		if (flowStore.val.value.flow_env && key in flowStore.val.value.flow_env) {
+			delete flowStore.val.value.flow_env[key]
 			flowStore.val = flowStore.val
 		}
 	}
 
 	function updateEnvValue(key: string, value: string) {
-		if (flowStore.val.value.env_vars) {
-			flowStore.val.value.env_vars[key] = value
+		if (flowStore.val.value.flow_env) {
+			flowStore.val.value.flow_env[key] = value
 			flowStore.val = flowStore.val
 		}
 	}
 
 	function updateEnvKey(oldKey: string, newKey: string) {
-		if (flowStore.val.value.env_vars && oldKey !== newKey && newKey.trim() !== '') {
-			const value = flowStore.val.value.env_vars[oldKey]
-			delete flowStore.val.value.env_vars[oldKey]
-			flowStore.val.value.env_vars[newKey] = value
+		if (flowStore.val.value.flow_env && oldKey !== newKey && newKey.trim() !== '') {
+			const value = flowStore.val.value.flow_env[oldKey]
+			delete flowStore.val.value.flow_env[oldKey]
+			flowStore.val.value.flow_env[newKey] = value
 			flowStore.val = flowStore.val
 		}
 	}

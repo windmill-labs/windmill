@@ -281,6 +281,10 @@ pub fn workspaced_service() -> Router {
             "/result_by_id/:job_id/:node_id",
             get(get_result_by_id).layer(cors.clone()),
         )
+        .route(
+            "/flow_env_by_flow_job_id/:flow_job_id/:var_name",
+            get(get_flow_env_by_flow_job_id).layer(cors.clone()),
+        )
         .route("/run/dependencies", post(run_dependencies_job))
         .route("/run/flow_dependencies", post(run_flow_dependencies_job))
         .route(
@@ -374,6 +378,48 @@ async fn get_root_job(
 ) -> windmill_common::error::JsonResult<String> {
     let res = compute_root_job_for_flow(&db, &w_id, id).await?;
     Ok(Json(res))
+}
+
+async fn get_flow_env_by_flow_job_id(
+    authed: ApiAuthed,
+    tokened: Tokened,
+    Extension(db): Extension<DB>,
+    Path((w_id, flow_job_id, var_name)): Path<(String, Uuid, String)>,
+) -> windmill_common::error::JsonResult<Option<String>> {
+    let flow_env = sqlx::query_scalar!(
+        r#"
+            SELECT 
+                root_job.raw_flow -> 'flow_env' -> $3
+            FROM 
+                v2_job current_job
+            JOIN 
+                v2_job root_job ON root_job.id = COALESCE(current_job.root_job, current_job.flow_innermost_root_job, current_job.parent_job, current_job.id)
+                AND root_job.workspace_id = current_job.workspace_id
+           WHERE 
+                current_job.id = $1 AND 
+                current_job.workspace_id = $2"#,
+        flow_job_id,
+        w_id,
+        var_name
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten();
+
+    log_job_view(
+        &db,
+        Some(&authed),
+        Some(&tokened.token),
+        &w_id,
+        &flow_job_id,
+    )
+    .await?;
+
+    let env_var = flow_env
+        .map(|value| serde_json::from_value(value))
+        .transpose()?;
+
+    Ok(Json(env_var))
 }
 
 async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {

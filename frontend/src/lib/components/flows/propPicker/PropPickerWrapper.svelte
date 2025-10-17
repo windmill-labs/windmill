@@ -58,7 +58,7 @@
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let env = flowStore.val.value.env_vars
+	let env = flowStore.val.value.flow_env
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
 		inputMatches,

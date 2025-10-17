@@ -1602,6 +1602,7 @@ mod tests {
             early_return: None,
             concurrency_key: None,
             chat_input_enabled: None,
+            flow_env: None
         };
         let expect = serde_json::json!({
           "modules": [

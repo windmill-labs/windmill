@@ -58,7 +58,7 @@ components:
           type: string
         cache_ttl:
           type: number
-        env_vars:
+        flow_env:
           type: object
           additionalProperties:
             type: string

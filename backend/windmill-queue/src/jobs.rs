@@ -3869,7 +3869,7 @@ pub async fn push<'c, 'd>(
                 skip_expr: None,
                 preprocessor_module: None,
                 chat_input_enabled: None,
-                env_vars: None,
+                flow_env: None,
             };
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
