@@ -22,6 +22,8 @@
 	import Badge from '$lib/components/Badge.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import { inputBaseClass, inputBorderClass } from '$lib/components/text_input/TextInput.svelte'
 
 	interface Props {
 		noEditor: boolean
@@ -70,7 +72,7 @@
 	)
 </script>
 
-<div class="h-full overflow-y-auto flex flex-col">
+<div class="h-full overflow-y-auto flex flex-col mb-10">
 	<FlowCard {noEditor} title="Settings">
 		<div class="grow min-h-0 p-4 h-full flex flex-col gap-8">
 			<!-- Metadata Section -->
@@ -213,8 +215,8 @@
 						/>
 						{#if flowStore.val.value.cache_ttl}
 							<div class="flex gap-x-4 flex-col gap-1">
-								<div class="text-sm text-secondary">How long to keep the cache valid</div>
-								<div>
+								<div class="text-2xs text-secondary">How long to keep the cache valid</div>
+								<div class="-mt-5">
 									{#if flowStore.val.value.cache_ttl}
 										<SecondsInput bind:seconds={flowStore.val.value.cache_ttl} />
 									{:else}
@@ -253,13 +255,14 @@
 						/>
 						{#if flowStore.val.value.skip_expr}
 							<div
-								class="w-full border flex flex-col {flowStore.val.value.skip_expr
+								class="w-full border rounded-md flex flex-col {flowStore.val.value.skip_expr
 									? ''
 									: 'bg-surface-secondary'}"
 							>
-								<div class="border w-full">
+								<div class="w-full rounded-md overflow-auto">
 									<SimpleEditor
 										lang="javascript"
+										small
 										bind:code={flowStore.val.value.skip_expr}
 										class="small-editor"
 										extraLib={`declare const flow_input = ${JSON.stringify(
@@ -267,7 +270,7 @@
 										)};
 									declare const WM_SCHEDULED_FOR: string;`}
 									/>
-									<div class="text-xs text-tertiary mt-2">
+									<div class="text-xs text-hint p-2">
 										You can use the variable `flow_input` to access the inputs of the flow. <br
 										/>The variable `WM_SCHEDULED_FOR` contains the time the flow was scheduled for
 										which you can use to stop early non fresh jobs:
@@ -429,7 +432,7 @@
 						</div>
 
 						{#if flowStore.val.value.concurrent_limit}
-							<div class="flex flex-col gap-4">
+							<div class="flex flex-col gap-4 mt-4">
 								<Label label="Max number of executions within the time window">
 									<div class="flex flex-row gap-2 max-w-sm">
 										<input
@@ -448,10 +451,12 @@
 									</div>
 								</Label>
 								<Label label="Time window in seconds">
-									<SecondsInput
-										disabled={!$enterpriseLicense}
-										bind:seconds={flowStore.val.value.concurrency_time_window_s}
-									/>
+									<div class="-mt-5">
+										<SecondsInput
+											disabled={!$enterpriseLicense}
+											bind:seconds={flowStore.val.value.concurrency_time_window_s}
+										/>
+									</div>
 								</Label>
 								<Label label="Custom concurrency key (optional)">
 									{#snippet header()}
@@ -500,7 +505,11 @@
 					{#snippet right()}
 						<input
 							type="number"
-							class="!w-16 text-xs ml-4 absolute left-52"
+							class={twMerge(
+								inputBaseClass,
+								inputBorderClass(),
+								'!w-16 text-xs ml-4 absolute left-52'
+							)}
 							disabled={flowStore.val.value.priority === undefined}
 							bind:value={flowStore.val.value.priority}
 							onfocus={bubble('focus')}
