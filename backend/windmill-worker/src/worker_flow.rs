@@ -1843,9 +1843,14 @@ where
     }
 }
 
+const ENV_PREFIX: &'static str = "env.";
+const LEN_ENV_PREFIX: usize = ENV_PREFIX.len();
+
 #[inline]
 fn is_env_access<'env>(expr: &'env str) -> Option<&'env str> {
-    let env_key = expr.starts_with("env.").then_some(&expr[4..]);
+    let env_key = expr
+        .starts_with(ENV_PREFIX)
+        .then_some(&expr[LEN_ENV_PREFIX..]);
 
     env_key
 }
