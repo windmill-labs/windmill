@@ -5138,9 +5138,15 @@ pub async fn get_same_worker_job(
 pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::Result<()> {
     let kind = job.kind;
     // Handle dependency job debouncing cleanup when a job is pulled for execution
-    if kind.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING {
+    if kind.is_dependency()
+        && job
+            .args
+            .as_ref()
+            .map(|x| x.get("triggered_by_relative_import").is_some())
+            .unwrap_or_default()
+        && !*WMDEBUG_NO_DJOB_DEBOUNCING
+    {
         return Box::pin(async move {
-            
             // Only used for testing in tests/relative_imports.rs
             // Give us some space to work with.
             #[cfg(debug_assertions)]
@@ -5206,98 +5212,91 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
                         "Failed to delete debounce_key"
                     );
                     e
-                })?;
+            })?;
 
-            if job
-                .args
-                .as_ref()
-                .map(|x| x.get("triggered_by_relative_import").is_some())
-                .unwrap_or_default()
-            {
-                let Some(base_hash) = job.runnable_id else {
-                    return Err(Error::InternalErr(
-                        "Missing runnable_id for dependency job triggered by relative import"
-                            .to_string(),
-                    ));
-                };
+            let Some(base_hash) = job.runnable_id else {
+                return Err(Error::InternalErr(
+                    "Missing runnable_id for dependency job triggered by relative import"
+                        .to_string(),
+                ));
+            };
 
-                tracing::debug!(
-                    job_id = %job.id,
-                    base_hash = %base_hash,
-                    job_kind = ?kind,
-                    "Creating new version for dependency job triggered by relative import"
-                );
+            tracing::debug!(
+                job_id = %job.id,
+                base_hash = %base_hash,
+                job_kind = ?kind,
+                "Creating new version for dependency job triggered by relative import"
+            );
 
-                let new_id = match kind {
-                    JobKind::Dependencies => {
-                        let deployment_message = job
-                            .args
-                            .clone()
-                            .map(|hashmap| {
-                                hashmap
-                                    .get("deployment_message")
-                                    .map(|map_value| {
-                                        serde_json::from_str::<String>(map_value.get()).ok()
-                                    })
-                                    .flatten()
-                            })
-                            .flatten();
+            let new_id = match kind {
+                JobKind::Dependencies => {
+                    let deployment_message = job
+                        .args
+                        .clone()
+                        .map(|hashmap| {
+                            hashmap
+                                .get("deployment_message")
+                                .map(|map_value| {
+                                    serde_json::from_str::<String>(map_value.get()).ok()
+                                })
+                                .flatten()
+                        })
+                        .flatten();
 
-                        // This way we tell downstream which script we should archive when the resolution is finished.
-                        // (not used at the moment)
-                        job.args.as_mut().map(|args| {
-                            args.insert("base_hash".to_owned(), to_raw_value(&*base_hash))
-                        });
+                    // This way we tell downstream which script we should archive when the resolution is finished.
+                    // (not used at the moment)
+                    job.args.as_mut().map(|args| {
+                        args.insert("base_hash".to_owned(), to_raw_value(&*base_hash))
+                    });
 
-                        let new_hash = windmill_common::scripts::clone_script(
-                            base_hash,
-                            &job.workspace_id,
-                            deployment_message,
-                            &mut tx,
-                        )
-                        .await?;
+                    let new_hash = windmill_common::scripts::clone_script(
+                        base_hash,
+                        &job.workspace_id,
+                        deployment_message,
+                        &mut tx,
+                    )
+                    .await?;
 
-                        new_hash
-                    }
-                    JobKind::FlowDependencies => {
-                        sqlx::query_scalar!(
-                            "INSERT INTO flow_version
-                        (workspace_id, path, value, schema, created_by)
+                    new_hash
+                }
+                JobKind::FlowDependencies => {
+                    sqlx::query_scalar!(
+                        "INSERT INTO flow_version
+                    (workspace_id, path, value, schema, created_by)
 
-                        SELECT workspace_id, path, value, schema, created_by
-                        FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
+                    SELECT workspace_id, path, value, schema, created_by
+                    FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
 
-                        RETURNING id
-                        ",
-                            job.runnable_path(),
-                            job.workspace_id,
-                            *base_hash,
-                        )
-                        .fetch_one(&mut *tx)
-                        .await?
-                    }
-                    JobKind::AppDependencies => {
-                        sqlx::query_scalar!(
-                            "INSERT INTO app_version
-                            (app_id, value, created_by, raw_app)
-                        SELECT app_id, value, created_by, raw_app
-                        FROM app_version WHERE id = $1
-                        RETURNING id",
-                            *base_hash
-                        )
-                        .fetch_one(&mut *tx)
-                        .await?
-                    }
-                    _ => {
-                        return Err(Error::InternalErr(format!(
-                            "Matched unexpected JobKind ({:?}). This is a bug!",
-                            kind
-                        )))
-                    }
-                };
+                    RETURNING id
+                    ",
+                        job.runnable_path(),
+                        job.workspace_id,
+                        *base_hash,
+                    )
+                    .fetch_one(&mut *tx)
+                    .await?
+                }
+                JobKind::AppDependencies => {
+                    sqlx::query_scalar!(
+                        "INSERT INTO app_version
+                        (app_id, value, created_by, raw_app)
+                    SELECT app_id, value, created_by, raw_app
+                    FROM app_version WHERE id = $1
+                    RETURNING id",
+                        *base_hash
+                    )
+                    .fetch_one(&mut *tx)
+                    .await?
+                }
+                _ => {
+                    return Err(Error::InternalErr(format!(
+                        "Matched unexpected JobKind ({:?}). This is a bug!",
+                        kind
+                    )))
+                }
+            };
 
-                job.runnable_id.replace(new_id.into());
-            }
+            job.runnable_id.replace(new_id.into());
 
             // === RETRIEVE ACCUMULATED DEBOUNCE DATA ===
             //
