@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM debounce_stale_data WHERE job_id = $1 RETURNING to_relock",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "to_relock",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "cfe06702916362aaf5122bb95593eff389e0d44b7a58b69fd5c79629599902fc"
+}
