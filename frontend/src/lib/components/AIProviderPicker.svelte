@@ -9,6 +9,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import ToggleButtonMore from './common/toggleButton-v2/ToggleButtonMore.svelte'
+	import Toggle from './Toggle.svelte'
 
 	interface ProviderValue {
 		kind?: AIProvider
@@ -24,7 +25,52 @@
 
 	let { value = $bindable(), disabled = false, actions }: Props = $props()
 
+	let loading = $state(false)
+	let availableModels = $state<string[]>([])
+	let filterText = $state('')
+	let useAsDefault = $state(false)
+
+	let modelsCache = new Map<AIProvider, string[]>()
+
 	const STORAGE_KEY = 'windmill_ai_provider_config'
+
+	// Initialize value if undefined
+	if (!value) {
+		const storedConfig = loadStoredConfig()
+		if (storedConfig) {
+			value = storedConfig
+			useAsDefault = true
+		} else {
+			const providers = Object.keys(AI_PROVIDERS)
+			value = {
+				kind: providers.length > 0 ? (providers[0] as AIProvider) : undefined,
+				resource: undefined,
+				model: undefined
+			}
+			useAsDefault = false
+		}
+	}
+
+	// Reactive items for the Select component
+	let items = $derived.by(() => {
+		const r = availableModels.map((model) => ({
+			label: model,
+			value: model
+		}))
+		if (value?.model && !availableModels.find((model) => model === value.model)) {
+			r.push({
+				label: value.model,
+				value: value.model
+			})
+		}
+		return r
+	})
+
+	// Provider options for the toggle button group
+	const providerOptions = Object.entries(AI_PROVIDERS).map(([key, details]) => ({
+		value: key as AIProvider,
+		label: details.label
+	}))
 
 	// Load stored configuration from localStorage
 	function loadStoredConfig(): ProviderValue | undefined {
@@ -58,49 +104,27 @@
 		}
 	}
 
-	// Initialize value if undefined
-	if (!value) {
-		// Try to load from localStorage first
+	function isSameAsStoredConfig(config: ProviderValue): boolean {
 		const storedConfig = loadStoredConfig()
-		if (storedConfig) {
-			value = storedConfig
-		} else {
-			// Fall back to default
-			const providers = Object.keys(AI_PROVIDERS)
-			value = {
-				kind: providers.length > 0 ? (providers[0] as AIProvider) : undefined,
-				resource: undefined,
-				model: undefined
-			}
-		}
+		return (
+			storedConfig !== undefined &&
+			storedConfig?.kind === config.kind &&
+			storedConfig?.resource === config.resource &&
+			storedConfig?.model === config.model
+		)
 	}
 
-	let loading = $state(false)
-	let availableModels = $state<string[]>([])
-	let filterText = $state('')
-
-	let modelsCache = new Map<AIProvider, string[]>()
-
-	// Reactive items for the Select component
-	let items = $derived.by(() => {
-		const r = availableModels.map((model) => ({
-			label: model,
-			value: model
-		}))
-		if (value?.model && !availableModels.find((model) => model === value.model)) {
-			r.push({
-				label: value.model,
-				value: value.model
-			})
+	// Remove configuration from localStorage
+	function removeConfig() {
+		if (typeof localStorage === 'undefined') {
+			return
 		}
-		return r
-	})
-
-	// Provider options for the toggle button group
-	const providerOptions = Object.entries(AI_PROVIDERS).map(([key, details]) => ({
-		value: key as AIProvider,
-		label: details.label
-	}))
+		try {
+			localStorage.removeItem(STORAGE_KEY)
+		} catch (e) {
+			console.error('Failed to remove AI provider config from localStorage:', e)
+		}
+	}
 
 	async function loadModels(signal?: AbortSignal) {
 		const provider = value?.kind
@@ -140,35 +164,6 @@
 		}
 	}
 
-	// Reload models when provider or resourcePath changes
-	$effect(() => {
-		const abortController = new AbortController()
-		const provider = value?.kind
-		const resourceValue = value?.resource
-		const resourcePath = resourceValueToPath(resourceValue)
-
-		filterText = ''
-
-		if (provider && resourcePath) {
-			loadModels(abortController.signal)
-		} else {
-			const defaultModels = provider ? AI_PROVIDERS[provider]?.defaultModels || [] : []
-			availableModels = defaultModels
-			loading = false
-		}
-
-		return () => {
-			abortController.abort()
-		}
-	})
-
-	// Save configuration to localStorage whenever value changes
-	$effect(() => {
-		if (value) {
-			saveConfig(value)
-		}
-	})
-
 	// Handle provider selection
 	function onProviderChange(selectedProvider: AIProvider) {
 		if (value) {
@@ -201,6 +196,50 @@
 			return `$res:${path}`
 		}
 	}
+
+	// Set useAsDefault based on the stored config
+	$effect(() => {
+		if (value?.resource !== undefined) {
+			useAsDefault = isSameAsStoredConfig(value)
+		}
+	})
+
+	// Reload models when provider or resourcePath changes
+	$effect(() => {
+		const abortController = new AbortController()
+		const provider = value?.kind
+		const resourceValue = value?.resource
+		const resourcePath = resourceValueToPath(resourceValue)
+
+		filterText = ''
+
+		if (provider && resourcePath) {
+			loadModels(abortController.signal)
+		} else {
+			const defaultModels = provider ? AI_PROVIDERS[provider]?.defaultModels || [] : []
+			availableModels = defaultModels
+			loading = false
+		}
+
+		return () => {
+			abortController.abort()
+		}
+	})
+
+	// Save or remove configuration from localStorage based on useAsDefault checkbox
+	$effect(() => {
+		if (
+			value &&
+			value.resource !== undefined &&
+			value.kind !== undefined &&
+			value.model !== undefined &&
+			useAsDefault
+		) {
+			saveConfig(value)
+		} else if (!useAsDefault) {
+			removeConfig()
+		}
+	})
 </script>
 
 <div
@@ -268,6 +307,16 @@
 				noItemsMsg={'No models available'}
 				bind:filterText
 				inputClass="min-h-10 !bg-surface disabled:!bg-surface-disabled"
+			/>
+		</div>
+
+		<!-- Use as Default Checkbox -->
+		<div class="flex justify-end pt-1">
+			<Toggle
+				bind:checked={useAsDefault}
+				options={{ right: 'Use as default for other agents' }}
+				size="xs"
+				{disabled}
 			/>
 		</div>
 	</div>
