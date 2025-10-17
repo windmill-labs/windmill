@@ -1532,7 +1532,7 @@ pub struct MonitorIteration {
 
 impl MonitorIteration {
     pub fn should_run(&self, period: u8) -> bool {
-        self.iter % (period as u64) == self.rd_shift as u64
+        (self.iter + self.rd_shift as u64) % (period as u64) == 0
     }
 }
 
