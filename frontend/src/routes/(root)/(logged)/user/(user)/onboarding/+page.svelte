@@ -18,21 +18,12 @@
 	} from 'lucide-svelte'
 	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { isCloudHosted } from '$lib/cloud'
-	import { onMount } from 'svelte'
 
 	let currentStep = $state(1)
 	let useCaseText = $state('')
 	let selectedSource = $state<string | null>(null)
 	let otherSourceText = $state('')
 	let isSubmitting = $state(false)
-
-	// Redirect self-hosted users away from this cloud-only page
-	onMount(() => {
-		if (isCloudHosted()) {
-			goto('/user/workspaces')
-		}
-	})
 
 	const sources = [
 		{ id: 'search_engine', label: 'Search engine', icon: Search },

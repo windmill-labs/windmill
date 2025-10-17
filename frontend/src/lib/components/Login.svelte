@@ -106,7 +106,13 @@
 		}
 
 		if (firstTime) {
-			goto('/user/first-time')
+			if (isCloudHosted()) {
+				// Cloud first-time users go to onboarding
+				goto('/user/onboarding')
+			} else {
+				// Self-hosted first-time users go to instance setup
+				goto('/user/first-time')
+			}
 			return
 		}
 
@@ -182,10 +188,14 @@
 
 			showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
 		} catch (e) {
+			// OAuth endpoint not available (OSS version or not configured)
 			logins = []
 			saml = undefined
 			showPassword = true
-			console.error('Could not load logins', e)
+			// Only log if it's not a 404
+			if (e?.status !== 404) {
+				console.error('Could not load logins', e)
+			}
 		}
 	}
 
