@@ -37,6 +37,7 @@
 		class?: string | undefined
 		enableFlyTransition?: boolean
 		size?: ButtonType.UnifiedSize
+		btnText?: string
 		buttonReplacement?: import('svelte').Snippet
 		menu?: import('svelte').Snippet
 	}
@@ -57,6 +58,7 @@
 		class: classNames = undefined,
 		enableFlyTransition = false,
 		size = 'md',
+		btnText = '',
 		buttonReplacement,
 		menu
 	}: Props = $props()
@@ -147,9 +149,11 @@
 			nonCaptureEvent
 			unifiedSize={size}
 			color="light"
-			startIcon={{ icon: MoreVertical }}
+			endIcon={{ icon: MoreVertical }}
 			btnClasses="bg-transparent"
-		/>
+		>
+			{btnText}
+		</Button>
 	{/if}
 </button>
 

@@ -205,9 +205,10 @@
 			{#snippet endSnippet({ item, close })}
 				<Button
 					{disabled}
-					variant="default"
-					size="xs"
-					wrapperClasses="-mr-2 pl-1"
+					variant="subtle"
+					size="xs2"
+					wrapperClasses="-mr-2 pl-1 -my-2"
+					btnClasses="hover:bg-surface-tertiary"
 					on:click={() => (resourceEditor?.initEdit?.(item.value ?? ''), close())}
 					startIcon={{ icon: Pen }}
 					iconOnly

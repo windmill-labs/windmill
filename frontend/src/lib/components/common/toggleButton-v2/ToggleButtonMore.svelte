@@ -17,6 +17,7 @@
 		item?: any | undefined
 		selected?: string | undefined
 		togglableItems: TogglableItem[]
+		btnText?: string
 		class?: string
 	}
 
@@ -27,6 +28,7 @@
 		item = undefined,
 		selected = $bindable(undefined),
 		togglableItems,
+		btnText,
 		class: className = ''
 	}: Props = $props()
 
@@ -62,7 +64,7 @@
 			/>
 		{/if}
 		<div class="flex items-center">
-			<DropdownV2 enableFlyTransition {items} size={small ? 'sm' : 'md'} />
+			<DropdownV2 {btnText} enableFlyTransition {items} size={small ? 'sm' : 'md'} />
 		</div>
 	</div>
 </Popover>

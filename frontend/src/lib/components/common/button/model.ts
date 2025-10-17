@@ -226,9 +226,9 @@ export namespace ButtonType {
 	}
 
 	export const UnifiedHeightClasses: Record<ButtonType.UnifiedSize, string> = {
-		sm: 'h-5',
-		md: 'h-8',
-		lg: 'h-10'
+		sm: 'min-h-5',
+		md: 'min-h-8',
+		lg: 'min-h-10'
 	}
 
 	export const UnifiedIconSizes: Record<ButtonType.UnifiedSize, number> = {

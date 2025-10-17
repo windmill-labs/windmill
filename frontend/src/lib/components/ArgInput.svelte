@@ -573,12 +573,6 @@
 	)}
 	data-schema-picker
 >
-	{#if description}
-		<div class={twMerge('text-xs text-primary', css?.description?.class)}>
-			<pre class="font-main whitespace-normal">{description}</pre>
-		</div>
-	{/if}
-
 	{#if diffStatus && typeof diffStatus === 'object' && diffStatus.diff !== 'same'}
 		<div
 			class="absolute top-0 right-2 rounded-md rounded-t-none flex flex-row overflow-hidden bg-surface"
@@ -643,6 +637,12 @@
 				{/if}
 				{@render fieldHeaderActions?.()}
 			</div>
+		</div>
+	{/if}
+
+	{#if description}
+		<div class={twMerge('text-xs text-primary', css?.description?.class)}>
+			<pre class="font-main whitespace-normal">{description}</pre>
 		</div>
 	{/if}
 
@@ -1033,7 +1033,7 @@
 			/>
 		{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 			{#if oneOf && oneOf.length >= 2}
-				<div class="flex flex-col gap-2 w-full border rounded-md p-2">
+				<div class="flex flex-col gap-2 w-full border rounded-md p-4">
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
 							selected={oneOfSelected}
