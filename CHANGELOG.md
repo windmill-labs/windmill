@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.563.2](https://github.com/windmill-labs/windmill/compare/v1.563.1...v1.563.2) (2025-10-17)
+
+
+### Bug Fixes
+
+* monitor less frequent cleanup process periodicity ([f581ce6](https://github.com/windmill-labs/windmill/commit/f581ce62481a6a62a5f17571f17daf3d99c6c549))
+
 ## [1.563.1](https://github.com/windmill-labs/windmill/compare/v1.563.0...v1.563.1) (2025-10-17)
 
 
