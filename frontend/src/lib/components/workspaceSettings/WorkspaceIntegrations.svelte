@@ -4,7 +4,7 @@
 	import { Button, Alert } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Description from '$lib/components/Description.svelte'
-	import { Plus, Check, X, ExternalLink, Cog } from 'lucide-svelte'
+	import { Plus, Check, X, ExternalLink, Cog, AlertCircle } from 'lucide-svelte'
 	import { NextcloudIcon } from '$lib/components/icons'
 	import { WorkspaceIntegrationService, type NativeServiceName } from '$lib/gen'
 	import OAuthClientConfig from './OAuthClientConfig.svelte'
@@ -135,6 +135,10 @@
 		)
 	}
 
+	function isConnected(integration: WorkspaceIntegration): boolean {
+		return isConfigured(integration) && !!(integration.oauth_data as any)?.access_token
+	}
+
 	function getIntegrationByService(serviceName: string): WorkspaceIntegration | null {
 		return integrations.find((integration) => integration.service_name === serviceName) || null
 	}
@@ -226,6 +230,7 @@
 				{@const integration = getIntegrationByService(serviceName)}
 				{@const isConnecting = connecting === serviceName}
 				{@const isOAuthConfigured = integration && isConfigured(integration)}
+				{@const isServiceConnected = integration && isConnected(integration)}
 				{@const isShowingConfig = showingConfig === serviceName}
 
 				<div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-surface">
@@ -241,10 +246,34 @@
 						</div>
 
 						<div class="flex items-center gap-2">
-							{#if isOAuthConfigured}
+							{#if isServiceConnected}
 								<div class="flex items-center gap-1 text-green-600 text-sm">
 									<Check size={16} />
-									Configured
+									<span class="font-medium">Connected</span>
+								</div>
+								<Button
+									size="xs"
+									color="blue"
+									variant="border"
+									onclick={() => connectService(serviceName, redirectUri)}
+									disabled={isConnecting}
+									startIcon={{ icon: Plus }}
+								>
+									{isConnecting ? 'Reconnecting...' : 'Reconnect'}
+								</Button>
+								<Button
+									size="xs"
+									color="red"
+									variant="border"
+									onclick={() => deleteIntegration(serviceName)}
+									startIcon={{ icon: X }}
+								>
+									Delete
+								</Button>
+							{:else if isOAuthConfigured}
+								<div class="flex items-center gap-1 text-orange-500 text-sm">
+									<AlertCircle size={16} />
+									Configured, Not Connected
 								</div>
 								<Button
 									size="xs"

@@ -9,9 +9,10 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import { Eye, Pen, Trash, Download } from 'lucide-svelte'
+	import { Eye, Pen, Trash } from 'lucide-svelte'
 	import { base } from '$app/paths'
 	import { NextcloudIcon } from '$lib/components/icons'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
 	interface Props {
 		service: NativeServiceName
@@ -25,48 +26,40 @@
 	let { service, triggers = [], loading = false, onEdit }: Props = $props()
 
 	const serviceConfig = $derived(getServiceConfig(service))
+	let deleteConfirmationOpen = $state(false)
+	let triggerToDelete = $state<ExtendedNativeTrigger | null>(null)
+	let isDeleting = $state(false)
 
-	async function deleteTrigger(trigger: ExtendedNativeTrigger) {
+	function openDeleteConfirmation(trigger: ExtendedNativeTrigger) {
+		triggerToDelete = trigger
+		deleteConfirmationOpen = true
+	}
+
+	function closeDeleteConfirmation() {
+		deleteConfirmationOpen = false
+		triggerToDelete = null
+		isDeleting = false
+	}
+
+	async function confirmDeleteTrigger() {
+		if (!triggerToDelete) return
+
+		isDeleting = true
 		try {
 			await NativeTriggerService.deleteNativeTrigger({
 				workspace: $workspaceStore!,
 				serviceName: service,
 				requestBody: {
-					id: trigger.id,
-					runnable_path: trigger.runnable_path
+					id: triggerToDelete.id,
+					runnable_path: triggerToDelete.runnable_path
 				}
 			})
 			sendUserToast(`${serviceConfig?.serviceDisplayName} trigger deleted`)
-			triggers = triggers.filter((native_trigger) => native_trigger.id !== trigger.id)
+			triggers = triggers.filter((native_trigger) => native_trigger.id !== triggerToDelete?.id)
+			closeDeleteConfirmation()
 		} catch (err: any) {
 			sendUserToast(`Failed to delete trigger: ${err.body || err.message}`, true)
-		}
-	}
-
-	async function fetchConfig(trigger: ExtendedNativeTrigger) {
-		try {
-			const fullTrigger = await NativeTriggerService.getNativeTrigger({
-				workspace: $workspaceStore!,
-				serviceName: service,
-				path: trigger.runnable_path,
-				id: trigger.id
-			})
-			sendUserToast('Configuration fetched from external service')
-			return fullTrigger
-		} catch (err: any) {
-			const errorMessage = err.body || err.message || ''
-
-			if (
-				errorMessage.includes('no longer exists on external service') &&
-				errorMessage.includes('automatically deleted')
-			) {
-				sendUserToast(
-					`Trigger was automatically deleted because it no longer exists on ${serviceConfig?.serviceDisplayName}. The page will refresh.`,
-					true
-				)
-			} else {
-				sendUserToast(`Failed to fetch config: ${errorMessage}`, true)
-			}
+			isDeleting = false
 		}
 	}
 </script>
@@ -125,20 +118,11 @@
 							</Button>
 							<Dropdown
 								items={[
-									...(serviceConfig?.supportsFetchConfig
-										? [
-												{
-													displayName: 'Fetch Config',
-													icon: Download,
-													action: () => fetchConfig(trigger)
-												}
-											]
-										: []),
 									{
 										displayName: 'Delete',
 										type: 'delete' as const,
 										icon: Trash,
-										action: () => deleteTrigger(trigger)
+										action: () => openDeleteConfirmation(trigger)
 									},
 									{
 										displayName: 'Audit logs',
@@ -158,3 +142,31 @@
 		</div>
 	{/if}
 </div>
+
+<ConfirmationModal
+	open={deleteConfirmationOpen}
+	title="Delete {serviceConfig?.serviceDisplayName} trigger"
+	confirmationText="Delete"
+	loading={isDeleting}
+	onConfirmed={confirmDeleteTrigger}
+	onCanceled={closeDeleteConfirmation}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to delete this trigger?</span>
+		<div
+			class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-md"
+		>
+			<div class="flex">
+				<div class="text-yellow-800 dark:text-yellow-200 text-sm">
+					<strong>Warning:</strong> This will permanently delete the trigger from both Windmill and {serviceConfig?.serviceDisplayName}.
+					This action cannot be undone.
+				</div>
+			</div>
+		</div>
+		{#if triggerToDelete}
+			<div class="text-sm text-tertiary">
+				<div><strong>External ID:</strong> {triggerToDelete.external_id}</div>
+			</div>
+		{/if}
+	</div>
+</ConfirmationModal>

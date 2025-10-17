@@ -55,6 +55,7 @@ pub struct WorkspaceOAuthConfig {
     pub client_id: String,
     pub client_secret: String,
     pub base_url: String,
+    pub access_token: Option<String>
 }
 
 #[derive(Debug, Serialize)]
@@ -221,11 +222,8 @@ async fn oauth_callback(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let existing_oauth_data =
-        get_workspace_oauth_config::<serde_json::Value>(&db, &workspace_id, service_name).await?;
-
     let mc = build_crypt(&db, &workspace_id).await?;
-    let mut oauth_data = existing_oauth_data;
+    let mut oauth_data = serde_json::to_value(oauth_config).unwrap();
 
     let encrypted_access_token = encrypt(&mc, &token_response.access_token);
     oauth_data["access_token"] = serde_json::Value::String(encrypted_access_token);
