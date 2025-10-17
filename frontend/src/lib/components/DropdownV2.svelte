@@ -19,6 +19,7 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { untrack } from 'svelte'
 	import { fly } from 'svelte/transition'
+	import { ButtonType } from './common/button/model'
 
 	interface Props {
 		aiId?: string | undefined
@@ -35,6 +36,8 @@
 		customMenu?: boolean
 		class?: string | undefined
 		enableFlyTransition?: boolean
+		size?: ButtonType.UnifiedSize
+		btnText?: string
 		buttonReplacement?: import('svelte').Snippet
 		menu?: import('svelte').Snippet
 	}
@@ -54,6 +57,8 @@
 		customMenu = false,
 		class: classNames = undefined,
 		enableFlyTransition = false,
+		size = 'md',
+		btnText = '',
 		buttonReplacement,
 		menu
 	}: Props = $props()
@@ -142,11 +147,13 @@
 	{:else}
 		<Button
 			nonCaptureEvent
-			size="xs"
+			unifiedSize={size}
 			color="light"
-			startIcon={{ icon: MoreVertical }}
+			endIcon={{ icon: MoreVertical }}
 			btnClasses="bg-transparent"
-		/>
+		>
+			{btnText}
+		</Button>
 	{/if}
 </button>
 
@@ -161,7 +168,7 @@
 			{@render menu?.()}
 		{:else}
 			<div
-				class="bg-surface border w-56 origin-top-right rounded-md shadow-md focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
+				class="bg-surface-tertiary dark:border-gray-700 w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
 				style={customWidth ? `width: ${customWidth}px` : ''}
 			>
 				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} />

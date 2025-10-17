@@ -19,14 +19,14 @@
 	export let disabled = false
 	export let textClass = ''
 	export let textStyle = ''
-	export let color: 'blue' | 'red' | 'nord' = 'nord'
+	export let color: 'blue' | 'red' | 'nord' = 'blue'
 	export let id = (Math.random() + 1).toString(36).substring(10)
 	export let lightMode: boolean = false
 	export let eeOnly: boolean = false
 	export let aiId: string | undefined = undefined
 	export let aiDescription: string | undefined = undefined
 
-	export let size: 'sm' | 'xs' | '2xs' | '2sm' = 'sm'
+	export let size: '2xs' | 'xs' | 'sm' | 'md' = 'sm'
 
 	const dispatch = createEventDispatcher<{ change: boolean }>()
 	const bothOptions = Boolean(options.left) && Boolean(options.right)
@@ -45,12 +45,8 @@
 		<span
 			class={twMerge(
 				'mr-2 font-normal duration-50 select-none',
-				bothOptions || textDisabled
-					? checked
-						? 'text-disabled'
-						: 'text-tertiary'
-					: 'text-tertiary',
-				size === 'xs' || size === '2sm' ? 'text-xs' : size === '2xs' ? 'text-[0.5rem]' : 'text-sm',
+				bothOptions || textDisabled ? (checked ? 'text-disabled' : 'text-primary') : 'text-primary',
+				size === '2xs' ? 'text-2xs' : 'text-xs',
 				textClass
 			)}
 			style={textStyle}
@@ -89,15 +85,15 @@
 		/>
 		<div
 			class={classNames(
-				"transition-all bg-surface-selected rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute  after:bg-surface after:border-white after:border after:rounded-full after:transition-all items-center",
+				"transition-all bg-surface-sunken rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute  after:bg-surface after:border-white after:border after:rounded-full after:transition-all items-center",
 				color == 'red'
 					? 'peer-checked:bg-red-600'
 					: color == 'blue'
-						? 'peer-checked:bg-blue-600 dark:peer-checked:bg-blue-500'
+						? 'peer-checked:bg-luminance-blue-400 '
 						: 'peer-checked:bg-nord-950 dark:peer-checked:bg-nord-900',
-				size === 'sm'
+				size === 'md'
 					? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
-					: size === '2sm'
+					: size === 'sm'
 						? 'w-9 h-5 after:top-0.5 after:left-[2px] after:h-4 after:w-4'
 						: size === '2xs'
 							? 'w-5 h-3 after:top-0.5 after:left-[2px] after:h-2 after:w-2'
@@ -110,12 +106,8 @@
 		<span
 			class={twMerge(
 				'ml-2 font-normal duration-50 select-none',
-				bothOptions || textDisabled
-					? checked
-						? 'text-secondary'
-						: 'text-disabled'
-					: 'text-secondary',
-				size === 'xs' || size === '2sm' ? 'text-xs' : size === '2xs' ? 'text-xs' : 'text-sm',
+				bothOptions || textDisabled ? (checked ? 'text-primary' : 'text-disabled') : 'text-primary',
+				size === '2xs' ? 'text-2xs' : 'text-xs',
 				textClass
 			)}
 			style={textStyle}

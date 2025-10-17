@@ -119,8 +119,8 @@
 				<div class="w-full h-full flex flex-col">
 					<div>
 						<Tabs bind:selected={rightColumnSelect}>
-							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
-							<Tab value="detail"><span class="font-semibold">Details</span></Tab>
+							<Tab value="timeline" label="Timeline" />
+							<Tab value="detail" label="Details" />
 						</Tabs>
 					</div>
 					{#if rightColumnSelect == 'timeline'}

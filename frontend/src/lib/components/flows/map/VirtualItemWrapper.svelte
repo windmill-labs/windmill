@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { type FlowNodeColorClasses } from '$lib/components/graph'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -7,29 +8,24 @@
 	interface Props {
 		label: string | undefined
 		selectable: boolean
-		selected: boolean
 		id: string | undefined
 		onTop?: boolean
-		bgColor: string
-		bgHoverColor?: string
 		children?: import('svelte').Snippet<[any]>
 		outputPickerVisible?: boolean
 		className?: string
 		previewButton?: import('svelte').Snippet
+		colorClasses: FlowNodeColorClasses
 	}
 
 	let {
 		label,
 		selectable,
-		selected,
 		id,
 		onTop = false,
-		bgColor,
-		bgHoverColor = '',
 		children,
-		outputPickerVisible = false,
 		className,
-		previewButton
+		previewButton,
+		colorClasses
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher<{
@@ -49,10 +45,13 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class={classNames('w-full flex relative rounded-sm', onTop ? 'z-[901]' : '', className)}
-		style="width: 275px; max-height: 34px; background-color: {hover && bgHoverColor && selectable
-			? bgHoverColor
-			: bgColor};"
+		class={classNames(
+			'w-full flex relative rounded-md drop-shadow-base',
+			colorClasses.bg,
+			onTop ? 'z-[901]' : '',
+			className
+		)}
+		style="width: 275px; max-height: 34px;"
 		onpointerdown={() => {
 			if (selectable) {
 				dispatch('select', id || label || '')
@@ -69,11 +68,11 @@
 	>
 		<div
 			class={twMerge(
-				'absolute  outline-gray-600 dark:outline-gray-400 rounded-sm',
-				selected ? 'outline outline-2' : '',
-				selectable ? 'cursor-pointer active:outline active:outline-2' : ''
+				'absolute rounded-md',
+				colorClasses.outline,
+				selectable ? 'cursor-pointer' : ''
 			)}
-			style={`width: 275px; height: ${outputPickerVisible ? '50px' : '34px'};`}
+			style={`width: 275px; height: 33px;`}
 		>
 		</div>
 		{@render children?.({ hover })}

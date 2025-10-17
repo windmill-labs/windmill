@@ -380,7 +380,8 @@
 	export let extraLib: string = ''
 	export let autoHeight = true
 	export let fixedOverflowWidgets = true
-	export let fontSize = 16
+	export let fontSize = 12
+	export let yPadding: number | undefined = undefined
 	export let loadAsync = false
 
 	if (typeof code != 'string') {
@@ -454,10 +455,7 @@
 				renderLineHighlight: 'none',
 				lineNumbers: 'off',
 
-				padding: {
-					bottom: 8,
-					top: 8
-				}
+				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {})
 			})
 		} catch (e) {
 			console.error('Error loading monaco:', e)
@@ -665,14 +663,14 @@
 		{code}
 		lineNumbersWidth={14}
 		lineNumbersOffset={-20}
-		class="template nonmain-editor rounded-md min-h-4 bg-surface-secondary !py-[9px] overflow-clip"
+		class="template nonmain-editor rounded-md bg-surface-secondary !py-[9px] overflow-clip"
 	/>
 {/if}
 <div
 	bind:this={divEl}
 	style="height: 18px; padding-left: 6px;"
 	class="{inputBorderClass({ forceFocus: isFocus })} {$$props.class ??
-		''} template nonmain-editor rounded-md min-h-4 overflow-clip {!editor ? 'hidden' : ''}"
+		''} template nonmain-editor rounded-md overflow-clip {!editor ? 'hidden' : ''}"
 	bind:clientWidth={width}
 ></div>
 

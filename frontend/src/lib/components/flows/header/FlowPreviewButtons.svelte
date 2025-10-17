@@ -129,7 +129,7 @@
 </script>
 
 <Button
-	color="dark"
+	variant="accent-secondary"
 	size="xs"
 	on:click={() => {
 		previewMode = 'whole'

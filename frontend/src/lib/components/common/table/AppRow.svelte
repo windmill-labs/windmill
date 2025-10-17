@@ -90,7 +90,7 @@
 		{#if app.execution_mode == 'anonymous'}
 			<Badge small>
 				<div class="flex gap-1 items-center">
-					<Eye size={14} />
+					<Eye size={16} />
 					Public
 				</div></Badge
 			>
@@ -98,7 +98,7 @@
 		{#if app.raw_app}
 			<Badge small>
 				<div class="flex gap-1 items-center">
-					<FileJson size={14} />
+					<FileJson size={16} />
 					Raw
 				</div></Badge
 			>
@@ -115,9 +115,8 @@
 						<Button
 							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
 							aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-							color="light"
+							variant="default"
 							size="xs"
-							variant="border"
 							startIcon={{ icon: Pen }}
 							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}?nodraft=true"
 						>
@@ -129,9 +128,8 @@
 						<Button
 							aiId={`fork-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
 							aiDescription={`Fork the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-							color="light"
+							variant="default"
 							size="xs"
-							variant="border"
 							startIcon={{ icon: GitFork }}
 							href="{base}/apps{app.raw_app ? '_raw' : ''}/add?template={app.path}"
 						>

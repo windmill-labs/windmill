@@ -103,15 +103,9 @@
 
 	<div class="overflow-x-auto scrollbar-hidden">
 		<Tabs bind:selected={suspendTabSelected}>
-			<Tab size="xs" value="core" disabled={!isSuspendEnabled}>
-				<div class="flex gap-2 items-center my-1">Core</div>
-			</Tab>
-			<Tab size="xs" value="form" disabled={!isSuspendEnabled}>
-				<div class="flex gap-2 items-center my-1">Form</div>
-			</Tab>
-			<Tab size="xs" value="permissions" disabled={!isSuspendEnabled}>
-				<div class="flex gap-2 items-center my-1">Permissions</div>
-			</Tab>
+			<Tab value="core" disabled={!isSuspendEnabled} label="Core" />
+			<Tab value="form" disabled={!isSuspendEnabled} label="Form" />
+			<Tab value="permissions" disabled={!isSuspendEnabled} label="Permissions" />
 		</Tabs>
 	</div>
 

@@ -25,7 +25,7 @@
 		value = $bindable(undefined),
 		error = $bindable(),
 		editor = $bindable(undefined),
-		small = false,
+		small = true,
 		loadAsync = false,
 		class: clazz = undefined,
 		disabled = false,
@@ -69,7 +69,7 @@
 	<div class="flex flex-col w-full">
 		<div
 			class={twMerge(
-				'w-full rounded-md bg-surface-secondary',
+				'w-full rounded-md overflow-auto',
 				inputBorderClass({ error: !!error, forceFocus: focused })
 			)}
 		>
@@ -87,7 +87,7 @@
 				{disabled}
 				{fixedOverflowWidgets}
 				renderLineHighlight="none"
-				yPadding={8}
+				yPadding={7}
 			/>
 		</div>
 		{#if error != ''}

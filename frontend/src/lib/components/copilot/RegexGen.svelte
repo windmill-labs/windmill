@@ -101,7 +101,7 @@
 	<svelte:fragment slot="trigger">
 		<Button
 			title="Generate regexes from prompt"
-			btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+			btnClasses="text-ai bg-violet-100 dark:bg-gray-700"
 			size="sm"
 			color={genLoading ? 'red' : 'light'}
 			spacingSize="md"
@@ -133,7 +133,7 @@
 							size="xs"
 							color="light"
 							buttonType="button"
-							btnClasses="!ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+							btnClasses="!ml-2 text-ai bg-violet-100 dark:bg-gray-700"
 							aria-label="Generate"
 							on:click={() => {
 								close()

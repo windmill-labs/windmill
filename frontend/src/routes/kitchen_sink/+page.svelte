@@ -18,7 +18,7 @@
 <DarkModeToggle forcedDarkMode={false} />
 
 <Tabs bind:selected={tab}>
-	<Tab value="button">Buttons</Tab>
+	<Tab value="button" label="Buttons" />
 
 	{#snippet content()}
 		<TabContent value="button" class="p-4 flex gap-4 flex-col ">

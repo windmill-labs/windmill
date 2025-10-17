@@ -298,6 +298,7 @@
 							{:else if item.data?.componentInput?.type === 'template' || item.data?.componentInput?.type === 'templatev2'}
 								<div class="py-1 min-h-[28px] rounded border border-1 border-gray-500">
 									<TemplateEditor
+										yPadding={7}
 										fontSize={12}
 										bind:code={item.data.componentInput.eval}
 										{extraLib}

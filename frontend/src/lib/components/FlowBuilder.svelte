@@ -1139,12 +1139,11 @@
 					<Button
 						loading={loadingDraft}
 						size="xs"
+						variant="accent"
 						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}
 						disabled={(!newFlow && !savedFlow) || loading}
-						shortCut={{
-							key: 'S'
-						}}
+						shortCut={{ key: 'S' }}
 					>
 						Draft
 					</Button>

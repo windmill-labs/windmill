@@ -250,8 +250,8 @@
 </script>
 
 <div>
-	<div class="py-3 px-3 border rounded-md mb-6 bg-surface-secondary min-w-min">
-		<h3 class="pb-3 font-semibold">Add a new token</h3>
+	<div class="p-4 rounded-md mb-6 min-w-min bg-surface-tertiary">
+		<h3 class="pb-2 font-semibold text-emphasis text-sm">Add a new token</h3>
 
 		{#if showMcpMode}
 			<div
@@ -288,9 +288,9 @@
 
 		{#if scopes != undefined}
 			<div class="mb-4">
-				<span class="block mb-1">Scope</span>
+				<span class="block mb-1 text-emphasis text-xs font-medium">Scope</span>
 				{#each scopes as scope}
-					<input disabled type="text" value={scope} class="mb-2 w-full" />
+					<TextInput inputProps={{ disabled: true }} value={scope} class="mb-2 w-full" />
 				{/each}
 			</div>
 		{/if}
@@ -318,7 +318,7 @@
 		<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
 			{#if mcpCreationMode}
 				<div>
-					<span class="block mb-1">Scope</span>
+					<span class="block mb-1 text-emphasis text-xs font-medium">Scope</span>
 					<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false}>
 						{#snippet children({ item })}
 							<ToggleButton
@@ -345,13 +345,13 @@
 
 				{#if newMcpScope === 'folder'}
 					<div>
-						<span class="block mb-1">Select Folder</span>
+						<span class="block mb-1 text-emphasis text-xs font-medium">Select Folder</span>
 						<FolderPicker bind:folderName={selectedFolder} />
 					</div>
 				{/if}
 
 				<div>
-					<span class="block mb-1">Hub scripts (optional)</span>
+					<span class="block mb-1 text-emphasis text-xs font-medium">Hub scripts (optional)</span>
 					{#if loadingApps}
 						<div>Loading...</div>
 					{:else if errorFetchApps}
@@ -361,13 +361,12 @@
 							items={safeSelectItems(allApps)}
 							placeholder="Select apps"
 							bind:value={newMcpApps}
-							class="!bg-surface"
 						/>
 					{/if}
 				</div>
 
 				<div>
-					<span class="block mb-1">Workspace</span>
+					<span class="block mb-1 text-emphasis text-xs font-medium">Workspace</span>
 					<select bind:value={newTokenWorkspace} disabled={workspaces.length === 1} class="w-full">
 						{#each workspaces as workspace}
 							<option value={workspace.id}>{workspace.name}</option>
@@ -377,23 +376,21 @@
 			{/if}
 
 			<div>
-				<span class="block mb-1">Label <span class="text-xs text-tertiary">(optional)</span></span>
-				<TextInput
-					inputProps={{ type: 'text' }}
-					bind:value={newTokenLabel}
-					class="w-full !bg-surface"
-				/>
+				<span class="block mb-1 text-emphasis text-xs font-medium"
+					>Label <span class="text-xs text-tertiary">(optional)</span></span
+				>
+				<TextInput inputProps={{ type: 'text' }} bind:value={newTokenLabel} class="w-full" />
 			</div>
 
 			{#if !mcpCreationMode}
 				<div>
-					<span class="block mb-1"
+					<span class="block mb-1 text-xs text-emphasis font-medium"
 						>Expires In <span class="text-xs text-tertiary">(optional)</span></span
 					>
 					<Select
 						bind:value={newTokenExpiration}
 						placeholder="No expiration"
-						inputClass="!bg-surface"
+						inputClass="w-full"
 						items={[
 							{ label: 'No expiration', value: undefined },
 							{ label: '15 minutes', value: 15 * 60 },
@@ -472,6 +469,7 @@
 				on:click={() => {
 					mcpCreationMode = false
 				}}
+				variant="default"
 			>
 				Cancel
 			</Button>
@@ -479,6 +477,7 @@
 				on:click={() => createToken(mcpCreationMode)}
 				disabled={mcpCreationMode &&
 					(newTokenWorkspace == undefined || (newMcpScope === 'folder' && !selectedFolder))}
+				variant="accent"
 			>
 				New token
 			</Button>

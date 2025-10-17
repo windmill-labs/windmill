@@ -83,7 +83,7 @@
 			<Loader2 size={16} class="animate-spin text-gray-400" />
 		{/if}
 		{#if funcDesc?.length === 0 && !loading && !disableAi}
-			<Wand2 size={14} class="fill-current opacity-70 text-violet-800 dark:text-violet-400" />
+			<Wand2 size={14} class="fill-current opacity-70 text-ai" />
 		{/if}
 	</div>
 </div>

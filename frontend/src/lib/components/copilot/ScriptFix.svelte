@@ -41,7 +41,7 @@
 							aiChatManager.fix()
 						}
 					}}
-					btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 min-w-[84px]"
+					btnClasses="text-ai bg-violet-100 dark:bg-gray-700 min-w-[84px]"
 					propagateEvent={!$copilotInfo.enabled}
 				>
 					AI Fix

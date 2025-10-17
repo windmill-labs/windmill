@@ -145,8 +145,8 @@
 		</Pane>
 		<Pane size={45}>
 			<Tabs bind:selected={selectedTab}>
-				<Tab value="inputs">Inputs</Tab>
-				<Tab value="test">Test</Tab>
+				<Tab value="inputs" label="Inputs" />
+				<Tab value="test" label="Test" />
 				{#snippet content()}
 					{#if selectedTab == 'inputs'}
 						{#if runnable?.fields}

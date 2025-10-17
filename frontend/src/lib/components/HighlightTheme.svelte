@@ -12,9 +12,7 @@
 	code.hljs {
 		padding: 3px 5px;
 	}
-	.dark .hljs {
-		background: #2e3440 !important;
-	}
+
 	.dark .hljs,
 	.dark .hljs-subst {
 		color: #d8dee9 !important;
@@ -238,8 +236,7 @@
 		color: #d08770 !important;
 	}
 	.hljs {
-		color: #24292e;
-		background: #ffffff;
+		color: #4a5568;
 	}
 	.hljs-doctag,
 	.hljs-keyword,

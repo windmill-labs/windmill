@@ -129,17 +129,20 @@
 	</div>
 	<div class="pt-4 h-full">
 		<Tabs bind:selected={tab}>
-			<Tab value="users" aiId="instance-settings-users" aiDescription="Instance users settings"
-				>Users</Tab
-			>
+			<Tab
+				value="users"
+				aiId="instance-settings-users"
+				aiDescription="Instance users settings"
+				label="Users"
+			/>
+
 			{#each settingsKeys as category}
 				<Tab
 					value={category}
 					aiId={`instance-settings-${category}`}
 					aiDescription={`Instance ${category} settings`}
-				>
-					{category}
-				</Tab>
+					label={category}
+				/>
 			{/each}
 			{#snippet content()}
 				<div class="pt-4"></div>

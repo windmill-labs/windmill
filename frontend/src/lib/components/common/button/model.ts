@@ -1,7 +1,20 @@
-export const BUTTON_COLORS = ['blue', 'red', 'dark', 'light', 'green', 'gray', 'none'] as const
+import type { IconType } from '$lib/utils'
+
+export const BUTTON_COLORS = [
+	'blue',
+	'red',
+	'dark',
+	'light',
+	'green',
+	'gray',
+	'none',
+	'marine',
+	'nord'
+] as const
 
 export namespace ButtonType {
 	export type Size = 'xs3' | 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+	export type UnifiedSize = 'sm' | 'md' | 'lg'
 	export type Color =
 		| 'blue'
 		| 'red'
@@ -12,11 +25,18 @@ export namespace ButtonType {
 		| 'none'
 		| 'marine'
 		| 'nord'
-	export type Variant = 'contained' | 'border' | 'divider'
+	export type Variant =
+		| 'contained'
+		| 'border'
+		| 'divider'
+		| 'accent-secondary'
+		| 'accent'
+		| 'default'
+		| 'subtle'
 	export type Target = '_self' | '_blank'
 	export type Element = HTMLButtonElement | HTMLAnchorElement
 	export interface Icon {
-		icon?: any | undefined
+		icon?: IconType | undefined
 		classes?: string
 		faIcon?: any | undefined
 		props?: any
@@ -26,13 +46,16 @@ export namespace ButtonType {
 		xs3: 'text-2xs',
 		xs2: 'text-xs',
 		xs: 'text-xs',
-		sm: 'text-sm',
-		md: 'text-md',
-		lg: 'text-lg',
-		xl: 'text-xl'
+		sm: 'text-xs',
+		md: 'text-xs',
+		lg: 'text-xs',
+		xl: 'text-xs'
 	} as const
 
-	export const SpacingClasses: Record<ButtonType.Size, Record<ButtonType.Variant, string>> = {
+	export const SpacingClasses: Record<
+		ButtonType.Size,
+		Record<'contained' | 'border' | 'divider', string>
+	> = {
 		xs3: {
 			border: 'px-0.5 py-[1px] !rounded-xs',
 			contained: 'px-0.5 py-[1px]',
@@ -75,7 +98,10 @@ export namespace ButtonType {
 		color: Color
 	}
 
-	export const ColorVariants: Record<ButtonType.Color, Record<ButtonType.Variant, string>> = {
+	export const ColorVariants: Record<
+		ButtonType.Color,
+		Record<'contained' | 'border' | 'divider', string>
+	> = {
 		none: {
 			border: '',
 			contained: '',
@@ -138,5 +164,76 @@ export namespace ButtonType {
 				'bg-nord-300 hover:bg-nord-0 focus-visible:bg-surface-hover-inverse text-primary-inverse focus-visible:ring-surface-selected-inverse dark:bg-nord-400 dark:hover:bg-nord-600 dark:text-primary-inverse',
 			divider: 'divide-x divide-gray-800 dark:divide-gray-200'
 		}
+	}
+
+	export const VariantStyles: Record<'accent-secondary' | 'accent' | 'default' | 'subtle', string> =
+		{
+			'accent-secondary':
+				'bg-surface-accent-secondary hover:bg-surface-accent-secondary-hover focus-visible:bg-surface-accent-secondary-clicked text-white dark:text-deep-blue-900 focus-visible:ring-luminance-blue-300',
+			accent:
+				'bg-surface-accent-primary hover:bg-surface-accent-hover focus-visible:bg-surface-accent-clicked text-white focus-visible:ring-luminance-blue-300',
+			default:
+				'border border-border-light bg-transparent hover:bg-surface-hover text-primary focus-visible:bg-surface-hover focus-visible:ring-luminance-blue-300',
+			subtle:
+				'bg-transparent hover:bg-surface-hover text-primary focus-visible:bg-surface-hover focus-visible:ring-luminance-blue-300'
+		}
+
+	export const DestructiveVariantStyles: Record<
+		'accent-secondary' | 'accent' | 'default' | 'subtle',
+		string
+	> = {
+		'accent-secondary':
+			'bg-red-500 hover:bg-red-600 focus-visible:bg-red-700 text-white focus-visible:ring-red-300',
+		accent:
+			'bg-red-500 hover:bg-red-600 focus-visible:bg-red-700 text-white focus-visible:ring-red-300',
+		default:
+			'border border-border-light bg-transparent hover:bg-red-500 hover:text-white dark:hover:bg-red-900/20 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300',
+		subtle:
+			'bg-transparent hover:bg-red-500 hover:text-white dark:hover:bg-red-900/20 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300'
+	}
+
+	export const VariantSpacingClasses: Record<ButtonType.Size, string> = {
+		xs3: 'px-0.5 py-[1px]',
+		xs2: 'px-2 py-[4px]',
+		xs: 'px-3 py-[7px]',
+		sm: 'px-3 py-[7px]',
+		md: 'px-3 py-[7px]',
+		lg: 'px-4 py-[9px]',
+		xl: 'px-4 py-[9px]'
+	}
+
+	export const IconOnlyVariantSpacingClasses: Record<ButtonType.Size, string> = {
+		xs3: 'px-0.5 py-[1px]',
+		xs2: 'px-1 py-[4px]',
+		xs: 'px-2 py-[7px]',
+		sm: 'px-2 py-[7px]',
+		md: 'px-2 py-[7px]',
+		lg: 'px-2.5 py-[9px]',
+		xl: 'px-2.5 py-[9px]'
+	}
+
+	// New unified sizing system
+	export const UnifiedSizingClasses: Record<ButtonType.UnifiedSize, string> = {
+		sm: 'px-1', // Regular horizontal padding
+		md: 'px-2',
+		lg: 'px-4'
+	}
+
+	export const UnifiedIconOnlySizingClasses: Record<ButtonType.UnifiedSize, string> = {
+		sm: 'px-1', // Square padding for icon-only (same as width padding)
+		md: 'px-2',
+		lg: 'px-4'
+	}
+
+	export const UnifiedHeightClasses: Record<ButtonType.UnifiedSize, string> = {
+		sm: 'min-h-5',
+		md: 'min-h-8',
+		lg: 'min-h-10'
+	}
+
+	export const UnifiedIconSizes: Record<ButtonType.UnifiedSize, number> = {
+		sm: 12,
+		md: 14,
+		lg: 16
 	}
 }

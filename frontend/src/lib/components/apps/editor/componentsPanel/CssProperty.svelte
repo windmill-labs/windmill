@@ -161,7 +161,6 @@
 										{#snippet children({ item })}
 											<ToggleButton
 												small
-												light
 												value={'false'}
 												icon={Code}
 												tooltip="Edit the CSS directly"
@@ -169,7 +168,6 @@
 											/>
 											<ToggleButton
 												small
-												light
 												value={'true'}
 												icon={Paintbrush2}
 												tooltip="Open the rich editor to style the component with a visual interface"

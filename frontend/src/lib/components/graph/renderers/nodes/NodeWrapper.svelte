@@ -24,10 +24,7 @@
 
 <DarkModeObserver bind:darkMode />
 
-<div
-	class={twMerge('relative shadow-md rounded-sm', wrapperClass)}
-	style={`margin-left: ${offset}px;`}
->
+<div class={twMerge('relative rounded-md', wrapperClass)} style={`margin-left: ${offset}px;`}>
 	{@render children?.({ darkMode })}
 </div>
 

@@ -42,7 +42,7 @@
 	{/if}
 	{#if iconComponent}
 		{@const SvelteComponent = iconComponent}
-		<span class={isSelected ? 'text-secondary' : 'text-secondary grayscale'}>
+		<span class={isSelected ? 'text-secondary' : 'text-secondary'}>
 			<SvelteComponent {height} {width} size={widthInPixels} />
 		</span>
 	{:else if formatExtension}

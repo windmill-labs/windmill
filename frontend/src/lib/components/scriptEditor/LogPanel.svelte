@@ -116,12 +116,12 @@
 </Drawer>
 <div class="h-full flex flex-col">
 	<Tabs bind:selected={selectedTab} class="pt-1" wrapperClass="flex-none">
-		<Tab value="logs" size="xs">Logs & Result</Tab>
+		<Tab value="logs" label="Logs & Result" />
 		{#if customUi?.disableHistory !== true}
-			<Tab value="history" size="xs">History</Tab>
+			<Tab value="history" label="History" />
 		{/if}
 		{#if showCaptures && customUi?.disableTriggerCaptures !== true}
-			<Tab value="captures" size="xs">Trigger captures</Tab>
+			<Tab value="captures" label="Trigger captures" />
 		{/if}
 
 		{#snippet content()}

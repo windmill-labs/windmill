@@ -988,32 +988,50 @@
 			<div class="flex flex-col h-full">
 				<Tabs bind:selected={selectedTab} wrapperClass="flex-none w-full">
 					{#if customUi?.settingsPanel?.disableMetadata !== true}
-						<Tab value="metadata" aiId="script-builder-metadata" aiDescription="Metadata settings">
-							Metadata
-						</Tab>
+						<Tab
+							value="metadata"
+							aiId="script-builder-metadata"
+							aiDescription="Metadata settings"
+							label="Metadata"
+						/>
 					{/if}
 					{#if customUi?.settingsPanel?.disableRuntime !== true}
-						<Tab value="runtime" aiId="script-builder-runtime" aiDescription="Runtime settings">
-							Runtime
-						</Tab>
+						<Tab
+							value="runtime"
+							aiId="script-builder-runtime"
+							aiDescription="Runtime settings"
+							label="Runtime"
+						/>
 					{/if}
 					{#if customUi?.settingsPanel?.disableGeneratedUi !== true}
-						<Tab value="ui" aiId="script-builder-ui" aiDescription="Generated UI settings">
-							Generated UI
-							<Tooltip
-								documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
-							>
-								The arguments are synced with the main signature but you may refine the parts that
-								cannot be inferred from the type directly.
-							</Tooltip>
+						<Tab
+							value="ui"
+							aiId="script-builder-ui"
+							aiDescription="Generated UI settings"
+							label="Generated UI"
+						>
+							{#snippet extra()}
+								<Tooltip
+									documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
+								>
+									The arguments are synced with the main signature but you may refine the parts that
+									cannot be inferred from the type directly.
+								</Tooltip>
+							{/snippet}
 						</Tab>
 					{/if}
 					{#if customUi?.settingsPanel?.disableTriggers !== true}
-						<Tab value="triggers" aiId="script-builder-triggers" aiDescription="Triggers settings">
-							Triggers
-							<Tooltip documentationLink="https://www.windmill.dev/docs/getting_started/triggers">
-								Configure how this script will be triggered.
-							</Tooltip>
+						<Tab
+							value="triggers"
+							aiId="script-builder-triggers"
+							aiDescription="Triggers settings"
+							label="Triggers"
+						>
+							{#snippet extra()}
+								<Tooltip documentationLink="https://www.windmill.dev/docs/getting_started/triggers">
+									Configure how this script will be triggered.
+								</Tooltip>
+							{/snippet}
 						</Tab>
 					{/if}
 
@@ -1278,7 +1296,7 @@
 													right: 'Cache the results for each possible inputs'
 												}}
 											/>
-											<span class="text-secondary text-sm leading-none">
+											<span class="text-xs font-medium text-emphasis leading-none">
 												How long to the keep cache valid
 											</span>
 											{#if script.cache_ttl}
@@ -1311,7 +1329,9 @@
 													right: 'Add a custom timeout for this script'
 												}}
 											/>
-											<span class="text-secondary text-sm leading-none"> Timeout duration </span>
+											<span class="text-xs font-medium text-emphasis leading-none">
+												Timeout duration
+											</span>
 											{#if script.timeout}
 												<SecondsInput bind:seconds={script.timeout} />
 											{:else}

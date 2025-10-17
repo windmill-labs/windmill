@@ -31,8 +31,8 @@
 
 <div class="w-full">
 	<Tabs selected="arguments">
-		<Tab value="arguments">Arguments</Tab>
-		<Tab value="advanced">Advanced</Tab>
+		<Tab value="arguments" label="Arguments" />
+		<Tab value="advanced" label="Advanced" />
 		{#snippet content()}
 			<div class="overflow-auto pt-2">
 				<TabContent value="arguments">

@@ -450,9 +450,9 @@
 </script>
 
 {#if arg != undefined && !hidden}
-	<div class={twMerge('pt-2 pb-2 relative group', className)}>
-		<div class="flex flex-row justify-between gap-1 pb-1">
-			<div class="flex flex-wrap grow min-h-7 items-end">
+	<div class={twMerge('relative group flex flex-col gap-1', className)}>
+		<div class="flex flex-row flex-wrap justify-between gap-1">
+			<div class="flex grow min-h-7 items-end">
 				<FieldHeader
 					label={argName}
 					simpleTooltip={headerTooltip}
@@ -603,15 +603,21 @@
 							{#snippet children({ item })}
 								{#if isStaticTemplate(inputCat)}
 									<ToggleButton
-										light
 										small
 										tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
 										value="static"
 										label={'${}'}
 										{item}
+										class="h-full text-3xs"
 									/>
 								{:else}
-									<ToggleButton light small label="static" value="static" {item} />
+									<ToggleButton
+										small
+										label="static"
+										value="static"
+										{item}
+										class="h-full text-3xs"
+									/>
 								{/if}
 
 								{#if codeInjectionDetected && propertyType == 'static'}
@@ -630,11 +636,11 @@
 									<ToggleButton
 										disabled={inputCat === 'dynamic'}
 										small
-										light
 										tooltip="JavaScript expression ('flow_input' or 'results')."
 										value="javascript"
 										icon={FunctionSquare}
 										{item}
+										class="h-full"
 									/>
 								{/if}
 							{/snippet}
@@ -644,7 +650,6 @@
 			{/if}
 		</div>
 
-		<div class="max-w-xs"></div>
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="relative" onkeyup={handleKeyUp}>
 			<!-- {#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
@@ -656,12 +661,20 @@
 			{/if} -->
 			<!-- {inputCat}
 			{propertyType} -->
-			<div class="relative flex flex-row items-top gap-2 justify-between">
+			<div class="relative flex flex-row items-top gap-1 justify-between">
 				<div class="min-w-0 grow">
 					{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-						<div>
+						<div class="flex flex-col gap-1">
+							{#if argName && schema?.properties?.[argName]?.description}
+								<div class="text-xs text-primary">
+									<pre class="font-main whitespace-normal">
+										{schema.properties[argName].description}
+										</pre>
+								</div>
+							{/if}
 							{#if arg}
 								<TemplateEditor
+									yPadding={7}
 									bind:this={monacoTemplate}
 									{extraLib}
 									on:focus={onFocus}
@@ -669,20 +682,13 @@
 										focused = false
 									}}
 									bind:code={arg.value}
-									fontSize={14}
+									fontSize={12}
 									on:change={() => {
 										dispatch('change', { argName, arg })
 									}}
 									loadAsync
-									class="bg-surface-secondary"
+									class="bg-surface-tertiary"
 								/>
-							{/if}
-							{#if argName && schema?.properties?.[argName]?.description}
-								<div class="text-xs italic py-1 text-hint">
-									<pre class="font-main whitespace-normal"
-										>{schema.properties[argName].description}</pre
-									>
-								</div>
 							{/if}
 						</div>
 					{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}
@@ -743,12 +749,13 @@
 						</ArgInput>
 					{:else if arg.expr != undefined}
 						<div
-							class={`bg-surface-secondary rounded-md flex flex-col pl-4 ${inputBorderClass({ forceFocus: focused })}`}
+							class={`bg-surface-tertiary rounded-md flex flex-col pl-3 ${inputBorderClass({ forceFocus: focused })}`}
 						>
 							<SimpleEditor
+								small
 								bind:this={monaco}
 								bind:code={arg.expr}
-								yPadding={8}
+								yPadding={7}
 								{extraLib}
 								lang="javascript"
 								shouldBindKey={false}

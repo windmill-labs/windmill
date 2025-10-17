@@ -12,8 +12,8 @@
 
 <Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }} closeButton>
 	{#snippet trigger()}
-		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: Clock }}>
-			Use simplified builder
+		<Button variant="accent" size="xs" nonCaptureEvent={true} startIcon={{ icon: Clock }}>
+			Cron builder
 		</Button>
 	{/snippet}
 	{#snippet content({ close })}

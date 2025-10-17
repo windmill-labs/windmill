@@ -63,7 +63,7 @@
 			<GitBranch size={14} />
 			Branch to all
 		{:else if label === 'AI Agent'}
-			<BotIcon size={14} class="text-violet-800 dark:text-violet-400" />
+			<BotIcon size={14} class="text-ai" />
 			AI Agent
 		{/if}
 	</span>

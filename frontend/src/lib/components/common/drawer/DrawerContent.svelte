@@ -52,7 +52,7 @@
 			>
 				<CloseButton on:close Icon={CloseIcon} />
 			</div>
-			<span class="font-semibold truncate text-primary !text-lg max-w-sm"
+			<span class="font-semibold text-emphasis truncate text-lg max-w-sm"
 				>{title ?? ''}
 				{#if tooltip != '' || documentationLink}
 					<Tooltip {documentationLink}>{tooltip}</Tooltip>

@@ -27,11 +27,10 @@
 	<Button
 		aiId="apps-create-actions-app"
 		aiDescription="Create a new low-code app"
-		size="sm"
-		spacingSize="xl"
+		unifiedSize="lg"
 		startIcon={{ icon: Plus }}
 		href="{base}/apps/add?nodraft=true"
-		color="marine"
+		variant="accent"
 		dropdownItems={[
 			{
 				label: 'Import low-code app from YAML',

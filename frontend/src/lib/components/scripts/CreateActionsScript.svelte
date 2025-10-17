@@ -11,9 +11,8 @@
 	<Button
 		{aiId}
 		{aiDescription}
-		size="sm"
-		spacingSize="xl"
-		color="marine"
+		unifiedSize="lg"
+		variant="accent"
 		startIcon={{ icon: Plus }}
 		href="{base}/scripts/add"
 	>

@@ -27,12 +27,14 @@
 		aiDescription?: string | undefined
 		size?: ButtonType.Size
 		spacingSize?: ButtonType.Size
+		unifiedSize?: ButtonType.UnifiedSize
 		color?: ButtonType.Color | string
 		variant?: ButtonType.Variant
 		btnClasses?: string
 		wrapperClasses?: string
 		wrapperStyle?: string
 		disabled?: boolean
+		selected?: boolean
 		href?: string | undefined
 		target?: '_self' | '_blank' | undefined
 		iconOnly?: boolean
@@ -47,6 +49,7 @@
 		download?: string | undefined
 		startIcon?: ButtonType.Icon | undefined
 		endIcon?: ButtonType.Icon | undefined
+		destructive?: boolean
 		shortCut?: { key?: string; hide?: boolean; Icon?: any; withoutModifier?: boolean } | undefined
 		tooltipPopover?:
 			| {
@@ -72,12 +75,14 @@
 		aiDescription = undefined,
 		size = 'md',
 		spacingSize = size,
+		unifiedSize = undefined,
 		color = 'blue',
 		variant = 'contained',
 		btnClasses = '',
 		wrapperClasses = '',
 		wrapperStyle = '',
 		disabled = false,
+		selected = false,
 		href = undefined,
 		target = undefined,
 		iconOnly = false,
@@ -92,6 +97,7 @@
 		download = undefined,
 		startIcon = undefined,
 		endIcon = undefined,
+		destructive = false,
 		shortCut = undefined,
 		tooltipPopover = undefined,
 		dropdownBtnClasses = '',
@@ -139,7 +145,20 @@
 		}
 	}
 
-	function getColorClass(color, variant) {
+	function getStyleClass(color, variant) {
+		// Check if using new design system variants
+		if (['accent-secondary', 'accent', 'default', 'subtle'].includes(variant)) {
+			let style = destructive
+				? ButtonType.DestructiveVariantStyles[variant]
+				: ButtonType.VariantStyles[variant]
+			// For default variant with dropdowns, remove border from button since it's on wrapper
+			if (variant === 'default' && dropdownItems && dropdownItems.length > 0) {
+				style = style.replace('border border-border-light', '')
+			}
+			return style
+		}
+
+		// Legacy color-based styling
 		if (color in ButtonType.ColorVariants) {
 			return ButtonType.ColorVariants[color][variant]
 		} else {
@@ -147,20 +166,69 @@
 		}
 	}
 
+	function getSpacingClass(variant, size, spacingSize, iconOnly, unifiedSize) {
+		// Check if using new unified sizing system
+		if (unifiedSize) {
+			const horizontalPadding = iconOnly
+				? ButtonType.UnifiedIconOnlySizingClasses[unifiedSize]
+				: ButtonType.UnifiedSizingClasses[unifiedSize]
+			const height = ButtonType.UnifiedHeightClasses[unifiedSize]
+			return `${horizontalPadding} ${height}`
+		}
+
+		// Check if using new design system variants
+		if (iconOnly) {
+			return ButtonType.IconOnlyVariantSpacingClasses[spacingSize]
+		}
+		if (['accent-secondary', 'accent', 'default', 'subtle'].includes(variant)) {
+			return ButtonType.VariantSpacingClasses[spacingSize]
+		}
+
+		// Legacy spacing
+		return ButtonType.SpacingClasses[spacingSize][variant]
+	}
+
+	function getDividerClass(color, variant) {
+		// Check if using new design system variants
+		if (variant === 'default') {
+			return 'border border-border-light divide-x divide-border-light'
+		} else if (variant === 'accent') {
+			return 'divide-x divide-luminance-blue-100 dark:divide-luminance-blue-200'
+		} else if (variant === 'accent-secondary') {
+			return 'divide-x divide-deep-blue-400 dark:divide-deep-blue-100'
+		} else if (variant === 'subtle') {
+			return 'divide-x divide-transparent'
+		}
+
+		// Legacy color-based dividers
+		if (color in ButtonType.ColorVariants) {
+			return ButtonType.ColorVariants[color].divider
+		}
+
+		return ''
+	}
+
 	let buttonClass = $derived(
 		twMerge(
 			'w-full',
-			getColorClass(color, variant),
+			getStyleClass(color, variant),
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
-			ButtonType.SpacingClasses[spacingSize][variant],
-			'focus-visible:ring-2 font-semibold',
-			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md h-full' : 'rounded-md',
+			getSpacingClass(variant, size, spacingSize, iconOnly, unifiedSize),
+			'focus-visible:ring-2 font-normal',
+			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md' : 'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
-			btnClasses,
 			'active:opacity-80 transition-all',
-			disabled ? '!bg-surface-disabled !text-tertiary cursor-not-allowed' : '',
-			loading ? 'cursor-wait' : ''
+			disabled
+				? ['default', 'subtle'].includes(variant)
+					? '!text-disabled'
+					: '!bg-surface-disabled/20 !text-disabled'
+				: '',
+			loading ? 'cursor-wait' : '',
+			selected && ['default', 'subtle'].includes(variant)
+				? '!bg-surface-accent-selected !text-accent !border-border-selected'
+				: '',
+			btnClasses
 		)
 	)
 
@@ -174,17 +242,9 @@
 		xl: 18
 	}
 
-	const iconOnlyPadding = {
-		xs3: 'm-[0.5px] qhd:m-[1px]',
-		xs2: 'm-[1px] qhd:m-[1.125px]',
-		xs: 'm-[1px] qhd:m-[1.125px]',
-		sm: 'm-[2px] qhd:m-[2.25px]',
-		md: 'm-[2px] qhd:m-[2.25px]',
-		lg: 'm-[5px] qhd:m-[5.625px]',
-		xl: 'm-[5px] qhd:m-[5.625px]'
-	}
-
-	let lucideIconSize = $derived((iconMap[size] ?? 12) * 1)
+	let lucideIconSize = $derived(
+		unifiedSize ? ButtonType.UnifiedIconSizes[unifiedSize] : (iconMap[size] ?? 12)
+	)
 
 	const {
 		elements: { trigger, content },
@@ -215,12 +275,10 @@
 
 <div
 	class={twMerge(
-		dropdownItems && dropdownItems.length > 0 && variant === 'contained'
-			? ButtonType.ColorVariants[color].divider
-			: '',
+		dropdownItems && dropdownItems.length > 0 ? getDividerClass(color, variant) : '',
 		wrapperClasses,
-		'flex flex-row',
-		disabled ? 'divide-text-disabled' : ''
+		'flex flex-row rounded-md',
+		disabled ? 'divide-text-disabled cursor-not-allowed' : ''
 	)}
 	style={wrapperStyle}
 	data-interactive
@@ -257,10 +315,10 @@
 			{style}
 		>
 			{#if loading}
-				<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
+				<Loader2 class={twMerge('animate-spin')} size={lucideIconSize} />
 			{:else if startIcon?.icon}
 				<startIcon.icon
-					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
+					class={twMerge(startIcon?.classes)}
 					size={lucideIconSize}
 					{...startIcon.props}
 				/>
@@ -270,10 +328,7 @@
 				{@render children?.()}
 			{/if}
 			{#if endIcon?.icon}
-				<endIcon.icon
-					class={twMerge(endIcon?.classes, iconOnlyPadding[size])}
-					size={lucideIconSize}
-				/>
+				<endIcon.icon class={twMerge(endIcon?.classes)} size={lucideIconSize} />
 			{/if}
 			{#if shortCut && !shortCut.hide}
 				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
@@ -304,10 +359,10 @@
 			{...$trigger}
 		>
 			{#if loading}
-				<Loader2 class={twMerge('animate-spin', iconOnlyPadding[size])} size={lucideIconSize} />
+				<Loader2 class={twMerge('animate-spin')} size={lucideIconSize} />
 			{:else if startIcon?.icon}
 				<startIcon.icon
-					class={twMerge(startIcon?.classes, iconOnlyPadding[size])}
+					class={twMerge(startIcon?.classes)}
 					size={lucideIconSize}
 					{...startIcon.props}
 				/>
@@ -317,10 +372,7 @@
 				{@render children?.()}
 			{/if}
 			{#if endIcon?.icon}
-				<endIcon.icon
-					class={twMerge(endIcon?.classes, iconOnlyPadding[size])}
-					size={lucideIconSize}
-				/>
+				<endIcon.icon class={twMerge(endIcon?.classes)} size={lucideIconSize} />
 			{/if}
 			{#if shortCut && !shortCut.hide}
 				{@const Icon = shortCut.Icon}
@@ -358,7 +410,9 @@
 						'rounded-md m-0 p-0 center-center h-full',
 						variant === 'border' ? 'border-0 border-r border-y ' : 'border-0',
 						'rounded-r-md !rounded-l-none',
-						size === 'xs2' || size === 'xs' ? '!w-8' : '!w-10',
+						size === 'xs2' || size === 'xs' || unifiedSize === 'md' || unifiedSize === 'sm'
+							? '!w-8'
+							: '!w-10',
 						dropdownBtnClasses
 					)}
 				>

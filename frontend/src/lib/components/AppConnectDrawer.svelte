@@ -45,7 +45,7 @@
 	size="800px"
 >
 	<DrawerContent
-		title="Add a Resource"
+		title="Add a resource"
 		on:close={drawer.closeDrawer}
 		tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
 		documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
@@ -64,7 +64,7 @@
 		{#snippet actions()}
 			<div class="flex gap-1">
 				{#if step > 1}
-					<Button variant="border" on:click={appConnectInner?.back ?? (() => {})}>Back</Button>
+					<Button variant="default" on:click={appConnectInner?.back ?? (() => {})}>Back</Button>
 				{/if}
 				{#if isGoogleSignin}
 					<button {disabled} on:click={appConnectInner?.next}>
@@ -75,7 +75,7 @@
 						/>
 					</button>
 				{:else}
-					<Button {disabled} on:click={appConnectInner?.next ?? (() => {})}>
+					<Button variant="accent" {disabled} on:click={appConnectInner?.next ?? (() => {})}>
 						{#if step == 2 && !manual}
 							Connect
 						{:else if step == 1}

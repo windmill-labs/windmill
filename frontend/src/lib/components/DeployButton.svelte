@@ -29,6 +29,7 @@
 <Button
 	disabled={loading}
 	loading={loadingSave}
+	variant="accent"
 	size="xs"
 	startIcon={{ icon: Save }}
 	on:click={() => dispatch('save')}
@@ -71,6 +72,7 @@
 			/>
 			<Button
 				size="sm"
+				variant="accent"
 				on:click={async () => dispatch('save', deploymentMsg)}
 				endIcon={{ icon: CornerDownLeft }}
 				loading={loadingSave}

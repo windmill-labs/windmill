@@ -12,6 +12,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import { untrack } from 'svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	interface Props {
 		initialTriggerPath?: string | undefined
@@ -116,29 +117,30 @@
 			</Alert>
 			<div class="my-2"></div>
 		{/if}
-		<div class="flex flex-col w-full gap-4">
+		<div class="flex flex-col w-full gap-6">
 			<label class="block grow w-full">
 				<div class="flex flex-col gap-1">
-					<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
+					<div
+						class="text-emphasis text-xs font-medium flex items-center gap-1 w-full justify-between"
+					>
 						<div>
 							Path
 							<Required required={true} />
 						</div>
-						<div class="text-2xs text-tertiary"> ':myparam' for path params </div>
 					</div>
 					<!-- svelte-ignore a11y_autofocus -->
-					<input
-						type="text"
-						autocomplete="off"
-						bind:value={route_path}
-						disabled={!userCanEditConfig || !can_write}
-						class={routeError === ''
-							? ''
-							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-						oninput={() => {
-							dirtyRoutePath = true
+					<TextInput
+						inputProps={{
+							autocomplete: 'off',
+							disabled: !userCanEditConfig || !can_write,
+							oninput: () => {
+								dirtyRoutePath = true
+							}
 						}}
+						bind:value={route_path}
+						error={routeError !== ''}
 					/>
+					<div class="text-2xs text-secondary"> ':myparam' for path params </div>
 				</div>
 			</label>
 
@@ -155,31 +157,28 @@
 					<ToggleButton label="DELETE" value="delete" {item} {disabled} />
 				{/snippet}
 			</ToggleButtonGroup>
-			<div class="flex flex-col w-full">
+			<div class="flex flex-col w-full gap-1">
 				<Url url={fullRoute} label="Production URL" />
 
-				<div class="text-red-600 dark:text-red-400 text-2xs mt-1.5"
-					>{dirtyRoutePath ? routeError : ''}</div
+				<div class="text-red-600 dark:text-red-400 text-2xs">{dirtyRoutePath ? routeError : ''}</div
 				>
 				{#if !isCloudHosted()}
-					<div class="mt-1">
-						<Toggle
-							size="sm"
-							checked={workspaced_route}
-							disabled={!can_write || !userCanEditConfig}
-							on:change={() => {
-								workspaced_route = !workspaced_route
-								dirtyRoutePath = true
-							}}
-							options={{
-								right: 'Prefix with workspace',
-								rightTooltip:
-									'Prefixes the route with the workspace ID (e.g., {base_url}/api/r/{workspace_id}/{route}). Note: deploying the HTTP trigger to another workspace updates the route workspace prefix accordingly.',
-								rightDocumentationLink:
-									'https://www.windmill.dev/docs/core_concepts/http_routing#workspace-prefix'
-							}}
-						/>
-					</div>
+					<Toggle
+						size="sm"
+						checked={workspaced_route}
+						disabled={!can_write || !userCanEditConfig}
+						on:change={() => {
+							workspaced_route = !workspaced_route
+							dirtyRoutePath = true
+						}}
+						options={{
+							right: 'Prefix with workspace',
+							rightTooltip:
+								'Prefixes the route with the workspace ID (e.g., {base_url}/api/r/{workspace_id}/{route}). Note: deploying the HTTP trigger to another workspace updates the route workspace prefix accordingly.',
+							rightDocumentationLink:
+								'https://www.windmill.dev/docs/core_concepts/http_routing#workspace-prefix'
+						}}
+					/>
 				{/if}
 			</div>
 		</div>

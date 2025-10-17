@@ -632,10 +632,10 @@
 				{#if showTabs}
 					<div transition:slide={{ duration: 200 }}>
 						<Tabs bind:selected={selectedTab}>
-							<Tab value="main">Main</Tab>
+							<Tab value="main" label="Main" />
 							{#if hasPreprocessor}
 								<div transition:slide={{ duration: 200, axis: 'x' }}>
-									<Tab value="preprocessor">Preprocessor</Tab>
+									<Tab value="preprocessor" label="Preprocessor" />
 								</div>
 							{/if}
 						</Tabs>
@@ -828,7 +828,7 @@
 						customHiddenIcon={{
 							icon: WandSparkles
 						}}
-						btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
+						btnClasses="!text-ai border border-gray-200 dark:border-gray-600 bg-surface"
 						on:click={() => {
 							if (!aiChatManager.open) {
 								aiChatManager.changeMode(AIMode.SCRIPT)

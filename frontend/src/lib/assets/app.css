@@ -193,3 +193,10 @@ svelte-virtual-list-contents > * + * {
 	);
 }
 
+/* Prevent clock icon in input[type="time"] making the input taller */
+
+/* Chrome, Safari, Edge, Opera */
+input[type="time"]::-webkit-calendar-picker-indicator {
+	margin: 0;
+  padding: 0;
+}

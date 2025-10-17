@@ -558,7 +558,7 @@
 <!-- svelte-ignore a11y_autofocus -->
 <div
 	class={twMerge(
-		'flex flex-col w-full rounded-md relative group',
+		'flex flex-col gap-1 w-full rounded-md relative group',
 		minW ? 'min-w-[250px]' : '',
 		diffStatus?.diff ? 'px-2' : '',
 		diffStatus?.diff == 'added'
@@ -600,7 +600,7 @@
 		</div>
 	{/if}
 	{#if displayHeader}
-		<div class="flex min-h-7 items-end pb-1">
+		<div class="flex items-end">
 			<FieldHeader
 				prettify={prettifyHeader}
 				label={title && !emptyString(title) ? title : label}
@@ -637,6 +637,12 @@
 				{/if}
 				{@render fieldHeaderActions?.()}
 			</div>
+		</div>
+	{/if}
+
+	{#if description}
+		<div class={twMerge('text-xs text-primary', css?.description?.class)}>
+			<pre class="font-main whitespace-normal">{description}</pre>
 		</div>
 	{/if}
 
@@ -770,7 +776,7 @@
 						<Module.default code={JSON.stringify(value, null, 2)} bind:value />
 					{/await}
 				{:else}
-					<div class="px-3 pt-6 border rounded-md w-full">
+					<div class="px-4 pt-4 border rounded-md w-full">
 						<SchemaForm
 							lightHeaderFont
 							{onlyMaskPassword}
@@ -955,10 +961,9 @@
 							{/key}
 						</div>
 						<Button
-							variant="border"
+							variant="default"
 							color="light"
 							size="xs"
-							btnClasses="text-tertiary py-2.5"
 							wrapperClasses="w-full {Array.isArray(value) && value.length > 0 ? 'mt-1.5' : ''}"
 							on:click={() => {
 								if (value == undefined || !Array.isArray(value)) {
@@ -988,7 +993,7 @@
 					{/if}
 				</div>
 				{#if !displayHeader}
-					<div class="block mt-2.5 pl-2">
+					<div class="block mt-2 pl-2">
 						<Toggle
 							on:change={(e) => {
 								// Once the user has changed the input type, we should not change it back automatically
@@ -1028,7 +1033,7 @@
 			/>
 		{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 			{#if oneOf && oneOf.length >= 2}
-				<div class="flex flex-col gap-2 w-full border rounded-md p-2">
+				<div class="flex flex-col gap-2 w-full border rounded-md p-4">
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
 							selected={oneOfSelected}
@@ -1178,7 +1183,7 @@
 					{/if}
 				</div>
 			{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
-				<div class={hideNested ? 'hidden' : 'px-3 pt-6 border rounded-md w-full'}>
+				<div class={hideNested ? 'hidden' : 'px-4 pt-4 border rounded-md w-full'}>
 					{#if orderEditable}
 						<SchemaFormDnd
 							lightHeaderFont
@@ -1293,7 +1298,6 @@
 						dispatch('blur')
 					}}
 					enumLabels={extra['enumLabels']}
-					selectClass="min-h-10"
 				/>
 			</div>
 		{:else if inputCat == 'date'}
@@ -1413,9 +1417,10 @@
 					{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
 						<button
-							class="absolute {password || extra?.['password'] == true
-								? 'right-16 top-1.5'
-								: 'right-1 top-[7px]'} opacity-0 group-hover:opacity-100 duration-200 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+							class={twMerge(
+								'absolute opacity-0 group-hover:opacity-100 duration-200 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer',
+								password || extra?.['password'] == true ? 'right-16' : 'right-1'
+							)}
 							onclick={() => {
 								pickForField = label
 								itemPicker?.openDrawer?.()
@@ -1433,20 +1438,14 @@
 		{@render actions?.()}
 	</div>
 
-	{#if description}
-		<div class={twMerge('text-2xs italic py-1 text-hint', css?.description?.class)}>
-			<pre class="font-main whitespace-normal">{description}</pre>
-		</div>
-	{/if}
-
 	{#if !compact || (error && error != '')}
-		{#if disabled || error === ''}
-			&nbsp;
-		{:else}
-			<div class="text-right text-xs text-red-600 dark:text-red-400 mb-2">
+		<div class="text-right text-xs leading-3 text-red-600 dark:text-red-400 mb-2">
+			{#if disabled || error === ''}
+				&nbsp;
+			{:else}
 				{error}
-			</div>
-		{/if}
+			{/if}
+		</div>
 	{:else if !noMargin}
 		<div class="mb-2"></div>
 	{/if}

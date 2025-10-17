@@ -7,12 +7,14 @@
 	import CodeCompletionStatus from './copilot/CodeCompletionStatus.svelte'
 	import type { EditorBarUi } from './custom_ui'
 	import Popover from './meltComponents/Popover.svelte'
+	import type { ComponentProps } from 'svelte'
 
 	interface Props {
 		customUi?: EditorBarUi
+		btnProps?: ComponentProps<typeof Button>
 	}
 
-	let { customUi = {} }: Props = $props()
+	let { customUi = {}, btnProps }: Props = $props()
 </script>
 
 {#if customUi?.autoformatting != false || customUi?.vimMode != false || customUi?.aiCompletion != false}
@@ -31,6 +33,7 @@
 					startIcon={{ icon: Settings }}
 					iconOnly
 					title="Editor settings"
+					{...btnProps}
 				/>
 			{/if}
 		{/snippet}

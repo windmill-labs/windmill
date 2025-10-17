@@ -812,9 +812,9 @@
 				<Skeleton {loading} layout={[[20]]} />
 
 				<Tabs selected="code">
-					<Tab value="code" size="xs">Code</Tab>
-					<Tab value="dependencies" size="xs">Lockfile</Tab>
-					<Tab value="schema" size="xs">Schema</Tab>
+					<Tab value="code" label="Code" />
+					<Tab value="dependencies" label="Lockfile" />
+					<Tab value="schema" label="Schema" />
 					{#snippet content()}
 						{#if script}
 							<TabContent value="code">
