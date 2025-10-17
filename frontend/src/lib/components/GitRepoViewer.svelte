@@ -106,7 +106,7 @@
 				isCheckingPathExists = false
 			}
 		} catch (err: any) {
-			error = `Failed to load git repository ${gitRepoResourcePath}: ${err.message || 'Unknown error'}`
+			error = `Failed to load git repository ${gitRepoResourcePath}: ${err.status} -  ${err.message || 'Unknown error'}: ${err.body}`
 			isLoadingCommitHash = false
 			isCheckingPathExists = false
 		}
