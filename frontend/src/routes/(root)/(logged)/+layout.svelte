@@ -611,7 +611,6 @@
 					<OperatorMenu {favoriteLinks} />
 				</div>
 			{/if}
-
 			<!-- Legacy menu -->
 			<div
 				class={classNames(

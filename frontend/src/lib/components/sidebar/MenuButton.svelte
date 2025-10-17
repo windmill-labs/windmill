@@ -1,3 +1,10 @@
+<script module lang="ts">
+	export const sidebarClasses = {
+		text: 'text-secondary-inverse dark:text-secondary',
+		selectedText: 'text-emphasis-inverse dark:text-emphasis'
+	}
+</script>
+
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '../Popover.svelte'
@@ -98,14 +105,7 @@
 				{@const SvelteComponent = icon}
 				<SvelteComponent
 					size={16}
-					class={twMerge(
-						'flex-shrink-0',
-						lightMode
-							? 'text-primary group-hover:text-secondary'
-							: 'text-primary-inverse group-hover:text-secondary-inverse dark:group-hover:text-secondary dark:text-primary',
-						'transition-all',
-						iconClasses
-					)}
+					class={twMerge('flex-shrink-0', sidebarClasses.text, 'transition-colors', iconClasses)}
 					{...iconProps}
 				/>
 			{/if}
@@ -114,7 +114,7 @@
 				<span
 					class={twMerge(
 						'whitespace-pre truncate',
-						lightMode ? 'text-primary' : 'text-primary-inverse dark:text-primary',
+						sidebarClasses.text,
 						'transition-all',
 						classNames
 					)}
