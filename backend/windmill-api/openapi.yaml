@@ -15036,8 +15036,6 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/AiAgent"
     Identity:
       $ref: "../../openflow.openapi.yaml#/components/schemas/Identity"
-    McpServer:
-      $ref: "../../openflow.openapi.yaml#/components/schemas/McpServer"
     FlowStatus:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
     FlowStatusModule:

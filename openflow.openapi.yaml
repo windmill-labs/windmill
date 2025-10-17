@@ -554,27 +554,6 @@ components:
       required:
         - type
 
-    McpServer:
-      type: object
-      properties:
-        resource_path:
-          type: string
-        include_tools:
-          type: array
-          items:
-            type: string
-        exclude_tools:
-          type: array
-          items:
-            type: string
-        type:
-          type: string
-          enum:
-            - mcpserver
-      required:
-        - resource_path
-        - type
-
     FlowStatus:
       type: object
       properties:
