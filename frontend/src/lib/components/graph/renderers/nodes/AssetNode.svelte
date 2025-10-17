@@ -233,6 +233,7 @@
 	import { NODE } from '../../util'
 	import { userStore } from '$lib/stores'
 	import { deepEqual } from 'fast-equals'
+	import { slide } from 'svelte/transition'
 
 	interface Props {
 		data: AssetN['data']
@@ -255,8 +256,10 @@
 		<Tooltip>
 			<div
 				class={twMerge(
-					'bg-surface h-6 flex items-center gap-1.5 rounded-sm text-tertiary border overflow-clip',
-					isSelected ? 'bg-surface-secondary !border-surface-inverse' : 'border-transparent'
+					'bg-surface h-6 flex items-center gap-1.5 rounded-md drop-shadow-base text-tertiary overflow-clip transition-colors',
+					isSelected
+						? 'outline outline-1 outline-accent bg-surface-accent-selected text-accent'
+						: ''
 				)}
 				onmouseenter={() =>
 					flowGraphAssetsCtx && (flowGraphAssetsCtx.val.selectedAsset = data.asset)}
@@ -278,15 +281,17 @@
 						<svelte:fragment slot="text">Could not find resource</svelte:fragment>
 					</Tooltip>
 				{:else if isSelected && assetCanBeExplored(data.asset, cachedResourceMetadata) && !$userStore?.operator}
-					<ExploreAssetButton
-						btnClasses="rounded-none"
-						asset={data.asset}
-						noText
-						buttonVariant="accent"
-						s3FilePicker={flowGraphAssetsCtx?.val.s3FilePicker}
-						dbManagerDrawer={flowGraphAssetsCtx?.val.dbManagerDrawer}
-						_resourceMetadata={cachedResourceMetadata}
-					/>
+					<div transition:slide={{ axis: 'x', duration: 100 }}>
+						<ExploreAssetButton
+							btnClasses="rounded-none"
+							asset={data.asset}
+							noText
+							buttonVariant="accent"
+							s3FilePicker={flowGraphAssetsCtx?.val.s3FilePicker}
+							dbManagerDrawer={flowGraphAssetsCtx?.val.dbManagerDrawer}
+							_resourceMetadata={cachedResourceMetadata}
+						/>
+					</div>
 				{/if}
 			</div>
 			<svelte:fragment slot="text">
