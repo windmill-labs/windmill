@@ -302,7 +302,7 @@
 			<Toggle
 				disabled={disabled || !value?.kind || !value?.resource || !value?.model}
 				bind:checked={useAsDefault}
-				options={{ right: 'Use as default for other agents' }}
+				options={{ right: 'Use as personal default for other new agents' }}
 				size="xs"
 				on:change={(e) => {
 					if (!e.detail) {
