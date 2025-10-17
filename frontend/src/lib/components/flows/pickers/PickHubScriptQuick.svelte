@@ -4,7 +4,7 @@
 			IntegrationService.listHubIntegrations({ kind }),
 		{ initial: { kind: 'script', refreshCount: 0 }, invalidateMs: 1000 * 60 }
 	)
-	console.log('listHubIntegrationsCached', listHubIntegrationsCached)
+
 	let listHubScriptsCached = createCache(
 		async ({
 			filter,
@@ -15,12 +15,19 @@
 			kind: HubScriptKind & string
 			appFilter: string | undefined
 			refreshCount?: number
-		}) =>
-			get(userStore)
-				? filter.length > 0
-					? await ScriptService.queryHubScripts({ text: filter, limit: 40, kind })
-					: ((await ScriptService.getTopHubScripts({ limit: 40, kind, app: appFilter })).asks ?? [])
-				: undefined,
+		}) => {
+			try {
+				return get(userStore)
+					? filter.length > 0
+						? await ScriptService.queryHubScripts({ text: filter, limit: 40, kind })
+						: ((await ScriptService.getTopHubScripts({ limit: 40, kind, app: appFilter })).asks ??
+							[])
+					: undefined
+			} catch (err) {
+				console.error('Error fetching top hub scripts')
+				return undefined
+			}
+		},
 		{
 			initial: { filter: '', kind: 'script', appFilter: undefined, refreshCount: 0 },
 			invalidateMs: 1000 * 60
