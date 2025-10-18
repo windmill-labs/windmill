@@ -227,6 +227,7 @@ async fn evaluate_stop_after_all_iters_if(
     stop_early_err_msg: &mut Option<String>,
     nresult: &mut Option<Arc<Box<RawValue>>>,
     args: HashMap<String, Box<RawValue>>,
+    flow_env: HashMap<String, String>,
 ) -> error::Result<()> {
     let iters_result = match &module_status {
         FlowStatusModule::InProgress { flow_jobs: Some(flow_jobs), .. } => {
@@ -244,6 +245,7 @@ async fn evaluate_stop_after_all_iters_if(
     let stop_early_after_all_iters = compute_bool_from_expr(
         &stop_after_all_iters_if.expr,
         Marc::new(args),
+        Marc::new(flow_env),
         iters_result.clone(),
         None,
         None,
@@ -465,6 +467,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         compute_bool_from_expr(
                             &expr,
                             Marc::new(args),
+                            Marc::new(flow_value.flow_env.clone().unwrap_or_default()),
                             result.clone(),
                             all_iters,
                             None,
@@ -729,6 +732,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early_err_msg,
                             &mut nresult,
                             args,
+                            flow_value.flow_env.clone().unwrap_or_default(),
                         )
                         .await?;
                     }
@@ -928,6 +932,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early_err_msg,
                             &mut nresult,
                             args,
+                            flow_value.flow_env.clone().unwrap_or_default(),
                         )
                         .await?;
                     }
@@ -1009,6 +1014,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &old_status.retry,
                             result.clone(),
                             Marc::new(args),
+                            Marc::new(flow_value.flow_env.clone().unwrap_or_default()),
                             Some(client),
                         )
                         .await?
@@ -1327,6 +1333,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 &old_status.retry,
                 result.clone(),
                 Marc::new(args),
+                Marc::new(flow_value.flow_env.clone().unwrap_or_default()),
                 Some(client),
             )
             .await?
@@ -1717,6 +1724,7 @@ async fn evaluate_retry(
     status: &RetryStatus,
     result: Arc<Box<RawValue>>,
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Marc<HashMap<String, String>>,
     client: Option<&AuthedClient>,
 ) -> anyhow::Result<Option<(u32, Duration)>> {
     if status.fail_count > MAX_RETRY_ATTEMPTS {
@@ -1727,6 +1735,7 @@ async fn evaluate_retry(
         let should_retry = compute_bool_from_expr(
             &retry_if.expr,
             flow_args,
+            flow_env,
             result,
             None,
             None,
@@ -1750,6 +1759,7 @@ async fn evaluate_retry(
 async fn compute_bool_from_expr(
     expr: &str,
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Marc<HashMap<String, String>>,
     result: Arc<Box<RawValue>>,
     all_iters: Option<Arc<Box<RawValue>>>,
     by_id: Option<&IdContext>,
@@ -1774,6 +1784,7 @@ async fn compute_bool_from_expr(
         format!("Boolean({expr})"),
         context,
         Some(flow_args),
+        Some(flow_env),
         client,
         by_id,
         ctx,
@@ -1799,6 +1810,7 @@ pub async fn evaluate_input_transform<T>(
     transform: &InputTransform,
     last_result: Arc<Box<RawValue>>,
     flow_args: Option<Marc<HashMap<String, Box<RawValue>>>>,
+    flow_env: Option<Marc<HashMap<String, String>>>,
     authed_client: Option<&AuthedClient>,
     by_id: Option<&IdContext>,
 ) -> error::Result<T>
@@ -1820,6 +1832,7 @@ where
                 expr.to_string(),
                 context,
                 flow_args,
+                flow_env,
                 authed_client,
                 by_id,
                 None,
@@ -1847,6 +1860,7 @@ where
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Marc<HashMap<String, String>>,
     last_result: Arc<Box<RawValue>>,
     input_transforms: &HashMap<String, InputTransform>,
     resumes: Arc<Box<RawValue>>,
@@ -1888,6 +1902,7 @@ async fn transform_input(
                     expr.to_string(),
                     env.clone(),
                     Some(flow_args.clone()),
+                    Some(flow_env.clone()),
                     Some(client),
                     Some(by_id),
                     None,
@@ -2095,13 +2110,19 @@ async fn push_next_flow_job(
     // tracing::error!("status_module: {status_module:#?}");
 
     let fj: mappable_rc::Marc<MiniPulledJob> = flow_job.clone().into();
-    let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> = Marc::map(fj, |x| {
-        if let Some(args) = &x.args {
-            &args.0
-        } else {
-            &EHM
-        }
-    });
+    let arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>> =
+        Marc::map(fj, |x: &MiniPulledJob| {
+            if let Some(args) = &x.args {
+                &args.0
+            } else {
+                &EHM
+            }
+        });
+
+    let effective_flow_env = get_effective_flow_env(db, &flow_job, &flow.flow_env)
+        .await?
+        .unwrap_or_default();
+    let flow_env = Marc::new(effective_flow_env);
 
     // if this is an empty module without preprocessor of if the module has already been completed, successfully, update the parent flow
     if (flow.modules.is_empty() && !step.is_preprocessor_step())
@@ -2191,6 +2212,7 @@ async fn push_next_flow_job(
             let skip = compute_bool_from_expr(
                 &skip_expr,
                 arc_flow_job_args.clone(),
+                flow_env.clone(),
                 Arc::new(to_raw_value(&json!("{}"))),
                 None,
                 None,
@@ -2312,6 +2334,7 @@ async fn push_next_flow_job(
                                      expr.to_string(),
                                      context,
                                      Some(arc_flow_job_args.clone()),
+                                     Some(flow_env.clone()),
                                      None,
                                      None,
                                      None
@@ -2569,6 +2592,7 @@ async fn push_next_flow_job(
                     &input_transform,
                     arc_last_job_result.clone(),
                     Some(arc_flow_job_args.clone()),
+                    Some(flow_env.clone()),
                     Some(client),
                     None,
                 )
@@ -2606,6 +2630,7 @@ async fn push_next_flow_job(
             &status.retry,
             arc_last_job_result.clone(),
             arc_flow_job_args.clone(),
+            flow_env.clone(),
             Some(client),
         )
         .await?
@@ -2695,6 +2720,7 @@ async fn push_next_flow_job(
         compute_bool_from_expr(
             &skip_if.expr,
             arc_flow_job_args.clone(),
+            flow_env.clone(),
             arc_last_job_result.clone(),
             None,
             Some(&idcontext),
@@ -2786,6 +2812,7 @@ async fn push_next_flow_job(
                 };
                 transform_input(
                     arc_flow_job_args.clone(),
+                    flow_env.clone(),
                     arc_last_job_result.clone(),
                     input_transforms,
                     resumes.clone(),
@@ -2812,6 +2839,7 @@ async fn push_next_flow_job(
     let next_flow_transform = compute_next_flow_transform(
         arc_flow_job_args.clone(),
         arc_last_job_result.clone(),
+        flow_env.clone(),
         &flow_job,
         &flow,
         transform_context,
@@ -2960,6 +2988,7 @@ async fn push_next_flow_job(
                         .await?;
                     let ti = transform_input(
                         Marc::new(args),
+                        flow_env.clone(),
                         arc_last_job_result.clone(),
                         input_transforms,
                         resumes.clone(),
@@ -3010,6 +3039,7 @@ async fn push_next_flow_job(
                             .await?;
                         let ti = transform_input(
                             Marc::new(hm),
+                            flow_env.clone(),
                             arc_last_job_result.clone(),
                             input_transforms,
                             resumes.clone(),
@@ -3113,6 +3143,7 @@ async fn push_next_flow_job(
                 timeout_transform,
                 arc_last_job_result.clone(),
                 Some(arc_flow_job_args.clone()),
+                Some(flow_env.clone()),
                 Some(client),
                 Some(&ctx),
             )
@@ -3178,7 +3209,9 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
-        if value_with_parallel.type_ == "forloopflow" && value_with_parallel.parallel.unwrap_or(false) {
+        if value_with_parallel.type_ == "forloopflow"
+            && value_with_parallel.parallel.unwrap_or(false)
+        {
             if let Some(parallelism_transform) = &value_with_parallel.parallelism {
                 tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
 
@@ -3190,6 +3223,7 @@ async fn push_next_flow_job(
                     parallelism_transform,
                     arc_last_job_result.clone(),
                     Some(arc_flow_job_args.clone()),
+                    Some(flow_env.clone()),
                     Some(client),
                     Some(&ctx),
                 )
@@ -3647,6 +3681,7 @@ pub fn get_path(flow_job: &MiniPulledJob, status: &FlowStatus, module: &FlowModu
 async fn compute_next_flow_transform(
     arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>>,
     arc_last_job_result: Arc<Box<RawValue>>,
+    flow_env: Marc<HashMap<String, String>>,
     flow_job: &MiniPulledJob,
     flow: &FlowValue,
     by_id: Option<IdContext>,
@@ -3865,6 +3900,7 @@ async fn compute_next_flow_transform(
                 resume,
                 approvers,
                 arc_flow_job_args,
+                flow_env,
                 client,
                 &parallel,
             )
@@ -3960,6 +3996,7 @@ async fn compute_next_flow_transform(
                         let pred = compute_bool_from_expr(
                             &b.expr,
                             arc_flow_job_args.clone(),
+                            flow_env.clone(),
                             arc_last_job_result.clone(),
                             None,
                             Some(&idcontext),
@@ -4224,6 +4261,7 @@ async fn next_forloop_status(
     resume: Arc<Box<RawValue>>,
     approvers: Arc<Box<RawValue>>,
     arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>>,
+    flow_env: Marc<HashMap<String, String>>,
     client: &AuthedClient,
     parallel: &bool,
 ) -> Result<ForLoopStatus, Error> {
@@ -4251,6 +4289,7 @@ async fn next_forloop_status(
                         expr.to_string(),
                         context,
                         Some(arc_flow_job_args),
+                        Some(flow_env),
                         Some(client),
                         Some(&by_id),
                         None,
@@ -4314,6 +4353,7 @@ async fn next_forloop_status(
                             expr.to_string(),
                             context,
                             Some(arc_flow_job_args),
+                            Some(flow_env),
                             Some(client),
                             Some(&by_id),
                             None,
@@ -4570,6 +4610,52 @@ pub async fn script_to_payload(
         timeout: flow_step_timeout,
         on_behalf_of,
     })
+}
+
+async fn get_root_flow_env(
+    db: &DB,
+    flow_job: &MiniPulledJob,
+) -> error::Result<Option<HashMap<String, String>>> {
+    let root_job_id = get_root_job_id(flow_job);
+
+    if root_job_id == flow_job.id {
+        return Ok(None);
+    }
+
+    let flow_env = sqlx::query_scalar!(
+        r#"
+            SELECT 
+                raw_flow -> 'flow_env'
+            FROM 
+                v2_job 
+           WHERE 
+                id = $1 AND 
+                workspace_id = $2
+        "#,
+        root_job_id,
+        &flow_job.workspace_id,
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+
+    let env = flow_env
+        .map(|env| serde_json::from_value::<HashMap<String, String>>(env))
+        .transpose()?;
+
+    Ok(env)
+}
+
+async fn get_effective_flow_env(
+    db: &DB,
+    flow_job: &MiniPulledJob,
+    current_flow_env: &Option<HashMap<String, String>>,
+) -> error::Result<Option<HashMap<String, String>>> {
+    if let Some(root_env) = get_root_flow_env(db, flow_job).await? {
+        Ok(Some(root_env))
+    } else {
+        Ok(current_flow_env.clone())
+    }
 }
 
 async fn get_transform_context(

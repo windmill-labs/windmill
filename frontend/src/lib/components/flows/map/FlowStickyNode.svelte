@@ -65,7 +65,7 @@
 				<DollarSign size={14} />
 			</button>
 			{#snippet text()}
-				Static Inputs
+				Environment Variables
 			{/snippet}
 		</Popover>
 	{/if}
