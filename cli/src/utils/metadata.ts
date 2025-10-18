@@ -21,7 +21,7 @@ import {
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { GlobalDeps, exts, findGlobalDeps } from "../commands/script/script.ts";
 import { FSFSElement, findCodebase, yamlOptions } from "../commands/sync/sync.ts";
-import { generateHash, readInlinePathSync, getHeaders } from "./utils.ts";
+import { generateHash, readInlinePathSync, getHeaders, writeIfChanged } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile } from "../commands/flow/flow.ts";
 import { replaceInlineScripts } from "../../windmill-utils-internal/src/inline-scripts/replacer.ts";
@@ -195,14 +195,11 @@ export async function generateFlowLockInternal(
     );
     inlineScripts
       .forEach((s) => {
-        Deno.writeTextFileSync(
-          Deno.cwd() + SEP + folder + SEP + s.path,
-          s.content
-        );
+        writeIfChanged(Deno.cwd() + SEP + folder + SEP + s.path, s.content);
       });
 
     // Overwrite `flow.yaml` with the new lockfile references
-    await Deno.writeTextFile(
+    writeIfChanged(
       Deno.cwd() + SEP + folder + SEP + "flow.yaml",
       yamlStringify(flowValue as Record<string, any>)
     );
