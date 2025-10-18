@@ -288,6 +288,7 @@
 						<PropPickerWrapper
 							notSelectable
 							flow_input={stepPropPicker.pickableProperties.flow_input}
+							env={flowStore.val.value.env_variables}
 							pickableProperties={stepPropPicker.pickableProperties}
 							on:select={({ detail }) => {
 								parallelismEditor?.insertAtCursor(detail)
@@ -315,7 +316,8 @@
 								}
 								class="small-editor"
 								shouldBindKey={false}
-								extraLib={stepPropPicker.extraLib}
+								extraLib={stepPropPicker.extraLib +
+									`\ndeclare const env = ${JSON.stringify(flowStore.val.value.env_variables)};`}
 							/>
 						</PropPickerWrapper>
 					</div>
@@ -375,6 +377,7 @@
 						<PropPickerWrapper
 							alwaysOn
 							notSelectable
+							env={flowStore.val.value.env_variables}
 							pickableProperties={stepPropPicker.pickableProperties}
 							on:select={({ detail }) => {
 								if ($flowPropPickerConfig?.insertionMode == CONNECT) {
@@ -400,7 +403,8 @@
 								bind:code={mod.value.iterator.expr}
 								class="small-editor"
 								shouldBindKey={false}
-								extraLib={stepPropPicker.extraLib}
+								extraLib={stepPropPicker.extraLib +
+									`\ndeclare const env = ${JSON.stringify(flowStore.val.value.env_variables)};`}
 							/>
 						</PropPickerWrapper>
 					</div>

@@ -166,6 +166,7 @@
 						<PropPickerWrapper
 							notSelectable
 							flow_input={stepPropPicker.pickableProperties.flow_input}
+							env={flowStore.val.value.env_variables}
 							pickableProperties={undefined}
 							result={earlyStopResult}
 							extraResults={isLoop ? { all_iters: result } : undefined}
@@ -181,6 +182,7 @@
 								class="few-lines-editor"
 								extraLib={`declare const result = ${JSON.stringify(earlyStopResult)};` +
 									`\n declare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};` +
+									`\n declare const env = ${JSON.stringify(flowStore.val.value.env_variables)};` +
 									(isLoop ? `\ndeclare const all_iters = ${JSON.stringify(result)};` : '')}
 							/>
 						</PropPickerWrapper>
@@ -302,6 +304,7 @@
 						<PropPickerWrapper
 							notSelectable
 							flow_input={stepPropPicker.pickableProperties.flow_input}
+							env={flowStore.val.value.env_variables}
 							pickableProperties={undefined}
 							{result}
 							on:select={({ detail }) => {
@@ -315,7 +318,8 @@
 								bind:code={flowModule.stop_after_all_iters_if.expr}
 								class="few-lines-editor"
 								extraLib={`declare const result = ${JSON.stringify(result)};` +
-									`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};`}
+									`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};` +
+									`\ndeclare const env = ${JSON.stringify(flowStore.val.value.env_variables)};`}
 							/>
 						</PropPickerWrapper>
 					</div>

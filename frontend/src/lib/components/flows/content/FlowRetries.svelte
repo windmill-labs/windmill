@@ -173,6 +173,7 @@
 						{#if stepPropPicker}
 							<PropPickerWrapper
 								notSelectable
+								env={flowStore?.val.value.env_variables}
 								pickableProperties={stepPropPicker.pickableProperties}
 								{result}
 								on:select={({ detail }) => {
@@ -186,7 +187,8 @@
 									bind:code={flowModuleRetry.retry_if.expr}
 									class="few-lines-editor"
 									extraLib={`declare const result = ${JSON.stringify(result)};` +
-										`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input || {})};`}
+										`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input || {})};` +
+										`\ndeclare const env = ${JSON.stringify(flowStore?.val.value.env_variables)};`}
 								/>
 							</PropPickerWrapper>
 						{:else}
@@ -195,7 +197,8 @@
 								lang="javascript"
 								bind:code={flowModuleRetry.retry_if.expr}
 								class="few-lines-editor"
-								extraLib={`declare const result = ${JSON.stringify(result)};`}
+								extraLib={`declare const result = ${JSON.stringify(result)};` +
+									`\ndeclare const env = ${JSON.stringify(flowStore?.val.value.env_variables)};`}
 							/>
 						{/if}
 					</div>
