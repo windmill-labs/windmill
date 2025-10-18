@@ -1432,7 +1432,7 @@ async fn get_git_commit_hash(
         false,
     )
     .await
-    .map_err(|e| Error::NotAuthorized(format!("Access to resource {} denied: ({e})", path)))?;
+    .map_err(|e| Error::NotFound(format!("Access to resource {} denied: ({e})", path)))?;
 
     let git_resource: GitRepositoryResource = match git_repo_resource_value {
         Some(value) => serde_json::from_value(value).map_err(|e| {
@@ -1443,7 +1443,17 @@ async fn get_git_commit_hash(
 
     let identities: Vec<String> = query
         .git_ssh_identity
-        .map(|s| s.split(",").map(|s| s.to_string()).collect())
+        .map(|s| {
+            s.split(",")
+                .filter_map(|s| {
+                    if !s.is_empty() {
+                        Some(s.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
         .unwrap_or(vec![]);
 
     let (git_ssh_cmd, filenames) =

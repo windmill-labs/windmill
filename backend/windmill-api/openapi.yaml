@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.562.0
+  version: 1.563.3
   title: Windmill API
 
   contact:
@@ -16894,6 +16894,13 @@ components:
         - delete
         - patch
 
+    HttpRequestType:
+      type: string
+      enum:
+        - sync
+        - async
+        - sync_sse
+
     HttpTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -16920,8 +16927,8 @@ components:
           type: string
         description:
           type: string
-        is_async:
-          type: boolean
+        request_type:
+          $ref: "#/components/schemas/HttpRequestType"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
@@ -16941,7 +16948,7 @@ components:
 
       required:
         - route_path
-        - is_async
+        - request_type
         - authentication_method
         - http_method
         - is_static_website
@@ -16983,6 +16990,9 @@ components:
           type: string
         is_async:
           type: boolean
+          description: Deprecated, use request_type instead
+        request_type:
+          $ref: "#/components/schemas/HttpRequestType"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
@@ -17003,7 +17013,6 @@ components:
         - script_path
         - route_path
         - is_flow
-        - is_async
         - authentication_method
         - http_method
         - is_static_website
@@ -17042,6 +17051,9 @@ components:
           $ref: "#/components/schemas/HttpMethod"
         is_async:
           type: boolean
+          description: Deprecated, use request_type instead
+        request_type:
+          $ref: "#/components/schemas/HttpRequestType"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
@@ -17061,7 +17073,6 @@ components:
         - script_path
         - is_flow
         - kind
-        - is_async
         - authentication_method
         - http_method
         - is_static_website
