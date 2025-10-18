@@ -91,9 +91,8 @@ export function updateFlowModuleById(
 				module.value.branches.forEach((branch) => dfs(branch.modules))
 			} else if (module.value.type === 'branchall') {
 				module.value.branches.forEach((branch) => dfs(branch.modules))
-			} else if (module.value.type === 'aiagent') {
-				dfs(module.value.tools)
 			}
+			// AI agent tools are leaf nodes - no traversal needed
 		}
 	}
 

@@ -176,9 +176,19 @@ impl FlowValue {
                 | Flow { .. }
                 | FlowScript { .. }
                 | Identity) => cb(&s, &module.id)?,
-                ForloopFlow { modules, .. }
-                | WhileloopFlow { modules, .. }
-                | AIAgent { tools: modules, .. } => Self::traverse_leafs(&modules, cb)?,
+                ForloopFlow { modules, .. } | WhileloopFlow { modules, .. } => {
+                    Self::traverse_leafs(&modules, cb)?
+                }
+                AIAgent { tools, .. } => {
+                    for tool in tools {
+                        match &tool.value {
+                            ToolValue::FlowModule(module_value) => cb(module_value, &tool.id)?,
+                            ToolValue::Mcp(_) => {
+                                // MCP tools don't have a FlowModuleValue to traverse
+                            }
+                        }
+                    }
+                }
                 BranchOne { branches, .. } | BranchAll { branches, .. } => {
                     for branch in branches {
                         Self::traverse_leafs(&branch.modules, cb)?;
@@ -601,6 +611,93 @@ pub struct Branch {
     pub parallel: bool,
 }
 
+// Tool types for AI Agent
+#[derive(Serialize, Debug, Clone, Deserialize)]
+pub struct AgentTool {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub value: ToolValue,
+}
+
+// Convert FlowModule -> AgentTool
+impl From<FlowModule> for AgentTool {
+    fn from(flow_module: FlowModule) -> Self {
+        let module_value = serde_json::from_str::<FlowModuleValue>(flow_module.value.get())
+            .unwrap_or(FlowModuleValue::Identity);
+
+        AgentTool {
+            id: flow_module.id,
+            summary: flow_module.summary,
+            value: ToolValue::FlowModule(module_value),
+        }
+    }
+}
+
+// Convert AgentTool -> FlowModule (only for FlowModule type tools)
+impl From<&AgentTool> for Option<FlowModule> {
+    fn from(tool: &AgentTool) -> Self {
+        match &tool.value {
+            ToolValue::FlowModule(module_value) => Some(FlowModule {
+                id: tool.id.clone(),
+                value: to_raw_value(module_value),
+                summary: tool.summary.clone(),
+                ..Default::default()
+            }),
+            ToolValue::Mcp(_) => None, // MCP tools can't be converted to FlowModule
+        }
+    }
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(tag = "tool_type", rename_all = "lowercase")]
+pub enum ToolValue {
+    FlowModule(FlowModuleValue),
+    Mcp(McpToolValue),
+}
+
+// Custom deserializer for backward compatibility with old flows
+impl<'de> Deserialize<'de> for ToolValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Helper {
+            // Try new format with tool_type tag
+            Tagged(TaggedToolValue),
+            // Fall back to old format (direct FlowModuleValue without tool_type)
+            Legacy(FlowModuleValue),
+        }
+
+        #[derive(Deserialize)]
+        #[serde(tag = "tool_type", rename_all = "lowercase")]
+        enum TaggedToolValue {
+            FlowModule(FlowModuleValue),
+            Mcp(McpToolValue),
+        }
+
+        match Helper::deserialize(deserializer)? {
+            Helper::Tagged(TaggedToolValue::FlowModule(v)) => Ok(ToolValue::FlowModule(v)),
+            Helper::Tagged(TaggedToolValue::Mcp(v)) => Ok(ToolValue::Mcp(v)),
+            Helper::Legacy(v) => {
+                // Old format without tool_type - wrap as FlowModule
+                Ok(ToolValue::FlowModule(v))
+            }
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct McpToolValue {
+    pub resource_path: String,
+    #[serde(default)]
+    pub include_tools: Vec<String>,
+    #[serde(default)]
+    pub exclude_tools: Vec<String>,
+}
+
 #[derive(Serialize, Debug, Clone)]
 #[serde(
     tag = "type",
@@ -725,7 +822,7 @@ pub enum FlowModuleValue {
     // AI agent node
     AIAgent {
         input_transforms: HashMap<String, InputTransform>,
-        tools: Vec<FlowModule>,
+        tools: Vec<AgentTool>,
     },
 }
 
@@ -762,7 +859,7 @@ struct UntaggedFlowModuleValue {
     default_node: Option<FlowNodeId>,
     modules_node: Option<FlowNodeId>,
     assets: Option<Vec<AssetWithAltAccessType>>,
-    tools: Option<Vec<FlowModule>>,
+    tools: Option<Vec<AgentTool>>,
     pass_flow_input_directly: Option<bool>,
 }
 

@@ -19,6 +19,7 @@ export type InsertKind =
 	| 'approval'
 	| 'end'
 	| 'aiagent'
+	| 'mcpTool'
 
 export type InlineScript = {
 	language: RawScript['language']
@@ -305,6 +306,7 @@ export type AiToolN = {
 	type: 'aiTool'
 	data: {
 		tool: string
+		type?: string
 		eventHandlers: GraphEventHandlers
 		moduleId: string
 		insertable: boolean
