@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT usage FROM usage\n        WHERE id = $1\n        AND is_workspace = FALSE\n        AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "usage",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "08643ecaac35008b37bfd71a136ee42efb674f61bd2f3507278199773d5d6479"
+}

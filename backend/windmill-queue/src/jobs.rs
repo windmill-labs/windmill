@@ -1431,35 +1431,47 @@ fn apply_completed_job_cloud_usage(
             let premium_workspace = windmill_common::workspaces::get_team_plan_status(&db, &w_id)
                 .await
                 .premium;
-            tokio::time::timeout(std::time::Duration::from_secs(10), async move {
-                let _ = sqlx::query!(
-                    "INSERT INTO usage (id, is_workspace, month_, usage) 
-                    VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
+            let result = tokio::time::timeout(std::time::Duration::from_secs(10), async move {
+                // Update workspace usage
+                let workspace_result = sqlx::query!(
+                    "INSERT INTO usage (id, is_workspace, month_, usage)
+                    VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2)
                     ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + EXCLUDED.usage",
-                    w_id,
+                    &w_id,
                     additional_usage as i32
                 )
                 .execute(&db)
-                .await
-                .map_err(|e| {
-                    Error::internal_err(format!("updating usage: {e:#}"))
-                });
+                .await;
 
+                if let Err(e) = workspace_result {
+                    tracing::error!("Failed to update workspace usage for {}: {:#}", w_id, e);
+                }
+
+                // Update user usage for non-premium workspaces
                 if !premium_workspace {
-                    let _ = sqlx::query!(
-                        "INSERT INTO usage (id, is_workspace, month_, usage) 
-                        VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2) 
+                    let user_result = sqlx::query!(
+                        "INSERT INTO usage (id, is_workspace, month_, usage)
+                        VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2)
                         ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + EXCLUDED.usage",
-                        email,
+                        &email,
                         additional_usage as i32
                     )
                     .execute(&db)
-                    .await
-                    .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")));
+                    .await;
+
+                    if let Err(e) = user_result {
+                        tracing::error!("Failed to update user usage for {}: {:#}", email, e);
+                    }
                 }
-            }).await.unwrap_or_else(|_| {
-                tracing::error!("Could not update usage for workspace {w_id2} and permissioned as {email2}, stopped after 10s");
-            });
+            }).await;
+
+            if let Err(_) = result {
+                tracing::error!(
+                    "Could not update usage for workspace {} and permissioned as {}, stopped after 10s",
+                    w_id2,
+                    email2
+                );
+            }
         });
     }
 }
@@ -3243,6 +3255,140 @@ lazy_static::lazy_static! {
     pub static ref RE_ARG_TAG: Regex = Regex::new(r#"\$args\[((?:\w+\.)*\w+)\]"#).unwrap();
 }
 
+#[cfg(feature = "cloud")]
+lazy_static::lazy_static! {
+    // Cache for superadmin status: email -> (is_super_admin, expiry_timestamp)
+    static ref SUPERADMIN_CACHE: Arc<RwLock<HashMap<String, (bool, std::time::Instant)>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+}
+
+#[cfg(feature = "cloud")]
+const SUPERADMIN_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+#[cfg(feature = "cloud")]
+async fn is_superadmin_cached(
+    db: &Pool<Postgres>,
+    email: &str,
+) -> Result<bool, Error> {
+    let now = std::time::Instant::now();
+
+    // Try to get from cache first
+    {
+        let cache = SUPERADMIN_CACHE.read().await;
+        if let Some((is_super_admin, expiry)) = cache.get(email) {
+            if *expiry > now {
+                return Ok(*is_super_admin);
+            }
+        }
+    }
+
+    // Cache miss or expired, fetch from database
+    let is_super_admin = sqlx::query_scalar!(
+        "SELECT super_admin FROM password WHERE email = $1",
+        email
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false);
+
+    // Update cache
+    {
+        let mut cache = SUPERADMIN_CACHE.write().await;
+        cache.insert(email.to_string(), (is_super_admin, now + SUPERADMIN_CACHE_TTL));
+    }
+
+    Ok(is_super_admin)
+}
+
+#[cfg(feature = "cloud")]
+async fn check_usage_limits(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    email: &str,
+    check_user_usage: bool,
+) -> Result<(i32, Option<i32>), Error> {
+    // Get current workspace usage with a simple SELECT (no row lock)
+    let workspace_usage = sqlx::query_scalar!(
+        "SELECT usage FROM usage
+        WHERE id = $1
+        AND is_workspace = TRUE
+        AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)",
+        workspace_id
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("fetching workspace usage: {e:#}")))?
+    .unwrap_or(0);
+
+    // Get current user usage (only for non-premium workspaces)
+    let user_usage = if check_user_usage {
+        sqlx::query_scalar!(
+            "SELECT usage FROM usage
+            WHERE id = $1
+            AND is_workspace = FALSE
+            AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)",
+            email
+        )
+        .fetch_optional(db)
+        .await
+        .map_err(|e| Error::internal_err(format!("fetching user usage: {e:#}")))?
+    } else {
+        None
+    };
+
+    Ok((workspace_usage, user_usage))
+}
+
+#[cfg(feature = "cloud")]
+fn increment_usage_async(
+    db: Pool<Postgres>,
+    workspace_id: String,
+    email: Option<String>,
+) {
+    tokio::task::spawn(async move {
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            // Update workspace usage
+            let workspace_result = sqlx::query!(
+                "INSERT INTO usage (id, is_workspace, month_, usage)
+                VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
+                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1",
+                &workspace_id
+            )
+            .execute(&db)
+            .await;
+
+            if let Err(e) = workspace_result {
+                tracing::error!("Failed to update workspace usage for {}: {:#}", workspace_id, e);
+            }
+
+            // Update user usage if email is provided (non-premium workspaces only)
+            if let Some(ref email) = email {
+                let user_result = sqlx::query!(
+                    "INSERT INTO usage (id, is_workspace, month_, usage)
+                    VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
+                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1",
+                    email
+                )
+                .execute(&db)
+                .await;
+
+                if let Err(e) = user_result {
+                    tracing::error!("Failed to update user usage for {}: {:#}", email, e);
+                }
+            }
+        })
+        .await;
+
+        if let Err(_) = result {
+            tracing::error!(
+                "Usage update timed out after 10s for workspace {} and email {:?}",
+                workspace_id,
+                email
+            );
+        }
+    });
+}
+
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, 'd>(
     _db: &Pool<Postgres>,
@@ -3276,54 +3422,39 @@ pub async fn push<'c, 'd>(
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        let team_plan_status =
-            windmill_common::workspaces::get_team_plan_status(_db, workspace_id).await;
+        let team_plan_status = windmill_common::workspaces::get_team_plan_status(_db, workspace_id).await;
         // we track only non flow steps
         let (workspace_usage, user_usage) = if !matches!(
             job_payload,
             JobPayload::Flow { .. } | JobPayload::RawFlow { .. }
         ) {
-            tokio::time::timeout(std::time::Duration::from_secs(10), async move {
-                let workspace_usage = sqlx::query_scalar!(
-                        "INSERT INTO usage (id, is_workspace, month_, usage)
-                        VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
-                        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
-                        RETURNING usage.usage",
-                        workspace_id
-                    )
-                    .fetch_one(_db)
-                    .await
-                    .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")))?;
+            // Check current usage with SELECT (fast, no row locks)
+            // Only check user usage for non-premium workspaces
+            let (current_workspace_usage, current_user_usage) =
+                check_usage_limits(_db, workspace_id, email, !team_plan_status.premium).await?;
 
-                let user_usage = if !team_plan_status.premium {
-                    Some(sqlx::query_scalar!(
-                        "INSERT INTO usage (id, is_workspace, month_, usage)
-                        VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
-                        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
-                        RETURNING usage.usage",
-                        email
-                    )
-                    .fetch_one(_db)
-                    .await
-                    .map_err(|e| Error::internal_err(format!("updating usage: {e:#}")))?)
-                } else {
-                    None
-                };
-                Ok((Some(workspace_usage), user_usage))
-            }).await.unwrap_or_else(|e| {
-                tracing::error!("Could not update usage for workspace {workspace_id} and permissioned as {email}, stopped after 10s: {e:#}");
-                Err(Error::internal_err(format!("Could not update usage for workspace {workspace_id} and permissioned as {email}, stopped after 10s: {e:#}")))
-            })
+            // Spawn async task to update usage counters in the background
+            increment_usage_async(
+                _db.clone(),
+                workspace_id.to_string(),
+                if !team_plan_status.premium { Some(email.to_string()) } else { None },
+            );
+
+            // Return the current usage + 1 to account for this job
+            let workspace_usage_with_new_job = current_workspace_usage + 1;
+            let user_usage_with_new_job = if !team_plan_status.premium {
+                Some(current_user_usage.unwrap_or(0) + 1)
+            } else {
+                None
+            };
+
+            (Some(workspace_usage_with_new_job), user_usage_with_new_job)
         } else {
-            Ok((None, None))
-        }?;
+            (None, None)
+        };
 
         if !team_plan_status.premium || team_plan_status.is_past_due {
-            let is_super_admin =
-                sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-                    .fetch_optional(_db)
-                    .await?
-                    .unwrap_or(false);
+            let is_super_admin = is_superadmin_cached(_db, email).await?;
 
             #[cfg(feature = "private")]
             let recovery_email = crate::jobs_ee::SCHEDULE_RECOVERY_HANDLER_USER_EMAIL;
