@@ -3256,10 +3256,56 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(feature = "cloud")]
+lazy_static::lazy_static! {
+    // Cache for superadmin status: email -> (is_super_admin, expiry_timestamp)
+    static ref SUPERADMIN_CACHE: Arc<RwLock<HashMap<String, (bool, std::time::Instant)>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+}
+
+#[cfg(feature = "cloud")]
+const SUPERADMIN_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+#[cfg(feature = "cloud")]
+async fn is_superadmin_cached(
+    db: &Pool<Postgres>,
+    email: &str,
+) -> Result<bool, Error> {
+    let now = std::time::Instant::now();
+
+    // Try to get from cache first
+    {
+        let cache = SUPERADMIN_CACHE.read().await;
+        if let Some((is_super_admin, expiry)) = cache.get(email) {
+            if *expiry > now {
+                return Ok(*is_super_admin);
+            }
+        }
+    }
+
+    // Cache miss or expired, fetch from database
+    let is_super_admin = sqlx::query_scalar!(
+        "SELECT super_admin FROM password WHERE email = $1",
+        email
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false);
+
+    // Update cache
+    {
+        let mut cache = SUPERADMIN_CACHE.write().await;
+        cache.insert(email.to_string(), (is_super_admin, now + SUPERADMIN_CACHE_TTL));
+    }
+
+    Ok(is_super_admin)
+}
+
+#[cfg(feature = "cloud")]
 async fn check_usage_limits(
     db: &Pool<Postgres>,
     workspace_id: &str,
     email: &str,
+    check_user_usage: bool,
 ) -> Result<(i32, Option<i32>), Error> {
     // Get current workspace usage with a simple SELECT (no row lock)
     let workspace_usage = sqlx::query_scalar!(
@@ -3274,17 +3320,21 @@ async fn check_usage_limits(
     .map_err(|e| Error::internal_err(format!("fetching workspace usage: {e:#}")))?
     .unwrap_or(0);
 
-    // Get current user usage (only for non-premium workspaces, checked by caller)
-    let user_usage = sqlx::query_scalar!(
-        "SELECT usage FROM usage
-        WHERE id = $1
-        AND is_workspace = FALSE
-        AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)",
-        email
-    )
-    .fetch_optional(db)
-    .await
-    .map_err(|e| Error::internal_err(format!("fetching user usage: {e:#}")))?;
+    // Get current user usage (only for non-premium workspaces)
+    let user_usage = if check_user_usage {
+        sqlx::query_scalar!(
+            "SELECT usage FROM usage
+            WHERE id = $1
+            AND is_workspace = FALSE
+            AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)",
+            email
+        )
+        .fetch_optional(db)
+        .await
+        .map_err(|e| Error::internal_err(format!("fetching user usage: {e:#}")))?
+    } else {
+        None
+    };
 
     Ok((workspace_usage, user_usage))
 }
@@ -3372,16 +3422,16 @@ pub async fn push<'c, 'd>(
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        let team_plan_status =
-            windmill_common::workspaces::get_team_plan_status(_db, workspace_id).await;
+        let team_plan_status = windmill_common::workspaces::get_team_plan_status(_db, workspace_id).await;
         // we track only non flow steps
         let (workspace_usage, user_usage) = if !matches!(
             job_payload,
             JobPayload::Flow { .. } | JobPayload::RawFlow { .. }
         ) {
             // Check current usage with SELECT (fast, no row locks)
+            // Only check user usage for non-premium workspaces
             let (current_workspace_usage, current_user_usage) =
-                check_usage_limits(_db, workspace_id, email).await?;
+                check_usage_limits(_db, workspace_id, email, !team_plan_status.premium).await?;
 
             // Spawn async task to update usage counters in the background
             increment_usage_async(
@@ -3404,11 +3454,7 @@ pub async fn push<'c, 'd>(
         };
 
         if !team_plan_status.premium || team_plan_status.is_past_due {
-            let is_super_admin =
-                sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-                    .fetch_optional(_db)
-                    .await?
-                    .unwrap_or(false);
+            let is_super_admin = is_superadmin_cached(_db, email).await?;
 
             #[cfg(feature = "private")]
             let recovery_email = crate::jobs_ee::SCHEDULE_RECOVERY_HANDLER_USER_EMAIL;
