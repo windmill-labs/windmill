@@ -1,7 +1,4 @@
-use crate::{
-    db::{ApiAuthed, DB},
-    variables::get_variable_or_self,
-};
+use crate::db::{ApiAuthed, DB};
 
 use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
 use http::{HeaderMap, Method};
@@ -9,6 +6,7 @@ use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use windmill_common::variables::get_variable_or_self;
 use std::collections::HashMap;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel, AZURE_API_VERSION};

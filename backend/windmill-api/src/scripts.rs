@@ -769,6 +769,14 @@ async fn create_script_internal<'c>(
         }
     };
 
+    // Row lock debounce key for path. We need this to make all updates of runnables sequential and predictable.
+    tokio::time::timeout(
+        core::time::Duration::from_secs(60),
+        windmill_common::jobs::lock_debounce_key(&w_id, &ns.path, &mut tx),
+    )
+    .warn_after_seconds(10)
+    .await??;
+
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
@@ -817,6 +825,7 @@ async fn create_script_internal<'c>(
     )
     .execute(&mut *tx)
     .await?;
+
     let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
     if let Some(ref p_path) = p_path_opt {
         sqlx::query!(
@@ -999,6 +1008,7 @@ async fn create_script_internal<'c>(
             None,
             Some(&authed.clone().into()),
             false,
+            None,
             None,
         )
         .await?;
@@ -1249,7 +1259,8 @@ async fn update_script_history(
 
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
-        "INSERT INTO deployment_metadata (workspace_id, path, script_hash, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, script_hash) WHERE script_hash IS NOT NULL DO UPDATE SET deployment_msg = $4",
+        "INSERT INTO deployment_metadata (workspace_id, path, script_hash, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, script_hash) WHERE script_hash IS NOT NULL
+         DO UPDATE SET deployment_msg = EXCLUDED.deployment_msg",
         w_id,
         script_path,
         script_hash.0,
