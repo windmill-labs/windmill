@@ -8,7 +8,9 @@
 		FileCode,
 		ImageIcon,
 		Palette,
-		Plus
+		Pencil,
+		Trash2,
+		Lock
 	} from 'lucide-svelte'
 	import Self from './FileTreeNode.svelte'
 
@@ -24,14 +26,34 @@
 		onFileClick?: (path: string) => void
 		onAddFile?: (folderPath: string) => void
 		onAddFolder?: (folderPath: string) => void
+		onRename?: (oldPath: string, newName: string) => void
+		onDelete?: (path: string) => void
 		selectedPath?: string
+		pathToRename?: string
+		pathToExpand?: string
+		noEdit?: boolean
 		level?: number
 	}
 
-	let { node, onFileClick, onAddFile, onAddFolder, selectedPath, level = 0 }: Props = $props()
+	let {
+		node,
+		onFileClick,
+		onAddFile,
+		onAddFolder,
+		onRename,
+		onDelete,
+		selectedPath,
+		pathToRename,
+		pathToExpand,
+		noEdit = false,
+		level = 0
+	}: Props = $props()
 
 	let expanded = $state(level === 0) // Root folders start expanded
 	let isHovered = $state(false)
+	let isEditing = $state(false)
+	let editValue = $state(node.name)
+	let inputElement: HTMLInputElement | undefined = $state()
 
 	const isSelected = $derived(selectedPath === node.path)
 
@@ -42,22 +64,81 @@
 	}
 
 	function handleClick() {
+		// Always notify about selection
+		onFileClick?.(node.path)
+
+		// Toggle expansion for folders
 		if (node.isFolder) {
 			toggleExpanded()
-		} else {
-			onFileClick?.(node.path)
 		}
 	}
 
-	function handleAddFile(e: MouseEvent) {
+	function handleEdit(e: MouseEvent) {
 		e.stopPropagation()
-		onAddFile?.(node.path)
+		isEditing = true
+		editValue = node.name
 	}
 
-	function handleAddFolder(e: MouseEvent) {
+	function handleDelete(e: MouseEvent) {
 		e.stopPropagation()
-		onAddFolder?.(node.path)
+		onDelete?.(node.path)
 	}
+
+	function finishEdit() {
+		if (isEditing && editValue.trim() && editValue !== node.name) {
+			onRename?.(node.path, editValue.trim())
+		}
+		isEditing = false
+	}
+
+	function handleInputKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			finishEdit()
+		} else if (e.key === 'Escape') {
+			isEditing = false
+			editValue = node.name
+		}
+	}
+
+	function handleInputBlur() {
+		finishEdit()
+	}
+
+	$effect(() => {
+		if (isEditing && inputElement) {
+			inputElement.focus()
+			inputElement.select()
+		}
+	})
+
+	// Automatically enter edit mode for newly created files
+	$effect(() => {
+		if (pathToRename === node.path && !isEditing) {
+			isEditing = true
+			editValue = node.name
+			// If this is a folder, expand it
+			if (node.isFolder) {
+				expanded = true
+			}
+		}
+	})
+
+	// Expand parent folders when a child needs to be renamed
+	$effect(() => {
+		if (pathToRename && node.isFolder && pathToRename.startsWith(node.path + '/')) {
+			expanded = true
+		}
+	})
+
+	// Expand folder when pathToExpand matches this node or a parent of pathToExpand
+	$effect(() => {
+		if (pathToExpand && node.isFolder) {
+			// Expand if this folder is the target or an ancestor of the target
+			if (node.path === pathToExpand || pathToExpand.startsWith(node.path + '/')) {
+				expanded = true
+			}
+		}
+	})
 
 	const sortedChildren = $derived(
 		node.children?.slice().sort((a, b) => {
@@ -120,50 +201,87 @@
 		onmouseenter={() => (isHovered = true)}
 		onmouseleave={() => (isHovered = false)}
 	>
-		<button
-			onclick={handleClick}
-			class="w-full flex items-center gap-1 px-2 py-1 text-xs hover:bg-surface-hover transition-colors rounded text-left {isSelected
-				? 'bg-blue-100 dark:bg-blue-900/30'
-				: ''}"
-			style="padding-left: {level * 12}px"
-		>
-			{#if node.isFolder}
-				{@const IconComponent = fileIcon.icon}
-				<span class="flex-shrink-0 text-secondary">
-					{#if expanded}
-						<ChevronDown size={12} />
-					{:else}
-						<ChevronRight size={12} />
-					{/if}
-				</span>
-				<IconComponent size={12} class="flex-shrink-0 {fileIcon.className}" />
-			{:else}
-				{@const IconComponent = fileIcon.icon}
-				<span class="flex-shrink-0"></span>
-				<IconComponent size={12} class="flex-shrink-0 {fileIcon.className}" />
-			{/if}
-			<span class="truncate text-primary font-mono">{node.name}</span>
-		</button>
-
-		{#if node.isFolder && isHovered}
-			<div class="absolute right-1 top-1 flex gap-0.5 bg-surface rounded shadow-sm border border-gray-200 dark:border-gray-700">
-				<button
-					onclick={handleAddFile}
-					class="p-0.5 hover:bg-surface-hover rounded transition-colors flex items-center gap-0.5"
-					title="Add file"
-				>
-					<Plus size={10} class="text-secondary" />
-					<File size={10} class="text-tertiary" />
-				</button>
-				<button
-					onclick={handleAddFolder}
-					class="p-0.5 hover:bg-surface-hover rounded transition-colors flex items-center gap-0.5"
-					title="Add folder"
-				>
-					<Plus size={10} class="text-secondary" />
-					<Folder size={10} class="text-tertiary" />
-				</button>
+		{#if isEditing}
+			<div
+				class="w-full flex items-center gap-1 px-2 py-1 text-xs rounded {isSelected
+					? 'bg-blue-100 dark:bg-blue-900/30'
+					: ''}"
+				style="padding-left: {level * 12}px"
+			>
+				{#if node.isFolder}
+					{@const IconComponent = fileIcon.icon}
+					<span class="flex-shrink-0 text-secondary">
+						{#if expanded}
+							<ChevronDown size={12} />
+						{:else}
+							<ChevronRight size={12} />
+						{/if}
+					</span>
+					<IconComponent size={12} class="flex-shrink-0 {fileIcon.className}" />
+				{:else}
+					{@const IconComponent = fileIcon.icon}
+					<span class="flex-shrink-0"></span>
+					<IconComponent size={12} class="flex-shrink-0 {fileIcon.className}" />
+				{/if}
+				<input
+					bind:this={inputElement}
+					bind:value={editValue}
+					onkeydown={handleInputKeydown}
+					onblur={handleInputBlur}
+					class="flex-1 min-w-0 bg-surface border border-blue-500 rounded px-1 text-primary font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+					type="text"
+				/>
 			</div>
+		{:else}
+			<button
+				onclick={handleClick}
+				class="w-full flex items-center gap-1 px-2 py-1 text-xs hover:bg-surface-hover transition-colors rounded text-left {isSelected
+					? 'bg-blue-100 dark:bg-blue-900/30'
+					: ''}"
+				style="padding-left: {level * 12}px"
+			>
+				{#if node.isFolder}
+					{@const IconComponent = fileIcon.icon}
+					<span class="flex-shrink-0 text-secondary">
+						{#if expanded}
+							<ChevronDown size={12} />
+						{:else}
+							<ChevronRight size={12} />
+						{/if}
+					</span>
+					<IconComponent size={12} class="flex-shrink-0 {fileIcon.className}" />
+				{:else}
+					{@const IconComponent = fileIcon.icon}
+					<span class="flex-shrink-0"></span>
+					<IconComponent size={12} class="flex-shrink-0 {fileIcon.className}" />
+				{/if}
+				<span class="truncate text-primary font-mono">{node.name}</span>
+			</button>
+
+			{#if isHovered && !isEditing}
+				<div
+					class="absolute right-1 top-1 flex gap-0.5 bg-surface rounded shadow-sm border border-gray-200 dark:border-gray-700"
+				>
+					{#if !noEdit}
+						<button
+							onclick={handleEdit}
+							class="p-0.5 hover:bg-surface-hover rounded transition-colors"
+							title="Rename"
+						>
+							<Pencil size={12} class="text-secondary" />
+						</button>
+						<button
+							onclick={handleDelete}
+							class="p-0.5 hover:bg-surface-hover rounded transition-colors"
+							title="Delete"
+						>
+							<Trash2 size={12} class="text-red-500" />
+						</button>
+					{:else}
+						<Lock size={12} class="text-secondary" />
+					{/if}
+				</div>
+			{/if}
 		{/if}
 	</div>
 
@@ -174,7 +292,11 @@
 				{onFileClick}
 				{onAddFile}
 				{onAddFolder}
+				{onRename}
+				{onDelete}
 				{selectedPath}
+				{pathToRename}
+				{pathToExpand}
 				level={level + 1}
 			/>
 		{/each}

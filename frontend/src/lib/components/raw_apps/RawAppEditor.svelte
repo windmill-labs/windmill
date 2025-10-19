@@ -82,10 +82,13 @@
 	let iframeLoaded = $state(false) // @hmr:keep
 
 	function populateFiles() {
+		setFilesInIframe(initFiles)
+	}
+	function setFilesInIframe(newFiles: Record<string, string>) {
 		iframe?.contentWindow?.postMessage(
 			{
 				type: 'setFiles',
-				files: initFiles
+				files: newFiles
 			},
 			'*'
 		)
@@ -144,6 +147,17 @@
 		iframe && iframeLoaded && runnables && populateRunnables()
 	})
 
+	function handleSelectFile(path: string) {
+		console.log('event Select file:', path)
+		iframe?.contentWindow?.postMessage(
+			{
+				type: 'selectFile',
+				path: path
+			},
+			'*'
+		)
+	}
+
 	const devMode = true
 </script>
 
@@ -179,7 +193,19 @@
 
 	<Splitpanes id="o2" class="grow">
 		<Pane bind:size={appPanelSize}>
-			<RawAppSidebar {files} bind:selectedRunnable {runnables} {modules}></RawAppSidebar>
+			<RawAppSidebar
+				bind:files={
+					() => files,
+					(newFiles) => {
+						files = newFiles
+						setFilesInIframe(newFiles ?? {})
+					}
+				}
+				onSelectFile={handleSelectFile}
+				bind:selectedRunnable
+				{runnables}
+				{modules}
+			></RawAppSidebar>
 		</Pane>
 		<Pane>
 			{#if selectedRunnable == undefined}
