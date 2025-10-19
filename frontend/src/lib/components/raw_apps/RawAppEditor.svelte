@@ -157,8 +157,6 @@
 			'*'
 		)
 	}
-
-	const devMode = true
 </script>
 
 <svelte:window onmessage={listener} />
@@ -212,7 +210,7 @@
 				<iframe
 					bind:this={iframe}
 					title="UI builder"
-					src="{devMode ? 'http://localhost:4000' : ''}/ui_builder/index.html?dark={darkMode}"
+					src="/ui_builder/index.html?dark={darkMode}"
 					class="w-full h-full"
 				></iframe>
 			{:else}
