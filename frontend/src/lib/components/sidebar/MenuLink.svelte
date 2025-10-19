@@ -62,10 +62,13 @@
 			{onclick}
 			class={twMerge(
 				'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-3',
-				'transition-colors hover:bg-surface-hover-inverse dark:hover:bg-surface-hover',
-				isSelected && 'bg-surface-selected-inverse dark:bg-surface-selected',
+				isSelected
+					? 'bg-surface-selected-inverse dark:bg-surface-selected'
+					: sidebarClasses.hoverBg,
+				isSelected ? sidebarClasses.selectedText : sidebarClasses.text,
 				classNames
 			)}
+			data-light-mode={lightMode}
 			target={href.includes('http') ? '_blank' : null}
 			title={isCollapsed ? undefined : label}
 			use:conditionalMelt={item}
@@ -73,23 +76,13 @@
 		>
 			{#if icon}
 				{@const SvelteComponent = icon}
-				<SvelteComponent
-					size={16}
-					class={twMerge(
-						'flex-shrink-0',
-						isSelected ? sidebarClasses.selectedText : sidebarClasses.text,
-						'transition-all'
-					)}
-				/>
+				<SvelteComponent size={16} class={twMerge('flex-shrink-0 transition-all')} />
 			{/if}
 
 			{#if !isCollapsed}
 				<span
-					class={twMerge(
-						'whitespace-pre truncate',
-						isSelected ? sidebarClasses.selectedText : sidebarClasses.text,
-						'transition-all duration-75'
-					)}
+					data-light-mode={lightMode}
+					class={twMerge('whitespace-pre truncate transition-all duration-75')}
 				>
 					{label}
 				</span>

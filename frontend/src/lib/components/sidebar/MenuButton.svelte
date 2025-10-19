@@ -1,7 +1,9 @@
 <script module lang="ts">
 	export const sidebarClasses = {
-		text: 'text-secondary-inverse dark:text-secondary',
-		selectedText: 'text-emphasis-inverse dark:text-emphasis'
+		text: 'text-secondary-inverse dark:text-secondary data-[light-mode=true]:text-secondary text-xs font-normal',
+		selectedText: 'text-emphasis-inverse dark:text-emphasis text-xs font-normal',
+		hoverBg:
+			'transition-colors hover:bg-surface-hover-inverse dark:hover:bg-surface-hover data-[light-mode=true]:hover:bg-surface-hover'
 	}
 </script>
 
@@ -87,11 +89,10 @@
 						dispatch('click')
 					}}
 			{href}
+			data-light-mode={lightMode}
 			class={twMerge(
 				'group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full',
-				lightMode
-					? 'text-primary data-[highlighted]:bg-surface-hover hover:bg-surface-hover'
-					: 'data-[highlighted]:bg-[#2A3648] hover:bg-[#2A3648] text-primary-inverse dark:text-primary',
+				sidebarClasses.hoverBg,
 				color ? 'border-4' : '',
 				'transition-all relative',
 				classNames
