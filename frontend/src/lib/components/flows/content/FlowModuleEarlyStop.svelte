@@ -162,7 +162,7 @@
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
-					<div class="border w-full">
+					<div class="border rounded-md w-full overflow-auto">
 						<PropPickerWrapper
 							notSelectable
 							flow_input={stepPropPicker.pickableProperties.flow_input}
@@ -259,7 +259,7 @@
 			/>
 
 			<div
-				class="w-full border mt-2 p-2 flex flex-col gap-2 {flowModule.stop_after_all_iters_if
+				class="w-full border rounded-md mt-2 p-2 flex flex-col gap-2 {flowModule.stop_after_all_iters_if
 					? ''
 					: 'bg-surface-secondary'}"
 			>
@@ -298,7 +298,7 @@
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
-					<div class="border w-full">
+					<div class="border rounded-md w-full overflow-auto">
 						<PropPickerWrapper
 							notSelectable
 							flow_input={stepPropPicker.pickableProperties.flow_input}
