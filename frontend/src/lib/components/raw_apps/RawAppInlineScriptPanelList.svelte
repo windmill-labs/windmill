@@ -26,7 +26,7 @@
 	}
 </script>
 
-<PanelSection fullHeight={false} title="Backend Runnables" id="app-editor-runnable-panel">
+<PanelSection size="lg" fullHeight={false} title="Backend" id="app-editor-runnable-panel">
 	{#snippet action()}
 		<div class="flex flex-row gap-1">
 			<Button
