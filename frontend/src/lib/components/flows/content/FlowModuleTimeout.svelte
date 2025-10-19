@@ -83,6 +83,7 @@
 				<PropPickerWrapper
 					flow_input={stepPropPicker.pickableProperties.flow_input}
 					notSelectable
+					env={flowStore.val.value.env_variables}
 					pickableProperties={stepPropPicker.pickableProperties}
 					on:select={({ detail }) => {
 						editor?.insertAtCursor(detail)

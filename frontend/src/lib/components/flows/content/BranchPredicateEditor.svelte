@@ -45,6 +45,7 @@
 	<PropPickerWrapper
 		alwaysOn
 		notSelectable
+		env={flowStore.val.value.env_variables}
 		pickableProperties={stepPropPicker.pickableProperties}
 		on:select={({ detail }) => {
 			editor?.insertAtCursor(detail)
@@ -59,7 +60,8 @@
 				bind:code={branch.expr}
 				class="small-editor border "
 				shouldBindKey={false}
-				extraLib={stepPropPicker.extraLib}
+				extraLib={stepPropPicker.extraLib +
+					`\ndeclare const env = ${JSON.stringify(flowStore.val.value.env_variables)};`}
 			/>
 		</div>
 	</PropPickerWrapper>
