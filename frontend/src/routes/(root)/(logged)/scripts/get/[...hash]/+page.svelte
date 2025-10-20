@@ -289,7 +289,7 @@
 				buttonProps: {
 					href: `${base}/scripts/add?template=${script.path}`,
 					size: 'xs',
-					color: 'light',
+					variant: 'subtle',
 					startIcon: GitFork
 				}
 			})
@@ -304,7 +304,7 @@
 			buttonProps: {
 				href: `${base}/runs/${script.path}`,
 				size: 'xs',
-				color: 'light',
+				variant: 'subtle',
 				startIcon: Play
 			}
 		})
@@ -322,7 +322,7 @@
 					},
 
 					size: 'xs',
-					color: 'light',
+					variant: 'subtle',
 					startIcon: History
 				}
 			})
@@ -339,7 +339,7 @@
 					},
 
 					size: 'xs',
-					color: 'light',
+					variant: 'accent',
 					startIcon: Table2
 				}
 			})
@@ -353,8 +353,7 @@
 						},
 						size: 'xs',
 						startIcon: Activity,
-						color: 'dark',
-						variant: 'contained'
+						variant: 'accent'
 					}
 				})
 			}
@@ -368,8 +367,7 @@
 						}`,
 						size: 'xs',
 						startIcon: Pen,
-						color: 'dark',
-						variant: 'contained',
+						variant: 'accent-secondary',
 						disabled: !can_write
 					}
 				})

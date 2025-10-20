@@ -238,7 +238,7 @@
 				label: 'Fork',
 				buttonProps: {
 					href: `${base}/flows/add?template=${flow.path}`,
-					color: 'light',
+					variant: 'subtle',
 					size: 'xs',
 					startIcon: GitFork
 				}
@@ -254,7 +254,7 @@
 			buttonProps: {
 				href: `${base}/runs/${flow.path}`,
 				size: 'xs',
-				color: 'light',
+				variant: 'subtle',
 				startIcon: Play
 			}
 		})
@@ -262,12 +262,9 @@
 		buttons.push({
 			label: `History`,
 			buttonProps: {
-				onClick: () => {
-					flowHistory?.open()
-				},
-
+				onClick: () => flowHistory?.open(),
 				size: 'xs',
-				color: 'light',
+				variant: 'subtle',
 				startIcon: History
 			}
 		})
@@ -285,9 +282,8 @@
 						$importStore = JSON.parse(JSON.stringify(app))
 						await goto('/apps/add?nodraft=true')
 					},
-
 					size: 'xs',
-					color: 'light',
+					variant: 'accent',
 					startIcon: Columns
 				}
 			})
@@ -296,9 +292,8 @@
 				label: 'Edit',
 				buttonProps: {
 					href: `${base}/flows/edit/${path}?nodraft=true`,
-					variant: 'contained',
+					variant: 'accent-secondary',
 					size: 'xs',
-					color: 'dark',
 					disabled: !can_write,
 					startIcon: Pen
 				}
