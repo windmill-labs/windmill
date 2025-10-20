@@ -19,6 +19,7 @@ pub enum TriggerKind {
     Sqs,
     Postgres,
     Gcp,
+    Nextcloud,
 }
 
 impl TriggerKind {
@@ -35,6 +36,7 @@ impl TriggerKind {
             TriggerKind::Sqs => "sqs".to_string(),
             TriggerKind::Postgres => "postgres".to_string(),
             TriggerKind::Gcp => "gcp".to_string(),
+            TriggerKind::Nextcloud => "nextcloud".to_string(),
         }
     }
 }
@@ -53,6 +55,7 @@ impl fmt::Display for TriggerKind {
             TriggerKind::Sqs => "sqs",
             TriggerKind::Postgres => "postgres",
             TriggerKind::Gcp => "gcp",
+            TriggerKind::Nextcloud => "nextcloud",
         };
         write!(f, "{}", s)
     }

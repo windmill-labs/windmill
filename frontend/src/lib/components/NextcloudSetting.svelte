@@ -82,7 +82,7 @@
 						>Client Secret from your Nextcloud OAuth2 app configuration</Tooltip
 					></span
 				>
-				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
+				<input type="password" placeholder="Client Secret" bind:value={value['secret']} />
 			</label>
 			<CollapseLink text="Instructions">
 				<div class="text-sm text-secondary border p-2">
