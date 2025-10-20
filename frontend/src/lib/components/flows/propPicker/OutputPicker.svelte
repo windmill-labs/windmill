@@ -7,8 +7,6 @@
 	import InputPickerInner from './InputPickerInner.svelte'
 	import { ChevronDown, Plug } from 'lucide-svelte'
 	import { useSvelteFlow } from '@xyflow/svelte'
-	import { getStateColor } from '$lib/components/graph/util'
-	import type { FlowStatusModule } from '$lib/gen'
 	import type { FlowEditorContext } from '../types'
 	import Button from '$lib/components/common/button/Button.svelte'
 
@@ -26,9 +24,6 @@
 		onEditInput?: (moduleId: string, key: string) => void
 		initial?: boolean
 		onResetInitial?: () => void
-		type: FlowStatusModule['type'] | undefined
-		darkMode?: boolean
-		skipped?: boolean
 	}
 
 	let {
@@ -42,10 +37,7 @@
 		id,
 		bottomBarOpen = $bindable(false),
 		loopStatus,
-		onEditInput,
-		type,
-		darkMode,
-		skipped
+		onEditInput
 	}: Props = $props()
 
 	const context = getContext<PropPickerContext>('PropPickerContext')

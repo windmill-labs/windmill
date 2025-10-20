@@ -383,7 +383,7 @@
 								dirty = true
 							}
 						}}
-						disabled{!$enterpriseLicense}
+						disabled={!$enterpriseLicense}
 					/>
 					{#if nconfig.min_alive_workers_alert_threshold !== undefined}
 						<div class="flex flex-row items-center justify-between">

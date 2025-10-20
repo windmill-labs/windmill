@@ -704,7 +704,6 @@
 							/>
 							<Toggle
 								bind:checked={jsonView}
-								label="JSON View"
 								size="xs"
 								options={{
 									right: 'JSON',

@@ -17,7 +17,6 @@
 	export let displayContext = true
 	export let error: boolean = false
 	export let allowCopy = false
-	export let alwaysOn = false
 	export let previousId: string | undefined = undefined
 
 	let variables: Record<string, string> = {}

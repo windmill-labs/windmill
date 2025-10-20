@@ -43,7 +43,6 @@
 
 {#if open}
 	<PropPickerWrapper
-		alwaysOn
 		notSelectable
 		pickableProperties={stepPropPicker.pickableProperties}
 		on:select={({ detail }) => {

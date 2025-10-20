@@ -2,7 +2,6 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { InputN } from '../../graphBuilder.svelte'
-	import { getStateColor, getStateHoverColor } from '../../util'
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
@@ -75,8 +74,6 @@
 			label={inputLabel}
 			selectable
 			selected={$selectedId === 'Input'}
-			bgColor={getStateColor(undefined, darkMode)}
-			bgHoverColor={getStateHoverColor(undefined, darkMode)}
 			on:insert={(e) => {
 				setTimeout(() => data?.eventHandlers?.insert(e.detail))
 			}}
@@ -107,7 +104,6 @@
 			job={data.flowJob}
 			showJobStatus={data.showJobStatus}
 			flowHasChanged={data.flowHasChanged}
-			{darkMode}
 		>
 			{#snippet icon()}
 				{#if data.chatInputEnabled}

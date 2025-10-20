@@ -620,10 +620,7 @@
 				>
 					{#if showDataflow}
 						<Toggle
-							value={$useDataflow}
-							on:change={() => {
-								$useDataflow = !$useDataflow
-							}}
+							bind:checked={$useDataflow}
 							size="xs"
 							options={{
 								right: 'Dataflow'

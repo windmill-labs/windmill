@@ -4,7 +4,6 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { X } from 'lucide-svelte'
-	import { computeBorderStatus } from '../utils'
 	import type { BranchOneStartN } from '../../graphBuilder.svelte'
 
 	interface Props {
@@ -12,10 +11,6 @@
 	}
 
 	let { data }: Props = $props()
-
-	let nodeStatus = $derived(
-		computeBorderStatus(data.branchIndex + 1, 'branchone', data.flowModuleState)
-	)
 </script>
 
 <NodeWrapper offset={data.offset}>

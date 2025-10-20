@@ -931,7 +931,6 @@
 									id="smtp_tls_implicit"
 									bind:checked={$values[setting.key].smtp_tls_implicit}
 									options={{ right: 'Implicit TLS' }}
-									label="Implicit TLS"
 								/>
 							</div>
 							<div>
@@ -945,7 +944,6 @@
 										}
 									}}
 									options={{ right: 'Disable TLS' }}
-									label="Disable TLS"
 								/>
 							</div>
 						{/if}
@@ -959,21 +957,18 @@
 									id="tracing_enabled"
 									bind:checked={$values[setting.key].tracing_enabled}
 									options={{ right: 'Tracing' }}
-									label="Tracing"
 								/>
 								<Toggle
 									disabled={!$enterpriseLicense}
 									id="logs_enabled"
 									bind:checked={$values[setting.key].logs_enabled}
 									options={{ right: 'Logs' }}
-									label="logs"
 								/>
 								<Toggle
 									disabled
 									id="metrics_enabled"
 									bind:checked={$values[setting.key].logs_enabled}
 									options={{ right: 'Metrics (coming soon)' }}
-									label="metrics"
 								/>
 							</div>
 

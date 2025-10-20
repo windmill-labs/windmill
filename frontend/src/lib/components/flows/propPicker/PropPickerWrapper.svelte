@@ -41,7 +41,6 @@
 	export let displayContext = true
 	export let notSelectable = false
 	export let noPadding: boolean = false
-	export let alwaysOn: boolean = false
 	export let paneClass: string = ''
 	export let noFlowPlugConnect = false
 
@@ -135,7 +134,6 @@
 					/>
 				{:else if pickableProperties}
 					<PropPicker
-						{alwaysOn}
 						{displayContext}
 						{error}
 						previousId={pickableProperties?.previousId}

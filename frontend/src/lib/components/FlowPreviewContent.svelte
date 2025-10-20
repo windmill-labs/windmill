@@ -499,7 +499,6 @@
 							<div class="flex flex-row gap-2">
 								<Toggle
 									bind:checked={jsonView}
-									label="JSON View"
 									size="xs"
 									options={{
 										right: 'JSON',

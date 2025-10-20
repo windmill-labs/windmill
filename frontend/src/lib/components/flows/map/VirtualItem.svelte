@@ -39,9 +39,7 @@
 		individualStepTests?: boolean
 		nodeKind?: 'input' | 'result'
 		job?: Job
-		type?: string
 		showJobStatus?: boolean
-		darkMode?: boolean
 		flowHasChanged?: boolean
 	}
 
@@ -70,7 +68,6 @@
 		individualStepTests = false,
 		job,
 		showJobStatus = false,
-		darkMode = false,
 		flowHasChanged = false
 	}: Props = $props()
 
@@ -92,7 +89,7 @@
 					: undefined
 			: undefined
 	)
-	let colorClasses = $derived(getNodeColorClasses('_VirtualItem', selected))
+	let colorClasses = $derived(getNodeColorClasses(outputType ?? '_VirtualItem', selected))
 </script>
 
 <VirtualItemWrapper
@@ -140,8 +137,6 @@
 					id={id ?? ''}
 					isConnectingCandidate={nodeKind !== 'result'}
 					variant="virtual"
-					type={outputType}
-					{darkMode}
 				>
 					{#snippet children({ allowCopy, isConnecting, selectConnection })}
 						<OutputPickerInner

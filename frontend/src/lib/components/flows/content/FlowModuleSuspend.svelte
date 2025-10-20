@@ -245,7 +245,6 @@
 					<div class="flex flex-col items-end mb-2 w-full">
 						<Toggle
 							checked={false}
-							label="JSON View"
 							size="xs"
 							options={{
 								right: 'JSON editor',

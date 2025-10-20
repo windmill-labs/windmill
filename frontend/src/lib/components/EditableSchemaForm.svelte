@@ -546,7 +546,6 @@
 							<div class="shrink-0">
 								<Toggle
 									bind:checked={jsonView}
-									label="JSON View"
 									size="xs"
 									options={{
 										left: 'JSON editor',

@@ -41,7 +41,7 @@
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
-	import type { FlowStatusModule, Job } from '$lib/gen'
+	import type { Job } from '$lib/gen'
 	import { getNodeColorClasses, type FlowNodeState } from '$lib/components/graph'
 
 	interface Props {
@@ -80,9 +80,6 @@
 		flowJob?: Job | undefined
 		isOwner?: boolean
 		enableTestRun?: boolean
-		type?: FlowStatusModule['type'] | undefined
-		darkMode?: boolean
-		skipped?: boolean
 	}
 
 	let {
@@ -114,10 +111,7 @@
 		onUpdateMock,
 		onEditInput,
 		flowJob,
-		enableTestRun = false,
-		type,
-		darkMode,
-		skipped
+		enableTestRun = false
 	}: Props = $props()
 
 	let colorClasses = $derived(getNodeColorClasses(nodeState, selected))
@@ -409,7 +403,6 @@
 				{bold}
 				bind:editId
 				{hover}
-				{selected}
 				{colorClasses}
 			>
 				{#snippet icon()}
@@ -429,9 +422,6 @@
 					bind:bottomBarOpen={outputPickerBarOpen}
 					{loopStatus}
 					{onEditInput}
-					{type}
-					{darkMode}
-					{skipped}
 				>
 					{#snippet children({ allowCopy, isConnecting, selectConnection })}
 						<OutputPickerInner

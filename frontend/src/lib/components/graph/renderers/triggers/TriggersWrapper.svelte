@@ -17,8 +17,6 @@
 		selected: boolean
 		isEditor?: boolean
 		disableAi?: boolean
-		bgColor: string
-		bgHoverColor?: string
 		showDraft?: boolean
 		colorClasses: FlowNodeColorClasses
 		onSelect?: (triggerIndex: number) => void
@@ -31,8 +29,6 @@
 		selected,
 		isEditor = false,
 		disableAi = false,
-		bgColor,
-		bgHoverColor = '',
 		showDraft,
 		onSelect,
 		colorClasses,
@@ -43,8 +39,6 @@
 	let numberOfTriggers = $state(0)
 
 	const dispatch = createEventDispatcher()
-
-	let hover = $state(false)
 
 	let floatingConfig: ComputeConfig = {
 		strategy: 'fixed',
@@ -60,11 +54,7 @@
 <div style={`width: ${NODE.width}px;`} use:floatingRef>
 	<button
 		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center justify-center rounded-md drop-shadow-base {colorClasses.outline} {colorClasses.bg}"
-		onclick={() => {
-			dispatch('select')
-		}}
-		onmouseenter={() => (hover = true)}
-		onmouseleave={() => (hover = false)}
+		onclick={() => dispatch('select')}
 	>
 		<div
 			class={twMerge(

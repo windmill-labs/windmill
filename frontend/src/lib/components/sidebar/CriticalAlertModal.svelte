@@ -205,7 +205,6 @@
 											right: 'Automatically acknowledge critical alerts instance wide'
 										}}
 										size="xs"
-										stopPropagation={true}
 									/>
 								{/if}
 							</div>
@@ -218,7 +217,6 @@
 										right: 'Automatically acknowledge critical alerts for current workspace'
 									}}
 									size="xs"
-									stopPropagation={true}
 								/>
 							</div>
 						</List>

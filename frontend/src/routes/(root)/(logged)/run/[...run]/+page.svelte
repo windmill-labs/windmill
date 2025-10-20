@@ -84,7 +84,6 @@
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
-	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import { setContext, untrack } from 'svelte'
@@ -709,6 +708,7 @@
 					unifiedSize="md"
 					variant="default"
 					startIcon={{ icon: RefreshCw }}
+					loading={runImmediatelyLoading}
 					dropdownItems={[
 						{
 							label: 'Run immediately with same args',
