@@ -410,7 +410,7 @@
 				</Alert>
 			{/if}
 		</div>
-		<div class="flex flex-col gap-12 mt-6">
+		<div class="flex flex-col gap-6 mt-6">
 			<div class="flex flex-col gap-4">
 				<Label label="Path">
 					<Path
@@ -472,6 +472,7 @@
 							'Whether the runnable result should be sent as a message to the websocket server when not null.'
 					}}
 					disabled={!can_write}
+					textClass="font-medium"
 				/>
 
 				<Toggle
@@ -485,6 +486,7 @@
 							'Allows the runnable result to be sent as a message to the WebSocket server if the result is a non-null error.'
 					}}
 					disabled={!can_write || !can_return_message}
+					textClass="font-medium"
 				/>
 			</Section>
 

@@ -50,6 +50,10 @@
 
 	let activeAdvancedOptions = $derived([
 		{
+			name: 'Fill flow inputs with AI',
+			active: typeof flowStore.val.schema?.prompt_for_ai == 'string'
+		},
+		{
 			name: 'High Priority',
 			active: flowStore.val.value.priority !== undefined && flowStore.val.value.priority > 0
 		},
@@ -65,12 +69,10 @@
 		{ name: 'Worker Tag', active: displayWorkerTagPicker }
 	])
 
-	let numberOfAdvancedOptionsOn = $derived(
-		activeAdvancedOptions.filter((option) => option.active).length
-	)
 	let activeAdvancedOptionNames = $derived(
 		activeAdvancedOptions.filter((option) => option.active).map((option) => option.name)
 	)
+	let numberOfAdvancedOptionsOn = $derived(activeAdvancedOptionNames.length)
 </script>
 
 <div class="h-full flex flex-col">
@@ -129,13 +131,6 @@
 						}}
 					/>
 				</Label>
-
-				{#if flowStore.val.schema && enableAi}
-					<AIFormSettings
-						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
-						type="flow"
-					/>
-				{/if}
 			</div>
 
 			<!-- Deployable Section -->
@@ -145,10 +140,17 @@
 				small={true}
 				class="h-full grow mt-2 min-h-0 flex flex-col gap-6"
 			>
+				{#if flowStore.val.schema && enableAi}
+					<AIFormSettings
+						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
+						type="flow"
+					/>
+				{/if}
 				<!-- Worker Group Section -->
 				{#if customUi?.settingsTabs?.workerGroup != false}
 					<div>
 						<Toggle
+							textClass="font-medium"
 							size="xs"
 							checked={displayWorkerTagPicker}
 							on:change={() => {
@@ -194,6 +196,7 @@
 				{#if customUi?.settingsTabs?.cache != false}
 					<div>
 						<Toggle
+							textClass="font-medium"
 							size="xs"
 							checked={Boolean(flowStore.val.value.cache_ttl)}
 							on:change={() => {
@@ -230,6 +233,7 @@
 					<div>
 						<!-- documentationLink="https://www.windmill.dev/docs/flows/early_stop -->
 						<Toggle
+							textClass="font-medium"
 							size="xs"
 							checked={Boolean(flowStore.val.value.skip_expr)}
 							on:change={() => {
@@ -281,6 +285,7 @@
 				{#if customUi?.settingsTabs?.earlyReturn != false}
 					<div>
 						<Toggle
+							textClass="font-medium"
 							size="xs"
 							checked={Boolean(flowStore.val.value.early_return)}
 							on:change={() => {
@@ -323,6 +328,7 @@
 				<!-- Shared Directory Section -->
 				{#if customUi?.settingsTabs?.sharedDiretory != false}
 					<Toggle
+						textClass="font-medium"
 						size="xs"
 						bind:checked={flowStore.val.value.same_worker}
 						options={{
@@ -339,6 +345,7 @@
 
 				<!-- Visibility Section -->
 				<Toggle
+					textClass="font-medium"
 					size="xs"
 					checked={Boolean(flowStore.val.visible_to_runner_only)}
 					on:change={() => {
@@ -359,6 +366,7 @@
 
 				<!-- On behalf of last editor section -->
 				<Toggle
+					textClass="font-medium"
 					size="xs"
 					checked={Boolean(flowStore.val.on_behalf_of_email)}
 					on:change={() => {
@@ -396,6 +404,7 @@
 				{#if customUi?.settingsTabs?.concurrency != false}
 					<div>
 						<Toggle
+							textClass="font-medium"
 							size="xs"
 							disabled={!$enterpriseLicense}
 							checked={Boolean(flowStore.val.value.concurrent_limit)}
@@ -465,6 +474,7 @@
 
 				<!-- Priority Section -->
 				<Toggle
+					textClass="font-medium"
 					size="xs"
 					disabled={!$enterpriseLicense || isCloudHosted()}
 					checked={flowStore.val.value.priority !== undefined && flowStore.val.value.priority > 0}
@@ -515,6 +525,7 @@
 
 				<div>
 					<Toggle
+						textClass="font-medium"
 						size="xs"
 						disabled={!$enterpriseLicense || isCloudHosted()}
 						checked={Boolean(flowStore.val.dedicated_worker)}

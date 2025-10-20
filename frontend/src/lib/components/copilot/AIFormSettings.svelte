@@ -14,6 +14,7 @@
 
 <div>
 	<Toggle
+		textClass="font-medium"
 		size="xs"
 		checked={prompt !== undefined}
 		on:change={() => {

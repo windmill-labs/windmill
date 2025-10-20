@@ -53,6 +53,7 @@
 </script>
 
 <Toggle
+	textClass="font-medium"
 	{color}
 	size="xs"
 	checked={toggleState}
