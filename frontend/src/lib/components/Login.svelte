@@ -116,6 +116,20 @@
 			return
 		}
 
+		// Check if this is a first-time user (individual user onboarding)
+		// Only show onboarding for cloud-hosted instances
+		if (isCloudHosted()) {
+			try {
+				const globalUserInfo = await UserService.globalWhoami()
+				if (globalUserInfo.first_time_user) {
+					goto('/user/onboarding')
+					return
+				}
+			} catch (err) {
+				console.error('Could not fetch global user info:', err)
+			}
+		}
+
 		// Once logged in, we can fetch the workspaces
 		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
 		// trigger a reload of the user
