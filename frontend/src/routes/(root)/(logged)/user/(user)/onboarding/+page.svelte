@@ -16,13 +16,11 @@
 		Twitter,
 		Youtube,
 	} from 'lucide-svelte'
-	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 
 	let currentStep = $state(1)
 	let useCaseText = $state('')
 	let selectedSource = $state<string | null>(null)
-	let otherSourceText = $state('')
 	let isSubmitting = $state(false)
 
 	const sources = [
@@ -40,12 +38,8 @@
 
 	function selectSource(sourceId: string) {
 		selectedSource = sourceId
-	}
-
-	function goToNextStep() {
-		if (currentStep === 1 && selectedSource && (selectedSource !== 'other' || otherSourceText.trim())) {
-			currentStep = 2
-		}
+		// Auto-advance to next step for all selections
+		currentStep = 2
 	}
 
 	function goToPreviousStep() {
@@ -55,39 +49,40 @@
 	}
 
 	async function continueToWorkspaces() {
-			if (!selectedSource || isSubmitting) return
+		if (!selectedSource || isSubmitting) return
 
-			isSubmitting = true
-			try {
-				const email = $userStore?.email
+		isSubmitting = true
+		try {
+			// Get email from global user info instead of userStore (which is workspace-specific)
+			const globalUserInfo = await UserService.globalWhoami()
+			const email = globalUserInfo.email
 
-				if (!email) {
-					console.error('No email found in userStore:', $userStore)
-					throw new Error('User email not found')
-				}
-
-				const touchPoint = selectedSource === 'other' && otherSourceText.trim()
-					? `Other: ${otherSourceText.trim()}`
-					: selectedSource
-
-				await UserService.submitOnboardingData({
-					requestBody: {
-						email,
-						customer_id: null,
-						is_ee_trial: null,
-						touch_point: touchPoint,
-						use_case: useCaseText
-					}
-				})
-
-				sendUserToast('Information saved successfully')
-			} catch (error) {
-				console.error('Error submitting onboarding data:', error)
-			} finally {
-				isSubmitting = false
-				goto('/user/workspaces')
+			if (!email) {
+				console.error('No email found in global user info:', globalUserInfo)
+				throw new Error('User email not found')
 			}
+
+			const touchPoint = selectedSource
+
+			await UserService.submitOnboardingData({
+				requestBody: {
+					email,
+					customer_id: null,
+					is_ee_trial: null,
+					touch_point: touchPoint,
+					use_case: useCaseText
+				}
+			})
+
+			sendUserToast('Information saved successfully')
+		} catch (error) {
+			console.error('Error submitting onboarding data:', error)
+			sendUserToast('Failed to save information: ' + (error?.body || error?.message || error), true)
+		} finally {
+			isSubmitting = false
+			goto('/user/workspaces')
 		}
+	}
 
 	function skip() {
 		goto('/user/workspaces')
@@ -112,28 +107,8 @@
 				{/each}
 			</div>
 
-			{#if selectedSource === 'other'}
-				<div class="mb-4">
-					<input
-						type="text"
-						bind:value={otherSourceText}
-						placeholder="Specify here where you heard about Windmill"
-						class="input w-full"
-					/>
-				</div>
-			{/if}
-
-			<div class="flex flex-row justify-between items-center pt-4 gap-4">
+			<div class="flex flex-row justify-end items-center pt-4">
 				<Button color="light" variant="border" size="xs" on:click={skip}>Skip</Button>
-				<Button
-					color="blue"
-					variant="contained"
-					size="lg"
-					disabled={!selectedSource || (selectedSource === 'other' && !otherSourceText.trim())}
-					on:click={goToNextStep}
-				>
-					Continue
-				</Button>
 			</div>
 
 			<div class="flex justify-center mt-4">
@@ -146,10 +121,10 @@
 	</CenteredModal>
 {:else if currentStep === 2}
 	<CenteredModal title="What do you want to use Windmill for?">
-		<p class="text-center text-sm text-secondary mb-6">
-			This will help us provide tailored support for your specific needs.
-		</p>
 		<div class="w-full max-w-lg mx-auto">
+			<p class="text-sm text-secondary mb-6">
+				This will help us provide tailored support for your specific needs.
+			</p>
 			<div class="mb-6">
 				<textarea
 					bind:value={useCaseText}
@@ -173,7 +148,7 @@
 					color="blue"
 					variant="contained"
 					size="lg"
-					disabled={isSubmitting || !useCaseText.trim()}
+					disabled={isSubmitting}
 					loading={isSubmitting}
 					on:click={continueToWorkspaces}
 				>
