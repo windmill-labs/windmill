@@ -85,10 +85,13 @@
 		setFilesInIframe(initFiles)
 	}
 	function setFilesInIframe(newFiles: Record<string, string>) {
+		const files = Object.fromEntries(
+			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
+		)
 		iframe?.contentWindow?.postMessage(
 			{
 				type: 'setFiles',
-				files: newFiles
+				files: files
 			},
 			'*'
 		)
