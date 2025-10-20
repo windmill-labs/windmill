@@ -684,7 +684,10 @@ impl<'de> Deserialize<'de> for ToolValue {
                         return Ok(ToolValue::Mcp(mcp));
                     }
                     _ => {
-                        return Err(D::Error::custom("unknown tool_type"));
+                        return Err(D::Error::custom(format!(
+                            "unknown tool_type: {}",
+                            tool_type
+                        )));
                     }
                 }
             }
@@ -695,7 +698,10 @@ impl<'de> Deserialize<'de> for ToolValue {
             return Ok(ToolValue::FlowModule(flow_module));
         }
 
-        Err(D::Error::custom("expected an object for ToolValue"))
+        Err(D::Error::custom(format!(
+            "expected an object with a tool_type field for ToolValue, got: {:?}",
+            value
+        )))
     }
 }
 
