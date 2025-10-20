@@ -105,7 +105,7 @@
 		<Pane size={55}>
 			{#if runnable?.type === 'runnableByName' && runnable.inlineScript}
 				{#if runnable.inlineScript.language == 'frontend'}
-					<div class="text-sm text-tertiary">Frontend scripts not supported for raw apps</div>
+					<div class="text-sm text-primary">Frontend scripts not supported for raw apps</div>
 				{:else}
 					<RawAppInlineScriptEditor
 						on:createScriptFromInlineScript={() =>
@@ -174,7 +174,7 @@
 								{/each}
 							</div>
 						{:else}
-							<div class="text-tertiary text-xs">No inputs</div>
+							<div class="text-primary text-xs">No inputs</div>
 						{/if}
 					{:else if selectedTab == 'test'}
 						<SplitPanesWrapper>

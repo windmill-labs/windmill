@@ -308,7 +308,7 @@
 								{#if item.data?.componentInput?.type === 'templatev2'}
 									{#if item.data?.componentInput.connections?.length > 0}
 										<div class="flex flex-wrap gap-2 items-center">
-											<div class="text-2xs text-tertiary">Re-evaluated on changes to:</div>
+											<div class="text-2xs text-primary">Re-evaluated on changes to:</div>
 											<div class="flex flex-wrap gap-1">
 												{#each item.data?.componentInput.connections ?? [] as connection (connection.componentId + '-' + connection.id)}
 													<span
@@ -458,7 +458,7 @@
 				/>
 			</PanelSection>
 		{:else if item.data.type != 'containercomponent'}
-			<div class="h-full w-full text-sm text-tertiary text-center py-8 px-2">
+			<div class="h-full w-full text-sm text-primary text-center py-8 px-2">
 				{ccomponents[component.type].name} has no configuration
 			</div>
 		{/if}
@@ -539,7 +539,7 @@
 					</div>
 				{/snippet}
 
-				<div class="overflow-auto grid grid-cols-2 gap-1 text-tertiary">
+				<div class="overflow-auto grid grid-cols-2 gap-1 text-primary">
 					<div>
 						<span class="text-secondary text-xs">Copy:</span>
 					</div>

@@ -475,7 +475,7 @@
 					/>
 				</div>
 			{:else}
-				<div class="text-center text-tertiary p-4 bg-surface rounded-md"
+				<div class="text-center text-primary p-4 bg-surface rounded-md"
 					>No captures to show yet.</div
 				>
 			{/if}

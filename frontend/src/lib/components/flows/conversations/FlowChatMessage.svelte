@@ -25,7 +25,7 @@
 	>
 		{#if message.step_name}
 			<div
-				class="bg-surface-secondary text-2xs text-tertiary mb-2 font-medium py-1 px-2 rounded-t-lg"
+				class="bg-surface-secondary text-2xs text-primary mb-2 font-medium py-1 px-2 rounded-t-lg"
 				>{message.step_name}</div
 			>
 		{/if}
@@ -33,7 +33,7 @@
 		{#if message.message_type === 'user'}
 			<p class="whitespace-pre-wrap text-sm break-words">{message.content}</p>
 		{:else if message.loading}
-			<div class="flex items-center gap-2 text-tertiary">
+			<div class="flex items-center gap-2 text-primary">
 				<Loader2 size={16} class="animate-spin" />
 				<span>Processing...</span>
 			</div>
@@ -68,7 +68,7 @@
 				</div>
 			</div>
 		{:else}
-			<p class="text-tertiary text-sm">No result</p>
+			<p class="text-primary text-sm">No result</p>
 		{/if}
 	</div>
 </div>

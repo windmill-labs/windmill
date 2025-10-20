@@ -395,7 +395,7 @@
 								</div>
 							{/key}
 						{:else}
-							<span class="text-sm text-tertiary text-center mx-auto mt-2"
+							<span class="text-sm text-primary text-center mx-auto mt-2"
 								>{`Select a trigger from the ${useVerticalTriggerBar ? 'left toolbar' : 'table'} or create a new one`}</span
 							>
 						{/if}

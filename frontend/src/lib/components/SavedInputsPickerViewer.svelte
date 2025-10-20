@@ -105,7 +105,7 @@
 			style="width: {ajustedWidth ? ajustedWidth + 'px' : '50vh'}; max-height: 50vh"
 		>
 			{#if payloadData === 'WINDMILL_TOO_BIG'}
-				<div class="text-center text-tertiary text-xs">
+				<div class="text-center text-primary text-xs">
 					{#if limitPayloadSize}
 						Payload too big to be used
 					{:else}
@@ -126,7 +126,7 @@
 					{#if !objectViewerLoaded && payloadTooBigForPreview}
 						<div class="flex justify-center items-center py-4">
 							<Loader2 size={20} class="animate-spin text-primary" />
-							<span class="ml-2 text-xs text-tertiary">Loading data...</span>
+							<span class="ml-2 text-xs text-primary">Loading data...</span>
 						</div>
 					{/if}
 

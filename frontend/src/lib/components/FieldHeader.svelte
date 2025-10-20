@@ -23,7 +23,7 @@
 <div class="inline-flex flex-row items-baseline truncated">
 	<span
 		class={twMerge(
-			disabled ? 'text-tertiary' : '',
+			disabled ? 'text-primary' : '',
 			'font-medium text-xs',
 			lightHeader ? 'text-secondary font-normal' : 'text-emphasis',
 			labelClass

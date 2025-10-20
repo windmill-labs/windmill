@@ -287,7 +287,7 @@ Only return the expression without any wrapper.`
 			{/if}
 		</Button>
 		{#snippet content()}
-			<div class="text-sm text-tertiary">
+			<div class="text-sm text-primary">
 				{generatedContent || $generatedExprs?.[argName]}
 			</div>
 		{/snippet}

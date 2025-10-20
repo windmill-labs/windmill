@@ -785,7 +785,7 @@
 			<div class="flex flex-col gap-4 my-4">
 				<div class="flex flex-col gap-1">
 					<div class="text-xs font-medium text-emphasis"> URL to send requests to</div>
-					<div class="text-tertiary text-xs">
+					<div class="text-primary text-xs">
 						This URL will be POSTed to with a JSON body depending on the type of event. The type is
 						indicated by the type field. The other fields are dependent on the type.
 					</div>

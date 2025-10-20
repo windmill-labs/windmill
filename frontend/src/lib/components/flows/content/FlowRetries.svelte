@@ -166,7 +166,7 @@
 			>
 				{#if flowModuleRetry?.retry_if}
 					<span class="mt-2 text-xs font-bold">Retry condition expression</span>
-					<span class="text-xs text-tertiary mb-2"
+					<span class="text-xs text-primary mb-2"
 						>Expression should return true to retry, false to skip retry</span
 					>
 					<div class="border w-full">
@@ -201,7 +201,7 @@
 					</div>
 				{:else}
 					<span class="mt-2 text-xs font-bold">Retry condition expression</span>
-					<span class="text-xs text-tertiary mb-2"
+					<span class="text-xs text-primary mb-2"
 						>Expression should return true to retry, false to skip retry</span
 					>
 					<textarea disabled rows="3" class="min-h-[80px]"></textarea>
@@ -244,7 +244,7 @@
 						>
 					</div>
 					<div class="text-xs font-bold !mt-2">Multiplier</div>
-					<span class="text-xs text-tertiary">delay = multiplier * base ^ (number of attempt)</span>
+					<span class="text-xs text-primary">delay = multiplier * base ^ (number of attempt)</span>
 					<input bind:value={flowModuleRetry.exponential.multiplier} type="number" />
 					<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
 					<input bind:value={flowModuleRetry.exponential.seconds} type="number" step="1" />

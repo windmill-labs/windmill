@@ -39,10 +39,8 @@
 
 <div>
 	<h6
-		class={!$enterpriseLicense || (events != undefined && events.length == 0)
-			? 'text-tertiary'
-			: ''}
-		>Autoscaling events {#if $enterpriseLicense}<span class="text-xs text-tertiary">(5 last)</span>
+		class={!$enterpriseLicense || (events != undefined && events.length == 0) ? 'text-primary' : ''}
+		>Autoscaling events {#if $enterpriseLicense}<span class="text-xs text-primary">(5 last)</span>
 			<span class="inline-flex ml-6">
 				<Button
 					startIcon={{
@@ -61,21 +59,21 @@
 			</span>{/if}
 	</h6>
 	{#if !$enterpriseLicense}
-		<div class="text-xs pt-2 text-tertiary">Autoscaling is an EE feature</div>
+		<div class="text-xs pt-2 text-primary">Autoscaling is an EE feature</div>
 	{:else if loading}
 		<Skeleton layout={[[12], 1]} />
 	{:else if events}
 		{#if events.length == 0}
-			<div class="text-xs pt-2 text-tertiary"
+			<div class="text-xs pt-2 text-primary"
 				>No events, is autoscaling set in the worker group config?</div
 			>
 		{:else}
-			<div class="flex flex-col gap-2 text-xs text-tertiary pt-4">
+			<div class="flex flex-col gap-2 text-xs text-primary pt-4">
 				{#each events as event}
 					<div class="flex flex-row gap-4">
 						<div class="text-primary">{event.event_type} to {event.desired_workers}</div>
 						<div class="text-secondary">{event.reason}</div>
-						<div class="text-tertiary"><TimeAgo date={event.applied_at ?? ''} /></div>
+						<div class="text-primary"><TimeAgo date={event.applied_at ?? ''} /></div>
 					</div>
 				{/each}
 			</div>
@@ -84,7 +82,7 @@
 			<Button color="light" size="xs2" on:click={() => (limit = limit + 25)}>Show more</Button>
 		</div>
 		{#if limit > 50}
-			<div class="mt-4 flex text-xs text-tertiary">
+			<div class="mt-4 flex text-xs text-primary">
 				Note that autoscaling events are only stored for the last 30 days.
 			</div>
 		{/if}

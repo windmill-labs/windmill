@@ -505,7 +505,7 @@
 
 {#if result_stream && result == undefined}
 	<div class="flex flex-col w-full gap-2">
-		<div class="flex items-center gap-2 text-tertiary">
+		<div class="flex items-center gap-2 text-primary">
 			<Loader2 class="animate-spin" size={16} /> Streaming result
 		</div>
 		<ResultStreamDisplay {result_stream} />
@@ -513,7 +513,7 @@
 {:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
 		{#if !noControls}
-			<div class="text-tertiary text-sm">
+			<div class="text-primary text-sm">
 				<ToggleButtonGroup
 					selected={globalForceJson ? 'json' : 'pretty'}
 					on:selected={(ev) => {
@@ -557,7 +557,7 @@
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full">
 				<div
-					class="text-tertiary text-sm flex flex-row gap-2 items-center"
+					class="text-primary text-sm flex flex-row gap-2 items-center"
 					bind:clientHeight={resultHeaderHeight}
 				>
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
@@ -639,7 +639,7 @@
 										Warning
 									</div>
 									<p
-										class="text-tertiary mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
+										class="text-primary mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
 										>Rendering HTML can expose you to <a
 											href="https://owasp.org/www-community/attacks/xss/"
 											target="_blank"

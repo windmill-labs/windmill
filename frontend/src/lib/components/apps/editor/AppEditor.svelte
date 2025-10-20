@@ -1028,15 +1028,15 @@
 															<span class="ml-2">Exit</span>
 														</div>
 														<div>
-															<span class="float-left text-tertiary-inverse"
+															<span class="float-left text-primary-inverse"
 																>hold {getModifierKey()}</span
 															>
 															<br />
-															<span class="float-left text-tertiary-inverse">click & drag</span>
+															<span class="float-left text-primary-inverse">click & drag</span>
 															<br />
-															<span class="float-left text-tertiary-inverse">scroll</span>
+															<span class="float-left text-primary-inverse">scroll</span>
 															<br />
-															<span class="float-left text-tertiary-inverse">esc</span>
+															<span class="float-left text-primary-inverse">esc</span>
 														</div>
 													</div>
 												{/snippet}

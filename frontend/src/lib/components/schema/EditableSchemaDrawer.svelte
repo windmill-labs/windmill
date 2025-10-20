@@ -177,7 +177,7 @@
 								</div>
 							{/if}
 						{:else}
-							<div class="text-tertiary"> Value is undefined </div>
+							<div class="text-primary"> Value is undefined </div>
 						{/if}
 					</div>
 				{/each}

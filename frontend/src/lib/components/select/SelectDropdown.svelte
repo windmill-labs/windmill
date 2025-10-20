@@ -153,7 +153,7 @@
 		<div
 			class={twMerge(
 				disablePortal ? 'absolute' : 'fixed',
-				'z-[5001] text-tertiary text-sm select-none',
+				'z-[5001] text-primary text-sm select-none',
 				dropdownPos.isBelow ? '' : 'flex flex-col justify-end',
 				uiState.visible ? '' : 'pointer-events-none',
 				className
@@ -211,7 +211,7 @@
 									</span>
 									{@render endSnippet?.({ item, close: () => (open = false) })}
 									{#if item.subtitle}
-										<div class="text-xs text-tertiary">{item.subtitle}</div>
+										<div class="text-xs text-primary">{item.subtitle}</div>
 									{/if}
 								</button>
 							</li>

@@ -94,7 +94,7 @@
 				{/each}
 
 				{#if filteredResources.length === 0 && search !== ''}
-					<div class="text-tertiary text-sm">No resources found</div>
+					<div class="text-primary text-sm">No resources found</div>
 				{/if}
 			</div>
 		</div>

@@ -115,7 +115,7 @@
 				<svelte:fragment slot="content" let:close>
 					<div class="p-1 overflow-y-auto max-h-[300px]">
 						{#if pastChats.length === 0}
-							<div class="text-center text-tertiary text-xs">No history</div>
+							<div class="text-center text-primary text-xs">No history</div>
 						{:else}
 							<div class="flex flex-col">
 								{#each pastChats as chat}
@@ -255,7 +255,7 @@
 					<ChatQuickActions {askAi} {diffMode} />
 				{/if}
 				{#if disabled}
-					<div class="text-tertiary text-xs my-2 px-2">
+					<div class="text-primary text-xs my-2 px-2">
 						<Markdown md={disabledMessage} />
 					</div>
 				{:else}

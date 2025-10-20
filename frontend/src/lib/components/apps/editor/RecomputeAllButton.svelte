@@ -44,7 +44,7 @@
 			size="xs"
 			variant="default"
 			btnClasses={twMerge(
-				'!rounded-none text-tertiary !text-2xs !border-r border-y-0 border-l-0 group'
+				'!rounded-none text-primary !text-2xs !border-r border-y-0 border-l-0 group'
 			)}
 			title="Refresh {componentNumber} component{componentNumber > 1 ? 's' : ''} {interval
 				? `every ${interval / 1000} seconds`

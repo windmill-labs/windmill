@@ -416,7 +416,7 @@
 				</SchemaPickerRow>
 			{/snippet}
 			{#snippet empty()}
-				<div class="text-center text-xs text-tertiary py-2">No captures yet</div>
+				<div class="text-center text-xs text-primary py-2">No captures yet</div>
 			{/snippet}
 		</InfiniteList>
 	</div>

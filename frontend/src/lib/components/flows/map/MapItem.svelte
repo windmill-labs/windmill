@@ -110,7 +110,7 @@
 		{#if duration_ms}
 			<div
 				class={twMerge(
-					'absolute z-10 right-0 -top-4 center-center text-tertiary text-2xs',
+					'absolute z-10 right-0 -top-4 center-center text-primary text-2xs',
 					editMode ? 'text-gray-400 dark:text-gray-500 text-2xs font-normal mr-2 right-10' : ''
 				)}
 			>
@@ -120,7 +120,7 @@
 		{#if annotation && annotation != ''}
 			<div
 				class={twMerge(
-					'absolute z-10 left-0 -top-5 center-center text-tertiary',
+					'absolute z-10 left-0 -top-5 center-center text-primary',
 					editMode ? '-top-4 text-gray-400 dark:text-gray-500 text-xs font-normal' : ''
 				)}
 			>

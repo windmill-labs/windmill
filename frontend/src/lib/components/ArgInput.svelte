@@ -543,7 +543,7 @@
 {/snippet}
 {#snippet resourceInput()}
 	{#if variableEditor}
-		<div class="text-sm text-tertiary">
+		<div class="text-sm text-primary">
 			{#if value && typeof value == 'string' && value?.startsWith('$res:')}
 				Linked to resource <a
 					target="_blank"
@@ -612,7 +612,7 @@
 				{simpleTooltip}
 				{lightHeader}
 				{displayType}
-				labelClass={twMerge(lightHeaderFont ? '!font-normal text-tertiary' : '', css?.label?.class)}
+				labelClass={twMerge(lightHeaderFont ? '!font-normal text-primary' : '', css?.label?.class)}
 			/>
 			<div class="ml-auto flex gap-2">
 				{#if displayJsonToggleHeader}
@@ -1012,7 +1012,7 @@
 		{:else if inputCat == 'dynamic'}
 			<DynamicInput name={label} {otherArgs} {helperScript} bind:value format={format ?? ''} />
 		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
-			<span class="text-2xs text-tertiary">Loading resource types...</span>
+			<span class="text-2xs text-primary">Loading resource types...</span>
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
 			<!-- {JSON.stringify(value)} -->
 			<ObjectResourceInput
@@ -1340,7 +1340,7 @@
 					multiple={false}
 				/>
 				{#if value?.length}
-					<div class="text-2xs text-tertiary mt-1"
+					<div class="text-2xs text-primary mt-1"
 						>File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(
 							2
 						)}MB)</div
@@ -1424,7 +1424,7 @@
 							}}
 							title="Insert a Variable"
 						>
-							<DollarSign class="!text-tertiary" size={14} />
+							<DollarSign class="!text-primary" size={14} />
 						</button>
 					{/if}
 				</div>

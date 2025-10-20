@@ -361,7 +361,7 @@
 				<div class="flex flex-row">
 					<Badge
 						color="gray"
-						class="relative center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[40px] rounded-r-none rounded-l-none"
+						class="relative center-center !bg-gray-300 !text-primary dark:!bg-gray-700 dark:!text-gray-300 !h-[40px] rounded-r-none rounded-l-none"
 					>
 						Full path
 

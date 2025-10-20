@@ -386,7 +386,7 @@
 
 			{#if !hideTarget}
 				<Section label="Runnable">
-					<p class="text-xs mb-1 text-tertiary">
+					<p class="text-xs mb-1 text-primary">
 						Pick a script or flow to be triggered<Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">

@@ -825,7 +825,7 @@
 											</a>
 										</Cell>
 										<Cell>
-											<span class="text-tertiary text-xs">
+											<span class="text-primary text-xs">
 												{removeMarkdown(truncate(description ?? '', 30))}
 											</span>
 										</Cell>
@@ -1032,7 +1032,7 @@
 											</a>
 										</Cell>
 										<Cell>
-											<span class="text-tertiary text-xs w-96 flex flex-wrap whitespace-pre-wrap">
+											<span class="text-primary text-xs w-96 flex flex-wrap whitespace-pre-wrap">
 												{removeMarkdown(truncate(description ?? '', 200))}
 											</span>
 										</Cell>

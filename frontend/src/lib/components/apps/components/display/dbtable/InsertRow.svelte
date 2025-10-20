@@ -188,7 +188,7 @@
 				<Toggle
 					options={{ right: 'NULL' }}
 					class="pl-2"
-					textClass="text-tertiary"
+					textClass="text-primary"
 					bind:checked={
 						() => args[item.id] === null,
 						(v) => {

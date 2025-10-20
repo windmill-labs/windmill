@@ -486,10 +486,10 @@
 				{#snippet text()}
 					Keyboard navigation available - ↑/↓/Enter
 				{/snippet}
-				<Keyboard size={16} class="text-tertiary" />
+				<Keyboard size={16} class="text-primary" />
 			</Tooltip>
 			<div class="flex items-center gap-2 whitespace-nowrap">
-				<label for="showTimeline" class="text-xs text-tertiary hover:text-primary transition-colors"
+				<label for="showTimeline" class="text-xs text-primary hover:text-primary transition-colors"
 					>Show timeline</label
 				>
 				<div class="flex-shrink-0">
@@ -505,7 +505,7 @@
 			<div class="flex items-center gap-2 whitespace-nowrap">
 				<label
 					for="showResultsInputs"
-					class="text-xs text-tertiary hover:text-primary transition-colors"
+					class="text-xs text-primary hover:text-primary transition-colors"
 					>Show inputs/results</label
 				>
 				<div class="flex-shrink-0">
@@ -520,7 +520,7 @@
 			</div>
 			<button
 				onclick={toggleExpandAll}
-				class="text-xs text-tertiary hover:text-primary transition-colors flex items-center gap-2 min-w-24 justify-end"
+				class="text-xs text-primary hover:text-primary transition-colors flex items-center gap-2 min-w-24 justify-end"
 			>
 				{allExpanded ? 'Collapse All' : 'Expand All'}
 				{#if allExpanded}
@@ -553,7 +553,7 @@
 						{#if flowInfo?.label}
 							: {flowInfo.label}
 						{/if}
-						<span class="text-tertiary">{getStepProgress(rootJob, modules.length)}</span>
+						<span class="text-primary">{getStepProgress(rootJob, modules.length)}</span>
 					</div>
 
 					<div
@@ -719,7 +719,7 @@
 															: {module.summary}
 														{/if}
 														{#if hasEmptySubflowValue}
-															<span class="text-tertiary">
+															<span class="text-primary">
 																{#if module.value.type === 'forloopflow' || module.value.type === 'whileloopflow'}
 																	(empty loop)
 																{:else if module.value.type === 'branchall' || module.value.type === 'branchone'}
@@ -913,7 +913,7 @@
 																: ''
 														)}
 													>
-														<div class="text-xs text-tertiary font-mono"> No logs available </div>
+														<div class="text-xs text-primary font-mono"> No logs available </div>
 													</div>
 												{/if}
 

@@ -283,7 +283,7 @@
 											<Url url={`${base_endpoint}/${path}`} label="Production URL" />
 										</div>
 										<Subsection label="Authenticate">
-											<p class="text-xs mb-2 text-tertiary">
+											<p class="text-xs mb-2 text-primary">
 												Enable Google Cloud authentication for push delivery using a verified token.<Required
 													required={true}
 												/>

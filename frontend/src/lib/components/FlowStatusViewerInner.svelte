@@ -1328,7 +1328,7 @@
 			style="min-height: {minTabHeight}px"
 		>
 			{#if isListJob}
-				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
+				<h3 class="text-md leading-6 font-bold text-primary border-b mb-4">
 					Subflows ({flowJobIds?.flowJobs.length})
 				</h3>
 				<div class="overflow-auto max-h-1/2">
@@ -1441,7 +1441,7 @@
 					{#each modules as mod, i}
 						{#if render}
 							<div class="line w-8 h-10"></div>
-							<h3 class="text-tertiary mb-2 w-full">
+							<h3 class="text-primary mb-2 w-full">
 								{#if mod.id === 'preprocessor'}
 									Preprocessor module
 								{:else if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length + hasPreprocessor}
@@ -1668,7 +1668,7 @@
 					{/each}
 				</ul>
 			{:else}
-				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
+				<div class="p-2 text-primary text-sm italic">Empty flow</div>
 			{/if}
 		</div>
 		{#if selected == 'logs' && render}
@@ -1938,12 +1938,12 @@
 											</div>
 										</div>
 									{:else}
-										<p class="p-2 text-tertiary italic"
+										<p class="p-2 text-primary italic"
 											>The execution of this node has no information attached to it. The job likely
 											did not run yet</p
 										>
 									{/if}
-								{:else}<p class="p-2 text-tertiary italic">Select a node to see its details here</p
+								{:else}<p class="p-2 text-primary italic">Select a node to see its details here</p
 									>{/if}
 							</div>
 						{:else if rightColumnSelect == 'node_definition'}

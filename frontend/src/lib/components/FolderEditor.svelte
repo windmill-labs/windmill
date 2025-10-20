@@ -400,7 +400,7 @@
 				</div>
 			{/if} -->
 				<!-- {#if managing_folders.length == 0}
-				<p class="text-tertiary text-sm">No folder is managing this folder</p>
+				<p class="text-primary text-sm">No folder is managing this folder</p>
 			{:else}
 				<TableCustom>
 					<tr slot="header-row">

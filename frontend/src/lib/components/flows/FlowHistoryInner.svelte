@@ -111,7 +111,7 @@
 						{/each}
 					</div>
 				{:else}
-					<div class="text-sm text-tertiary">No items</div>
+					<div class="text-sm text-primary">No items</div>
 				{/if}
 			{:else}
 				<Skeleton layout={[[40], [40], [40], [40], [40]]} />
@@ -124,7 +124,7 @@
 				{#if selected}
 					<div class="px-2 flex flex-col gap-2">
 						<div class="flex justify-between">
-							<span class="flex flex-row text-sm p-1 text-tertiary">
+							<span class="flex flex-row text-sm p-1 text-primary">
 								{#if deploymentMsgUpdateMode}
 									<div class="flex w-full">
 										<input
@@ -217,7 +217,7 @@
 					<Skeleton layout={[[40]]} />
 				{/if}
 			{:else}
-				<div class="text-sm p-2 text-tertiary">Select a deployment version to see its details</div>
+				<div class="text-sm p-2 text-primary">Select a deployment version to see its details</div>
 			{/if}
 		</div>
 	</Pane>

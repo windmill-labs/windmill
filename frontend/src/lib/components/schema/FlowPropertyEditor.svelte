@@ -327,7 +327,7 @@
 					/>
 				{:else if customObjectSelected === 'json-schema-resource'}
 					{#if format == undefined}
-						<div class="text-xs text-tertiary my-1">
+						<div class="text-xs text-primary my-1">
 							Select a <code>json_schema</code> resource as a reusable JSON schema template
 						</div>
 					{/if}
@@ -465,7 +465,7 @@
 				autoHeight
 			/>
 		</div>
-		<div class="flex flex-row-reverse text-2xs text-tertiary">
+		<div class="flex flex-row-reverse text-2xs text-primary">
 			<div>
 				Other fields are available under <code>fields</code> (e.g:
 				<code>fields.foo == 42</code>)

@@ -282,7 +282,7 @@
 						{/each}
 						<div class="pb-1.5"></div>
 					{:else}
-						<div class="text-2xs text-tertiary font-light text-center py-3 px-3 items-center">
+						<div class="text-2xs text-primary font-light text-center py-3 px-3 items-center">
 							No items found.
 						</div>
 					{/if}
@@ -353,7 +353,7 @@
 							startIcon={{ icon: SettingsIcon }}
 							color="light"
 							size="xs2"
-							btnClasses="!text-tertiary"
+							btnClasses="!text-primary"
 							variant="contained"
 							title="Edit global default scripts"
 						/>

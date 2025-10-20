@@ -532,7 +532,7 @@
 						<Search class="absolute left-2 " size={14} />
 					</div>
 					{#if worker_group?.[1].length == 0 && search}
-						<div class="text-xs text-tertiary">
+						<div class="text-xs text-primary">
 							No workers found. Reset the search to see all workers.
 						</div>
 					{:else}
@@ -729,7 +729,7 @@
 							config={worker_group[1]}
 							activeWorkers={0}
 						/>
-						<div class="text-xs text-tertiary"> No workers currently in this worker group </div>
+						<div class="text-xs text-primary"> No workers currently in this worker group </div>
 					{/if}
 				{/if}
 			</div>

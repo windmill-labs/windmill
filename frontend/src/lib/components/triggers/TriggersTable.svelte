@@ -73,7 +73,7 @@
 						<div class="relative flex justify-center items-center">
 							<SvelteComponent
 								size={16}
-								class={trigger.isDraft ? 'text-frost-400' : 'text-tertiary'}
+								class={trigger.isDraft ? 'text-frost-400' : 'text-primary'}
 							/>
 
 							{#if trigger.isPrimary}
@@ -122,12 +122,12 @@
 
 			{#if !loading && triggers.length === 0}
 				<tr>
-					<td colspan="2" class="text-center py-4 text-tertiary text-sm"> No triggers found </td>
+					<td colspan="2" class="text-center py-4 text-primary text-sm"> No triggers found </td>
 				</tr>
 			{/if}
 			{#if loading && triggers.length === 0}
 				<tr>
-					<td colspan="2" class="text-center py-4 text-tertiary text-sm">
+					<td colspan="2" class="text-center py-4 text-primary text-sm">
 						<div class="flex justify-center items-center gap-2">
 							<Loader2 class="animate-spin" size={16} />
 							<span>Loading triggers...</span>

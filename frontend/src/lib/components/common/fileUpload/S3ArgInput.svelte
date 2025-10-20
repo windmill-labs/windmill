@@ -130,7 +130,7 @@
 		<Button
 			variant="default"
 			size="xs"
-			btnClasses="mt-1 font-normal text-tertiary"
+			btnClasses="mt-1 font-normal text-primary"
 			on:click={() => {
 				s3FilePicker?.open?.(value)
 			}}

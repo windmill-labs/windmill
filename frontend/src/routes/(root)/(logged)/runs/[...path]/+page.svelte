@@ -953,7 +953,7 @@
 						{#if minTs || maxTs}
 							<input
 								type="text"
-								class="!text-sm text-tertiary !bg-surface-secondary h-9 !border-none"
+								class="!text-sm text-primary !bg-surface-secondary h-9 !border-none"
 								value={minTs ? new Date(minTs).toLocaleString() : 'zoom x axis to set min'}
 								disabled
 								name="min-datetimes"
@@ -985,7 +985,7 @@
 						{#if maxTs || minTs}
 							<input
 								type="text"
-								class="!text-sm text-tertiary !bg-surface-secondary h-9 !border-none"
+								class="!text-sm text-primary !bg-surface-secondary h-9 !border-none"
 								value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
 								name="max-datetimes"
 								disabled

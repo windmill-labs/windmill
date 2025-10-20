@@ -97,7 +97,7 @@
 	function getClasses() {
 		switch (resolvedConfig.style) {
 			case 'Caption':
-				return 'text-sm italic text-tertiary'
+				return 'text-sm italic text-primary'
 			case 'Label':
 				return 'font-semibold text-sm'
 			default:

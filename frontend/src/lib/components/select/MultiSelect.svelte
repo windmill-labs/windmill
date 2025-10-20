@@ -182,7 +182,7 @@
 						}}
 						class="!pr-7 !bg-surface"
 					/>
-					<Search size={16} class="absolute right-2 text-tertiary" />
+					<Search size={16} class="absolute right-2 text-primary" />
 				</div>
 			{/if}
 		{/snippet}

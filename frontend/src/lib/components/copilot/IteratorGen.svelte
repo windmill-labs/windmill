@@ -193,7 +193,7 @@ Only output the expression, do not explain or discuss.`
 			{/if}
 		</Button>
 		{#snippet content()}
-			<div class="text-sm text-tertiary">
+			<div class="text-sm text-primary">
 				{generatedContent}
 			</div>
 		{/snippet}

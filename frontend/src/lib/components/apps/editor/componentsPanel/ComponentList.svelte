@@ -210,7 +210,7 @@
 
 <div class="relative" id="app-editor-component-list">
 	{#if componentsFiltered.reduce((acc, { components, presets }) => acc + components.length + (Array.isArray(presets) ? presets.length : 0), 0) === 0}
-		<div class="absolute left-0 top-0 w-full text-sm text-tertiary text-center py-6 px-2">
+		<div class="absolute left-0 top-0 w-full text-sm text-primary text-center py-6 px-2">
 			No components found
 		</div>
 	{:else}

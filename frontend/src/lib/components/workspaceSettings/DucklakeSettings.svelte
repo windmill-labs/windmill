@@ -471,7 +471,7 @@
 		)}
 	/>
 	{#if showManageCatalogButton}
-		<div class="text-tertiary text-xs mt-6">
+		<div class="text-primary text-xs mt-6">
 			Note: the 'Manage catalog' button below is different from the Manage Ducklake button. This
 			will show you the content of the PostgreSQL database used as a catalog, while the other button
 			shows you the actual content of the ducklake (the parquet files).

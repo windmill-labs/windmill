@@ -388,9 +388,8 @@
 						{#if $values[setting.key]?.length > 0}
 							{#if valid}
 								<div class="flex flex-row gap-1 items-center">
-									<Info size={12} class="text-tertiary" />
-									<span class="text-tertiary text-xs"
-										>License key expires on {expiration ?? ''}</span
+									<Info size={12} class="text-primary" />
+									<span class="text-primary text-xs">License key expires on {expiration ?? ''}</span
 									>
 								</div>
 							{:else if expiration}
@@ -1015,7 +1014,7 @@
 							</div>
 							<!-- <div>
 							<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-medium"
-								>Protocol<span class="text-2xs text-tertiary ml-4"
+								>Protocol<span class="text-2xs text-primary ml-4"
 									>grpc, http/protobuf, http/json</span
 								></label
 							>
@@ -1028,7 +1027,7 @@
 						</div>
 						<div>
 							<label for="OTEL_EXPORTER_OTLP_COMPRESSION" class="block text-sm font-medium"
-								>Compression <span class="text-2xs text-tertiary ml-4">none, gzip</span></label
+								>Compression <span class="text-2xs text-primary ml-4">none, gzip</span></label
 							>
 							<input
 								type="text"

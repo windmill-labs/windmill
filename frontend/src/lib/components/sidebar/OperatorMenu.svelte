@@ -307,7 +307,7 @@
 							{item}
 						>
 							{#if !moreOpen || secondMenuLinks.length === 0}
-								<div class="px-2 py-2 text-tertiary text-2xs">More...</div>
+								<div class="px-2 py-2 text-primary text-2xs">More...</div>
 							{/if}
 						</MenuItem>
 						{#if moreOpen && secondMenuLinks.length > 0}

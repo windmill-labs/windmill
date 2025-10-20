@@ -75,7 +75,7 @@
 						{/if}
 					{/each}
 				{:else}
-					<div class="text-xs text-tertiary">No backend runnable</div>
+					<div class="text-xs text-primary">No backend runnable</div>
 				{/if}
 			</div>
 		</div>

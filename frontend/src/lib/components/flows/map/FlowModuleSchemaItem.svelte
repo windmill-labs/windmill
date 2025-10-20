@@ -209,7 +209,7 @@
 				/>
 				<div class="mt-8">
 					<h3>Step Inputs Replacements</h3>
-					<div class="text-2xs text-tertiary pt-0.5">
+					<div class="text-2xs text-primary pt-0.5">
 						Replace all occurrences of `results.<span class="font-bold">{id}</span>` with{' '}
 						results.<span class="font-bold">{newId}</span> in the step inputs of all steps that depend
 						on it.
@@ -230,7 +230,7 @@
 								</div>
 							{/each}
 						{:else}
-							<div class="text-2xs text-tertiary"> No dependents </div>
+							<div class="text-2xs text-primary"> No dependents </div>
 						{/if}
 					</div>
 				</div>

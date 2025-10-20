@@ -974,7 +974,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						{#snippet text()}
 							Toggle diff mode
 						{/snippet}
-						<DiffIcon class="ml-1 text-tertiary" size={14} />
+						<DiffIcon class="ml-1 text-primary" size={14} />
 					</Popover>
 				</div>
 			{/if}
@@ -991,7 +991,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						{#snippet text()}
 							Multiplayer
 						{/snippet}
-						<Users class="ml-1 text-tertiary" size={14} />
+						<Users class="ml-1 text-primary" size={14} />
 					</Popover>
 					{#if collabLive}
 						<button

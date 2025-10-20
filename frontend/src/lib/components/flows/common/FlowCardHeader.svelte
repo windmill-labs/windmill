@@ -113,7 +113,7 @@
 						<Button
 							title="Unlock hash to always use latest deployed version at that path"
 							size="xs"
-							btnClasses="text-tertiary inline-flex gap-1 items-center"
+							btnClasses="text-primary inline-flex gap-1 items-center"
 							color="light"
 							on:click={() => {
 								if (flowModuleValue.type == 'script') {
@@ -127,7 +127,7 @@
 								title="Lock hash to always use this specific version"
 								color="light"
 								size="xs"
-								btnClasses="text-tertiary inline-flex gap-1 items-center"
+								btnClasses="text-primary inline-flex gap-1 items-center"
 								on:click={() => {
 									if (flowModuleValue.type == 'script') {
 										dispatch('setHash', latestHash)

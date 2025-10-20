@@ -690,7 +690,7 @@ export async function main(
 						allowRefresh
 					/>
 				</div>
-				<div class="prose text-2xs text-tertiary mt-2">
+				<div class="prose text-2xs text-primary mt-2">
 					Pick a script that does whatever with the PDF/PNG report.
 
 					<br />

@@ -88,7 +88,7 @@
 					<Loader2 size={32} class="animate-spin" />
 				</div>
 			{:else if manager.messages.length === 0}
-				<div class="text-center text-tertiary flex items-center justify-center flex-col h-full">
+				<div class="text-center text-primary flex items-center justify-center flex-col h-full">
 					<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
 					<p class="text-lg font-medium">Start a conversation</p>
 					<p class="text-sm">Send a message to run the flow and see the results</p>
@@ -99,7 +99,7 @@
 						<FlowChatMessage {message} />
 					{/each}
 					{#if manager.isWaitingForResponse}
-						<div class="flex items-center gap-2 text-tertiary">
+						<div class="flex items-center gap-2 text-primary">
 							<Loader2 size={16} class="animate-spin" />
 							<span class="text-sm">Processing...</span>
 						</div>

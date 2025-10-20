@@ -127,7 +127,7 @@
 			</TableActionsWizard>
 		{/snippet}
 		{#if components.length == 0}
-			<span class="text-xs text-tertiary">No action buttons</span>
+			<span class="text-xs text-primary">No action buttons</span>
 		{/if}
 		<div class="w-full flex gap-2 flex-col mt-2">
 			<section
@@ -192,7 +192,7 @@
 		</div>
 		<div class="w-full flex gap-2">
 			<Button
-				btnClasses="gap-1 flex items-center text-sm text-tertiary"
+				btnClasses="gap-1 flex items-center text-sm text-primary"
 				wrapperClasses="w-full"
 				variant="default"
 				on:click={() => addComponent('buttoncomponent')}
@@ -201,7 +201,7 @@
 				+ <Inspect size={14} />
 			</Button>
 			<Button
-				btnClasses="gap-1 flex items-center text-sm text-tertiary"
+				btnClasses="gap-1 flex items-center text-sm text-primary"
 				wrapperClasses="w-full"
 				variant="default"
 				on:click={() => addComponent('checkboxcomponent')}
@@ -210,7 +210,7 @@
 				+ <ToggleRightIcon size={14} />
 			</Button>
 			<Button
-				btnClasses="gap-1 flex items-center text-sm text-tertiary"
+				btnClasses="gap-1 flex items-center text-sm text-primary"
 				wrapperClasses="w-full"
 				variant="default"
 				on:click={() => addComponent('selectcomponent')}

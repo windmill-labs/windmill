@@ -96,7 +96,7 @@
 	>
 		<div class="flex flex-col gap-4 my-4">
 			<div class="flex flex-col gap-1">
-				<div class="text-tertiary text-xs">
+				<div class="text-primary text-xs">
 					Configure the operator visibility settings for your workspace. Toggle the settings you
 					want to enable.
 				</div>

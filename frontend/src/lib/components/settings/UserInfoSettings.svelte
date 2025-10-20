@@ -35,7 +35,7 @@
 	<h2 class="text-emphasis text-sm font-semibold mb-2">User info</h2>
 
 	<form class="flex flex-col gap-6">
-		<div class="w-full text-tertiary flex flex-col gap-1">
+		<div class="w-full text-primary flex flex-col gap-1">
 			<div class="text-xs text-emphasis font-medium">Email</div>
 			<span class="text-xs font-normal text-primary">
 				{$usersWorkspaceStore?.email}

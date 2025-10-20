@@ -104,11 +104,11 @@
 			disabled={!$enterpriseLicense || !$superadmin}
 		>
 			Save {#if !$superadmin}
-				<span class="text-2xs text-tertiary">superadmin only</span>
+				<span class="text-2xs text-primary">superadmin only</span>
 			{/if}
 		</Button>
 
-		<span class="text-2xs text-tertiary"
+		<span class="text-2xs text-primary"
 			>When tags use <pre class="inline">$workspace</pre>, the final tag has
 			<pre class="inline">$workspace</pre> replaced with the workspace id, allowing multi-vpc setup with
 			more ease, without having to assign a specific tag each time.</span

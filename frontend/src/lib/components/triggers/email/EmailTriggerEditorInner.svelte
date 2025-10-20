@@ -265,7 +265,7 @@
 
 			{#if !hideTarget}
 				<Section label="Target">
-					<p class="text-xs mt-3 mb-1 text-tertiary">
+					<p class="text-xs mt-3 mb-1 text-primary">
 						Pick a script or flow to be triggered<Required required={true} />
 					</p>
 					<div class="flex flex-col gap-2">

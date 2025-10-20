@@ -46,7 +46,7 @@
 
 <PanelSection title={`Menu items`}>
 	{#if components.length == 0}
-		<span class="text-xs text-tertiary">No action buttons</span>
+		<span class="text-xs text-primary">No action buttons</span>
 	{/if}
 	{#each components as component}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -83,7 +83,7 @@
 	{/each}
 	<div class="w-full flex gap-2">
 		<Button
-			btnClasses="gap-1 flex items-center text-sm text-tertiary"
+			btnClasses="gap-1 flex items-center text-sm text-primary"
 			wrapperClasses="w-full"
 			variant="default"
 			size="xs"

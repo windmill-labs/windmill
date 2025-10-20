@@ -694,7 +694,7 @@
 				</label>
 				{#if renderDescription}
 					<div>
-						<div class="flex flex-row-reverse text-2xs text-tertiary -mt-4">GH Markdown</div>
+						<div class="flex flex-row-reverse text-2xs text-primary -mt-4">GH Markdown</div>
 						<textarea
 							id="resource-description"
 							use:autosize

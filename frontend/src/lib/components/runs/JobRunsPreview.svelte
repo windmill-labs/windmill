@@ -304,7 +304,7 @@
 							<FlowStatusViewer jobId={job.id} workspaceId={job.workspace_id} />
 						</div>
 					{:else}
-						<div class="text-sm font-semibold text-tertiary mb-1"> Job is still running </div>
+						<div class="text-sm font-semibold text-primary mb-1"> Job is still running </div>
 						<LogViewer
 							jobId={job?.id}
 							duration={job?.['duration_ms']}

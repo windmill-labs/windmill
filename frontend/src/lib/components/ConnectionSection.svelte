@@ -146,7 +146,7 @@
 		/>
 	</div>
 
-	<div class="prose text-2xs text-tertiary">
+	<div class="prose text-2xs text-primary">
 		Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon
 		connection, templates for a <a href="{$hubBaseUrlStore}/scripts/{platform}/1405/">script</a>
 		and <a href="{$hubBaseUrlStore}/flows/28/">flow</a> are available.

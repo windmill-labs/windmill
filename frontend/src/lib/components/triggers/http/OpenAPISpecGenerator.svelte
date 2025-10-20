@@ -354,7 +354,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 																<div class="flex justify-start w-full">
 																	<Badge
 																		color="gray"
-																		class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
+																		class="center-center !bg-surface-secondary !text-primary !w-[70px] !h-[24px] rounded-r-none border"
 																	>
 																		Full path
 																	</Badge>
@@ -430,7 +430,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 																	<div class="flex justify-start w-full">
 																		<Badge
 																			color="gray"
-																			class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
+																			class="center-center !bg-surface-secondary !text-primary !w-[70px] !h-[24px] rounded-r-none border"
 																		>
 																			Full path
 																		</Badge>

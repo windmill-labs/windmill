@@ -523,7 +523,7 @@
 															class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
 															style="height: {h}px"
 														></div>
-														<!-- <div class="text-[0.6em] mt-0.5 text-center text-tertiary"
+														<!-- <div class="text-[0.6em] mt-0.5 text-center text-primary"
 														>{(job.duration_ms / 1000).toFixed(2)}s</div
 													> -->
 													</div>

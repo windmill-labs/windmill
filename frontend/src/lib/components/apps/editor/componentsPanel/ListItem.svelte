@@ -66,7 +66,7 @@
 				{#if titleSlot}{@render titleSlot()}{:else}
 					{title}
 					{#if subtitle}
-						<span class="text-2xs text-tertiary ml-1">
+						<span class="text-2xs text-primary ml-1">
 							{subtitle}
 						</span>
 					{/if}
@@ -87,7 +87,7 @@
 			{#if titleSlot}{@render titleSlot()}{:else}
 				{title}
 				{#if subtitle}
-					<span class="text-2xs text-tertiary ml-1">
+					<span class="text-2xs text-primary ml-1">
 						{subtitle}
 					</span>
 				{/if}

@@ -145,7 +145,7 @@
 					{#if !hasUnsavedSecondary}
 						<div class="mt-2">
 							<button
-								class="text-xs text-tertiary hover:text-secondary transition-colors"
+								class="text-xs text-primary hover:text-secondary transition-colors"
 								onclick={() => {
 									secondarySyncExpanded = true
 									gitSyncContext.addSyncRepository()

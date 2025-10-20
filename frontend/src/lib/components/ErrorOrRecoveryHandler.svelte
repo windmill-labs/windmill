@@ -602,7 +602,7 @@
 				class="w-full"
 			/>
 			{#if handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length > 0}
-				<span class="text-sm text-tertiary">
+				<span class="text-sm text-primary">
 					{handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length} email{handlerExtraArgs[
 						EMAIL_RECIPIENTS_KEY
 					]?.length === 1

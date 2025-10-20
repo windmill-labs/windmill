@@ -257,7 +257,8 @@
 				</div>
 				<div class="flex flex-col space-y-2">
 					<Button variant="default" size="sm" destructive>Delete Item</Button>
-					<Button variant="default" size="xs" startIcon={{ icon: Trash }} destructive>Remove</Button>
+					<Button variant="default" size="xs" startIcon={{ icon: Trash }} destructive>Remove</Button
+					>
 					<Button variant="default" size="xs" disabled destructive>Disabled</Button>
 				</div>
 			</div>
@@ -271,7 +272,9 @@
 				</div>
 				<div class="flex flex-col space-y-2">
 					<Button variant="accent" size="sm" destructive>Delete Forever</Button>
-					<Button variant="accent" size="xs" startIcon={{ icon: Trash }} destructive>Remove All</Button>
+					<Button variant="accent" size="xs" startIcon={{ icon: Trash }} destructive
+						>Remove All</Button
+					>
 					<Button variant="accent" size="xs" disabled destructive>Disabled</Button>
 				</div>
 			</div>
@@ -285,7 +288,9 @@
 				</div>
 				<div class="flex flex-col space-y-2">
 					<Button variant="accent-secondary" size="sm" destructive>Archive</Button>
-					<Button variant="accent-secondary" size="xs" startIcon={{ icon: Archive }} destructive>Archive Item</Button>
+					<Button variant="accent-secondary" size="xs" startIcon={{ icon: Archive }} destructive
+						>Archive Item</Button
+					>
 					<Button variant="accent-secondary" size="xs" disabled destructive>Disabled</Button>
 				</div>
 			</div>
@@ -437,7 +442,9 @@
 					<p class="text-xs text-secondary">Delete actions with menu</p>
 				</div>
 				<div class="flex flex-col space-y-2">
-					<Button variant="accent" size="sm" dropdownItems={buttonDropdownItems} destructive>Delete</Button>
+					<Button variant="accent" size="sm" dropdownItems={buttonDropdownItems} destructive
+						>Delete</Button
+					>
 					<Button
 						variant="default"
 						size="xs"
@@ -476,7 +483,7 @@
 							<ToggleButton value="option3" label="Option 3" {item} />
 						{/snippet}
 					</ToggleButtonGroup>
-					<p class="text-2xs text-tertiary">Selected: {selectedToggle1}</p>
+					<p class="text-2xs text-primary">Selected: {selectedToggle1}</p>
 				</div>
 			</div>
 
@@ -495,7 +502,7 @@
 							<ToggleButton value="large" label="Large" icon={Plus} {item} small />
 						{/snippet}
 					</ToggleButtonGroup>
-					<p class="text-2xs text-tertiary">Selected: {selectedToggle2}</p>
+					<p class="text-2xs text-primary">Selected: {selectedToggle2}</p>
 				</div>
 			</div>
 
@@ -514,7 +521,7 @@
 							<ToggleButton value="share" icon={Share} {item} iconOnly tooltip="Share mode" />
 						{/snippet}
 					</ToggleButtonGroup>
-					<p class="text-2xs text-tertiary">Selected: {selectedToggle3}</p>
+					<p class="text-2xs text-primary">Selected: {selectedToggle3}</p>
 				</div>
 			</div>
 		</div>
@@ -593,7 +600,10 @@
 				</div>
 				<div class="space-y-2">
 					<TextInput bind:value={basicTextValue} />
-					<TextInput bind:value={placeholderTextValue} inputProps={{ placeholder: 'Enter text here...' }} />
+					<TextInput
+						bind:value={placeholderTextValue}
+						inputProps={{ placeholder: 'Enter text here...' }}
+					/>
 				</div>
 			</div>
 
@@ -631,7 +641,11 @@
 					<p class="text-xs text-secondary">Multi-line text input</p>
 				</div>
 				<div class="space-y-2">
-					<ClearableInput bind:value={textAreaValue} type="textarea" placeholder="Enter multiple lines..." />
+					<ClearableInput
+						bind:value={textAreaValue}
+						type="textarea"
+						placeholder="Enter multiple lines..."
+					/>
 				</div>
 			</div>
 

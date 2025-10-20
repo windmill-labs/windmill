@@ -192,7 +192,7 @@
 						{/if}
 
 						<div class="flex items-center gap-2">
-							<span class="text-sm text-tertiary">
+							<span class="text-sm text-primary">
 								{#if runnable}
 									Edited <TimeAgo agoOnlyIfRecent date={runnable.created_at || ''} /> by {runnable.created_by ||
 										'unknown'}
@@ -276,7 +276,7 @@
 			{/key}
 		{/if}
 	{:else}
-		<div class="text-xs text-tertiary">No arguments</div>
+		<div class="text-xs text-primary">No arguments</div>
 	{/if}
 	{#if schedulable}
 		<div class="mt-10"></div>

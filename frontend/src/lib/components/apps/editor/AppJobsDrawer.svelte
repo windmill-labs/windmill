@@ -110,7 +110,7 @@
 								{/each}
 							</div>
 						{:else}
-							<div class="text-sm text-tertiary">No items</div>
+							<div class="text-sm text-primary">No items</div>
 						{/if}
 					</div>
 				</PanelSection>
@@ -227,9 +227,9 @@
 													{:else if testIsLoading}
 														<div class="p-2"><Loader2 class="animate-spin" /> </div>
 													{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
-														<div class="p-2 text-tertiary">Result is undefined</div>
+														<div class="p-2 text-primary">Result is undefined</div>
 													{:else}
-														<div class="p-2 text-tertiary">
+														<div class="p-2 text-primary">
 															<Loader2 size={14} class="animate-spin mr-2" />
 														</div>
 													{/if}
@@ -248,9 +248,9 @@
 														{:else if testIsLoading}
 															<div class="p-2"><Loader2 class="animate-spin" /> </div>
 														{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
-															<div class="p-2 text-tertiary">Result is undefined</div>
+															<div class="p-2 text-primary">Result is undefined</div>
 														{:else}
-															<div class="p-2 text-tertiary">
+															<div class="p-2 text-primary">
 																<Loader2 size={14} class="animate-spin mr-2" />
 															</div>
 														{/if}
@@ -276,7 +276,7 @@
 									</div>
 								{/if}
 							{:else}
-								<div class="text-sm p-2 text-tertiary">Select a job to see its details</div>
+								<div class="text-sm p-2 text-primary">Select a job to see its details</div>
 							{/if}
 						</div>
 					{/if}

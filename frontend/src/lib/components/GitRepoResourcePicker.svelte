@@ -192,7 +192,7 @@
 					</div>
 				{:else if gitRepoResources.length === 0}
 					<div class="p-4 text-center border border-border-light rounded-md">
-						<GitBranch size={24} class="mx-auto mb-2 text-tertiary" />
+						<GitBranch size={24} class="mx-auto mb-2 text-primary" />
 						<p class="text-xs text-primary mb-2">No git repository resources found</p>
 						<p class="text-2xs text-secondary">
 							Create a git repository resource first to use this feature
@@ -246,7 +246,7 @@
 						placeholder="e.g., hosts"
 						class="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 					/>
-					<p class="text-xs text-tertiary">
+					<p class="text-xs text-primary">
 						Specify the directory containing your inventory files relative to the git repository
 						root
 					</p>

@@ -158,7 +158,7 @@
 			<div class="flex flex-col gap-1 h-full">
 				<Subsection>
 					<div class="flex flex-col gap-1">
-						<p class="text-xs text-tertiary">
+						<p class="text-xs text-primary">
 							Pick a folder to bind the generated HTTP routes to.<Required required={true} />
 						</p>
 						<FolderPicker bind:folderName />

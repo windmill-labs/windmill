@@ -595,7 +595,7 @@
 					</div>
 				{/if}
 				{#if fileListLoading === false && displayedFileKeys.length === 0}
-					<div class="p-4 text-tertiary text-xs text-center italic">
+					<div class="p-4 text-primary text-xs text-center italic">
 						No files in the workspace S3 bucket at that prefix
 					</div>
 				{:else}
@@ -779,11 +779,11 @@
 							{/await}
 						</div>
 					{:else if filePreviewLoading}
-						<div class="flex h-6 items-center text-tertiary mb-4">
+						<div class="flex h-6 items-center text-primary mb-4">
 							<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
 						</div>
 					{:else if fileMetadata !== undefined && filePreview !== undefined}
-						<div class="flex items-center text-tertiary mb-4">
+						<div class="flex items-center text-primary mb-4">
 							{#if filePreview.contentType === 'Unknown'}
 								Type of file not supported for preview.
 							{:else if filePreview.contentType === 'Csv'}

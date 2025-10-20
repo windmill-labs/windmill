@@ -173,7 +173,7 @@
 										</div>
 									</div>
 								{:else}
-									<div class="text-sm text-tertiary p-2 flex justify-between items-center">
+									<div class="text-sm text-primary p-2 flex justify-between items-center">
 										<span>
 											{#if previewIsLoading}
 												<Loader2 class="animate-spin" />

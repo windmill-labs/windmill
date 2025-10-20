@@ -480,7 +480,7 @@
 							Legacy Configuration
 						</span>
 					{/if}
-					<span class="text-xs text-tertiary pt-1 pl-8">
+					<span class="text-xs text-primary pt-1 pl-8">
 						{repo.git_repo_resource_path}
 					</span>
 				</div>

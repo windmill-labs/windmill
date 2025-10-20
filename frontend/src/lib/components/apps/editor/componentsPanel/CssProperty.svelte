@@ -131,7 +131,7 @@
 	{#if value}
 		<div class="p-2 flex flex-col gap-2">
 			{#if tooltip}
-				<div class="text-tertiary text-2xs py-2">{tooltip}</div>
+				<div class="text-primary text-2xs py-2">{tooltip}</div>
 			{/if}
 
 			{#if value.style !== undefined || forceStyle}
@@ -139,7 +139,7 @@
 					<!-- svelte-ignore a11y_label_has_associated_control -->
 					<div class="block w-full">
 						<div class="flex flex-row justify-between items-center w-full h-8 mb-1">
-							<div class="text-xs font-medium text-tertiary"> Plain CSS </div>
+							<div class="text-xs font-medium text-primary"> Plain CSS </div>
 
 							<div class="flex flex-row gap-1">
 								{#if overriden}
@@ -218,7 +218,7 @@
 
 			{#if value.class !== undefined || forceClass}
 				<!-- svelte-ignore a11y_label_has_associated_control -->
-				<div class="text-xs font-medium text-tertiary mb-1">
+				<div class="text-xs font-medium text-primary mb-1">
 					Tailwind classes
 					<Tooltip light documentationLink="https://tailwindcss.com/">
 						Use any tailwind classes to style your component

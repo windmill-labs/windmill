@@ -213,7 +213,7 @@
 					}}
 				>
 					{#if isForked}
-						<GitFork size={12} class="text-tertiary mr-2 flex-shrink-0" />
+						<GitFork size={12} class="text-primary mr-2 flex-shrink-0" />
 					{/if}
 					<span class="flex-1">
 						{#if workspace.color}
@@ -422,7 +422,7 @@
 		class="border rounded-md shadow-md bg-white w-full max-w-[640px] p-4 sm:py-8 sm:px-10 mb-6 md:mb-20"
 	>
 		<h1 class="text-center mb-2">Select a workspace</h1>
-		<p class="text-center font-medium text-tertiary text-xs mb-10">
+		<p class="text-center font-medium text-primary text-xs mb-10">
 			Logged in as {$usersWorkspaceStore?.email}
 		</p>
 	</div>

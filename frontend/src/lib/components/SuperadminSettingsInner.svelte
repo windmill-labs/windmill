@@ -110,7 +110,7 @@
 <div class="flex flex-col h-full w-full">
 	<div>
 		<div class="flex justify-between">
-			<div class="text-xs pt-1 text-tertiary flex flex-col">
+			<div class="text-xs pt-1 text-primary flex flex-col">
 				<div>Windmill <Version /></div>
 			</div>
 			<div><Uptodate /></div></div

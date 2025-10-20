@@ -284,7 +284,7 @@
 										</span>
 									</Cell>
 									<Cell class="break-words">
-										<span class="text-xs text-tertiary">{truncate(description ?? '', 50)} </span>
+										<span class="text-xs text-primary">{truncate(description ?? '', 50)} </span>
 									</Cell>
 
 									<Cell class="text-center">

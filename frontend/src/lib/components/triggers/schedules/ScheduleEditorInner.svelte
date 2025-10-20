@@ -998,7 +998,7 @@
 					</ErrorOrRecoveryHandler>
 					<div class="flex flex-row items-center justify-between">
 						<div class="flex flex-row items-center mt-4 font-semibold text-xs gap-2">
-							<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}>
+							<p class={emptyString(errorHandlerPath) ? 'text-primary' : ''}>
 								Triggered when schedule failed</p
 							>
 							<select
@@ -1011,12 +1011,12 @@
 							</select>
 							<input
 								type="number"
-								class="!w-14 text-center {emptyString(errorHandlerPath) ? 'text-tertiary' : ''}"
+								class="!w-14 text-center {emptyString(errorHandlerPath) ? 'text-primary' : ''}"
 								bind:value={failedTimes}
 								disabled={!$enterpriseLicense}
 								min="1"
 							/>
-							<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}
+							<p class={emptyString(errorHandlerPath) ? 'text-primary' : ''}
 								>time{failedTimes > 1 ? 's in a row' : ''}</p
 							>
 						</div>
@@ -1096,7 +1096,7 @@
 							class="flex flex-row items-center mt-5 font-semibold text-xs {emptyString(
 								recoveryHandlerPath
 							)
-								? 'text-tertiary'
+								? 'text-primary'
 								: ''}"
 						>
 							<p>Triggered when schedule recovered</p>

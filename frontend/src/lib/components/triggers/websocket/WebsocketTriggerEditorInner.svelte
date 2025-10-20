@@ -430,7 +430,7 @@
 			<Section label={hideTarget ? 'Runnable options' : 'Runnable'} class="flex flex-col gap-4">
 				{#if !hideTarget}
 					<div>
-						<p class="text-xs mb-1 text-tertiary">
+						<p class="text-xs mb-1 text-primary">
 							Pick a script or flow to be triggered<Required required={true} />
 						</p>
 						<div class="flex flex-row mb-2">
@@ -500,7 +500,7 @@
 			/>
 
 			<Section label="Initial messages">
-				<p class="text-xs mb-1 text-tertiary">
+				<p class="text-xs mb-1 text-primary">
 					Initial messages are sent at the beginning of the connection. They are sent in order.<br
 					/>
 					Raw messages and runnable results are supported.
@@ -642,7 +642,7 @@
 			</Section>
 
 			<Section label="Filters">
-				<p class="text-xs mb-1 text-tertiary">
+				<p class="text-xs mb-1 text-primary">
 					Filters will limit the execution of the trigger to only messages that match all criteria.<br
 					/>
 					The JSON filter checks if the value at the key is equal or a superset of the filter value.

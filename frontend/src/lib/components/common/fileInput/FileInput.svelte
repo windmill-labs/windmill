@@ -258,7 +258,7 @@
 		{...$$restProps}
 	/>
 	{#if defaultFile && (!Array.isArray(defaultFile) || defaultFile.length > 0)}
-		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-tertiary mt-2">
+		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-primary mt-2">
 			Default file: <span class="text-nord-900">{defaultFile}</span>
 		</div>
 	{/if}

@@ -86,7 +86,7 @@
 					{/if}
 				</div>
 				{#if displayType}
-					<div class="text-xs text-tertiary mr-1">
+					<div class="text-xs text-primary mr-1">
 						{fieldType === 'array' && subFieldType
 							? `${fieldTypeToTsType(subFieldType)}[]`
 							: fieldTypeToTsType(fieldType)}
@@ -119,7 +119,7 @@
 				/>
 			</div>
 		{:else if componentInput?.type === 'user' || componentInput?.type == undefined}
-			<span class="text-2xs italic text-tertiary">Field's value is a frontend input</span>
+			<span class="text-2xs italic text-primary">Field's value is a frontend input</span>
 		{/if}
 		{#if componentInput?.type === 'user' && ((fieldType == 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object') || fieldType == 'resource')}
 			<div class="flex flex-row items-center">

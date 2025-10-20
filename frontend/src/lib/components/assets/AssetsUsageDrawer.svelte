@@ -41,7 +41,7 @@
 						</div>
 						<div
 							class={twMerge(
-								'text-xs font-normal border text-tertiary w-10 p-1 text-center rounded-md',
+								'text-xs font-normal border text-primary w-10 p-1 text-center rounded-md',
 								!u.access_type ? 'hover:bg-surface active:opacity-80' : ''
 							)}
 						>

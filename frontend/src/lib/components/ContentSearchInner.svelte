@@ -432,7 +432,7 @@
 			</div>
 		{:else}
 			<div class="flex justify-center items-center h-48">
-				<div class="text-tertiary text-center">
+				<div class="text-primary text-center">
 					<div class="text-2xl font-bold">Empty Search Filter</div>
 					<div class="text-sm"
 						>Start writing, search everywhere a path is referenced for instance</div

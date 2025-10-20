@@ -148,7 +148,7 @@
 						language={job?.language}
 					/>
 				{:else if job && `running` in job ? job.running : false}
-					<div class="text-sm font-semibold text-tertiary mb-1"> Job is still running </div>
+					<div class="text-sm font-semibold text-primary mb-1"> Job is still running </div>
 					<LogViewer
 						jobId={job?.id}
 						duration={job?.['duration_ms']}

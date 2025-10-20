@@ -235,7 +235,7 @@
 				<div bind:clientHeight={footerHeight}>
 					<div class="flex justify-between h-10 p-2">
 						<div class="flex items-center gap-2">
-							<span class="text-sm font-medium text-tertiary">
+							<span class="text-sm font-medium text-primary">
 								Step {selectedIndex + 1} of {tabs.length}
 							</span>
 						</div>

@@ -377,7 +377,7 @@
 
 			<div>
 				<span class="block mb-1 text-emphasis text-xs font-medium"
-					>Label <span class="text-xs text-tertiary">(optional)</span></span
+					>Label <span class="text-xs text-primary">(optional)</span></span
 				>
 				<TextInput inputProps={{ type: 'text' }} bind:value={newTokenLabel} class="w-full" />
 			</div>
@@ -385,7 +385,7 @@
 			{#if !mcpCreationMode}
 				<div>
 					<span class="block mb-1 text-xs text-emphasis font-medium"
-						>Expires In <span class="text-xs text-tertiary">(optional)</span></span
+						>Expires In <span class="text-xs text-primary">(optional)</span></span
 					>
 					<Select
 						bind:value={newTokenExpiration}
@@ -407,7 +407,7 @@
 			{#if mcpCreationMode && (newMcpScope !== 'folder' || selectedFolder.length > 0)}
 				{#if loadingRunnables}
 					<div class="flex flex-col gap-2 col-span-2 pr-4">
-						<span class="block text-xs text-tertiary"
+						<span class="block text-xs text-primary"
 							>Scripts & Flows that will be available via MCP</span
 						>
 						<div class="flex flex-wrap gap-1">
@@ -435,7 +435,7 @@
 									+{validRunnables.length - 3} more
 								</Badge>
 							{:else}
-								<p class="text-xs text-tertiary">
+								<p class="text-xs text-primary">
 									{warning}
 								</p>
 							{/if}

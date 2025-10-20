@@ -536,7 +536,7 @@
 			</Label>
 			{#if !hideTarget}
 				<Section label="Runnable">
-					<p class="text-xs text-tertiary">
+					<p class="text-xs text-primary">
 						Pick a script or flow to be triggered <Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
@@ -581,7 +581,7 @@
 						<TestingBadge />
 					{/if}
 				{/snippet}
-				<p class="text-xs text-tertiary mb-2">
+				<p class="text-xs text-primary mb-2">
 					Pick a database to connect to <Required required={true} />
 				</p>
 				<div class="flex flex-col gap-8">

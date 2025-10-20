@@ -240,7 +240,7 @@
 	{#if isExpanded}
 		<!-- Footer -->
 		<div class="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
-			<p class="text-xs text-tertiary">
+			<p class="text-xs text-primary">
 				{conversations.length} conversation{conversations.length !== 1 ? 's' : ''}
 			</p>
 		</div>

@@ -337,7 +337,7 @@
 				</div>
 			</div>
 			<div class="mt-6 p-2 border-t">
-				<div class="text-xs text-tertiary mb-2">
+				<div class="text-xs text-primary mb-2">
 					{isInitialSetup ? 'Configure initial sync settings' : 'Review migration settings'}
 				</div>
 			</div>
@@ -357,7 +357,7 @@
 									{/each}
 								</div>
 							{:else}
-								<div class="text-tertiary text-xs">No include paths configured</div>
+								<div class="text-primary text-xs">No include paths configured</div>
 							{/if}
 						</div>
 
@@ -370,7 +370,7 @@
 									{/each}
 								</div>
 							{:else}
-								<div class="text-tertiary text-xs">No exclude paths configured</div>
+								<div class="text-primary text-xs">No exclude paths configured</div>
 							{/if}
 						</div>
 					</div>
@@ -383,7 +383,7 @@
 									<div class={enabled ? 'text-green-600' : 'text-gray-400'}>
 										{enabled ? '✓' : '✗'}
 									</div>
-									<span class={enabled ? 'text-primary' : 'text-tertiary'}>
+									<span class={enabled ? 'text-primary' : 'text-primary'}>
 										{capitalize(key)}
 									</span>
 								</div>
@@ -407,7 +407,7 @@
 					>
 						<Terminal size={16} />
 						<span>Update settings with CLI</span>
-						<Edit3 size={14} class="text-tertiary" />
+						<Edit3 size={14} class="text-primary" />
 						{#if showCliInstructions}
 							<ChevronUp size={16} />
 						{:else}
@@ -417,12 +417,12 @@
 
 					{#if showCliInstructions}
 						<div class="mt-3 bg-surface-secondary rounded-lg p-3">
-							<div class="text-xs text-tertiary mb-2">
+							<div class="text-xs text-primary mb-2">
 								These filter settings are sourced from the <code
 									class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code
 								>
-								file in your git repository. To modify them, edit the file in your repository,
-								commit the changes, and sync using the commands below. Learn more about
+								file in your git repository. To modify them, edit the file in your repository, commit
+								the changes, and sync using the commands below. Learn more about
 								<a
 									href="https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml"
 									target="_blank"
@@ -447,7 +447,7 @@ git push
 									wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path}{/if}</pre
 							>
 							{#if useIndividualBranch}
-								<div class="text-xs text-tertiary mt-3">
+								<div class="text-xs text-primary mt-3">
 									<div class="font-medium mb-1">Promotion Mode Configuration:</div>
 									<div
 										>You can add promotion-specific overrides in your <code

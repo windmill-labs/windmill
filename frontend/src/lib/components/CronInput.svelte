@@ -228,7 +228,7 @@
 			{/if}
 			<div class="flex flex-row-reverse text-2xs text-secondary hover:underline">
 				<a
-					class="text-tertiary"
+					class="text-primary"
 					href="https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax"
 					target="_blank">Croner</a
 				>

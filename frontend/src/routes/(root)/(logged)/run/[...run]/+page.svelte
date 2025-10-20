@@ -763,7 +763,7 @@
 					{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
 						<Calendar class="text-secondary" size={20} />
 					{:else if job && 'running' in job && job.scheduled_for}
-						<Hourglass class="text-tertiary" size={20} />
+						<Hourglass class="text-primary" size={20} />
 					{/if}
 					<span class="text-emphasis text-2xl font-semibold"
 						>{job.script_path ??
@@ -822,7 +822,7 @@
 									localStorage.setItem('hideExplicitProgressTip', 'true')
 									showExplicitProgressTip = false
 								}}
-								class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-tertiary hover:text-tertiary focus:outline-none"
+								class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-primary hover:text-primary focus:outline-none"
 							>
 								<span class="sr-only">Close</span>
 								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">

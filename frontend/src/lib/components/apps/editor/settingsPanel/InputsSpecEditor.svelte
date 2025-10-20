@@ -178,7 +178,7 @@
 					{/if}
 				</div>
 				{#if displayType}
-					<div class="text-xs text-tertiary mr-1">
+					<div class="text-xs text-primary mr-1">
 						{fieldType === 'array' && subFieldType
 							? `${fieldTypeToTsType(subFieldType)}[]`
 							: fieldTypeToTsType(fieldType)}
@@ -360,7 +360,7 @@
 				regexFilter={/\.(png|jpg|jpeg|svg|webp)$/i}
 			/>
 		{:else if componentInput?.type === 'user'}
-			<span class="text-2xs italic text-tertiary">Field's value is set by the user</span>
+			<span class="text-2xs italic text-primary">Field's value is set by the user</span>
 		{/if}
 		{#if (componentInput?.type === 'evalv2' || componentInput?.type === 'connected' || componentInput?.type === 'user') && ((fieldType == 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object') || fieldType == 'resource')}
 			<div class="flex flex-row items-center">

@@ -68,7 +68,7 @@
 			</Subsection>
 
 			<Subsection label="Topics">
-				<p class="text-xs text-tertiary mb-2"
+				<p class="text-xs text-primary mb-2"
 					>Choose which topics you want to subscribe to<Required required={true} />
 				</p>
 				<div class="flex flex-col gap-4 mt-1">

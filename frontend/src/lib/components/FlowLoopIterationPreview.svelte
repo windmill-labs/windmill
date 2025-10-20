@@ -184,7 +184,7 @@
 					bind:selectedJobStep
 				/>
 			{:else}
-				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>
+				<div class="italic text-primary h-full grow"> Flow status will be displayed here </div>
 			{/if}
 		</div>
 	</div>

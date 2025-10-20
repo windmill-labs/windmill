@@ -16,12 +16,12 @@
 		Waiting to be resumed by resume events such as approvals
 	</span>
 {:else if type == 'WaitingForPriorSteps'}
-	<span class="italic text-tertiary">
+	<span class="italic text-primary">
 		<Hourglass class="inline" />
 		Waiting for prior steps to complete
 	</span>
 {:else if type == 'WaitingForExecutor'}
-	<span class="italic text-tertiary">
+	<span class="italic text-primary">
 		<Hourglass class="inline" />
 		{#if scheduled_for && forLater(scheduled_for.toString())}
 			Job is scheduled to be executed at {displayDate(scheduled_for, true)}

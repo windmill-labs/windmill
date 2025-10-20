@@ -256,7 +256,7 @@
 		<Tooltip>
 			<div
 				class={twMerge(
-					'bg-surface h-6 flex items-center gap-1.5 rounded-md drop-shadow-base text-tertiary overflow-clip transition-colors',
+					'bg-surface h-6 flex items-center gap-1.5 rounded-md drop-shadow-base text-primary overflow-clip transition-colors',
 					isSelected
 						? 'outline outline-1 outline-accent bg-surface-accent-selected/30 text-accent'
 						: ''
@@ -306,7 +306,7 @@
 						'text-xs',
 						data.asset.kind === 'resource'
 							? 'text-blue-400 cursor-pointer'
-							: 'dark:text-tertiary text-tertiary-inverse'
+							: 'dark:text-primary text-primary-inverse'
 					)}
 					onclick={() => {
 						if (data.asset.kind === 'resource')
@@ -315,7 +315,7 @@
 				>
 					{data.asset.path}
 				</a><br />
-				<span class="dark:text-tertiary text-tertiary-inverse text-xs"
+				<span class="dark:text-primary text-primary-inverse text-xs"
 					>{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
 				>
 			</svelte:fragment>

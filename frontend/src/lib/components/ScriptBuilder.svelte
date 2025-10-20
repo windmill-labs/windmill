@@ -1120,7 +1120,7 @@
 												<DefaultScripts />
 											{/snippet}
 											{#if lockedLanguage}
-												<div class="text-sm text-tertiary italic mb-2">
+												<div class="text-sm text-primary italic mb-2">
 													As a forked script, the language '{script.language}' cannot be modified.
 												</div>
 											{/if}
@@ -1150,7 +1150,7 @@
 														>
 															<span class="truncate">{label}</span>
 															{#if lang === 'ruby'}
-																<span class="text-tertiary !text-xs"> BETA </span>
+																<span class="text-primary !text-xs"> BETA </span>
 															{/if}
 														</Button>
 														{#snippet text()}
@@ -1562,8 +1562,7 @@
 												</Alert>
 											{/if}
 											<div class="w-full mt-2">
-												<span class="text-tertiary text-xs pb-2"
-													>Format is: `{'<KEY>=<VALUE>'}`</span
+												<span class="text-primary text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span
 												>
 												{#if Array.isArray(script.envs ?? [])}
 													{#each script.envs ?? [] as _v, i}
@@ -1706,7 +1705,7 @@
 									>
 										<Badge
 											color="gray"
-											class="center-center !bg-surface-secondary !text-tertiary {inputSizeClasses.md}  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
+											class="center-center !bg-surface-secondary !text-primary {inputSizeClasses.md}  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
 										>
 											<Pen size={12} class="mr-2" /> Path
 										</Badge>

@@ -615,11 +615,11 @@
 					{customUi}
 				/>
 			{:else if loadingHistory}
-				<div class="italic text-tertiary h-full grow mx-auto flex flex-row items-center gap-2">
+				<div class="italic text-primary h-full grow mx-auto flex flex-row items-center gap-2">
 					<Loader2 class="animate-spin" /> <span> Loading history... </span>
 				</div>
 			{:else}
-				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>
+				<div class="italic text-primary h-full grow"> Flow status will be displayed here </div>
 			{/if}
 		</div>
 	</div>

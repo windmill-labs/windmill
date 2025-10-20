@@ -165,14 +165,14 @@
 
 				<label class="block pb-2">
 					<span class="text-xs font-medium text-emphasis">Region</span>
-					<span class="text-tertiary text-2xs"
+					<span class="text-primary text-2xs"
 						>If left empty, will be derived automatically from $AWS_REGION</span
 					>
 					<input type="text" bind:value={bucket_config.region} />
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-medium text-emphasis">Access key ID</span>
-					<span class="text-tertiary text-2xs"
+					<span class="text-primary text-2xs"
 						>If left empty, will be derived automatically from $AWS_ACCESS_KEY_ID, pod or ec2
 						profile</span
 					>
@@ -180,7 +180,7 @@
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-medium text-emphasis">Secret key</span>
-					<span class="text-tertiary text-2xs"
+					<span class="text-primary text-2xs"
 						>If left empty, will be derived automatically from $AWS_SECRET_KEY, pod or ec2 profile</span
 					>
 					<input
@@ -191,13 +191,13 @@
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-medium text-emphasis">Endpoint</span>
-					<span class="text-tertiary text-2xs"
+					<span class="text-primary text-2xs"
 						>Only needed for non AWS S3 providers like R2 or MinIo</span
 					>
 					<input type="text" bind:value={bucket_config.endpoint} />
 				</label>
 				<div class="block pb-2">
-					<span class="text-tertiary text-2xs">Disable if using https only policy</span>
+					<span class="text-primary text-2xs">Disable if using https only policy</span>
 					<div>
 						<Toggle bind:checked={bucket_config.allow_http} options={{ right: 'Allow http' }} />
 					</div>
@@ -221,21 +221,21 @@
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-medium text-emphasis"
-						>Tenant ID <span class="text-2xs text-tertiary">(optional)</span></span
+						>Tenant ID <span class="text-2xs text-primary">(optional)</span></span
 					>
 					<input type="text" bind:value={bucket_config.tenantId} />
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-medium text-emphasis"
-						>Client ID <span class="text-2xs text-tertiary">(optional)</span></span
+						>Client ID <span class="text-2xs text-primary">(optional)</span></span
 					>
 					<input type="text" bind:value={bucket_config.clientId} />
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-medium text-emphasis"
-						>Endpoint <span class="text-2xs text-tertiary">(optional)</span></span
+						>Endpoint <span class="text-2xs text-primary">(optional)</span></span
 					>
-					<span class="text-tertiary text-2xs"
+					<span class="text-primary text-2xs"
 						>Only needed for non Azure Blob providers like Azurite</span
 					>
 					<input type="text" bind:value={bucket_config.endpoint} />
@@ -264,7 +264,7 @@
 				</label>
 				<label class="block pb-2">
 					<span class="text-xs font-medium text-emphasis">Service Account Key</span>
-					<span class="text-tertiary text-2xs">JSON content of the service account key file</span>
+					<span class="text-primary text-2xs">JSON content of the service account key file</span>
 					<SimpleEditor
 						lang="json"
 						bind:code={

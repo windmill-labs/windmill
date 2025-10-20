@@ -403,7 +403,7 @@
 			</ToggleButtonGroup>
 		</div>
 
-		<div class="relative text-tertiary grow min-w-[100px]">
+		<div class="relative text-primary grow min-w-[100px]">
 			<!-- svelte-ignore a11y_autofocus -->
 			<TextInput
 				inputProps={{

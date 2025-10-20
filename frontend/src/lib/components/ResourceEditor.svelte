@@ -243,7 +243,7 @@
 			</h4>
 			{#if can_write && editDescription}
 				<div>
-					<div class="flex flex-row-reverse text-2xs text-tertiary -mt-1">GH Markdown</div>
+					<div class="flex flex-row-reverse text-2xs text-primary -mt-1">GH Markdown</div>
 					<textarea
 						class="text-xs text-primary font-normal"
 						disabled={!can_write}
