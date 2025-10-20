@@ -1,8 +1,8 @@
 use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
 use crate::ai::utils::{
-    add_message_to_conversation, cleanup_mcp_clients, find_unique_tool_name,
-    get_flow_chat_settings, get_flow_job_runnable_and_raw_flow, get_step_name_from_flow,
-    is_anthropic_provider, load_mcp_tools, parse_raw_script_schema,
+    add_message_to_conversation, cleanup_mcp_clients, filter_schema_by_input_transforms,
+    find_unique_tool_name, get_flow_chat_settings, get_flow_job_runnable_and_raw_flow,
+    get_step_name_from_flow, is_anthropic_provider, load_mcp_tools, parse_raw_script_schema,
     update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
     FlowChatSettings,
 };
@@ -169,55 +169,96 @@ pub async fn handle_ai_agent_job(
                     input_transforms,
                     is_trigger,
                     pass_flow_input_directly,
-                }) => match hash {
-                    Some(hash) => {
-                        let (_, metadata) = cache::script::fetch(conn, hash.clone()).await?;
-                        Ok::<_, Error>(
-                            metadata
-                                .schema
-                                .clone()
-                                .map(|s| RawValue::from_string(s).ok())
-                                .flatten(),
-                        )
-                    }
-                    None => {
-                        if path.starts_with("hub/") {
-                            let hub_script = get_full_hub_script_by_path(
-                                StripPath(path.to_string()),
-                                &HTTP_CLIENT,
-                                None,
+                }) => {
+                    tracing::info!(
+                        "HERE Processing Script tool '{}' from path '{}' with {} input transforms",
+                        summary,
+                        path,
+                        input_transforms.len()
+                    );
+
+                    let schema = match hash {
+                        Some(hash) => {
+                            let (_, metadata) = cache::script::fetch(conn, hash.clone()).await?;
+                            Ok::<_, Error>(
+                                metadata
+                                    .schema
+                                    .clone()
+                                    .map(|s| RawValue::from_string(s).ok())
+                                    .flatten(),
                             )
-                            .await?;
-                            Ok(Some(hub_script.schema))
-                        } else {
-                            let hash = get_latest_hash_for_path(
-                                db,
-                                &job.workspace_id,
-                                path.as_str(),
-                                true,
-                            )
-                            .await?
-                            .0;
-                            // update module definition to use a fixed hash so all tool calls match the same schema
-                            t.value = to_raw_value(&FlowModuleValue::Script {
-                                hash: Some(hash),
-                                path: path.clone(),
-                                tag_override: tag_override.clone(),
-                                input_transforms: input_transforms.clone(),
-                                is_trigger: *is_trigger,
-                                pass_flow_input_directly: *pass_flow_input_directly,
-                            });
-                            let (_, metadata) = cache::script::fetch(conn, hash).await?;
-                            Ok(metadata
-                                .schema
-                                .clone()
-                                .map(|s| RawValue::from_string(s).ok())
-                                .flatten())
                         }
-                    }
-                },
-                Ok(FlowModuleValue::RawScript { content, language, .. }) => {
-                    Ok(Some(parse_raw_script_schema(&content, &language)?))
+                        None => {
+                            if path.starts_with("hub/") {
+                                let hub_script = get_full_hub_script_by_path(
+                                    StripPath(path.to_string()),
+                                    &HTTP_CLIENT,
+                                    None,
+                                )
+                                .await?;
+                                Ok(Some(hub_script.schema))
+                            } else {
+                                let hash = get_latest_hash_for_path(
+                                    db,
+                                    &job.workspace_id,
+                                    path.as_str(),
+                                    true,
+                                )
+                                .await?
+                                .0;
+                                // update module definition to use a fixed hash so all tool calls match the same schema
+                                t.value = to_raw_value(&FlowModuleValue::Script {
+                                    hash: Some(hash),
+                                    path: path.clone(),
+                                    tag_override: tag_override.clone(),
+                                    input_transforms: input_transforms.clone(),
+                                    is_trigger: *is_trigger,
+                                    pass_flow_input_directly: *pass_flow_input_directly,
+                                });
+                                let (_, metadata) = cache::script::fetch(conn, hash).await?;
+                                Ok(metadata
+                                    .schema
+                                    .clone()
+                                    .map(|s| RawValue::from_string(s).ok())
+                                    .flatten())
+                            }
+                        }
+                    }?;
+
+                    // Filter schema based on completed input transforms
+                    let filtered_schema = if let Some(s) = schema {
+                        Some(filter_schema_by_input_transforms(s, input_transforms)?)
+                    } else {
+                        tracing::info!(
+                            "HERE No schema found for tool '{}', skipping filtering",
+                            summary
+                        );
+                        None
+                    };
+
+                    Ok::<_, Error>(filtered_schema)
+                }
+                Ok(FlowModuleValue::RawScript { content, language, input_transforms, .. }) => {
+                    tracing::info!(
+                        "HERE Processing RawScript tool '{}' with {} input transforms",
+                        summary,
+                        input_transforms.len()
+                    );
+
+                    let schema = Some(parse_raw_script_schema(&content, &language)?);
+
+                    // Filter schema based on completed input transforms
+                    let filtered_schema = if let Some(s) = schema {
+                        Some(filter_schema_by_input_transforms(s, input_transforms)?)
+                    } else {
+                        tracing::info!(
+                            "HERE No schema found for RawScript tool '{}', skipping filtering",
+                            summary
+                        );
+                        None
+                    };
+
+                    Ok::<_, Error>(filtered_schema)
                 }
                 Err(e) => {
                     return Err(Error::internal_err(format!(

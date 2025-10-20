@@ -10,7 +10,7 @@ use windmill_common::{
     error::Error,
     flow_conversations::{add_message_to_conversation_tx, MessageType},
     flow_status::AgentAction,
-    flows::Step,
+    flows::{InputTransform, Step},
     jobs::JobKind,
     scripts::{ScriptHash, ScriptLang},
     worker::to_raw_value,
@@ -49,6 +49,134 @@ pub fn parse_raw_script_schema(
     };
 
     Ok(to_raw_value(&schema))
+}
+
+/// Filters out properties from a JSON schema that have completed input transforms.
+/// This allows AI agents to only see and fill parameters that don't have user-configured values.
+///
+/// A transform is considered "completed" if:
+/// - Static transform: value is defined and not empty/null
+/// - JavaScript transform: expr is defined and not empty
+pub fn filter_schema_by_input_transforms(
+    schema: Box<RawValue>,
+    input_transforms: &HashMap<String, InputTransform>,
+) -> Result<Box<RawValue>, Error> {
+    // Parse the schema JSON
+    let mut schema_value: serde_json::Value = serde_json::from_str(schema.get())
+        .context("Failed to parse schema JSON")
+        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+    tracing::info!(
+        "HERE Filtering schema with {} input transforms defined",
+        input_transforms.len()
+    );
+
+    // Collect keys to remove (parameters with completed input transforms)
+    let keys_to_remove: Vec<String> = input_transforms
+        .iter()
+        .filter_map(|(key, transform)| {
+            let is_completed = match transform {
+                InputTransform::Static { value } => {
+                    // Completed if value is defined and not null/empty
+                    let val_str = value.get().trim();
+                    let is_complete = !val_str.is_empty() && val_str != "null";
+                    tracing::info!(
+                        "HERE Parameter '{}': Static transform, value='{}', completed={}",
+                        key,
+                        if val_str.len() > 50 {
+                            format!("{}...", &val_str[..50])
+                        } else {
+                            val_str.to_string()
+                        },
+                        is_complete
+                    );
+                    is_complete
+                }
+                InputTransform::Javascript { expr } => {
+                    // Completed if expr is defined and not empty
+                    let is_complete = !expr.trim().is_empty();
+                    let expr_display = if expr.len() > 50 {
+                        format!("{}...", &expr[..50])
+                    } else {
+                        expr.to_string()
+                    };
+                    tracing::info!(
+                        "HERE Parameter '{}': JavaScript transform, expr='{}', completed={}",
+                        key,
+                        expr_display,
+                        is_complete
+                    );
+                    is_complete
+                }
+            };
+            if is_completed {
+                Some(key.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if !keys_to_remove.is_empty() {
+        tracing::info!(
+            "HERE Removing {} completed parameters from schema: {:?}",
+            keys_to_remove.len(),
+            keys_to_remove
+        );
+
+        let original_property_count = schema_value
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .map(|p| p.len())
+            .unwrap_or(0);
+
+        // Remove completed parameters from properties
+        if let Some(properties) = schema_value
+            .get_mut("properties")
+            .and_then(|p| p.as_object_mut())
+        {
+            for key in &keys_to_remove {
+                properties.remove(key);
+            }
+        }
+
+        // Also remove from required array
+        if let Some(required) = schema_value
+            .get_mut("required")
+            .and_then(|r| r.as_array_mut())
+        {
+            let original_required_count = required.len();
+            required.retain(|item| {
+                if let Some(key) = item.as_str() {
+                    !keys_to_remove.contains(&key.to_string())
+                } else {
+                    true
+                }
+            });
+            tracing::info!(
+                "HERE Filtered required array: {} -> {} items",
+                original_required_count,
+                required.len()
+            );
+        }
+
+        let final_property_count = schema_value
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .map(|p| p.len())
+            .unwrap_or(0);
+
+        tracing::info!(
+            "HERE Schema filtering complete: {} -> {} properties remaining for AI to fill",
+            original_property_count,
+            final_property_count
+        );
+    } else {
+        tracing::info!("No completed input transforms found, schema unchanged");
+    }
+
+    // Convert back to RawValue
+    Ok(to_raw_value(&schema_value))
 }
 
 pub struct FlowJobRunnableIdAndRawFlow {
