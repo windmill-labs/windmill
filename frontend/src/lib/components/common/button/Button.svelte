@@ -218,7 +218,7 @@
 			'focus-visible:ring-2 font-normal',
 			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md' : 'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
-			'active:opacity-80 transition-all',
+			'active:opacity-80 transition-[background-color,opacity] duration-150',
 			disabled
 				? ['default', 'subtle'].includes(variant)
 					? '!text-disabled'
