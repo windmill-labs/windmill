@@ -29,5 +29,5 @@
 		{/each}
 	</ul>
 {:else}
-	<div class="text-tertiary text-sm"> No inputs </div>
+	<div class="text-tertiary text-xs"> No inputs </div>
 {/if}

@@ -456,7 +456,7 @@
 			</ResizeTransitionWrapper>
 		{/each}
 	{:else if !shouldHideNoInputs}
-		<div class="text-secondary text-sm">No inputs</div>
+		<div class="text-secondary text-xs">No inputs</div>
 	{/if}
 </div>
 {#if !noVariablePicker}

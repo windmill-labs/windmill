@@ -672,24 +672,18 @@
 																maximum number of attempts as defined below.
 															</Tooltip>
 														{/snippet}
-														<span class="text-2xs"
-															>After all retries attempts have been exhausted:</span
-														>
-														<div class="flex gap-2 mb-4">
+														<Label label="After all retries attempts have been exhausted:">
 															<Toggle
 																size="xs"
 																bind:checked={flowModule.continue_on_error}
 																options={{
 																	left: 'Stop on error and propagate error up',
-																	right: "Continue on error with error as step's return"
+																	right: "Continue on error with error as step's return",
+																	rightTooltip:
+																		'When enabled, the flow will continue to the next step after going through all the retries (if any) even if this step fails. This enables to process the error in a branch one for instance.'
 																}}
 															/>
-															<Tooltip>
-																When enabled, the flow will continue to the next step after going
-																through all the retries (if any) even if this step fails. This
-																enables to process the error in a branch one for instance.
-															</Tooltip>
-														</div>
+														</Label>
 														<div class="my-8"></div>
 														<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule />
 													</Section>

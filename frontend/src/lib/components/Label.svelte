@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import Required from './Required.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	interface Props {
 		label?: string | undefined
@@ -11,6 +12,7 @@
 		headerClass?: string
 		class?: string | undefined
 		for?: string | undefined
+		tooltip?: string | undefined
 		header?: import('svelte').Snippet
 		error?: import('svelte').Snippet
 		action?: import('svelte').Snippet
@@ -26,6 +28,7 @@
 		headerClass = '',
 		class: clazz = undefined,
 		for: forAttr = undefined,
+		tooltip = undefined,
 		header,
 		error,
 		action,
@@ -44,6 +47,9 @@
 					><label for={forAttr}>{label}</label>
 					{#if required}
 						<Required required={true} />
+					{/if}
+					{#if tooltip}
+						<Tooltip>{tooltip}</Tooltip>
 					{/if}
 				</span>
 				{@render header?.()}

@@ -848,7 +848,7 @@
 									</div>
 								{/each}
 							{:else if !shouldHideNoInputs}
-								<div class="text-secondary text-sm p-2">No inputs</div>
+								<div class="text-secondary text-xs p-2">No inputs</div>
 							{/if}
 						</div>
 					{:else}
