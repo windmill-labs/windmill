@@ -91,7 +91,7 @@
 			<Button
 				size="xs"
 				startIcon={{ icon: RotateCcw }}
-				color={'light'}
+				variant="default"
 				on:click={() => {
 					onReset?.()
 				}}
@@ -102,6 +102,7 @@
 		{#if canSave}
 			<Tooltip placement="bottom-end" disablePopup={!saveDisabled && !cloudDisabled && isDeployed}>
 				<Button
+					variant="accent"
 					size="xs"
 					startIcon={{ icon: Save }}
 					disabled={saveDisabled || cloudDisabled || !isDeployed || !trigger?.draftConfig}
