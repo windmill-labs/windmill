@@ -258,7 +258,7 @@
 				class={twMerge(
 					'bg-surface h-6 flex items-center gap-1.5 rounded-md drop-shadow-base text-tertiary overflow-clip transition-colors',
 					isSelected
-						? 'outline outline-1 outline-accent bg-surface-accent-selected text-accent'
+						? 'outline outline-1 outline-accent bg-surface-accent-selected/30 text-accent'
 						: ''
 				)}
 				onmouseenter={() =>
@@ -269,7 +269,9 @@
 				<AssetGenericIcon
 					assetKind={data.asset.kind}
 					fill={''}
-					class="shrink-0 ml-1 fill-tertiary stroke-tertiary"
+					class="shrink-0 ml-1 {isSelected
+						? 'fill-accent stroke-accent'
+						: 'fill-tertiary stroke-tertiary'}"
 					size="16px"
 				/>
 				<span class="text-3xs truncate flex-1">

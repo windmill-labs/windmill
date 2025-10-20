@@ -226,7 +226,7 @@
 				: '',
 			loading ? 'cursor-wait' : '',
 			selected && ['default', 'subtle'].includes(variant)
-				? '!bg-surface-accent-selected !text-accent !border-border-selected'
+				? '!bg-surface-accent-selected/30 !text-accent !border-border-selected'
 				: '',
 			btnClasses
 		)
