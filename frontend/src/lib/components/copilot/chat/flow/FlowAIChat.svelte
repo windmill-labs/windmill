@@ -532,8 +532,11 @@
 					module.value.parallelism = undefined
 				} else if (module.value.parallel || opts.parallel === true) {
 					// Only set parallelism if parallel is enabled
-					const n = Math.max(1, Math.floor(Math.abs(opts.parallelism)))
-					module.value.parallelism = n
+					const n = Math.max(1, Math.floor(Math.abs(opts.parallelism)));
+					module.value.parallelism = {
+						type: 'static',
+						value: n
+					}
 				}
 			}
 

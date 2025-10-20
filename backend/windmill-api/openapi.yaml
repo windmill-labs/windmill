@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.554.1
+  version: 1.563.3
   title: Windmill API
 
   contact:
@@ -770,34 +770,26 @@ paths:
               schema:
                 type: boolean
 
-  /settings/databases_exist:
+  /settings/get_ducklake_instance_catalog_db_status:
     post:
-      summary: checks that all given databases exist or else return the ones that don't
-      operationId: databasesExist
+      summary: Returns the set-up statuses of ducklake instance catalog dbs
+      operationId: getDucklakeInstanceCatalogDbStatus
       tags:
         - setting
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                type: string
       responses:
         "200":
-          description: databases that do not exist
+          description: Statuses of all ducklake instance catalog dbs
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: string
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
 
-  /settings/create_ducklake_database/{name}:
+  /settings/setup_ducklake_catalog_db/{name}:
     post:
       summary: Runs CREATE DATABASE on the Windmill Postgres and grants access to the ducklake_user
-      operationId: createDucklakeDatabase
+      operationId: setupDucklakeCatalogDb
       tags:
         - setting
       parameters:
@@ -812,7 +804,8 @@ paths:
           description: status
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
 
   /settings/global/{key}:
     get:
@@ -1725,6 +1718,11 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: only_delete_forks
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: status
@@ -4194,6 +4192,33 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/resources/git_commit_hash/{path}:
+    get:
+      summary: get git repository latest commit hash
+      operationId: getGitCommitHash
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: git_ssh_identity
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: git commit hash
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  commit_hash:
+                    type: string
+                    description: Latest commit hash from git ls-remote
+                required:
+                  - commit_hash
+
   /w/{workspace}/resources/exists/{path}:
     get:
       summary: does resource exists
@@ -6536,6 +6561,8 @@ paths:
         - flow_conversation
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
         - name: conversation_id
           description: conversation id
           in: path
@@ -6543,8 +6570,13 @@ paths:
           schema:
             type: string
             format: uuid
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
+        - name: after_id
+          description: id to fetch only the messages after that id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
           description: conversation messages
@@ -6990,6 +7022,23 @@ paths:
     get:
       summary: get public secret of app
       operationId: getPublicSecretOfApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: app secret
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/secret_of_latest_version/{path}:
+    get:
+      summary: get public secret of latest version of an app bundle
+      operationId: getPublicSecretOfLatestVersionOfApp
       tags:
         - app
       parameters:
@@ -13419,6 +13468,160 @@ paths:
               schema:
                 $ref: "#/components/schemas/WindmillFilePreview"
 
+  /w/{workspace}/job_helpers/list_git_repo_files:
+    get:
+      summary: List the file keys available in instance object storage with resource-based access control
+      operationId: listGitRepoFiles
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: max_keys
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: marker
+          in: query
+          schema:
+            type: string
+        - name: prefix
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of file keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  next_marker:
+                    type: string
+                  windmill_large_files:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WindmillLargeFile"
+                  restricted_access:
+                    type: boolean
+                required:
+                  - windmill_large_files
+
+  /w/{workspace}/job_helpers/load_git_repo_file_preview:
+    get:
+      summary: Load a preview of a file from instance storage with resource-based access control
+      operationId: loadGitRepoFilePreview
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: file_size_in_bytes
+          in: query
+          schema:
+            type: integer
+        - name: file_mime_type
+          in: query
+          schema:
+            type: string
+        - name: csv_separator
+          in: query
+          schema:
+            type: string
+        - name: csv_has_header
+          in: query
+          schema:
+            type: boolean
+        - name: read_bytes_from
+          in: query
+          schema:
+            type: integer
+        - name: read_bytes_length
+          in: query
+          schema:
+            type: integer
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FilePreview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFilePreview"
+
+  /w/{workspace}/job_helpers/load_git_repo_file_metadata:
+    get:
+      summary: Load file metadata from instance storage with resource-based access control
+      operationId: loadGitRepoFileMetadata
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FileMetadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFileMetadata"
+
+  /w/{workspace}/job_helpers/check_s3_folder_exists:
+    get:
+      summary: Check if S3 path exists and is a folder
+      operationId: checkS3FolderExists
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          description: S3 file key to check (e.g., gitrepos/{workspace_id}/u/user/resource/{commit_hash})
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: S3 folder existence check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exists:
+                    type: boolean
+                    description: Whether the path exists
+                  is_folder:
+                    type: boolean
+                    description: Whether the path is a folder (true) or file (false)
+                required:
+                  - exists
+                  - is_folder
+
   /w/{workspace}/job_helpers/load_parquet_preview/{path}:
     get:
       summary: Load a preview of a parquet file
@@ -13598,6 +13801,67 @@ paths:
     post:
       summary: Upload file to S3 bucket
       operationId: fileUpload
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: file_extension
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - name: content_type
+          in: query
+          schema:
+            type: string
+        - name: content_disposition
+          in: query
+          schema:
+            type: string
+      requestBody:
+        description: File content
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: File upload status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_key:
+                    type: string
+                required:
+                  - file_key
+
+  /w/{workspace}/job_helpers/upload_git_repo_file_to_instance_storage:
+    post:
+      summary: Upload a file to the instance storage gitrepos section for viewing
+      operationId: gitRepoViewerFileUpload
       tags:
         - helpers
       parameters:
@@ -14795,7 +15059,7 @@ components:
           description: The conversation this message belongs to
         message_type:
           type: string
-          enum: [user, assistant, system]
+          enum: [user, assistant, system, tool]
           description: Type of the message
         content:
           type: string
@@ -14809,6 +15073,12 @@ components:
           type: string
           format: date-time
           description: When the message was created
+        step_name:
+          type: string
+          description: The step name that produced that message
+        success:
+          type: boolean
+          description: Whether the message is a success
 
     EndpointTool:
       type: object
@@ -15289,7 +15559,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
-              "singlescriptflow",
+              "singlestepflow",
               "flowscript",
               "flownode",
               "appscript",
@@ -15399,7 +15669,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
-              "singlescriptflow",
+              "singlestepflow",
               "flowscript",
               "flownode",
               "appscript",
@@ -16268,6 +16538,9 @@ components:
           format: date-time
         cron_version:
           type: string
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - path
         - edited_by
@@ -16386,6 +16659,9 @@ components:
         cron_version:
           type: string
           description: The version of the cron schedule to use (last is v2)
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - path
         - schedule
@@ -16459,6 +16735,9 @@ components:
         cron_version:
           type: string
           description: The version of the cron schedule to use (last is v2)
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - schedule
         - timezone
@@ -16615,6 +16894,13 @@ components:
         - delete
         - patch
 
+    HttpRequestType:
+      type: string
+      enum:
+        - sync
+        - async
+        - sync_sse
+
     HttpTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -16641,8 +16927,8 @@ components:
           type: string
         description:
           type: string
-        is_async:
-          type: boolean
+        request_type:
+          $ref: "#/components/schemas/HttpRequestType"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
@@ -16662,7 +16948,7 @@ components:
 
       required:
         - route_path
-        - is_async
+        - request_type
         - authentication_method
         - http_method
         - is_static_website
@@ -16704,6 +16990,9 @@ components:
           type: string
         is_async:
           type: boolean
+          description: Deprecated, use request_type instead
+        request_type:
+          $ref: "#/components/schemas/HttpRequestType"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
@@ -16724,7 +17013,6 @@ components:
         - script_path
         - route_path
         - is_flow
-        - is_async
         - authentication_method
         - http_method
         - is_static_website
@@ -16763,6 +17051,9 @@ components:
           $ref: "#/components/schemas/HttpMethod"
         is_async:
           type: boolean
+          description: Deprecated, use request_type instead
+        request_type:
+          $ref: "#/components/schemas/HttpRequestType"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
@@ -16782,7 +17073,6 @@ components:
         - script_path
         - is_flow
         - kind
-        - is_async
         - authentication_method
         - http_method
         - is_static_website
@@ -17315,6 +17605,48 @@ components:
         - aws_resource_path
         - enabled
         - aws_auth_resource_type
+
+    LoggedWizardStatus:
+      type: string
+      enum:
+        - OK
+        - SKIP
+        - FAIL
+
+    DucklakeInstanceCatalogDbStatusLogs:
+      type: object
+      properties:
+        super_admin:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        database_credentials:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        valid_dbname:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        created_database:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+          description: Created database status log
+        db_connect:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        grant_permissions:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+
+    DucklakeInstanceCatalogDbStatus:
+      type: object
+      required:
+        - logs
+        - success
+      properties:
+        logs:
+          $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatusLogs"
+        success:
+          type: boolean
+          description: Whether the operation completed successfully
+          example: true
+        error:
+          type: string
+          nullable: true
+          description: Error message if the operation failed
+          example: "Connection timeout"
 
     NewSqsTrigger:
       type: object
@@ -18010,11 +18342,14 @@ components:
               created_by:
                 type: string
                 nullable: true
+              disabled:
+                type: boolean
             required:
               - id
               - name
               - username
               - color
+              - disabled
       required:
         - email
         - workspaces

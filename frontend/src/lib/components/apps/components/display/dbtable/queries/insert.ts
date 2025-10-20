@@ -1,4 +1,5 @@
 import type { AppInput } from '$lib/components/apps/inputType'
+import { wrapDucklakeQuery, type DbInput } from '$lib/components/dbOps'
 import { buildParameters, ColumnIdentity, type DbType } from '../utils'
 import { getLanguageByResourceType, type ColumnDef } from '../utils'
 
@@ -99,22 +100,19 @@ export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbT
 	const commaOrEmpty = shouldInsertComma ? ', ' : ''
 
 	query += `INSERT INTO ${table} (${columnNames}) VALUES (${insertValues}${commaOrEmpty}${defaultValues})`
-	console.log(query)
 	return query
 }
 
-export function getInsertInput(
-	table: string,
-	columns: ColumnDef[],
-	resource: string,
-	dbType: DbType
-): AppInput {
+export function getInsertInput(dbInput: DbInput, table: string, columns: ColumnDef[]): AppInput {
+	const dbType = dbInput.type === 'ducklake' ? 'duckdb' : dbInput.resourceType
+	let query = makeInsertQuery(table, columns, dbType)
+	if (dbInput.type === 'ducklake') query = wrapDucklakeQuery(query, dbInput.ducklake)
 	return {
 		runnable: {
 			name: 'AppDbExplorer',
 			type: 'runnableByName',
 			inlineScript: {
-				content: makeInsertQuery(table, columns, dbType),
+				content: query,
 				language: getLanguageByResourceType(dbType),
 				schema: {
 					$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -124,14 +122,17 @@ export function getInsertInput(
 				}
 			}
 		},
-		fields: {
-			database: {
-				type: 'static',
-				value: resource,
-				fieldType: 'object',
-				format: `resource-${dbType}`
-			}
-		},
+		fields:
+			dbInput.type === 'database'
+				? {
+						database: {
+							type: 'static',
+							value: `$res:${dbInput.resourcePath}`,
+							fieldType: 'object',
+							format: `resource-${dbType}`
+						}
+					}
+				: {},
 		type: 'runnable',
 		fieldType: 'object'
 	}

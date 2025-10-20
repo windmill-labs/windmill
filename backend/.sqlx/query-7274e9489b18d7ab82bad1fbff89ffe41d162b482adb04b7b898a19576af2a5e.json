@@ -95,7 +95,7 @@
                 "noop",
                 "appdependencies",
                 "deploymentcallback",
-                "singlescriptflow",
+                "singlestepflow",
                 "flowscript",
                 "flownode",
                 "appscript",

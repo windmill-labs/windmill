@@ -1016,7 +1016,7 @@
 			<ObjectResourceInput
 				{disabled}
 				{defaultValue}
-				selectFirst={!noDefaultOnSelectFirst}
+				selectFirst={!noDefaultOnSelectFirst && required}
 				{disablePortal}
 				format={format ?? ''}
 				bind:value
@@ -1299,6 +1299,8 @@
 		{:else if inputCat == 'date'}
 			{#if format === 'date'}
 				<DateInput {disabled} {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
+			{:else if format === 'naive-date-time'}
+				<DateTimeInput {disabled} useDropdown {autofocus} bind:value timezone="naive" />
 			{:else}
 				<DateTimeInput {disabled} useDropdown {autofocus} bind:value />
 			{/if}

@@ -13,16 +13,9 @@ use crate::db::ApiAuthed;
 use windmill_common::{
     db::UserDB,
     error::{JsonResult, Result},
+    flow_conversations::MessageType,
     utils::{not_found_if_none, paginate, Pagination},
 };
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "MESSAGE_TYPE", rename_all = "lowercase")]
-#[serde(rename_all = "lowercase")]
-pub enum MessageType {
-    User,
-    Assistant,
-}
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -50,11 +43,14 @@ pub struct FlowConversationMessage {
     pub content: String,
     pub job_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
+    pub step_name: Option<String>,
+    pub success: bool,
 }
 
 #[derive(Deserialize)]
 pub struct ListConversationsQuery {
     pub flow_path: Option<String>,
+    pub after_id: Option<Uuid>,
 }
 
 async fn list_conversations(
@@ -82,13 +78,22 @@ async fn list_conversations(
     if let Some(flow_path) = &query.flow_path {
         sqlb.and_where_eq("flow_path", "?".bind(flow_path));
     }
+    if let Some(after_id) = &query.after_id {
+        let message_id_created_at = sqlx::query_scalar!(
+            "SELECT created_at FROM flow_conversation_message WHERE id = $1",
+            after_id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlb.and_where_gt("created_at", "?".bind(&message_id_created_at.to_rfc3339()));
+    }
 
     sqlb.order_by("updated_at", true)
         .limit(per_page as i64)
         .offset(offset as i64);
 
     let sql = sqlb.sql().map_err(|e| {
-        windmill_common::error::Error::InternalErr(format!("Failed to build SQL: {}", e))
+        windmill_common::error::Error::internal_err(format!("Failed to build SQL: {}", e))
     })?;
 
     let conversations = sqlx::query_as::<Postgres, FlowConversation>(&sql)
@@ -123,6 +128,12 @@ pub async fn get_or_create_conversation_with_id(
         return Ok(existing);
     }
 
+    // Truncate title to 25 char characters max
+    let title = if title.len() > 25 {
+        format!("{}...", &title[..25])
+    } else {
+        title.to_string()
+    };
     // Create new conversation with provided ID
     let conversation = sqlx::query_as!(
         FlowConversation,
@@ -220,9 +231,9 @@ async fn list_messages(
     // Fetch messages for this conversation, oldest first, but reverse the order of the messages for easy rendering on the frontend
     let messages = sqlx::query_as!(
         FlowConversationMessage,
-        r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at
+        r#"SELECT id, conversation_id, message_type as "message_type: MessageType", content, job_id, created_at, step_name, success
          FROM (
-            SELECT id, conversation_id, message_type, content, job_id, created_at
+            SELECT id, conversation_id, message_type, content, job_id, created_at, step_name, success
             FROM flow_conversation_message
             WHERE conversation_id = $1
             ORDER BY created_at DESC, CASE WHEN message_type = 'user' THEN 0 ELSE 1 END
@@ -239,53 +250,4 @@ async fn list_messages(
 
     tx.commit().await?;
     Ok(Json(messages))
-}
-
-// Helper function to create a message using an existing transaction
-pub async fn create_message(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    conversation_id: Uuid,
-    message_type: MessageType,
-    content: &str,
-    job_id: Option<Uuid>,
-    workspace_id: &str,
-) -> windmill_common::error::Result<()> {
-    // Verify the conversation exists and belongs to the user
-    let conversation_exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM flow_conversation WHERE id = $1 AND workspace_id = $2)",
-        conversation_id,
-        workspace_id
-    )
-    .fetch_one(&mut **tx)
-    .await?
-    .unwrap_or(false);
-
-    if !conversation_exists {
-        return Err(windmill_common::error::Error::NotFound(format!(
-            "Conversation not found or access denied: {}",
-            conversation_id
-        )));
-    }
-
-    // Insert the message
-    sqlx::query!(
-        "INSERT INTO flow_conversation_message (conversation_id, message_type, content, job_id)
-         VALUES ($1, $2, $3, $4)",
-        conversation_id,
-        message_type as MessageType,
-        content,
-        job_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    // Update conversation updated_at timestamp
-    sqlx::query!(
-        "UPDATE flow_conversation SET updated_at = NOW() WHERE id = $1",
-        conversation_id
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
 }

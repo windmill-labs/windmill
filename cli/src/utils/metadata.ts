@@ -21,7 +21,7 @@ import {
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 import { GlobalDeps, exts, findGlobalDeps } from "../commands/script/script.ts";
 import { FSFSElement, findCodebase, yamlOptions } from "../commands/sync/sync.ts";
-import { generateHash, readInlinePathSync, getHeaders } from "./utils.ts";
+import { generateHash, readInlinePathSync, getHeaders, writeIfChanged } from "./utils.ts";
 import { SyncCodebase } from "./codebase.ts";
 import { FlowFile } from "../commands/flow/flow.ts";
 import { replaceInlineScripts } from "../../windmill-utils-internal/src/inline-scripts/replacer.ts";
@@ -37,7 +37,7 @@ export class LockfileGenerationError extends Error {
   }
 }
 
-export async function generateAllMetadata() {}
+export async function generateAllMetadata() { }
 
 function findClosestRawReqs(
   lang: LanguageWithRawReqsSupport | undefined,
@@ -194,16 +194,12 @@ export async function generateFlowLockInternal(
       opts.defaultTs,
     );
     inlineScripts
-      .filter((s) => s.path.endsWith(".lock"))
       .forEach((s) => {
-        Deno.writeTextFileSync(
-          Deno.cwd() + SEP + folder + SEP + s.path,
-          s.content
-        );
+        writeIfChanged(Deno.cwd() + SEP + folder + SEP + s.path, s.content);
       });
 
     // Overwrite `flow.yaml` with the new lockfile references
-    await Deno.writeTextFile(
+    writeIfChanged(
       Deno.cwd() + SEP + folder + SEP + "flow.yaml",
       yamlStringify(flowValue as Record<string, any>)
     );
@@ -432,7 +428,7 @@ async function updateScriptLock(
         if (await Deno.stat(lockPath)) {
           await Deno.remove(lockPath);
         }
-      } catch {}
+      } catch { }
       metadataContent.lock = "";
     }
   } catch (e) {
@@ -516,7 +512,7 @@ export async function updateFlow(
   } catch (e) {
     try {
       responseText = await rawResponse.text();
-    } catch {}
+    } catch { }
     throw new Error(
       `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
     );
@@ -652,7 +648,7 @@ export async function inferSchema(
   } else if (language === "ruby") {
     const { parse_ruby } = await import("../../wasm/ruby/windmill_parser_wasm.js");
     inferedSchema = JSON.parse(parse_ruby(content));
-  	// for related places search: ADD_NEW_LANG 
+    // for related places search: ADD_NEW_LANG 
   } else {
     throw new Error("Invalid language: " + language);
   }
@@ -740,10 +736,10 @@ export async function parseMetadataFile(
   scriptPath: string,
   generateMetadataIfMissing:
     | (GlobalOptions & {
-        path: string;
-        workspaceRemote: Workspace;
-        schemaOnly?: boolean;
-      })
+      path: string;
+      workspaceRemote: Workspace;
+      schemaOnly?: boolean;
+    })
     | undefined,
   globalDeps: GlobalDeps,
   codebases: SyncCodebase[]

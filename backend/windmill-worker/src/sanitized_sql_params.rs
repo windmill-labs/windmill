@@ -1,10 +1,15 @@
 use anyhow::anyhow;
-use std::collections::HashMap;
+use regex::Regex;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 use windmill_common::error;
 use windmill_parser::Arg;
 use windmill_parser_sql::{SANITIZED_ENUM_STR, SANITIZED_RAW_STRING_STR};
+
+lazy_static::lazy_static! {
+    static ref RE_SQL_CONTEXTUAL_VAR: Regex = Regex::new(r"%%WM_[A-Z_]+%%").unwrap();
+}
 
 /// Identifier must be a continuous ASCII alphanumeric word, not starting with
 /// a number, that can contain underscores
@@ -28,13 +33,38 @@ fn sanitize_identifier(arg: &Arg, input: &str) -> Result<(), error::Error> {
     }
 }
 
+fn replace_contextual_variables(
+    code: &mut String,
+    contextual_variables: &HashMap<String, String>,
+) -> () {
+    let vars = RE_SQL_CONTEXTUAL_VAR
+        .find_iter(&code)
+        .map(|m| m.as_str().to_string())
+        .collect::<HashSet<_>>();
+
+    for var_pattern in vars {
+        let var_name = var_pattern
+            .strip_prefix("%%")
+            .unwrap()
+            .strip_suffix("%%")
+            .unwrap();
+        let var_value = contextual_variables.get(var_name);
+        if let Some(var_value) = var_value {
+            *code = code.replace(&var_pattern, var_value);
+        }
+    }
+}
+
 pub fn sanitize_and_interpolate_unsafe_sql_args(
     code: &str,
     args: &Vec<Arg>,
     args_map: &HashMap<String, Value>,
+    contextual_variables: &HashMap<String, String>,
 ) -> Result<(String, Vec<String>), error::Error> {
     let mut ret = code.to_string();
     let mut args_to_skip = vec![];
+
+    replace_contextual_variables(&mut ret, contextual_variables);
 
     for arg in args {
         if let Some(typ) = &arg.otyp {

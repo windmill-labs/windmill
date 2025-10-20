@@ -393,6 +393,8 @@ pub struct FlowModule {
     pub skip_if: Option<SkipIf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub apply_preprocessor: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pass_flow_input_directly: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -405,14 +407,24 @@ pub struct FlowModuleValueWithParallel {
     #[serde(rename = "type")]
     pub type_: String,
     pub parallel: Option<bool>,
-    pub parallelism: Option<u16>,
+    #[serde(
+        default,
+        deserialize_with = "raw_value_to_input_transform::<_, u16>",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parallelism: Option<InputTransform>,
 }
 
 #[derive(Deserialize)]
 pub struct FlowModuleValueWithSkipFailures {
     pub skip_failures: Option<bool>,
     pub parallel: Option<bool>,
-    pub parallelism: Option<u16>,
+    #[serde(
+        default,
+        deserialize_with = "raw_value_to_input_transform::<_, u16>",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parallelism: Option<InputTransform>,
 }
 
 #[derive(Deserialize)]
@@ -607,6 +619,8 @@ pub enum FlowModuleValue {
         tag_override: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pass_flow_input_directly: Option<bool>,
     },
 
     /// Reference to another flow on the workspace
@@ -615,6 +629,8 @@ pub enum FlowModuleValue {
         #[serde(alias = "input_transform")]
         input_transforms: HashMap<String, InputTransform>,
         path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pass_flow_input_directly: Option<bool>,
     },
 
     /// For loop node
@@ -627,7 +643,7 @@ pub enum FlowModuleValue {
         skip_failures: bool,
         parallel: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
-        parallelism: Option<u16>,
+        parallelism: Option<InputTransform>,
     },
 
     /// While loop node
@@ -730,7 +746,8 @@ struct UntaggedFlowModuleValue {
     modules: Option<Vec<FlowModule>>,
     skip_failures: Option<bool>,
     parallel: Option<bool>,
-    parallelism: Option<u16>,
+    #[serde(default, deserialize_with = "raw_value_to_input_transform::<_, u16>")]
+    parallelism: Option<InputTransform>,
     branches: Option<Vec<Branch>>,
     default: Option<Vec<FlowModule>>,
     content: Option<String>,
@@ -746,6 +763,7 @@ struct UntaggedFlowModuleValue {
     modules_node: Option<FlowNodeId>,
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Vec<FlowModule>>,
+    pass_flow_input_directly: Option<bool>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -764,12 +782,14 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 hash: untagged.hash,
                 tag_override: untagged.tag_override,
                 is_trigger: untagged.is_trigger,
+                pass_flow_input_directly: untagged.pass_flow_input_directly,
             }),
             "flow" => Ok(FlowModuleValue::Flow {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
                 path: untagged
                     .path
                     .ok_or_else(|| serde::de::Error::missing_field("path"))?,
+                pass_flow_input_directly: untagged.pass_flow_input_directly,
             }),
             "forloopflow" => Ok(FlowModuleValue::ForloopFlow {
                 iterator: untagged
@@ -911,6 +931,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             continue_on_error: None,
             skip_if: None,
             apply_preprocessor: None,
+            pass_flow_input_directly: None,
         });
     }
 }

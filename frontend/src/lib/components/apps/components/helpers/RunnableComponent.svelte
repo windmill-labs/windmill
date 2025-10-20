@@ -491,6 +491,7 @@
 				if (ctxMatch) {
 					nonStaticRunnableInputs[k] = '$ctx:' + ctxMatch[1]
 				} else {
+					// console.log('k', k)
 					nonStaticRunnableInputs[k] = await inputValues[k]?.computeExpr()
 				}
 				if (isEditor && field?.type == 'evalv2' && field.allowUserResources) {
@@ -506,6 +507,7 @@
 
 		const oneOfRunnableInputs = isEditor ? collectOneOfFields(fields, $app) : {}
 
+		// console.log(JSON.stringify({ id, nonStaticRunnableInputs, inputValues }))
 		const requestBody: ExecuteComponentData['requestBody'] = {
 			args: nonStaticRunnableInputs,
 			component: id,
@@ -749,7 +751,7 @@
 
 	let lastJobId: string | undefined = $state(undefined)
 
-	let inputValues: Record<string, InputValue> = $state({})
+	let inputValues: Record<string, InputValue> = {}
 
 	function updateBgRuns(loading: boolean) {
 		if (loading) {

@@ -690,9 +690,7 @@ export function setInputCat(
 		return 'object'
 	} else if (type == 'string' && enum_) {
 		return 'enum'
-	} else if (type == 'string' && format == 'date-time') {
-		return 'date'
-	} else if (type == 'string' && format == 'date') {
+	} else if (type == 'string' && ['date-time', 'naive-date-time', 'date'].includes(format!)) {
 		return 'date'
 	} else if (type == 'string' && format == 'sql') {
 		return 'sql'
@@ -1318,7 +1316,7 @@ export function isFlowPreview(job_kind: Job['job_kind'] | undefined) {
 }
 
 export function isNotFlow(job_kind: Job['job_kind'] | undefined) {
-	return job_kind !== 'flow' && job_kind !== 'singlescriptflow' && !isFlowPreview(job_kind)
+	return job_kind !== 'flow' && job_kind !== 'singlestepflow' && !isFlowPreview(job_kind)
 }
 
 export function isScriptPreview(job_kind: Job['job_kind'] | undefined) {

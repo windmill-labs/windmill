@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app_bundles (app_version_id, w_id, file_type, data) VALUES ($1, $2, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Varchar",
+        "Varchar",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "abaae3dde751a41b2dbb7856ece1c840d0ea8d59346ed9e88f6f609edb543d7e"
+}
