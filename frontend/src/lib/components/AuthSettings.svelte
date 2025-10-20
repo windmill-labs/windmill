@@ -65,6 +65,7 @@
 		'linkedin',
 		'quickbooks',
 		'visma',
+		'sage_intacct',
 		'spotify',
 		'snowflake_oauth',
 		'teams',

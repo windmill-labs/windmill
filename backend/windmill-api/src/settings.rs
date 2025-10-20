@@ -218,6 +218,10 @@ pub struct Value {
 }
 
 pub async fn delete_global_setting(db: &DB, key: &str) -> error::Result<()> {
+    if key == "ducklake_user_pg_pwd" || key == "ducklake_settings" {
+        tracing::error!("Tried to unset global setting {}, ignored", key);
+        return Ok(());
+    }
     sqlx::query!("DELETE FROM global_settings WHERE name = $1", key,)
         .execute(db)
         .await?;
@@ -334,7 +338,7 @@ pub async fn set_global_setting_internal(
         }
         v => {
             sqlx::query!(
-                 "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2, updated_at = now()",
+                 "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
                  key,
                  v
              )

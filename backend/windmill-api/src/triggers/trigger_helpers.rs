@@ -477,7 +477,7 @@ pub trait TriggerJobArgs {
 }
 
 #[allow(dead_code)]
-async fn trigger_runnable_inner(
+pub async fn trigger_runnable_inner(
     db: &DB,
     user_db: Option<UserDB>,
     authed: ApiAuthed,
@@ -860,6 +860,7 @@ async fn trigger_script_with_retry_and_error_handler(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
     )
     .await?;

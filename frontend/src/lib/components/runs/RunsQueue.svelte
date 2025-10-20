@@ -32,7 +32,7 @@
 					<Bot size={16} />
 					{#if queue_count && ($queue_count ?? 0) > 0}
 						<div
-							class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-yellow-500 rounded-full text-white text-xs h-4 min-w-4"
+							class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-yellow-500 rounded-full text-white text-2xs h-4 min-w-4 px-1"
 						>
 							{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}
 						</div>
@@ -49,12 +49,17 @@
 	{/if}
 
 	{#if small}
-		<Popover contentClasses="p-4" openOnHover debounceDelay={100}>
+		<Popover
+			contentClasses="p-4"
+			openOnHover
+			debounceDelay={100}
+			disablePopup={!suspended_count || ($suspended_count ?? 0) <= 0}
+		>
 			{#snippet trigger()}
 				<div class="relative">
 					<Hourglass size={16} />
 					<div
-						class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-surface-secondary-inverse rounded-full text-primary-inverse text-xs h-4 min-w-4"
+						class="absolute top-0 right-0 translate-x-1/2 -translate-y-1/2 bg-surface-secondary-inverse rounded-full text-primary-inverse text-2xs h-4 min-w-4 px-1"
 					>
 						{suspended_count ? ($suspended_count ?? 0).toFixed(0) : '...'}
 					</div>
@@ -76,7 +81,7 @@
 		{/snippet}
 		<div
 			class={queue_count && ($queue_count ?? 0) > 0
-				? 'bg-yellow-500 text-white rounded-full w-6 h-6 flex center-center'
+				? 'bg-yellow-500 text-white rounded-full min-w-6 h-6 flex center-center'
 				: ''}>{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}</div
 		>
 		<div class="truncate text-2xs !text-secondary mt-0.5">
@@ -102,7 +107,7 @@
 			{/snippet}
 			<div
 				class={suspended_count && ($suspended_count ?? 0) > 0
-					? 'bg-surface-secondary-inverse text-primary-inverse rounded-full w-6 h-6 flex center-center'
+					? 'bg-surface-secondary-inverse text-primary-inverse rounded-full min-w-6 h-6 flex center-center'
 					: ''}>{suspended_count ? ($suspended_count ?? 0).toFixed(0) : '...'}</div
 			>
 			<div class="truncate text-2xs !text-secondary">

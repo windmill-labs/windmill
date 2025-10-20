@@ -585,7 +585,7 @@ async fn update_tutorial_progress(
     Json(progress): Json<Progress>,
 ) -> Result<String> {
     sqlx::query_scalar!(
-        "INSERT INTO tutorial_progress VALUES ($2, $1::bigint::bit(64)) ON CONFLICT (email) DO UPDATE SET progress = $1::bigint::bit(64)",
+        "INSERT INTO tutorial_progress VALUES ($2, $1::bigint::bit(64)) ON CONFLICT (email) DO UPDATE SET progress = EXCLUDED.progress",
         progress.progress as i64,
         authed.email
     )
@@ -1388,7 +1388,9 @@ async fn convert_user_to_group(
     // Check if user is already a group user
     if let Some(added_via) = &user_info.added_via {
         if added_via.get("source").and_then(|v| v.as_str()) == Some("instance_group") {
-            return Err(Error::BadRequest("User is already a group user".to_string()));
+            return Err(Error::BadRequest(
+                "User is already a group user".to_string(),
+            ));
         }
     }
 
@@ -1411,16 +1413,18 @@ async fn convert_user_to_group(
 
     if eligible_groups.is_empty() {
         return Err(Error::BadRequest(
-            "User is not a member of any instance groups configured for auto-add in this workspace".to_string()
+            "User is not a member of any instance groups configured for auto-add in this workspace"
+                .to_string(),
         ));
     }
 
     // Determine the group with highest precedence (same logic as process_instance_group_auto_adds)
-    let roles: std::collections::HashMap<String, String> = if let Some(roles_json) = &eligible_groups[0].auto_add_instance_groups_roles {
-        serde_json::from_value(roles_json.clone()).unwrap_or_default()
-    } else {
-        std::collections::HashMap::new()
-    };
+    let roles: std::collections::HashMap<String, String> =
+        if let Some(roles_json) = &eligible_groups[0].auto_add_instance_groups_roles {
+            serde_json::from_value(roles_json.clone()).unwrap_or_default()
+        } else {
+            std::collections::HashMap::new()
+        };
 
     let mut best_group = &eligible_groups[0].group_name;
     let mut best_precedence = 0u8;
@@ -1446,7 +1450,10 @@ async fn convert_user_to_group(
 
     // Determine role from group configuration using the selected primary group
     let default_role = "developer".to_string();
-    let role = roles.get(primary_group_name).unwrap_or(&default_role).as_str();
+    let role = roles
+        .get(primary_group_name)
+        .unwrap_or(&default_role)
+        .as_str();
 
     let (is_admin, is_operator) = match role {
         "admin" => (true, false),
@@ -1490,12 +1497,18 @@ async fn convert_user_to_group(
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::User { email: user_info.email.clone() },
-        Some(format!("Converted user '{}' to group user (group: {}, role: {})", &user_info.email, primary_group_name, role)),
+        Some(format!(
+            "Converted user '{}' to group user (group: {}, role: {})",
+            &user_info.email, primary_group_name, role
+        )),
         true,
     )
     .await?;
 
-    Ok(format!("User {} converted to group user (group: {}, role: {})", username_to_convert, primary_group_name, role))
+    Ok(format!(
+        "User {} converted to group user (group: {}, role: {})",
+        username_to_convert, primary_group_name, role
+    ))
 }
 
 async fn update_user(
@@ -1597,9 +1610,12 @@ async fn delete_user(
     }
 
     // Remove user from all instance groups email_to_igroup
-    sqlx::query!("DELETE FROM email_to_igroup WHERE email = $1", &email_to_delete)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "DELETE FROM email_to_igroup WHERE email = $1",
+        &email_to_delete
+    )
+    .execute(&mut *tx)
+    .await?;
 
     audit_log(
         &mut *tx,

@@ -1532,7 +1532,7 @@ pub struct MonitorIteration {
 
 impl MonitorIteration {
     pub fn should_run(&self, period: u8) -> bool {
-        self.iter % (period as u64) == self.rd_shift as u64
+        (self.iter + self.rd_shift as u64) % (period as u64) == 0
     }
 }
 
@@ -1588,6 +1588,7 @@ pub async fn monitor_db(
             }
         }
     };
+
     // run every hour (60 minutes / 30 seconds = 120)
     let cleanup_worker_group_stats_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
@@ -2415,6 +2416,7 @@ async fn cleanup_concurrency_counters_empty_keys(db: &DB) -> error::Result<()> {
 WITH rows_to_delete AS (
     SELECT concurrency_id
     FROM concurrency_counter
+    
     WHERE job_uuids = '{}'::jsonb
     FOR UPDATE SKIP LOCKED
 )
@@ -2724,7 +2726,7 @@ pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<(
 async fn generate_and_save_jwt_secret(db: &DB) -> error::Result<String> {
     let secret = rd_string(32);
     sqlx::query!(
-        "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2",
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
         JWT_SECRET_SETTING,
         serde_json::to_value(&secret).unwrap()
     ).execute(db).await?;
