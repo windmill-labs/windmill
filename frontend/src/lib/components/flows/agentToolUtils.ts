@@ -16,7 +16,7 @@ export type McpTool = AgentTool & {
  * Type guard to check if a tool is a FlowModule tool
  */
 export function isFlowModuleTool(tool: AgentTool): tool is FlowModuleTool {
-	return tool.value.tool_type === 'flowmodule'
+	return tool.value.tool_type === undefined || tool.value.tool_type === 'flowmodule'
 }
 
 /**
