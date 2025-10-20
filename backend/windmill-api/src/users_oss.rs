@@ -62,6 +62,7 @@ pub fn send_email_if_possible(_subject: &str, _content: &str, _to: &str) {
 
 #[cfg(not(feature = "private"))]
 #[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 pub struct OnboardingData {
     pub email: String,
     pub customer_id: Option<i64>,
