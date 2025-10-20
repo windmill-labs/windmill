@@ -1292,16 +1292,16 @@ async fn lock_modules<'c>(
         })?;
 
         // If we have local lockfiles (and they are enabled) we will replace script content with lockfile and tell hander that it is raw_deps job
-        let (content, raw_deps) = raw_deps
+        let (content_for_capture, raw_deps) = raw_deps
             .as_ref()
             .and_then(|llfs| llfs.get(language.as_str()))
             .map(|lock| (lock.to_owned(), true))
-            .unwrap_or((content, false));
+            .unwrap_or((content.clone(), false));
 
         let new_lock = capture_dependency_job(
             &job.id,
             &language,
-            &content,
+            &content_for_capture,
             mem_peak,
             canceled_by,
             job_dir,
@@ -1323,10 +1323,11 @@ async fn lock_modules<'c>(
         //
         let lock = match new_lock {
             Ok(new_lock) => {
-                tx = dependency_map
-                    .patch(relative_imports.clone(), e.id.clone(), tx)
-                    .await?;
-
+                if !raw_deps {
+                    tx = dependency_map
+                        .patch(relative_imports.clone(), e.id.clone(), tx)
+                        .await?;
+                }
                 if language == ScriptLang::Bun || language == ScriptLang::Bunnative {
                     let anns = windmill_common::worker::TypeScriptAnnotations::parse(&content);
                     if anns.native && language == ScriptLang::Bun {
@@ -1335,6 +1336,7 @@ async fn lock_modules<'c>(
                         language = ScriptLang::Bun;
                     };
                 }
+
                 Some(new_lock)
             }
             Err(error) => {
