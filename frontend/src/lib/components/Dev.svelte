@@ -453,13 +453,11 @@
 	type LastEditFlow = {
 		flow: OpenFlow
 		uriPath: string
-		path: string
 	}
 	let lastUriPath: string | undefined = undefined
 	async function replaceFlow(lastEdit: LastEditFlow) {
 		mode = 'flow'
 		lastUriPath = lastEdit.uriPath
-		pathStore.set(lastEdit.path)
 		// sendUserToast(JSON.stringify(lastEdit.flow), true)
 		// return
 		try {
@@ -471,10 +469,6 @@
 					lastEdit.flow.value = { modules: [] }
 				}
 				flowStore.val = lastEdit.flow
-				try {
-					let ids = dfs(flowStore.val.value.modules ?? [], (m) => m.id)
-					flowStateStore.val = Object.fromEntries(ids.map((k) => [k, {}]))
-				} catch (e) {}
 				inferModuleArgs($selectedIdStore)
 			}
 		} catch (e) {
@@ -492,9 +486,8 @@
 	const selectedIdStore = writable('settings-metadata')
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const modulesTestStates = new ModulesTestStates((moduleId) => {
-		// console.log('FOO')
 		// Update the derived store with test job states
-		// showJobStatus = false
+		showJobStatus = false
 	})
 	const outputPickerOpenFns: Record<string, () => void> = $state({})
 
@@ -504,21 +497,18 @@
 		showCaptureHint: writable(undefined),
 		triggersState: new Triggers()
 	})
-
-	let pathStore = writable('')
-	let initialPathStore = writable('')
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		moving,
 		history,
-		pathStore: pathStore,
+		pathStore: writable(''),
 		flowStateStore,
 		flowStore,
 		stepsInputArgs,
 		saveDraft: () => {},
-		initialPathStore,
+		initialPathStore: writable(''),
 		fakeInitialPath: '',
 		flowInputsStore: writable<FlowInput>({}),
 		customUi: {},
@@ -801,8 +791,8 @@
 					<FlowPreviewButtons
 						bind:this={flowPreviewButtons}
 						{onJobDone}
-						bind:localModuleStates
 						onRunPreview={() => {
+							localModuleStates = {}
 							showJobStatus = true
 						}}
 					/>
@@ -817,7 +807,7 @@
 								disableTutorials
 								smallErrorHandler={true}
 								disableStaticInputs
-								localModuleStates={showJobStatus ? localModuleStates : {}}
+								{localModuleStates}
 								onTestUpTo={flowPreviewButtons?.testUpTo}
 								testModuleStates={modulesTestStates}
 								isOwner={flowPreviewContent?.getIsOwner?.()}

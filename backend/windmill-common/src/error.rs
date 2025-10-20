@@ -188,12 +188,6 @@ impl From<url::ParseError> for Error {
     }
 }
 
-impl From<tokio::time::error::Elapsed> for Error {
-    fn from(value: tokio::time::error::Elapsed) -> Self {
-        Self::InternalErr(value.to_string())
-    }
-}
-
 impl Error {
     /// https://docs.rs/anyhow/1/anyhow/struct.Error.html#display-representations
     pub fn alt(&self) -> String {

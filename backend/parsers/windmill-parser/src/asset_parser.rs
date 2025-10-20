@@ -26,13 +26,6 @@ pub struct ParseAssetsResult<S: AsRef<str>> {
     pub access_type: Option<AssetUsageAccessType>, // None in case of ambiguity
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct DelegateToGitRepoDetails {
-    pub resource: String,
-    pub playbook: Option<String>,
-    pub commit: Option<String>,
-}
-
 pub fn merge_assets<S: AsRef<str>>(assets: Vec<ParseAssetsResult<S>>) -> Vec<ParseAssetsResult<S>> {
     let mut arr: Vec<ParseAssetsResult<S>> = vec![];
     for asset in assets {

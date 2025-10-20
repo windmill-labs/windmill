@@ -159,22 +159,22 @@ async fn get_concurrent_intervals(
     let lq = ListCompletedQuery { order_desc: Some(true), ..lq };
     let lqc = lq.clone();
     let lqq: ListQueueQuery = lqc.into();
-    let mut sqlb_q = SqlBuilder::select_from("v2_job_queue")
+    let mut sqlb_q = SqlBuilder::select_from("v2_as_queue")
         .fields(UnifiedJob::queued_job_fields())
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)
         .clone();
-    let mut sqlb_c = SqlBuilder::select_from("v2_job_completed")
+    let mut sqlb_c = SqlBuilder::select_from("v2_as_completed_job")
         .fields(UnifiedJob::completed_job_fields())
         .order_by("started_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)
         .clone();
-    let mut sqlb_q_user = SqlBuilder::select_from("v2_job_queue")
+    let mut sqlb_q_user = SqlBuilder::select_from("v2_as_queue")
         .fields(&["id"])
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)
         .clone();
-    let mut sqlb_c_user = SqlBuilder::select_from("v2_job_completed")
+    let mut sqlb_c_user = SqlBuilder::select_from("v2_as_completed_job")
         .fields(&["id"])
         .order_by("started_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)

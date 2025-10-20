@@ -31,7 +31,7 @@ pub async fn append_result_stream_db(
                 $3, 
                 $4
             )
-            ON CONFLICT (job_id, idx) DO UPDATE SET stream = job_result_stream_v2.stream || EXCLUDED.stream
+            ON CONFLICT (job_id, idx) DO UPDATE SET stream = job_result_stream_v2.stream || $3
             "#,
             workspace_id,
             job_id,

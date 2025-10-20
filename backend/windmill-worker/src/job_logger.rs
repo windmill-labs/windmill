@@ -108,7 +108,7 @@ pub async fn append_logs_with_compaction(
     worker_name: &str,
 ) {
     let log_length = sqlx::query_scalar!(
-        "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, EXCLUDED.logs) RETURNING length(logs)",
+        "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, $1::text) RETURNING length(logs)",
         logs,
         job_id,
         &w_id,

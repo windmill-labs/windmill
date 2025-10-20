@@ -103,7 +103,6 @@
             wasm-pack
             deno
             emscripten
-            nushell
             # Needed for extra dependencies
             glibc_multi
           ]);
@@ -232,31 +231,17 @@
               set -e
               cd ./backend
               mkdir -p .minio-data/wmill
-              ${pkgs.minio}/bin/minio server ./.minio-data --console-address ":9001"
+              ${pkgs.minio}/bin/minio server ./.minio-data
             '')
             # Generate keys
             # TODO: Do not set new keys if ran multiple times
             (pkgs.writeScriptBin "wm-minio-keys" ''
               set -e
               cd ./backend
-
-              # Set up MinIO alias
               ${pkgs.minio-client}/bin/mc alias set 'wmill-minio-dev' 'http://localhost:9000' 'minioadmin' 'minioadmin'
-
-              # Check if secrets file exists and contains valid keys
-              if [[ -f .minio-data/secrets.txt ]] && [[ -s .minio-data/secrets.txt ]]; then
-                  echo "Access keys already exist:"
-                  cat .minio-data/secrets.txt
-                  echo ""
-                  echo "Keys loaded from: ./backend/.minio-data/secrets.txt"
-              else
-                  echo "Creating new access keys..."
-                  mkdir -p .minio-data
-                  ${pkgs.minio-client}/bin/mc admin accesskey create 'wmill-minio-dev' | tee .minio-data/secrets.txt
-                  echo ""
-                  echo 'New keys saved to: ./backend/.minio-data/secrets.txt'
-              fi
-
+              ${pkgs.minio-client}/bin/mc admin accesskey create 'wmill-minio-dev' | tee .minio-data/secrets.txt
+              echo ""
+              echo 'Saving to: ./backend/.minio-data/secrets.txt'
               echo "bucket: wmill"
               echo "endpoint: http://localhost:9000"
             '')

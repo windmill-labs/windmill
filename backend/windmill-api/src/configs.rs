@@ -173,7 +173,7 @@ async fn update_config(
 
     let mut tx = db.begin().await?;
     sqlx::query!(
-        "INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = EXCLUDED.config",
+        "INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = $2",
         &name,
         config
     )

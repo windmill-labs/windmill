@@ -208,31 +208,3 @@ export async function getIsWin(): Promise<boolean> {
   }
   return isWin;
 }
-
-/**
- * Writes content to a file only if it differs from existing content.
- * Creates parent directories if they don't exist.
- * 
- * @param path - The file path to write to
- * @param content - The content to write
- * @returns true if file was written, false if skipped (content unchanged)
- */
-export function writeIfChanged(path: string, content: string): boolean {
-  try {
-    const existing = Deno.readTextFileSync(path);
-    if (existing === content) {
-      // console.log(`Content unchanged for ${path}`);
-      return false; // Content unchanged, skip write
-    }
-  } catch (error) {
-    // File doesn't exist or can't be read, proceed with write
-    if (!(error instanceof Deno.errors.NotFound)) {
-      // If it's not a "not found" error, we might want to know about it
-      // but still proceed with the write attempt
-    }
-  }
-
-  // console.log(`Writing content to ${path}`);
-  Deno.writeTextFileSync(path, content);
-  return true; // File was written
-}

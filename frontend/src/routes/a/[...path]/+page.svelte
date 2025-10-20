@@ -60,9 +60,7 @@
 
 	async function loadApp() {
 		if (parsedCustomPath.jwt) {
-			const token = 'jwt_ext_' + parsedCustomPath.jwt
-			OpenAPI.TOKEN = token
-			setContext<{ token?: string }>('AuthToken', { token })
+			OpenAPI.TOKEN = 'jwt_ext_' + parsedCustomPath.jwt
 			jwtError = false
 		}
 		try {

@@ -9,7 +9,6 @@ use axum::{
 };
 use http::{header, HeaderValue, Method, StatusCode};
 use indexmap::IndexMap;
-use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::{to_value, Map, Value};
 use sqlx::PgConnection;
@@ -21,13 +20,18 @@ use windmill_common::{
     DB,
 };
 
-use crate::{
-    db::ApiAuthed,
-    resources::try_get_resource_from_db_as,
-    triggers::http::{
-        http_trigger_args::HttpMethod, http_trigger_auth::ApiKeyAuthentication,
-        AuthenticationMethod, RequestType,
+use crate::db::ApiAuthed;
+
+#[cfg(feature = "http_trigger")]
+use {
+    crate::{
+        resources::try_get_resource_from_db_as,
+        triggers::http::{
+            http_trigger_args::HttpMethod, http_trigger_auth::ApiKeyAuthentication,
+            AuthenticationMethod,
+        },
     },
+    itertools::Itertools,
 };
 
 lazy_static::lazy_static! {
@@ -45,7 +49,6 @@ const BASIC_HTTP_AUTH_SCHEME: &'static str = "BasicHttp";
 const DEFAULT_REQUEST_KEY: &'static str = "defaultRequest";
 const DEFAULT_ASYNC_RESPONSE_KEY: &'static str = "AsyncResponse";
 const DEFAULT_SYNC_RESPONSE_KEY: &'static str = "SyncResponse";
-const DEFAULT_SYNC_SSE_RESPONSE_KEY: &'static str = "SyncSseResponse";
 const DEFAULT_PAYLOAD_PARAM_KEY: &'static str = "PayloadParam";
 
 pub fn openapi_service() -> Router {
@@ -163,7 +166,7 @@ pub enum Kind {
 pub struct FuturePath {
     route_path: String,
     kind: Kind,
-    request_type: Option<RequestType>,
+    is_async: Option<bool>,
     summary: Option<String>,
     description: Option<String>,
     security_scheme: Option<SecurityScheme>,
@@ -173,12 +176,12 @@ impl FuturePath {
     pub fn new(
         route_path: String,
         kind: Kind,
-        request_type: Option<RequestType>,
+        is_async: Option<bool>,
         summary: Option<String>,
         description: Option<String>,
         security_scheme: Option<SecurityScheme>,
     ) -> FuturePath {
-        FuturePath { route_path, kind, request_type, summary, description, security_scheme }
+        FuturePath { route_path, kind, is_async, summary, description, security_scheme }
     }
 }
 
@@ -238,7 +241,6 @@ fn from_route_path_to_openapi_path(
         vec![
             format!("/run/{}", &normalized_path),
             format!("/run_wait_result/{}", &normalized_path),
-            format!("/run_and_stream/{}", &normalized_path),
         ]
     };
 
@@ -280,23 +282,19 @@ fn generate_paths(
         })
     };
 
-    let generate_response = |request_type: RequestType| {
-        let responses = match request_type {
-            RequestType::Async => serde_json::json!({
+    let generate_response = |is_async: bool| {
+        let responses = if is_async {
+            serde_json::json!({
                 "200": {
                     "$ref": format!("#/components/responses/{DEFAULT_ASYNC_RESPONSE_KEY}")
                 }
-            }),
-            RequestType::Sync => serde_json::json!({
+            })
+        } else {
+            serde_json::json!(serde_json::json!({
                 "200": {
                     "$ref": format!("#/components/responses/{DEFAULT_SYNC_RESPONSE_KEY}")
                 }
-            }),
-            RequestType::SyncSse => serde_json::json!({
-                "200": {
-                    "$ref": format!("#/components/responses/{DEFAULT_SYNC_SSE_RESPONSE_KEY}")
-                }
-            }),
+            }))
         };
 
         responses
@@ -349,19 +347,12 @@ fn generate_paths(
                 path_object
             });
 
-            let request_type;
+            let is_async;
 
             let (methods, is_webhook) = match &path.kind {
                 Kind::Webhook(_) => {
-                    request_type = if route_path.starts_with("/run/") {
-                        RequestType::Async
-                    } else if route_path.starts_with("/run_and_stream/") {
-                        RequestType::SyncSse
-                    } else {
-                        RequestType::Sync
-                    };
-
-                    let methods = if request_type == RequestType::Async {
+                    is_async = route_path.starts_with("/run/");
+                    let methods = if is_async {
                         vec![Method::POST]
                     } else {
                         vec![Method::GET, Method::POST]
@@ -378,7 +369,7 @@ fn generate_paths(
                         )
                         .into());
                     }
-                    request_type = path.request_type.unwrap_or(RequestType::Sync);
+                    is_async = path.is_async.unwrap_or(true);
                     (vec![method.to_owned()], false)
                 }
             };
@@ -410,7 +401,7 @@ fn generate_paths(
                     );
                 }
 
-                method_map.insert("responses", generate_response(request_type));
+                method_map.insert("responses", generate_response(is_async));
 
                 path_object.insert(method.to_string().to_lowercase(), to_value(&method_map)?);
             }
@@ -435,6 +426,19 @@ pub fn transform_to_minified_postgres_regex(glob: &str) -> String {
 
     regex.push('$');
     regex
+}
+
+#[derive(Debug, Default)]
+pub struct ServerToSet {
+    pub http_route: bool,
+    pub webhook_flow: bool,
+    pub webhook_script: bool,
+}
+
+impl ServerToSet {
+    pub fn new(http_route: bool, webhook_flow: bool, webhook_script: bool) -> ServerToSet {
+        ServerToSet { http_route, webhook_flow, webhook_script }
+    }
 }
 
 fn header_to_pascal_case(header: &str) -> String {
@@ -578,17 +582,7 @@ fn generate_components(future_paths: &[FuturePath]) -> Map<String, Value> {
                 "application/octet-stream": {}
             }
         },
-        DEFAULT_SYNC_SSE_RESPONSE_KEY: {
-            "description": "Returns an SSE stream.",
-            "content": {
-                "text/event-stream": {
-                    "schema": {
-                        "type": "string",
-                        "description": "Stream of SSE"
-                    },
-                }
-            }
-        }
+
     }));
 
     components
@@ -658,6 +652,7 @@ struct GenerateOpenAPI {
     openapi_spec_format: Format,
 }
 
+#[cfg(feature = "http_trigger")]
 async fn http_routes_to_future_paths(
     db: &DB,
     user_db: UserDB,
@@ -688,7 +683,7 @@ async fn http_routes_to_future_paths(
         struct MinifiedHttpTrigger {
             route_path: String,
             http_method: HttpMethod,
-            request_type: RequestType,
+            is_async: bool,
             workspaced_route: bool,
             summary: Option<String>,
             description: Option<String>,
@@ -702,7 +697,7 @@ async fn http_routes_to_future_paths(
         SELECT
             route_path,
             http_method AS "http_method: _",
-            request_type AS "request_type: _",
+            is_async,
             workspaced_route,
             summary,
             description,
@@ -770,7 +765,7 @@ async fn http_routes_to_future_paths(
         let future_path = FuturePath::new(
             route_path,
             Kind::HttpRoute(HttpRouteConfig::new(method)),
-            Some(http_route.request_type),
+            Some(http_route.is_async),
             http_route.summary,
             http_route.description,
             auth_method,
@@ -780,6 +775,18 @@ async fn http_routes_to_future_paths(
     }
 
     Ok(openapi_future_paths)
+}
+
+#[cfg(not(feature = "http_trigger"))]
+async fn http_routes_to_future_paths(
+    _db: &DB,
+    _user_db: UserDB,
+    _authed: &ApiAuthed,
+    _pg_pool: &mut PgConnection,
+    _http_route_filters: Option<&[HttpRouteFilter]>,
+    _w_id: &str,
+) -> Result<Vec<FuturePath>> {
+    Ok(Vec::new())
 }
 
 async fn webhook_to_future_paths(

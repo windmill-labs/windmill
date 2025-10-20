@@ -76,7 +76,7 @@
 	let isValid = $state(false)
 	let dirtyRoutePath = $state(false)
 	let dirtyPath = $state(false)
-	let request_type = $state<'sync' | 'async' | 'sync_sse'>('sync')
+	let is_async = $state(false)
 	let authentication_method = $state<AuthenticationMethod>('none')
 	let route_path = $state('')
 	let http_method = $state<'get' | 'post' | 'put' | 'patch' | 'delete'>('post')
@@ -223,7 +223,7 @@
 			is_flow = defaultValues?.is_flow ?? nis_flow
 			edit = false
 			itemKind = nis_flow ? 'flow' : 'script'
-			request_type = defaultValues?.request_type ?? 'sync'
+			is_async = defaultValues?.is_async ?? false
 			authentication_method = defaultValues?.authentication_method ?? 'none'
 			route_path = defaultValues?.route_path ?? ''
 			dirtyRoutePath = false
@@ -263,7 +263,7 @@
 		path = cfg?.path ?? ''
 		route_path = cfg?.route_path ?? ''
 		http_method = cfg?.http_method ?? 'post'
-		request_type = cfg?.request_type ?? 'sync'
+		is_async = cfg?.is_async ?? false
 		workspaced_route = cfg?.workspaced_route ?? false
 		wrap_body = cfg?.wrap_body ?? false
 		raw_string = cfg?.raw_string ?? false
@@ -342,7 +342,7 @@
 			path,
 			route_path,
 			http_method,
-			request_type,
+			is_async,
 			workspaced_route,
 			wrap_body,
 			raw_string,
@@ -464,7 +464,7 @@
 									initialScriptPath = ''
 									is_flow = false
 									http_method = 'get'
-									request_type = 'sync'
+									is_async = false
 									is_static_website = ev.detail === 'static_website'
 									if (is_static_website) {
 										authentication_method = 'none'
@@ -617,20 +617,13 @@
 													{#snippet action()}
 														<ToggleButtonGroup
 															class="w-auto h-full"
-															selected={request_type}
+															selected={is_async ? 'async' : 'sync'}
 															on:selected={({ detail }) => {
-																request_type = detail
+																is_async = detail === 'async'
 															}}
 															disabled={!can_write || !!static_asset_config}
 														>
 															{#snippet children({ item, disabled })}
-																<ToggleButton
-																	label="Sync"
-																	value="sync"
-																	tooltip="Triggers the execution, wait for the job to complete and return it as a response."
-																	{item}
-																	{disabled}
-																/>
 																<ToggleButton
 																	label="Async"
 																	value="async"
@@ -639,9 +632,9 @@
 																	{disabled}
 																/>
 																<ToggleButton
-																	label="Sync SSE"
-																	value="sync_sse"
-																	tooltip="Triggers the execution and returns an SSE stream."
+																	label="Sync"
+																	value="sync"
+																	tooltip="Triggers the execution, wait for the job to complete and return it as a response."
 																	{item}
 																	{disabled}
 																/>

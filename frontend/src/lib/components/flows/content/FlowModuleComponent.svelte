@@ -325,13 +325,6 @@
 					lang: value.language
 				}
 				break
-			case 'flow':
-				helperScript = {
-					source: 'deployed',
-					path: value.path,
-					runnable_kind: 'flow'
-				}
-				break
 			default:
 				helperScript = undefined
 		}

@@ -359,7 +359,7 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 			http_method,
 			route_path,
 			static_asset_config,
-			request_type,
+			is_async,
 			authentication_method,
 			is_static_website,
 			authentication_resource_path
@@ -374,7 +374,7 @@ export async function getTriggerValue(kind: TriggerKind, path: string, workspace
 			http_method,
 			route_path,
 			static_asset_config,
-			request_type,
+			is_async,
 			authentication_method,
 			is_static_website,
 			authentication_resource_path

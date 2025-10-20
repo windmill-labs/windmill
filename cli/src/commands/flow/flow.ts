@@ -248,7 +248,7 @@ async function generateLocks(
       );
       if (candidate) {
         hasAny = true;
-        log.info(colors.yellow.bold(`~ ${candidate}`));
+        log.info(colors.green(`+ ${candidate}`));
       }
     }
 

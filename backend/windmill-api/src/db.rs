@@ -212,7 +212,7 @@ pub async fn migrate(
     if let Err(err) = sqlx::query!(
         "DELETE FROM _sqlx_migrations WHERE
         version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
-        version=20250201145631 OR version=20250201145632 OR version=20251006143821"
+        version=20250201145631 OR version=20250201145632"
     )
     .execute(db)
     .await

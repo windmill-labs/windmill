@@ -12,9 +12,9 @@
 
 	let schema = $state(oldSchema)
 
-	let lastSchema = $state<any>(undefined)
+	let lastSchema = $state.snapshot(schema)
 	$effect(() => {
-		if (onSchemaChange && schema) {
+		if (onSchemaChange) {
 			readFieldsRecursively(schema)
 			let newSchema = $state.snapshot(schema)
 			if (!deepEqual(lastSchema, newSchema)) {

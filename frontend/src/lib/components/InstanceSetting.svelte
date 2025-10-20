@@ -289,7 +289,8 @@
 			</ToggleButtonGroup>
 		</div>
 	{:else}
-		{#snippet settingContent()}
+		<!-- svelte-ignore a11y_label_has_associated_control -->
+		<label class="block pb-2">
 			<span class="text-primary font-semibold text-sm">{setting.label}</span>
 			{#if setting.description}
 				<span class="text-secondary text-xs">
@@ -352,13 +353,21 @@
 						</div>
 					{/if}
 				{:else if setting.fieldType == 'codearea'}
-					<SimpleEditor
-						autoHeight
-						class="editor"
-						lang={setting.codeAreaLang ?? 'txt'}
-						bind:code={$values[setting.key]}
-						fixedOverflowWidgets={false}
-					/>
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						onclick={(ev) => {
+							ev.stopPropagation() // this is to prevent wrapping label interference
+						}}
+					>
+						<SimpleEditor
+							autoHeight
+							class="editor"
+							lang={setting.codeAreaLang ?? 'txt'}
+							bind:code={$values[setting.key]}
+							fixedOverflowWidgets={false}
+						/></div
+					>
 				{:else if setting.fieldType == 'license_key'}
 					{@const { valid, expiration } = parseLicenseKey($values[setting.key] ?? '')}
 					<div class="flex gap-2">
@@ -1044,7 +1053,9 @@
 										bind:value={$values[setting.key].value}
 									/>
 								</label>
-								<span class="text-primary font-semibold text-sm">GB</span>
+								<label class="block">
+									<span class="text-primary font-semibold text-sm">GB</span>
+								</label>
 							{/if}
 						</div>
 						<div class="mb-6"></div>
@@ -1084,15 +1095,6 @@
 			{:else}
 				<input disabled placeholder="Loading..." />
 			{/if}
-		{/snippet}
-		{#if ['codearea', 'object_store_config'].includes(setting.fieldType)}
-			<div class="block pb-2">
-				{@render settingContent()}
-			</div>
-		{:else}
-			<label class="block pb-2">
-				{@render settingContent()}
-			</label>
-		{/if}
+		</label>
 	{/if}
 {/if}

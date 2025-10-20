@@ -263,32 +263,40 @@
 					<span class="text-primary font-semibold text-sm">Bucket</span>
 					<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
 				</label>
-				<div class="block pb-2">
+				<label class="block pb-2">
 					<span class="text-primary font-semibold text-sm">Service Account Key</span>
 					<span class="text-tertiary text-2xs">JSON content of the service account key file</span>
-					<SimpleEditor
-						lang="json"
-						bind:code={
-							() => {
-								if (bucket_config?.type === 'Gcs') {
-									return JSON.stringify(bucket_config.serviceAccountKey)
-								} else {
-									return '{}'
-								}
-							},
-							(v) => {
-								if (bucket_config?.type === 'Gcs') {
-									try {
-										bucket_config.serviceAccountKey = JSON.parse(v ?? '{}')
-									} catch (_) {
-										bucket_config.serviceAccountKey = {}
+					<!-- svelte-ignore a11y_click_events_have_key_events -->
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						onclick={(ev) => {
+							ev.stopPropagation() // this is to prevent wrapping label interference
+						}}
+					>
+						<SimpleEditor
+							lang="json"
+							bind:code={
+								() => {
+									if (bucket_config?.type === 'Gcs') {
+										return JSON.stringify(bucket_config.serviceAccountKey)
+									} else {
+										return '{}'
+									}
+								},
+								(v) => {
+									if (bucket_config?.type === 'Gcs') {
+										try {
+											bucket_config.serviceAccountKey = JSON.parse(v ?? '{}')
+										} catch (_) {
+											bucket_config.serviceAccountKey = {}
+										}
 									}
 								}
 							}
-						}
-						class="h-80"
-					/>
-				</div>
+							class="h-80"
+						/>
+					</div>
+				</label>
 			{:else}
 				<div>Unknown bucket type {bucket_config['type']}</div>
 			{/if}

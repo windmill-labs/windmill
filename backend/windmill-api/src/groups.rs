@@ -286,17 +286,13 @@ async fn create_igroup(
     Extension(db): Extension<DB>,
     Json(ng): Json<NewGroup>,
 ) -> Result<String> {
-    use uuid::Uuid;
-
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
-    let id = Uuid::new_v4().to_string();
     sqlx::query!(
-        "INSERT INTO instance_group (name, summary, id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        "INSERT INTO instance_group (name, summary) VALUES ($1, $2) ON CONFLICT DO NOTHING",
         ng.name,
         ng.summary,
-        id,
     )
     .execute(&mut *tx)
     .await?;

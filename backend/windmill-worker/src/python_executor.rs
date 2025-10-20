@@ -413,7 +413,7 @@ pub async fn uv_pip_compile(
     );
     if let Some(db) = conn.as_sql() {
         sqlx::query!(
-        "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('5 mins')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = EXCLUDED.lockfile",
+        "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('5 mins')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
         req_hash,
         lockfile
     ).fetch_optional(db).await?;

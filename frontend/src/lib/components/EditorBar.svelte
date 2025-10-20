@@ -31,7 +31,6 @@
 		DiffIcon,
 		DollarSign,
 		File,
-		GitBranch,
 		History,
 		Library,
 		Link,
@@ -55,8 +54,6 @@
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
 	import ScriptGen from './copilot/ScriptGen.svelte'
-	import GitRepoPopoverPicker from './GitRepoPopoverPicker.svelte'
-	import { insertDelegateToGitRepoInCode } from '$lib/ansibleUtils'
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -123,7 +120,6 @@
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let ducklakePicker: ItemPicker | undefined = $state()
 	let databasePicker: ItemPicker | undefined = $state()
-	let gitRepoPickerOpen = $state(false)
 
 	let showContextVarPicker = $derived(
 		[
@@ -198,7 +194,6 @@
 	)
 	let showDucklakePicker = $derived(['duckdb'].includes(lang ?? ''))
 	let showDatabasePicker = $derived(['duckdb'].includes(lang ?? ''))
-	let showGitRepoPicker = $derived(lang === 'ansible')
 
 	let showResourceTypePicker = $derived(
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
@@ -209,14 +204,6 @@
 
 	let codeViewer: Drawer | undefined = $state()
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
-
-	function insertDelegateToGitRepo(resourcePath: string) {
-		if (!editor) return
-
-		const currentCode = editor.getCode()
-		const newCode = insertDelegateToGitRepoInCode(currentCode, resourcePath)
-		editor.setCode(newCode)
-	}
 
 	function addEditorActions() {
 		editor?.addAction('insert-variable', 'Windmill: Insert variable', () => {
@@ -856,28 +843,6 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				>
 					+Resource
 				</Button>
-			{/if}
-
-			{#if showGitRepoPicker && customUi?.resource != false}
-				<GitRepoPopoverPicker
-					bind:isOpen={gitRepoPickerOpen}
-					on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
-				>
-					<Button
-						aiId="editor-bar-add-git-repo"
-						aiDescription="Delegate to Git repository"
-						title="Delegate to Git repository"
-						btnClasses="!font-medium text-tertiary"
-						size="xs"
-						spacingSize="md"
-						color="light"
-						on:click={() => (gitRepoPickerOpen = true)}
-						{iconOnly}
-						startIcon={{ icon: GitBranch }}
-					>
-						+Git Repo
-					</Button>
-				</GitRepoPopoverPicker>
 			{/if}
 
 			{#if showResourceTypePicker && customUi?.type != false}

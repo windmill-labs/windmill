@@ -1,4 +1,4 @@
-import type { Script, ScriptLang } from './gen'
+import type { Script } from './gen'
 
 export type OwnerKind = 'group' | 'user' | 'folder'
 
@@ -109,8 +109,6 @@ export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 export type Schema = {
 	$schema: string | undefined
 	type: string
-	"x-windmill-dyn-select-code"?: string
-	"x-windmill-dyn-select-lang"?: ScriptLang
 	properties: { [name: string]: SchemaProperty }
 	order?: string[]
 	required: string[]

@@ -48,7 +48,6 @@ COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.
 RUN cd /backend/windmill-api && . ./build_openapi.sh
 COPY /backend/parsers/windmill-parser-wasm/pkg/ /backend/parsers/windmill-parser-wasm/pkg/
 COPY /typescript-client/docs/ /frontend/static/tsdocs/
-COPY /python-client/docs/ /frontend/static/pydocs/
 
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"

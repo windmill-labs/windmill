@@ -87,9 +87,6 @@ pub mod variables;
 pub mod worker;
 pub mod worker_group_job_stats;
 pub mod workspaces;
-#[cfg(feature = "private")]
-pub mod git_sync_ee;
-pub mod git_sync_oss;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;

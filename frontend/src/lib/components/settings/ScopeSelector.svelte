@@ -349,21 +349,21 @@
 		}
 
 		const parts = trimmedPath.split('/')
-		if (parts.length < 3) {
-			return 'Expected path format: u/{user}/{resource} or f/{folder}/{resource}'
+		if (parts.length !== 3) {
+			return 'Path must have exactly 3 parts: u/{user}/{resource} or f/{folder}/{resource}'
 		}
 
 		if (parts[1] === '') {
 			return 'Username/folder name cannot be empty'
 		}
-		const last = parts[parts.length - 1]
-		if (last.length === 0) {
+
+		if (parts[2] === '') {
 			return 'Resource name cannot be empty'
 		}
 
-		if (last === '*') return null
+		if (parts[2] === '*') return null
 
-		if (last.includes('*')) {
+		if (parts[2].includes('*')) {
 			return 'Wildcards can only be used as the full resource name (*)'
 		}
 
