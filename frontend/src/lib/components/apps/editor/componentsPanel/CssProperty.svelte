@@ -218,41 +218,39 @@
 
 			{#if value.class !== undefined || forceClass}
 				<!-- svelte-ignore a11y_label_has_associated_control -->
-				<label class="block">
-					<div class="text-xs font-medium text-tertiary mb-1">
-						Tailwind classes
-						<Tooltip light documentationLink="https://tailwindcss.com/">
-							Use any tailwind classes to style your component
-						</Tooltip>
+				<div class="text-xs font-medium text-tertiary mb-1">
+					Tailwind classes
+					<Tooltip light documentationLink="https://tailwindcss.com/">
+						Use any tailwind classes to style your component
+					</Tooltip>
+				</div>
+				<div class="relative">
+					<SimpleEditor
+						class="h-24 border !rounded-none"
+						lang="tailwindcss"
+						{tailwindClasses}
+						bind:code={value.class}
+						fixedOverflowWidgets={true}
+						small
+						automaticLayout
+					/>
+				</div>
+				{#if componentType && ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses}
+					<div class="flex flex-row gap-1 items-center mt-1 flex-wrap">
+						{#each ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses ?? [] as cls}
+							<Badge
+								baseClass="cursor-pointer"
+								small
+								on:click={() => {
+									value.class = value.class === '' ? cls : `${value.class} ${cls}`
+									render++
+								}}
+							>
+								{cls}
+							</Badge>
+						{/each}
 					</div>
-					<div class="relative">
-						<SimpleEditor
-							class="h-24 border !rounded-none"
-							lang="tailwindcss"
-							{tailwindClasses}
-							bind:code={value.class}
-							fixedOverflowWidgets={true}
-							small
-							automaticLayout
-						/>
-					</div>
-					{#if componentType && ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses}
-						<div class="flex flex-row gap-1 items-center mt-1 flex-wrap">
-							{#each ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses ?? [] as cls}
-								<Badge
-									baseClass="cursor-pointer"
-									small
-									on:click={() => {
-										value.class = value.class === '' ? cls : `${value.class} ${cls}`
-										render++
-									}}
-								>
-									{cls}
-								</Badge>
-							{/each}
-						</div>
-					{/if}
-				</label>
+				{/if}
 			{/if}
 			<div class="flex flex-row justify-between items-center">
 				<div class="text-xs flex flex-row items-center justify-center">
