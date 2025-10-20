@@ -40,10 +40,7 @@
 	<Popover
 		notClickable
 		{placement}
-		class={twMerge(
-			'h-3 -mt-3', // Avoid taking vertical space
-			wrapperClass
-		)}
+		class={twMerge(wrapperClass)}
 		style="transform: scale({parseFloat(customSize) / 100});"
 		{documentationLink}
 	>

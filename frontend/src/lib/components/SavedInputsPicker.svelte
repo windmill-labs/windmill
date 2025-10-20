@@ -352,7 +352,7 @@
 					</Cell>
 				{/snippet}
 				{#snippet empty()}
-					<div class="text-center text-xs text-tertiary">No saved Inputs</div>
+					<div class="text-center text-xs text-tertiary mt-2">No saved Inputs</div>
 				{/snippet}
 			</InfiniteList>
 		{/if}
