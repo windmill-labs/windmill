@@ -2,9 +2,9 @@ use crate::ai::providers::openai::OpenAIToolCall;
 use crate::ai::query_builder::StreamEventProcessor;
 use crate::ai::types::*;
 use crate::ai::utils::{
-    add_message_to_conversation, execute_mcp_tool, get_flow_chat_settings, get_step_name_from_flow,
+    add_message_to_conversation, execute_mcp_tool, get_flow_context, get_step_name_from_flow,
     merge_static_transforms, update_flow_status_module_with_actions,
-    update_flow_status_module_with_actions_success, FlowChatSettings,
+    update_flow_status_module_with_actions_success, FlowContext,
 };
 use crate::common::{error_to_value, OccupancyMetrics};
 use crate::result_processor::handle_non_flow_job_error;
@@ -57,7 +57,8 @@ pub struct ToolExecutionContext<'a> {
 
     // Optional streaming & chat
     pub stream_event_processor: Option<&'a StreamEventProcessor>,
-    pub chat_settings: &'a mut Option<FlowChatSettings>,
+    pub flow_context: &'a mut Option<FlowContext>,
+    pub previous_result: &'a Option<Box<RawValue>>,
 }
 
 /// Execute all tool calls from an AI response
@@ -305,8 +306,33 @@ async fn execute_windmill_tool(
         input_transforms.len()
     );
 
-    // Merge static input transforms with AI arguments
-    merge_static_transforms(&mut tool_call_args, &input_transforms)?;
+    // Evaluate input transforms (both static and JavaScript)
+    if let Some(flow_ctx) = ctx.flow_context.as_ref() {
+        tracing::info!(
+            "HERE Tool '{}': Using evaluate_input_transforms with flow context (has_flow_args={}, has_previous_result={})",
+            tool_call.function.name,
+            flow_ctx.args.is_some(),
+            ctx.previous_result.is_some()
+        );
+
+        // Use new evaluate_input_transforms with flow context
+        crate::ai::utils::evaluate_input_transforms(
+            &mut tool_call_args,
+            &input_transforms,
+            flow_ctx,
+            ctx.previous_result.as_ref(),
+            ctx.client,
+        )
+        .await?;
+    } else {
+        tracing::info!(
+            "HERE Tool '{}': No flow context available, using static transforms only",
+            tool_call.function.name
+        );
+
+        // Fallback to static transforms only if no flow context
+        merge_static_transforms(&mut tool_call_args, &input_transforms)?;
+    }
 
     let job_payload = match tool_module.get_value()? {
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
@@ -679,18 +705,18 @@ async fn add_tool_message_to_chat(
     content: &str,
     success: bool,
 ) {
-    if ctx.chat_settings.is_none() {
-        *ctx.chat_settings = Some(get_flow_chat_settings(ctx.db, ctx.job).await);
+    if ctx.flow_context.is_none() {
+        *ctx.flow_context = Some(get_flow_context(ctx.db, ctx.job).await);
     }
 
     let chat_enabled = ctx
-        .chat_settings
+        .flow_context
         .as_ref()
         .map(|s| s.chat_input_enabled)
         .unwrap_or(false);
 
     if chat_enabled {
-        if let Some(mid) = ctx.chat_settings.as_ref().and_then(|s| s.memory_id) {
+        if let Some(mid) = ctx.flow_context.as_ref().and_then(|s| s.memory_id) {
             let db_clone = ctx.db.clone();
             let step_name =
                 get_step_name_from_flow(ctx.summary.as_deref(), ctx.job.flow_step_id.as_deref());

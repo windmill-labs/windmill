@@ -1,10 +1,10 @@
 use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, cleanup_mcp_clients, filter_schema_by_input_transforms,
-    find_unique_tool_name, get_flow_chat_settings, get_flow_job_runnable_and_raw_flow,
+    find_unique_tool_name, get_flow_context, get_flow_job_runnable_and_raw_flow,
     get_step_name_from_flow, is_anthropic_provider, load_mcp_tools, parse_raw_script_schema,
     update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
-    FlowChatSettings,
+    FlowContext,
 };
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use async_recursion::async_recursion;
@@ -399,15 +399,14 @@ pub async fn run_agent(
             vec![]
         };
 
-    let mut chat_settings: Option<FlowChatSettings> = None;
+    // ALWAYS fetch flow context for tool input transforms (also needed for chat/memory)
+    let mut flow_context = Some(get_flow_context(db, job).await);
 
     // Load previous messages from memory for text output mode (only if context length is set)
     if matches!(output_type, OutputType::Text) {
         if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
             if let Some(step_id) = job.flow_step_id.as_deref() {
-                // Fetch chat settings from root flow
-                chat_settings = Some(get_flow_chat_settings(db, job).await);
-                if let Some(memory_id) = chat_settings.as_ref().and_then(|s| s.memory_id) {
+                if let Some(memory_id) = flow_context.as_ref().and_then(|s| s.memory_id) {
                     // Read messages from memory
                     match read_from_memory(&job.workspace_id, memory_id, step_id).await {
                         Ok(Some(loaded_messages)) => {
@@ -433,6 +432,45 @@ pub async fn run_agent(
             }
         }
     }
+
+    // Extract previous step result if we have flow_status (for tool input transforms)
+    let previous_result = if let Some(ref ctx) = flow_context {
+        if let Some(ref flow_status) = ctx.flow_status {
+            tracing::info!(
+                "HERE Extracting previous step result (current step: {})",
+                flow_status.step
+            );
+
+            match crate::worker_flow::get_previous_job_result(db, &job.workspace_id, flow_status).await {
+                Ok(Some(result)) => {
+                    let preview = result.get();
+                    tracing::info!(
+                        "HERE Previous step result found: {}",
+                        if preview.len() > 200 {
+                            format!("{}...", &preview[..200])
+                        } else {
+                            preview.to_string()
+                        }
+                    );
+                    Some(result)
+                }
+                Ok(None) => {
+                    tracing::debug!("HERE No previous step result available (might be first step)");
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!("HERE Failed to get previous step result: {}", e);
+                    None
+                }
+            }
+        } else {
+            tracing::debug!("HERE No flow_status in flow_context, cannot extract previous result");
+            None
+        }
+    } else {
+        tracing::debug!("HERE No flow_context available, skipping previous result extraction");
+        None
+    };
 
     // Create user message with optional images
     let mut parts = vec![ContentPart::Text { text: args.user_message.clone() }];
@@ -604,16 +642,16 @@ pub async fn run_agent(
                             content = Some(OpenAIContent::Text(response_content.clone()));
 
                             // Add assistant message to conversation if chat_input_enabled
-                            if chat_settings.is_none() {
-                                chat_settings = Some(get_flow_chat_settings(db, job).await);
+                            if flow_context.is_none() {
+                                flow_context = Some(get_flow_context(db, job).await);
                             }
-                            let chat_enabled = chat_settings
+                            let chat_enabled = flow_context
                                 .as_ref()
                                 .map(|s| s.chat_input_enabled)
                                 .unwrap_or(false);
 
                             if chat_enabled && !response_content.is_empty() {
-                                if let Some(mid) = chat_settings.as_ref().and_then(|s| s.memory_id)
+                                if let Some(mid) = flow_context.as_ref().and_then(|s| s.memory_id)
                                 {
                                     let agent_job_id = job.id;
                                     let db_clone = db.clone();
@@ -674,7 +712,8 @@ pub async fn run_agent(
                             job_completed_tx,
                             killpill_rx,
                             stream_event_processor: stream_event_processor.as_ref(),
-                            chat_settings: &mut chat_settings,
+                            flow_context: &mut flow_context,
+                            previous_result: &previous_result,
                         };
 
                         let (tool_messages, tool_content, tool_used_structured_output) =
@@ -765,7 +804,7 @@ pub async fn run_agent(
                     let start_idx = all_messages.len().saturating_sub(context_length);
                     let messages_to_persist = all_messages[start_idx..].to_vec();
 
-                    if let Some(memory_id) = chat_settings.as_ref().and_then(|s| s.memory_id) {
+                    if let Some(memory_id) = flow_context.as_ref().and_then(|s| s.memory_id) {
                         if let Err(e) = write_to_memory(
                             &job.workspace_id,
                             memory_id,

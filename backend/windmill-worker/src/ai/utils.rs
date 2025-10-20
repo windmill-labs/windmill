@@ -1,6 +1,7 @@
 use crate::ai::types::{ToolDef, ToolDefFunction};
 use anyhow::Context;
 use serde_json::value::RawValue;
+use sqlx::Row;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 use windmill_common::mcp_client::{McpClient, McpResource, McpToolSource};
@@ -200,45 +201,97 @@ pub async fn get_flow_job_runnable_and_raw_flow(
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct FlowChatSettings {
+pub struct FlowContext {
     pub memory_id: Option<Uuid>,
     pub chat_input_enabled: bool,
+    pub args: Option<HashMap<String, Box<RawValue>>>,
+    pub flow_status: Option<windmill_common::flow_status::FlowStatus>,
 }
 
-/// Get chat settings (memory_id and chat_input_enabled) from root flow's flow_status
-pub async fn get_flow_chat_settings(db: &DB, job: &MiniPulledJob) -> FlowChatSettings {
+/// Get flow context (chat settings + args + flow_status) from root flow's job data
+/// This extended query provides all necessary context for AI tool input transforms
+pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
     let root_job_id = job
         .root_job
         .or(job.flow_innermost_root_job)
         .or(job.parent_job);
 
     let Some(root_job_id) = root_job_id else {
-        return FlowChatSettings::default();
+        tracing::debug!("HERE No root job found for job {}, returning default FlowContext", job.id);
+        return FlowContext::default();
     };
 
-    match sqlx::query!(
-        "SELECT
-            (flow_status->>'memory_id')::uuid as memory_id,
-            (flow_status->>'chat_input_enabled')::boolean as chat_input_enabled
-         FROM v2_job_status
-         WHERE id = $1",
-        root_job_id
+    tracing::info!(
+        "HERE Fetching flow context for root job {} (from agent job {})",
+        root_job_id,
+        job.id
+    );
+
+    // Use untyped query to handle complex JSON types
+    let result = sqlx::query(
+        r#"
+        SELECT
+            (js.flow_status->>'memory_id')::uuid as memory_id,
+            (js.flow_status->>'chat_input_enabled')::boolean as chat_input_enabled,
+            j.args,
+            js.flow_status
+        FROM v2_job_status js
+        INNER JOIN v2_job j ON j.id = js.id
+        WHERE js.id = $1
+        "#,
     )
+    .bind(root_job_id)
     .fetch_optional(db)
-    .await
-    {
-        Ok(Some(row)) => FlowChatSettings {
-            memory_id: row.memory_id,
-            chat_input_enabled: row.chat_input_enabled.unwrap_or(false),
-        },
-        Ok(None) => FlowChatSettings::default(),
-        Err(e) => {
+    .await;
+
+    match result {
+        Ok(Some(row)) => {
+            let memory_id: Option<Uuid> = row.try_get("memory_id").ok();
+            let chat_input_enabled: bool = row.try_get("chat_input_enabled").ok().unwrap_or(false);
+
+            let args = row
+                .try_get::<sqlx::types::Json<HashMap<String, Box<RawValue>>>, _>("args")
+                .ok()
+                .map(|j| j.0);
+
+            let flow_status = row
+                .try_get::<sqlx::types::Json<windmill_common::flow_status::FlowStatus>, _>("flow_status")
+                .ok()
+                .map(|j| j.0);
+
+            let args_count = args.as_ref().map(|a| a.len()).unwrap_or(0);
+            let has_flow_status = flow_status.is_some();
+
+            tracing::info!(
+                "HERE Flow context loaded: memory_id={}, chat_enabled={}, args_count={}, has_flow_status={}",
+                memory_id.map(|id| id.to_string()).unwrap_or_else(|| "none".to_string()),
+                chat_input_enabled,
+                args_count,
+                has_flow_status
+            );
+
+            FlowContext {
+                memory_id,
+                chat_input_enabled,
+                args,
+                flow_status,
+            }
+        }
+        Ok(None) => {
             tracing::warn!(
-                "Failed to get chat settings from flow status for job {}: {}",
+                "HERE No flow context found for root job {} (agent job {}), returning default",
+                root_job_id,
+                job.id
+            );
+            FlowContext::default()
+        }
+        Err(e) => {
+            tracing::error!(
+                "HERE Failed to get flow context for job {}: {}",
                 job.id,
                 e
             );
-            FlowChatSettings::default()
+            FlowContext::default()
         }
     }
 }
@@ -635,6 +688,139 @@ pub fn merge_static_transforms(
     } else {
         tracing::info!("No static transforms to merge. Using AI arguments as-is.");
     }
+
+    Ok(())
+}
+
+/// Evaluate both static and JavaScript input transforms for AI tools.
+/// Supports flow_input, previous_result, result, and params references.
+///
+/// This is the enhanced version that supports dynamic JavaScript transforms with flow context.
+pub async fn evaluate_input_transforms(
+    tool_args: &mut HashMap<String, Box<RawValue>>,
+    input_transforms: &HashMap<String, InputTransform>,
+    flow_context: &FlowContext,
+    previous_result: Option<&Box<RawValue>>,
+    client: &windmill_common::client::AuthedClient,
+) -> Result<(), Error> {
+    // Early return if no transforms
+    if input_transforms.is_empty() {
+        tracing::debug!("HERE No input transforms to evaluate");
+        return Ok(());
+    }
+
+    let static_count = input_transforms.iter().filter(|(_, t)| matches!(t, InputTransform::Static { .. })).count();
+    let js_count = input_transforms.iter().filter(|(_, t)| matches!(t, InputTransform::Javascript { .. })).count();
+    let has_previous_result = previous_result.is_some();
+    let has_flow_args = flow_context.args.is_some();
+
+    tracing::info!(
+        "HERE Evaluating {} input transforms ({} static, {} JavaScript) - has_previous_result={}, has_flow_args={}",
+        input_transforms.len(),
+        static_count,
+        js_count,
+        has_previous_result,
+        has_flow_args
+    );
+
+    // Pre-build base context once for all JavaScript transforms
+    let mut base_context = HashMap::new();
+    if let Some(prev) = previous_result {
+        let arc_result = Arc::new(prev.clone());
+        base_context.insert("previous_result".to_string(), arc_result.clone());
+        base_context.insert("result".to_string(), arc_result);
+        tracing::debug!("HERE Added previous_result and result to transform context");
+    }
+
+    let mut static_applied = 0;
+    let mut js_applied = 0;
+
+    for (key, transform) in input_transforms {
+        match transform {
+            InputTransform::Static { value } => {
+                // Skip empty/null values - optimized single check
+                let val_str = value.get().trim();
+                if !val_str.is_empty() && val_str != "null" {
+                    tracing::debug!(
+                        "HERE Applied static transform for '{}': {}",
+                        key,
+                        if val_str.len() > 100 {
+                            format!("{}...", &val_str[..100])
+                        } else {
+                            val_str.to_string()
+                        }
+                    );
+                    tool_args.insert(key.clone(), value.clone());
+                    static_applied += 1;
+                } else {
+                    tracing::debug!("HERE Skipped empty/null static transform for '{}'", key);
+                }
+            }
+            InputTransform::Javascript { expr } => {
+                tracing::info!(
+                    "HERE Evaluating JavaScript transform for '{}': {}",
+                    key,
+                    if expr.len() > 100 {
+                        format!("{}...", &expr[..100])
+                    } else {
+                        expr.clone()
+                    }
+                );
+
+                // Clone base context and add current params
+                let mut ctx = base_context.clone();
+                ctx.insert("params".to_string(), Arc::new(to_raw_value(&tool_args)));
+
+                // Prepare flow_input as Marc for eval_timeout
+                let flow_input = flow_context.args.as_ref().map(|args| {
+                    mappable_rc::Marc::new(args.clone())
+                });
+
+                // Evaluate JavaScript expression
+                let result = crate::js_eval::eval_timeout(
+                    expr.clone(),
+                    ctx,
+                    flow_input,
+                    Some(client),
+                    None,  // No by_id context (Phase 2)
+                    None,  // No additional ctx
+                )
+                .await
+                .map_err(|e| {
+                    tracing::error!(
+                        "HERE JavaScript transform failed for '{}': {:#}",
+                        key,
+                        e
+                    );
+                    Error::ExecutionErr(format!(
+                        "Failed to evaluate JavaScript transform for '{}': {:#}",
+                        key, e
+                    ))
+                })?;
+
+                let result_preview = result.get();
+                tracing::info!(
+                    "HERE JavaScript transform for '{}' succeeded: {}",
+                    key,
+                    if result_preview.len() > 100 {
+                        format!("{}...", &result_preview[..100])
+                    } else {
+                        result_preview.to_string()
+                    }
+                );
+
+                tool_args.insert(key.clone(), result);
+                js_applied += 1;
+            }
+        }
+    }
+
+    tracing::info!(
+        "HERE Input transforms complete: {} static applied, {} JavaScript applied, final args count: {}",
+        static_applied,
+        js_applied,
+        tool_args.len()
+    );
 
     Ok(())
 }

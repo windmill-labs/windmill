@@ -4641,7 +4641,7 @@ fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(Suspend, Uuid)
 }
 
 // returns the result of the previous step of a running flow (if the job was successful)
-async fn get_previous_job_result(
+pub async fn get_previous_job_result(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
     flow_status: &FlowStatus,
