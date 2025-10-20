@@ -2103,7 +2103,7 @@ async fn push_next_flow_job(
         }
     });
 
-    // if this is an empty module without preprocessor of if the module has already been completed, successfully, update the parent flow
+    // if this is an empty module without preprocessor or if the module has already been completed, successfully, update the parent flow
     if (flow.modules.is_empty() && !step.is_preprocessor_step())
         || matches!(status_module, FlowStatusModule::Success { .. })
     {
@@ -3178,7 +3178,9 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
-        if value_with_parallel.type_ == "forloopflow" && value_with_parallel.parallel.unwrap_or(false) {
+        if value_with_parallel.type_ == "forloopflow"
+            && value_with_parallel.parallel.unwrap_or(false)
+        {
             if let Some(parallelism_transform) = &value_with_parallel.parallelism {
                 tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
 
@@ -3572,11 +3574,13 @@ pub struct JobPayloadWithTag {
     pub timeout: Option<i32>,
     pub on_behalf_of: Option<OnBehalfOf>,
 }
+#[derive(Debug)]
 enum ContinuePayload {
     SingleJob(JobPayloadWithTag),
     ParallelJobs(Vec<JobPayloadWithTag>),
 }
 
+#[derive(Debug)]
 enum NextFlowTransform {
     EmptyInnerFlows { branch_chosen: Option<BranchChosen> },
     Continue(ContinuePayload, NextStatus),

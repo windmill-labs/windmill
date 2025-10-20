@@ -15,7 +15,7 @@
 		WorkerService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { initialCode } from '$lib/script_helpers'
+	import { initialCode, canHavePreprocessorInScript } from '$lib/script_helpers'
 	import AIFormSettings from './copilot/AIFormSettings.svelte'
 	import {
 		defaultScripts,
@@ -1609,9 +1609,7 @@
 									newItem={initialPath == ''}
 									isFlow={false}
 									{hasPreprocessor}
-									canHavePreprocessor={script.language === 'bun' ||
-										script.language === 'deno' ||
-										script.language === 'python3'}
+									canHavePreprocessor={canHavePreprocessorInScript(script.language)}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
 									isDeployed={savedScript && !savedScript?.draft_only}
 									schema={script.schema}
