@@ -169,7 +169,7 @@
 {:else if selectedTrigger.type === 'poll'}
 	<ScheduledPollPanel />
 {:else if selectedTrigger.type === 'cli'}
-	<div class="py-1 flex flex-col gap-4">
+	<div class="py-1 flex flex-col gap-6">
 		<ClipboardPanel content={selectedTrigger.extra?.cliCommand ?? ''} />
 		<CliHelpBox />
 	</div>
