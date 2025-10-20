@@ -161,15 +161,17 @@ pub async fn handle_ai_agent_job(
                 )));
             };
 
-            let schema = match &t.get_value() {
-                Ok(FlowModuleValue::Script {
+            // Extract schema and input_transforms from the module value
+            let module_value = t.get_value()?;
+            let (schema, input_transforms) = match &module_value {
+                FlowModuleValue::Script {
                     hash,
                     path,
                     tag_override,
                     input_transforms,
                     is_trigger,
                     pass_flow_input_directly,
-                }) => {
+                } => {
                     let schema = match hash {
                         Some(hash) => {
                             let (_, metadata) = cache::script::fetch(conn, hash.clone()).await?;
@@ -217,42 +219,11 @@ pub async fn handle_ai_agent_job(
                             }
                         }
                     }?;
-
-                    // Filter schema based on completed input transforms
-                    let filtered_schema = if let Some(s) = schema {
-                        Some(filter_schema_by_input_transforms(s, input_transforms)?)
-                    } else {
-                        tracing::debug!(
-                            "No schema found for tool '{}', skipping filtering",
-                            summary
-                        );
-                        None
-                    };
-
-                    Ok::<_, Error>(filtered_schema)
+                    (schema, input_transforms)
                 }
-                Ok(FlowModuleValue::RawScript { content, language, input_transforms, .. }) => {
+                FlowModuleValue::RawScript { content, language, input_transforms, .. } => {
                     let schema = Some(parse_raw_script_schema(&content, &language)?);
-
-                    // Filter schema based on completed input transforms
-                    let filtered_schema = if let Some(s) = schema {
-                        Some(filter_schema_by_input_transforms(s, input_transforms)?)
-                    } else {
-                        tracing::debug!(
-                            "No schema found for RawScript tool '{}', skipping filtering",
-                            summary
-                        );
-                        None
-                    };
-
-                    Ok::<_, Error>(filtered_schema)
-                }
-                Err(e) => {
-                    return Err(Error::internal_err(format!(
-                        "Invalid tool {}: {}",
-                        summary,
-                        e.to_string()
-                    )));
+                    (schema, input_transforms)
                 }
                 _ => {
                     return Err(Error::internal_err(format!(
@@ -260,7 +231,14 @@ pub async fn handle_ai_agent_job(
                         summary
                     )));
                 }
-            }?;
+            };
+
+            // Filter schema based on user given input transforms
+            let schema = if let Some(s) = schema {
+                Some(filter_schema_by_input_transforms(s, input_transforms)?)
+            } else {
+                None
+            };
 
             Ok(Tool {
                 def: ToolDef {
