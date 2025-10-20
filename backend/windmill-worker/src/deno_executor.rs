@@ -557,7 +557,6 @@ pub async fn start_worker(
         None,
         None,
         None,
-        None,
     )
     .await;
     let context_envs = build_envs_map(context.to_vec()).await;
