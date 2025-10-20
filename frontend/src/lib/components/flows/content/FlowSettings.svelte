@@ -324,7 +324,10 @@
 				{#if customUi?.settingsTabs?.sharedDiretory != false}
 					<Toggle
 						size="xs"
-						bind:checked={flowStore.val.value.same_worker}
+						bind:checked={
+							() => flowStore.val.value.same_worker ?? false,
+							(value) => (flowStore.val.value.same_worker = value || undefined)
+						}
 						options={{
 							right: 'Same Worker + Shared directory on `./shared`',
 							rightTooltip:
