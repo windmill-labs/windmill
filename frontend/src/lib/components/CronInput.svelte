@@ -234,7 +234,7 @@
 				>
 			</div>
 		</div>
-		<Label label="Timezone" class="font-semibold" primary>
+		<Label label="Timezone">
 			{#if disabled}
 				<div>
 					<Badge><span class="text-primary dark:text-primary-inverse">{timezone}</span></Badge>

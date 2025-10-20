@@ -466,7 +466,7 @@ done`
 			{#snippet content()}
 				{#key token}
 					<TabContent value="rest" class="flex flex-col flex-1 h-full mt-2">
-						<div class="flex flex-col gap-2">
+						<div class="flex flex-col gap-6">
 							<Label label="Url">
 								<ClipboardPanel content={url} />
 							</Label>
