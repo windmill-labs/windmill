@@ -1043,10 +1043,7 @@
 										document.getElementById('path')?.focus()
 									}}
 								>
-									<Badge
-										color="gray"
-										class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[28px]  !w-[70px] rounded-r-none"
-									>
+									<Badge color="gray" class="!text-tertiary !h-[28px] rounded-r-none">
 										<Pen size={12} class="mr-2" /> Path
 									</Badge>
 								</button>
