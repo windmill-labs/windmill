@@ -2,9 +2,9 @@ use crate::ai::providers::openai::OpenAIToolCall;
 use crate::ai::query_builder::StreamEventProcessor;
 use crate::ai::types::*;
 use crate::ai::utils::{
-    add_message_to_conversation, execute_mcp_tool, get_flow_context, get_step_name_from_flow,
-    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
-    FlowContext,
+    add_message_to_conversation, evaluate_input_transforms, execute_mcp_tool,
+    get_step_name_from_flow, update_flow_status_module_with_actions,
+    update_flow_status_module_with_actions_success, FlowContext,
 };
 use crate::common::{error_to_value, OccupancyMetrics};
 use crate::result_processor::handle_non_flow_job_error;
@@ -57,7 +57,7 @@ pub struct ToolExecutionContext<'a> {
 
     // Optional streaming & chat
     pub stream_event_processor: Option<&'a StreamEventProcessor>,
-    pub flow_context: &'a mut Option<FlowContext>,
+    pub flow_context: &'a mut FlowContext,
     pub previous_result: &'a Option<Box<RawValue>>,
     pub id_context: &'a Option<crate::js_eval::IdContext>,
 }
@@ -300,17 +300,10 @@ async fn execute_windmill_tool(
         }
     };
 
-    tracing::debug!(
-        "Tool '{}': AI provided {} argument(s), {} input transform(s) defined",
-        tool_call.function.name,
-        tool_call_args.len(),
-        input_transforms.len()
-    );
-
     // Evaluate input transforms (both static and JavaScript)
     // If no flow context, static transforms will still be applied
-    let flow_ctx = ctx.flow_context.as_ref().cloned().unwrap_or_default();
-    crate::ai::utils::evaluate_input_transforms(
+    let flow_ctx = ctx.flow_context.clone();
+    evaluate_input_transforms(
         &mut tool_call_args,
         &input_transforms,
         &flow_ctx,
@@ -691,18 +684,9 @@ async fn add_tool_message_to_chat(
     content: &str,
     success: bool,
 ) {
-    if ctx.flow_context.is_none() {
-        *ctx.flow_context = Some(get_flow_context(ctx.db, ctx.job).await);
-    }
-
-    let chat_enabled = ctx
-        .flow_context
-        .as_ref()
-        .map(|s| s.chat_input_enabled)
-        .unwrap_or(false);
-
+    let chat_enabled = ctx.flow_context.chat_input_enabled;
     if chat_enabled {
-        if let Some(mid) = ctx.flow_context.as_ref().and_then(|s| s.memory_id) {
+        if let Some(mid) = ctx.flow_context.memory_id {
             let db_clone = ctx.db.clone();
             let step_name =
                 get_step_name_from_flow(ctx.summary.as_deref(), ctx.job.flow_step_id.as_deref());

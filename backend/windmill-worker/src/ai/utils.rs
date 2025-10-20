@@ -2,8 +2,10 @@ use crate::ai::types::{ToolDef, ToolDefFunction};
 use anyhow::Context;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
-use sqlx::Row;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use uuid::Uuid;
 use windmill_common::mcp_client::{McpClient, McpResource, McpToolSource};
 use windmill_common::{
@@ -55,10 +57,6 @@ pub fn parse_raw_script_schema(
 
 /// Filters out properties from a JSON schema that have completed input transforms.
 /// This allows AI agents to only see and fill parameters that don't have user-configured values.
-///
-/// A transform is considered "completed" if:
-/// - Static transform: value is defined and not empty/null
-/// - JavaScript transform: expr is defined and not empty
 pub fn filter_schema_by_input_transforms(
     schema: Box<RawValue>,
     input_transforms: &HashMap<String, InputTransform>,
@@ -68,25 +66,16 @@ pub fn filter_schema_by_input_transforms(
         .context("Failed to parse schema JSON")
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-    tracing::debug!(
-        "Filtering schema with {} input transforms defined",
-        input_transforms.len()
-    );
-
     // Collect keys to remove (parameters with completed input transforms)
-    let keys_to_remove: Vec<String> = input_transforms
+    let keys_to_remove: HashSet<String> = input_transforms
         .iter()
         .filter_map(|(key, transform)| {
             let is_completed = match transform {
                 InputTransform::Static { value } => {
-                    // Completed if value is defined and not null/empty
-                    let val_str = value.get().trim();
-                    !val_str.is_empty() && val_str != "null"
+                    let val = value.get().trim();
+                    !val.is_empty() && val != "null"
                 }
-                InputTransform::Javascript { expr } => {
-                    // Completed if expr is defined and not empty
-                    !expr.trim().is_empty()
-                }
+                InputTransform::Javascript { expr } => !expr.trim().is_empty(),
             };
             if is_completed {
                 Some(key.clone())
@@ -97,12 +86,6 @@ pub fn filter_schema_by_input_transforms(
         .collect();
 
     if !keys_to_remove.is_empty() {
-        tracing::debug!(
-            "Removing {} completed parameters from schema: {:?}",
-            keys_to_remove.len(),
-            keys_to_remove
-        );
-
         // Remove completed parameters from properties
         if let Some(properties) = schema_value
             .get_mut("properties")
@@ -119,8 +102,9 @@ pub fn filter_schema_by_input_transforms(
             .and_then(|r| r.as_array_mut())
         {
             required.retain(|item| {
+                // Avoid unnecessary String allocation - use &str directly with HashSet
                 if let Some(key) = item.as_str() {
-                    !keys_to_remove.contains(&key.to_string())
+                    !keys_to_remove.contains(key)
                 } else {
                     true
                 }
@@ -169,18 +153,8 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
         .or(job.parent_job);
 
     let Some(root_job_id) = root_job_id else {
-        tracing::debug!(
-            "No root job found for job {}, returning default FlowContext",
-            job.id
-        );
         return FlowContext::default();
     };
-
-    tracing::debug!(
-        "Fetching flow context for root job {} (from agent job {})",
-        root_job_id,
-        job.id
-    );
 
     match sqlx::query!(
         r#"
@@ -198,22 +172,12 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
     .fetch_optional(db)
     .await
     {
-        Ok(Some(row)) => {
-            tracing::debug!(
-                "Flow context loaded: memory_id={}, chat_enabled={}, args_count={}, has_flow_status={}",
-                row.memory_id.map(|id| id.to_string()).unwrap_or_else(|| "none".to_string()),
-                row.chat_input_enabled.unwrap_or(false),
-                row.args.as_ref().map(|a| a.0.len()).unwrap_or(0),
-                row.flow_status.is_some()
-            );
-
-            FlowContext {
-                memory_id: row.memory_id,
-                chat_input_enabled: row.chat_input_enabled.unwrap_or(false),
-                args: row.args.map(|j| j.0),
-                flow_status: row.flow_status.map(|j| j.0),
-            }
-        }
+        Ok(Some(row)) => FlowContext {
+            memory_id: row.memory_id,
+            chat_input_enabled: row.chat_input_enabled.unwrap_or(false),
+            args: row.args.map(|j| j.0),
+            flow_status: row.flow_status.map(|j| j.0),
+        },
         Ok(None) => {
             tracing::warn!(
                 "No flow context found for root job {} (agent job {}), returning default",
@@ -579,13 +543,6 @@ pub async fn execute_mcp_tool(
 }
 
 /// Evaluate both static and JavaScript input transforms for AI tools.
-/// Supports flow_input, previous_result, result, params, and results.stepId references.
-///
-/// Phase 1: flow_input, previous_result, result, params
-/// Phase 2: results.stepId (requires id_context)
-///
-/// This function handles both static value replacement and JavaScript expression evaluation.
-/// Static transforms are always applied first, then JavaScript transforms can reference them via `params`.
 pub async fn evaluate_input_transforms(
     tool_args: &mut HashMap<String, Box<RawValue>>,
     input_transforms: &HashMap<String, InputTransform>,
@@ -599,11 +556,6 @@ pub async fn evaluate_input_transforms(
         return Ok(());
     }
 
-    tracing::debug!(
-        "Evaluating {} input transforms for tool",
-        input_transforms.len()
-    );
-
     // Pre-build base context once for all JavaScript transforms
     let mut base_context = HashMap::new();
     if let Some(prev) = previous_result {
@@ -616,14 +568,12 @@ pub async fn evaluate_input_transforms(
         match transform {
             InputTransform::Static { value } => {
                 // Skip empty/null values
-                let val_str = value.get().trim();
-                if !val_str.is_empty() && val_str != "null" {
+                let val = value.get().trim();
+                if !val.is_empty() && val != "null" {
                     tool_args.insert(key.clone(), value.clone());
                 }
             }
             InputTransform::Javascript { expr } => {
-                tracing::debug!("Evaluating JavaScript transform for parameter '{}'", key);
-
                 // Clone base context and add current params
                 let mut ctx = base_context.clone();
                 ctx.insert("params".to_string(), Arc::new(to_raw_value(&tool_args)));
@@ -634,22 +584,17 @@ pub async fn evaluate_input_transforms(
                     .as_ref()
                     .map(|args| mappable_rc::Marc::new(args.clone()));
 
-                // Evaluate JavaScript expression with optional IdContext for results.stepId
+                // Evaluate JavaScript expression
                 let result = crate::js_eval::eval_timeout(
                     expr.clone(),
                     ctx,
                     flow_input,
                     Some(client),
-                    id_context, // Phase 2: enables results.stepId syntax
-                    None,       // No additional ctx
+                    id_context,
+                    None,
                 )
                 .await
                 .map_err(|e| {
-                    tracing::error!(
-                        "JavaScript transform failed for parameter '{}': {:#}",
-                        key,
-                        e
-                    );
                     Error::ExecutionErr(format!(
                         "Failed to evaluate JavaScript transform for '{}': {:#}",
                         key, e
