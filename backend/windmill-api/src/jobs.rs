@@ -4300,14 +4300,15 @@ pub async fn generate_args_runnable(
                 let oauth_data: NextCloudOAuthData =
                     decrypt_oauth_data(db, &db, &w_id, service_name).await?;
 
-                webhook_payload
+                //Uncomment once nextcloud integrate the ephemeral token in the webhook payload
+                /*webhook_payload
                     .metadata
                     .headers
                     .insert("base_url".to_string(), to_raw_value(&oauth_data.base_url));
                 webhook_payload.metadata.headers.insert(
                     "access_token".to_string(),
                     to_raw_value(&oauth_data.access_token),
-                );
+                );*/
 
                 let args = NextCloud::build_job_args(
                     runnable_path,

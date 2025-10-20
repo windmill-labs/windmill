@@ -22,7 +22,7 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 		supportsFetchConfig: true,
 		isCloudCompatible: true,
 		templates: {
-			script: '/scripts/add?hub=hub%2F19828',
+			script: '/scripts/add?hub=hub%2F28045',
 			flow: '/flows/add?hub=73'
 		}
 	}
