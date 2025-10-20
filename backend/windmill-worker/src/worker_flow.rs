@@ -4574,7 +4574,7 @@ pub async fn script_to_payload(
     })
 }
 
-async fn get_transform_context(
+pub async fn get_transform_context(
     flow_job: &MiniPulledJob,
     previous_id: &str,
     status: &FlowStatus,

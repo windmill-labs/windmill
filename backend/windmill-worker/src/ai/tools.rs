@@ -59,6 +59,7 @@ pub struct ToolExecutionContext<'a> {
     pub stream_event_processor: Option<&'a StreamEventProcessor>,
     pub flow_context: &'a mut Option<FlowContext>,
     pub previous_result: &'a Option<Box<RawValue>>,
+    pub id_context: &'a Option<crate::js_eval::IdContext>,
 }
 
 /// Execute all tool calls from an AI response
@@ -309,18 +310,20 @@ async fn execute_windmill_tool(
     // Evaluate input transforms (both static and JavaScript)
     if let Some(flow_ctx) = ctx.flow_context.as_ref() {
         tracing::info!(
-            "HERE Tool '{}': Using evaluate_input_transforms with flow context (has_flow_args={}, has_previous_result={})",
+            "HERE Tool '{}': Using evaluate_input_transforms with flow context (has_flow_args={}, has_previous_result={}, has_id_context={})",
             tool_call.function.name,
             flow_ctx.args.is_some(),
-            ctx.previous_result.is_some()
+            ctx.previous_result.is_some(),
+            ctx.id_context.is_some()
         );
 
-        // Use new evaluate_input_transforms with flow context
+        // Use new evaluate_input_transforms with flow context and IdContext
         crate::ai::utils::evaluate_input_transforms(
             &mut tool_call_args,
             &input_transforms,
             flow_ctx,
             ctx.previous_result.as_ref(),
+            ctx.id_context.as_ref(),
             ctx.client,
         )
         .await?;

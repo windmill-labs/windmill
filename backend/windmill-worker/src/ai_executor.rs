@@ -433,7 +433,7 @@ pub async fn run_agent(
         }
     }
 
-    // Extract previous step result if we have flow_status (for tool input transforms)
+    // Extract previous step result if we have flow_status (for tool input transforms - Phase 1)
     let previous_result = if let Some(ref ctx) = flow_context {
         if let Some(ref flow_status) = ctx.flow_status {
             tracing::info!(
@@ -469,6 +469,40 @@ pub async fn run_agent(
         }
     } else {
         tracing::debug!("HERE No flow_context available, skipping previous result extraction");
+        None
+    };
+
+    // Build IdContext for results.stepId syntax (Phase 2)
+    let id_context = if let Some(ref ctx) = flow_context {
+        if let Some(ref flow_status) = ctx.flow_status {
+            // Get the step ID from the AI agent's flow step
+            let previous_id = job.flow_step_id.clone().unwrap_or_else(|| "unknown".to_string());
+
+            tracing::info!(
+                "HERE Building IdContext for results.stepId syntax (previous_id: {})",
+                previous_id
+            );
+
+            match crate::worker_flow::get_transform_context(job, &previous_id, flow_status).await {
+                Ok(ctx) => {
+                    let step_count = ctx.steps_results.len();
+                    tracing::info!(
+                        "HERE IdContext built successfully: {} steps available for results.stepId",
+                        step_count
+                    );
+                    Some(ctx)
+                }
+                Err(e) => {
+                    tracing::warn!("HERE Failed to build IdContext: {}", e);
+                    None
+                }
+            }
+        } else {
+            tracing::debug!("HERE No flow_status available, cannot build IdContext");
+            None
+        }
+    } else {
+        tracing::debug!("HERE No flow_context available, cannot build IdContext");
         None
     };
 
@@ -714,6 +748,7 @@ pub async fn run_agent(
                             stream_event_processor: stream_event_processor.as_ref(),
                             flow_context: &mut flow_context,
                             previous_result: &previous_result,
+                            id_context: &id_context,
                         };
 
                         let (tool_messages, tool_content, tool_used_structured_output) =

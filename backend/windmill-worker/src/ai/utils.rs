@@ -693,14 +693,16 @@ pub fn merge_static_transforms(
 }
 
 /// Evaluate both static and JavaScript input transforms for AI tools.
-/// Supports flow_input, previous_result, result, and params references.
+/// Supports flow_input, previous_result, result, params, and results.stepId references.
 ///
-/// This is the enhanced version that supports dynamic JavaScript transforms with flow context.
+/// Phase 1: flow_input, previous_result, result, params
+/// Phase 2: results.stepId (requires id_context)
 pub async fn evaluate_input_transforms(
     tool_args: &mut HashMap<String, Box<RawValue>>,
     input_transforms: &HashMap<String, InputTransform>,
     flow_context: &FlowContext,
     previous_result: Option<&Box<RawValue>>,
+    id_context: Option<&crate::js_eval::IdContext>,
     client: &windmill_common::client::AuthedClient,
 ) -> Result<(), Error> {
     // Early return if no transforms
@@ -713,14 +715,16 @@ pub async fn evaluate_input_transforms(
     let js_count = input_transforms.iter().filter(|(_, t)| matches!(t, InputTransform::Javascript { .. })).count();
     let has_previous_result = previous_result.is_some();
     let has_flow_args = flow_context.args.is_some();
+    let has_id_context = id_context.is_some();
 
     tracing::info!(
-        "HERE Evaluating {} input transforms ({} static, {} JavaScript) - has_previous_result={}, has_flow_args={}",
+        "HERE Evaluating {} input transforms ({} static, {} JavaScript) - has_previous_result={}, has_flow_args={}, has_id_context={}",
         input_transforms.len(),
         static_count,
         js_count,
         has_previous_result,
-        has_flow_args
+        has_flow_args,
+        has_id_context
     );
 
     // Pre-build base context once for all JavaScript transforms
@@ -776,13 +780,13 @@ pub async fn evaluate_input_transforms(
                     mappable_rc::Marc::new(args.clone())
                 });
 
-                // Evaluate JavaScript expression
+                // Evaluate JavaScript expression with optional IdContext for results.stepId
                 let result = crate::js_eval::eval_timeout(
                     expr.clone(),
                     ctx,
                     flow_input,
                     Some(client),
-                    None,  // No by_id context (Phase 2)
+                    id_context,  // Phase 2: enables results.stepId syntax
                     None,  // No additional ctx
                 )
                 .await
