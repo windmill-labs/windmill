@@ -32,6 +32,7 @@ class FlowChatManager {
 	loadingMoreMessages = $state(false)
 	currentEventSource = $state<EventSource | undefined>(undefined)
 	pollingInterval = $state<ReturnType<typeof setInterval> | undefined>(undefined)
+	currentJobId = $state<string | undefined>(undefined)
 
 	// Private state
 	#conversationsCache = $state<Record<string, ChatMessage[]>>({})
@@ -69,6 +70,7 @@ class FlowChatManager {
 		this.stopPolling()
 		this.isLoading = false
 		this.isWaitingForResponse = false
+		this.currentJobId = undefined
 	}
 
 	// Public methods for component to call
@@ -84,6 +86,33 @@ class FlowChatManager {
 		this.messages = []
 		this.inputMessage = ''
 		this.page = 1
+	}
+
+	async cancelCurrentJob() {
+		if (!this.#workspace) {
+			return
+		}
+
+		try {
+			// If we have a job ID (polling mode), cancel it through the API
+			if (this.currentJobId) {
+				const { JobService } = await import('$lib/gen')
+				await JobService.cancelQueuedJob({
+					workspace: this.#workspace,
+					id: this.currentJobId,
+					requestBody: {}
+				})
+				sendUserToast(`Job ${this.currentJobId} cancelled`)
+			} else {
+				// For streaming mode, just cleanup (closes EventSource)
+				sendUserToast('Execution cancelled')
+			}
+		} catch (error) {
+			console.error('Error cancelling job:', error)
+			sendUserToast('Could not cancel job', true)
+		} finally {
+			this.cleanup()
+		}
 	}
 
 	async loadConversationMessages(conversationId?: string) {
@@ -478,6 +507,9 @@ class FlowChatManager {
 			console.error('No jobId returned from onRunFlow')
 			return
 		}
+
+		// Store the current job ID so it can be cancelled
+		this.currentJobId = jobId
 
 		if (isNewConversation) {
 			await this.#refreshConversations?.()

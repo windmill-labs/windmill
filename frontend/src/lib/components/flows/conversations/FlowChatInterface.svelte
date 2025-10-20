@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, Alert } from '$lib/components/common'
-	import { MessageCircle, Loader2, ArrowUp } from 'lucide-svelte'
+	import { MessageCircle, Loader2, ArrowUp, Square } from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
 	import autosize from '$lib/autosize'
 	import FlowChatMessage from './FlowChatMessage.svelte'
@@ -124,16 +124,28 @@
 					rows={3}
 				></textarea>
 				<div class="flex-shrink-0 pr-2">
-					<Button
-						color="blue"
-						size="xs2"
-						btnClasses="!rounded-full !p-1.5"
-						startIcon={{ icon: ArrowUp }}
-						disabled={!manager.inputMessage?.trim() || manager.isLoading || deploymentInProgress}
-						on:click={() => manager.sendMessage()}
-						iconOnly
-						title={deploymentInProgress ? 'Deployment in progress' : 'Send message (Enter)'}
-					/>
+					{#if manager.isLoading}
+						<Button
+							color="red"
+							size="xs2"
+							btnClasses="!rounded-full !p-1.5"
+							startIcon={{ icon: Square }}
+							on:click={() => manager.cancelCurrentJob()}
+							iconOnly
+							title="Cancel execution"
+						/>
+					{:else}
+						<Button
+							color="blue"
+							size="xs2"
+							btnClasses="!rounded-full !p-1.5"
+							startIcon={{ icon: ArrowUp }}
+							disabled={!manager.inputMessage?.trim() || deploymentInProgress}
+							on:click={() => manager.sendMessage()}
+							iconOnly
+							title={deploymentInProgress ? 'Deployment in progress' : 'Send message (Enter)'}
+						/>
+					{/if}
 				</div>
 			</div>
 		</div>
