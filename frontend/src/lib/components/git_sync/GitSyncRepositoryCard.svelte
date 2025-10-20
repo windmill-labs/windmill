@@ -270,7 +270,7 @@
 			{#if !emptyString(repo.git_repo_resource_path)}
 				<Button
 					disabled={emptyString(repo.script_path)}
-					color="dark"
+					variant="accent"
 					onclick={runGitSyncTestJob}
 					size="xs"
 				>
@@ -330,7 +330,7 @@
 					<div class="flex mt-2">
 						<Button
 							size="xs"
-							color="dark"
+							variant="accent"
 							onclick={() => {
 								if (repo) {
 									repo.script_path = hubPaths.gitSync

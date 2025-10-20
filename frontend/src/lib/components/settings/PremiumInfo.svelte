@@ -174,7 +174,7 @@
 	<div class="mt-2">
 		<Button
 			endIcon={{ icon: ExternalLink }}
-			color="dark"
+			variant="accent"
 			href="{base}/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
 		>
 		<p class="text-xs text-primary mt-1">

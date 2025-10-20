@@ -76,7 +76,11 @@
 					{#if selectedNode}
 						<Section label="Conditions" class="w-full flex flex-col gap-2">
 							{#snippet action()}
-								<Button size="xs" startIcon={{ icon: Trash }} variant="default" on:click={() => {
+								<Button
+									size="xs"
+									startIcon={{ icon: Trash }}
+									variant="default"
+									on:click={() => {
 										nodes = removeNode(nodes, selectedNode)
 
 										$debuggingComponents = Object.fromEntries(
@@ -192,7 +196,7 @@
 			drawer?.openDrawer()
 		}}
 		size="xs"
-		color="dark"
+		variant="accent"
 		startIcon={{ icon: Network }}
 	>
 		Graph editor

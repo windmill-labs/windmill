@@ -73,7 +73,7 @@
 	{#if $enterpriseLicense && gitSyncContext.repositories != undefined}
 		<div class="flex mt-5 mb-5 gap-8">
 			<Button
-				color="dark"
+				variant="accent"
 				target="_blank"
 				endIcon={{ icon: ExternalLink }}
 				href={`/runs?job_kinds=deploymentcallbacks&workspace=${$workspaceStore}`}

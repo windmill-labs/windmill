@@ -743,7 +743,7 @@
 				{:else}
 					<Button
 						disabled={currentScript === undefined}
-						color="dark"
+						variant="accent"
 						on:click={(e) => {
 							runTest()
 						}}

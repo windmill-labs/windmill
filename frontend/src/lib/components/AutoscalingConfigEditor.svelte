@@ -27,17 +27,17 @@
 
 	async function checkKubernetesHealth() {
 		if (!config?.integration || config.integration.type !== 'kubernetes') return
-		
+
 		healthCheckLoading = true
 		healthCheckResult = null
-		
+
 		try {
 			await ConfigService.nativeKubernetesAutoscalingHealthcheck()
 			healthCheckResult = { success: true }
 		} catch (error: any) {
-			healthCheckResult = { 
-				success: false, 
-				error: error.body || error.message || 'Unknown error' 
+			healthCheckResult = {
+				success: false,
+				error: error.body || error.message || 'Unknown error'
 			}
 		} finally {
 			healthCheckLoading = false
@@ -323,14 +323,14 @@
 
 				<div class="flex mt-6 gap-2">
 					<Button
-						color="dark"
+						variant="accent"
 						target="_blank"
 						endIcon={{ icon: ExternalLink }}
 						href="/scripts/add?hub=hub%2F9204%2Fhelper%2FScale%20a%20worker%20group%20deployed%20as%20a%20kubernetes%20service&workspace=admins"
 						>Create from template</Button
 					>
 					<Button
-						color="dark"
+						variant="accent"
 						target="_blank"
 						href={`/runs/${config.integration.path}?workspace=admins`}
 						endIcon={{ icon: ExternalLink }}
@@ -349,18 +349,24 @@
 
 			{#if config.integration.type === 'kubernetes'}
 				<div class="text-sm text-secondary mb-3">
-					Kubernetes configuration is automatically inferred from the cluster environment. 
-					The worker group name and namespace will be detected automatically.
+					Kubernetes configuration is automatically inferred from the cluster environment. The
+					worker group name and namespace will be detected automatically.
 				</div>
 
 				<div class="flex flex-col gap-3 mt-4">
 					<div class="flex items-center gap-2">
-						<Button size="xs" variant="accent" startIcon={{ icon: ExternalLink }} href="https://windmill.dev/docs/core_concepts/autoscaling#kubernetes" target="_blank">
+						<Button
+							size="xs"
+							variant="accent"
+							startIcon={{ icon: ExternalLink }}
+							href="https://windmill.dev/docs/core_concepts/autoscaling#kubernetes"
+							target="_blank"
+						>
 							Setup Guide (Roles & Bindings)
 						</Button>
-						<Button 
-							color="light" 
-							size="xs" 
+						<Button
+							color="light"
+							size="xs"
 							variant="contained"
 							onclick={checkKubernetesHealth}
 							disabled={healthCheckLoading}
@@ -368,15 +374,21 @@
 							{healthCheckLoading ? 'Checking...' : 'Check Health'}
 						</Button>
 					</div>
-					
+
 					{#if healthCheckResult !== null}
-						<div class="p-2 rounded-md text-sm {healthCheckResult.success ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'}">
+						<div
+							class="p-2 rounded-md text-sm {healthCheckResult.success
+								? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+								: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'}"
+						>
 							{#if healthCheckResult.success}
 								Kubernetes autoscaling is healthy
 							{:else}
 								{healthCheckResult.error}
 								{#if healthCheckResult.error?.includes('permissions') || healthCheckResult.error?.includes('role')}
-									<br><small>Please follow the setup guide above to configure proper RBAC permissions.</small>
+									<br /><small
+										>Please follow the setup guide above to configure proper RBAC permissions.</small
+									>
 								{/if}
 							{/if}
 						</div>

@@ -351,19 +351,17 @@
 						<Button
 							on:click={() => (openScriptSettings = true)}
 							startIcon={{ icon: SettingsIcon }}
-							color="light"
 							size="xs2"
 							btnClasses="!text-primary"
-							variant="contained"
+							variant="subtle"
 							title="Edit global default scripts"
 						/>
 					{:else}
 						<Button
 							on:click={() => (openScriptSettings = false)}
 							startIcon={{ icon: SettingsIcon }}
-							color="dark"
+							variant="accent"
 							size="xs2"
-							variant="contained"
 						>
 							Close
 						</Button>

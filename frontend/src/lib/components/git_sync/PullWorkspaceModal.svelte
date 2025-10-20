@@ -303,7 +303,7 @@
 			<div class="flex justify-start pt-4">
 				<Button
 					size="md"
-					color="dark"
+					variant="accent"
 					onclick={() => {
 						previewAttempted = false // Allow manual retry
 						executeJob(true, settingsOnly)
@@ -406,7 +406,7 @@
 					<div class="flex justify-start">
 						<Button
 							size="sm"
-							color="dark"
+							variant="accent"
 							onclick={() => {
 								previewAttempted = false
 								previewResult = null
@@ -516,7 +516,7 @@
 							<div class="text-sm text-primary mb-3">No changes to pull from the repository.</div>
 							<Button
 								size="sm"
-								color="dark"
+								variant="accent"
 								onclick={() => {
 									previewAttempted = false
 									previewResult = null
@@ -591,8 +591,8 @@
 							Filter settings are sourced from the <code class="bg-surface px-1 py-0.5 rounded"
 								>wmill.yaml</code
 							>
-							file in your git repository. To modify them, edit the file in your repository, commit
-							the changes, and sync using the commands below. Learn more about
+							file in your git repository. To modify them, edit the file in your repository, commit the
+							changes, and sync using the commands below. Learn more about
 							<a
 								href="https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml"
 								target="_blank"

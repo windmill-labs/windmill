@@ -284,7 +284,7 @@
 			<div class="flex-row-reverse flex-wrap flex w-full gap-4">
 				<Button
 					{loading}
-					color="dark"
+					variant="accent"
 					btnClasses="!px-6 !py-1 !h-8 inline-flex gap-2"
 					disabled={!isValid && !jsonView}
 					on:click={() => runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)}

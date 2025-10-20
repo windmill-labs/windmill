@@ -734,7 +734,7 @@
 						{#snippet runButton()}
 							<div class="w-full flex justify-end pr-5">
 								<Button
-									color="dark"
+									variant="accent"
 									btnClasses="w-fit"
 									disabled={runDisabled || !isValid}
 									size="xs"

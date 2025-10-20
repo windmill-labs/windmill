@@ -109,7 +109,7 @@
 			<Button
 				href="{base}/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
 				startIcon={{ icon: GitFork }}
-				color="dark"
+				variant="accent"
 				size="xs"
 				disabled={codeViewerObj == undefined}
 			>
@@ -146,7 +146,7 @@
 			<Button
 				href="{base}/flows/add?hub={flowViewerFlow?.flow?.id}"
 				startIcon={{ icon: GitFork }}
-				color="dark"
+				variant="accent"
 				size="xs"
 				disabled={flowViewerFlow == undefined}
 			>
@@ -188,7 +188,7 @@
 			<Button
 				href="{base}/apps/add?hub={appViewerApp?.app?.id}"
 				startIcon={{ icon: GitFork }}
-				color="dark"
+				variant="accent"
 				disabled={appViewerApp == undefined}
 				size="xs"
 			>

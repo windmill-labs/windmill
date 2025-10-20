@@ -27,7 +27,7 @@
 				<Button>Lorem</Button>
 				<Button disabled>Lorem</Button>
 
-				<Button color="dark" loading>Lorem</Button>
+				<Button variant="accent" loading>Lorem</Button>
 				<Button
 					color="gray"
 					startIcon={{
@@ -54,7 +54,7 @@
 			<div class="font-bold text-md">Dropdown buttons</div>
 			<div class="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
 				<Button {dropdownItems}>Lorem</Button>
-				<Button {dropdownItems} color="dark">Lorem</Button>
+				<Button {dropdownItems} variant="accent">Lorem</Button>
 				<Button {dropdownItems} color="gray">Lorem</Button>
 				<Button {dropdownItems} color="green">Lorem</Button>
 				<Button {dropdownItems} color="light">Lorem</Button>

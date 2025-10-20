@@ -67,7 +67,7 @@
 
 <Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
 	{#snippet trigger()}
-		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: MailPlus }}>
+		<Button variant="accent" size="xs" nonCaptureEvent={true} startIcon={{ icon: MailPlus }}>
 			Invite
 		</Button>
 	{/snippet}

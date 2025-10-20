@@ -333,7 +333,7 @@
 									<CustomPopover noPadding>
 										<Button
 											size="xs2"
-											color="dark"
+											variant="accent"
 											disabled
 											endIcon={{
 												icon: Info
@@ -347,7 +347,7 @@
 												<p> You need to add a preprocessor to use preprocessor captures as args </p>
 												<Button
 													size="xs2"
-													color="dark"
+													variant="accent"
 													on:click={() => {
 														dispatch('addPreprocessor')
 													}}

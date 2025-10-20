@@ -402,7 +402,7 @@
 								: 'Apply args to inputs'}
 					<Button
 						size="xs2"
-						color="dark"
+						variant="accent"
 						btnClasses="h-[27px]"
 						dropdownItems={[
 							{

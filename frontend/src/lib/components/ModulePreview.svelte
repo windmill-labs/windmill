@@ -66,7 +66,7 @@
 			</Button>
 		{:else}
 			<Button
-				color="dark"
+				variant="accent"
 				btnClasses="truncate"
 				size="sm"
 				on:click={runTestWithStepArgs}

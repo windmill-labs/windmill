@@ -188,7 +188,7 @@
 									<div class="flex">
 										<Button
 											size="sm"
-											color="dark"
+											variant="accent"
 											on:click={() =>
 												window.open(
 													`/flows/add?template_id=${selectedVersion?.id}&template=${path}`,
@@ -201,7 +201,7 @@
 								{/if}
 
 								<div class="flex">
-									<Button size="sm" color="dark" on:click={() => restoreVersion(selected)}
+									<Button size="sm" variant="accent" on:click={() => restoreVersion(selected)}
 										>Redeploy with that version
 									</Button>
 								</div>

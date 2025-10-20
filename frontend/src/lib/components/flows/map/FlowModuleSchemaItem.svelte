@@ -528,7 +528,7 @@
 							size="xs"
 							title="Run"
 							variant="default"
-							btnClasses="px-1 py-1.5"
+							btnClasses="px-1 py-1.5 bg-surface"
 							on:click={() => {
 								outputPicker?.toggleOpen(true)
 								moduleTest?.loadArgsAndRunTest()

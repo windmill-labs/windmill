@@ -410,7 +410,7 @@
 											: {
 													icon: Eye
 												}}
-										color="dark"
+										variant="accent"
 									>
 										{canWrite ? 'Edit' : 'View'}
 									</Button>

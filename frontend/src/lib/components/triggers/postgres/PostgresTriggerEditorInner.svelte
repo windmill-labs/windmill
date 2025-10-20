@@ -557,7 +557,7 @@
 								<Button
 									disabled={!can_write}
 									btnClasses="ml-4 mt-2"
-									color="dark"
+									variant="accent"
 									size="xs"
 									on:click={getTemplateScript}
 									target="_blank"

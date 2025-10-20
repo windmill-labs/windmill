@@ -167,9 +167,8 @@
 													historicInputs?.refresh(true)
 												}}
 												endIcon={{ icon: Search }}
-												variant="contained"
 												size="xs2"
-												color="dark">Search</Button
+												variant="accent">Search</Button
 											>
 										</div>
 									</div>

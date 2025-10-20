@@ -386,7 +386,7 @@
 						{#if emptyString(script_path)}
 							<Button
 								btnClasses="ml-4 mt-2"
-								color="dark"
+								variant="accent"
 								size="xs"
 								href={itemKind === 'flow' ? '/flows/add?hub=66' : '/scripts/add?hub=hub%2F19663'}
 								target="_blank"

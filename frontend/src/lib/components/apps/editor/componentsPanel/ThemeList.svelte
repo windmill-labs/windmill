@@ -98,7 +98,7 @@
 		<Button
 			disabled={type != 'inlined' || nameField == ''}
 			on:click={() => addTheme(nameField)}
-			color="dark"
+			variant="accent"
 			size="xs">Create theme</Button
 		>
 	</div>

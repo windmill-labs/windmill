@@ -163,7 +163,7 @@
 								<Button
 									btnClasses="w-auto"
 									size="sm"
-									color="dark"
+									variant="accent"
 									on:click={() => {
 										automateUsernameModalOpen = true
 									}}

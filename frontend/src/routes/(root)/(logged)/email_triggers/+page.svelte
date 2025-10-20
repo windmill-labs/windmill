@@ -318,7 +318,7 @@
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										on:click={() => copyToClipboard(emailAddress)}
-										color="dark"
+										variant="accent"
 										size="xs"
 										startIcon={{ icon: ClipboardCopy }}
 									>
@@ -332,7 +332,7 @@
 											: {
 													icon: Eye
 												}}
-										color="dark"
+										variant="accent"
 									>
 										{canWrite ? 'Edit' : 'View'}
 									</Button>

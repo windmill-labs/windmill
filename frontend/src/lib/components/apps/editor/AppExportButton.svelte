@@ -43,8 +43,7 @@
 										? YAML.stringify(app ?? {})
 										: JSON.stringify(app ?? {}, null, 4)
 								)}
-							color="dark"
-							variant="border"
+							variant="accent"
 							size="sm"
 							startIcon={{ icon: Clipboard }}
 							btnClasses="absolute top-2 right-2 w-min z-20"

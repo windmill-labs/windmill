@@ -193,7 +193,7 @@
 			<div class="flex justify-start pt-4">
 				<Button
 					size="md"
-					color="dark"
+					variant="accent"
 					onclick={() => executeJob(true)}
 					disabled={isPreviewLoading}
 					startIcon={{

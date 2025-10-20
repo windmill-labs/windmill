@@ -152,7 +152,7 @@
 							modal?.close()
 						}}
 						size="xs"
-						color="dark"
+						variant="accent"
 					>
 						Submit
 					</Button>

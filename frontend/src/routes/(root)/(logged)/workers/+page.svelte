@@ -341,7 +341,7 @@
 					<div>
 						<Button
 							size="xs"
-							color="dark"
+							variant="accent"
 							startIcon={{
 								icon: LineChart
 							}}
@@ -355,7 +355,7 @@
 					<div>
 						<Button
 							size="xs"
-							color="dark"
+							variant="accent"
 							startIcon={{
 								icon: List
 							}}

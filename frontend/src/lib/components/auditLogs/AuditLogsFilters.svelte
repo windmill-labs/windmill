@@ -462,7 +462,6 @@
 		</Button>
 		<Button
 			variant="accent"
-			color="dark"
 			on:click={() => {
 				refresh++
 			}}

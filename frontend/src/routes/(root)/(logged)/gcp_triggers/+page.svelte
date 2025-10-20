@@ -427,7 +427,7 @@
 									<Button
 										on:click={() =>
 											copyToClipboard(getHttpRoute('gcp/w', path, true, workspace_id))}
-										color="dark"
+										variant="accent"
 										size="xs"
 										startIcon={{ icon: ClipboardCopy }}
 									>
@@ -442,7 +442,7 @@
 										: {
 												icon: Eye
 											}}
-									color="dark"
+									variant="accent"
 								>
 									{canWrite ? 'Edit' : 'View'}
 								</Button>

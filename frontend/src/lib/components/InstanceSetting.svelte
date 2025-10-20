@@ -486,10 +486,10 @@
 
 						{#if valid || expiration}
 							<div class="flex flex-row gap-2 mt-1">
-								<Button on:click={renewLicenseKey} loading={renewing} size="xs" color="dark"
+								<Button on:click={renewLicenseKey} loading={renewing} size="xs" variant="accent"
 									>Renew key
 								</Button>
-								<Button color="dark" size="xs" loading={opening} on:click={openCustomerPortal}>
+								<Button variant="accent" size="xs" loading={opening} on:click={openCustomerPortal}>
 									Open customer portal
 								</Button>
 							</div>
@@ -691,7 +691,7 @@
 						{:else}
 							<Button
 								size="xs"
-								color="dark"
+								variant="accent"
 								href="{base}/api/oauth/connect_slack?instance=true"
 								startIcon={{ icon: Slack }}
 								disabled={!$enterpriseLicense}

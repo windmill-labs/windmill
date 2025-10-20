@@ -109,7 +109,7 @@
 						<Button
 							on:click={() => (previewOpen = true)}
 							startIcon={{ icon: Play }}
-							color="dark"
+							variant="accent"
 							size="sm">Test an iteration</Button
 						>
 					</div>
