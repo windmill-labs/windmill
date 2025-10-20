@@ -12,6 +12,7 @@ if [[ -f "$CARGO_TOML_PATH" ]]; then
     sed -n '/\[features\]/,/^\[/p' | \
     grep -E '^[a-zA-Z0-9_-]+' | \
     grep -v 'private' | \
+    grep -v 'benchmark' | \
     cut -d' ' -f1 | \
     paste -sd ',' -
 else
