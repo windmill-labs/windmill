@@ -11,7 +11,7 @@
 	export let textDisabled = false
 	let toggleState = errorHandlerMuted
 
-	export let color: 'nord' | 'red' | 'blue' = 'nord'
+	export let color: 'nord' | 'red' | 'blue' | undefined = undefined
 
 	async function toggleErrorHandler(): Promise<void> {
 		toggleState = !toggleState
