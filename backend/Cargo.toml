@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.560.0"
+version = "1.563.4"
 authors.workspace = true
 edition.workspace = true
 
@@ -34,7 +34,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.560.0"
+version = "1.563.4"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -86,6 +86,7 @@ oauth2 = ["windmill-api/oauth2"]
 zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
+test_job_debouncing = []
 # Languages
 python = ["windmill-worker/python", "windmill-api/python"]
 rust = ["windmill-worker/rust"]

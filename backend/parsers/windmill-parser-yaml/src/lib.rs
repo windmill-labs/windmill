@@ -399,18 +399,31 @@ fn parse_inventories(inventory_yaml: &Yaml) -> anyhow::Result<Vec<AnsibleInvento
     return Err(anyhow!("Invalid inventory definition"));
 }
 
-pub fn parse_delegate_to_git_repo(
-    inner_content: &str,
-) -> anyhow::Result<Option<DelegateToGitRepoDetails>> {
+#[derive(Debug, Clone, Serialize)]
+pub struct DelegateWithSSHAuth {
+    delegate_to_git_repo_details: Option<DelegateToGitRepoDetails>,
+    git_ssh_identity: Vec<String>,
+}
+
+pub fn parse_delegate_to_git_repo(inner_content: &str) -> anyhow::Result<DelegateWithSSHAuth> {
     let docs = YamlLoader::load_from_str(inner_content)
         .map_err(|e| anyhow!("Failed to parse yaml: {}", e))?;
 
+    let mut git_ssh_identity: Vec<String> = vec![];
+
     if let Yaml::Hash(doc) = &docs[0] {
+        if let Some(v) = doc.get(&Yaml::String("git_ssh_identity".to_string())) {
+            let _ = extract_ssh_identity(&v, &mut git_ssh_identity);
+        }
         if let Some(v) = doc.get(&Yaml::String("delegate_to_git_repo".to_string())) {
-            return Ok(extract_delegate_to_git_repo_details(v));
+            return Ok(DelegateWithSSHAuth {
+                delegate_to_git_repo_details: extract_delegate_to_git_repo_details(v),
+                git_ssh_identity,
+            });
         }
     }
-    return Ok(None);
+
+    Ok(DelegateWithSSHAuth { delegate_to_git_repo_details: None, git_ssh_identity })
 }
 
 pub fn parse_ansible_reqs(
@@ -419,7 +432,6 @@ pub fn parse_ansible_reqs(
     let mut logs = String::new();
     let docs = YamlLoader::load_from_str(inner_content)
         .map_err(|e| anyhow!("Failed to parse yaml: {}", e))?;
-
 
     let mut ret = AnsibleRequirements::default();
 
@@ -528,23 +540,9 @@ pub fn parse_ansible_reqs(
                     }
                 }
                 Yaml::String(key) if key == "git_ssh_identity" => {
-                    let Yaml::Array(indentities) = &value else {
-                        return Err(anyhow!(
-                            "git_ssh_identity expects an array of windmill variables (or secrets) containing ssh IDs"
-                        ));
-                    };
-
-                    for r in indentities {
-                        let Yaml::String(file_name) = r else {
-                            return Err(anyhow!(
-                                "Git ssh identity file must be a string path to a Windmill variable/secret"
-                            ));
-                        };
-
-                        ret.git_ssh_identity.push(file_name.clone());
-                    }
+                    extract_ssh_identity(&value, &mut ret.git_ssh_identity)?;
                 }
-                Yaml::String(key) if key == "delegate_to_git_repo" => {}
+                Yaml::String(key) if key == "delegate_to_git_repo" => {} // Skip this because it was already parsed before
                 Yaml::String(key) => logs.push_str(&format!("\nUnknown field `{}`. Ignoring", key)),
                 _ => (),
             }
@@ -558,6 +556,25 @@ pub fn parse_ansible_reqs(
         emitter.dump(&docs[i])?;
     }
     Ok((logs, Some(ret), out_str))
+}
+
+fn extract_ssh_identity(value: &Yaml, ret: &mut Vec<String>) -> anyhow::Result<()> {
+    let Yaml::Array(indentities) = value else {
+        return Err(anyhow!(
+            "git_ssh_identity expects an array of windmill variables (or secrets) containing ssh IDs"
+        ));
+    };
+
+    for r in indentities {
+        let Yaml::String(file_name) = r else {
+            return Err(anyhow!(
+                "Git ssh identity file must be a string path to a Windmill variable/secret"
+            ));
+        };
+
+        ret.push(file_name.clone());
+    }
+    Ok(())
 }
 
 fn extract_delegate_to_git_repo_details(value: &Yaml) -> Option<DelegateToGitRepoDetails> {

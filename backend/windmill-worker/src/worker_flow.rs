@@ -3191,6 +3191,7 @@ async fn push_next_flow_job(
             job_perms.as_ref(),
             false,
             None,
+            None,
         )
         .warn_after_seconds(2)
         .await?;
@@ -3736,9 +3737,9 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::AIAgent { modules_node, .. } => {
+        FlowModuleValue::AIAgent { .. } => {
             let path = get_path(flow_job, status, module);
-            let payload = JobPayload::AIAgent { path, flow_node_id: modules_node };
+            let payload = JobPayload::AIAgent { path };
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
                     payload,

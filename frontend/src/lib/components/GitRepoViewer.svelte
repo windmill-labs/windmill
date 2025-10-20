@@ -18,10 +18,11 @@
 
 	interface Props {
 		gitRepoResourcePath: string
+		gitSshIdentity?: string[]
 		commitHashInput?: string
 	}
 
-	let { gitRepoResourcePath, commitHashInput = $bindable() }: Props = $props()
+	let { gitRepoResourcePath, gitSshIdentity, commitHashInput = $bindable() }: Props = $props()
 
 	let commitHash = $derived(commitHashInput);
 
@@ -31,7 +32,9 @@
 
 		const payload = {
 			workspace: workspace,
-			resource_path: gitRepoResourcePath
+			resource_path: gitRepoResourcePath,
+			git_ssh_identity: gitSshIdentity,
+			commit: commitHash,
 		}
 
 		isLoadingRepoClone = true
@@ -47,7 +50,6 @@
 			tryCode: async () => {
 				const testResult = await JobService.getCompletedJob({ workspace, id: jobId })
 				jobSuccess = !!testResult.success
-				console.log("res", testResult)
 				if (jobSuccess) {
 					await JobService.getCompletedJobResult({ workspace, id: jobId })
 				} else {
@@ -79,10 +81,10 @@
 			if (!commitHash) {
 				isLoadingCommitHash = true
 				error = null
-
 				const result = await ResourceService.getGitCommitHash({
 					workspace: $workspaceStore!,
-					path: gitRepoResourcePath
+					path: gitRepoResourcePath,
+					gitSshIdentity: gitSshIdentity?.join(",")
 				})
 
 				commitHashInput = result.commit_hash
@@ -104,7 +106,7 @@
 				isCheckingPathExists = false
 			}
 		} catch (err: any) {
-			error = `Failed to load git repository ${gitRepoResourcePath}: ${err.message || 'Unknown error'}`
+			error = `Failed to load git repository ${gitRepoResourcePath}: ${err.status} -  ${err.message || 'Unknown error'}: ${err.body}`
 			isLoadingCommitHash = false
 			isCheckingPathExists = false
 		}
