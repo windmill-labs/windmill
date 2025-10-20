@@ -100,9 +100,6 @@
 			onEditInput={data.eventHandlers.editInput}
 			flowJob={data.flowJob}
 			isOwner={data.isOwner}
-			{type}
-			{darkMode}
-			skipped={state?.skipped}
 		/>
 
 		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">

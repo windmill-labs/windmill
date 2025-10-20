@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import type { FlowModule, FlowStatusModule, Job } from '$lib/gen'
+	import type { FlowModule, Job } from '$lib/gen'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
@@ -45,9 +45,6 @@
 		onEditInput?: (moduleId: string, key: string) => void
 		flowJob?: Job | undefined
 		isOwner?: boolean
-		type?: FlowStatusModule['type'] | undefined
-		darkMode?: boolean
-		skipped?: boolean
 	}
 
 	let {
@@ -67,10 +64,7 @@
 		onUpdateMock,
 		onEditInput,
 		flowJob,
-		isOwner = false,
-		type,
-		darkMode,
-		skipped
+		isOwner = false
 	}: Props = $props()
 
 	const { selectedId } = getContext<{
@@ -176,8 +170,6 @@
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
 					loopStatus={{ type: 'self', flow: mod.value.type }}
 					{onTestUpTo}
-					{type}
-					{darkMode}
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
@@ -196,8 +188,6 @@
 					label={mod.summary || 'Run one branch'}
 					{nodeState}
 					{onTestUpTo}
-					{type}
-					{darkMode}
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
@@ -216,8 +206,6 @@
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
 					{nodeState}
 					{onTestUpTo}
-					{type}
-					{darkMode}
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
@@ -263,9 +251,6 @@
 					{flowJob}
 					{isOwner}
 					enableTestRun
-					{type}
-					{darkMode}
-					{skipped}
 				>
 					{#snippet icon()}
 						{@const size =

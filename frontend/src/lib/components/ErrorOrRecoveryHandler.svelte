@@ -490,7 +490,7 @@
 		<div class="w-2/3 flex flex-col gap-2">
 			<div class="flex flex-row items-center gap-2">
 				<div class="pt-1 flex-shrink-0">
-					<MsTeamsIcon height="24px" width="24px" />
+					<MsTeamsIcon size={24} />
 				</div>
 				<p class="text-sm">Teams Channel</p>
 			</div>

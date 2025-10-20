@@ -5,7 +5,7 @@
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import { Maximize2, Minimize2, Calendar } from 'lucide-svelte'
-	import { getNodeColorClasses, getStateColor, getStateHoverColor } from '../../util'
+	import { getNodeColorClasses } from '../../util'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
 	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
@@ -54,8 +54,6 @@
 				disableAi={data.disableAi}
 				isEditor={data.isEditor}
 				path={data.path}
-				bgColor={getStateColor(undefined, darkMode)}
-				bgHoverColor={getStateHoverColor(undefined, darkMode)}
 				showDraft={data.isEditor ?? false}
 				{colorClasses}
 				on:new={(e) => {
