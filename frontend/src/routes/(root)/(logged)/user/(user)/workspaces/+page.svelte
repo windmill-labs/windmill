@@ -119,19 +119,6 @@
 	loadInvites()
 	loadWorkspaces()
 
-	// Check for first-time cloud users and redirect to onboarding
-	onMount(() => {
-		if (isCloudHosted()) {
-			// Check for the first_time cookie set by backend
-			const hasFirstTimeCookie = document.cookie.includes('first_time=1')
-			if (hasFirstTimeCookie) {
-				// Clear the cookie and redirect to onboarding
-				document.cookie = 'first_time=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC'
-				goto('/user/onboarding')
-			}
-		}
-	})
-
 	let loading = false
 
 	async function speakFriendAndEnterWorkspace(workspaceId: string) {
