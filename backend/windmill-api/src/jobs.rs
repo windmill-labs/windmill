@@ -4105,6 +4105,7 @@ pub async fn run_flow_by_path_inner(
         push_authed.as_ref(),
         false,
         None,
+        None,
     )
     .await?;
 
@@ -4220,6 +4221,7 @@ pub async fn restart_flow(
         completed_job.priority,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
     )
     .await?;
@@ -4409,6 +4411,7 @@ pub async fn run_script_by_path_inner(
         push_authed.as_ref(),
         false,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4561,6 +4564,7 @@ pub async fn run_workflow_as_code(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
     )
     .await?;
@@ -5106,6 +5110,7 @@ pub async fn run_wait_result_job_by_path_get(
         push_authed.as_ref(),
         false,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5259,6 +5264,7 @@ pub async fn run_wait_result_script_by_path_internal(
         push_authed.as_ref(),
         false,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5375,6 +5381,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
     )
     .await?;
@@ -5688,6 +5695,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         push_authed.as_ref(),
         false,
         None,
+        None,
     )
     .await?;
 
@@ -5778,6 +5786,7 @@ async fn run_preview_script(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
     )
     .await?;
@@ -5895,6 +5904,7 @@ async fn run_bundle_preview_script(
                 None,
                 Some(&authed.clone().into()),
                 false,
+                None,
                 None,
             )
             .await?;
@@ -6034,6 +6044,7 @@ async fn run_dependencies_job(
         Some(&authed.clone().into()),
         false,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6101,6 +6112,7 @@ async fn run_flow_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
     )
     .await?;
@@ -6446,6 +6458,7 @@ async fn run_preview_flow_job(
         Some(&authed.clone().into()),
         false,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6620,6 +6633,7 @@ async fn run_dynamic_select(
         Some(&authed.clone().into()),
         false,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6747,6 +6761,7 @@ pub async fn run_job_by_hash_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
     )
     .await?;
@@ -6970,7 +6985,7 @@ async fn get_job_update_sse(
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
-enum JobUpdateSSEStream {
+pub enum JobUpdateSSEStream {
     Update(JobUpdate),
     Error { error: String },
     NotFound,
@@ -6978,7 +6993,12 @@ enum JobUpdateSSEStream {
     Ping,
 }
 
-fn start_job_update_sse_stream(
+lazy_static::lazy_static! {
+    pub static ref TIMEOUT_SSE_STREAM: u64 = 
+        std::env::var("TIMEOUT_SSE_STREAM").unwrap_or("60".to_string()).parse::<u64>().unwrap_or(60);
+}
+
+pub fn start_job_update_sse_stream(
     opt_authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
     db: DB,
@@ -7110,7 +7130,7 @@ fn start_job_update_sse_stream(
                 last_ping = Instant::now();
             }
 
-            if start.elapsed().as_secs() > 30 {
+            if start.elapsed().as_secs() > *TIMEOUT_SSE_STREAM {
                 if tx.send(JobUpdateSSEStream::Timeout).await.is_err() {
                     tracing::warn!("Failed to send job timeout for job {job_id}");
                 }

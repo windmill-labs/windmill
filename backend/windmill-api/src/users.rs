@@ -596,7 +596,7 @@ async fn update_tutorial_progress(
     Json(progress): Json<Progress>,
 ) -> Result<String> {
     sqlx::query_scalar!(
-        "INSERT INTO tutorial_progress VALUES ($2, $1::bigint::bit(64)) ON CONFLICT (email) DO UPDATE SET progress = $1::bigint::bit(64)",
+        "INSERT INTO tutorial_progress VALUES ($2, $1::bigint::bit(64)) ON CONFLICT (email) DO UPDATE SET progress = EXCLUDED.progress",
         progress.progress as i64,
         authed.email
     )

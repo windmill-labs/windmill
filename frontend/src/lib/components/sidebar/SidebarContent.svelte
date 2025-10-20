@@ -79,10 +79,7 @@
 	}
 
 	async function deleteFork() {
-		await WorkspaceService.deleteWorkspace({
-			workspace: $workspaceStore ?? '',
-			onlyDeleteForks: true
-		})
+		await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
 		sendUserToast('You deleted the workspace')
 		clearStores()
 		goto('/user/workspaces')
