@@ -67,7 +67,7 @@
 			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center justify-center border text-xs',
 			horizontalPadding,
 			height,
-			'text-primary data-[state=on]:text-emphasis',
+			'text-primary data-[state=on]:text-primary',
 			'data-[state=on]:bg-surface-tertiary data-[state=off]:border-transparent data-[state=on]:border-border-normal',
 			'bg-surface-transparent hover:bg-surface-hover',
 			disabled ? '!shadow-none' : '',
