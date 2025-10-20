@@ -1,7 +1,7 @@
 <script module lang="ts">
 	export function flowAIBtnClasses(state: 'default' | 'selected' | 'green' = 'default') {
 		return twMerge(
-			['selected', 'default'].includes(state) ? 'text-ai !border-border-ai hover:bg-ai/15' : '',
+			['selected', 'default'].includes(state) ? 'text-ai !border-ai/20 hover:bg-ai/15' : '',
 			{
 				default: '',
 				selected: 'bg-ai/10',

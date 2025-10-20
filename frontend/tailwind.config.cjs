@@ -79,7 +79,6 @@ const config = {
 			'border-normal': 'rgb(var(--color-border-normal) / <alpha-value>)',
 			'border-accent': 'rgb(var(--color-border-accent) / <alpha-value>)',
 			'border-selected': 'rgb(var(--color-border-selected) / <alpha-value>)',
-			'border-ai': 'rgb(var(--color-border-ai) / <alpha-value>)',
 
 			// Reserved colors (semantic)
 			ai: 'rgb(var(--color-reserved-ai) / <alpha-value>)',
