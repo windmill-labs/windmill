@@ -612,10 +612,7 @@
 				{simpleTooltip}
 				{lightHeader}
 				{displayType}
-				labelClass={twMerge(
-					lightHeaderFont ? '!font-normal !text-sm text-tertiary' : '',
-					css?.label?.class
-				)}
+				labelClass={twMerge(lightHeaderFont ? '!font-normal text-tertiary' : '', css?.label?.class)}
 			/>
 			<div class="ml-auto flex gap-2">
 				{#if displayJsonToggleHeader}
