@@ -45,12 +45,11 @@
 				aiId="add-trigger"
 				aiDescription="Add a new trigger"
 				size="xs"
-				color="blue"
 				startIcon={{ icon: Plus }}
 				nonCaptureEvent
-				btnClasses="w-full justify-center"
+				variant="accent"
 			>
-				<span>Add trigger</span>
+				Add trigger
 			</Button>
 		</AddTriggersButton>
 	</div>

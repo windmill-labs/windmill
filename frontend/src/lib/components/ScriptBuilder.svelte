@@ -1053,7 +1053,7 @@
 												</div>
 											{/if}
 										{/snippet}
-										<div class="flex flex-col gap-4">
+										<div class="flex flex-col gap-6">
 											<Label label="Summary">
 												<MetadataGen
 													aiId="create-script-summary-input"

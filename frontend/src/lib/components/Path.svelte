@@ -36,6 +36,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
 	import FolderPicker from './FolderPicker.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	type PathKind =
 		| 'resource'
@@ -94,7 +95,7 @@
 		}
 	})
 
-	let inputP: HTMLInputElement | undefined = $state(undefined)
+	let inputP: TextInput | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -437,20 +438,21 @@
 				</div>
 			{/if}
 			{#if !hideUser}
-				<div class="text-xl text-tertiary">/</div>
+				<div class="text-sm text-secondary">/</div>
 			{/if}
 			<div>
 				{#if meta.ownerKind === 'user'}
 					<label class="block shrink min-w-0">
-						<input
+						<TextInput
 							class="!w-36"
-							type="text"
 							bind:value={meta.owner}
-							placeholder={$userStore?.username ?? ''}
-							disabled={disabled ||
-								!($superadmin || ($userStore?.is_admin ?? false)) ||
-								disableEditing}
-							onkeydown={setDirty}
+							inputProps={{
+								type: 'text',
+								placeholder: $userStore?.username ?? '',
+								onkeydown: setDirty,
+								disabled:
+									disabled || !($superadmin || ($userStore?.is_admin ?? false)) || disableEditing
+							}}
 						/>
 					</label>
 				{:else if meta.ownerKind === 'folder'}
@@ -459,22 +461,24 @@
 					</label>
 				{/if}
 			</div>
-			<span class="text-xl text-tertiary">/</span>
+			<div class="text-sm text-secondary">/</div>
 			<label class="block grow w-full max-w-md">
 				<!-- svelte-ignore a11y_autofocus -->
-				<input
-					disabled={disabled || disableEditing}
-					type="text"
-					id="path"
-					{autofocus}
+				<TextInput
 					bind:this={inputP}
-					autocomplete="off"
-					onkeyup={handleKeyUp}
 					bind:value={meta.name}
-					placeholder={namePlaceholder}
 					class={error === ''
 						? ''
 						: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+					inputProps={{
+						disabled: disabled || disableEditing,
+						type: 'text',
+						id: 'path',
+						autofocus,
+						autocomplete: 'off',
+						onkeyup: handleKeyUp,
+						placeholder: namePlaceholder
+					}}
 				/>
 			</label>
 		{/if}
