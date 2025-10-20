@@ -302,11 +302,10 @@ async fn execute_windmill_tool(
 
     // Evaluate input transforms (both static and JavaScript)
     // If no flow context, static transforms will still be applied
-    let flow_ctx = ctx.flow_context.clone();
     evaluate_input_transforms(
         &mut tool_call_args,
         &input_transforms,
-        &flow_ctx,
+        &ctx.flow_context,
         ctx.previous_result.as_ref(),
         ctx.id_context.as_ref(),
         ctx.client,

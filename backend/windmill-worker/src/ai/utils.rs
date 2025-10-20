@@ -145,7 +145,6 @@ pub struct FlowContext {
 }
 
 /// Get flow context (chat settings + args + flow_status) from root flow's job data
-/// This extended query provides all necessary context for AI tool input transforms
 pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
     let root_job_id = job
         .root_job

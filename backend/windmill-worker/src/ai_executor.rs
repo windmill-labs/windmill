@@ -423,14 +423,7 @@ pub async fn run_agent(
     // Extract previous step result if we have flow_status (for tool input transforms - Phase 1)
     let previous_result = {
         if let Some(ref flow_status) = flow_context.flow_status {
-            match get_previous_job_result(db, &job.workspace_id, flow_status).await {
-                Ok(Some(result)) => Some(result),
-                Ok(None) => None,
-                Err(e) => {
-                    tracing::warn!("Failed to get previous step result: {}", e);
-                    None
-                }
-            }
+            get_previous_job_result(db, &job.workspace_id, flow_status).await?
         } else {
             None
         }
@@ -445,13 +438,7 @@ pub async fn run_agent(
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string());
 
-            match get_transform_context(job, &previous_id, flow_status).await {
-                Ok(ctx) => Some(ctx),
-                Err(e) => {
-                    tracing::warn!("Failed to build IdContext: {}", e);
-                    None
-                }
-            }
+            Some(get_transform_context(job, &previous_id, flow_status).await?)
         } else {
             None
         }
