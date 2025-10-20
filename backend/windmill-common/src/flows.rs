@@ -662,30 +662,40 @@ impl<'de> Deserialize<'de> for ToolValue {
     where
         D: serde::Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Helper {
-            // Try new format with tool_type tag
-            Tagged(TaggedToolValue),
-            // Fall back to old format (direct FlowModuleValue without tool_type)
-            Legacy(FlowModuleValue),
-        }
+        use serde::de::Error;
+        use serde_json::Value;
 
-        #[derive(Deserialize)]
-        #[serde(tag = "tool_type", rename_all = "lowercase")]
-        enum TaggedToolValue {
-            FlowModule(FlowModuleValue),
-            Mcp(McpToolValue),
-        }
+        // First deserialize to a JSON Value to inspect the structure
+        let value = Value::deserialize(deserializer)?;
 
-        match Helper::deserialize(deserializer)? {
-            Helper::Tagged(TaggedToolValue::FlowModule(v)) => Ok(ToolValue::FlowModule(v)),
-            Helper::Tagged(TaggedToolValue::Mcp(v)) => Ok(ToolValue::Mcp(v)),
-            Helper::Legacy(v) => {
-                // Old format without tool_type - wrap as FlowModule
-                Ok(ToolValue::FlowModule(v))
+        // Check if it has a tool_type field
+        if let Value::Object(mut map) = value {
+            // Remove the tool_type field so it doesn't interfere with FlowModuleValue deserialization
+            if let Some(tool_type) = map.remove("tool_type") {
+                match tool_type.as_str() {
+                    Some("flowmodule") => {
+                        let flow_module: FlowModuleValue =
+                            serde_json::from_value(Value::Object(map)).map_err(D::Error::custom)?;
+                        return Ok(ToolValue::FlowModule(flow_module));
+                    }
+                    Some("mcp") => {
+                        let mcp: McpToolValue =
+                            serde_json::from_value(Value::Object(map)).map_err(D::Error::custom)?;
+                        return Ok(ToolValue::Mcp(mcp));
+                    }
+                    _ => {
+                        return Err(D::Error::custom("unknown tool_type"));
+                    }
+                }
             }
+
+            // No tool_type field, try legacy deserialization
+            let flow_module: FlowModuleValue =
+                serde_json::from_value(Value::Object(map)).map_err(D::Error::custom)?;
+            return Ok(ToolValue::FlowModule(flow_module));
         }
+
+        Err(D::Error::custom("expected an object for ToolValue"))
     }
 }
 
