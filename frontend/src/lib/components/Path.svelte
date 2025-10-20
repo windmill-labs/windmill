@@ -480,7 +480,7 @@
 		{/if}
 	</div>
 
-	<div class="flex flex-col w-full mt-4">
+	<div class="flex flex-col w-full mt-2">
 		<div class="flex justify-start w-full">
 			<Badge
 				color="gray"

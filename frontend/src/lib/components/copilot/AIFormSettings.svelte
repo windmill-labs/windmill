@@ -11,21 +11,20 @@
 	let { prompt = $bindable(undefined), type = 'script' }: Props = $props()
 </script>
 
-<div class="flex flex-col gap-2">
-	<Toggle
-		size="sm"
-		checked={prompt !== undefined}
-		on:change={() => {
-			if (prompt !== undefined) {
-				prompt = undefined
-			} else {
-				prompt = ''
-			}
-		}}
-		options={{
-			right: `Enable filling ${type} inputs with AI`
-		}}
-	/>
+<div class="flex flex-col gap-6">
+	<Label label={`Enable filling ${type} inputs with AI`}>
+		<Toggle
+			size="sm"
+			checked={prompt !== undefined}
+			on:change={() => {
+				if (prompt !== undefined) {
+					prompt = undefined
+				} else {
+					prompt = ''
+				}
+			}}
+		/>
+	</Label>
 	{#if prompt !== undefined}
 		<Label label="Additional prompt for AI">
 			{#snippet header()}

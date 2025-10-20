@@ -74,9 +74,9 @@
 
 <div class="h-full overflow-y-auto flex flex-col mb-10">
 	<FlowCard {noEditor} title="Settings">
-		<div class="grow min-h-0 p-4 h-full flex flex-col gap-8">
+		<div class="grow min-h-0 p-4 h-full flex flex-col gap-6">
 			<!-- Metadata Section -->
-			<div class="gap-8 flex flex-col">
+			<div class="gap-6 flex flex-col">
 				<Label label="Summary">
 					<MetadataGen
 						bind:content={flowStore.val.summary}
