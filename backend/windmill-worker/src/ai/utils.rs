@@ -1,6 +1,7 @@
 use crate::ai::types::{ToolDef, ToolDefFunction};
 use anyhow::Context;
 use serde_json::value::RawValue;
+use sqlx::types::Json;
 use sqlx::Row;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
@@ -67,8 +68,8 @@ pub fn filter_schema_by_input_transforms(
         .context("Failed to parse schema JSON")
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
 
-    tracing::info!(
-        "HERE Filtering schema with {} input transforms defined",
+    tracing::debug!(
+        "Filtering schema with {} input transforms defined",
         input_transforms.len()
     );
 
@@ -80,34 +81,11 @@ pub fn filter_schema_by_input_transforms(
                 InputTransform::Static { value } => {
                     // Completed if value is defined and not null/empty
                     let val_str = value.get().trim();
-                    let is_complete = !val_str.is_empty() && val_str != "null";
-                    tracing::info!(
-                        "HERE Parameter '{}': Static transform, value='{}', completed={}",
-                        key,
-                        if val_str.len() > 50 {
-                            format!("{}...", &val_str[..50])
-                        } else {
-                            val_str.to_string()
-                        },
-                        is_complete
-                    );
-                    is_complete
+                    !val_str.is_empty() && val_str != "null"
                 }
                 InputTransform::Javascript { expr } => {
                     // Completed if expr is defined and not empty
-                    let is_complete = !expr.trim().is_empty();
-                    let expr_display = if expr.len() > 50 {
-                        format!("{}...", &expr[..50])
-                    } else {
-                        expr.to_string()
-                    };
-                    tracing::info!(
-                        "HERE Parameter '{}': JavaScript transform, expr='{}', completed={}",
-                        key,
-                        expr_display,
-                        is_complete
-                    );
-                    is_complete
+                    !expr.trim().is_empty()
                 }
             };
             if is_completed {
@@ -119,17 +97,11 @@ pub fn filter_schema_by_input_transforms(
         .collect();
 
     if !keys_to_remove.is_empty() {
-        tracing::info!(
-            "HERE Removing {} completed parameters from schema: {:?}",
+        tracing::debug!(
+            "Removing {} completed parameters from schema: {:?}",
             keys_to_remove.len(),
             keys_to_remove
         );
-
-        let original_property_count = schema_value
-            .get("properties")
-            .and_then(|p| p.as_object())
-            .map(|p| p.len())
-            .unwrap_or(0);
 
         // Remove completed parameters from properties
         if let Some(properties) = schema_value
@@ -146,7 +118,6 @@ pub fn filter_schema_by_input_transforms(
             .get_mut("required")
             .and_then(|r| r.as_array_mut())
         {
-            let original_required_count = required.len();
             required.retain(|item| {
                 if let Some(key) = item.as_str() {
                     !keys_to_remove.contains(&key.to_string())
@@ -154,26 +125,7 @@ pub fn filter_schema_by_input_transforms(
                     true
                 }
             });
-            tracing::info!(
-                "HERE Filtered required array: {} -> {} items",
-                original_required_count,
-                required.len()
-            );
         }
-
-        let final_property_count = schema_value
-            .get("properties")
-            .and_then(|p| p.as_object())
-            .map(|p| p.len())
-            .unwrap_or(0);
-
-        tracing::info!(
-            "HERE Schema filtering complete: {} -> {} properties remaining for AI to fill",
-            original_property_count,
-            final_property_count
-        );
-    } else {
-        tracing::info!("No completed input transforms found, schema unchanged");
     }
 
     // Convert back to RawValue
@@ -217,80 +169,61 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
         .or(job.parent_job);
 
     let Some(root_job_id) = root_job_id else {
-        tracing::debug!("HERE No root job found for job {}, returning default FlowContext", job.id);
+        tracing::debug!(
+            "No root job found for job {}, returning default FlowContext",
+            job.id
+        );
         return FlowContext::default();
     };
 
-    tracing::info!(
-        "HERE Fetching flow context for root job {} (from agent job {})",
+    tracing::debug!(
+        "Fetching flow context for root job {} (from agent job {})",
         root_job_id,
         job.id
     );
 
-    // Use untyped query to handle complex JSON types
-    let result = sqlx::query(
+    match sqlx::query!(
         r#"
         SELECT
             (js.flow_status->>'memory_id')::uuid as memory_id,
             (js.flow_status->>'chat_input_enabled')::boolean as chat_input_enabled,
-            j.args,
-            js.flow_status
+            j.args as "args: Json<HashMap<String, Box<RawValue>>>",
+            js.flow_status as "flow_status: Json<windmill_common::flow_status::FlowStatus>"
         FROM v2_job_status js
         INNER JOIN v2_job j ON j.id = js.id
         WHERE js.id = $1
         "#,
+        root_job_id
     )
-    .bind(root_job_id)
     .fetch_optional(db)
-    .await;
-
-    match result {
+    .await
+    {
         Ok(Some(row)) => {
-            let memory_id: Option<Uuid> = row.try_get("memory_id").ok();
-            let chat_input_enabled: bool = row.try_get("chat_input_enabled").ok().unwrap_or(false);
-
-            let args = row
-                .try_get::<sqlx::types::Json<HashMap<String, Box<RawValue>>>, _>("args")
-                .ok()
-                .map(|j| j.0);
-
-            let flow_status = row
-                .try_get::<sqlx::types::Json<windmill_common::flow_status::FlowStatus>, _>("flow_status")
-                .ok()
-                .map(|j| j.0);
-
-            let args_count = args.as_ref().map(|a| a.len()).unwrap_or(0);
-            let has_flow_status = flow_status.is_some();
-
-            tracing::info!(
-                "HERE Flow context loaded: memory_id={}, chat_enabled={}, args_count={}, has_flow_status={}",
-                memory_id.map(|id| id.to_string()).unwrap_or_else(|| "none".to_string()),
-                chat_input_enabled,
-                args_count,
-                has_flow_status
+            tracing::debug!(
+                "Flow context loaded: memory_id={}, chat_enabled={}, args_count={}, has_flow_status={}",
+                row.memory_id.map(|id| id.to_string()).unwrap_or_else(|| "none".to_string()),
+                row.chat_input_enabled.unwrap_or(false),
+                row.args.as_ref().map(|a| a.0.len()).unwrap_or(0),
+                row.flow_status.is_some()
             );
 
             FlowContext {
-                memory_id,
-                chat_input_enabled,
-                args,
-                flow_status,
+                memory_id: row.memory_id,
+                chat_input_enabled: row.chat_input_enabled.unwrap_or(false),
+                args: row.args.map(|j| j.0),
+                flow_status: row.flow_status.map(|j| j.0),
             }
         }
         Ok(None) => {
             tracing::warn!(
-                "HERE No flow context found for root job {} (agent job {}), returning default",
+                "No flow context found for root job {} (agent job {}), returning default",
                 root_job_id,
                 job.id
             );
             FlowContext::default()
         }
         Err(e) => {
-            tracing::error!(
-                "HERE Failed to get flow context for job {}: {}",
-                job.id,
-                e
-            );
+            tracing::error!("Failed to get flow context for job {}: {}", job.id, e);
             FlowContext::default()
         }
     }
@@ -645,58 +578,14 @@ pub async fn execute_mcp_tool(
     Ok(result)
 }
 
-/// Merge static input transforms into AI-provided arguments.
-/// Static transforms take precedence over AI arguments.
-///
-/// This allows users to pre-configure certain tool parameters via static input transforms
-/// while the AI fills in the remaining dynamic parameters.
-pub fn merge_static_transforms(
-    ai_args: &mut HashMap<String, Box<RawValue>>,
-    input_transforms: &HashMap<String, InputTransform>,
-) -> Result<(), Error> {
-    let mut merge_count = 0;
-
-    for (key, transform) in input_transforms {
-        if let InputTransform::Static { value } = transform {
-            // Skip empty/null values
-            let val_str = value.get().trim();
-            if !val_str.is_empty() && val_str != "null" {
-                tracing::info!(
-                    "  Merging static transform for parameter '{}': {}",
-                    key,
-                    if val_str.len() > 100 {
-                        format!("{}...", &val_str[..100])
-                    } else {
-                        val_str.to_string()
-                    }
-                );
-
-                // Insert/overwrite with static value
-                ai_args.insert(key.clone(), value.clone());
-                merge_count += 1;
-            }
-        }
-        // Skip JavaScript transforms for now (future enhancement)
-    }
-
-    if merge_count > 0 {
-        tracing::info!(
-            "Merged {} static transform(s) into AI arguments. Final argument count: {}",
-            merge_count,
-            ai_args.len()
-        );
-    } else {
-        tracing::info!("No static transforms to merge. Using AI arguments as-is.");
-    }
-
-    Ok(())
-}
-
 /// Evaluate both static and JavaScript input transforms for AI tools.
 /// Supports flow_input, previous_result, result, params, and results.stepId references.
 ///
 /// Phase 1: flow_input, previous_result, result, params
 /// Phase 2: results.stepId (requires id_context)
+///
+/// This function handles both static value replacement and JavaScript expression evaluation.
+/// Static transforms are always applied first, then JavaScript transforms can reference them via `params`.
 pub async fn evaluate_input_transforms(
     tool_args: &mut HashMap<String, Box<RawValue>>,
     input_transforms: &HashMap<String, InputTransform>,
@@ -707,24 +596,12 @@ pub async fn evaluate_input_transforms(
 ) -> Result<(), Error> {
     // Early return if no transforms
     if input_transforms.is_empty() {
-        tracing::debug!("HERE No input transforms to evaluate");
         return Ok(());
     }
 
-    let static_count = input_transforms.iter().filter(|(_, t)| matches!(t, InputTransform::Static { .. })).count();
-    let js_count = input_transforms.iter().filter(|(_, t)| matches!(t, InputTransform::Javascript { .. })).count();
-    let has_previous_result = previous_result.is_some();
-    let has_flow_args = flow_context.args.is_some();
-    let has_id_context = id_context.is_some();
-
-    tracing::info!(
-        "HERE Evaluating {} input transforms ({} static, {} JavaScript) - has_previous_result={}, has_flow_args={}, has_id_context={}",
-        input_transforms.len(),
-        static_count,
-        js_count,
-        has_previous_result,
-        has_flow_args,
-        has_id_context
+    tracing::debug!(
+        "Evaluating {} input transforms for tool",
+        input_transforms.len()
     );
 
     // Pre-build base context once for all JavaScript transforms
@@ -733,52 +610,29 @@ pub async fn evaluate_input_transforms(
         let arc_result = Arc::new(prev.clone());
         base_context.insert("previous_result".to_string(), arc_result.clone());
         base_context.insert("result".to_string(), arc_result);
-        tracing::debug!("HERE Added previous_result and result to transform context");
     }
-
-    let mut static_applied = 0;
-    let mut js_applied = 0;
 
     for (key, transform) in input_transforms {
         match transform {
             InputTransform::Static { value } => {
-                // Skip empty/null values - optimized single check
+                // Skip empty/null values
                 let val_str = value.get().trim();
                 if !val_str.is_empty() && val_str != "null" {
-                    tracing::debug!(
-                        "HERE Applied static transform for '{}': {}",
-                        key,
-                        if val_str.len() > 100 {
-                            format!("{}...", &val_str[..100])
-                        } else {
-                            val_str.to_string()
-                        }
-                    );
                     tool_args.insert(key.clone(), value.clone());
-                    static_applied += 1;
-                } else {
-                    tracing::debug!("HERE Skipped empty/null static transform for '{}'", key);
                 }
             }
             InputTransform::Javascript { expr } => {
-                tracing::info!(
-                    "HERE Evaluating JavaScript transform for '{}': {}",
-                    key,
-                    if expr.len() > 100 {
-                        format!("{}...", &expr[..100])
-                    } else {
-                        expr.clone()
-                    }
-                );
+                tracing::debug!("Evaluating JavaScript transform for parameter '{}'", key);
 
                 // Clone base context and add current params
                 let mut ctx = base_context.clone();
                 ctx.insert("params".to_string(), Arc::new(to_raw_value(&tool_args)));
 
                 // Prepare flow_input as Marc for eval_timeout
-                let flow_input = flow_context.args.as_ref().map(|args| {
-                    mappable_rc::Marc::new(args.clone())
-                });
+                let flow_input = flow_context
+                    .args
+                    .as_ref()
+                    .map(|args| mappable_rc::Marc::new(args.clone()));
 
                 // Evaluate JavaScript expression with optional IdContext for results.stepId
                 let result = crate::js_eval::eval_timeout(
@@ -786,13 +640,13 @@ pub async fn evaluate_input_transforms(
                     ctx,
                     flow_input,
                     Some(client),
-                    id_context,  // Phase 2: enables results.stepId syntax
-                    None,  // No additional ctx
+                    id_context, // Phase 2: enables results.stepId syntax
+                    None,       // No additional ctx
                 )
                 .await
                 .map_err(|e| {
                     tracing::error!(
-                        "HERE JavaScript transform failed for '{}': {:#}",
+                        "JavaScript transform failed for parameter '{}': {:#}",
                         key,
                         e
                     );
@@ -802,29 +656,10 @@ pub async fn evaluate_input_transforms(
                     ))
                 })?;
 
-                let result_preview = result.get();
-                tracing::info!(
-                    "HERE JavaScript transform for '{}' succeeded: {}",
-                    key,
-                    if result_preview.len() > 100 {
-                        format!("{}...", &result_preview[..100])
-                    } else {
-                        result_preview.to_string()
-                    }
-                );
-
                 tool_args.insert(key.clone(), result);
-                js_applied += 1;
             }
         }
     }
-
-    tracing::info!(
-        "HERE Input transforms complete: {} static applied, {} JavaScript applied, final args count: {}",
-        static_applied,
-        js_applied,
-        tool_args.len()
-    );
 
     Ok(())
 }

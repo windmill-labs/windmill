@@ -3,8 +3,8 @@ use crate::ai::query_builder::StreamEventProcessor;
 use crate::ai::types::*;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_flow_context, get_step_name_from_flow,
-    merge_static_transforms, update_flow_status_module_with_actions,
-    update_flow_status_module_with_actions_success, FlowContext,
+    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
+    FlowContext,
 };
 use crate::common::{error_to_value, OccupancyMetrics};
 use crate::result_processor::handle_non_flow_job_error;
@@ -300,7 +300,7 @@ async fn execute_windmill_tool(
         }
     };
 
-    tracing::info!(
+    tracing::debug!(
         "Tool '{}': AI provided {} argument(s), {} input transform(s) defined",
         tool_call.function.name,
         tool_call_args.len(),
@@ -308,34 +308,17 @@ async fn execute_windmill_tool(
     );
 
     // Evaluate input transforms (both static and JavaScript)
-    if let Some(flow_ctx) = ctx.flow_context.as_ref() {
-        tracing::info!(
-            "HERE Tool '{}': Using evaluate_input_transforms with flow context (has_flow_args={}, has_previous_result={}, has_id_context={})",
-            tool_call.function.name,
-            flow_ctx.args.is_some(),
-            ctx.previous_result.is_some(),
-            ctx.id_context.is_some()
-        );
-
-        // Use new evaluate_input_transforms with flow context and IdContext
-        crate::ai::utils::evaluate_input_transforms(
-            &mut tool_call_args,
-            &input_transforms,
-            flow_ctx,
-            ctx.previous_result.as_ref(),
-            ctx.id_context.as_ref(),
-            ctx.client,
-        )
-        .await?;
-    } else {
-        tracing::info!(
-            "HERE Tool '{}': No flow context available, using static transforms only",
-            tool_call.function.name
-        );
-
-        // Fallback to static transforms only if no flow context
-        merge_static_transforms(&mut tool_call_args, &input_transforms)?;
-    }
+    // If no flow context, static transforms will still be applied
+    let flow_ctx = ctx.flow_context.as_ref().cloned().unwrap_or_default();
+    crate::ai::utils::evaluate_input_transforms(
+        &mut tool_call_args,
+        &input_transforms,
+        &flow_ctx,
+        ctx.previous_result.as_ref(),
+        ctx.id_context.as_ref(),
+        ctx.client,
+    )
+    .await?;
 
     let job_payload = match tool_module.get_value()? {
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {

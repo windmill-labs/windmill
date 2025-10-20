@@ -4,7 +4,6 @@ use crate::ai::utils::{
     find_unique_tool_name, get_flow_context, get_flow_job_runnable_and_raw_flow,
     get_step_name_from_flow, is_anthropic_provider, load_mcp_tools, parse_raw_script_schema,
     update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
-    FlowContext,
 };
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use async_recursion::async_recursion;
@@ -170,8 +169,8 @@ pub async fn handle_ai_agent_job(
                     is_trigger,
                     pass_flow_input_directly,
                 }) => {
-                    tracing::info!(
-                        "HERE Processing Script tool '{}' from path '{}' with {} input transforms",
+                    tracing::debug!(
+                        "Processing Script tool '{}' from path '{}' with {} input transforms",
                         summary,
                         path,
                         input_transforms.len()
@@ -229,8 +228,8 @@ pub async fn handle_ai_agent_job(
                     let filtered_schema = if let Some(s) = schema {
                         Some(filter_schema_by_input_transforms(s, input_transforms)?)
                     } else {
-                        tracing::info!(
-                            "HERE No schema found for tool '{}', skipping filtering",
+                        tracing::debug!(
+                            "No schema found for tool '{}', skipping filtering",
                             summary
                         );
                         None
@@ -239,8 +238,8 @@ pub async fn handle_ai_agent_job(
                     Ok::<_, Error>(filtered_schema)
                 }
                 Ok(FlowModuleValue::RawScript { content, language, input_transforms, .. }) => {
-                    tracing::info!(
-                        "HERE Processing RawScript tool '{}' with {} input transforms",
+                    tracing::debug!(
+                        "Processing RawScript tool '{}' with {} input transforms",
                         summary,
                         input_transforms.len()
                     );
@@ -251,8 +250,8 @@ pub async fn handle_ai_agent_job(
                     let filtered_schema = if let Some(s) = schema {
                         Some(filter_schema_by_input_transforms(s, input_transforms)?)
                     } else {
-                        tracing::info!(
-                            "HERE No schema found for RawScript tool '{}', skipping filtering",
+                        tracing::debug!(
+                            "No schema found for RawScript tool '{}', skipping filtering",
                             summary
                         );
                         None
@@ -436,39 +435,31 @@ pub async fn run_agent(
     // Extract previous step result if we have flow_status (for tool input transforms - Phase 1)
     let previous_result = if let Some(ref ctx) = flow_context {
         if let Some(ref flow_status) = ctx.flow_status {
-            tracing::info!(
-                "HERE Extracting previous step result (current step: {})",
+            tracing::debug!(
+                "Extracting previous step result (current step: {})",
                 flow_status.step
             );
 
-            match crate::worker_flow::get_previous_job_result(db, &job.workspace_id, flow_status).await {
+            match crate::worker_flow::get_previous_job_result(db, &job.workspace_id, flow_status)
+                .await
+            {
                 Ok(Some(result)) => {
-                    let preview = result.get();
-                    tracing::info!(
-                        "HERE Previous step result found: {}",
-                        if preview.len() > 200 {
-                            format!("{}...", &preview[..200])
-                        } else {
-                            preview.to_string()
-                        }
-                    );
+                    tracing::debug!("Previous step result available for input transforms");
                     Some(result)
                 }
                 Ok(None) => {
-                    tracing::debug!("HERE No previous step result available (might be first step)");
+                    tracing::debug!("No previous step result available (might be first step)");
                     None
                 }
                 Err(e) => {
-                    tracing::warn!("HERE Failed to get previous step result: {}", e);
+                    tracing::warn!("Failed to get previous step result: {}", e);
                     None
                 }
             }
         } else {
-            tracing::debug!("HERE No flow_status in flow_context, cannot extract previous result");
             None
         }
     } else {
-        tracing::debug!("HERE No flow_context available, skipping previous result extraction");
         None
     };
 
@@ -476,33 +467,33 @@ pub async fn run_agent(
     let id_context = if let Some(ref ctx) = flow_context {
         if let Some(ref flow_status) = ctx.flow_status {
             // Get the step ID from the AI agent's flow step
-            let previous_id = job.flow_step_id.clone().unwrap_or_else(|| "unknown".to_string());
+            let previous_id = job
+                .flow_step_id
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string());
 
-            tracing::info!(
-                "HERE Building IdContext for results.stepId syntax (previous_id: {})",
+            tracing::debug!(
+                "Building IdContext for results.stepId syntax (previous_id: {})",
                 previous_id
             );
 
             match crate::worker_flow::get_transform_context(job, &previous_id, flow_status).await {
                 Ok(ctx) => {
-                    let step_count = ctx.steps_results.len();
-                    tracing::info!(
-                        "HERE IdContext built successfully: {} steps available for results.stepId",
-                        step_count
+                    tracing::debug!(
+                        "IdContext built successfully: {} steps available for results.stepId",
+                        ctx.steps_results.len()
                     );
                     Some(ctx)
                 }
                 Err(e) => {
-                    tracing::warn!("HERE Failed to build IdContext: {}", e);
+                    tracing::warn!("Failed to build IdContext: {}", e);
                     None
                 }
             }
         } else {
-            tracing::debug!("HERE No flow_status available, cannot build IdContext");
             None
         }
     } else {
-        tracing::debug!("HERE No flow_context available, cannot build IdContext");
         None
     };
 
@@ -685,8 +676,7 @@ pub async fn run_agent(
                                 .unwrap_or(false);
 
                             if chat_enabled && !response_content.is_empty() {
-                                if let Some(mid) = flow_context.as_ref().and_then(|s| s.memory_id)
-                                {
+                                if let Some(mid) = flow_context.as_ref().and_then(|s| s.memory_id) {
                                     let agent_job_id = job.id;
                                     let db_clone = db.clone();
                                     let message_content = response_content.clone();
