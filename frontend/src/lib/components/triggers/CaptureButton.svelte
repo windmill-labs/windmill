@@ -104,7 +104,7 @@
 			</Button>
 		{:else}
 			<Button
-				color="dark"
+				variant="accent-secondary"
 				btnClasses="!rounded-l-none"
 				wrapperClasses="h-full"
 				nonCaptureEvent

@@ -281,8 +281,8 @@
 								size="xs"
 								on:click={() => dispatch('captureToggle', {})}
 								{disabled}
-								color={captureInfo.active ? 'light' : 'dark'}
-								btnClasses={captureInfo.active ? 'text-blue-500' : ''}
+								variant={captureInfo.active ? 'default' : 'accent-secondary'}
+								selected={captureInfo.active}
 								startIcon={captureInfo.active
 									? { icon: CircleStop }
 									: { icon: CaptureIcon, props: { variant: 'redDot' } }}

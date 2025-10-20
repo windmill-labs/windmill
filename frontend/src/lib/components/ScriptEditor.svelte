@@ -164,9 +164,12 @@
 					if (
 						v !== undefined &&
 						(v.delegate_to_git_repo_details === null ||
-							v.delegate_to_git_repo_details.resource !== ansibleAlternativeExecutionMode?.resource ||
-							v.delegate_to_git_repo_details.playbook !== ansibleAlternativeExecutionMode?.playbook ||
-							v.delegate_to_git_repo_details.inventories_location !== ansibleAlternativeExecutionMode?.inventories_location ||
+							v.delegate_to_git_repo_details.resource !==
+								ansibleAlternativeExecutionMode?.resource ||
+							v.delegate_to_git_repo_details.playbook !==
+								ansibleAlternativeExecutionMode?.playbook ||
+							v.delegate_to_git_repo_details.inventories_location !==
+								ansibleAlternativeExecutionMode?.inventories_location ||
 							v.delegate_to_git_repo_details.commit !== ansibleAlternativeExecutionMode?.commit ||
 							v.git_ssh_identity !== ansibleGitSshIdentity)
 					) {
@@ -617,7 +620,6 @@
 								gitRepoResourcePath={ansibleAlternativeExecutionMode?.resource || ''}
 								gitSshIdentity={ansibleGitSshIdentity}
 								bind:commitHashInput={commitHashForGitRepo}
-
 							/>
 						</div>
 					</Pane>
@@ -666,42 +668,15 @@
 							/>
 							Cancel
 						</Button>
-					{:else if customUi?.previewPanel?.disableTriggerButton !== true}
-						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
-							<Button
-								color="dark"
-								on:click={() => {
-									runTest()
-								}}
-								btnClasses="w-full rounded-r-none"
-								size="xs"
-								startIcon={{
-									icon: Play,
-									classes: 'animate-none'
-								}}
-								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
-							>
-								{#if testIsLoading}
-									Running
-								{:else}
-									Test
-								{/if}
-							</Button>
-							<CaptureButton on:openTriggers />
-						</div>
 					{:else}
+						{@const disableTriggerButton = customUi?.previewPanel?.disableTriggerButton === true}
 						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
 							<Button
-								color="dark"
-								on:click={() => {
-									runTest()
-								}}
-								btnClasses="w-full"
+								on:click={() => runTest()}
+								btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
 								size="xs"
-								startIcon={{
-									icon: Play,
-									classes: 'animate-none'
-								}}
+								variant="accent-secondary"
+								startIcon={{ icon: Play, classes: 'animate-none' }}
 								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
 							>
 								{#if testIsLoading}
@@ -710,6 +685,9 @@
 									Test
 								{/if}
 							</Button>
+							{#if !disableTriggerButton}
+								<CaptureButton on:openTriggers />
+							{/if}
 						</div>
 					{/if}
 				</div>

@@ -101,6 +101,7 @@
 	import type { ScriptBuilderProps } from './script_builder'
 	import type { DiffDrawerI } from './diff_drawer'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
+	import { inputSizeClasses } from './text_input/TextInput.svelte'
 
 	let {
 		script = $bindable(),
@@ -1650,7 +1651,7 @@
 
 	<div class="flex flex-col h-screen">
 		<div class="flex h-12 items-center px-4">
-			<div class="justify-between flex gap-2 lg:gap-8 w-full items-center">
+			<div class="flex gap-2 lg:gap-2 w-full items-center">
 				<div class="flex flex-row gap-2 grow max-w-md">
 					<div class="center-center">
 						<button
@@ -1667,6 +1668,9 @@
 						bind:value={script.summary}
 					/>
 				</div>
+
+				<!-- Separator -->
+				<div class="flex-1"></div>
 
 				<div class="gap-4 flex">
 					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
@@ -1701,7 +1705,7 @@
 									>
 										<Badge
 											color="gray"
-											class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
+											class="center-center !bg-surface-secondary !text-tertiary {inputSizeClasses.md}  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
 										>
 											<Pen size={12} class="mr-2" /> Path
 										</Badge>
@@ -1713,7 +1717,7 @@
 								readonly
 								value={script.path}
 								size={script.path?.length || 50}
-								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
+								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full {inputSizeClasses.md} !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
 								onfocus={({ currentTarget }) => {
 									currentTarget.select()
 								}}
@@ -1726,57 +1730,53 @@
 					<Awareness />
 				{/if}
 
-				<div class="flex flex-row gap-x-1 lg:gap-x-2">
-					{#if customUi?.topBar?.tagEdit != false}
-						{#if $workerTags}
-							{#if $workerTags?.length ?? 0 > 0}
-								<div class="max-w-[200px] pr-8">
-									<WorkerTagSelect
-										inputClass="text-sm text-secondary !h-8 !placeholder-secondary"
-										nullTag={script.language}
-										placeholder={customUi?.tagSelectPlaceholder}
-										bind:tag={script.tag}
-									/>
-								</div>
-							{/if}
+				<!-- Separator -->
+				<div class="flex-1"></div>
+
+				{#if customUi?.topBar?.tagEdit != false}
+					{#if $workerTags}
+						{#if $workerTags?.length ?? 0 > 0}
+							<div class="max-w-[200px]">
+								<WorkerTagSelect
+									nullTag={script.language}
+									placeholder={customUi?.tagSelectPlaceholder}
+									bind:tag={script.tag}
+								/>
+							</div>
 						{/if}
 					{/if}
-					{#if customUi?.topBar?.settings != false}
-						<Button
-							aiId="script-builder-settings"
-							aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
-							color="light"
-							variant="border"
-							size="xs"
-							on:click={() => {
-								metadataOpen = true
-							}}
-							startIcon={{ icon: Settings }}
-						>
-							<span class="hidden lg:flex"> Settings </span>
-						</Button>
-					{/if}
+				{/if}
+				{#if customUi?.topBar?.settings != false}
 					<Button
-						loading={loadingDraft}
+						aiId="script-builder-settings"
+						aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
+						variant="default"
 						size="xs"
-						startIcon={{ icon: Save }}
-						on:click={() => saveDraft()}
-						disabled={initialPath != '' && !savedScript}
-						shortCut={{
-							key: 'S'
-						}}
+						on:click={() => (metadataOpen = true)}
+						startIcon={{ icon: Settings }}
 					>
-						<span class="hidden lg:flex"> Draft </span>
+						<span class="hidden lg:flex"> Settings </span>
 					</Button>
+				{/if}
+				<Button
+					loading={loadingDraft}
+					size="xs"
+					variant="accent"
+					startIcon={{ icon: Save }}
+					on:click={() => saveDraft()}
+					disabled={initialPath != '' && !savedScript}
+					shortCut={{ key: 'S' }}
+				>
+					<span class="hidden lg:flex"> Draft </span>
+				</Button>
 
-					<DeployButton
-						loading={!fullyLoaded}
-						{loadingSave}
-						newFlow={false}
-						dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
-						on:save={({ detail }) => handleEditScript(false, detail)}
-					/>
-				</div>
+				<DeployButton
+					loading={!fullyLoaded}
+					{loadingSave}
+					newFlow={false}
+					dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
+					on:save={({ detail }) => handleEditScript(false, detail)}
+				/>
 			</div>
 		</div>
 

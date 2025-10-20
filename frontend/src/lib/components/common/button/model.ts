@@ -15,6 +15,9 @@ export const BUTTON_COLORS = [
 export namespace ButtonType {
 	export type Size = 'xs3' | 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 	export type UnifiedSize = 'sm' | 'md' | 'lg'
+	/**
+	 * @deprecated Use `Variant` instead
+	 */
 	export type Color =
 		| 'blue'
 		| 'red'
@@ -26,9 +29,9 @@ export namespace ButtonType {
 		| 'marine'
 		| 'nord'
 	export type Variant =
-		| 'contained'
-		| 'border'
-		| 'divider'
+		| 'contained' // Deprecated
+		| 'border' // Deprecated
+		| 'divider' // Deprecated
 		| 'accent-secondary'
 		| 'accent'
 		| 'default'

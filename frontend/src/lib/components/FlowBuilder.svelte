@@ -88,6 +88,7 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
+	import { inputSizeClasses } from './text_input/TextInput.svelte'
 
 	let {
 		initialPath = $bindable(''),
@@ -1036,23 +1037,21 @@
 
 					{#if customUi?.topBar?.path != false}
 						<div class="flex justify-start w-full">
-							<div>
-								<button
-									onclick={async () => {
-										select('settings-metadata')
-										document.getElementById('path')?.focus()
-									}}
-								>
-									<Badge color="gray" class="!text-tertiary !h-[28px] rounded-r-none">
-										<Pen size={12} class="mr-2" /> Path
-									</Badge>
-								</button>
-							</div>
+							<button
+								onclick={async () => {
+									select('settings-metadata')
+									document.getElementById('path')?.focus()
+								}}
+							>
+								<Badge color="gray" class="text-tertiary rounded-r-none {inputSizeClasses.md}">
+									<Pen size={12} class="mr-2" /> Path
+								</Badge>
+							</button>
 							<input
 								type="text"
 								readonly
 								value={$pathStore && $pathStore != '' ? $pathStore : 'Choose a path'}
-								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
+								class="font-mono !text-2xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 cursor-default !rounded-l-none {inputSizeClasses.md}"
 								onfocus={({ currentTarget }) => {
 									currentTarget.select()
 								}}
@@ -1078,8 +1077,7 @@
 					{/if}
 					{#if customUi?.topBar?.diff != false}
 						<Button
-							color="light"
-							variant="border"
+							variant="default"
 							size="xs"
 							on:click={async () => {
 								if (!savedFlow) {

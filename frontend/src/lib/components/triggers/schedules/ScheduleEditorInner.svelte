@@ -724,7 +724,7 @@
 							<div class="flex justify-start w-full">
 								<Badge
 									color="gray"
-									class="center-center !bg-surface-secondary !text-secondary  !h-[24px] rounded-r-none border"
+									class="center-center !bg-surface-secondary !text-secondary rounded-r-none border"
 								>
 									Schedule path (not editable)
 								</Badge>
@@ -733,7 +733,7 @@
 									readonly
 									value={path}
 									size={path?.length || 50}
-									class="font-mono !text-xs grow shrink overflow-x-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+									class="font-mono !text-2xs grow shrink overflow-x-auto !py-0 !border-l-0 !rounded-l-none"
 									onfocus={({ currentTarget }) => {
 										currentTarget.select()
 									}}

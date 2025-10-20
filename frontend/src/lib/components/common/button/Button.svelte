@@ -28,6 +28,9 @@
 		size?: ButtonType.Size
 		spacingSize?: ButtonType.Size
 		unifiedSize?: ButtonType.UnifiedSize
+		/**
+		 * @deprecated Use `variant` instead
+		 */
 		color?: ButtonType.Color | string
 		variant?: ButtonType.Variant
 		btnClasses?: string

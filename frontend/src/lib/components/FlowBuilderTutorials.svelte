@@ -46,8 +46,7 @@
 			<Button
 				nonCaptureEvent
 				size="xs"
-				color="light"
-				variant="border"
+				variant="default"
 				id="tutorials-button"
 				startIcon={{ icon: BookOpen }}
 			/>
