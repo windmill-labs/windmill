@@ -65,7 +65,8 @@
 	<div class="flex items-center space-x-2 relative" bind:clientWidth={idBadgeWidth}>
 		{#if id && id !== 'preprocessor' && !id.startsWith('failure') && !id.startsWith('subflow:')}
 			<Badge
-				color={'transparent'}
+				color="transparent"
+				class="border-none"
 				wrapperClass={twMerge(
 					'max-w-full rounded-md hover:opacity-60 transition-opacity',
 					colorClasses?.badge
