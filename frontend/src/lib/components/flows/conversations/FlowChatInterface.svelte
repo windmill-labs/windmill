@@ -124,7 +124,7 @@
 					rows={3}
 				></textarea>
 				<div class="flex-shrink-0 pr-2">
-					{#if manager.isLoading}
+					{#if manager.isWaitingForResponse || manager.isLoading}
 						<Button
 							color="red"
 							size="xs2"

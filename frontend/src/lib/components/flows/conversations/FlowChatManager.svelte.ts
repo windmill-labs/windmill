@@ -1,5 +1,5 @@
 import type { FlowConversationMessage } from '$lib/gen/types.gen'
-import { FlowConversationService } from '$lib/gen'
+import { FlowConversationService, JobService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
 import { tick } from 'svelte'
@@ -94,18 +94,13 @@ class FlowChatManager {
 		}
 
 		try {
-			// If we have a job ID (polling mode), cancel it through the API
 			if (this.currentJobId) {
-				const { JobService } = await import('$lib/gen')
 				await JobService.cancelQueuedJob({
 					workspace: this.#workspace,
 					id: this.currentJobId,
 					requestBody: {}
 				})
 				sendUserToast(`Job ${this.currentJobId} cancelled`)
-			} else {
-				// For streaming mode, just cleanup (closes EventSource)
-				sendUserToast('Execution cancelled')
 			}
 		} catch (error) {
 			console.error('Error cancelling job:', error)
@@ -399,6 +394,9 @@ class FlowChatManager {
 					const data = JSON.parse(event.data)
 
 					if (data.type === 'update') {
+						if (data.flow_stream_job_id) {
+							this.currentJobId = data.flow_stream_job_id
+						}
 						// Process new stream content
 						if (data.new_result_stream) {
 							// Stop polling since we are receiving last step streaming
