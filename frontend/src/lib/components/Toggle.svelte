@@ -38,7 +38,7 @@
 
 	let {
 		options = {},
-		checked = $bindable(false),
+		checked = $bindable(),
 		disabled = false,
 		textClass = '',
 		textStyle = '',
@@ -104,7 +104,7 @@
 			class="sr-only peer"
 			bind:checked
 			onchange={stopPropagation((e) => {
-				dispatch('change', checked)
+				dispatch('change', !!checked)
 			})}
 		/>
 		<div
