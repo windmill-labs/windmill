@@ -16,7 +16,7 @@
 		white = false,
 		spin = undefined,
 		class: classNames = '',
-		size = 24
+		size = undefined
 	}: Props = $props()
 
 	let width = $derived(size ? `${size}px` : widthProp)
