@@ -27,7 +27,6 @@
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
 	import type { UserWorkspace } from '$lib/stores'
-	import { onMount } from 'svelte'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
