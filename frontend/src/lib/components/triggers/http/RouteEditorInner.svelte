@@ -889,8 +889,7 @@
 	{#snippet submission()}
 		<div class="flex flex-row">
 			<Button
-				variant="border"
-				color="blue"
+				variant="default"
 				size="sm"
 				startIcon={{ icon: Plus }}
 				on:click={() => {

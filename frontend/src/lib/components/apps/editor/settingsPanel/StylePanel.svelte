@@ -124,9 +124,8 @@
 		<div class="px-2 flex gap-1 flex-col w-full pb-4">
 			{#if !$cssEditorOpen}
 				<Button
-					color="light"
 					size="xs2"
-					variant="border"
+					variant="default"
 					on:click={() => {
 						$cssEditorOpen = true
 					}}
@@ -144,9 +143,8 @@
 
 			{#if $enterpriseLicense !== undefined}
 				<Button
-					color="light"
 					size="xs2"
-					variant="border"
+					variant="default"
 					on:click={() => {
 						migrationModal?.open()
 					}}

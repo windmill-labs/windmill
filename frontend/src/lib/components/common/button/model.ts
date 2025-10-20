@@ -217,19 +217,19 @@ export namespace ButtonType {
 
 	// New unified sizing system
 	export const UnifiedSizingClasses: Record<ButtonType.UnifiedSize, string> = {
-		sm: 'px-1', // Regular horizontal padding
-		md: 'px-2',
-		lg: 'px-4'
+		sm: 'px-2', // Regular horizontal padding
+		md: 'px-4',
+		lg: 'px-6'
 	}
 
 	export const UnifiedIconOnlySizingClasses: Record<ButtonType.UnifiedSize, string> = {
-		sm: 'px-1', // Square padding for icon-only (same as width padding)
+		sm: 'px-2', // Square padding for icon-only (same as width padding)
 		md: 'px-2',
 		lg: 'px-4'
 	}
 
 	export const UnifiedHeightClasses: Record<ButtonType.UnifiedSize, string> = {
-		sm: 'min-h-5',
+		sm: 'min-h-6',
 		md: 'min-h-8',
 		lg: 'min-h-10'
 	}

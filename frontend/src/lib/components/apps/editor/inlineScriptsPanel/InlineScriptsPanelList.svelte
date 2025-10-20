@@ -198,8 +198,7 @@
 				</div>
 				<Button
 					size="xs"
-					color="light"
-					variant="border"
+					variant="default"
 					btnClasses="!rounded-full !p-1"
 					title="Create a new background runnable"
 					aria-label="Create a new background runnable"

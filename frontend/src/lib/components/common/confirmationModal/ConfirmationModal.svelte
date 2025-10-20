@@ -126,6 +126,8 @@
 							color={theme[type].color}
 							size="sm"
 							shortCut={{ Icon: CornerDownLeft, hide: !keyListen, withoutModifier: true }}
+							variant="accent"
+							destructive={type === 'danger'}
 						>
 							{#if loading}
 								<Loader2 class="animate-spin" />
@@ -135,7 +137,7 @@
 						<Button
 							disabled={loading}
 							on:click={() => (dispatch('canceled'), onCanceled?.())}
-							color="light"
+							variant="default"
 							size="sm"
 							shortCut={{ key: 'Esc', hide: !keyListen, withoutModifier: true }}
 						>

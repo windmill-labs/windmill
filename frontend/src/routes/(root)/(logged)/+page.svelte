@@ -297,19 +297,19 @@
 				{/snippet}
 
 				{#if subtab == 'script'}
-					<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>
+					<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)} size="lg">
 						{#snippet children()}
 							{@render toggleKinds?.()}
 						{/snippet}
 					</PickHubScript>
 				{:else if subtab == 'flow'}
-					<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}>
+					<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)} size="lg">
 						{#snippet children()}
 							{@render toggleKinds?.()}
 						{/snippet}
 					</PickHubFlow>
 				{:else if subtab == 'app'}
-					<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}>
+					<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)} size="lg">
 						{#snippet children()}
 							{@render toggleKinds?.()}
 						{/snippet}

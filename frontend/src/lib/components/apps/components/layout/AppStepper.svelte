@@ -242,8 +242,7 @@
 						<div class="flex items-center gap-2">
 							<Button
 								size="xs"
-								color="light"
-								variant="contained"
+								variant="subtle"
 								disabled={selectedIndex === 0}
 								on:click={(e) => {
 									e.preventDefault()
@@ -266,8 +265,7 @@
 
 							<Button
 								size="xs"
-								color="dark"
-								variant="contained"
+								variant="accent"
 								disabled={lastStep}
 								on:click={(e) => {
 									e.preventDefault()

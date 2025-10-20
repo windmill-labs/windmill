@@ -39,8 +39,6 @@
 
 {#snippet extra()}
 	<div class="flex justify-end">
-		<Button variant="border" color="light" size="xs" on:click={() => onOpenDetails?.()}
-			>Open details</Button
-		>
+		<Button variant="default" size="xs" on:click={() => onOpenDetails?.()}>Open details</Button>
 	</div>
 {/snippet}

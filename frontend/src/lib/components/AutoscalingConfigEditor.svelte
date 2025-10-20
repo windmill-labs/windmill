@@ -355,14 +355,7 @@
 
 				<div class="flex flex-col gap-3 mt-4">
 					<div class="flex items-center gap-2">
-						<Button 
-							color="blue" 
-							size="xs" 
-							variant="contained"
-							startIcon={{ icon: ExternalLink }}
-							href="https://windmill.dev/docs/core_concepts/autoscaling#kubernetes"
-							target="_blank"
-						>
+						<Button size="xs" variant="accent" startIcon={{ icon: ExternalLink }} href="https://windmill.dev/docs/core_concepts/autoscaling#kubernetes" target="_blank">
 							Setup Guide (Roles & Bindings)
 						</Button>
 						<Button 

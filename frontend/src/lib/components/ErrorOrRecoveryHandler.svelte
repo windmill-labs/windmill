@@ -332,7 +332,7 @@
 </div>
 
 {#if handlerSelected === 'custom'}
-	<div class="flex flex-row mb-2">
+	<div class="flex flex-row mb-6">
 		<ScriptPicker
 			disabled={!isEditable || !$enterpriseLicense}
 			kinds={['script', 'failure']}
@@ -345,8 +345,8 @@
 
 		{#if !handlerPath}
 			<Button
-				btnClasses="ml-4 mt-2"
-				color="dark"
+				btnClasses="ml-4"
+				variant="default"
 				size="xs"
 				href={customScriptTemplate}
 				disabled={!isEditable}
@@ -357,7 +357,7 @@
 		{/if}
 	</div>
 	{#if showScriptHelpText}
-		<div class="text-xs">
+		<div class="text-2xs text-secondary">
 			Example of error handler scripts can be found on <a
 				target="_blank"
 				href="{$hubBaseUrlStore}/failures"
@@ -367,7 +367,7 @@
 		</div>
 	{/if}
 	{#if handlerPath}
-		<p class="font-semibold text-sm mt-4 mb-2">Extra arguments</p>
+		<p class="font-medium text-xs mt-6 mb-1">Extra arguments</p>
 		{#await import('$lib/components/SchemaForm.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}
@@ -431,21 +431,16 @@
 							href="{base}/workspace_settings?tab=slack">configure it here</a
 						>.
 					</p>
-					<Button
-						variant="border"
-						color="light"
-						on:click={loadSlackResources}
-						startIcon={{ icon: RotateCw }}
-					/>
+					<Button variant="default" on:click={loadSlackResources} startIcon={{ icon: RotateCw }} />
 				</div>
 			</Alert>
 		{:else}
 			<Button
 				disabled={emptyString(handlerExtraArgs['channel'])}
 				btnClasses="w-32 text-center"
-				color="dark"
+				variant="default"
 				on:click={() => sendSlackMessage(handlerExtraArgs['channel'])}
-				size="xs">Send test message</Button
+				unifiedSize="md">Send test message</Button
 			>
 			{#if connectionTestJob !== undefined}
 				<p class="text-normal text-2xs mt-1 gap-2">
@@ -544,19 +539,14 @@
 							>workspace settings</a
 						>.
 					</p>
-					<Button
-						variant="border"
-						color="light"
-						on:click={loadTeamsResources}
-						startIcon={{ icon: RotateCw }}
-					/>
+					<Button variant="default" on:click={loadTeamsResources} startIcon={{ icon: RotateCw }} />
 				</div>
 			</Alert>
 		{:else}
 			<Button
 				disabled={emptyString(handlerExtraArgs['channel'])}
 				btnClasses="w-32 text-center mt-2"
-				color="dark"
+				variant="default"
 				on:click={() => sendTeamsMessage(handlerExtraArgs['channel'] ?? '')}
 				size="xs">Send test message</Button
 			>

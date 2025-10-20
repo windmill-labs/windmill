@@ -118,8 +118,7 @@
 	</div>
 	<div class="flex flex-row-reverse">
 		<Button
-			variant="border"
-			color="dark"
+			variant="default"
 			target="_blank"
 			href="{base}/?workspace=admins"
 			endIcon={{ icon: ExternalLink }}
@@ -188,12 +187,12 @@
 							</div>
 						{/if}
 
-						<div class="py-2 mb-4">
+						<div class="py-2 mb-6">
 							<InviteGlobalUser on:new={() => listUsers(activeOnly)} />
 						</div>
 
 						<div class="flex flex-row justify-between">
-							<h3>All instance users</h3>
+							<h3 class="text-sm font-semibold text-emphasis">All instance users</h3>
 							<Toggle
 								bind:checked={activeOnly}
 								options={{
@@ -381,7 +380,7 @@
 {#if tab != 'users'}
 	<div class="absolute bottom-2 w-[95%]">
 		<Button
-			color="dark"
+			variant="accent"
 			on:click={() => {
 				instanceSettings?.saveSettings()
 			}}

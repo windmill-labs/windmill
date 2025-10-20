@@ -166,8 +166,7 @@
 {#if showGitHubApp}
 	{#if !githubState.loadingGithubInstallations}
 		<Button
-			color="light"
-			variant="contained"
+			variant="default"
 			size="xs"
 			on:click={handleRefreshInstallations}
 			disabled={!$enterpriseLicense}
@@ -187,8 +186,7 @@
 		>
 			{#snippet trigger()}
 				<Button
-					color="none"
-					variant="border"
+					variant="default"
 					size="xs"
 					disabled={!$enterpriseLicense || githubState.loadingGithubInstallations}
 					startIcon={{
@@ -232,7 +230,7 @@
 									<div class="pt-[26px]">
 										<Button
 											size="xs"
-											color="blue"
+											variant="accent"
 											buttonType="button"
 											disabled={!githubState.selectedGHAppRepository}
 											on:click={() => handleApplyRepositoryURL(close)}
@@ -254,8 +252,7 @@
 							<div class="flex flex-col gap-4">
 								<div class="flex">
 									<Button
-										color="none"
-										variant="border"
+										variant="default"
 										size="xs"
 										href={githubState.githubInstallationUrl}
 										startIcon={{
@@ -306,7 +303,7 @@
 																<div class="flex justify-end gap-1">
 																	<Button
 																		size="xs2"
-																		color="blue"
+																		variant="accent"
 																		title="Export installation to other instance"
 																		startIcon={{ icon: Download }}
 																		on:click={() =>
@@ -316,7 +313,8 @@
 																	</Button>
 																	<Button
 																		size="xs2"
-																		color="red"
+																		variant="default"
+																		destructive
 																		title="Remove installation from workspace"
 																		startIcon={{ icon: Minus }}
 																		on:click={() =>
@@ -363,7 +361,7 @@
 															<td class="pl-8 py-2 text-right">
 																<Button
 																	size="xs2"
-																	color="blue"
+																	variant="accent"
 																	title="Add installation to workspace"
 																	startIcon={{ icon: Plus }}
 																	on:click={() => {
@@ -400,7 +398,7 @@
 									class="flex-1"
 								/>
 								<Button
-									color="blue"
+									variant="accent"
 									on:click={handleImportInstallation}
 									disabled={!githubState.importJwt}
 								>
@@ -414,8 +412,7 @@
 		</Popover>
 	{:else}
 		<Button
-			color="none"
-			variant="border"
+			variant="default"
 			size="xs"
 			disabled={!$enterpriseLicense || githubState.loadingGithubInstallations}
 			startIcon={{

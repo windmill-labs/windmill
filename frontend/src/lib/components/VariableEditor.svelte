@@ -178,16 +178,18 @@
 					<span class="text-xs text-secondary font-normal">
 						({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)
 					</span>
+					{#if edit && variable.is_secret}
+						<div class="ml-2"></div>
+						{#if $userStore?.operator}
+							<div class="p-2 border">Operators cannot load secret value</div>
+						{:else}
+							<Button size="xs" variant="subtle" on:click={() => loadVariable(initialPath)}
+								>Load secret value<Tooltip>Will generate an audit log</Tooltip></Button
+							>
+						{/if}
+					{/if}
 				</label>
 				<div>
-					<div class="mb-1">
-						{#if edit && variable.is_secret}{#if $userStore?.operator}
-								<div class="p-2 border">Operators cannot load secret value</div>
-							{:else}
-								<Button variant="subtle" size="xs" on:click={() => loadVariable(initialPath)}
-									>Load secret value<Tooltip>Will generate an audit log</Tooltip></Button
-								>{/if}{/if}
-					</div>
 					<div class="flex flex-col gap-2">
 						<ToggleButtonGroup bind:selected={editorKind}>
 							{#snippet children({ item })}

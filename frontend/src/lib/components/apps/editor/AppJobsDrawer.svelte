@@ -178,8 +178,8 @@
 										{#if job?.['running']}
 											<div class="flex flex-row-reverse w-full">
 												<Button
-													color="red"
-													variant="border"
+													variant="accent"
+													destructive
 													on:click={() => jobLoader?.cancelJob()}
 												>
 													<Loader2 size={14} class="animate-spin mr-2" />
@@ -287,8 +287,7 @@
 			{#if refreshComponents}
 				<Button
 					size="md"
-					color="light"
-					variant="border"
+					variant="default"
 					on:click={() => {
 						refreshComponents?.()
 					}}
@@ -299,15 +298,14 @@
 			{/if}
 			<Button
 				size="md"
-				color="light"
-				variant="border"
+				variant="default"
 				on:click={() => {
 					dispatch('clear')
 				}}
 				>Clear jobs
 			</Button>
 			{#if hasErrors}
-				<Button size="md" color="light" variant="border" on:click={() => dispatch('clearErrors')}>
+				<Button size="md" variant="default" on:click={() => dispatch('clearErrors')}>
 					Clear Errors &nbsp;<BellOff size={14} />
 				</Button>
 			{/if}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte'
-	import { Badge, Skeleton } from '$lib/components/common'
+	import { Badge, ButtonType, Skeleton } from '$lib/components/common'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -12,9 +12,10 @@
 		filter?: string
 		syncQuery?: boolean
 		children?: import('svelte').Snippet
+		size?: ButtonType.UnifiedSize
 	}
 
-	let { filter = $bindable(''), syncQuery = false, children }: Props = $props()
+	let { filter = $bindable(''), syncQuery = false, children, size = 'md' }: Props = $props()
 
 	type Item = { apps: string[]; summary: string; path: string }
 	let hubApps: any[] | undefined = $state(undefined)
@@ -48,7 +49,7 @@
 		}}
 		bind:value={filter}
 		class="grow !pr-9"
-		size="lg"
+		{size}
 	/>
 </div>
 <ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />

@@ -546,10 +546,9 @@
 			{#if filteredConnects}
 				{#each filteredConnects as { key }}
 					<Button
-						size="sm"
-						variant="border"
-						color={key === resourceType ? 'blue' : 'light'}
-						btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
+						unifiedSize="md"
+						variant="default"
+						selected={key === resourceType}
 						on:click={() => {
 							manual = false
 							resourceType = key
@@ -596,10 +595,9 @@
 				{#each filteredConnectsManual as { key }}
 					{#if nativeLanguagesCategory.includes(key)}
 						<Button
-							size="sm"
-							variant="border"
-							color={key === resourceType ? 'blue' : 'light'}
-							btnClasses={key === resourceType ? '!border-2' : 'm-[1px]'}
+							unifiedSize="md"
+							variant="default"
+							selected={key === resourceType}
 							on:click={() => {
 								manual = true
 								resourceType = key

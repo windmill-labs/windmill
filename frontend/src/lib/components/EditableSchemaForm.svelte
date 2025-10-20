@@ -530,7 +530,7 @@
 				{:else}
 					<!-- WIP -->
 					{#if jsonEnabled && customUi?.jsonOnly != true}
-						<div class="w-full px-3 flex gap-4 justify-end items-center">
+						<div class="w-full px-4 py-2 flex gap-4 justify-end items-center">
 							{#if addPropertyInEditorTab}
 								<AddPropertyV2
 									bind:schema
@@ -539,7 +539,7 @@
 									}}
 								>
 									{#snippet trigger()}
-										<Button color="light" size="xs" iconOnly startIcon={{ icon: Plus }} />
+										<Button variant="subtle" size="xs" iconOnly startIcon={{ icon: Plus }} />
 									{/snippet}
 								</AddPropertyV2>
 							{/if}
@@ -618,8 +618,7 @@
 																			}}
 																		/>
 																		<Button
-																			variant="border"
-																			color="light"
+																			variant="default"
 																			size="xs"
 																			on:click={() => {
 																				renameProperty(argName, argName + i)
@@ -908,8 +907,7 @@
 		{#snippet submission()}
 			<div>
 				<Button
-					variant="border"
-					color="blue"
+					variant="default"
 					size="sm"
 					startIcon={{ icon: Plus }}
 					on:click={() => variableEditor?.initNew?.()}

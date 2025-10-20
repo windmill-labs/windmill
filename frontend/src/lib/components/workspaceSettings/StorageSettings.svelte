@@ -104,8 +104,7 @@
 			{@render permissionBtn(s3ResourceSettings)}
 			<Button
 				size="sm"
-				variant="contained"
-				color="dark"
+				variant="accent"
 				disabled={emptyString(s3ResourceSettings.resourcePath)}
 				on:click={async () => {
 					if ($workspaceStore) {
@@ -166,8 +165,7 @@
 					{@render permissionBtn(s3ResourceSettings.secondaryStorage![idx][1])}
 					<Button
 						size="sm"
-						variant="contained"
-						color="dark"
+						variant="accent"
 						disabled={emptyString(s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourcePath)}
 						on:click={async () => {
 							if ($workspaceStore) {
@@ -193,7 +191,7 @@
 			<div class="flex gap-1">
 				<Button
 					size="xs"
-					variant="border"
+					variant="default"
 					on:click={() => {
 						if (s3ResourceSettings.secondaryStorage === undefined) {
 							s3ResourceSettings.secondaryStorage = []
@@ -231,7 +229,7 @@
 {#snippet permissionBtn(storage: NonNullable<S3ResourceSettings['secondaryStorage']>[number][1])}
 	<Popover closeOnOtherPopoverOpen placement="left">
 		<svelte:fragment slot="trigger">
-			<Button variant="border" wrapperClasses="h-full" btnClasses="px-2.5" color="dark" size="sm">
+			<Button variant="default" wrapperClasses="h-full" btnClasses="px-2.5" size="sm">
 				<Shield size={16} /> Permissions <ChevronDown size={14} />
 			</Button>
 		</svelte:fragment>
@@ -349,7 +347,7 @@
 			<CloseButton onClick={() => rules?.splice(idx, 1)} />
 		</div>
 	{/each}
-	<Button size="xs" variant="border" on:click={() => rules?.push({ pattern: '', allow: [] })}>
+	<Button size="xs" variant="default" on:click={() => rules?.push({ pattern: '', allow: [] })}>
 		<Plus size={14} />
 		Add permission rule
 	</Button>

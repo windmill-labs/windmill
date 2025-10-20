@@ -41,9 +41,8 @@
 		<Button
 			disabled={componentNumber == 0}
 			on:click
-			color="light"
 			size="xs"
-			variant="border"
+			variant="default"
 			btnClasses={twMerge(
 				'!rounded-none text-tertiary !text-2xs !border-r border-y-0 border-l-0 group'
 			)}

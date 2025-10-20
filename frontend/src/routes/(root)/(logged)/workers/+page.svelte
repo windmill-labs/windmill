@@ -389,9 +389,8 @@
 				{#if $superadmin || $devopsRole}
 					<div class="flex flex-row gap-4 items-center">
 						<Button
-							size="sm"
-							color="light"
-							variant="border"
+							unifiedSize="md"
+							variant="default"
 							startIcon={{ icon: Plus }}
 							on:click={() => {
 								newHttpAgentWorkerDrawer?.toggleDrawer?.()
@@ -404,7 +403,8 @@
 							<svelte:fragment slot="trigger">
 								<div class="flex items-center gap-2">
 									<Button
-										size="sm"
+										variant="accent"
+										unifiedSize="md"
 										startIcon={{ icon: Plus }}
 										nonCaptureEvent
 										disabled={!$enterpriseLicense}

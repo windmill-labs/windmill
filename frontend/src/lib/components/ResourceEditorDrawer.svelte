@@ -59,6 +59,8 @@
 		{/await}
 		{#snippet actions()}
 			<Button
+				variant="accent"
+				unifiedSize="md"
 				startIcon={{ icon: Save }}
 				on:click={() => {
 					if (mode == 'edit') {

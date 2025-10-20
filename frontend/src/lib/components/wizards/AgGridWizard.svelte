@@ -35,7 +35,7 @@
 	}
 
 	let { value = $bindable(), trigger: trigger_render }: Props = $props()
-	
+
 	const isActionsColumn = $derived((value as any)?._isActionsColumn === true)
 
 	const presets = [
@@ -176,62 +176,62 @@
 
 				{#if !isActionsColumn}
 					<Label label="Value formatter">
-					{#snippet header()}
-						<Tooltip
-							documentationLink="https://www.ag-grid.com/javascript-data-grid/value-formatters/"
-						>
-							Value formatters allow you to format values for display. This is useful when data is
-							one type (e.g. numeric) but needs to be converted for human reading (e.g. putting in
-							currency symbols and number formatting).
-						</Tooltip>
-					{/snippet}
-					{#snippet action()}
-						<Button
-							size="xs"
-							color="light"
-							variant="border"
-							on:click={() => {
-								// @ts-ignore
-								value.valueFormatter = null
-								renderCount++
-							}}
-						>
-							Clear
-						</Button>
-					{/snippet}
-				</Label>
-				<div>
-					{#key renderCount}
-						<div class="flex flex-col gap-4">
-							<div class="relative">
-								{#if !presets.find((preset) => preset.value === value?.valueFormatter)}
-									<div class="z-50 absolute bg-opacity-50 bg-surface top-0 left-0 bottom-0 right-0"
-									></div>
-								{/if}
-								<div class="text-xs font-semibold">Presets</div>
-								<select
-									bind:value={value.valueFormatter}
-									onchange={() => {
-										renderCount++
-									}}
-									placeholder="Code"
-								>
-									{#each presets as preset}
-										<option value={preset.value}>{preset.label}</option>
-									{/each}
-								</select>
-							</div>
+						{#snippet header()}
+							<Tooltip
+								documentationLink="https://www.ag-grid.com/javascript-data-grid/value-formatters/"
+							>
+								Value formatters allow you to format values for display. This is useful when data is
+								one type (e.g. numeric) but needs to be converted for human reading (e.g. putting in
+								currency symbols and number formatting).
+							</Tooltip>
+						{/snippet}
+						{#snippet action()}
+							<Button
+								size="xs"
+								variant="default"
+								on:click={() => {
+									// @ts-ignore
+									value.valueFormatter = null
+									renderCount++
+								}}
+							>
+								Clear
+							</Button>
+						{/snippet}
+					</Label>
+					<div>
+						{#key renderCount}
+							<div class="flex flex-col gap-4">
+								<div class="relative">
+									{#if !presets.find((preset) => preset.value === value?.valueFormatter)}
+										<div
+											class="z-50 absolute bg-opacity-50 bg-surface top-0 left-0 bottom-0 right-0"
+										></div>
+									{/if}
+									<div class="text-xs font-semibold">Presets</div>
+									<select
+										bind:value={value.valueFormatter}
+										onchange={() => {
+											renderCount++
+										}}
+										placeholder="Code"
+									>
+										{#each presets as preset}
+											<option value={preset.value}>{preset.label}</option>
+										{/each}
+									</select>
+								</div>
 
-							<SimpleEditor
-								extraLib={'declare const value: any'}
-								autoHeight
-								lang="javascript"
-								bind:code={value.valueFormatter}
-							/>
-							<div class="text-xs text-secondary -mt-4">Use `value` in the formatter</div>
-						</div>
-					{/key}
-				</div>
+								<SimpleEditor
+									extraLib={'declare const value: any'}
+									autoHeight
+									lang="javascript"
+									bind:code={value.valueFormatter}
+								/>
+								<div class="text-xs text-secondary -mt-4">Use `value` in the formatter</div>
+							</div>
+						{/key}
+					</div>
 
 					<Label label="Sort">
 						<select bind:value={value.sort}>

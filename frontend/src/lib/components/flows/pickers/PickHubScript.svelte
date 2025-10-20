@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, untrack } from 'svelte'
-	import { Alert, Badge, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, ButtonType, Skeleton } from '$lib/components/common'
 	import { capitalize } from '$lib/utils'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
@@ -14,9 +14,16 @@
 		filter?: string
 		syncQuery?: boolean
 		children?: import('svelte').Snippet
+		size?: ButtonType.UnifiedSize
 	}
 
-	let { kind = 'script', filter = $bindable(''), syncQuery = false, children }: Props = $props()
+	let {
+		kind = 'script',
+		filter = $bindable(''),
+		syncQuery = false,
+		children,
+		size = 'md'
+	}: Props = $props()
 
 	let loading = $state(false)
 	let hubNotAvailable = $state(false)
@@ -126,7 +133,7 @@
 			}}
 			bind:value={filter}
 			class="grow !pr-9"
-			size="lg"
+			{size}
 		/>
 		{#if loading}
 			<Loader2 class="animate-spin text-gray-400 absolute right-2 top-2.5" />

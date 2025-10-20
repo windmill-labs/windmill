@@ -61,7 +61,7 @@
 {#if tooBig && !loadTooBigAnyway}
 	<div class="flex-1 text-sm">
 		JSON is too big
-		<Button size="xs2" variant="border" on:click={() => (loadTooBigAnyway = true)}>
+		<Button size="xs2" variant="default" on:click={() => (loadTooBigAnyway = true)}>
 			Load anyway
 		</Button>
 	</div>

@@ -198,8 +198,7 @@
 		</div>
 		<Button
 			size="xs"
-			color="light"
-			variant="border"
+			variant="default"
 			startIcon={{ icon: Plus }}
 			on:click={addCondition}
 			iconOnly

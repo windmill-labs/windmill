@@ -155,9 +155,8 @@
 			{#if data?.mode === 'normal'}
 				{#if diffType === 'draft'}
 					<Button
-						size="xs"
-						color="light"
-						variant="border"
+						unifiedSize="md"
+						variant="default"
 						wrapperClasses="self-start"
 						on:click={restoreDraft}
 						disabled={orderedJsonStringify(data.draft) === orderedJsonStringify(data.current)}
@@ -165,9 +164,8 @@
 					>
 				{:else if diffType === 'deployed'}
 					<Button
-						size="xs"
-						color="light"
-						variant="border"
+						unifiedSize="md"
+						variant="default"
 						wrapperClasses="self-start"
 						on:click={restoreDeployed}
 						disabled={!data.draft &&
@@ -265,7 +263,7 @@
 		{#snippet actions()}
 			{#if data?.button}
 				<Button
-					color="light"
+					variant="subtle"
 					on:click={() => {
 						if (data?.button) {
 							data.button.onClick()

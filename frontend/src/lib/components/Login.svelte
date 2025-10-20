@@ -284,8 +284,7 @@
 			{#each providers as { type, icon }}
 				{#if logins?.some((login) => login.type === type)}
 					<Button
-						color="light"
-						variant="border"
+						variant="default"
 						startIcon={{ icon, classes: 'h-4' }}
 						on:click={() => storeRedirect(type)}
 					>
@@ -295,8 +294,7 @@
 			{/each}
 			{#each logins.filter((login) => !providersType?.includes(login.type)) as login}
 				<Button
-					color="dark"
-					variant="border"
+					variant="default"
 					btnClasses="mt-2 w-full"
 					on:click={() => storeRedirect(login.type)}
 				>
@@ -306,8 +304,7 @@
 		{/if}
 		{#if saml}
 			<Button
-				color="dark"
-				variant="border"
+				variant="default"
 				btnClasses="mt-2 w-full"
 				on:click={() => {
 					if (saml) {
@@ -325,7 +322,6 @@
 		<div class={classNames('center-center', logins && logins.length > 0 ? 'mt-6' : '')}>
 			<Button
 				size="xs"
-				color="blue"
 				variant="subtle"
 				on:click={() => {
 					showPassword = !showPassword

@@ -92,8 +92,6 @@
 					autofocus
 				/>
 				<Button
-					color="light"
-					variant="border"
 					on:click={() => {
 						refreshing = true
 						loadItems()
@@ -174,7 +172,7 @@
 										<div>
 											<Button
 												size="sm"
-												variant="border"
+												variant="default"
 												on:click={() => {
 													button(obj['path'] ?? '')
 												}}

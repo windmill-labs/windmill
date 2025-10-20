@@ -248,8 +248,7 @@
 					is within a non-existing folders, only admins will see it.
 				</Alert>
 				<Button
-					color="light"
-					variant="border"
+					variant="default"
 					wrapperClasses="w-min"
 					startIcon={{ icon: Plus }}
 					size="xs"
@@ -326,6 +325,7 @@
 															label="Viewer"
 															tooltip="A viewer of a folder has read-only access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
 															{item}
+															size="sm"
 														/>
 
 														<ToggleButton
@@ -333,6 +333,7 @@
 															label="Writer"
 															tooltip="A writer of a folder has read AND write access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
 															{item}
+															size="sm"
 														/>
 
 														<ToggleButton
@@ -340,6 +341,7 @@
 															label="Admin"
 															tooltip="An admin of a folder has read AND write access to all the elements inside the folders and can manage the permissions as well as add new admins"
 															{item}
+															size="sm"
 														/>
 													{/snippet}
 												</ToggleButtonGroup>
@@ -392,13 +394,7 @@
 			{#if can_write}
 				<div class="flex items-start">
 					<AutoComplete items={folders} bind:selectedItem={new_managing_folder} />
-					<Button
-						variant="contained"
-						color="blue"
-						size="sm"
-						btnClasses="!ml-4"
-						on:click={addToManagingFolder}
-					>
+					<Button variant="accent" size="sm" btnClasses="!ml-4" on:click={addToManagingFolder}>
 						Add folder managing this folder
 					</Button>
 				</div>

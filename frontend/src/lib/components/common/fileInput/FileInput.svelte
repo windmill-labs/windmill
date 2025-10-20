@@ -228,12 +228,12 @@
 						<span class="pr-2 ellipsize">{name}</span>
 						<Button
 							size="xs"
-							color="red"
-							variant="border"
+							variant="default"
 							iconOnly
 							btnClasses="bg-transparent"
 							startIcon={{ icon: Trash }}
 							on:click={() => removeFile(i)}
+							destructive
 						/>
 					</li>
 				{/each}

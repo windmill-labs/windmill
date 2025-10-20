@@ -79,7 +79,6 @@
 				size="sm"
 				endIcon={{ icon: platform === 'slack' ? Slack : MsTeamsIcon }}
 				btnClasses="mt-2"
-				variant="border"
 				disabled={!$enterpriseLicense && platform === 'teams'}
 				on:click={onDisconnect}
 			>
@@ -104,8 +103,7 @@
 		<div class="flex flex-row gap-2 items-center">
 			{#if platform === 'teams'}
 				<Button
-					size="xs"
-					color="dark"
+					unifiedSize="md"
 					on:click={connectTeams}
 					startIcon={{ icon: MsTeamsIcon }}
 					disabled={!selectedTeam || !$enterpriseLicense}
@@ -123,7 +121,7 @@
 					/>
 				{/if}
 			{:else}
-				<Button size="xs" color="dark" href={connectHref} startIcon={{ icon: Slack }}>
+				<Button size="xs" variant="accent" href={connectHref} startIcon={{ icon: Slack }}>
 					Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
 				</Button>
 			{/if}

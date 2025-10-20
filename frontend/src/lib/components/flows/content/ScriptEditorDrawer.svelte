@@ -151,8 +151,7 @@
 		<span>Are you sure you want to discard the changes you have made? </span>
 		<Button
 			wrapperClasses="self-start"
-			color="light"
-			variant="border"
+			variant="default"
 			size="xs"
 			on:click={() => {
 				if (!savedScript || !script) {
@@ -232,8 +231,7 @@
 		{#snippet actions()}
 			<Button
 				disabled={!savedScript || !script}
-				color="light"
-				variant="border"
+				variant="default"
 				on:click={async () => {
 					if (!savedScript || !script) {
 						return

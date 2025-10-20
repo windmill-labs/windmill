@@ -78,7 +78,7 @@
 			<Button
 				size="xs"
 				startIcon={{ icon: Pen }}
-				variant="border"
+				variant="default"
 				on:click={() => (open = !open)}
 				id="flow-editor-edit-predicate"
 			>

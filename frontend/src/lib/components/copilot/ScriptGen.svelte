@@ -309,10 +309,10 @@
 			<Button
 				title="Discard generated code"
 				btnClasses="!font-medium px-2 w-7"
-				size="xs"
-				color="red"
+				unifiedSize="md"
+				destructive
 				on:click={rejectDiff}
-				variant="contained"
+				variant="accent"
 				startIcon={{ icon: X }}
 				iconOnly
 				{...btnProps}
@@ -320,8 +320,8 @@
 			<Button
 				title="Accept generated code"
 				btnClasses="!font-medium px-2 w-7"
-				size="xs"
-				color="green"
+				unifiedSize="md"
+				variant="accent"
 				on:click={acceptDiff}
 				iconOnly
 				startIcon={{ icon: Check }}
@@ -333,10 +333,10 @@
 			<Button
 				title="Discard generated code"
 				btnClasses="!font-medium px-2"
-				size="xs"
-				color="red"
+				unifiedSize="md"
+				destructive
 				on:click={rejectDiff}
-				variant="contained"
+				variant="accent"
 				startIcon={{ icon: X }}
 				{...btnProps}
 			>
@@ -344,8 +344,8 @@
 			</Button><Button
 				title="Accept generated code"
 				btnClasses="!font-medium px-2"
-				size="xs"
-				color="green"
+				unifiedSize="md"
+				variant="accent"
 				on:click={acceptDiff}
 				startIcon={{ icon: Check }}
 				{...btnProps}

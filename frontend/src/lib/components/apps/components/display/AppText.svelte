@@ -268,9 +268,8 @@
 							<div class="flex items-center">
 								<Button
 									title="Copy to clipboard"
-									variant="border"
+									variant="default"
 									size="xs"
-									color="light"
 									btnClasses="!p-1"
 									on:click={() => copyToClipboard(result)}
 								>

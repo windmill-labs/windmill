@@ -186,8 +186,7 @@
 		<Button
 			on:click={createScript}
 			size="xs"
-			color="light"
-			variant="border"
+			variant="default"
 			startIcon={{ icon: Plus }}
 			btnClasses="truncate w-full"
 			id="app-editor-create-inline-script"

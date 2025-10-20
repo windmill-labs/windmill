@@ -128,8 +128,7 @@
 	{/if}
 	{#if $userStore}
 		<Button
-			variant="border"
-			color="light"
+			variant="default"
 			size="xs"
 			btnClasses="mt-1 font-normal text-tertiary"
 			on:click={() => {

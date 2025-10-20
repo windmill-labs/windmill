@@ -179,8 +179,7 @@
 								bind:value={variantName}
 							/>
 							<Button
-								variant="border"
-								color="light"
+								variant="default"
 								size="xs"
 								on:click={() => {
 									createVariant(variantName)
@@ -232,8 +231,7 @@
 								bind:value={variantName}
 							/>
 							<Button
-								variant="border"
-								color="light"
+								variant="default"
 								size="xs"
 								on:click={() => {
 									if (oneOfSelected) {

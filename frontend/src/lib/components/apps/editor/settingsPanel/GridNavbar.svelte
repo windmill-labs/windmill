@@ -216,13 +216,6 @@
 				{/key}
 			{/each}
 		</section>
-		<Button
-			size="xs"
-			color="light"
-			variant="border"
-			startIcon={{ icon: Plus }}
-			on:click={addPath}
-			iconOnly
-		/>
+		<Button size="xs" variant="default" startIcon={{ icon: Plus }} on:click={addPath} iconOnly />
 	</div>
 </PanelSection>

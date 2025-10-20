@@ -95,8 +95,7 @@
 				spacingSize="sm"
 				size="xs"
 				btnClasses="h-8"
-				color="light"
-				variant="border"
+				variant="default"
 				on:click={testConnection}
 			>
 				{#if loading}

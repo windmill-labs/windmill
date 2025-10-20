@@ -472,9 +472,8 @@
 				{#snippet action()}
 					<div class="flex justify-end flex-wrap gap-1">
 						<Button
-							color="light"
 							size="xs"
-							variant="border"
+							variant="default"
 							startIcon={{ icon: ChevronLeft }}
 							on:click={() => secondaryMenuLeft.toggle(StylePanel, { type: 'style' })}
 						>
@@ -530,13 +529,10 @@
 					<div>
 						<Button
 							size="xs"
-							color="red"
-							variant="border"
+							variant="default"
 							on:click={removeGridElement}
-							shortCut={{
-								key: isMac() ? getModifierKey() + 'Del' : 'Del',
-								withoutModifier: true
-							}}
+							shortCut={{ key: isMac() ? getModifierKey() + 'Del' : 'Del', withoutModifier: true }}
+							destructive
 						>
 							Delete
 						</Button>

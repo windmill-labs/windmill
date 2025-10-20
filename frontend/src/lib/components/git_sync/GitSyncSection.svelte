@@ -9,7 +9,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
 
-
 	// Create context reactively based on workspaceStore
 	const gitSyncContext = $derived($workspaceStore ? setGitSyncContext($workspaceStore) : null)
 
@@ -38,8 +37,7 @@
 	let legacyPromotionExpanded = $state(false)
 
 	// Check if any secondary repositories are unsaved
-	const hasUnsavedSecondary = $derived(secondarySync.some(s => s.repo.isUnsavedConnection))
-
+	const hasUnsavedSecondary = $derived(secondarySync.some((s) => s.repo.isUnsavedConnection))
 </script>
 
 {#if !gitSyncContext}
@@ -55,8 +53,8 @@
 		<div class="flex flex-col gap-1">
 			<div class="text-primary text-lg font-semibold">Git Sync</div>
 			<Description link="https://www.windmill.dev/docs/advanced/git_sync">
-				Connect the Windmill workspace to a Git repository to automatically commit and push
-				scripts, flows, and apps to the repository on each deploy.
+				Connect the Windmill workspace to a Git repository to automatically commit and push scripts,
+				flows, and apps to the repository on each deploy.
 			</Description>
 		</div>
 		<Alert type="info" title="Only new updates trigger git sync">
@@ -122,11 +120,7 @@
 								{:else}
 									{#each secondarySync as { repo, idx } (repo.git_repo_resource_path)}
 										<div class="pl-4">
-											<GitSyncRepositoryCard
-												variant="secondary"
-												{idx}
-												isSecondary={true}
-											/>
+											<GitSyncRepositoryCard variant="secondary" {idx} isSecondary={true} />
 										</div>
 									{/each}
 								{/if}
@@ -135,8 +129,7 @@
 									<div class="pl-4">
 										<Button
 											size="xs"
-											color="light"
-											variant="border"
+											variant="default"
 											startIcon={{ icon: Plus }}
 											onclick={() => gitSyncContext.addSyncRepository()}
 										>
@@ -181,8 +174,8 @@
 			<!-- Legacy promotion repositories (backwards compatibility) -->
 			{#if legacyPromotion.length > 0}
 				<Alert type="warning" title="Multiple promotion repositories detected">
-					Multiple promotion repositories are no longer supported. Please reduce to a single promotion repository.
-					Only deletion is allowed for the additional repositories below.
+					Multiple promotion repositories are no longer supported. Please reduce to a single
+					promotion repository. Only deletion is allowed for the additional repositories below.
 				</Alert>
 				<div class="mt-4">
 					<button

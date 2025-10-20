@@ -16,8 +16,8 @@
 		<input type="text" on:keyup={sync} bind:value={o[0]} />
 		<input type="text" on:keyup={sync} bind:value={o[1]} />
 		<Button
-			variant="border"
-			color="red"
+			variant="default"
+			destructive
 			size="xs"
 			btnClasses="mx-6"
 			on:click={() => {
@@ -31,8 +31,7 @@
 {/each}
 <div class="flex items-center mt-1">
 	<Button
-		variant="border"
-		color="light"
+		variant="default"
 		hover="yo"
 		size="sm"
 		endIcon={{ icon: Plus }}

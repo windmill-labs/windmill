@@ -1108,8 +1108,7 @@
 														smaller screens.
 													</div>
 													<Button
-														color="light"
-														variant="border"
+														variant="default"
 														size="xs"
 														on:click={() => {
 															$appStore.mobileViewOnSmallerScreens = true
@@ -1274,8 +1273,7 @@
 			class="flex flex-row-reverse w-full bg-surface border-t border-gray-200 rounded-bl-lg rounded-br-lg"
 		>
 			<Button
-				variant="border"
-				color="blue"
+				variant="default"
 				size="sm"
 				startIcon={{ icon: Plus }}
 				on:click={() => {

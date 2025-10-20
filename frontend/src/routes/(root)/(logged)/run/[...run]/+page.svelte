@@ -497,17 +497,11 @@
 						]}
 					>
 						{#snippet buttonReplacement()}
-							<Button nonCaptureEvent variant="border" size="sm" startIcon={{ icon: Trash }} />
+							<Button nonCaptureEvent variant="default" size="sm" startIcon={{ icon: Trash }} />
 						{/snippet}
 					</Dropdown>
 					{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-						<Button
-							href={runsHref}
-							variant="border"
-							color="blue"
-							size="sm"
-							startIcon={{ icon: List }}
-						>
+						<Button href={runsHref} variant="default" size="sm" startIcon={{ icon: List }}>
 							View runs
 						</Button>
 					{/if}

@@ -43,13 +43,13 @@
 			</div>
 			<div class="font-bold text-md">Border buttons</div>
 			<div class="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
-				<Button variant="border">Lorem</Button>
-				<Button variant="border" color="dark">Lorem</Button>
-				<Button variant="border" color="gray">Lorem</Button>
-				<Button variant="border" color="green">Lorem</Button>
-				<Button variant="border" color="light">Lorem</Button>
-				<Button variant="border" color="none">Lorem</Button>
-				<Button variant="border" color="red">Lorem</Button>
+				<Button variant="default">Lorem</Button>
+				<Button variant="default">Lorem</Button>
+				<Button variant="default">Lorem</Button>
+				<Button variant="default">Lorem</Button>
+				<Button variant="default">Lorem</Button>
+				<Button variant="default">Lorem</Button>
+				<Button variant="default">Lorem</Button>
 			</div>
 			<div class="font-bold text-md">Dropdown buttons</div>
 			<div class="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
@@ -63,13 +63,13 @@
 			</div>
 			<div class="font-bold text-md">Dropdown buttons</div>
 			<div class="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
-				<Button variant="border" {dropdownItems}>Lorem</Button>
-				<Button variant="border" {dropdownItems} color="dark">Lorem</Button>
-				<Button variant="border" {dropdownItems} color="gray">Lorem</Button>
-				<Button variant="border" {dropdownItems} color="green">Lorem</Button>
-				<Button variant="border" {dropdownItems} color="light">Lorem</Button>
-				<Button variant="border" {dropdownItems} color="none">Lorem</Button>
-				<Button variant="border" {dropdownItems} color="red">Lorem</Button>
+				<Button variant="default" {dropdownItems}>Lorem</Button>
+				<Button variant="default" {dropdownItems}>Lorem</Button>
+				<Button variant="default" {dropdownItems}>Lorem</Button>
+				<Button variant="default" {dropdownItems}>Lorem</Button>
+				<Button variant="default" {dropdownItems}>Lorem</Button>
+				<Button variant="default" {dropdownItems}>Lorem</Button>
+				<Button variant="default" {dropdownItems}>Lorem</Button>
 			</div>
 		</TabContent>
 	{/snippet}

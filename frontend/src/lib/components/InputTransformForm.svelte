@@ -598,25 +598,24 @@
 									propertyType = 'static'
 								}
 							}}
-							class="h-6"
 						>
 							{#snippet children({ item })}
 								{#if isStaticTemplate(inputCat)}
 									<ToggleButton
-										small
+										size="sm"
 										tooltip={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`results\` to connect to another node\'s output.`}
 										value="static"
 										label={'${}'}
 										{item}
-										class="h-full text-3xs"
+										class="h-full text-xs"
 									/>
 								{:else}
 									<ToggleButton
-										small
+										size="sm"
 										label="static"
 										value="static"
 										{item}
-										class="h-full text-3xs"
+										class="h-full text-xs"
 									/>
 								{/if}
 
@@ -804,7 +803,7 @@
 						</span>
 						<div class="flex mt-2">
 							<Button
-								variant="border"
+								variant="default"
 								size="xs"
 								on:click={() => {
 									arg.expr = ''

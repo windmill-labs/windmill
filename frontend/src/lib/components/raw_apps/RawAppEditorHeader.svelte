@@ -658,8 +658,7 @@
 		{#snippet actions()}
 			<div class="flex flex-row gap-4">
 				<Button
-					variant="border"
-					color="light"
+					variant="default"
 					disabled={!savedApp || savedApp.draft_only}
 					on:click={async () => {
 						if (!savedApp) {

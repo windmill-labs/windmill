@@ -248,8 +248,7 @@
 				>
 					<Button
 						size="xs2"
-						variant="border"
-						color="light"
+						variant="default"
 						btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
 						on:click={() => {
 							isPreviousLoading = true
@@ -267,8 +266,7 @@
 					</Button>
 					<Button
 						size="xs2"
-						variant="border"
-						color="light"
+						variant="default"
 						btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
 						on:click={() => {
 							isNextLoading = true

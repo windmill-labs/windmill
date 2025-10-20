@@ -102,6 +102,7 @@
 	import type { DiffDrawerI } from './diff_drawer'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 	import { inputSizeClasses } from './text_input/TextInput.svelte'
+	import type { ButtonType } from './common/button/model'
 
 	let {
 		script = $bindable(),
@@ -1135,18 +1136,19 @@
 														<Button
 															aiId={`create-script-language-button-${lang}`}
 															aiDescription={`Choose ${lang} as the language of the script`}
-															size="sm"
-															variant="border"
-															color={isPicked ? 'blue' : 'light'}
-															btnClasses={isPicked
-																? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
-																: 'm-[1px]'}
+															unifiedSize="lg"
+															variant="default"
+															selected={isPicked}
+															btnClasses={isPicked ? '' : 'm-[1px]'}
 															on:click={() => onScriptLanguageTrigger(lang)}
 															disabled={lockedLanguage ||
 																(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
+															startIcon={{
+																icon: LanguageIcon,
+																props: { lang }
+															} as ButtonType.Icon}
 														>
-															<LanguageIcon {lang} />
-															<span class="ml-2 py-2 truncate">{label}</span>
+															<span class="truncate">{label}</span>
 															{#if lang === 'ruby'}
 																<span class="text-tertiary !text-xs"> BETA </span>
 															{/if}
@@ -1590,8 +1592,7 @@
 											</div>
 											<div class="flex mt-2">
 												<Button
-													variant="border"
-													color="light"
+													variant="default"
 													size="xs"
 													on:click={() => {
 														if (script.envs == undefined || !Array.isArray(script.envs)) {
@@ -1660,7 +1661,7 @@
 								metadataOpen = true
 							}}
 						>
-							<LanguageIcon lang={script.language} height={20} />
+							<LanguageIcon lang={script.language} size={24} />
 						</button>
 					</div>
 					<Summary
@@ -1741,6 +1742,7 @@
 									nullTag={script.language}
 									placeholder={customUi?.tagSelectPlaceholder}
 									bind:tag={script.tag}
+									alwaysDisplayRefresh
 								/>
 							</div>
 						{/if}

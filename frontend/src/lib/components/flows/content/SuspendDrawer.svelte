@@ -13,8 +13,7 @@
 
 <Button
 	size="xs"
-	variant="border"
-	color="light"
+	variant="default"
 	on:click={() => {
 		drawer.openDrawer()
 	}}

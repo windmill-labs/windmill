@@ -100,9 +100,8 @@
 					{#if flowModuleValue.hash}
 						{#if latestHash != flowModuleValue.hash}
 							<Button
-								color="light"
 								size="xs"
-								variant="border"
+								variant="default"
 								on:click={() => {
 									if (flowModuleValue.type == 'script') {
 										dispatch('setHash', latestHash)

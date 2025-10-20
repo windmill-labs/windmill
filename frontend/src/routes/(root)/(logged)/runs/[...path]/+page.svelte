@@ -1015,9 +1015,7 @@
 
 					{#if minTs || maxTs}
 						<RunOption label="Reset" for="reset" noLabel>
-							<Button color="light" variant="border" size="xs" onClick={reset} btnClasses="h-9">
-								Reset
-							</Button>
+							<Button variant="default" size="xs" onClick={reset} btnClasses="h-9">Reset</Button>
 						</RunOption>
 					{/if}
 				</div>

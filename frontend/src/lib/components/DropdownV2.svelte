@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-	import { MoreVertical } from 'lucide-svelte'
+	import { EllipsisVertical } from 'lucide-svelte'
 	import type { Placement } from '@floating-ui/core'
 	import type { Item } from '$lib/utils'
 	import DropdownV2Inner from './DropdownV2Inner.svelte'
@@ -148,9 +148,10 @@
 		<Button
 			nonCaptureEvent
 			unifiedSize={size}
-			color="light"
-			endIcon={{ icon: MoreVertical }}
+			variant="subtle"
+			startIcon={{ icon: EllipsisVertical }}
 			btnClasses="bg-transparent"
+			iconOnly
 		>
 			{btnText}
 		</Button>

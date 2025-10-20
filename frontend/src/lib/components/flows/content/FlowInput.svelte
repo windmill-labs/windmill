@@ -587,8 +587,7 @@
 											: 'Update schema'}
 									</Button>
 									<Button
-										variant="border"
-										color="light"
+										variant="default"
 										size="xs"
 										startIcon={{ icon: X }}
 										shortCut={{ key: 'esc', withoutModifier: true }}

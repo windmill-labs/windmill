@@ -80,8 +80,7 @@
 			{/if}
 		</div>
 		<Button
-			variant="contained"
-			color="blue"
+			variant="accent"
 			size="sm"
 			on:click={async () => {
 				await SettingService.setGlobal({

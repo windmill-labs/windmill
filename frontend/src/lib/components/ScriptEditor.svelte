@@ -587,8 +587,8 @@
 				<Button
 					target="_blank"
 					href="https://www.windmill.dev/docs/cli_local_dev/vscode-extension"
-					color="light"
-					size="xs"
+					variant="subtle"
+					unifiedSize="md"
 					btnClasses="hidden lg:flex"
 					startIcon={{
 						icon: Github
@@ -767,8 +767,7 @@
 			{/if}
 			{#if lang === 'ansible' && hasDelegateToGitRepo}
 				<Button
-					color="light"
-					variant="border"
+					variant="default"
 					size="xs"
 					on:click={() => (gitRepoResourcePickerOpen = true)}
 					startIcon={{ icon: GitBranch }}

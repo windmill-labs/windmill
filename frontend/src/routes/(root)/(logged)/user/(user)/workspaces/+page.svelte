@@ -175,8 +175,7 @@
 
 	{#if adminsInstance}
 		<Button
-			btnClasses="w-full mt-2 mb-4 truncate"
-			color="light"
+			btnClasses="w-full mt-2 mb-4 truncate bg-surface-tertiary"
 			size="sm"
 			on:click={async () => {
 				workspaceStore.set('admins')
@@ -188,7 +187,7 @@
 				await goto(rd ?? '/')
 				loading = false
 			}}
-			variant="border"
+			variant="default"
 			>Manage Windmill on the superadmins workspace
 		</Button>
 	{/if}
@@ -245,8 +244,7 @@
 					<Button
 						size="xs"
 						btnClasses="w-full mt-1"
-						color="green"
-						variant="border"
+						variant="default"
 						on:click={async () => {
 							await WorkspaceService.unarchiveWorkspace({ workspace: workspace.id })
 							loadWorkspacesAsAdmin()
@@ -391,7 +389,7 @@
 	<div class="flex justify-between items-center mt-10 flex-wrap gap-2">
 		{#if $superadmin}
 			<Button
-				variant="border"
+				variant="default"
 				size="sm"
 				on:click={superadminSettings.openDrawer}
 				startIcon={{ icon: Crown }}

@@ -191,8 +191,7 @@
 							/>
 							<Button
 								disabled={!can_write}
-								variant="border"
-								color="light"
+								variant="default"
 								wrapperClasses="self-stretch"
 								on:click={loadAllPubSubTopicsFromProject}
 								startIcon={{ icon: RefreshCw }}
@@ -327,8 +326,7 @@
 									/>
 									<Button
 										disabled={!can_write}
-										variant="border"
-										color="light"
+										variant="default"
 										wrapperClasses="self-stretch"
 										on:click={loadAllSubscriptionFromGooglePubSubTopic}
 										startIcon={{ icon: RefreshCw }}

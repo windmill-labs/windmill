@@ -323,8 +323,9 @@
 		>
 			{#snippet trigger()}
 				<Button
-					color={auto_invite_domain != undefined ? 'green' : 'red'}
-					variant="border"
+					color={'accent'}
+					destructive={auto_invite_domain === undefined}
+					variant="default"
 					size="xs"
 					nonCaptureEvent={true}
 					startIcon={{ icon: Mails }}

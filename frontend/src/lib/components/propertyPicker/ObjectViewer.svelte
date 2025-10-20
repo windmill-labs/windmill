@@ -234,9 +234,8 @@
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 
 				<Button
-					color="light"
 					size="xs2"
-					variant="border"
+					variant="default"
 					on:click={collapse}
 					wrapperClasses="!inline-flex w-fit"
 					btnClasses="font-mono h-4 text-2xs px-1 font-thin text-primary rounded-[0.275rem]"
@@ -340,12 +339,11 @@
 	{#if fullyCollapsed}
 		<span>
 			<Button
-				color="light"
 				size="xs2"
-				variant="border"
+				variant="default"
 				on:click={collapse}
 				wrapperClasses="!inline-flex w-fit"
-				btnClasses="h-4 text-[9px] px-1  text-primary rounded-[0.275rem]"
+				btnClasses="h-4 text-[9px] px-1 text-primary rounded-[0.275rem]"
 			>
 				{openBracket}{collapsedSymbol}{closeBracket}
 			</Button>

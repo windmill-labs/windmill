@@ -90,9 +90,8 @@
 	{#snippet buttonReplacement()}
 		{#if small}
 			<Button
-				color="light"
 				size="xs"
-				variant="border"
+				variant="default"
 				wrapperClasses="h-full"
 				nonCaptureEvent
 				title="Test trigger"

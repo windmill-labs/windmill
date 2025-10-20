@@ -114,11 +114,7 @@
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
-			<Button
-				variant="contained"
-				color="blue"
-				size="sm"
-				on:click={() => {
+			<Button variant="accent" size="sm" on:click={() => {
 					addUser().then(() => {
 						// @ts-ignore
 						email = undefined

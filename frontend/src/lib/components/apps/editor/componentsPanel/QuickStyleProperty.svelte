@@ -65,9 +65,8 @@
 			{#each $styleStore.topColors as color}
 				<Popover placement="bottom" notClickable disappearTimeout={0} class="flex">
 					<Button
-						color="light"
 						size="xs"
-						variant="border"
+						variant="default"
 						btnClasses="!p-0 !w-[34px] !h-[34px]"
 						aria-label="Set {key} to {color}"
 						style={`background-color: ${color};`}

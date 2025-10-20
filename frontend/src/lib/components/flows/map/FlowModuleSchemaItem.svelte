@@ -526,9 +526,8 @@
 					{#if !testIsLoading}
 						<Button
 							size="xs"
-							color="light"
 							title="Run"
-							variant="border"
+							variant="default"
 							btnClasses="px-1 py-1.5"
 							on:click={() => {
 								outputPicker?.toggleOpen(true)

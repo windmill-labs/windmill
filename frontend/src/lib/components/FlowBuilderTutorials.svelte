@@ -45,7 +45,7 @@
 		{#snippet buttonReplacement()}
 			<Button
 				nonCaptureEvent
-				size="xs"
+				unifiedSize="md"
 				variant="default"
 				id="tutorials-button"
 				startIcon={{ icon: BookOpen }}

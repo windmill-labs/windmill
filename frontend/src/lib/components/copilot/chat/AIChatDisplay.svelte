@@ -136,8 +136,7 @@
 											iconOnly
 											size="xs2"
 											btnClasses="!p-1"
-											color="light"
-											variant="border"
+											variant="default"
 											startIcon={{ icon: X }}
 											on:click={() => {
 												deletePastChat(chat.id)
@@ -205,8 +204,7 @@
 				<Button
 					startIcon={{ icon: Loader2, classes: 'animate-spin' }}
 					size="xs"
-					variant="border"
-					color="light"
+					variant="default"
 					on:click={() => {
 						cancel()
 					}}
@@ -219,8 +217,7 @@
 				<Button
 					startIcon={{ icon: CheckIcon }}
 					size="xs"
-					variant="border"
-					color="light"
+					variant="default"
 					btnClasses="bg-green-500 hover:bg-green-600 text-white hover:text-white"
 					on:click={() => {
 						aiChatManager.flowAiChatHelpers?.acceptAllModuleActions()
@@ -231,8 +228,7 @@
 				<Button
 					startIcon={{ icon: XIcon }}
 					size="xs"
-					variant="border"
-					color="light"
+					variant="default"
 					btnClasses="dark:opacity-50 opacity-60 hover:opacity-100"
 					on:click={() => {
 						aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()

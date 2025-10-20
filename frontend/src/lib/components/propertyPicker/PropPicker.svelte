@@ -331,9 +331,8 @@
 				<div class={categoryContentClasses}>
 					{#if displayVariable}
 						<Button
-							color="light"
 							size="xs2"
-							variant="border"
+							variant="default"
 							on:click={() => {
 								displayVariable = false
 							}}
@@ -350,9 +349,8 @@
 						/>
 					{:else}
 						<Button
-							color="light"
 							size="xs2"
-							variant="border"
+							variant="default"
 							on:click={async () => {
 								await loadVariables()
 								displayVariable = true
@@ -370,9 +368,8 @@
 				<div class={categoryContentClasses}>
 					{#if displayResources}
 						<Button
-							color="light"
 							size="xs2"
-							variant="border"
+							variant="default"
 							on:click={() => {
 								displayResources = false
 							}}
@@ -389,9 +386,8 @@
 						/>
 					{:else}
 						<Button
-							color="light"
 							size="xs2"
-							variant="border"
+							variant="default"
 							on:click={async () => {
 								await loadResources()
 								displayResources = true

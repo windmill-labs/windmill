@@ -1334,7 +1334,7 @@
 				<div class="overflow-auto max-h-1/2">
 					{#each flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
 						{#if render && j + subflowsSize + 1 == (flowJobIds?.flowJobs.length ?? 0)}
-							<Button variant="border" color="light" on:click={() => (subflowsSize += 500)}
+							<Button variant="default" on:click={() => (subflowsSize += 500)}
 								>Load 500 more...</Button
 							>
 						{/if}

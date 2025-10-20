@@ -588,8 +588,6 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 		<div class="flex flex-row">
 			<Button
 				variant="accent"
-				color="blue"
-				size="xl"
 				startIcon={{ icon: Plus }}
 				on:click={() => {
 					variableEditor?.initNew()
@@ -695,9 +693,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			<Button
 				startIcon={{ icon: Plus }}
 				target="_blank"
-				variant="border"
-				color="blue"
-				size="sm"
+				variant="accent"
 				href="{base}/resources?connect_app=undefined"
 			>
 				Add resource
@@ -800,7 +796,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					title="Add context variable"
 					variant="subtle"
 					on:click={contextualVariablePicker.openDrawer}
-					size="xs"
+					unifiedSize="md"
 					startIcon={{ icon: DollarSign }}
 					{iconOnly}
 					>+Context var
@@ -813,7 +809,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					title="Add variable"
 					variant="subtle"
 					on:click={variablePicker.openDrawer}
-					size="xs"
+					unifiedSize="md"
 					startIcon={{ icon: DollarSign }}
 					{iconOnly}
 				>
@@ -828,7 +824,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					title="Add S3 object"
 					variant="subtle"
 					on:click={() => s3FilePicker?.open()}
-					size="xs"
+					unifiedSize="md"
 					startIcon={{ icon: File }}
 					{iconOnly}
 					>+S3 Object
@@ -840,7 +836,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-add-resource"
 					aiDescription="Add resource"
 					title="Add resource"
-					size="xs"
+					unifiedSize="md"
 					variant="subtle"
 					on:click={resourcePicker.openDrawer}
 					{iconOnly}
@@ -859,7 +855,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						aiId="editor-bar-add-git-repo"
 						aiDescription="Delegate to Git repository"
 						title="Delegate to Git repository"
-						size="xs"
+						unifiedSize="md"
 						variant="subtle"
 						on:click={() => (gitRepoPickerOpen = true)}
 						{iconOnly}
@@ -875,8 +871,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-add-resource-type"
 					aiDescription="Add resource type"
 					title="Add resource type"
-					size="xs"
 					variant="subtle"
+					unifiedSize="md"
 					on:click={() => resourceTypePicker?.openDrawer()}
 					{iconOnly}
 					startIcon={{ icon: Package }}
@@ -892,7 +888,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					title="Add database"
 					variant="subtle"
 					on:click={() => databasePicker?.openDrawer()}
-					size="xs"
+					unifiedSize="md"
 					startIcon={{ icon: DatabaseIcon }}
 					{iconOnly}
 					>+Database
@@ -906,7 +902,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					title="Use Ducklake"
 					variant="subtle"
 					on:click={() => ducklakePicker?.openDrawer()}
-					size="xs"
+					unifiedSize="md"
 					startIcon={{ icon: DucklakeIcon }}
 					{iconOnly}
 					>+Ducklake
@@ -918,7 +914,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-reset-content"
 					aiDescription="Reset content"
 					title="Reset Content"
-					size="xs"
+					unifiedSize="md"
 					variant="subtle"
 					on:click={clearContent}
 					{iconOnly}
@@ -933,7 +929,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					<Button
 						aiId="editor-bar-reload-assistants"
 						aiDescription="Reload assistants"
-						size="xs"
+						unifiedSize="md"
 						variant="subtle"
 						on:click={() => editor?.reloadWebsocket()}
 						startIcon={{
@@ -966,7 +962,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				<div class="flex items-center px-3">
 					<Toggle
 						options={{ right: '' }}
-						size="xs"
+						size="sm"
 						checked={diffMode}
 						disabled={!lastDeployedCode}
 						on:change={(e) => {
@@ -1033,7 +1029,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				{/if}
 			{/if}
 
-			<EditorSettings {customUi} btnProps={{ variant: 'subtle' }} />
+			<EditorSettings {customUi} btnProps={{ variant: 'subtle', unifiedSize: 'md' }} />
 		</div>
 	</div>
 
@@ -1041,7 +1037,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		{@render right?.()}
 		{#if scriptPath && !noHistory}
 			<Button
-				size="xs"
+				unifiedSize="md"
 				variant="subtle"
 				on:click={() => (showHistoryDrawer = true)}
 				{iconOnly}
@@ -1053,7 +1049,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		{/if}
 		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS && customUi?.library != false}
 			<Button
-				size="xs"
+				unifiedSize="md"
 				variant="subtle"
 				on:click={scriptPicker.openDrawer}
 				{iconOnly}
@@ -1065,7 +1061,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		{/if}
 		{#if saveToWorkspace}
 			<Button
-				size="xs"
+				unifiedSize="md"
 				variant="subtle"
 				startIcon={{ icon: Save }}
 				on:click={() => dispatch('createScriptFromInlineScript')}

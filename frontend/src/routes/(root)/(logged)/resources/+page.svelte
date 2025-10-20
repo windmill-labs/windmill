@@ -617,8 +617,7 @@
 						<Button
 							on:click={openInferrer}
 							size="sm"
-							color="light"
-							variant="border"
+							variant="default"
 							startIcon={{ icon: Braces }}
 						>
 							Infer schema from a json value
@@ -731,8 +730,7 @@
 			</Tabs>
 			<div class="flex">
 				<Button
-					variant="border"
-					color="light"
+					variant="default"
 					on:click={reload}
 					startIcon={{
 						icon: RotateCw,
@@ -1051,11 +1049,11 @@
 												<div class="flex flex-row-reverse gap-2">
 													<Button
 														size="xs"
-														color="red"
-														variant="border"
+														variant="default"
 														btnClasses="border-0"
 														startIcon={{ icon: Trash }}
 														on:click={() => handleDeleteResourceType(name)}
+														destructive
 													>
 														Delete
 													</Button>

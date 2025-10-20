@@ -568,11 +568,11 @@
 						>
 							{#snippet children({ item })}
 								{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
-									<ToggleButton value="table" label="Table" icon={Table2} {item} />
+									<ToggleButton size="sm" value="table" label="Table" icon={Table2} {item} />
 								{:else}
-									<ToggleButton value="pretty" label="Pretty" icon={Highlighter} {item} />
+									<ToggleButton size="sm" value="pretty" label="Pretty" icon={Highlighter} {item} />
 								{/if}
-								<ToggleButton value="json" label="JSON" icon={Braces} {item} />
+								<ToggleButton size="sm" value="json" label="JSON" icon={Braces} {item} />
 							{/snippet}
 						</ToggleButtonGroup>
 					{/if}
@@ -649,7 +649,7 @@
 									</p>
 								</div>
 								<div class="center-center">
-									<Button size="sm" color="dark" on:click={() => (enableHtml = true)}>
+									<Button unifiedSize="md" variant="default" on:click={() => (enableHtml = true)}>
 										Enable HTML rendering
 									</Button>
 								</div>
@@ -714,10 +714,11 @@
 								<Button
 									on:click={() =>
 										copyToClipboard(typeof result === 'string' ? result : result?.['result'])}
-									color="light"
-									size="xs"
+									variant="subtle"
+									unifiedSize="sm"
+									endIcon={{ icon: ClipboardCopy }}
 								>
-									<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
+									Copy
 								</Button>
 							</div>
 						{/if}
@@ -1032,9 +1033,12 @@
 					{/if}
 				{:else if typeof result === 'string' && result.length > 0}
 					<pre class="text-sm">{result}</pre>{#if !noControls}<div class="flex">
-							<Button on:click={() => copyToClipboard(result)} variant="subtle" unifiedSize="md">
-								<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
-							</Button>
+							<Button
+								on:click={() => copyToClipboard(result)}
+								variant="subtle"
+								unifiedSize="sm"
+								endIcon={{ icon: ClipboardCopy }}
+							></Button>
 						</div>
 					{/if}
 				{:else}
@@ -1050,9 +1054,12 @@
 				<pre>{result}</pre>
 				{#if !noControls}
 					<div class="flex">
-						<Button on:click={() => copyToClipboard(result)} variant="subtle" unifiedSize="md">
-							<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
-						</Button>
+						<Button
+							on:click={() => copyToClipboard(result)}
+							variant="subtle"
+							unifiedSize="md"
+							endIcon={{ icon: ClipboardCopy }}
+						></Button>
 					</div>
 				{/if}
 			</div>

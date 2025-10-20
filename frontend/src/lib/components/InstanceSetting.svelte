@@ -228,10 +228,10 @@
 	{:else if setting.fieldType == 'select_python'}
 		<div>
 			<!-- svelte-ignore a11y_label_has_associated_control -->
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">{setting.label}</span>
+			<label class="mb-1 flex flex-col gap-1">
+				<span class="text-emphasis font-medium text-xs">{setting.label}</span>
 				{#if setting.description}
-					<span class="text-secondary text-xs">
+					<span class="text-primary text-xs">
 						{@html setting.description}
 					</span>
 				{/if}
@@ -247,19 +247,17 @@
 							item={toggleButtonn}
 						/>
 					{/each}
-					<PopoverMelt closeButton={!isPyFetching}>
+					<PopoverMelt closeButton={!isPyFetching} contentClasses="max-w-md">
 						{#snippet trigger()}
 							{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
 								<Button
-									variant="border"
-									color="dark"
+									variant="default"
 									btnClasses="px-1.5 py-1.5 text-2xs bg-surface-secondary border-0"
 									nonCaptureEvent={true}>Select Custom</Button
 								>
 							{:else}
 								<Button
-									variant="border"
-									color="dark"
+									variant="default"
 									btnClasses="px-1.5 py-1.5 text-2xs border-0 shadow-md"
 									nonCaptureEvent={true}>Custom | {$values[setting.key]}</Button
 								>
@@ -290,12 +288,14 @@
 		</div>
 	{:else}
 		{#snippet settingContent()}
-			<span class="text-primary font-semibold text-sm">{setting.label}</span>
-			{#if setting.description}
-				<span class="text-secondary text-xs">
-					{@html setting.description}
-				</span>
-			{/if}
+			<span class="text-emphasis font-medium text-xs flex flex-col gap-1"
+				>{setting.label}
+				{#if setting.description}
+					<span class="text-primary font-normal text-xs">
+						{@html setting.description}
+					</span>
+				{/if}
+			</span>
 			{#if setting.tooltip}
 				<Tooltip>{setting.tooltip}</Tooltip>
 			{/if}
@@ -371,8 +371,9 @@
 							bind:password={$values[setting.key]}
 						/>
 						<Button
-							variant={$values[setting.key] ? 'contained' : 'border'}
-							size="xs"
+							variant="accent"
+							unifiedSize="md"
+							disabled={!$values[setting.key]}
 							on:click={async () => {
 								await SettingService.testLicenseKey({
 									requestBody: { license_key: $values[setting.key] }
@@ -506,8 +507,7 @@
 						/>
 						<div class="flex flex-row">
 							<Button
-								variant="border"
-								color="light"
+								variant="default"
 								disabled={!$enterpriseLicense}
 								size="xs"
 								on:click={() => {
@@ -636,8 +636,7 @@
 					</div>
 					<div class="flex mt-2 gap-20 items-center">
 						<Button
-							variant="border"
-							color="light"
+							variant="default"
 							size="xs"
 							btnClasses="mt-1"
 							on:click={() => {
@@ -656,8 +655,7 @@
 						<div class="flex mt-1">
 							<Button
 								disabled={!$enterpriseLicense}
-								variant="border"
-								color="light"
+								variant="default"
 								size="xs"
 								on:click={async () => {
 									try {
@@ -684,7 +682,7 @@
 								size="sm"
 								endIcon={{ icon: Slack }}
 								btnClasses="mt-2"
-								variant="border"
+								variant="default"
 								on:click={async () => {
 									$values[setting.key] = undefined
 								}}
@@ -707,7 +705,7 @@
 					<div class="flex flex-col gap-4 mt-4">
 						{#if $values[setting.key]}
 							<div>
-								<label for="writer_memory_budget" class="block text-sm font-medium">
+								<label for="writer_memory_budget" class="block text-xs font-medium text-emphasis">
 									Index writer memory budget (MB)
 									<Tooltip>
 										The allocated memory arena for the indexer. A bigger value means less writing to
@@ -730,9 +728,12 @@
 									value={$values[setting.key].writer_memory_budget / (1024 * 1024)}
 								/>
 							</div>
-							<h3>Completed Job Index</h3>
+							<h3 class="text-sm font-semibold text-emphasis mt-8">Completed Job Index</h3>
 							<div>
-								<label for="commit_job_max_batch_size" class="block text-sm font-medium">
+								<label
+									for="commit_job_max_batch_size"
+									class="block text-xs font-medium text-emphasis"
+								>
 									Commit max batch size <Tooltip>
 										The max amount of documents (here jobs) per commit. To optimize indexing
 										throughput, it is best to keep this as high as possible. However, especially
@@ -751,7 +752,7 @@
 								/>
 							</div>
 							<div>
-								<label for="refresh_index_period" class="block text-sm font-medium">
+								<label for="refresh_index_period" class="block text-xs font-medium text-emphasis">
 									Refresh index period (s) <Tooltip>
 										The index will query new jobs periodically and write them on the index. This
 										setting sets that period.
@@ -766,7 +767,10 @@
 								/>
 							</div>
 							<div>
-								<label for="max_indexed_job_log_size" class="block text-sm font-medium">
+								<label
+									for="max_indexed_job_log_size"
+									class="block text-xs font-medium text-emphasis"
+								>
 									Max indexed job log size (KB) <Tooltip>
 										Job logs are included when indexing, but to avoid the index size growing
 										artificially, the logs will be truncated after a size has been reached.
@@ -788,9 +792,11 @@
 									value={$values[setting.key].max_indexed_job_log_size / 1024}
 								/>
 							</div>
-							<h3>Service Logs Index</h3>
+							<h3 class="text-sm font-semibold text-emphasis mt-8">Service logs index</h3>
 							<div>
-								<label for="commit_log_max_batch_size" class="block text-sm font-medium"
+								<label
+									for="commit_log_max_batch_size"
+									class="block text-xs font-medium text-emphasis"
 									>Commit max batch size <Tooltip>
 										The max amount of documents per commit. In this case 1 document is one log file
 										representing all logs during 1 minute for a specific host. To optimize indexing
@@ -810,7 +816,10 @@
 								/>
 							</div>
 							<div>
-								<label for="refresh_log_index_period" class="block text-sm font-medium">
+								<label
+									for="refresh_log_index_period"
+									class="block text-xs font-medium text-emphasis"
+								>
 									Refresh index period (s) <Tooltip>
 										The index will query new service logs peridically and write them on the index.
 										This setting sets that period.
@@ -824,9 +833,11 @@
 									bind:value={$values[setting.key].refresh_log_index_period}
 								/>
 							</div>
-							<h3>Reset Index</h3>
-							This buttons will clear the whole index, and the service will start reindexing from scratch.
-							Full text search might be down during this time.
+							<h3 class="text-sm font-semibold text-emphasis mt-8">Reset Index</h3>
+							<p class="text-xs text-primary font-normal">
+								This buttons will clear the whole index, and the service will start reindexing from
+								scratch. Full text search might be down during this time.
+							</p>
 							<div>
 								<ConfirmButton
 									on:click={async () => {
@@ -844,7 +855,7 @@
 										})
 										console.log('asasd')
 										sendUserToast(r)
-									}}>Clear <b>Service Logs</b> Index</ConfirmButton
+									}}>Clear <b>Service logs</b> index</ConfirmButton
 								>
 							</div>
 						{/if}
@@ -877,7 +888,7 @@
 								></div
 							>
 							<div>
-								<label for="smtp_host" class="block text-sm font-medium">Host</label>
+								<label for="smtp_host" class="block text-xs font-medium text-emphasis">Host</label>
 								<input
 									type="text"
 									id="smtp_host"
@@ -886,7 +897,7 @@
 								/>
 							</div>
 							<div>
-								<label for="smtp_port" class="block text-sm font-medium">Port</label>
+								<label for="smtp_port" class="block text-xs font-medium text-emphasis">Port</label>
 								<input
 									type="number"
 									id="smtp_port"
@@ -895,7 +906,9 @@
 								/>
 							</div>
 							<div>
-								<label for="smtp_username" class="block text-sm font-medium">Username</label>
+								<label for="smtp_username" class="block text-xs font-medium text-emphasis"
+									>Username</label
+								>
 								<input
 									type="text"
 									id="smtp_username"
@@ -904,11 +917,15 @@
 								/>
 							</div>
 							<div>
-								<label for="smtp_password" class="block text-sm font-medium">Password</label>
+								<label for="smtp_password" class="block text-xs font-medium text-emphasis"
+									>Password</label
+								>
 								<Password bind:password={$values[setting.key].smtp_password} />
 							</div>
 							<div>
-								<label for="smtp_from" class="block text-sm font-medium">From Address</label>
+								<label for="smtp_from" class="block text-xs font-medium text-emphasis"
+									>From Address</label
+								>
 								<input
 									type="email"
 									id="smtp_from"
@@ -964,8 +981,9 @@
 							</div>
 
 							<div>
-								<label for="OTEL_EXPORTER_OTLP_ENDPOINT" class="block text-sm font-medium"
-									>Endpoint</label
+								<label
+									for="OTEL_EXPORTER_OTLP_ENDPOINT"
+									class="block text-xs font-medium text-emphasis">Endpoint</label
 								>
 								<input
 									disabled={!$enterpriseLicense}
@@ -976,8 +994,9 @@
 								/>
 							</div>
 							<div>
-								<label for="OTEL_EXPORTER_OTLP_HEADERS" class="block text-sm font-medium"
-									>Headers</label
+								<label
+									for="OTEL_EXPORTER_OTLP_HEADERS"
+									class="block text-xs font-medium text-emphasis">Headers</label
 								>
 								<input
 									disabled={!$enterpriseLicense}
@@ -988,8 +1007,9 @@
 								/>
 							</div>
 							<div>
-								<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-medium"
-									>Protocol</label
+								<label
+									for="OTEL_EXPORTER_OTLP_PROTOCOL"
+									class="block text-xs font-medium text-emphasis">Protocol</label
 								>
 								gRPC
 							</div>

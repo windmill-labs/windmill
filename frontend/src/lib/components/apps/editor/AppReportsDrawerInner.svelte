@@ -587,9 +587,9 @@ export async function main(
 			/>
 		</div>
 		<Button
-			color="dark"
+			variant="accent"
 			startIcon={{ icon: Save }}
-			size="sm"
+			unifiedSize="md"
 			on:click={async () => {
 				await enableAppReporting()
 				sendUserToast('App reporting updated')
@@ -714,8 +714,7 @@ export async function main(
 									>.
 								</p>
 								<Button
-									variant="border"
-									color="light"
+									variant="default"
 									on:click={getWorspaceSlackSetting}
 									startIcon={{ icon: RotateCw }}
 								/>
@@ -742,8 +741,8 @@ export async function main(
 				loading={testLoading}
 				{disabled}
 				on:click={testReport}
-				size="xs"
-				color="dark"
+				unifiedSize="md"
+				variant="accent"
 				btnClasses="w-auto"
 			>
 				Send test report

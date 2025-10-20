@@ -80,7 +80,7 @@
 		spacingSize = size,
 		unifiedSize = undefined,
 		color = 'blue',
-		variant = 'contained',
+		variant = 'default',
 		btnClasses = '',
 		wrapperClasses = '',
 		wrapperStyle = '',

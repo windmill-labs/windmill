@@ -76,12 +76,7 @@
 					{#if selectedNode}
 						<Section label="Conditions" class="w-full flex flex-col gap-2">
 							{#snippet action()}
-								<Button
-									size="xs"
-									color="light"
-									startIcon={{ icon: Trash }}
-									variant="border"
-									on:click={() => {
+								<Button size="xs" startIcon={{ icon: Trash }} variant="default" on:click={() => {
 										nodes = removeNode(nodes, selectedNode)
 
 										$debuggingComponents = Object.fromEntries(

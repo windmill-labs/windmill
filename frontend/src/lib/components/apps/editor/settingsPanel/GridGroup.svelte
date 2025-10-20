@@ -112,8 +112,7 @@
 				<Button
 					disabled={fieldName == ''}
 					size="sm"
-					color="light"
-					variant="border"
+					variant="default"
 					startIcon={{ icon: Plus }}
 					on:click={() => addField(fieldName)}
 					iconOnly

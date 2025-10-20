@@ -480,9 +480,8 @@
 		{#snippet submission()}
 			<div>
 				<Button
-					variant="border"
-					color="blue"
-					size="sm"
+					variant="default"
+					unifiedSize="md"
 					startIcon={{ icon: Plus }}
 					on:click={() => variableEditor?.initNew?.()}
 				>

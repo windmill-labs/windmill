@@ -9,6 +9,7 @@
 	import { emptyString, truncateHash } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
 	export let isTemplate: boolean | undefined = undefined
@@ -57,15 +58,17 @@
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />
 <div class="flex flex-col min-h-0">
-	<div class="w-full flex mt-1 items-center gap-2 mb-3">
+	<div class="w-full flex items-center gap-2 mb-3">
 		<slot />
 
-		<input
-			type="text"
-			on:keydown|stopPropagation
-			placeholder="Search Workspace Scripts"
+		<TextInput
+			inputProps={{
+				type: 'text',
+				onkeydown: (e) => e.stopPropagation(),
+				placeholder: 'Search Workspace Scripts'
+			}}
 			bind:value={filter}
-			class="text-2xl grow"
+			class="grow"
 		/>
 	</div>
 

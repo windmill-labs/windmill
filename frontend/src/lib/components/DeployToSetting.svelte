@@ -144,8 +144,7 @@
 		{/if}
 		<div class="flex mt-2">
 			<Button
-				variant="border"
-				color="light"
+				variant="default"
 				size="xs"
 				btnClasses="mt-1"
 				on:click={() => {
@@ -201,7 +200,7 @@
 {#if $enterpriseLicense}
 	<div class="flex mt-5 mb-5 gap-1">
 		<Button
-			color="blue"
+			variant="accent"
 			disabled={workspaceToDeployTo == undefined}
 			on:click={() => {
 				editWindmillDeploymentUISettings()

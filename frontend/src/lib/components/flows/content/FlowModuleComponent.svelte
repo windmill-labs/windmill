@@ -702,8 +702,7 @@
 																	/>
 																	<Button
 																		size="xs"
-																		color="light"
-																		variant="border"
+																		variant="default"
 																		on:click={() => {
 																			if (flowModule.value.type == 'rawscript') {
 																				flowModule.value.concurrent_limit = undefined

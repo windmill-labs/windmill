@@ -194,8 +194,7 @@
 			<Button
 				btnClasses="gap-1 flex items-center text-sm text-tertiary"
 				wrapperClasses="w-full"
-				color="light"
-				variant="border"
+				variant="default"
 				on:click={() => addComponent('buttoncomponent')}
 				title="Add Button"
 			>
@@ -204,8 +203,7 @@
 			<Button
 				btnClasses="gap-1 flex items-center text-sm text-tertiary"
 				wrapperClasses="w-full"
-				color="light"
-				variant="border"
+				variant="default"
 				on:click={() => addComponent('checkboxcomponent')}
 				title="Add Toggle"
 			>
@@ -214,8 +212,7 @@
 			<Button
 				btnClasses="gap-1 flex items-center text-sm text-tertiary"
 				wrapperClasses="w-full"
-				color="light"
-				variant="border"
+				variant="default"
 				on:click={() => addComponent('selectcomponent')}
 				title="Add Select"
 			>

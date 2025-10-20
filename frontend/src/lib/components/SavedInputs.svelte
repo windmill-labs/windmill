@@ -244,9 +244,8 @@
 
 											<Button
 												loading={i.isSaving}
-												color="light"
 												size="xs"
-												variant="border"
+												variant="default"
 												spacingSize="xs2"
 												btnClasses={'group-hover:block hidden -my-2'}
 												on:click={(e) => {
@@ -261,10 +260,9 @@
 												<Edit class="w-4 h-4" />
 											</Button>
 											<Button
-												color="red"
 												size="xs"
 												spacingSize="xs2"
-												variant="border"
+												variant="default"
 												btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden -my-2'}
 												on:click={() => deleteInput(i)}
 											>

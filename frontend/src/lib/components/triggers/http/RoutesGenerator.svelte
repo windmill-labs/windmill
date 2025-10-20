@@ -274,8 +274,7 @@
 								loading={isGeneratingHttpRoutes}
 								on:click={generateHttpTrigger}
 								disabled={code.length === 0}
-								color="light"
-								variant="border">Generate HTTP routes</Button
+								variant="default">Generate HTTP routes</Button
 							>
 						</div>
 					</Subsection>

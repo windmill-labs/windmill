@@ -502,12 +502,7 @@
 	{#if $userStore?.is_admin || $superadmin}
 		<PageHeader title="Workspace settings: {$workspaceStore}"
 			>{#if $superadmin}
-				<Button
-					variant="border"
-					color="dark"
-					size="sm"
-					on:click={() => goto('#superadmin-settings')}
-				>
+				<Button variant="default" size="sm" on:click={() => goto('#superadmin-settings')}>
 					Instance settings
 				</Button>
 			{/if}</PageHeader

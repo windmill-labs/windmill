@@ -173,8 +173,7 @@
 	</Button>
 	{#if clearable}
 		<Button
-			variant="border"
-			color="light"
+			variant="default"
 			wrapperClasses="h-full"
 			{disabled}
 			on:click={() => {

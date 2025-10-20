@@ -297,7 +297,7 @@
 							Enable debug mode to get more detailed logs.
 						</div>
 					{:else if category == 'Telemetry'}
-						<div class="text-secondary pb-4 text-xs">
+						<div class="text-primary pb-4 text-xs">
 							Anonymous usage data is collected to help improve Windmill.
 							<br />The following information is collected:
 							<ul class="list-disc list-inside pl-2">
@@ -314,15 +314,14 @@
 							</ul>
 						</div>
 						{#if $enterpriseLicense}
-							<div class="text-secondary pb-4 text-xs">
+							<div class="text-primary pb-4 text-xs">
 								On Enterprise Edition, you must send data to check that usage is in line with the
 								terms of the subscription. You can either enable telemetry or regularly send usage
 								data by clicking the button below.
 							</div>
 							<Button
 								on:click={sendStats}
-								variant="border"
-								color="light"
+								variant="default"
 								btnClasses="w-auto"
 								wrapperClasses="mb-4"
 								loading={sendingStats}
@@ -373,6 +372,6 @@
 </div>
 
 {#if !hideSave}
-	<Button on:click={saveSettings}>Save settings</Button>
+	<Button on:click={saveSettings} variant="accent">Save settings</Button>
 	<div class="pb-8"></div>
 {/if}

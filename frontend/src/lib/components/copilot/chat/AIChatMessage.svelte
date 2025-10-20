@@ -92,8 +92,7 @@
 			Saved a flow snapshot
 			<Button
 				size="xs2"
-				variant="border"
-				color="light"
+				variant="default"
 				on:click={() => {
 					if (message.snapshot) {
 						aiChatManager.flowAiChatHelpers?.revertToSnapshot(message.snapshot)
@@ -111,9 +110,8 @@
 	<div class="flex justify-end px-2 -mt-1">
 		<Button
 			size="xs2"
-			variant="border"
+			variant="default"
 			title="Retry generation"
-			color="light"
 			startIcon={{ icon: RefreshCwIcon }}
 			onclick={() => aiChatManager.retryRequest(messageIndex)}
 		>

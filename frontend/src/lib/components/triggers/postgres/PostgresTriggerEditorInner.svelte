@@ -710,9 +710,8 @@
 																/>
 																<Button
 																	loading={creatingSlot}
-																	color="light"
 																	size="xs"
-																	variant="border"
+																	variant="default"
 																	disabled={emptyStringTrimmed(replication_slot_name) || !can_write}
 																	on:click={createSlot}>Create</Button
 																>
@@ -766,9 +765,8 @@
 																/>
 																<Button
 																	loading={creatingPublication}
-																	color="light"
 																	size="xs"
-																	variant="border"
+																	variant="default"
 																	disabled={emptyStringTrimmed(publication_name) ||
 																		(relations && relations.length === 0) ||
 																		!can_write}

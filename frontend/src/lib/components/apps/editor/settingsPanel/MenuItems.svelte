@@ -72,11 +72,11 @@
 			</div>
 			<div>
 				<Button
-					variant="border"
-					color="red"
+					variant="default"
 					on:click={() => deleteComponent(component.id)}
 					startIcon={{ icon: Trash }}
 					iconOnly
+					destructive
 				/>
 			</div>
 		</div>
@@ -85,8 +85,7 @@
 		<Button
 			btnClasses="gap-1 flex items-center text-sm text-tertiary"
 			wrapperClasses="w-full"
-			color="light"
-			variant="border"
+			variant="default"
 			size="xs"
 			on:click={() => addComponent()}
 			title="Add Button"

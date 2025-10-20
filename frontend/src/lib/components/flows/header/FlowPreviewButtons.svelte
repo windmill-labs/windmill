@@ -130,7 +130,7 @@
 
 <Button
 	variant="accent-secondary"
-	size="xs"
+	unifiedSize="md"
 	on:click={() => {
 		previewMode = 'whole'
 		previewOpen = !previewOpen

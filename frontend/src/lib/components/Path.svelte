@@ -572,8 +572,7 @@
 			and resources (having the same path) are automatically moved together.
 			<div class="flex pt-2">
 				<Button
-					variant="border"
-					color="dark"
+					variant="default"
 					on:click={() => {
 						openSearchWithPrefilledText('#')
 					}}

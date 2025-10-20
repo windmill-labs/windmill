@@ -90,11 +90,10 @@
 >
 	<svelte:fragment slot="trigger" let:isOpen>
 		<Button
-			variant="contained"
-			color="light"
-			btnClasses={hover || isOpen ? 'block -my-2 hover:bg-surface bg-transparent' : 'hidden'}
+			variant="subtle"
+			unifiedSize="sm"
+			btnClasses={hover || isOpen ? 'block -my-2 bg-transparent' : 'hidden'}
 			wrapperClasses="p-0"
-			size="xs2"
 			iconOnly
 			nonCaptureEvent
 			startIcon={{ icon: Eye }}
@@ -148,8 +147,8 @@
 
 					<div class="absolute top-2 right-2 w-full h-full">
 						<Button
-							variant="contained"
-							size="xs2"
+							variant="subtle"
+							unifiedSize="sm"
 							class="absolute top-0 right-0"
 							iconOnly
 							startIcon={{ icon: CopyIcon }}

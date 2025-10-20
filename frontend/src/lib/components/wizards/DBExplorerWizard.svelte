@@ -340,8 +340,7 @@
 						{#snippet action()}
 							<Button
 								size="xs"
-								color="light"
-								variant="border"
+								variant="default"
 								on:click={() => {
 									// @ts-ignore
 									value.valueFormatter = null

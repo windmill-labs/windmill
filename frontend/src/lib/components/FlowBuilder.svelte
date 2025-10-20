@@ -1018,8 +1018,7 @@
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
-							variant="contained"
-							color="light"
+							variant="subtle"
 							size="xs"
 							on:click={async () => {
 								select('triggers')
@@ -1078,7 +1077,7 @@
 					{#if customUi?.topBar?.diff != false}
 						<Button
 							variant="default"
-							size="xs"
+							unifiedSize="md"
 							on:click={async () => {
 								if (!savedFlow) {
 									return
@@ -1105,11 +1104,9 @@
 								})
 							}}
 							disabled={!savedFlow}
+							startIcon={{ icon: DiffIcon }}
 						>
-							<div class="flex flex-row gap-2 items-center">
-								<DiffIcon size={14} />
-								Diff
-							</div>
+							Diff
 						</Button>
 					{/if}
 					<FlowPreviewButtons
@@ -1133,7 +1130,7 @@
 					/>
 					<Button
 						loading={loadingDraft}
-						size="xs"
+						unifiedSize="md"
 						variant="accent"
 						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}

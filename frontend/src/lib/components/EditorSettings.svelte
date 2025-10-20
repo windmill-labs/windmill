@@ -26,9 +26,6 @@
 		{#snippet trigger()}
 			{#if customUi.editorSettings != false}
 				<Button
-					btnClasses="text-tertiary"
-					color="light"
-					size="xs"
 					nonCaptureEvent={true}
 					startIcon={{ icon: Settings }}
 					iconOnly
