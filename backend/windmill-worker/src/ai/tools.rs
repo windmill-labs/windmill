@@ -3,8 +3,8 @@ use crate::ai::query_builder::StreamEventProcessor;
 use crate::ai::types::*;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_flow_chat_settings, get_step_name_from_flow,
-    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
-    FlowChatSettings,
+    merge_static_transforms, update_flow_status_module_with_actions,
+    update_flow_status_module_with_actions_success, FlowChatSettings,
 };
 use crate::common::{error_to_value, OccupancyMetrics};
 use crate::result_processor::handle_non_flow_job_error;
@@ -257,10 +257,7 @@ async fn execute_windmill_tool(
 ) -> Result<(), Error> {
     // Regular Windmill tools must have a module
     let tool_module = tool.module.as_ref().ok_or_else(|| {
-        Error::internal_err(format!(
-            "Tool {} has no module (MCP tools should be handled above)",
-            tool_call.function.name
-        ))
+        Error::internal_err(format!("Tool {} has no module", tool_call.function.name))
     })?;
 
     let job_id = ulid::Ulid::new().into();
@@ -278,7 +275,7 @@ async fn execute_windmill_tool(
         tool_call.function.arguments.clone()
     };
 
-    let tool_call_args = serde_json::from_str::<HashMap<String, Box<RawValue>>>(
+    let mut tool_call_args = serde_json::from_str::<HashMap<String, Box<RawValue>>>(
         &raw_tool_call_args,
     )
     .with_context(|| {
@@ -287,6 +284,29 @@ async fn execute_windmill_tool(
             tool_call.function.name, tool_call.function.arguments
         )
     })?;
+
+    // Get input_transforms from the tool module and merge static transforms
+    let input_transforms = match tool_module.get_value()? {
+        FlowModuleValue::Script { input_transforms, .. } => input_transforms,
+        FlowModuleValue::RawScript { input_transforms, .. } => input_transforms,
+        FlowModuleValue::FlowScript { input_transforms, .. } => input_transforms,
+        _ => {
+            return Err(Error::internal_err(format!(
+                "Unsupported tool: {}",
+                tool_call.function.name
+            )));
+        }
+    };
+
+    tracing::info!(
+        "Tool '{}': AI provided {} argument(s), {} input transform(s) defined",
+        tool_call.function.name,
+        tool_call_args.len(),
+        input_transforms.len()
+    );
+
+    // Merge static input transforms with AI arguments
+    merge_static_transforms(&mut tool_call_args, &input_transforms)?;
 
     let job_payload = match tool_module.get_value()? {
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {

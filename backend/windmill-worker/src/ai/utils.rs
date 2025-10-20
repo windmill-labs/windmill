@@ -591,3 +591,50 @@ pub async fn execute_mcp_tool(
 
     Ok(result)
 }
+
+/// Merge static input transforms into AI-provided arguments.
+/// Static transforms take precedence over AI arguments.
+///
+/// This allows users to pre-configure certain tool parameters via static input transforms
+/// while the AI fills in the remaining dynamic parameters.
+pub fn merge_static_transforms(
+    ai_args: &mut HashMap<String, Box<RawValue>>,
+    input_transforms: &HashMap<String, InputTransform>,
+) -> Result<(), Error> {
+    let mut merge_count = 0;
+
+    for (key, transform) in input_transforms {
+        if let InputTransform::Static { value } = transform {
+            // Skip empty/null values
+            let val_str = value.get().trim();
+            if !val_str.is_empty() && val_str != "null" {
+                tracing::info!(
+                    "  Merging static transform for parameter '{}': {}",
+                    key,
+                    if val_str.len() > 100 {
+                        format!("{}...", &val_str[..100])
+                    } else {
+                        val_str.to_string()
+                    }
+                );
+
+                // Insert/overwrite with static value
+                ai_args.insert(key.clone(), value.clone());
+                merge_count += 1;
+            }
+        }
+        // Skip JavaScript transforms for now (future enhancement)
+    }
+
+    if merge_count > 0 {
+        tracing::info!(
+            "Merged {} static transform(s) into AI arguments. Final argument count: {}",
+            merge_count,
+            ai_args.len()
+        );
+    } else {
+        tracing::info!("No static transforms to merge. Using AI arguments as-is.");
+    }
+
+    Ok(())
+}
