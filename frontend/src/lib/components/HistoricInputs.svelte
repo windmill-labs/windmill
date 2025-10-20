@@ -120,7 +120,7 @@
 	/>
 {/if}
 
-<div class="h-full max-h-full min-h-0 w-full flex flex-col gap-4 relative">
+<div class="h-full max-h-full min-h-0 w-full flex flex-col gap-2 relative">
 	<div class="grow-0" data-schema-picker>
 		<DataTable size="xs" bind:currentPage={page} hasMore={hasMoreCurrentRuns} tableFixed={true}>
 			{#if loading}

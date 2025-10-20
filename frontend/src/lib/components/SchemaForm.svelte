@@ -341,7 +341,7 @@
 					{/if}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="flex flex-row items-center {largeGap ? 'pb-4' : ''} "
+						class="flex flex-row items-center {largeGap ? 'pb-4' : 'pb-2'} "
 						onclick={() => {
 							dispatch('click', argName)
 						}}
