@@ -83,7 +83,7 @@
 
 <div class="w-full mb-6 {clazz}">
 	{#if enableAi}
-		<div class="mt-2">
+		<div class="pt-2">
 			<StepInputsGen
 				{pickableProperties}
 				argNames={keys

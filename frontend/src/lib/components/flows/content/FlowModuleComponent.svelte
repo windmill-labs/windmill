@@ -6,7 +6,7 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Editor from '$lib/components/Editor.svelte'
-	import EditorBar from '$lib/components/EditorBar.svelte'
+	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from '$lib/components/EditorBar.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils.svelte'
@@ -427,7 +427,7 @@
 							{diffEditor}
 							lang={flowModule.value['language'] ?? 'deno'}
 							{websocketAlive}
-							iconOnly={width < 950}
+							iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
 							kind={scriptKind}
 							template={scriptTemplate}
 							args={Object.entries(flowModule.value.input_transforms).reduce((acc, [key, obj]) => {
@@ -563,10 +563,10 @@
 									<div
 										class={advancedSelected === 'runtime'
 											? 'h-[calc(100%-68px)]'
-											: 'h-[calc(100%-34px)]'}
+											: 'h-[calc(100%-39px)]'}
 									>
 										{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
-											<div class="h-full overflow-auto bg-surface" id="flow-editor-step-input">
+											<div class="h-full overflow-auto bg-red-500" id="flow-editor-step-input">
 												<PropPickerWrapper
 													pickableProperties={stepPropPicker.pickableProperties}
 													error={failureModule}
@@ -661,7 +661,7 @@
 													<Tab value="lifetime" label="Lifetime" />
 												</Tabs>
 											{/if}
-											<div class="h-[calc(100%-32px)] overflow-auto p-4">
+											<div class="h-[calc(100%-39px)] overflow-auto p-4">
 												{#if advancedSelected === 'retries'}
 													<Section label="Retries">
 														{#snippet header()}
