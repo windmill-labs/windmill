@@ -70,6 +70,7 @@
 				<span class="mt-2 text-xs font-bold">Skip condition expression</span>
 				<div class="border rounded-md w-full overflow-auto">
 					<PropPickerWrapper
+						noPadding
 						notSelectable
 						pickableProperties={stepPropPicker.pickableProperties}
 						on:select={({ detail }) => {
@@ -81,7 +82,8 @@
 							bind:this={editor}
 							lang="javascript"
 							bind:code={flowModule.skip_if.expr}
-							class="few-lines-editor"
+							yPadding={7}
+							class="h-full"
 							extraLib={stepPropPicker.extraLib}
 						/>
 					</PropPickerWrapper>

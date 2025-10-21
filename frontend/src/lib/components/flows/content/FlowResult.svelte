@@ -33,7 +33,9 @@
 			/>
 		</div>
 	{:else}
-		<p class="p-4 text-secondary">The result of the flow will be the result of the last node.</p>
+		<p class="p-4 text-secondary text-xs">
+			The result of the flow will be the result of the last node.
+		</p>
 	{/if}
 </FlowCard>
 

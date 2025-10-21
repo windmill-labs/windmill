@@ -117,7 +117,7 @@
 			/>
 
 			<div
-				class="w-full mt-2 border p-2 flex flex-col gap-2 {flowModule.stop_after_if
+				class="w-full mt-2 border rounded-md p-2 flex flex-col gap-2 {flowModule.stop_after_if
 					? ''
 					: 'bg-surface-secondary'}"
 			>
@@ -164,6 +164,7 @@
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
 					<div class="border rounded-md w-full overflow-auto">
 						<PropPickerWrapper
+							noPadding
 							notSelectable
 							flow_input={stepPropPicker.pickableProperties.flow_input}
 							pickableProperties={undefined}
@@ -176,9 +177,10 @@
 						>
 							<SimpleEditor
 								bind:this={editor}
+								yPadding={7}
 								lang="javascript"
 								bind:code={flowModule.stop_after_if.expr}
-								class="few-lines-editor"
+								class="h-full"
 								extraLib={`declare const result = ${JSON.stringify(earlyStopResult)};` +
 									`\n declare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};` +
 									(isLoop ? `\ndeclare const all_iters = ${JSON.stringify(result)};` : '')}
@@ -301,6 +303,7 @@
 					<div class="border rounded-md w-full overflow-auto">
 						<PropPickerWrapper
 							notSelectable
+							noPadding
 							flow_input={stepPropPicker.pickableProperties.flow_input}
 							pickableProperties={undefined}
 							{result}
@@ -313,7 +316,8 @@
 								bind:this={editor}
 								lang="javascript"
 								bind:code={flowModule.stop_after_all_iters_if.expr}
-								class="few-lines-editor"
+								class="h-full"
+								yPadding={7}
 								extraLib={`declare const result = ${JSON.stringify(result)};` +
 									`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};`}
 							/>

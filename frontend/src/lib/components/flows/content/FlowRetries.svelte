@@ -160,7 +160,7 @@
 			/>
 
 			<div
-				class="w-full border p-2 mt-2 flex flex-col {flowModuleRetry?.retry_if
+				class="w-full border rounded-md p-2 mt-2 flex flex-col {flowModuleRetry?.retry_if
 					? ''
 					: 'bg-surface-secondary'}"
 			>
@@ -169,9 +169,10 @@
 					<span class="text-xs text-primary mb-2"
 						>Expression should return true to retry, false to skip retry</span
 					>
-					<div class="border w-full">
+					<div class="border rounded-md overflow-auto w-full">
 						{#if stepPropPicker}
 							<PropPickerWrapper
+								noPadding
 								notSelectable
 								pickableProperties={stepPropPicker.pickableProperties}
 								{result}
@@ -184,7 +185,8 @@
 									bind:this={editor}
 									lang="javascript"
 									bind:code={flowModuleRetry.retry_if.expr}
-									class="few-lines-editor"
+									yPadding={7}
+									class="h-full"
 									extraLib={`declare const result = ${JSON.stringify(result)};` +
 										`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input || {})};`}
 								/>

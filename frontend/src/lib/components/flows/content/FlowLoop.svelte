@@ -280,12 +280,13 @@
 					</div>
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="border w-full mb-2 h-full max-h-[250px]"
+						class="border rounded-md overflow-auto w-full mb-2 h-full max-h-[250px]"
 						id="flow-editor-parallel-expression"
 						transition:slide={{ duration: 300 }}
 					>
 						<PropPickerWrapper
 							notSelectable
+							noPadding
 							flow_input={stepPropPicker.pickableProperties.flow_input}
 							pickableProperties={stepPropPicker.pickableProperties}
 							on:select={({ detail }) => {
@@ -312,7 +313,8 @@
 										}
 									}
 								}
-								class="small-editor"
+								class="h-full"
+								yPadding={7}
 								shouldBindKey={false}
 								extraLib={stepPropPicker.extraLib}
 							/>
@@ -367,7 +369,7 @@
 				{#if mod.value.iterator.type == 'javascript'}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="border w-full"
+						class="border rounded-md overflow-auto w-full"
 						id="flow-editor-iterator-expression"
 						onkeyup={iteratorGen?.onKeyUp}
 					>
@@ -396,7 +398,8 @@
 								autofocus
 								lang="javascript"
 								bind:code={mod.value.iterator.expr}
-								class="small-editor"
+								class="h-full"
+								yPadding={7}
 								shouldBindKey={false}
 								extraLib={stepPropPicker.extraLib}
 							/>
