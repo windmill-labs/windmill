@@ -230,7 +230,7 @@
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
 
-	import { NODE } from '../../util'
+	import { getNodeColorClasses, NODE } from '../../util'
 	import { userStore } from '$lib/stores'
 	import { deepEqual } from 'fast-equals'
 	import { slide } from 'svelte/transition'
@@ -248,18 +248,19 @@
 		flowGraphAssetsCtx?.val.resourceMetadataCache[data.asset.path]
 	)
 	const usageCount = $derived(flowGraphAssetsCtx?.val.computeAssetsCount?.(data.asset))
+	const colors = $derived(getNodeColorClasses(undefined, isSelected))
 </script>
 
-<NodeWrapper>
+<NodeWrapper wrapperClass="bg-surface-secondary rounded-md">
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<Tooltip>
 			<div
 				class={twMerge(
-					'bg-surface h-6 flex items-center gap-1.5 rounded-md drop-shadow-base text-primary overflow-clip transition-colors',
-					isSelected
-						? 'outline outline-1 outline-accent bg-surface-accent-selected/30 text-accent'
-						: ''
+					'h-6 flex items-center gap-1.5 rounded-md drop-shadow-base overflow-clip transition-colors',
+					colors.outline,
+					colors.text,
+					colors.bg
 				)}
 				onmouseenter={() =>
 					flowGraphAssetsCtx && (flowGraphAssetsCtx.val.selectedAsset = data.asset)}

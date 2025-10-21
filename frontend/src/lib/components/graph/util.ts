@@ -23,9 +23,9 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 	let defaultStyle = {
 		selected: {
 			bg: 'bg-surface-accent-selected/30',
-			outline: 'outline-luminance-blue-300 dark:outline-luminance-blue-200' + outlined,
+			outline: 'outline-border-selected' + outlined,
 			text: 'text-accent',
-			badge: 'bg-blue-100 outline-luminance-blue-300 text-blue-800'
+			badge: 'bg-blue-100 outline-border-selected text-blue-800'
 		},
 		notSelected: {
 			bg: 'bg-surface-tertiary',
@@ -63,7 +63,7 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 				bg: 'bg-blue-100 dark:bg-[#2D3B63]',
 				outline: '',
 				text: 'text-blue-600 dark:text-blue-200',
-				badge: 'bg-blue-200 outline-luminance-blue-300 text-blue-800'
+				badge: 'bg-blue-200 outline-border-selected text-blue-800'
 			}
 		},
 		Success: {

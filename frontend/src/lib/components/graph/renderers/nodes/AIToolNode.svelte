@@ -266,7 +266,11 @@
 <NodeWrapper>
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
+		<div
+			class="relative bg-surface-secondary rounded-md"
+			onmouseenter={() => (hover = true)}
+			onmouseleave={() => (hover = false)}
+		>
 			<button
 				class={twMerge(
 					'text-left h-6 flex items-center gap-1.5 rounded-md overflow-clip w-full outline-offset-0 drop-shadow-base',

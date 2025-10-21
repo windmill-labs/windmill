@@ -166,11 +166,10 @@
 							variant="default"
 							selected={inputOpen}
 							wrapperClasses={twMerge(
-								'w-full h-full',
+								'w-full h-full transition-colors rounded-b-md',
 								bottomBarOpen ? 'opacity-100' : 'opacity-0',
-								'rounded-b-md'
+								inputOpen ? 'bg-surface-secondary' : 'bg-surface-tertiary'
 							)}
-							btnClasses="bg-surface"
 							endIcon={{ icon: ChevronDown }}
 							size="xs3"
 						>
@@ -220,8 +219,10 @@
 						<Button
 							variant="default"
 							selected={outputOpen}
-							wrapperClasses={twMerge('w-full h-full rounded-b-md')}
-							btnClasses="bg-surface-tertiary"
+							wrapperClasses={twMerge(
+								'w-full h-full rounded-b-md transition-colors',
+								outputOpen ? 'bg-surface-secondary' : 'bg-surface-tertiary'
+							)}
 							endIcon={showInput ? { icon: ChevronDown } : undefined}
 							size="xs3"
 						>

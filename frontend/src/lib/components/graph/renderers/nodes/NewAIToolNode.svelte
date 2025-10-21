@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { twMerge } from 'tailwind-merge'
 	import { type NewAiToolN } from '../../graphBuilder.svelte'
 	import InsertModuleInner from '$lib/components/flows/map/InsertModuleInner.svelte'
 	import { Cross } from 'lucide-svelte'
 	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
 	import { flip, offset } from 'svelte-floating-ui/dom'
 	import type { ComputeConfig } from 'svelte-floating-ui'
+	import { Button } from '$lib/components/common'
 
 	let funcDesc = $state('')
 	interface Props {
@@ -27,20 +27,18 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <PopupV2 bind:open {floatingConfig} target="#flow-editor">
 	{#snippet button()}
-		<button
-			title={`Add 'tool'
-			}`}
-			type="button"
-			class={twMerge(
-				'!w-full h-6 flex items-center justify-center !outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded'
-			)}
+		<Button
+			variant="default"
+			size="xs3"
 			onpointerdown={() => (open = !open)}
+			selected={open}
+			startIcon={{ icon: Cross }}
+			wrapperClasses="{open
+				? 'bg-surface-secondary'
+				: 'bg-surface-tertiary'} transition-colors drop-shadow-base"
 		>
-			<div class="flex flex-row items-center gap-1 font-medium text-2xs">
-				<Cross size={12} />
-				tool
-			</div>
-		</button>
+			tool
+		</Button>
 	{/snippet}
 	{#snippet children({ close })}
 		<InsertModuleInner
