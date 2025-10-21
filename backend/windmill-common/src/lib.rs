@@ -54,8 +54,12 @@ pub mod job_s3_helpers_ee;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_oss;
 
+#[cfg(feature = "private")]
+pub mod git_sync_ee;
+pub mod git_sync_oss;
 pub mod jobs;
 pub mod jwt;
+pub mod mcp_client;
 pub mod more_serde;
 pub mod oauth2;
 #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
@@ -87,9 +91,6 @@ pub mod variables;
 pub mod worker;
 pub mod worker_group_job_stats;
 pub mod workspaces;
-#[cfg(feature = "private")]
-pub mod git_sync_ee;
-pub mod git_sync_oss;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
