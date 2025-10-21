@@ -8,14 +8,16 @@
 	import { Pen } from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
-	let newName = ''
-	let newId = ''
-	let checking = false
-	let errorId = ''
+	let { open = $bindable(false) } = $props()
 
-	$: newId = newName.toLowerCase().replace(/\s/gi, '-')
+	let newName = $state('')
+	let newId = $derived(newName.toLowerCase().replace(/\s/gi, '-'))
+	let checking = $state(false)
+	let errorId = $state('')
 
-	$: validateName(newId)
+	$effect(() => {
+		validateName(newId)
+	})
 
 	async function validateName(id: string): Promise<void> {
 		checking = true
@@ -30,30 +32,35 @@
 		checking = false
 	}
 
-	let loading = false
+	let loading = $state(false)
+	let showMigrationInfo = $state(false)
+	let oldWorkspaceId = $state('')
+
 	async function renameWorkspace() {
 		try {
 			loading = true
-			await WorkspaceService.changeWorkspaceId({
-				workspace: $workspaceStore!,
+			oldWorkspaceId = $workspaceStore!
+
+			await WorkspaceService.migrateWorkspace({
 				requestBody: {
-					new_name: newName,
-					new_id: newId
+					source_workspace_id: $workspaceStore!,
+					target_workspace_name: newName,
+					target_workspace_id: newId,
+					migration_type: 'metadata',
+					disable_workspace: true
 				}
 			})
-			open = false
 
-			sendUserToast(`Renamed workspace to ${newName}. Reloading...`)
-			await new Promise((resolve) => setTimeout(resolve, 1000))
-			window.location.href = '/workspace_settings?tab=general&workspace=' + newId
+			open = false
+			showMigrationInfo = true
+
+			sendUserToast(`Workspace metadata migrated to ${newId}`)
 		} catch (err) {
 			sendUserToast(`Error renaming workspace: ${err}`, true)
 		} finally {
 			loading = false
 		}
 	}
-
-	export let open = false
 </script>
 
 <div>
@@ -113,3 +120,23 @@
 		</Button>
 	</svelte:fragment>
 </Modal>
+
+{#if showMigrationInfo}
+	<Alert type="info" title="Migration Status" class="mt-4">
+		<div class="flex flex-col gap-2">
+			<p>Workspace metadata has been successfully migrated to <strong>{newId}</strong>.</p>
+			<p class="text-sm text-secondary">
+				Job history has not been migrated yet. Click the button below to sync jobs from the old
+				workspace.
+			</p>
+			<Button
+				size="sm"
+				on:click={() => {
+					window.location.href = `/workspace_settings/migration?source=${oldWorkspaceId}&workspace=${newId}`
+				}}
+			>
+				Sync Jobs
+			</Button>
+		</div>
+	</Alert>
+{/if}

@@ -143,10 +143,6 @@ pub fn workspaced_service() -> Router {
         .route("/get_workspace_name", get(get_workspace_name))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_color", post(change_workspace_color))
-        .route(
-            "/change_workspace_id",
-            post(crate::workspaces_extra::change_workspace_id),
-        )
         .route("/usage", get(get_usage))
         .route("/used_triggers", get(get_used_triggers))
         .route("/critical_alerts", get(get_critical_alerts))
@@ -187,6 +183,11 @@ pub fn global_service() -> Router {
         .route(
             "/create_workspace_require_superadmin",
             get(create_workspace_require_superadmin),
+        )
+        .route("/migrate", post(crate::workspaces_extra::migrate_workspace))
+        .route(
+            "/migration/status",
+            get(crate::workspaces_extra::get_migration_status),
         )
 }
 

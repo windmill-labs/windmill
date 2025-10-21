@@ -770,6 +770,48 @@ paths:
               schema:
                 type: boolean
 
+  /workspaces/migrate:
+    post:
+      summary: migrate workspace data from source to target
+      operationId: migrateWorkspace
+      tags:
+        - workspace
+      requestBody:
+        description: migration request
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MigrateWorkspaceRequest"
+      responses:
+        "200":
+          description: migration completed
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /workspaces/migration/status:
+    get:
+      summary: get migration status
+      operationId: getMigrationStatus
+      tags:
+        - workspace
+      parameters:
+        - name: source_workspace
+          in: query
+          required: true
+          description: source workspace id to check migration status
+          schema:
+            type: string
+      responses:
+        "200":
+          description: migration status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MigrateJobResponse"
+
   /settings/get_ducklake_instance_catalog_db_status:
     post:
       summary: Returns the set-up statuses of ducklake instance catalog dbs
@@ -17612,6 +17654,52 @@ components:
         - OK
         - SKIP
         - FAIL
+
+    MigrateWorkspaceRequest:
+      type: object
+      properties:
+        source_workspace_id:
+          type: string
+          description: source workspace id
+        target_workspace_id:
+          type: string
+          description: target workspace id
+        target_workspace_name:
+          type: string
+          description: target workspace name
+        migration_type:
+          type: string
+          enum: [all, metadata, jobs]
+          description: type of migration to perform
+        disable_workspace:
+          type: boolean
+          default: true
+          description: whether to disable source workspace after migration
+      required:
+          - source_workspace_id
+          - target_workspace_name
+          - target_workspace_id
+          - migration_type
+
+    MigrateJobResponse:
+      type: object
+      properties:
+        source_workspace:
+          type: string
+        total_jobs:
+          type: integer
+          format: int64
+        remaining_jobs:
+          type: integer
+          format: int64
+        migration_progress:
+          type: number
+          format: float
+      required:
+        - source_workspace
+        - total_jobs
+        - remaining_jobs
+        - migration_progress
 
     DucklakeInstanceCatalogDbStatusLogs:
       type: object
