@@ -45,7 +45,7 @@ import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 import type { ReviewChangesOpts } from './monaco-adapter'
-import { copilotInfo, getCurrentModel } from '$lib/aiStore'
+import { copilotInfo, getCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -209,7 +209,7 @@ class AIChatManager {
 		this.mode = mode
 		this.pendingPrompt = pendingPrompt ?? ''
 		if (mode === AIMode.SCRIPT) {
-			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			const customPrompt = getCombinedCustomPrompt(mode)
 			const currentModel = getCurrentModel()
 			this.systemMessage = prepareScriptSystemMessage(currentModel, customPrompt)
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
@@ -236,23 +236,23 @@ class AIChatManager {
 				}
 			}
 		} else if (mode === AIMode.FLOW) {
-			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			this.tools = [this.changeModeTool, ...flowTools]
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
-			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareNavigatorSystemMessage(customPrompt)
 			this.tools = [this.changeModeTool, ...navigatorTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {
-			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAskSystemMessage(customPrompt)
 			this.tools = [...askTools]
 			this.helpers = {}
 		} else if (mode === AIMode.API) {
-			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareApiSystemMessage(customPrompt)
 			this.tools = [...this.apiTools]
 			this.helpers = {}
