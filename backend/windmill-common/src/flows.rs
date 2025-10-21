@@ -663,45 +663,32 @@ impl<'de> Deserialize<'de> for ToolValue {
         D: serde::Deserializer<'de>,
     {
         use serde::de::Error;
-        use serde_json::Value;
 
-        // First deserialize to a JSON Value to inspect the structure
-        let value = Value::deserialize(deserializer)?;
+        let content = serde_json::Value::deserialize(deserializer)?;
 
-        // Check if it has a tool_type field
-        if let Value::Object(mut map) = value {
-            // Remove the tool_type field so it doesn't interfere with FlowModuleValue deserialization
-            if let Some(tool_type) = map.remove("tool_type") {
-                match tool_type.as_str() {
-                    Some("flowmodule") => {
-                        let flow_module: FlowModuleValue =
-                            serde_json::from_value(Value::Object(map)).map_err(D::Error::custom)?;
-                        return Ok(ToolValue::FlowModule(flow_module));
-                    }
-                    Some("mcp") => {
-                        let mcp: McpToolValue =
-                            serde_json::from_value(Value::Object(map)).map_err(D::Error::custom)?;
-                        return Ok(ToolValue::Mcp(mcp));
-                    }
-                    _ => {
-                        return Err(D::Error::custom(format!(
-                            "unknown tool_type: {}",
-                            tool_type
-                        )));
-                    }
-                }
-            }
-
-            // No tool_type field, try legacy deserialization
-            let flow_module: FlowModuleValue =
-                serde_json::from_value(Value::Object(map)).map_err(D::Error::custom)?;
-            return Ok(ToolValue::FlowModule(flow_module));
+        // First, try to deserialize as the new tagged format (with tool_type field)
+        #[derive(Deserialize)]
+        #[serde(tag = "tool_type", rename_all = "lowercase")]
+        enum TaggedToolValue {
+            FlowModule(FlowModuleValue),
+            Mcp(McpToolValue),
         }
 
-        Err(D::Error::custom(format!(
-            "expected an object with a tool_type field for ToolValue, got: {:?}",
-            value
-        )))
+        if let Ok(tagged) = TaggedToolValue::deserialize(&content) {
+            return Ok(match tagged {
+                TaggedToolValue::FlowModule(v) => ToolValue::FlowModule(v),
+                TaggedToolValue::Mcp(v) => ToolValue::Mcp(v),
+            });
+        }
+
+        // Fall back to legacy format (direct FlowModuleValue without tool_type)
+        FlowModuleValue::deserialize(&content)
+            .map(ToolValue::FlowModule)
+            .map_err(|_| {
+                D::Error::custom(
+                    "expected ToolValue with tool_type field or legacy FlowModuleValue",
+                )
+            })
     }
 }
 
