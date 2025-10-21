@@ -3178,7 +3178,9 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
-        if value_with_parallel.type_ == "forloopflow" && value_with_parallel.parallel.unwrap_or(false) {
+        if value_with_parallel.type_ == "forloopflow"
+            && value_with_parallel.parallel.unwrap_or(false)
+        {
             if let Some(parallelism_transform) = &value_with_parallel.parallelism {
                 tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
 
@@ -3741,6 +3743,8 @@ async fn compute_next_flow_transform(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            custom_debounce_key,
+            debounce_delay_s,
             ..
         } => {
             let path = path.unwrap_or_else(|| get_path(flow_job, status, module));
@@ -3753,6 +3757,8 @@ async fn compute_next_flow_transform(
                 custom_concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
+                custom_debounce_key,
+                debounce_delay_s,
                 module,
                 tag,
                 delete_after_use,
@@ -3769,6 +3775,8 @@ async fn compute_next_flow_transform(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            custom_debounce_key,
+            debounce_delay_s,
             ..
         } => {
             let path = get_path(flow_job, status, module);
@@ -3783,6 +3791,8 @@ async fn compute_next_flow_transform(
                     cache_ttl: module.cache_ttl.map(|x| x as i32),
                     dedicated_worker: None,
                     path,
+                    custom_debounce_key,
+                    debounce_delay_s,
                 },
                 tag: tag.clone(),
                 delete_after_use,
@@ -4387,6 +4397,8 @@ async fn payload_from_simple_module(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            custom_debounce_key,
+            debounce_delay_s,
             ..
         } => raw_script_to_payload(
             path.unwrap_or_else(|| inner_path),
@@ -4396,6 +4408,8 @@ async fn payload_from_simple_module(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            custom_debounce_key,
+            debounce_delay_s,
             module,
             tag,
             delete_after_use,
@@ -4407,6 +4421,8 @@ async fn payload_from_simple_module(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            custom_debounce_key,
+            debounce_delay_s,
             ..
         } => JobPayloadWithTag {
             payload: JobPayload::FlowScript {
@@ -4418,6 +4434,8 @@ async fn payload_from_simple_module(
                 cache_ttl: module.cache_ttl.map(|x| x as i32),
                 dedicated_worker: None,
                 path: inner_path,
+                custom_debounce_key,
+                debounce_delay_s,
             },
             tag,
             delete_after_use,
@@ -4436,6 +4454,8 @@ pub fn raw_script_to_payload(
     custom_concurrency_key: Option<String>,
     concurrent_limit: Option<i32>,
     concurrency_time_window_s: Option<i32>,
+    custom_debounce_key: Option<String>,
+    debounce_delay_s: Option<i32>,
     module: &FlowModule,
     tag: Option<String>,
     delete_after_use: bool,
@@ -4450,6 +4470,8 @@ pub fn raw_script_to_payload(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            custom_debounce_key,
+            debounce_delay_s,
             cache_ttl: module.cache_ttl.map(|x| x as i32),
             dedicated_worker: None,
         }),
@@ -4516,6 +4538,8 @@ pub async fn script_to_payload(
             concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -4542,6 +4566,8 @@ pub async fn script_to_payload(
                 custom_concurrency_key: concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
+                custom_debounce_key: debounce_key,
+                debounce_delay_s,
                 cache_ttl: module.cache_ttl.map(|x| x as i32).ok_or(cache_ttl).ok(),
                 language,
                 dedicated_worker,

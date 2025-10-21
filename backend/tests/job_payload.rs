@@ -1,20 +1,19 @@
 mod common;
 
-
 mod job_payload {
     use serde_json::json;
+    use sqlx::{Pool, Postgres};
     use std::sync::Arc;
     use tokio::sync::RwLock;
-    use sqlx::{Pool, Postgres};
-    use windmill_common::scripts::{ScriptHash, ScriptLang};
-    use windmill_common::jobs::JobPayload;
-    use windmill_common::flows::{FlowValue, FlowModule, FlowModuleValue};
     use windmill_common::flow_status::RestartedFrom;
-    
+    use windmill_common::flows::{FlowModule, FlowModuleValue, FlowValue};
+    use windmill_common::jobs::JobPayload;
+    use windmill_common::scripts::{ScriptHash, ScriptLang};
+
+    use crate::common::*;
     use windmill_common::worker::{
         MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440,
     };
-    use crate::common::*;
 
     pub async fn initialize_tracing() {
         use std::sync::Once;
@@ -42,11 +41,9 @@ mod job_payload {
         ];
     }
 
-
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_script_hash_payload(db: Pool<Postgres>) -> anyhow::Result<()> {
-
         initialize_tracing().await;
         let server = ApiServer::start(db.clone()).await?;
         let port = server.addr.port();
@@ -65,7 +62,7 @@ mod job_payload {
                 apply_preprocessor: false,
             })
             .arg("world", json!("foo"))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -95,8 +92,10 @@ mod job_payload {
                 language: ScriptLang::Deno,
                 priority: None,
                 apply_preprocessor: true,
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             })
-            .run_until_complete_with(db, port, |id| async move {
+            .run_until_complete_with(db, false, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
                     .fetch_one(db)
                     .await
@@ -131,7 +130,7 @@ mod job_payload {
             dedicated_worker: None,
             version: 1443253234253454,
         })
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -172,9 +171,11 @@ mod job_payload {
                 cache_ttl: None,
                 dedicated_worker: None,
                 path: "f/system/hello/test-0".into(),
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             })
             .arg("world", json!("foo"))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -192,9 +193,11 @@ mod job_payload {
                 cache_ttl: None,
                 dedicated_worker: None,
                 path: "f/system/hello/test-0".into(),
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             })
             .arg("hello", json!("You know nothing Jean Neige"))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -221,7 +224,7 @@ mod job_payload {
             dedicated_worker: None,
             version: 1443253234253454,
         })
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -242,7 +245,7 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow/forloop-0".into(),
             })
             .arg("iter", json!({ "value": "tests", "index": 0 }))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -264,7 +267,7 @@ mod job_payload {
             language: ScriptLang::Deno,
             dedicated_worker: None,
         })
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -308,7 +311,7 @@ mod job_payload {
                 dedicated_worker: None,
                 version: 1443253234253454,
             })
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -357,7 +360,7 @@ mod job_payload {
                 .unwrap(),
             })
             .arg("skip_flow_update", json!(true))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -371,7 +374,7 @@ mod job_payload {
                 restarted_from: None,
             })
             .arg("world", json!("Jean Neige"))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -399,7 +402,7 @@ mod job_payload {
                 .into(),
                 language: ScriptLang::Deno,
             })
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -427,7 +430,7 @@ mod job_payload {
                 apply_preprocessor: false,
                 version: 1443253234253454,
             })
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -449,7 +452,7 @@ mod job_payload {
             dedicated_worker: None,
             version: 1443253234253454,
         })
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -475,7 +478,7 @@ mod job_payload {
                 apply_preprocessor: true,
                 version: 1443253234253456,
             })
-            .run_until_complete_with(db, port, |id| async move {
+            .run_until_complete_with(db, false, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
                     .fetch_one(db)
                     .await
@@ -521,7 +524,7 @@ mod job_payload {
             dedicated_worker: None,
             version: 1443253234253456,
         })
-        .run_until_complete(db, port)
+        .run_until_complete(db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -544,7 +547,7 @@ mod job_payload {
                 apply_preprocessor: true,
                 version: 1443253234253454,
             })
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .id;
 
@@ -554,7 +557,7 @@ mod job_payload {
                 branch_or_iteration_n: None,
             })
             .arg("iter", json!({ "value": "tests", "index": 0 }))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -576,7 +579,7 @@ mod job_payload {
             dedicated_worker: None,
             version: 1443253234253454,
         })
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -622,7 +625,7 @@ mod job_payload {
                 restarted_from: None,
             })
             .arg("world", json!("Jean Neige"))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -702,7 +705,7 @@ mod job_payload {
                 restarted_from,
             })
             .arg("world", arg)
-            .run_until_complete(db, port)
+            .run_until_complete(db, false, port)
             .await;
 
             assert_eq!(job.json_result().unwrap(), result);

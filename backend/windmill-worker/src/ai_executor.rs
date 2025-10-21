@@ -890,6 +890,8 @@ pub async fn run_agent(
                                         custom_concurrency_key,
                                         concurrent_limit,
                                         concurrency_time_window_s,
+                                        custom_debounce_key,
+                                        debounce_delay_s,
                                         ..
                                     } => {
                                         let path = path.unwrap_or_else(|| {
@@ -908,6 +910,8 @@ pub async fn run_agent(
                                             custom_concurrency_key,
                                             concurrent_limit,
                                             concurrency_time_window_s,
+                                            custom_debounce_key,
+                                            debounce_delay_s,
                                             &tool.module,
                                             tag,
                                             tool.module.delete_after_use.unwrap_or(false),

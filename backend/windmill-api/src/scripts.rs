@@ -518,6 +518,7 @@ async fn create_script_internal<'c>(
     Transaction<'c, Postgres>,
     Option<HandleDeploymentMetadata>,
 )> {
+    dbg!(&ns);
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
 
     let codebase = ns.codebase.as_ref();
@@ -782,8 +783,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36)",
         &w_id,
         &hash.0,
         ns.path,
@@ -821,7 +822,9 @@ async fn create_script_internal<'c>(
             None
         },
         validate_schema,
-        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok())
+        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()),
+        ns.debounce_key,
+        ns.debounce_delay_s,
     )
     .execute(&mut *tx)
     .await?;

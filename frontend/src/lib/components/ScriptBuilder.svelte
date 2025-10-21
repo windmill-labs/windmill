@@ -518,6 +518,8 @@
 					dedicated_worker: script.dedicated_worker,
 					concurrent_limit: script.concurrent_limit,
 					concurrency_time_window_s: script.concurrency_time_window_s,
+					debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
+					debounce_delay_s: script.debounce_delay_s,
 					cache_ttl: script.cache_ttl,
 					ws_error_handler_muted: script.ws_error_handler_muted,
 					priority: script.priority,
@@ -1233,6 +1235,48 @@
 												{/snippet}
 												<input
 													disabled={!$enterpriseLicense}
+													type="text"
+													autofocus
+													bind:value={script.concurrency_key}
+													placeholder={`$workspace/script/${script.path}-$args[foo]`}
+												/>
+											</Label>
+										</div>
+									</Section>
+									<Section label="Debouncing" eeOnly>
+										{#snippet header()}
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/TODO"
+											>
+												Debounce Jobs
+											</Tooltip>
+										{/snippet}
+										<div class="flex flex-col gap-4">
+											<Label label="Debounce Delay in seconds. (if not set - disabled)">
+												<SecondsInput
+													bind:seconds={script.debounce_delay_s}
+												/>
+												<Button
+													size="sm"
+													color="light"
+													on:click={() => {
+														script.debounce_delay_s = undefined
+														script.custom_debounce_key = undefined
+													}}
+													variant="border">Remove Debouncing</Button
+												>
+											</Label>
+											<Label label="Custom debounce key (optional)">
+												{#snippet header()}
+													<Tooltip
+														documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits#TODO"
+													>
+														Debounce Keys are global, you can have them be workspace specific
+														using the variable `$workspace`. You can also use an argument's value
+														using `$args[name_of_arg]`</Tooltip
+													>
+												{/snippet}
+												<input
 													type="text"
 													autofocus
 													bind:value={script.concurrency_key}

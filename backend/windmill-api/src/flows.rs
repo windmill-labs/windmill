@@ -743,6 +743,8 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
+    dbg!(&nf);
+
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
 
@@ -1615,6 +1617,8 @@ mod tests {
             early_return: None,
             concurrency_key: None,
             chat_input_enabled: None,
+            debounce_key: None,
+            debounce_delay_s: None,
         };
         let expect = serde_json::json!({
           "modules": [

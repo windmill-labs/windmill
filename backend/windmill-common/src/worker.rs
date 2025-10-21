@@ -14,6 +14,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs::{self, File},
     io::Write,
+    ops::Deref,
     panic::Location,
     path::{Component, Path, PathBuf},
     str::FromStr,
@@ -250,6 +251,7 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    pub static ref MIN_VERSION_IS_AT_LEAST_1_563: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_461: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
@@ -266,7 +268,18 @@ pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone)]
-pub struct HttpClient(pub ClientWithMiddleware);
+pub struct HttpClient {
+    pub client: ClientWithMiddleware,
+    pub base_internal_url: Option<String>,
+}
+
+impl Deref for HttpClient {
+    type Target = ClientWithMiddleware;
+
+    fn deref(&self) -> &Self::Target {
+        &self.client
+    }
+}
 
 impl HttpClient {
     pub async fn post<T: Serialize, R: DeserializeOwned>(
@@ -275,10 +288,12 @@ impl HttpClient {
         headers: Option<HeaderMap>,
         body: &T,
     ) -> anyhow::Result<R> {
-        let response_builder = self
-            .0
-            .post(format!("{}{}", *BASE_INTERNAL_URL, url))
-            .json(body);
+        let base_url = self
+            .base_internal_url
+            .clone()
+            .unwrap_or(BASE_INTERNAL_URL.clone().to_owned());
+
+        let response_builder = self.client.post(format!("{}{}", base_url, url)).json(body);
 
         let response_builder = match headers {
             Some(headers) => response_builder.headers(headers),
@@ -302,9 +317,14 @@ impl HttpClient {
     }
 
     pub async fn get<R: DeserializeOwned>(&self, url: &str) -> anyhow::Result<R> {
+        let base_url = self
+            .base_internal_url
+            .clone()
+            .unwrap_or(BASE_INTERNAL_URL.clone().to_owned());
+
         let response = self
-            .0
-            .get(format!("{}{}", *BASE_INTERNAL_URL, url))
+            .client
+            .get(format!("{}{}", base_url, url))
             .send()
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
@@ -386,6 +406,10 @@ fn format_pull_query(peek: String) -> String {
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
+        ), delete_debounce AS NOT MATERIALIZED (
+            DELETE FROM debounce_key 
+            USING j
+            WHERE j.kind::text != 'dependency' AND debounce_key.job_id = j.id 
         ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
             j.runnable_id, j.runnable_path, j.args, canceled_by,
             canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
@@ -399,7 +423,8 @@ fn format_pull_query(peek: String) -> String {
         FROM q, j
             LEFT JOIN v2_job_status f USING (id)
             LEFT JOIN job_perms p ON p.job_id = j.id
-            LEFT JOIN v2_job pj ON j.parent_job = pj.id",
+            LEFT JOIN v2_job pj ON j.parent_job = pj.id
+            ",
         peek
     );
     // tracing::debug!("pull query: {}", r);

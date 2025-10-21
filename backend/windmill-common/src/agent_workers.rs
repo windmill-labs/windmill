@@ -35,7 +35,11 @@ pub struct AgentAuth {
 
 pub const AGENT_JWT_PREFIX: &str = "jwt_agent_";
 
-pub fn build_agent_http_client(worker_suffix: &str) -> HttpClient {
+pub fn build_agent_http_client(
+    worker_suffix: &str,
+    agent_token: Option<String>,
+    base_internal_url: Option<String>,
+) -> HttpClient {
     let client = ClientBuilder::new(
         reqwest::Client::builder()
             .pool_max_idle_per_host(10)
@@ -52,7 +56,9 @@ pub fn build_agent_http_client(worker_suffix: &str) -> HttpClient {
                     "{}{}_{}",
                     AGENT_JWT_PREFIX,
                     worker_suffix,
-                    AGENT_TOKEN.trim_start_matches(AGENT_JWT_PREFIX),
+                    agent_token
+                        .unwrap_or(AGENT_TOKEN.clone())
+                        .trim_start_matches(AGENT_JWT_PREFIX)
                 );
                 headers.insert(
                     "Authorization",
@@ -67,7 +73,8 @@ pub fn build_agent_http_client(worker_suffix: &str) -> HttpClient {
         ExponentialBackoff::builder().build_with_max_retries(5),
     ))
     .build();
-    HttpClient(client)
+
+    HttpClient { client, base_internal_url }
 }
 
 #[derive(Deserialize, Serialize)]

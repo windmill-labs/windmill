@@ -66,6 +66,8 @@
 		bgColor?: string
 		bgHoverColor?: string
 		concurrency?: boolean
+		// TODO: Implement for this one. See how concurrency is implemented.
+		debouncing?: boolean
 		retries?: number | undefined
 		warningMessage?: string | undefined
 		isTrigger?: boolean
@@ -103,6 +105,7 @@
 		bgColor = '',
 		bgHoverColor = '',
 		concurrency = false,
+		debouncing = false,
 		retries = undefined,
 		warningMessage = undefined,
 		isTrigger = false,
@@ -314,6 +317,20 @@
 					</div>
 					{#snippet text()}
 						Concurrency Limits
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if debouncing}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<!-- TODO: Find icon for debouncing -->
+						<Gauge size={12} />
+					</div>
+					{#snippet text()}
+						Debouncing						
 					{/snippet}
 				</Popover>
 			{/if}
