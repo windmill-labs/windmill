@@ -52,6 +52,8 @@
 
 	let imageUrl: string | undefined = $state(undefined)
 
+	let token = getContext<{ token?: string }>('AuthToken')
+
 	async function getS3Image(source: string | undefined, storage?: string, presigned?: string) {
 		if (!source) return ''
 		const appPathOrUser = defaultIfEmptyString(
@@ -64,6 +66,9 @@
 			params.append('storage', storage)
 		}
 
+		if (token?.token && token.token != '') {
+			params.append('token', token.token)
+		}
 		const forceViewerPolicies = computeForceViewerPolicies()
 		if (forceViewerPolicies) {
 			params.append('force_viewer_allowed_s3_keys', JSON.stringify([forceViewerPolicies]))
