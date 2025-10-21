@@ -26,15 +26,14 @@
 	import Summary from '$lib/components/Summary.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
-	import type { HiddenRunnable } from '../apps/types'
 	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
-	import type { Runnable } from '../apps/inputType'
 	import { collectStaticFields, hash, type TriggerableV2 } from '../apps/editor/commonAppUtils'
 	import type { SavedAndModifiedValue } from '../common/confirmationModal/unsavedTypes'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import AppEditorHeaderDeployInitialDraft from '../apps/editor/AppEditorHeaderDeployInitialDraft.svelte'
 	import AppEditorHeaderDeploy from '../apps/editor/AppEditorHeaderDeploy.svelte'
+	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 
 	// async function hash(message) {
 	// 	try {
@@ -72,7 +71,7 @@
 		newApp: boolean
 		newPath?: string
 		appPath: string
-		runnables: Record<string, HiddenRunnable>
+		runnables: Record<string, Runnable>
 		files: Record<string, string> | undefined
 		jobs: string[]
 		jobsById: Record<string, any>
@@ -138,7 +137,7 @@
 		policy.triggerables_v2 = Object.fromEntries(
 			(await Promise.all(
 				Object.values(runnables).map(async (runnable) => {
-					return await processRunnable(runnable.name, runnable, runnable.fields)
+					return await processRunnable(runnable?.name ?? '', runnable, runnable?.fields ?? {})
 				})
 			)) as [string, TriggerableV2][]
 		)

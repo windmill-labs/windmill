@@ -1,16 +1,16 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import RawAppInlineScripRunnable from './RawAppInlineScriptRunnable.svelte'
+	import RawAppInlineScripRunnable, { type Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { createScriptFromInlineScript } from '../apps/editor/inlineScriptsPanel/utils'
-	import type { Runnable } from '../apps/inputType'
 
 	interface Props {
 		runnables: Record<string, Runnable>
 		selectedRunnable: string | undefined
 		appPath: string
+		initRunnablesContent: Record<string, string>
 	}
 
-	let { runnables, selectedRunnable = $bindable(), appPath }: Props = $props()
+	let { runnables, selectedRunnable = $bindable(), appPath, initRunnablesContent }: Props = $props()
 </script>
 
 {#if !selectedRunnable}
@@ -36,6 +36,7 @@
 				selectedRunnable = undefined
 			}}
 			id={selectedRunnable}
+			lastDeployedCode={initRunnablesContent[selectedRunnable]}
 			bind:runnable={runnables[selectedRunnable]}
 		/>{/key}
 {:else}

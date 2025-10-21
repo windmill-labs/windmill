@@ -3,8 +3,6 @@
 </script>
 
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { ResourceService, VariableService, WorkspaceService, type Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
@@ -54,7 +52,6 @@
 	import S3FilePicker from './S3FilePicker.svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
-	import ScriptGen from './copilot/ScriptGen.svelte'
 	import GitRepoPopoverPicker from './GitRepoPopoverPicker.svelte'
 	import { insertDelegateToGitRepoInCode } from '$lib/ansibleUtils'
 
@@ -77,7 +74,7 @@
 		collabUsers?: { name: string }[]
 		scriptPath?: string | undefined
 		diffEditor?: DiffEditor | undefined
-		args: Record<string, any>
+		args?: Record<string, any>
 		noHistory?: boolean
 		saveToWorkspace?: boolean
 		customUi?: EditorBarUi
@@ -101,8 +98,6 @@
 		collabLive = false,
 		collabUsers = [],
 		scriptPath = undefined,
-		diffEditor = undefined,
-		args,
 		noHistory = false,
 		saveToWorkspace = false,
 		customUi = {},
@@ -202,9 +197,9 @@
 
 	let showResourceTypePicker = $derived(
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
-		lang === 'python3' ||
-		lang === 'php' ||
-		lang === 'rust'
+			lang === 'python3' ||
+			lang === 'php' ||
+			lang === 'rust'
 	)
 
 	let codeViewer: Drawer | undefined = $state()
@@ -227,7 +222,7 @@
 		})
 	}
 
-	run(() => {
+	$effect(() => {
 		editor && untrack(() => addEditorActions())
 	})
 
@@ -329,9 +324,9 @@
 				name,
 				JSON.stringify(resourceType.schema),
 				{
-					"leading-comments": false,
-					"density": "dense",
-					"derive-debug": true
+					'leading-comments': false,
+					density: 'dense',
+					'derive-debug': true
 				}
 			)
 			editor.insertAtCurrentLine(lines.join('\n'))
@@ -1042,8 +1037,6 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{#if customUi?.aiGen != false}
 				{#if openAiChat}
 					<FlowInlineScriptAiButton {moduleId} />
-				{:else}
-					<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
 				{/if}
 			{/if}
 

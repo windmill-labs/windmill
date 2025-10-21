@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
-	import type { HiddenRunnable, JobById } from '../apps/types'
+	import type { JobById } from '../apps/types'
 	import RawAppEditorHeader from './RawAppEditorHeader.svelte'
 	import { type Policy } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
@@ -14,10 +14,11 @@
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
+	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 
 	interface Props {
 		initFiles: Record<string, string>
-		initRunnables: Record<string, HiddenRunnable>
+		initRunnables: Record<string, Runnable>
 		newApp: boolean
 		policy: Policy
 		summary?: string
@@ -51,6 +52,15 @@
 	export const version: number | undefined = undefined
 
 	let runnables = $state(initRunnables)
+
+	let initRunnablesContent = Object.fromEntries(
+		Object.entries(initRunnables).map(([key, runnable]) => {
+			if (runnable?.type === 'runnableByName') {
+				return [key, runnable?.inlineScript?.content ?? '']
+			}
+			return [key, '']
+		})
+	)
 
 	let files: Record<string, string> | undefined = $state(initFiles)
 
@@ -224,7 +234,12 @@
 			{#if selectedRunnable !== undefined}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div class="flex h-full w-full">
-					<RawAppInlineScriptsPanel appPath={path} {selectedRunnable} {runnables} />
+					<RawAppInlineScriptsPanel
+						appPath={path}
+						{selectedRunnable}
+						{initRunnablesContent}
+						{runnables}
+					/>
 				</div>
 			{/if}
 

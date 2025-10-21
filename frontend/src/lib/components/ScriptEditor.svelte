@@ -164,9 +164,12 @@
 					if (
 						v !== undefined &&
 						(v.delegate_to_git_repo_details === null ||
-							v.delegate_to_git_repo_details.resource !== ansibleAlternativeExecutionMode?.resource ||
-							v.delegate_to_git_repo_details.playbook !== ansibleAlternativeExecutionMode?.playbook ||
-							v.delegate_to_git_repo_details.inventories_location !== ansibleAlternativeExecutionMode?.inventories_location ||
+							v.delegate_to_git_repo_details.resource !==
+								ansibleAlternativeExecutionMode?.resource ||
+							v.delegate_to_git_repo_details.playbook !==
+								ansibleAlternativeExecutionMode?.playbook ||
+							v.delegate_to_git_repo_details.inventories_location !==
+								ansibleAlternativeExecutionMode?.inventories_location ||
 							v.delegate_to_git_repo_details.commit !== ansibleAlternativeExecutionMode?.commit ||
 							v.git_ssh_identity !== ansibleGitSshIdentity)
 					) {
@@ -468,10 +471,10 @@
 	}
 
 	function showDiffMode() {
+		const model = editor?.getModel()
+		if (model == undefined) return
 		diffMode = true
-		diffEditor?.setOriginal(lastDeployedCode ?? '')
-		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
-		diffEditor?.show()
+		diffEditor?.showWithModelAndOriginal(lastDeployedCode ?? '', model)
 		editor?.hide()
 	}
 
@@ -551,7 +554,7 @@
 				}}
 				on:showDiffMode={showDiffMode}
 				on:hideDiffMode={hideDiffMode}
-				customUi={{ ...customUi?.editorBar, aiGen: false }}
+				customUi={customUi?.editorBar}
 				collabLive={wsProvider?.shouldConnect}
 				{collabMode}
 				{validCode}
@@ -617,7 +620,6 @@
 								gitRepoResourcePath={ansibleAlternativeExecutionMode?.resource || ''}
 								gitSshIdentity={ansibleGitSshIdentity}
 								bind:commitHashInput={commitHashForGitRepo}
-
 							/>
 						</div>
 					</Pane>

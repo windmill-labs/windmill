@@ -1,7 +1,7 @@
 import type { Schema } from '$lib/common'
 import { schemaToTsType } from '$lib/schema'
 import { capitalize } from '$lib/utils'
-import type { HiddenRunnable } from '../apps/types'
+import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 
 export type RawApp = {
 	files: string[]
@@ -39,21 +39,21 @@ function removeStaticFields(schema: Schema, fields: Record<string, { type: strin
 	}
 }
 
-function hiddenRunnableToTsType(runnable: HiddenRunnable) {
-	if (runnable.type == 'runnableByName') {
-		if (runnable.inlineScript?.schema) {
-			return schemaToTsType(removeStaticFields(runnable.inlineScript?.schema, runnable.fields))
+function hiddenRunnableToTsType(runnable: Runnable) {
+	if (runnable?.type == 'runnableByName') {
+		if (runnable?.inlineScript?.schema) {
+			return schemaToTsType(removeStaticFields(runnable?.inlineScript?.schema, runnable?.fields ?? {}))
 		} else {
 			return '{}'
 		}
-	} else if (runnable.type == 'runnableByPath') {
-		return schemaToTsType(removeStaticFields(runnable.schema, runnable.fields))
+	} else if (runnable?.type == 'runnableByPath') {
+		return schemaToTsType(removeStaticFields(runnable?.schema, runnable?.fields ?? {}))
 	} else {
 		return '{}'
 	}
 }
 
-export function genWmillTs(runnables: Record<string, HiddenRunnable>) {
+export function genWmillTs(runnables: Record<string, Runnable>) {
 	return `// THIS FILE IS READ-ONLY
 // AND GENERATED AUTOMATICALLY FROM YOUR RUNNABLES
 	

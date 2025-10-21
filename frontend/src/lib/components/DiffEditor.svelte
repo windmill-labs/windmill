@@ -117,6 +117,14 @@
 		})
 	}
 
+	export function showWithModelAndOriginal(
+		original: string,
+		model: meditor.ITextModel | meditor.IEditorModel
+	) {
+		setOriginal(original)
+		setModifiedModel(model as meditor.ITextModel)
+		show()
+	}
 	export function getModified(): string {
 		return diffEditor?.getModel()?.modified.getValue() ?? ''
 	}
