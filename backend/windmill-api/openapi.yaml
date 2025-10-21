@@ -567,19 +567,9 @@ paths:
             schema:
               type: object
               required:
-                - email
                 - touch_point
                 - use_case
               properties:
-                email:
-                  type: string
-                customer_id:
-                  type: integer
-                  format: int64
-                  nullable: true
-                is_ee_trial:
-                  type: boolean
-                  nullable: true
                 touch_point:
                   type: string
                 use_case:

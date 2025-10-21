@@ -53,23 +53,9 @@
 
 		isSubmitting = true
 		try {
-			// Get email from global user info instead of userStore (which is workspace-specific)
-			const globalUserInfo = await UserService.globalWhoami()
-			const email = globalUserInfo.email
-
-			if (!email) {
-				console.error('No email found in global user info:', globalUserInfo)
-				throw new Error('User email not found')
-			}
-
-			const touchPoint = selectedSource
-
 			await UserService.submitOnboardingData({
 				requestBody: {
-					email,
-					customer_id: null,
-					is_ee_trial: null,
-					touch_point: touchPoint,
+					touch_point: selectedSource,
 					use_case: useCaseText
 				}
 			})
@@ -94,6 +80,7 @@
 		<div class="w-full max-w-lg mx-auto">
 			<div class="grid grid-cols-1 gap-3 mt-6 mb-6">
 				{#each sources as source (source.id)}
+					{@const Icon = source.icon}
 					<button
 						onclick={() => selectSource(source.id)}
 						class="flex items-center gap-3 px-4 py-3 bg-surface-secondary rounded-lg border transition-all hover:bg-surface-hover {selectedSource ===
@@ -101,7 +88,7 @@
 							? 'border-blue-500 ring-2 ring-blue-500 ring-opacity-50'
 							: 'border-gray-200 dark:border-gray-700'}"
 					>
-						<svelte:component this={source.icon} class="w-5 h-5 text-primary" />
+						<Icon class="w-5 h-5 text-primary" />
 						<span class="text-sm font-medium text-primary">{source.label}</span>
 					</button>
 				{/each}

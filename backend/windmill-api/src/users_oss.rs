@@ -64,9 +64,6 @@ pub fn send_email_if_possible(_subject: &str, _content: &str, _to: &str) {
 #[derive(Deserialize, Debug)]
 #[allow(dead_code)]
 pub struct OnboardingData {
-    pub email: String,
-    pub customer_id: Option<i64>,
-    pub is_ee_trial: Option<bool>,
     pub touch_point: String,
     pub use_case: String,
 }
