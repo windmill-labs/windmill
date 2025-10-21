@@ -1,5 +1,116 @@
 # Changelog
 
+## [1.563.4](https://github.com/windmill-labs/windmill/compare/v1.563.3...v1.563.4) (2025-10-20)
+
+
+### Bug Fixes
+
+* **cli:** improve generate-flow with raw requirements ([6ccccbc](https://github.com/windmill-labs/windmill/commit/6ccccbcf9e3466597a76175ce02faf7dec8a4ca7))
+* set jwt auth for custom apps ([d86ad75](https://github.com/windmill-labs/windmill/commit/d86ad751d4fb0501964a500dd9db40b9be9c2ae8))
+
+## [1.563.3](https://github.com/windmill-labs/windmill/compare/v1.563.2...v1.563.3) (2025-10-18)
+
+
+### Bug Fixes
+
+* **cli:** when generating flow locks with new inline content, also generate separate content file ([3c114b0](https://github.com/windmill-labs/windmill/commit/3c114b0678531d818e0e46177058425c03a55fc7))
+
+## [1.563.2](https://github.com/windmill-labs/windmill/compare/v1.563.1...v1.563.2) (2025-10-17)
+
+
+### Bug Fixes
+
+* monitor less frequent cleanup process periodicity ([f581ce6](https://github.com/windmill-labs/windmill/commit/f581ce62481a6a62a5f17571f17daf3d99c6c549))
+
+## [1.563.1](https://github.com/windmill-labs/windmill/compare/v1.563.0...v1.563.1) (2025-10-17)
+
+
+### Bug Fixes
+
+* fix concurrency limit behavior with remote agents dep jobs ([6faea9a](https://github.com/windmill-labs/windmill/commit/6faea9adad96ac262477b7e899557ff1ce875b3a))
+
+## [1.563.0](https://github.com/windmill-labs/windmill/compare/v1.562.0...v1.563.0) (2025-10-17)
+
+
+### Features
+
+* **aiagent:** Store AI provider config in localStorage ([#6854](https://github.com/windmill-labs/windmill/issues/6854)) ([93e4b5e](https://github.com/windmill-labs/windmill/commit/93e4b5e0bb8928e912e60028489cf05249c1cb34))
+* http routes streaming ([#6834](https://github.com/windmill-labs/windmill/issues/6834)) ([8cd0006](https://github.com/windmill-labs/windmill/commit/8cd0006498c7afa30a08a0d7cbb2f3a0a9c68994))
+
+
+### Bug Fixes
+
+* add grant select on debounce_key ([60e17e5](https://github.com/windmill-labs/windmill/commit/60e17e506806b1fd39cd265952858c068457325c))
+* flow dev mode improvements ([963e0fb](https://github.com/windmill-labs/windmill/commit/963e0fb356c88a29637bd4b8f442540eb718359d))
+* **frontend:** interaction with code instance settings on chrome ([#6859](https://github.com/windmill-labs/windmill/issues/6859)) ([c7fb178](https://github.com/windmill-labs/windmill/commit/c7fb178190a9fa2a4e45322ed016c8c8b7753acf))
+
+
+### Performance Improvements
+
+* remove unnecessary db call ([#6853](https://github.com/windmill-labs/windmill/issues/6853)) ([2868eed](https://github.com/windmill-labs/windmill/commit/2868eeda26a35bf8f1b5d39edb4d981ff1181f1f))
+
+## [1.562.0](https://github.com/windmill-labs/windmill/compare/v1.561.0...v1.562.0) (2025-10-16)
+
+
+### Features
+
+* add support for sage intacct oauth ([#6794](https://github.com/windmill-labs/windmill/issues/6794)) ([c86b344](https://github.com/windmill-labs/windmill/commit/c86b3448b86e008f14a25280285cc2f498eb926a))
+* dependency job debouncing ([#6769](https://github.com/windmill-labs/windmill/issues/6769)) ([defb6c9](https://github.com/windmill-labs/windmill/commit/defb6c9694ac294dbf19ba5cd42ce7399ad1b9ac))
+
+
+### Bug Fixes
+
+* add configurable timeout sse stream ([f723a1f](https://github.com/windmill-labs/windmill/commit/f723a1fb7227ae45661fea5cf2e6f9928a39672b))
+
+## [1.561.0](https://github.com/windmill-labs/windmill/compare/v1.560.0...v1.561.0) (2025-10-16)
+
+
+### Features
+
+* ansible playbook execution git repo mode (repo viewer + UI utils) ([#6831](https://github.com/windmill-labs/windmill/issues/6831)) ([32fae7a](https://github.com/windmill-labs/windmill/commit/32fae7a10c769473c708970e18c1f8268d62183f))
+
+
+### Bug Fixes
+
+* **backend:** revert flow node opti for ai agents ([#6840](https://github.com/windmill-labs/windmill/issues/6840)) ([3b5c962](https://github.com/windmill-labs/windmill/commit/3b5c96247350b70fe947d204e9bff61f81be219c))
+* fix job loader in public apps with jwt token ([a238750](https://github.com/windmill-labs/windmill/commit/a2387505544a04675a7c9fddf2ed8c042f8bfa42))
+
+## [1.560.0](https://github.com/windmill-labs/windmill/compare/v1.559.0...v1.560.0) (2025-10-15)
+
+
+### Features
+
+* add support for zoho oauth ([#6809](https://github.com/windmill-labs/windmill/issues/6809)) ([9d9c29f](https://github.com/windmill-labs/windmill/commit/9d9c29fdfa15cc655854ec909dea944d10ce7374))
+* **backend:** use flow nodes opti for ai agent steps ([#6808](https://github.com/windmill-labs/windmill/issues/6808)) ([8d5acda](https://github.com/windmill-labs/windmill/commit/8d5acda340cd105c5b0dfc2bfe59b7e996bd2707))
+* build pydoc for wmill python client and mount in container image ([#6828](https://github.com/windmill-labs/windmill/issues/6828)) ([d75e9e3](https://github.com/windmill-labs/windmill/commit/d75e9e3d92d43f449a6296b367018f8fa3da6507))
+* **settings:** add unsaved changes warning for workspace settings ([#6813](https://github.com/windmill-labs/windmill/issues/6813)) ([cb88187](https://github.com/windmill-labs/windmill/commit/cb8818796ddd68d2b2ee1dea5f9b0a648f0c1ec9))
+
+
+### Bug Fixes
+
+* always create instance groups with uuid ([#6826](https://github.com/windmill-labs/windmill/issues/6826)) ([48acc57](https://github.com/windmill-labs/windmill/commit/48acc57823792c9e795f9735712e1b2ed6d2b4e2))
+* bug for loop flow inconsistent state ([#6815](https://github.com/windmill-labs/windmill/issues/6815)) ([2565222](https://github.com/windmill-labs/windmill/commit/256522273ee65b67075ac91408825b1c6e91ef06))
+* fix concurrency key filter ([892ce64](https://github.com/windmill-labs/windmill/commit/892ce64ea8550c22d65180c71f57c90a65583832))
+* gcp script picker ([#6837](https://github.com/windmill-labs/windmill/issues/6837)) ([d12c8f3](https://github.com/windmill-labs/windmill/commit/d12c8f34efe5ebbdbbf85ae41bb11307dc5d8ea3))
+* resource editor should not autoselect resources for optional fields ([#6821](https://github.com/windmill-labs/windmill/issues/6821)) ([85d1b8a](https://github.com/windmill-labs/windmill/commit/85d1b8a3e6af41bba93128ebcb88ada383ed2d65))
+* support dyn select for sub flow ([#6835](https://github.com/windmill-labs/windmill/issues/6835)) ([b211155](https://github.com/windmill-labs/windmill/commit/b211155784135b1377975a2759f2ddca1cffcea2))
+
+## [1.559.0](https://github.com/windmill-labs/windmill/compare/v1.558.1...v1.559.0) (2025-10-14)
+
+
+### Features
+
+* Add back apply code button in CodeDisplay ([#6800](https://github.com/windmill-labs/windmill/issues/6800)) ([b630208](https://github.com/windmill-labs/windmill/commit/b630208ece8aca9decd30b6964afb88aa8025f41))
+* add support for contextual vars in SQL ([#6791](https://github.com/windmill-labs/windmill/issues/6791)) ([b972eb9](https://github.com/windmill-labs/windmill/commit/b972eb97219d1aba4c820c2e9cd18d519cbd25b4))
+* **rust:** add resource types ([#5843](https://github.com/windmill-labs/windmill/issues/5843)) ([e2feba3](https://github.com/windmill-labs/windmill/commit/e2feba391c47fd62c3ba76556b4c2777e10dc192))
+
+
+### Bug Fixes
+
+* **internal:** no max turns ([#6805](https://github.com/windmill-labs/windmill/issues/6805)) ([1a0dbf7](https://github.com/windmill-labs/windmill/commit/1a0dbf7982a647eff40031439e930b1ff53ae615))
+* Safeguard prevents button from deleting non-fork workspaces ([#6795](https://github.com/windmill-labs/windmill/issues/6795)) ([9149faf](https://github.com/windmill-labs/windmill/commit/9149faf3053431633f6046aa3d20ef8fdfb05fea))
+* show workspace prefix to non superadmins for app deploy custom path ([#6793](https://github.com/windmill-labs/windmill/issues/6793)) ([e0d9017](https://github.com/windmill-labs/windmill/commit/e0d90170365d799f05222457feb0fc7f27edf945))
+
 ## [1.558.1](https://github.com/windmill-labs/windmill/compare/v1.558.0...v1.558.1) (2025-10-09)
 
 
