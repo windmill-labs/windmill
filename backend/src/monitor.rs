@@ -1590,7 +1590,7 @@ pub async fn monitor_db(
     };
 
     let cleanup_debounce_keys_f = async {
-        if server_mode {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(20) {
             if let Some(db) = conn.as_sql() {
                 if let Err(e) = cleanup_debounce_orphaned_keys(&db).await {
                     tracing::error!("Error cleaning up debounce keys: {:?}", e);
