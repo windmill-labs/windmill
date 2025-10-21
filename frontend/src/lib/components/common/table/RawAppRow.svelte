@@ -89,8 +89,8 @@
 				{#if app.canWrite}
 					<div>
 						<Button
-							variant="default"
-							size="xs"
+							variant="subtle"
+							unifiedSize="md"
 							startIcon={{ icon: Pen }}
 							on:click={() => updateAppDrawer?.toggleDrawer?.()}
 						>

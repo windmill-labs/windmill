@@ -115,7 +115,7 @@
 						<Button
 							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
 							aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-							variant="default"
+							variant="subtle"
 							size="xs"
 							startIcon={{ icon: Pen }}
 							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}?nodraft=true"
@@ -128,7 +128,7 @@
 						<Button
 							aiId={`fork-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
 							aiDescription={`Fork the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-							variant="default"
+							variant="subtle"
 							size="xs"
 							startIcon={{ icon: GitFork }}
 							href="{base}/apps{app.raw_app ? '_raw' : ''}/add?template={app.path}"

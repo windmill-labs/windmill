@@ -174,6 +174,7 @@
 	{#if clearable}
 		<Button
 			variant="default"
+			unifiedSize="md"
 			wrapperClasses="h-full"
 			{disabled}
 			on:click={() => {

@@ -270,8 +270,8 @@
 					<div class="text-xs font-medium text-emphasis shrink-0"> Filter by path of </div>
 					<ToggleButtonGroup bind:selected={selectedFilterKind}>
 						{#snippet children({ item })}
-							<ToggleButton small value="trigger" label="Route" icon={Route} {item} />
-							<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+							<ToggleButton value="trigger" label="Route" icon={Route} {item} />
+							<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>
@@ -346,25 +346,26 @@
 											copyToClipboard(
 												getHttpRoute('r', route_path, workspaced_route ?? false, workspace_id)
 											)}
-										variant="default"
-										size="xs"
+										variant="subtle"
+										unifiedSize="md"
 										startIcon={{ icon: ClipboardCopy }}
 									>
 										Copy URL
 									</Button>
 									<Button
 										on:click={() => routeEditor?.openEdit(path, is_flow)}
-										size="xs"
+										unifiedSize="md"
 										startIcon={canWrite
 											? { icon: Pen }
 											: {
 													icon: Eye
 												}}
-										variant="default"
+										variant="subtle"
 									>
 										{canWrite ? 'Edit' : 'View'}
 									</Button>
 									<Dropdown
+										size="md"
 										items={[
 											{
 												displayName: `View ${is_flow ? 'Flow' : 'Script'}`,

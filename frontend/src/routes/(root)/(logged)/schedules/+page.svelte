@@ -404,9 +404,9 @@
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										href={`${base}/runs/?schedule_path=${path}&show_schedules=true&show_future_jobs=true`}
-										size="xs"
+										unifiedSize="md"
 										startIcon={{ icon: List }}
-										variant="default"
+										variant="subtle"
 									>
 										Runs
 									</Button>
@@ -414,11 +414,12 @@
 										on:click={() => scheduleEditor?.openEdit(path, is_flow)}
 										size="xs"
 										startIcon={{ icon: canWrite ? Pen : Eye }}
-										variant="default"
+										variant="subtle"
 									>
 										{canWrite ? 'Edit' : 'View'}
 									</Button>
 									<Dropdown
+										size="md"
 										items={[
 											{
 												displayName: `View ${is_flow ? 'Flow' : 'Script'}`,

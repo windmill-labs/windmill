@@ -972,13 +972,13 @@
 		{:else if config}
 			<Button
 				unifiedSize="md"
-				variant="subtle"
+				variant="accent"
 				on:click={() => {
 					loadNConfig()
 					drawer?.openDrawer()
 				}}
 			>
-				config
+				Config
 			</Button>
 		{/if}
 	</div>

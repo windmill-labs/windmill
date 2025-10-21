@@ -99,6 +99,7 @@
 								type: item.color === 'red' ? 'delete' : 'action'
 							}))}
 							placement="bottom-end"
+							size="md"
 						/>
 					{/key}
 				{/if}

@@ -251,7 +251,12 @@
 		title="MQTT triggers"
 		tooltip="Windmill can connect to an MQTT broker, subscribe to specific topics, and trigger scripts or flows based on those topics."
 	>
-		<Button size="md" startIcon={{ icon: Plus }} on:click={() => mqttTriggerEditor?.openNew(false)}>
+		<Button
+			unifiedSize="lg"
+			variant="accent"
+			startIcon={{ icon: Plus }}
+			on:click={() => mqttTriggerEditor?.openNew(false)}
+		>
 			New&nbsp;MQTT trigger
 		</Button>
 	</PageHeader>
@@ -274,8 +279,8 @@
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
 					{#snippet children({ item })}
-						<ToggleButton small value="trigger" label="MQTT trigger" icon={MqttIcon} {item} />
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+						<ToggleButton value="trigger" label="MQTT trigger" icon={MqttIcon} {item} />
+						<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
 					{/snippet}
 				</ToggleButtonGroup>
 			</div>
@@ -318,7 +323,7 @@
 								onclick={() => mqttTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
-								<div class="text-secondary text-xs truncate text-left font-light">
+								<div class="text-emphasis font-medium text-xs truncate text-left">
 									{path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
@@ -379,13 +384,13 @@
 							<div class="flex gap-2 items-center justify-end">
 								<Button
 									on:click={() => mqttTriggerEditor?.openEdit(path, is_flow)}
-									size="xs"
+									unifiedSize="md"
 									startIcon={canWrite
 										? { icon: Pen }
 										: {
 												icon: Eye
 											}}
-									variant="accent"
+									variant="subtle"
 								>
 									{canWrite ? 'Edit' : 'View'}
 								</Button>

@@ -226,7 +226,8 @@
 		>
 			{#if $userStore?.is_admin || $userStore?.is_super_admin}
 				<Button
-					size="md"
+					unifiedSize="lg"
+					variant="accent"
 					startIcon={{ icon: Plus }}
 					on:click={() => emailTriggerEditor?.openNew(false)}
 				>

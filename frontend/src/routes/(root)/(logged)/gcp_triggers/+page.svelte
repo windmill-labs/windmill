@@ -290,7 +290,12 @@
 
 <CenteredPage>
 	<PageHeader title="GCP Pub/Sub triggers" tooltip="GCP Pub/Sub trigger">
-		<Button size="md" startIcon={{ icon: Plus }} on:click={() => gcpTriggerEditor?.openNew(false)}>
+		<Button
+			unifiedSize="lg"
+			variant="accent"
+			startIcon={{ icon: Plus }}
+			on:click={() => gcpTriggerEditor?.openNew(false)}
+		>
 			New&nbsp;GCP Pub/Sub trigger
 		</Button>
 	</PageHeader>
@@ -308,13 +313,12 @@
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
 					{#snippet children({ item })}
 						<ToggleButton
-							small
 							value="trigger"
 							label="GCP Pub/Sub trigger"
 							icon={GoogleCloudIcon}
 							{item}
 						/>
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+						<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
 					{/snippet}
 				</ToggleButtonGroup>
 			</div>
@@ -427,7 +431,7 @@
 									<Button
 										on:click={() =>
 											copyToClipboard(getHttpRoute('gcp/w', path, true, workspace_id))}
-										variant="accent"
+										variant="subtle"
 										size="xs"
 										startIcon={{ icon: ClipboardCopy }}
 									>
@@ -442,7 +446,7 @@
 										: {
 												icon: Eye
 											}}
-									variant="accent"
+									variant="subtle"
 								>
 									{canWrite ? 'Edit' : 'View'}
 								</Button>

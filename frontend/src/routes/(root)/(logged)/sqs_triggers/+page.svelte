@@ -247,7 +247,12 @@
 
 <CenteredPage>
 	<PageHeader title="SQS triggers" tooltip="SQS trigger">
-		<Button size="md" startIcon={{ icon: Plus }} on:click={() => sqsTriggerEditor?.openNew(false)}>
+		<Button
+			unifiedSize="lg"
+			variant="accent"
+			startIcon={{ icon: Plus }}
+			on:click={() => sqsTriggerEditor?.openNew(false)}
+		>
 			New&nbsp;SQS trigger
 		</Button>
 	</PageHeader>
@@ -266,12 +271,12 @@
 				bind:value={filter}
 				class="search-item"
 			/>
-			<div class="flex flex-row items-center gap-2 mt-6">
+			<div class="flex flex-row items-center gap-2 mt-2">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
 					{#snippet children({ item })}
-						<ToggleButton small value="trigger" label="SQS trigger" icon={AwsIcon} {item} />
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+						<ToggleButton value="trigger" label="SQS trigger" icon={AwsIcon} {item} />
+						<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
 					{/snippet}
 				</ToggleButtonGroup>
 			</div>
@@ -314,7 +319,7 @@
 								onclick={() => sqsTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
-								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
+								<div class="text-emphasis flex-wrap text-left text-xs font-medium mb-1 truncate">
 									{path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light"></div>

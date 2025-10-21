@@ -85,7 +85,7 @@
 				: ''}>{queue_count ? ($queue_count ?? 0).toFixed(0) : '...'}</div
 		>
 		<div class="truncate text-2xs !text-secondary mt-0.5">
-			<Button size="xs2" color="light" on:click={() => onJobsWaiting?.()}>
+			<Button variant="subtle" unifiedSize="md" on:click={() => onJobsWaiting?.()}>
 				{#if success == 'waiting'}
 					<div class="flex flex-row items-center gap-1">
 						Reset filter
@@ -111,7 +111,7 @@
 					: ''}>{suspended_count ? ($suspended_count ?? 0).toFixed(0) : '...'}</div
 			>
 			<div class="truncate text-2xs !text-secondary">
-				<Button size="xs2" color="light" on:click={() => onJobsSuspended?.()}>
+				<Button unifiedSize="md" variant="subtle" on:click={() => onJobsSuspended?.()}>
 					{#if success == 'suspended'}
 						<div class="flex flex-row items-center gap-1">
 							Reset filter

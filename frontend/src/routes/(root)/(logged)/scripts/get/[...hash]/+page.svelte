@@ -288,7 +288,7 @@
 				label: 'Fork',
 				buttonProps: {
 					href: `${base}/scripts/add?template=${script.path}`,
-					size: 'xs',
+					unifiedSize: 'md',
 					variant: 'subtle',
 					startIcon: GitFork
 				}
@@ -303,7 +303,7 @@
 			label: `Runs`,
 			buttonProps: {
 				href: `${base}/runs/${script.path}`,
-				size: 'xs',
+				unifiedSize: 'md',
 				variant: 'subtle',
 				startIcon: Play
 			}
@@ -321,7 +321,7 @@
 						versionsDrawerOpen = !versionsDrawerOpen
 					},
 
-					size: 'xs',
+					unifiedSize: 'md',
 					variant: 'subtle',
 					startIcon: History
 				}
@@ -338,7 +338,7 @@
 						await goto('/apps/add?nodraft=true')
 					},
 
-					size: 'xs',
+					unifiedSize: 'md',
 					variant: 'accent',
 					startIcon: Table2
 				}
@@ -351,7 +351,7 @@
 						onClick: () => {
 							persistentScriptDrawer?.open?.(script)
 						},
-						size: 'xs',
+						unifiedSize: 'md',
 						startIcon: Activity,
 						variant: 'accent'
 					}
@@ -365,7 +365,7 @@
 						href: `${base}/scripts/edit/${script.path}?${
 							topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
 						}`,
-						size: 'xs',
+						unifiedSize: 'md',
 						startIcon: Pen,
 						variant: 'accent-secondary',
 						disabled: !can_write

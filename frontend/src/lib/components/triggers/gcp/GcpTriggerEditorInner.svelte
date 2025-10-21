@@ -381,9 +381,9 @@
 						/>
 						{#if emptyString(script_path)}
 							<Button
-								btnClasses="ml-4 mt-2"
-								variant="accent"
-								size="xs"
+								btnClasses="ml-4"
+								variant="default"
+								unifiedSize="md"
 								disabled={!can_write}
 								href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F19796'}
 								target="_blank">Create from template</Button

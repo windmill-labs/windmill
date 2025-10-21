@@ -136,7 +136,13 @@
 	{/if}
 
 	{#if allowRefresh}
-		<Button variant="default" on:click={loadItems} startIcon={{ icon: RefreshCw }} iconOnly />
+		<Button
+			variant="subtle"
+			unifiedSize="md"
+			on:click={loadItems}
+			startIcon={{ icon: RefreshCw }}
+			iconOnly
+		/>
 	{/if}
 
 	{#if scriptPath !== undefined && scriptPath !== ''}

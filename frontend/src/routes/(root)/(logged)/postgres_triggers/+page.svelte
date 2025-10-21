@@ -40,6 +40,7 @@
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	type TriggerD = PostgresTrigger & { canWrite: boolean }
 
@@ -318,7 +319,8 @@
 		tooltip="Windmill enables real-time responsiveness by listening to specific database transactions—such as inserts, updates, and deletes—and automatically triggering scripts or workflows in response."
 	>
 		<Button
-			size="md"
+			unifiedSize="lg"
+			variant="accent"
 			startIcon={{ icon: Plus }}
 			on:click={() => postgresTriggerEditor?.openNew(false)}
 		>
@@ -334,18 +336,19 @@
 	{/if}
 	<div class="w-full h-full flex flex-col">
 		<div class="w-full pb-4 pt-6">
-			<input
-				type="text"
-				placeholder="Search Postgres triggers"
+			<TextInput
+				inputProps={{
+					placeholder: 'Search Postgres triggers',
+					class: 'search-item'
+				}}
 				bind:value={filter}
-				class="search-item"
 			/>
-			<div class="flex flex-row items-center gap-2 mt-6">
-				<div class="text-sm shrink-0"> Filter by path of </div>
+			<div class="flex flex-row items-center gap-2 mt-2">
+				<div class="text-xs font-medium text-emphasis shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
 					{#snippet children({ item })}
-						<ToggleButton small value="trigger" label="Postgres trigger" icon={Database} {item} />
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+						<ToggleButton value="trigger" label="Postgres trigger" icon={Database} {item} />
+						<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
 					{/snippet}
 				</ToggleButtonGroup>
 			</div>
@@ -388,7 +391,7 @@
 								onclick={() => postgresTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
-								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
+								<div class="text-emphasis flex-wrap text-left text-xs font-medium mb-1 truncate">
 									{path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
@@ -456,7 +459,7 @@
 										: {
 												icon: Eye
 											}}
-									variant="accent"
+									variant="subtle"
 								>
 									{canWrite ? 'Edit' : 'View'}
 								</Button>
