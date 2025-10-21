@@ -98,7 +98,7 @@
 			</div>
 		{:else}
 			<SecondsInput disabled />
-			<div class="text-secondary">OR use a dynamic expression</div>
+			<div class="text-secondary text-xs">OR use a dynamic expression</div>
 		{/if}
 	</Label>
 </Section>
