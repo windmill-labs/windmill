@@ -1589,6 +1589,16 @@ pub async fn monitor_db(
         }
     };
 
+    let cleanup_debounce_keys_f = async {
+        if server_mode {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = cleanup_debounce_orphaned_keys(&db).await {
+                    tracing::error!("Error cleaning up debounce keys: {:?}", e);
+                }
+            }
+        }
+    };
+
     // run every hour (60 minutes / 30 seconds = 120)
     let cleanup_worker_group_stats_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
@@ -1707,6 +1717,7 @@ pub async fn monitor_db(
         update_min_worker_version_f,
         cleanup_concurrency_counters_f,
         cleanup_concurrency_counters_empty_keys_f,
+        cleanup_debounce_keys_f,
         cleanup_worker_group_stats_f,
     );
 }
@@ -2752,5 +2763,31 @@ pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
     let mut l = JWT_SECRET.write().await;
     *l = jwt_secret;
 
+    Ok(())
+}
+
+async fn cleanup_debounce_orphaned_keys(db: &DB) -> error::Result<()> {
+    let result = sqlx::query!(
+        "
+DELETE FROM debounce_key
+WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
+RETURNING key,job_id
+        ",
+    )
+    .fetch_all(db)
+    .await?;
+
+    tracing::debug!("Cleaning up debounce keys");
+
+    if result.len() > 0 {
+        tracing::info!("Cleaned up {} debounce keys", result.len());
+        for row in result {
+            tracing::info!(
+                "Debounce key cleaned up: key: {}, job_id: {:?}",
+                row.key,
+                row.job_id
+            );
+        }
+    }
     Ok(())
 }
