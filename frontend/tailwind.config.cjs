@@ -5,8 +5,9 @@ const {
 const { zIndexes } = require('./src/lib/zIndexes')
 
 const figmaTokens = makeRgb(require('./src/lib/assets/tokens/tokens.json'))
+const { darkModeName, lightModeName } = require('./src/lib/assets/tokens/colorTokensConfig')
 
-const tokens = { dark: figmaTokens.tokens['dark-3'], light: figmaTokens.tokens.light }
+const tokens = { dark: figmaTokens.tokens[darkModeName], light: figmaTokens.tokens[lightModeName] }
 const primitives = figmaTokens.primitives.light
 
 /** @type {import('tailwindcss').Config} */
@@ -56,6 +57,7 @@ const config = {
 			'surface-accent-secondary-clicked':
 				'rgb(var(--color-surface-accent-secondary-clicked) / <alpha-value>)',
 			'surface-accent-selected': 'rgb(var(--color-surface-accent-selected))',
+			'surface-input': 'rgb(var(--color-surface-input))',
 
 			// Text colors (semantic)
 			primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
@@ -637,7 +639,7 @@ const config = {
 						fontSize: theme('fontSize.xs'),
 						width: '100%',
 						padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
-						backgroundColor: 'rgb(var(--color-surface-tertiary))' + ' !important',
+						backgroundColor: 'rgb(var(--color-surface-input))' + ' !important',
 						border: '1px solid rgb(var(--color-border-light))',
 						borderRadius: theme('borderRadius.md'),
 						'&:hover': {

@@ -1623,13 +1623,26 @@ export async function wait(ms: number) {
 	return new Promise((resolve) => setTimeout(() => resolve(undefined), ms))
 }
 
-export type CssColor = keyof (typeof import('../lib/assets/tokens/tokens.json'))['tokens']['light']
-export function getCssColor(color: CssColor, alpha = 1): string {
-	const root = document.documentElement
-	const rgb = getComputedStyle(root)
-		.getPropertyValue('--color-' + color)
-		.trim()
-	return `rgb(${rgb} / ${alpha})`
+export type CssColor = keyof (typeof tokensFile)['tokens']['light']
+import tokensFile from './assets/tokens/tokens.json'
+import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
+export function getCssColor(
+	color: CssColor,
+	{
+		alpha = 1,
+		format = 'css-var'
+	}: {
+		alpha?: number
+		format?: 'css-var' | 'hex-dark' | 'hex-light'
+	}
+): string {
+	if (format === 'hex-light') {
+		return tokensFile.tokens[lightModeName][color]
+	}
+	if (format === 'hex-dark') {
+		return tokensFile.tokens[darkModeName][color]
+	}
+	return `rgb(var(--color-${color}) / ${alpha})`
 }
 
 export type IconType = Component<{ size?: number }> | typeof import('lucide-svelte').Dot

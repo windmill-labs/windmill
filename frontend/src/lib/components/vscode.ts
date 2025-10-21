@@ -239,7 +239,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 				],
 				colors: {
 					'editor.foreground': '#D8DEE9',
-					'editor.background': '#353C4A',
+					'editor.background': getCssColor('surface-input', { format: 'hex-dark' }),
 					'editor.selectionBackground': '#515A6D',
 					'editor.inactiveSelectionBackground': '#515A6DB0',
 					'editor.lineHighlightBackground': '#3B4252',
@@ -251,8 +251,6 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 					'editorLineNumber.activeForeground': '#D8DEE980'
 				}
 			})
-
-			console.log(getCssColor('surface-tertiary'))
 
 			meditor.defineTheme('myTheme', {
 				base: 'vs',

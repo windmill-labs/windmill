@@ -686,7 +686,7 @@
 										dispatch('change', { argName, arg })
 									}}
 									loadAsync
-									class="bg-surface-tertiary"
+									class="bg-surface-input"
 								/>
 							{/if}
 						</div>
@@ -748,7 +748,7 @@
 						</ArgInput>
 					{:else if arg.expr != undefined}
 						<div
-							class={`bg-surface-tertiary rounded-md flex flex-col pl-3 ${inputBorderClass({ forceFocus: focused })}`}
+							class={`bg-surface-input rounded-md flex flex-col pl-3 ${inputBorderClass({ forceFocus: focused })}`}
 						>
 							<SimpleEditor
 								small
