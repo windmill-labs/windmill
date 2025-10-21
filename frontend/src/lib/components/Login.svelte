@@ -206,10 +206,7 @@
 			logins = []
 			saml = undefined
 			showPassword = true
-			// Only log if it's not a 404
-			if (e?.status !== 404) {
-				console.error('Could not load logins', e)
-			}
+			console.error('Could not load logins', e)
 		}
 	}
 
