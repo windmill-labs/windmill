@@ -131,6 +131,7 @@
 					placeholder="E.g., Building AI agents, automating data pipelines, creating internal tools..."
 					class="input mt-1"
 					rows="8"
+					maxlength="1000"
 				></textarea>
 			</div>
 
