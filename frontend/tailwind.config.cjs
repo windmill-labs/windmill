@@ -82,6 +82,7 @@ const config = {
 
 			// Reserved colors (semantic)
 			ai: 'rgb(var(--color-reserved-ai) / <alpha-value>)',
+			'ai-inverse': 'rgb(var(--color-reserved-ai-inverse) / <alpha-value>)',
 
 			// Surface inverse colors (computed from opposite theme)
 			'surface-inverse': 'rgb(var(--color-surface-primary-inverse) / <alpha-value>)',
