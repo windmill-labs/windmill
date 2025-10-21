@@ -323,12 +323,7 @@
 	{/if}
 
 	{#if Object.keys(aiProviders).length > 0}
-		<CustomAIPrompts
-			bind:customPrompts
-			title="Custom system prompts (workspace-level)"
-			showCombinationHint={true}
-			combinationHintText="These prompts apply to all users in this workspace. Users can also set their own custom prompts in their account settings, which will be appended to these workspace prompts."
-		/>
+		<CustomAIPrompts bind:customPrompts title="Custom system prompts" />
 	{/if}
 
 	<Button

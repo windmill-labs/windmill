@@ -9,16 +9,12 @@
 
 	let {
 		customPrompts = $bindable(),
-		title = 'Custom system prompts',
-		description,
-		showCombinationHint = false,
-		combinationHintText
+		title,
+		description
 	}: {
 		customPrompts: Record<string, string>
 		title?: string
 		description?: string
-		showCombinationHint?: boolean
-		combinationHintText?: string
 	} = $props()
 
 	let selectedAiMode = $state<AIMode>(AIMode.ASK)
@@ -28,11 +24,6 @@
 	<p class="font-semibold">{title}</p>
 	{#if description}
 		<p class="text-sm text-secondary">{description}</p>
-	{/if}
-	{#if showCombinationHint && combinationHintText}
-		<div class="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 p-2 rounded">
-			ℹ️ {combinationHintText}
-		</div>
 	{/if}
 	<div class="flex flex-col gap-4">
 		<Label label="AI Mode">

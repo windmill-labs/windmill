@@ -39,7 +39,7 @@
 <div class="mt-4">
 	<button
 		type="button"
-		class="flex items-center gap-2 py-2 border-b cursor-pointer hover:bg-surface-hover w-full transition-colors"
+		class="flex items-center border-b cursor-pointer hover:bg-surface-hover w-full transition-colors"
 		onclick={() => (isExpanded = !isExpanded)}
 	>
 		{#if isExpanded}
@@ -47,22 +47,18 @@
 		{:else}
 			<ChevronRight size={16} />
 		{/if}
-		<h2 class="font-semibold">Custom AI Prompts (User Level)</h2>
+		<h2>Custom system prompts</h2>
 		{#if hasPrompts}
 			<div class="w-2 h-2 bg-blue-500 rounded-full"></div>
 		{/if}
 	</button>
 
 	{#if isExpanded}
-		<div class="mt-4">
-			<CustomAIPrompts
-				bind:customPrompts
-				title="Custom system prompts (user-level)"
-				description="These prompts are stored locally in your browser and apply only to you across all workspaces."
-				showCombinationHint={true}
-				combinationHintText="If workspace-level prompts are configured, your user prompts will be appended to them. Workspace prompts are applied first, then your user prompts."
-			/>
-			<Button onclick={save} class="mt-4">Save</Button>
+		<div>
+			<CustomAIPrompts bind:customPrompts />
+			<div class="flex flex-row justify-end mt-2">
+				<Button onclick={save}>Save</Button>
+			</div>
 		</div>
 	{/if}
 </div>
