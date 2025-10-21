@@ -28,6 +28,7 @@ use windmill_common::{
     cache::{Cache, RawData},
     error::{self, Error},
     scripts::ScriptHash,
+    utils::configure_client,
     variables::ContextualVariable,
 };
 
@@ -1054,10 +1055,10 @@ pub fn use_flow_root_path(flow_path: &str) -> String {
 }
 
 pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result<Client> {
-    reqwest::ClientBuilder::new()
+    configure_client(reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .timeout(timeout_duration)
-        .connect_timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(std::time::Duration::from_secs(10)))
         .build()
         .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
 }

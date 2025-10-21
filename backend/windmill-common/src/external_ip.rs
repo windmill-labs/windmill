@@ -12,6 +12,7 @@
 //! connections to be from whitelisted IP addresses.
 
 use std::time::Duration;
+use crate::utils::configure_client;
 
 pub async fn get_ip() -> anyhow::Result<String> {
     tokio::select! {
@@ -19,9 +20,9 @@ pub async fn get_ip() -> anyhow::Result<String> {
         _ = tokio::time::sleep(Duration::from_secs(10)) => {
             return Err(anyhow::anyhow!("Expected to get ip under 10s"))
         },
-        ip = reqwest::ClientBuilder::new()
+        ip = configure_client(reqwest::ClientBuilder::new()
         .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(5)))
         .build()?
         .get("https://hub.windmill.dev/getip")
         .send() => Ok(ip?
