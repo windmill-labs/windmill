@@ -28,14 +28,15 @@
 <PopupV2 bind:open {floatingConfig} target="#flow-editor">
 	{#snippet button()}
 		<Button
+			unifiedSize="sm"
 			variant="default"
-			size="xs3"
 			onpointerdown={() => (open = !open)}
 			selected={open}
 			startIcon={{ icon: Cross }}
 			wrapperClasses="{open
 				? 'bg-surface-secondary'
 				: 'bg-surface-tertiary'} transition-colors drop-shadow-base"
+			btnClasses="gap-1"
 		>
 			tool
 		</Button>

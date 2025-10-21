@@ -338,10 +338,10 @@
 			{style}
 		>
 			{#if loading}
-				<Loader2 class={twMerge('animate-spin')} size={lucideIconSize} />
+				<Loader2 class={twMerge('animate-spin shrink-0')} size={lucideIconSize} />
 			{:else if startIcon?.icon}
 				<startIcon.icon
-					class={twMerge(startIcon?.classes)}
+					class={twMerge('shrink-0', startIcon?.classes)}
 					size={lucideIconSize}
 					{...startIcon.props}
 				/>
@@ -351,12 +351,12 @@
 				{@render children?.()}
 			{/if}
 			{#if endIcon?.icon}
-				<endIcon.icon class={twMerge(endIcon?.classes)} size={lucideIconSize} />
+				<endIcon.icon class={twMerge('shrink-0', endIcon?.classes)} size={lucideIconSize} />
 			{/if}
 			{#if shortCut && !shortCut.hide}
 				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
 					{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<shortCut.Icon
-							class="w-4 h-4"
+							class="w-4 h-4 shrink-0"
 							size={lucideIconSize}
 						/>{:else}{shortCut.key}{/if}
 				</div>
@@ -382,10 +382,10 @@
 			{...$trigger}
 		>
 			{#if loading}
-				<Loader2 class={twMerge('animate-spin')} size={lucideIconSize} />
+				<Loader2 class={twMerge('animate-spin shrink-0')} size={lucideIconSize} />
 			{:else if startIcon?.icon}
 				<startIcon.icon
-					class={twMerge(startIcon?.classes)}
+					class={twMerge('shrink-0', startIcon?.classes)}
 					size={lucideIconSize}
 					{...startIcon.props}
 				/>
@@ -395,12 +395,13 @@
 				{@render children?.()}
 			{/if}
 			{#if endIcon?.icon}
-				<endIcon.icon class={twMerge(endIcon?.classes)} size={lucideIconSize} />
+				<endIcon.icon class={twMerge('shrink-0', endIcon?.classes)} size={lucideIconSize} />
 			{/if}
 			{#if shortCut && !shortCut.hide}
 				{@const Icon = shortCut.Icon}
 				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-normal">
 					{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<Icon
+							class="shrink-0"
 							size={lucideIconSize}
 						/>{:else}{shortCut.key}{/if}
 				</div>
@@ -439,7 +440,7 @@
 						dropdownBtnClasses
 					)}
 				>
-					<ChevronDown size={lucideIconSize} />
+					<ChevronDown class="shrink-0" size={lucideIconSize} />
 				</div>
 			{/snippet}
 		</Dropdown>
