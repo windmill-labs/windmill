@@ -640,6 +640,94 @@ const onSuccessClick = {
 	}
 } as const
 
+const onSubmitClick = {
+	type: 'oneOf',
+	tooltip: 'Action to perform on submit (when job ID is obtained)',
+	selected: 'none',
+	labels,
+	configuration: {
+		none: {},
+		gotoUrl: {
+			url: {
+				tooltip: 'Go to the given url, absolute or relative',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: '/apps/get/foo',
+				onDemandOnly: true
+			},
+			newTab: {
+				tooltip: 'Open the url in a new tab',
+				fieldType: 'boolean',
+				type: 'static',
+				value: true
+			}
+		},
+		setTab: {
+			setTab: {
+				type: 'static',
+				value: [] as Array<{ id: string; index: number }>,
+				fieldType: 'array',
+				subFieldType: 'tab-select',
+				tooltip: 'Set the tabs id and index to go to on submit',
+				onDemandOnly: true
+			}
+		},
+		sendToast: {
+			message: {
+				tooltip: 'The message of the toast to display',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: 'Hello there',
+				onDemandOnly: true
+			}
+		},
+		openModal: {
+			modalId: {
+				tooltip: 'The id of the modal to open',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				deprecated: true
+			}
+		},
+		closeModal: {
+			modalId: {
+				tooltip: 'The id of the modal to close',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				deprecated: true
+			}
+		},
+		open: {
+			id: {
+				tooltip: 'The id of the modal or the drawer to open',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		},
+		close: {
+			id: {
+				tooltip: 'The id of the modal or the drawer to close',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		},
+		clearFiles: {
+			id: {
+				tooltip: 'The id of s3 file input to clear',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		}
+	}
+} as const
+
 const onErrorClick = {
 	type: 'oneOf',
 	tooltip: 'Action to perform on error',
@@ -1405,6 +1493,7 @@ export const components = {
 				},
 
 				onSuccess: onSuccessClick,
+				onSubmit: onSubmitClick,
 				onError: onErrorClick,
 				confirmationModal: {
 					type: 'oneOf',
@@ -1543,6 +1632,7 @@ export const components = {
 					selectOptions: selectOptions.buttonSizeOptions
 				},
 				onSuccess: onSuccessClick,
+				onSubmit: onSubmitClick,
 				onError: onErrorClick
 			}
 		}
@@ -1592,6 +1682,7 @@ export const components = {
 					selectOptions: selectOptions.buttonSizeOptions
 				},
 				onSuccess: onSuccessClick,
+				onSubmit: onSubmitClick,
 				onError: onErrorClick,
 				disabled: {
 					fieldType: 'boolean',

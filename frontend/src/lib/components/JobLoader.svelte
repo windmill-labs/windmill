@@ -701,7 +701,10 @@
 							if (previewJobUpdates.completed) {
 								currentEventSource?.close()
 								currentEventSource = undefined
-								noPingTimeout = undefined
+								if (noPingTimeout) {
+									clearTimeout(noPingTimeout)
+									noPingTimeout = undefined
+								}
 								isCompleted = true
 								if (onlyResult) {
 									callbacks?.doneResult?.({
