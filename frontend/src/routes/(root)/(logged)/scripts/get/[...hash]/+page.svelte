@@ -744,12 +744,12 @@
 
 					<div class="py-10"></div>
 					{#if !emptyString(script.summary)}
-						<div class="mb-2">
-							<span class="!text-primary">{script.path}</span>
+						<div>
+							<span class="text-primary">{script.path}</span>
 						</div>
 					{/if}
 					<div class="flex flex-row gap-x-2 flex-wrap items-center">
-						<span class="text-sm text-primary">
+						<span class="text-2xs text-secondary">
 							Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
 						</span>
 						<Badge small color="gray">

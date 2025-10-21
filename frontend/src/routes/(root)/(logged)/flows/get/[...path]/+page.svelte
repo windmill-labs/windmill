@@ -691,15 +691,13 @@
 						<div class="py-10"></div>
 
 						{#if !emptyString(flow.summary)}
-							<div class="mb-2">
-								<span class="!text-primary">{flow.path}</span>
+							<div>
+								<span class="text-primary text-xs">{flow.path}</span>
 							</div>
 						{/if}
-						<div class="flex flex-row gap-x-2 flex-wrap items-center">
-							<span class="text-sm text-primary">
-								Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
-							</span>
-						</div>
+						<span class="text-2xs text-secondary">
+							Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
+						</span>
 					{/if}
 				</div>
 				{#if !chatInputEnabled}
