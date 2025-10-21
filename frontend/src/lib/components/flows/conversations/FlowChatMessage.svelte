@@ -4,13 +4,31 @@
 	import { Loader2, CheckCircle2, AlertTriangle } from 'lucide-svelte'
 	import CodeDisplay from '$lib/components/copilot/chat/script/CodeDisplay.svelte'
 	import LinkRenderer from '$lib/components/copilot/chat/LinkRenderer.svelte'
+	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import { type ChatMessage } from './FlowChatManager.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		message: ChatMessage
 	}
 
 	let { message }: Props = $props()
+
+	// Parse content to detect S3 objects
+	const parsedContent = $derived.by(() => {
+		if (message.message_type === 'assistant' && message.content) {
+			try {
+				const parsed = JSON.parse(message.content)
+				// Check if it's a Windmill S3 object with type discriminator
+				if (parsed?.type === 'windmill_s3_object' && parsed?.s3 && typeof parsed.s3 === 'string') {
+					return { type: 's3object', data: parsed }
+				}
+			} catch (e) {
+				// Not JSON, treat as regular text
+			}
+		}
+		return { type: 'text', data: message.content }
+	})
 
 	const messageClass = $derived.by(() => {
 		const base = 'max-w-[90%] min-w-0 rounded-lg w-fit'
@@ -36,33 +54,43 @@
 			<span>Processing...</span>
 		</div>
 	{:else if message.content}
-		<div
-			class="flex flex-row items-center gap-2 px-3 pb-3 text-sm {!message.step_name
-				? 'pt-3'
-				: ''} overflow-x-auto"
-		>
-			{#if message.message_type === 'tool'}
-				{#if message.success !== false}
-					<CheckCircle2 class="w-3.5 h-3.5 text-green-500" />
-				{:else}
-					<AlertTriangle class="w-3.5 h-3.5 text-red-500" />
-				{/if}
-			{/if}
-			<div class="prose prose-sm dark:prose-invert break-words prose-headings:!text-base">
-				<Markdown
-					md={message.content}
-					plugins={[
-						gfmPlugin(),
-						{
-							renderer: {
-								pre: CodeDisplay,
-								a: LinkRenderer
-							}
-						}
-					]}
+		{#if parsedContent.type === 's3object'}
+			<div class="px-3 pb-3 {!message.step_name ? 'pt-3' : ''}">
+				<DisplayResult
+					result={parsedContent.data}
+					workspaceId={$workspaceStore}
+					noControls={true}
 				/>
 			</div>
-		</div>
+		{:else}
+			<div
+				class="flex flex-row items-center gap-2 px-3 pb-3 text-sm {!message.step_name
+					? 'pt-3'
+					: ''} overflow-x-auto"
+			>
+				{#if message.message_type === 'tool'}
+					{#if message.success !== false}
+						<CheckCircle2 class="w-3.5 h-3.5 text-green-500" />
+					{:else}
+						<AlertTriangle class="w-3.5 h-3.5 text-red-500" />
+					{/if}
+				{/if}
+				<div class="prose prose-sm dark:prose-invert break-words prose-headings:!text-base">
+					<Markdown
+						md={message.content}
+						plugins={[
+							gfmPlugin(),
+							{
+								renderer: {
+									pre: CodeDisplay,
+									a: LinkRenderer
+								}
+							}
+						]}
+					/>
+				</div>
+			</div>
+		{/if}
 	{:else}
 		<p class="text-tertiary text-sm">No result</p>
 	{/if}
