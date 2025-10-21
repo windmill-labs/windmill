@@ -127,7 +127,7 @@
 			{/if}
 		{/each}
 	{:else}
-		<div class="text-primary text-xs">No inputs</div>
+		<div class="text-primary text-xs mt-2">No inputs</div>
 	{/if}
 </div>
 
