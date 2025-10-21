@@ -90,7 +90,7 @@
 				const toolType =
 					t.value.tool_type === 'mcp'
 						? 'mcp'
-						: t.value.tool_type === 'flowmodule' || !t.value.tool_type
+						: t.value.tool_type === 'flowmodule'
 							? t.value.type
 							: undefined
 				return {

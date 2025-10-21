@@ -597,6 +597,7 @@
 														}
 														extraLib={stepPropPicker.extraLib}
 														{enableAi}
+														{isAgentTool}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 													/>
 												</PropPickerWrapper>

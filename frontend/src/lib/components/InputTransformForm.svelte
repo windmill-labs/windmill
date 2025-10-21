@@ -40,6 +40,8 @@
 	import S3ArrayHelperButton from './S3ArrayHelperButton.svelte'
 	import { inputBorderClass } from './text_input/TextInput.svelte'
 
+	type PropertyType = InputTransform['type'] | 'ai'
+
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
 		arg: InputTransform | any
@@ -62,6 +64,7 @@
 		editor?: SimpleEditor | undefined
 		otherArgs?: Record<string, InputTransform>
 		helperScript?: DynamicInputTypes.HelperScript | undefined
+		isAgentTool?: boolean
 	}
 
 	let {
@@ -85,7 +88,8 @@
 		class: className = '',
 		editor = $bindable(undefined),
 		otherArgs = {},
-		helperScript = undefined
+		helperScript = undefined,
+		isAgentTool = false
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
@@ -151,8 +155,13 @@
 		})
 	}
 
-	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {
-		let type: 'static' | 'javascript' = arg?.type ?? 'static'
+	function getPropertyType(arg: InputTransform | any): PropertyType {
+		// For agent tools, if static with undefined/empty value, treat as 'ai'
+		if (isAgentTool && arg?.type === 'static' && (arg?.value === undefined || arg?.value === '')) {
+			return 'ai'
+		}
+
+		let type: PropertyType = arg?.type ?? 'static'
 
 		if (
 			type == 'javascript' &&
@@ -373,7 +382,7 @@
 
 	function updateStaticInput(
 		inputCat: InputCat,
-		propertyType: 'static' | 'javascript',
+		propertyType: PropertyType,
 		arg: InputTransform | any
 	) {
 		if (!isStaticTemplate(inputCat)) {
@@ -550,7 +559,15 @@
 								if (e.detail == propertyType) return
 								const staticTemplate = isStaticTemplate(inputCat)
 
-								if (e.detail === 'javascript') {
+								if (e.detail === 'ai') {
+									// Switch to AI mode: static with no value
+									if (arg) {
+										arg.type = 'static'
+										arg.value = undefined
+										arg.expr = undefined
+									}
+									propertyType = 'ai'
+								} else if (e.detail === 'javascript') {
 									if (arg.expr == undefined) {
 										arg.expr = getDefaultExpr(
 											argName,
@@ -600,6 +617,17 @@
 							}}
 						>
 							{#snippet children({ item })}
+								{#if isAgentTool}
+									<ToggleButton
+										light
+										small
+										label="AI"
+										value="ai"
+										tooltip="Let the AI agent fill this field dynamically"
+										{item}
+									/>
+								{/if}
+
 								{#if isStaticTemplate(inputCat)}
 									<ToggleButton
 										size="sm"
@@ -662,15 +690,32 @@
 			{propertyType} -->
 			<div class="relative flex flex-row items-top gap-1 justify-between">
 				<div class="min-w-0 grow">
-					{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
+					{#if propertyType === 'ai'}
+						<div
+							class="text-sm text-tertiary italic p-3 bg-surface-secondary rounded-md border border-gray-200"
+						>
+							<span class="flex items-center gap-2">
+								<InfoIcon size={16} />
+								This field will be filled by the AI agent dynamically
+							</span>
+						</div>
+						{#if argName && schema?.properties?.[argName]?.description}
+							<div class="text-xs italic py-1 text-hint">
+								<pre class="font-main whitespace-normal"
+									>{schema.properties[argName].description}</pre
+								>
+							</div>
+						{/if}
+					{:else if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
 						<div class="flex flex-col gap-1">
 							{#if argName && schema?.properties?.[argName]?.description}
 								<div class="text-xs text-secondary">
 									<pre class="font-main whitespace-normal">
-										{schema.properties[argName].description}
-										</pre>
+											{schema.properties[argName].description}
+											</pre>
 								</div>
 							{/if}
+
 							{#if arg}
 								<TemplateEditor
 									yPadding={7}
