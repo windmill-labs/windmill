@@ -428,13 +428,26 @@
 		loadingSave = true
 		try {
 			const flow = cleanInputs(flowStore.val)
-			
+
 			if (flow.value?.modules) {
-				for (const module of flow.value.modules) {
+				const validationErrors: string[] = []
+				dfsApply(flow.value.modules, (module) => {
 					const error = validateRetryConfig(module.retry)
 					if (error) {
-						throw new Error(error)
+						validationErrors.push(`Step '${module.id}': ${error}`)
 					}
+				})
+
+				if (flow.value.failure_module) {
+					// add validation logic here for failure module
+				}
+
+				if (flow.value.preprocessor_module) {
+					// add validation logic here for preprocessor module
+				}
+
+				if (validationErrors.length > 0) {
+					throw new Error(validationErrors.join('\n'))
 				}
 			}
 			// console.log('flow', computeUnlockedSteps(flow)) // del

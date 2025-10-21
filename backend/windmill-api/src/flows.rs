@@ -85,38 +85,6 @@ pub fn global_service() -> Router {
         .route("/hub/get/:id", get(get_hub_flow_by_id))
 }
 
-fn validate_flow_value(flow_value: &serde_json::Value) -> Result<()> {
-    #[cfg(not(feature = "enterprise"))]
-    if flow_value
-        .get("ws_error_handler_muted")
-        .map(|val| val.as_bool().unwrap_or(false))
-        .is_some_and(|val| val)
-    {
-        return Err(Error::BadRequest(
-            "Muting the error handler for certain flow is only available in enterprise version"
-                .to_string(),
-        ));
-    }
-
-    if let Some(modules) = flow_value.get("modules").and_then(|m| m.as_array()) {
-        for module in modules {
-            if let Some(retry) = module.get("retry") {
-                if let Some(exponential) = retry.get("exponential") {
-                    let seconds = exponential.get("seconds").and_then(|s| s.as_u64()).ok_or(
-                        Error::BadRequest("Exponential backoff base (seconds) must be a valid positive integer".to_string()),
-                    )?;
-                    if seconds == 0 {
-                        return Err(Error::BadRequest(
-                                "Exponential backoff base (seconds) must be greater than 0. A base of 0 would cause immediate retries.".to_string(),
-                            ));
-                    }
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 #[derive(Serialize, FromRow)]
 pub struct SearchFlow {
     path: String,
@@ -444,8 +412,6 @@ async fn create_flow(
         }
     }
 
-    validate_flow_value(&nf.value)?;
-
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
 
@@ -767,8 +733,6 @@ async fn update_flow(
 ) -> Result<String> {
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
-
-    validate_flow_value(&nf.value)?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
     let mut tx = user_db.clone().begin(&authed).await?;

@@ -23,7 +23,7 @@ use crate::{
     assets::AssetWithAltAccessType,
     cache,
     db::DB,
-    error::Error,
+    error::{Error, Result as WindmillResult},
     more_serde::{default_empty_string, default_id, default_null, default_true, is_default},
     scripts::{Schema, ScriptHash, ScriptLang},
     worker::{to_raw_value, Connection},
@@ -93,11 +93,91 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
 }
 
+fn validate_retry(retry: &Retry, module_id: &str) -> WindmillResult<()> {
+    if retry.exponential.attempts > 0 && retry.exponential.seconds == 0 {
+        return Err(Error::BadRequest(format!(
+            "Module '{}': Exponential backoff base (seconds) must be greater than 0. A base of 0 would cause immediate retries.",
+            module_id
+        )));
+    }
+    Ok(())
+}
+
+fn validate_modules_recursive(modules: &[FlowModule]) -> WindmillResult<()> {
+    for module in modules {
+        if let Some(ref retry) = module.retry {
+            validate_retry(retry, &module.id)?;
+        }
+
+        match module
+            .get_value()
+            .map_err(|e| Error::BadRequest(format!("Module '{}': {}", module.id, e)))?
+        {
+            FlowModuleValue::ForloopFlow { modules, .. }
+            | FlowModuleValue::WhileloopFlow { modules, .. } => {
+                validate_modules_recursive(&modules)?;
+            }
+            FlowModuleValue::BranchOne { branches, default, .. } => {
+                for branch in branches {
+                    validate_modules_recursive(&branch.modules)?;
+                }
+                validate_modules_recursive(&default)?;
+            }
+            FlowModuleValue::BranchAll { branches, .. } => {
+                for branch in branches {
+                    validate_modules_recursive(&branch.modules)?;
+                }
+            }
+            FlowModuleValue::AIAgent { tools, .. } => {
+                validate_modules_recursive(&tools)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn validate_flow_value<'de, D>(flow_value: D) -> Result<serde_json::Value, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let flow_value = serde_json::value::Value::deserialize(flow_value)?;
+
+    #[cfg(not(feature = "enterprise"))]
+    if flow_value
+        .get("ws_error_handler_muted")
+        .map(|val| val.as_bool().unwrap_or(false))
+        .is_some_and(|val| val)
+    {
+        return Err(serde::de::Error::custom(
+            "Muting the error handler for certain flow is only available in enterprise version"
+                .to_string(),
+        ));
+    }
+
+    let flow_value_parsed = serde_json::from_value::<FlowValue>(flow_value.clone())
+        .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+
+    validate_modules_recursive(&flow_value_parsed.modules)
+        .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+
+    if let Some(ref _failure_module) = flow_value_parsed.failure_module {
+        //add validation logic here for failure module
+    }
+
+    if let Some(ref _preprocessor_module) = flow_value_parsed.preprocessor_module {
+        //add validation logic here for preprocessor module
+    }
+
+    Ok(flow_value)
+}
+
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct NewFlow {
     pub path: String,
     pub summary: String,
     pub description: Option<String>,
+    #[serde(deserialize_with = "validate_flow_value")]
     pub value: serde_json::Value,
     pub schema: Option<Schema>,
     pub draft_only: Option<bool>,
