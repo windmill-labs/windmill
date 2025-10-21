@@ -172,7 +172,7 @@ pub async fn eval_timeout(
     expr: String,
     transform_context: HashMap<String, Arc<Box<RawValue>>>,
     flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
-    flow_env: Option<mappable_rc::Marc<HashMap<String, String>>>,
+    flow_env: Option<&HashMap<String, String>>,
     authed_client: Option<&AuthedClient>,
     by_id: Option<&IdContext>,
     #[allow(unused_variables)] ctx: Option<Vec<(String, String)>>,
@@ -203,10 +203,12 @@ pub async fn eval_timeout(
         }
     }
 
-    if expr.starts_with(ENV_KEY_PREFIX) {
-        let env_key = &expr[ENV_KEY_PREFIX_LEN..];
-        if let Some(env_value) = flow_env.as_ref().and_then(|flow_env| flow_env.get(env_key)) {
-            return Ok(to_raw_value(&env_value));
+    if let Some(flow_env) = flow_env {
+        if expr.starts_with(ENV_KEY_PREFIX) {
+            let env_key = &expr[ENV_KEY_PREFIX_LEN..];
+            if let Some(env_value) = flow_env.get(env_key) {
+                return Ok(to_raw_value(&env_value));
+            }
         }
     }
 
@@ -435,7 +437,7 @@ async fn eval(
     ctx: Option<Vec<(String, String)>>,
 ) -> anyhow::Result<Box<RawValue>> {
     tracing::debug!("evaluating: {} {:#?}", expr, by_id);
-    
+
     let (api_code, by_id_code) = if has_client {
         let by_id_code = if let Some(by_id) = by_id {
             format!(
