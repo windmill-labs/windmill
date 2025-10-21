@@ -21,7 +21,7 @@
 	}
 	let envVars = $derived(flowStore.val.value.flow_env || {})
 	let envEntries = $derived(
-		Object.entries(envVars).map(([key, value], index) => ({ id: `${key}_${index}`, key, value }))
+		Object.entries(envVars).map(([key, value]) => ({ id: key, key, value }))
 	)
 
 	function addEnvVar() {
