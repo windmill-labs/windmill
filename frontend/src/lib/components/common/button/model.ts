@@ -15,6 +15,7 @@ export const BUTTON_COLORS = [
 export namespace ButtonType {
 	export type Size = 'xs3' | 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 	export type UnifiedSize = 'sm' | 'md' | 'lg'
+	export type ExtendedSize = 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 	/**
 	 * @deprecated Use `Variant` instead
 	 */
@@ -113,10 +114,10 @@ export namespace ButtonType {
 
 		blue: {
 			border:
-				'border-frost-500 dark:border-frost-300 hover:border-frost-700 dark:hover:border-frost-400 focus-visible:border-frost-700 bg-surface hover:bg-frost-100 dark:hover:bg-frost-900 focus-visible:bg-frost-100 focus-visible:dark:text-frost-100 dark:focus-visible:bg-frost-900 text-frost-500 dark:text-frost-300 dark:hover:text-frost-400 hover:text-frost-700 focus-visible:text-frost-700 focus-visible:ring-frost-300',
+				'border-luminance-blue-500 dark:border-luminance-blue-300 hover:border-luminance-blue-700 dark:hover:border-luminance-blue-400 focus-visible:border-luminance-blue-700 bg-surface hover:bg-luminance-blue-100 dark:hover:bg-luminance-blue-900 focus-visible:bg-luminance-blue-100 focus-visible:dark:text-luminance-blue-100 dark:focus-visible:bg-luminance-blue-900 text-luminance-blue-500 dark:text-luminance-blue-300 dark:hover:text-luminance-blue-400 hover:text-luminance-blue-700 focus-visible:text-luminance-blue-700 focus-visible:ring-luminance-blue-300',
 			contained:
-				'bg-frost-500 hover:bg-frost-700 focus-visible:bg-frost-700 text-white focus-visible:ring-frost-300 dark:bg-frost-500/90 dark:hover:bg-frost-600/90',
-			divider: 'divide-x divide-frost-600'
+				'bg-luminance-blue-300 hover:bg-luminance-blue-400 focus-visible:bg-luminance-blue-500 text-white focus-visible:ring-luminance-blue-300',
+			divider: 'divide-x divide-luminance-blue-600'
 		},
 		marine: {
 			border:
@@ -238,5 +239,51 @@ export namespace ButtonType {
 		sm: 12,
 		md: 14,
 		lg: 16
+	}
+
+	// Extended sizing system for App editor with increased padding and icon sizes
+	export const ExtendedSizingClasses: Record<ButtonType.ExtendedSize, string> = {
+		xs2: 'px-1', // Smallest
+		xs: 'px-2', // Very small
+		sm: 'px-3', // Small (increased from unified)
+		md: 'px-5', // Medium (increased from unified)
+		lg: 'px-7', // Large (increased from unified)
+		xl: 'px-9' // Extra large (new)
+	}
+
+	export const ExtendedIconOnlySizingClasses: Record<ButtonType.ExtendedSize, string> = {
+		xs2: 'px-1', // Square padding for icon-only
+		xs: 'px-2',
+		sm: 'px-3',
+		md: 'px-5',
+		lg: 'px-7',
+		xl: 'px-9'
+	}
+
+	export const ExtendedHeightClasses: Record<ButtonType.ExtendedSize, string> = {
+		xs2: 'min-h-5', // 20px
+		xs: 'min-h-6', // 24px
+		sm: 'min-h-7', // 28px
+		md: 'min-h-9', // 36px (increased from unified)
+		lg: 'min-h-12', // 48px (increased from unified)
+		xl: 'min-h-14' // 56px (new)
+	}
+
+	export const ExtendedIconSizes: Record<ButtonType.ExtendedSize, number> = {
+		xs2: 10, // Smallest icons
+		xs: 12,
+		sm: 14,
+		md: 16, // Increased from unified
+		lg: 20, // Increased from unified
+		xl: 24 // Largest icons
+	}
+
+	export const ExtendedFontSizeClasses: Record<ButtonType.ExtendedSize, string> = {
+		xs2: 'text-2xs',
+		xs: 'text-xs',
+		sm: 'text-xs',
+		md: 'text-xs',
+		lg: 'text-sm',
+		xl: 'text-sm'
 	}
 }

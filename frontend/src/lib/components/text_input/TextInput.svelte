@@ -21,7 +21,7 @@
 	import { ButtonType } from '$lib/components/common/button/model'
 
 	export const inputSizeClasses = {
-		sm: `${ButtonType.UnifiedSizingClasses.sm} ${ButtonType.UnifiedHeightClasses.sm}`,
+		sm: `${ButtonType.UnifiedSizingClasses.sm} ${ButtonType.UnifiedHeightClasses.sm} !py-0.5`,
 		md: `${ButtonType.UnifiedSizingClasses.md} ${ButtonType.UnifiedHeightClasses.md}`,
 		lg: `${ButtonType.UnifiedSizingClasses.lg} ${ButtonType.UnifiedHeightClasses.lg}`
 	}

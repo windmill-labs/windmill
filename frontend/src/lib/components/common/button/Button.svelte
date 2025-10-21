@@ -29,6 +29,10 @@
 		spacingSize?: ButtonType.Size
 		unifiedSize?: ButtonType.UnifiedSize
 		/**
+		 * @description Extended size for App only, do not use
+		 */
+		extendedSize?: ButtonType.ExtendedSize
+		/**
 		 * @deprecated Use `variant` instead
 		 */
 		color?: ButtonType.Color | string
@@ -79,6 +83,7 @@
 		size = 'md',
 		spacingSize = size,
 		unifiedSize = undefined,
+		extendedSize = undefined,
 		color = 'blue',
 		variant = 'default',
 		btnClasses = '',
@@ -169,7 +174,16 @@
 		}
 	}
 
-	function getSpacingClass(variant, size, spacingSize, iconOnly, unifiedSize) {
+	function getSpacingClass(variant, size, spacingSize, iconOnly, unifiedSize, extendedSize) {
+		// Check if using new extended sizing system (for App editor only)
+		if (extendedSize) {
+			const horizontalPadding = iconOnly
+				? ButtonType.ExtendedIconOnlySizingClasses[extendedSize]
+				: ButtonType.ExtendedSizingClasses[extendedSize]
+			const height = ButtonType.ExtendedHeightClasses[extendedSize]
+			return `${horizontalPadding} ${height}`
+		}
+
 		// Check if using new unified sizing system
 		if (unifiedSize) {
 			const horizontalPadding = iconOnly
@@ -216,8 +230,10 @@
 			'w-full',
 			getStyleClass(color, variant),
 			variant === 'border' ? 'border' : '',
-			ButtonType.FontSizeClasses[size],
-			getSpacingClass(variant, size, spacingSize, iconOnly, unifiedSize),
+			extendedSize
+				? ButtonType.ExtendedFontSizeClasses[extendedSize]
+				: ButtonType.FontSizeClasses[size],
+			getSpacingClass(variant, size, spacingSize, iconOnly, unifiedSize, extendedSize),
 			'focus-visible:ring-2 font-normal',
 			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md' : 'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
@@ -246,7 +262,11 @@
 	}
 
 	let lucideIconSize = $derived(
-		unifiedSize ? ButtonType.UnifiedIconSizes[unifiedSize] : (iconMap[size] ?? 12)
+		extendedSize
+			? ButtonType.ExtendedIconSizes[extendedSize]
+			: unifiedSize
+				? ButtonType.UnifiedIconSizes[unifiedSize]
+				: (iconMap[size] ?? 12)
 	)
 
 	const {

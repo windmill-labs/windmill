@@ -139,9 +139,10 @@
 									resolvedConfig.fillContainer ? 'w-full h-full' : ''
 								)}
 								style={css?.button?.style}
-								size={resolvedConfig.size}
+								extendedSize={resolvedConfig.size}
 								color={resolvedConfig.color}
 								nonCaptureEvent
+								variant="contained"
 							>
 								<span class="truncate inline-flex gap-2 items-center">
 									{#if resolvedConfig.beforeIcon}

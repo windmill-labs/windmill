@@ -162,8 +162,9 @@
 					}
 					disposable?.openDrawer()
 				}}
-				size={resolvedConfig.buttonSize}
+				extendedSize={resolvedConfig.buttonSize}
 				color={resolvedConfig.buttonColor}
+				variant="contained"
 			>
 				<div>{resolvedConfig.buttonLabel}</div>
 			</Button>

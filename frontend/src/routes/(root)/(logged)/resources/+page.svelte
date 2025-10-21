@@ -763,8 +763,8 @@
 					{/each}
 				{:else if filteredItems?.length == 0}
 					<div class="flex flex-col items-center justify-center h-full">
-						<div class="text-md font-medium">No resources found</div>
-						<div class="text-sm text-secondary">
+						<div class="text-xs text-emphasis font-medium">No resources found</div>
+						<div class="text-2xs text-secondary font-normal">
 							Try changing the filters or creating a new resource
 						</div>
 					</div>
