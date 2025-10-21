@@ -15,7 +15,8 @@
 		variant="accent"
 		startIcon={{ icon: Plus }}
 		href="{base}/scripts/add"
+		endIcon={{ icon: Code2 }}
 	>
-		Script <Code2 class="ml-1.5" size={18} />
+		Script
 	</Button>
 </div>

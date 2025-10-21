@@ -238,7 +238,7 @@ export namespace ButtonType {
 	export const UnifiedIconSizes: Record<ButtonType.UnifiedSize, number> = {
 		sm: 12,
 		md: 14,
-		lg: 16
+		lg: 18
 	}
 
 	// Extended sizing system for App editor with increased padding and icon sizes

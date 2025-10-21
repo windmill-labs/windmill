@@ -29,6 +29,7 @@
 		aiDescription="Create a new low-code app"
 		unifiedSize="lg"
 		startIcon={{ icon: Plus }}
+		endIcon={{ icon: LayoutDashboard }}
 		href="{base}/apps/add?nodraft=true"
 		variant="accent"
 		dropdownItems={[
@@ -52,9 +53,7 @@
 			// }
 		]}
 	>
-		<div class="flex flex-row items-center">
-			App <LayoutDashboard class="ml-1.5" size={18} />
-		</div>
+		<div class="flex flex-row items-center"> App </div>
 	</Button>
 </div>
 
