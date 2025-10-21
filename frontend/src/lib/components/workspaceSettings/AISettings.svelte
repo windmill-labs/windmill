@@ -14,7 +14,6 @@
 	import { safeSelectItems } from '../select/utils.svelte'
 	import Badge from '../common/badge/Badge.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import ModelTokenLimits from './ModelTokenLimits.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
 	import CustomAIPrompts from '../copilot/CustomAIPrompts.svelte'
