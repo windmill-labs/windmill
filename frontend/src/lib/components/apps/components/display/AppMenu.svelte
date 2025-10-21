@@ -143,6 +143,7 @@
 								color={resolvedConfig.color}
 								nonCaptureEvent
 								variant="contained"
+								unifiedSize="sm"
 							>
 								<span class="truncate inline-flex gap-2 items-center">
 									{#if resolvedConfig.beforeIcon}
