@@ -12,7 +12,6 @@
 	<Button
 		title="Undo"
 		variant="default"
-		size="xs"
 		btnClasses="!min-h-[30px] !rounded-r-none"
 		on:click={() => dispatch('undo')}
 		startIcon={{ icon: Undo }}
@@ -22,7 +21,6 @@
 	<Button
 		title="Redo"
 		variant="default"
-		unifiedSize="md"
 		btnClasses="!min-h-[30px] !rounded-l-none !border-l-0"
 		on:click={() => dispatch('redo')}
 		startIcon={{ icon: Redo }}
