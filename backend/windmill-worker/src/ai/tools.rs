@@ -125,19 +125,22 @@ pub async fn execute_tool_calls(
                     final_events_str,
                 )
                 .await?;
-                continue; // Skip regular tool execution
+            } else if tool.module.is_some() {
+                execute_windmill_tool(
+                    &mut ctx,
+                    tool_call,
+                    tool,
+                    actions,
+                    &mut messages,
+                    final_events_str,
+                )
+                .await?;
+            } else {
+                return Err(Error::internal_err(format!(
+                    "Tool type not supported: {}",
+                    tool_call.function.name
+                )));
             }
-
-            // Execute regular Windmill tool
-            execute_windmill_tool(
-                &mut ctx,
-                tool_call,
-                tool,
-                actions,
-                &mut messages,
-                final_events_str,
-            )
-            .await?;
         } else {
             return Err(Error::internal_err(format!(
                 "Tool not found: {}",
@@ -408,7 +411,7 @@ async fn execute_windmill_tool(
         job_perms.as_ref(),
         true,
         None,
-        None
+        None,
     )
     .await?;
 
