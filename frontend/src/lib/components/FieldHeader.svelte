@@ -24,7 +24,7 @@
 	<span
 		class={twMerge(
 			disabled ? 'text-primary' : '',
-			'font-bold text-xs',
+			'font-semibold text-xs',
 			lightHeader ? 'text-secondary font-normal' : 'text-emphasis',
 			labelClass
 		)}

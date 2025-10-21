@@ -68,14 +68,14 @@
 			<RowIcon {href} {kind} />
 		</div>
 		<div class="grow">
-			<div class="text-primary flex-wrap text-left text-xs font-normal">
+			<div class="text-primary font-medium flex-wrap text-left text-xs">
 				{#if marked}
 					{@html marked}
 				{:else}
 					{!summary || summary.length == 0 ? displayPath : summary}
 				{/if}
 			</div>
-			<div class="text-secondary text-2xs truncate text-left font-normal">
+			<div class="text-hint text-3xs truncate text-left font-normal">
 				{path}
 			</div>
 		</div>
