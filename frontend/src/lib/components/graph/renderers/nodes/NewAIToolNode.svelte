@@ -45,7 +45,7 @@
 	{#snippet children({ close })}
 		<InsertModuleInner
 			bind:funcDesc
-			scriptOnly
+			toolMode
 			on:close={() => {
 				close()
 			}}
@@ -76,6 +76,14 @@
 							? e.detail.summary.replace(/\s/, '_').replace(/[^a-zA-Z0-9_]/g, '')
 							: e.detail.path.split('/').pop()
 					}
+				})
+				close()
+			}}
+			on:pickMcpTool={(e) => {
+				data.eventHandlers.insert({
+					index: -1,
+					agentId: data.agentModuleId,
+					kind: 'mcpTool'
 				})
 				close()
 			}}

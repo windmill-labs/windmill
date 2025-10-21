@@ -380,9 +380,6 @@ class FlowChatManager {
 								success
 							} = this.parseStreamDeltas(data.new_result_stream)
 							accumulatedContent += newContent
-							if (accumulatedContent.length > 0 || type === 'tool_result') {
-								this.isWaitingForResponse = false
-							}
 
 							// Create tool message if type is tool_result
 							if (type === 'tool_result') {
