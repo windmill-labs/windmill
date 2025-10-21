@@ -40,7 +40,7 @@
 		inlineScript = $bindable(),
 		name = $bindable(undefined),
 		id,
-		fields = $bindable({}),
+		fields = $bindable(undefined),
 		path,
 		isLoading = false,
 		onRun,
@@ -82,7 +82,7 @@
 	async function syncFields() {
 		if (inlineScript) {
 			const newSchema = inlineScript.schema ?? emptySchema()
-			fields = computeFields(newSchema, true, fields)
+			fields = computeFields(newSchema, true, fields ?? {})
 		}
 	}
 

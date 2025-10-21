@@ -15,7 +15,7 @@ let plugin = {
 			res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp')
 			next()
 		})
-	},
+	}
 }
 
 /** @type {import('vite').UserConfig} */
@@ -25,7 +25,7 @@ const config = {
 		allowedHosts: ['localhost', '127.0.0.1', '0.0.0.0', 'rubendev.wimill.xyz'],
 		port: 3000,
 		cors: {
-			origin: "*",
+			origin: '*'
 		},
 		proxy: {
 			'^/api/w/[^/]+/s3_proxy/.*': {
@@ -78,7 +78,7 @@ const config = {
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
 			'@codingame/monaco-vscode-standalone-languages'
-		],
+		]
 	},
 	worker: {
 		format: 'es'

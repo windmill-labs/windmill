@@ -5,13 +5,16 @@
 	import FileTreeNode from './FileTreeNode.svelte'
 	import { buildFileTree } from './fileTreeUtils'
 	import { Plus, File, Folder, Undo2, Redo2 } from 'lucide-svelte'
+	import type { Modules } from './RawAppModules.svelte'
+	import RawAppModules from './RawAppModules.svelte'
 
 	interface Props {
 		runnables: Record<string, Runnable>
 		selectedRunnable: string | undefined
 		files: Record<string, string> | undefined
-		modules?: Record<string, boolean>
+		modules?: Modules
 		onSelectFile?: (path: string) => void
+		selectedDocument: string | undefined
 	}
 
 	let {
@@ -19,12 +22,12 @@
 		selectedRunnable = $bindable(),
 		files = $bindable(),
 		modules,
-		onSelectFile
+		onSelectFile,
+		selectedDocument = $bindable()
 	}: Props = $props()
 
 	const fileTree = $derived(buildFileTree(Object.keys(files ?? {})))
 
-	let selectedPath = $state<string | undefined>(undefined)
 	let pathToRename = $state<string | undefined>(undefined)
 	let pathToExpand = $state<string | undefined>(undefined)
 
@@ -77,7 +80,7 @@
 
 	function handleFileClick(path: string) {
 		console.log('File clicked:', path)
-		selectedPath = path
+		selectedDocument = path
 		onSelectFile?.(path)
 	}
 
@@ -136,12 +139,12 @@
 					delete nfiles[old]
 				})
 
-				selectedPath = newFolderPath
+				selectedDocument = newFolderPath
 			} else {
 				// For files, simple rename
 				nfiles[newPath] = nfiles[oldPath]
 				delete nfiles[oldPath]
-				selectedPath = newPath
+				selectedDocument = newPath
 			}
 
 			files = nfiles
@@ -172,14 +175,14 @@
 			let newPath: string
 			let targetFolder: string | undefined
 
-			if (selectedPath) {
+			if (selectedDocument) {
 				// If a folder is selected, add the file inside it
-				if (selectedPath.endsWith('/')) {
-					newPath = selectedPath + 'newfile.txt'
-					targetFolder = selectedPath
+				if (selectedDocument.endsWith('/')) {
+					newPath = selectedDocument + 'newfile.txt'
+					targetFolder = selectedDocument
 				} else {
 					// If a file is selected, add the new file in the same folder
-					const pathParts = selectedPath.split('/').filter(Boolean)
+					const pathParts = selectedDocument.split('/').filter(Boolean)
 					if (pathParts.length > 1) {
 						// File is in a subfolder
 						const parentPath = '/' + pathParts.slice(0, -1).join('/') + '/'
@@ -210,14 +213,14 @@
 			let newPath: string
 			let targetFolder: string | undefined
 
-			if (selectedPath) {
+			if (selectedDocument) {
 				// If a folder is selected, add the folder inside it
-				if (selectedPath.endsWith('/')) {
-					newPath = selectedPath + 'newfolder/'
-					targetFolder = selectedPath
+				if (selectedDocument.endsWith('/')) {
+					newPath = selectedDocument + 'newfolder/'
+					targetFolder = selectedDocument
 				} else {
 					// If a file is selected, add the new folder in the same folder
-					const pathParts = selectedPath.split('/').filter(Boolean)
+					const pathParts = selectedDocument.split('/').filter(Boolean)
 					if (pathParts.length > 1) {
 						// File is in a subfolder
 						const parentPath = '/' + pathParts.slice(0, -1).join('/') + '/'
@@ -267,8 +270,8 @@
 			addToHistory(nfiles)
 
 			// Clear selection if deleted item was selected
-			if (selectedPath === path || (isFolder && selectedPath?.startsWith(path))) {
-				selectedPath = undefined
+			if (selectedDocument === path || (isFolder && selectedDocument?.startsWith(path))) {
+				selectedDocument = undefined
 			}
 		}
 	}
@@ -325,7 +328,7 @@
 				onAddFolder={handleAddFolder}
 				onRename={handleRename}
 				onDelete={handleDelete}
-				{selectedPath}
+				selectedPath={selectedDocument}
 				{pathToRename}
 				{pathToExpand}
 			/>
@@ -340,22 +343,10 @@
 			onFileClick={handleFileClick}
 			onAddFile={handleAddFile}
 			onAddFolder={handleAddFolder}
-			{selectedPath}
+			selectedPath={selectedDocument}
 		/>
 	</div>
 </PanelSection>
 
-<PanelSection
-	size="md"
-	fullHeight={false}
-	title="Installed modules"
-	id="app-editor-frontend-panel-modules"
->
-	<div class="mt-2 flex flex-col gap-1">
-		{#each Object.keys(modules ?? {}) as mod}
-			<div class="text-xs px-2 text-secondary font-mono">{mod}</div>
-		{/each}
-	</div>
-</PanelSection>
-
+<RawAppModules {modules} />
 <RawAppInlineScriptPanelList bind:selectedRunnable {runnables} />

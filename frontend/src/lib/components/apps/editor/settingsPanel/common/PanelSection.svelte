@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
+	import { ChevronDown, ChevronRight } from 'lucide-svelte'
 	import Tooltip from '../../../../Tooltip.svelte'
 
 	interface Props {
@@ -14,6 +15,8 @@
 		action?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 		size?: 'lg' | 'md' | 'sm' | 'xs'
+		collapsible?: boolean
+		initiallyCollapsed?: boolean
 	}
 
 	let {
@@ -27,7 +30,9 @@
 		class: clazz = undefined,
 		action,
 		children,
-		size = 'xs'
+		size = 'xs',
+		collapsible = false,
+		initiallyCollapsed = false
 	}: Props = $props()
 
 	function textSize() {
@@ -43,6 +48,8 @@
 				return 'text-xs'
 		}
 	}
+
+	let collapsed = $state(initiallyCollapsed)
 </script>
 
 <div
@@ -67,7 +74,18 @@
 				</Tooltip>
 			{/if}
 		</div>
+		{#if collapsible}
+			<button class="flex items-center gap-1" onclick={() => (collapsed = !collapsed)}>
+				{#if collapsed}
+					<ChevronRight size={16} />
+				{:else}
+					<ChevronDown size={16} />
+				{/if}
+			</button>
+		{/if}
 		{@render action?.()}
 	</div>
-	{@render children?.()}
+	{#if !collapsed}
+		{@render children?.()}
+	{/if}
 </div>
