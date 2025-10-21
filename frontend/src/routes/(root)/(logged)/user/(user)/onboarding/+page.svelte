@@ -61,12 +61,11 @@
 			})
 
 			sendUserToast('Information saved successfully')
+			goto('/user/workspaces')
 		} catch (error) {
 			console.error('Error submitting onboarding data:', error)
 			sendUserToast('Failed to save information: ' + (error?.body || error?.message || error), true)
-		} finally {
 			isSubmitting = false
-			goto('/user/workspaces')
 		}
 	}
 
