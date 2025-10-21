@@ -40,6 +40,7 @@
 	import S3ArrayHelperButton from './S3ArrayHelperButton.svelte'
 	import { inputBorderClass } from './text_input/TextInput.svelte'
 
+	// We add 'ai' for ai agent tools. 'ai' means the field will be filled by the AI agent dynamically.
 	type PropertyType = InputTransform['type'] | 'ai'
 
 	interface Props {
@@ -156,8 +157,8 @@
 	}
 
 	function getPropertyType(arg: InputTransform | any): PropertyType {
-		// For agent tools, if static with undefined/empty value, treat as 'ai'
-		if (isAgentTool && arg?.type === 'static' && (arg?.value === undefined || arg?.value === '')) {
+		// For agent tools, if static with undefined/empty value, treat as 'ai', meaning the field will be filled by the AI agent dynamically.
+		if (isAgentTool && arg?.type === 'static' && arg?.value === undefined) {
 			return 'ai'
 		}
 
