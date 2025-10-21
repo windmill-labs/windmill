@@ -1,5 +1,5 @@
 <script module lang="ts">
-	export const EDITOR_BAR_WIDTH_THRESHOLD = 1240
+	export const EDITOR_BAR_WIDTH_THRESHOLD = 1300
 </script>
 
 <script lang="ts">
