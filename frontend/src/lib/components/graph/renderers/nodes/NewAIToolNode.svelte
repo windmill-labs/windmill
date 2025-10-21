@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type NewAiToolN } from '../../graphBuilder.svelte'
 	import InsertModuleInner from '$lib/components/flows/map/InsertModuleInner.svelte'
-	import { Cross } from 'lucide-svelte'
+	import { Plus } from 'lucide-svelte'
 	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
 	import { flip, offset } from 'svelte-floating-ui/dom'
 	import type { ComputeConfig } from 'svelte-floating-ui'
@@ -28,17 +28,17 @@
 <PopupV2 bind:open {floatingConfig} target="#flow-editor">
 	{#snippet button()}
 		<Button
-			unifiedSize="sm"
+			size="xs3"
 			variant="default"
 			onpointerdown={() => (open = !open)}
 			selected={open}
-			startIcon={{ icon: Cross }}
+			startIcon={{ icon: Plus }}
 			wrapperClasses="{open
 				? 'bg-surface-secondary'
 				: 'bg-surface-tertiary'} transition-colors drop-shadow-base"
-			btnClasses="gap-1"
+			btnClasses="gap-1 "
 		>
-			tool
+			Tool
 		</Button>
 	{/snippet}
 	{#snippet children({ close })}
