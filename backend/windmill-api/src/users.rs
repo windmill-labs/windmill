@@ -1869,15 +1869,15 @@ async fn login(
         username_override: None,
         token_prefix: None,
     };
-    let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
-        "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
+    let email_w_h: Option<(String, String, bool)> = sqlx::query_as(
+        "SELECT email, password_hash, super_admin FROM password WHERE email = $1 AND login_type = \
          'password'",
     )
     .bind(&email)
     .fetch_optional(&mut *tx)
     .await?;
 
-    if let Some((email, hash, super_admin, _first_time_user)) = email_w_h {
+    if let Some((email, hash, super_admin)) = email_w_h {
         let parsed_hash =
             PasswordHash::new(&hash).map_err(|e| Error::internal_err(e.to_string()))?;
         if argon2
