@@ -401,7 +401,10 @@ pub async fn run_agent(
     // Extract previous step result if we have flow_status (for tool input transforms - Phase 1)
     let previous_result = {
         if let Some(ref flow_status) = flow_context.flow_status {
-            get_previous_job_result(db, &job.workspace_id, flow_status).await?
+            get_previous_job_result(db, &job.workspace_id, flow_status)
+                .await
+                .ok()
+                .flatten()
         } else {
             None
         }
