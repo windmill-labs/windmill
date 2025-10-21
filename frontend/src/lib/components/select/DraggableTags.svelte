@@ -54,7 +54,7 @@
 		<span class="text-xs select-none">{item.label || item.value}</span>
 		{#if allowClear}
 			<CloseButton
-				class="text-hint bg-transparent"
+				class="text-hint bg-transparent border-none"
 				small
 				on:close={(e) => (onRemove(item), e.stopPropagation())}
 			/>
