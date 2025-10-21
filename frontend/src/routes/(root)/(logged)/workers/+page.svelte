@@ -333,6 +333,7 @@
 							on:refresh={() => {
 								loadCustomTags()
 							}}
+							variant="default"
 						/>
 					</div>
 					<div>
@@ -341,7 +342,7 @@
 					<div>
 						<Button
 							size="xs"
-							variant="accent"
+							variant="default"
 							startIcon={{
 								icon: LineChart
 							}}
@@ -355,7 +356,7 @@
 					<div>
 						<Button
 							size="xs"
-							variant="accent"
+							variant="subtle"
 							startIcon={{
 								icon: List
 							}}
