@@ -422,18 +422,18 @@
 	<div class="rounded-lg border bg-surface p-4 mb-4">
 		<div class="flex items-center justify-between mb-4">
 			<div class="flex flex-col">
-				<h3 class="text-xl font-semibold">{displayTitle}</h3>
+				<h3 class="text-xs font-medium text-emphasis">{displayTitle}</h3>
 				{#if displayDescription}
-					<p class="text-sm text-secondary">{displayDescription}</p>
+					<p class="text-2xs text-secondary">{displayDescription}</p>
 				{/if}
 			</div>
 		</div>
 
 		<div
-			class="flex flex-col items-center justify-center py-8 px-4 border-2 border-dashed rounded-md"
+			class="flex flex-col items-center justify-center py-8 px-4 border-2 border-dashed rounded-md border-border-normal"
 		>
 			<div class="text-center mb-4">
-				<p class="text-secondary mb-2">
+				<p class="text-primary text-xs font-normal mb-2">
 					{#if mode === 'sync'}
 						No sync repository configured. Add one to enable direct synchronization.
 					{:else if mode === 'promotion'}
@@ -444,7 +444,7 @@
 				</p>
 			</div>
 			{#if onAdd}
-				<Button size="md" variant="default" startIcon={{ icon: Plus }} onclick={onAdd}>
+				<Button unifiedSize="md" variant="default" startIcon={{ icon: Plus }} onclick={onAdd}>
 					Add {mode || 'repository'} repository
 				</Button>
 			{/if}

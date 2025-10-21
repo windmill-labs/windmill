@@ -96,7 +96,7 @@
 
 			<div class={classNames('flex gap-x-2 gap-y-1 justify-end items-center')}>
 				{#if componentInput?.type && allowTypeChange !== false}
-					<ToggleButtonGroup class="h-7" bind:selected={componentInput.type}>
+					<ToggleButtonGroup bind:selected={componentInput.type}>
 						{#snippet children({ item })}
 							<ToggleButton {item} value="user" icon={User} iconOnly tooltip="User Input" />
 							<ToggleButton {item} value="static" icon={Pen} iconOnly tooltip="Static" />

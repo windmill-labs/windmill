@@ -154,7 +154,7 @@
 
 <div class="flex flex-col gap-4 my-8">
 	<div class="flex flex-col gap-1">
-		<div class="text-primary text-lg font-semibold"> Windmill AI</div>
+		<div class="text-emphasis text-sm font-semibold"> Windmill AI</div>
 		<Description link="https://www.windmill.dev/docs/core_concepts/ai_generation">
 			Windmill AI integrates with your favorite AI providers and models.
 		</Description>
@@ -163,7 +163,7 @@
 
 <div class="flex flex-col gap-8">
 	<div class="flex flex-col gap-2">
-		<p class="font-semibold">AI Providers</p>
+		<p class="font-medium text-xs text-emphasis">AI Providers</p>
 		<div class="flex flex-col gap-4">
 			{#each Object.entries(AI_PROVIDERS) as [provider, details]}
 				<div class="flex flex-col gap-2">
@@ -383,6 +383,7 @@
 	{/if}
 
 	<Button
+		variant="accent"
 		wrapperClasses="self-start"
 		disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
 			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||

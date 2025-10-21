@@ -57,6 +57,7 @@
 	} from '$lib/components/workspaceSettings/DucklakeSettings.svelte'
 	import { AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -698,7 +699,7 @@
 				{/if}
 			</div>
 		{:else if tab == 'general'}
-			<div class="flex flex-col gap-4 my-8">
+			<div class="flex flex-col gap-4 my-6">
 				<div class="flex flex-col gap-1">
 					<div class="text-sm font-semibold text-emphasis">General</div>
 					<Description link="https://www.windmill.dev/docs/core_concepts/workspace_settings">
@@ -707,13 +708,13 @@
 				</div>
 			</div>
 
-			<div class="flex flex-col gap-10">
+			<div class="flex flex-col gap-6">
 				<ChangeWorkspaceName />
 				<ChangeWorkspaceId />
 				<ChangeWorkspaceColor />
 			</div>
 
-			<PageHeader title="Export workspace" primary={false} />
+			<div class="text-xs font-medium text-emphasis mt-6 mb-1">Export workspace</div>
 			<div class="flex justify-start">
 				<Button
 					size="sm"
@@ -724,22 +725,22 @@
 				</Button>
 			</div>
 
-			<div class="mt-20"></div>
-			<PageHeader title="Delete workspace" primary={false} />
+			<div class="mt-12"></div>
+			<span class="text-sm font-semibold text-emphasis">Delete workspace</span>
 			{#if !$superadmin}
-				<p class="italic text-xs"> Only instance superadmins can delete a workspace. </p>
+				<p class="text-2xs text-secondary"> Only instance superadmins can delete a workspace. </p>
 			{/if}
 			{#if $workspaceStore === 'admins' || $workspaceStore === 'starter'}
-				<p class="italic text-xs">
+				<p class="text-2xs text-secondary">
 					This workspace cannot be deleted as it has a special function. Consult the documentation
 					for more information.
 				</p>
 			{/if}
 			<div class="flex gap-2">
 				<Button
-					color="red"
+					destructive
 					disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
-					size="sm"
+					unifiedSize="md"
 					btnClasses="mt-2"
 					on:click={async () => {
 						await WorkspaceService.archiveWorkspace({ workspace: $workspaceStore ?? '' })
@@ -773,7 +774,7 @@
 		{:else if tab == 'webhook'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-sm font-semibold text-emphasis"> Workspace Webhook</div>
+					<div class="text-xs font-medium text-emphasis"> Workspace Webhook</div>
 					<Description
 						link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
 					>
@@ -1009,16 +1010,20 @@
 					}}>Save & Re-encrypt workspace</Button
 				>
 			</div>
-			<h6> Workspace encryption key </h6>
+			<label for="workspace-encryption-key" class="text-xs font-medium text-emphasis mt-1">
+				Workspace encryption key
+			</label>
 			<div class="flex gap-2 mt-1">
-				<input
-					class="justify-start"
-					type="text"
-					placeholder={'*'.repeat(64)}
+				<TextInput
+					inputProps={{
+						id: 'workspace-encryption-key',
+						placeholder: '*'.repeat(64)
+					}}
 					bind:value={editedWorkspaceEncryptionKey}
 				/>
 				<Button
-					color="light"
+					variant="default"
+					unifiedSize="md"
 					on:click={() => {
 						loadWorkspaceEncryptionKey()
 					}}>Load current key</Button

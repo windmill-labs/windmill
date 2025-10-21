@@ -204,10 +204,10 @@
 	{#if setting.fieldType == 'select'}
 		<div>
 			<!-- svelte-ignore a11y_label_has_associated_control -->
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">{setting.label}</span>
+			<label class="block pb-1">
+				<span class="text-emphasis font-medium text-xs pb-1">{setting.label}</span>
 				{#if setting.description}
-					<span class="text-secondary text-xs">
+					<span class="text-primary text-xs">
 						{@html setting.description}
 					</span>
 				{/if}
@@ -288,14 +288,14 @@
 		</div>
 	{:else}
 		{#snippet settingContent()}
-			<span class="text-emphasis font-medium text-xs flex flex-col gap-1"
+			<div class="text-emphasis font-medium text-xs flex flex-col gap-1 mb-1"
 				>{setting.label}
 				{#if setting.description}
 					<span class="text-primary font-normal text-xs">
 						{@html setting.description}
 					</span>
 				{/if}
-			</span>
+			</div>
 			{#if setting.tooltip}
 				<Tooltip>{setting.tooltip}</Tooltip>
 			{/if}

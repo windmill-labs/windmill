@@ -51,7 +51,7 @@
 {:else}
 	<div class="flex flex-col gap-4 my-8">
 		<div class="flex flex-col gap-1">
-			<div class="text-primary text-lg font-semibold">Git Sync</div>
+			<div class="text-emphasis text-sm font-semibold">Git Sync</div>
 			<Description link="https://www.windmill.dev/docs/advanced/git_sync">
 				Connect the Windmill workspace to a Git repository to automatically commit and push scripts,
 				flows, and apps to the repository on each deploy.

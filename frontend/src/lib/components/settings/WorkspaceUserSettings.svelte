@@ -308,7 +308,7 @@
 		title="Members {(filteredUsers?.length ?? users?.length) != undefined
 			? `(${filteredUsers?.length ?? users?.length})`
 			: ''}"
-		primary={true}
+		primary={false}
 		tooltip="Manage users manually or enable SSO authentication."
 		documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
 	/>

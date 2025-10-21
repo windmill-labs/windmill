@@ -90,7 +90,7 @@
 
 <div class="mt-6">
 	<Section
-		label="Operator Settings"
+		label="Operator settings"
 		collapsable={true}
 		tooltip="Configure the operator visibility settings for your workspace. Toggle the settings you want to enable."
 	>
