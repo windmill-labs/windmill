@@ -7,6 +7,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import UserInfoSettings from './settings/UserInfoSettings.svelte'
 	import AIUserSettings from './settings/AIUserSettings.svelte'
+	import UserAIPromptsSettings from './settings/UserAIPromptsSettings.svelte'
 
 	interface Props {
 		scopes?: string[] | undefined
@@ -65,6 +66,7 @@
 					</div>
 					<div class="md:w-[45%]">
 						<AIUserSettings />
+						<UserAIPromptsSettings />
 					</div>
 				</div>
 			{/if}
