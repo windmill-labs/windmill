@@ -857,10 +857,10 @@
 														{@render deleteItemBtn()}
 													</div>
 												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-													<input
-														type="file"
-														class="my-6"
-														onchange={(x) => fileChanged(x, (val) => (value[i] = val))}
+													<FileInput
+														class="w-full"
+														on:change={(x) =>
+															fileChangedInner(x.detail?.[0], (val) => (value[i] = val))}
 														multiple={false}
 													/>
 													{@render deleteItemBtn()}
