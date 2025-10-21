@@ -126,7 +126,7 @@ class AIChatManager {
 		return (
 			estimatedTokens >
 			modelContextWindow -
-			Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
+				Math.max(modelContextWindow * MAX_TOKENS_THRESHOLD_PERCENTAGE, MAX_TOKENS_HARD_LIMIT)
 		)
 	}
 
@@ -479,8 +479,8 @@ class AIChatManager {
 					onNewToken: (token: string) => {
 						reply += token
 					},
-					onMessageEnd: () => { },
-					setToolStatus: () => { }
+					onMessageEnd: () => {},
+					setToolStatus: () => {}
 				},
 				systemMessage
 			}
@@ -886,15 +886,15 @@ class AIChatManager {
 				const editorRelated =
 					currentEditor && currentEditor.type === 'script' && currentEditor.stepId === module.id
 						? {
-							diffMode: currentEditor.diffMode,
-							lastDeployedCode: currentEditor.lastDeployedCode,
-							lastSavedCode: undefined
-						}
+								diffMode: currentEditor.diffMode,
+								lastDeployedCode: currentEditor.lastDeployedCode,
+								lastSavedCode: undefined
+							}
 						: {
-							diffMode: false,
-							lastDeployedCode: undefined,
-							lastSavedCode: undefined
-						}
+								diffMode: false,
+								lastDeployedCode: undefined,
+								lastSavedCode: undefined
+							}
 
 				return {
 					args: moduleState?.previewArgs ?? {},

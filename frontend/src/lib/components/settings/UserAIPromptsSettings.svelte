@@ -49,13 +49,16 @@
 		{/if}
 		<h2>Custom system prompts</h2>
 		{#if hasPrompts}
-			<div class="w-2 h-2 bg-blue-500 rounded-full"></div>
+			<div class="w-2 h-2 bg-blue-500 rounded-full ml-2"></div>
 		{/if}
 	</button>
 
 	{#if isExpanded}
 		<div>
-			<CustomAIPrompts bind:customPrompts />
+			<CustomAIPrompts
+				bind:customPrompts
+				description="These prompts are stored locally in your browser and apply in addition to the workspace-level prompts."
+			/>
 			<div class="flex flex-row justify-end mt-2">
 				<Button onclick={save}>Save</Button>
 			</div>

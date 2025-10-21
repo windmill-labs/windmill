@@ -23,7 +23,7 @@
 <div class="flex flex-col gap-2">
 	<p class="font-semibold">{title}</p>
 	{#if description}
-		<p class="text-sm text-secondary">{description}</p>
+		<p class="text-xs text-secondary">{description}</p>
 	{/if}
 	<div class="flex flex-col gap-4">
 		<Label label="AI Mode">
