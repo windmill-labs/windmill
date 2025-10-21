@@ -15,13 +15,9 @@
 	import Badge from '../common/badge/Badge.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import { AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import autosize from '$lib/autosize'
 	import ModelTokenLimits from './ModelTokenLimits.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
-
-	const MAX_CUSTOM_PROMPT_LENGTH = 5000
+	import CustomAIPrompts from '../copilot/CustomAIPrompts.svelte'
 
 	let {
 		aiProviders = $bindable(),
@@ -47,9 +43,6 @@
 			Object.keys(AI_PROVIDERS).map((provider) => [provider, AI_PROVIDERS[provider].defaultModels])
 		) as Record<AIProvider, string[]>
 	)
-
-	// Custom system prompt settings
-	let selectedAiMode = $state<AIMode>(AIMode.ASK)
 
 	let selectedAiModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
 	let modelProviderMap = $derived(
@@ -331,55 +324,12 @@
 	{/if}
 
 	{#if Object.keys(aiProviders).length > 0}
-		<div class="flex flex-col gap-2">
-			<p class="font-semibold">Custom system prompts</p>
-			<div class="flex flex-col gap-4">
-				<Label label="AI Mode">
-					<ToggleButtonGroup
-						bind:selected={selectedAiMode}
-						on:selected={({ detail }) => {
-							selectedAiMode = detail
-						}}
-					>
-						{#snippet children({ item })}
-							{#each Object.values(AIMode) as mode}
-								<div class="relative">
-									<ToggleButton
-										value={mode}
-										label={mode.charAt(0).toUpperCase() + mode.slice(1)}
-										{item}
-									/>
-									{#if customPrompts[mode]?.length > 0}
-										<div
-											class="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full border border-surface"
-										></div>
-									{/if}
-								</div>
-							{/each}
-						{/snippet}
-					</ToggleButtonGroup>
-				</Label>
-
-				<Label
-					label="Custom system prompt for {selectedAiMode.charAt(0).toUpperCase() +
-						selectedAiMode.slice(1)} Mode"
-				>
-					<textarea
-						bind:value={customPrompts[selectedAiMode]}
-						placeholder="Enter a custom system prompt for {selectedAiMode} mode."
-						class="w-full min-h-24 p-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary resize-y"
-						rows="4"
-						maxlength={MAX_CUSTOM_PROMPT_LENGTH}
-						use:autosize
-					></textarea>
-					<div class="flex justify-end mt-1">
-						<span class="text-xs text-secondary">
-							{(customPrompts[selectedAiMode] ?? '').length}/{MAX_CUSTOM_PROMPT_LENGTH} characters
-						</span>
-					</div>
-				</Label>
-			</div>
-		</div>
+		<CustomAIPrompts
+			bind:customPrompts
+			title="Custom system prompts (workspace-level)"
+			showCombinationHint={true}
+			combinationHintText="These prompts apply to all users in this workspace. Users can also set their own custom prompts in their account settings, which will be appended to these workspace prompts."
+		/>
 	{/if}
 
 	<Button
