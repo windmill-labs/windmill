@@ -665,7 +665,7 @@
 					{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
 						<div class="flex flex-col gap-1">
 							{#if argName && schema?.properties?.[argName]?.description}
-								<div class="text-xs text-primary">
+								<div class="text-xs text-secondary">
 									<pre class="font-main whitespace-normal">
 										{schema.properties[argName].description}
 										</pre>
@@ -785,7 +785,7 @@
 						{/if}
 
 						{#if argName && schema?.properties?.[argName]?.description}
-							<div class="text-xs italic py-1 text-hint">
+							<div class="text-xs italic py-1 text-secondary">
 								<pre class="font-main whitespace-normal"
 									>{schema.properties[argName].description}</pre
 								>

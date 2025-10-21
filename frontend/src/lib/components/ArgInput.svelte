@@ -646,7 +646,7 @@
 	{/if}
 
 	{#if description}
-		<div class={twMerge('text-xs text-primary', css?.description?.class)}>
+		<div class={twMerge('text-xs text-secondary', css?.description?.class)}>
 			<pre class="font-main whitespace-normal">{description}</pre>
 		</div>
 	{/if}

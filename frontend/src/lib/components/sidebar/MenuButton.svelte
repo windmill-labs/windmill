@@ -1,6 +1,6 @@
 <script module lang="ts">
 	export const sidebarClasses = {
-		text: 'text-secondary-inverse dark:text-secondary data-[light-mode=true]:text-secondary text-xs font-normal',
+		text: 'text-primary-inverse dark:text-secondary data-[light-mode=true]:text-secondary text-xs font-normal',
 		selectedText: 'text-emphasis-inverse dark:text-emphasis text-xs font-normal',
 		hoverBg:
 			'transition-colors hover:bg-surface-hover-inverse dark:hover:bg-surface-hover data-[light-mode=true]:hover:bg-surface-hover'

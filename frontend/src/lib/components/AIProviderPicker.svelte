@@ -255,7 +255,7 @@
 	<!-- Resource Selection -->
 	<div class="flex flex-col rounded-md pt-2 gap-2">
 		<div class="flex flex-col gap-1">
-			<p class="text-sm font-normal text-primary">resource</p>
+			<p class="text-xs font-normal text-primary">resource</p>
 			<ResourcePicker
 				bind:value={
 					() => resourceValueToPath(value?.resource),
@@ -274,7 +274,7 @@
 
 		<!-- Model Selection -->
 		<div class="flex flex-col gap-1">
-			<p class="text-sm font-normal text-primary">model</p>
+			<p class="text-xs font-normal text-primary">model</p>
 			<Select
 				{items}
 				bind:value={value.model}
