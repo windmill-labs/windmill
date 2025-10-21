@@ -551,22 +551,18 @@
 						>
 							<Splitpanes>
 								<Pane minSize={36} bind:size={leftPanelSize}>
-									<Tabs bind:selected>
-										{#if !preprocessorModule && !isAgentTool}
-											<Tab value="inputs" label="Step Input" />
-										{/if}
-										<Tab value="test" label="Test this step" />
-										{#if !preprocessorModule && !isAgentTool}
-											<Tab value="advanced" label="Advanced" />
-										{/if}
-									</Tabs>
-									<div
-										class={advancedSelected === 'runtime'
-											? 'h-[calc(100%-68px)]'
-											: 'h-[calc(100%-39px)]'}
-									>
+									<div class="flex flex-col relative h-[99.99%]">
+										<Tabs bind:selected wrapperClass="shrink-0">
+											{#if !preprocessorModule && !isAgentTool}
+												<Tab value="inputs" label="Step Input" />
+											{/if}
+											<Tab value="test" label="Test this step" />
+											{#if !preprocessorModule && !isAgentTool}
+												<Tab value="advanced" label="Advanced" />
+											{/if}
+										</Tabs>
 										{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
-											<div class="h-full overflow-auto bg-red-500" id="flow-editor-step-input">
+											<div class="flex-1 overflow-auto" id="flow-editor-step-input">
 												<PropPickerWrapper
 													pickableProperties={stepPropPicker.pickableProperties}
 													error={failureModule}
@@ -607,6 +603,7 @@
 											</div>
 										{:else if selected === 'test'}
 											<ModulePreview
+												class="flex-1"
 												pickableProperties={stepPropPicker.pickableProperties}
 												bind:this={modulePreview}
 												mod={flowModule}
@@ -619,7 +616,7 @@
 												{onJobDone}
 											/>
 										{:else if selected === 'advanced'}
-											<Tabs bind:selected={advancedSelected}>
+											<Tabs bind:selected={advancedSelected} wrapperClass="shrink-0">
 												<Tab
 													value="retries"
 													active={flowModule.retry !== undefined}
@@ -654,14 +651,14 @@
 												{/if}
 											</Tabs>
 											{#if advancedSelected === 'runtime'}
-												<Tabs bind:selected={advancedRuntimeSelected}>
+												<Tabs bind:selected={advancedRuntimeSelected} wrapperClass="shrink-0">
 													<Tab value="concurrency" label="Concurrency" />
 													<Tab value="timeout" label="Timeout" />
 													<Tab value="priority" label="Priority" />
 													<Tab value="lifetime" label="Lifetime" />
 												</Tabs>
 											{/if}
-											<div class="h-[calc(100%-39px)] overflow-auto p-4">
+											<div class="flex-1 overflow-auto p-4">
 												{#if advancedSelected === 'retries'}
 													<Section label="Retries">
 														{#snippet header()}
