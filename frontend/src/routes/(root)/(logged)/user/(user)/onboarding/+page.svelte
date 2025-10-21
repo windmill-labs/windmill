@@ -18,7 +18,13 @@
 	} from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 
-	let currentStep = $state(1)
+	// Define step names as constants for better maintainability
+	const STEP_SOURCE = 'source'
+	const STEP_USE_CASE = 'use_case'
+
+	type OnboardingStep = typeof STEP_SOURCE | typeof STEP_USE_CASE
+
+	let currentStep = $state<OnboardingStep>(STEP_SOURCE)
 	let useCaseText = $state('')
 	let selectedSource = $state<string | null>(null)
 	let isSubmitting = $state(false)
@@ -38,14 +44,12 @@
 
 	function selectSource(sourceId: string) {
 		selectedSource = sourceId
-		// Auto-advance to next step for all selections
-		currentStep = 2
+		// Auto-advance to next step
+		currentStep = STEP_USE_CASE
 	}
 
 	function goToPreviousStep() {
-		if (currentStep === 2) {
-			currentStep = 1
-		}
+		currentStep = STEP_SOURCE
 	}
 
 	async function continueToWorkspaces() {
@@ -74,7 +78,7 @@
 	}
 </script>
 
-{#if currentStep === 1}
+{#if currentStep === STEP_SOURCE}
 	<CenteredModal title="Where did you hear about Windmill?">
 		<div class="w-full max-w-lg mx-auto">
 			<div class="grid grid-cols-1 gap-3 mt-6 mb-6">
@@ -105,7 +109,7 @@
 			</div>
 		</div>
 	</CenteredModal>
-{:else if currentStep === 2}
+{:else if currentStep === STEP_USE_CASE}
 	<CenteredModal title="What do you want to use Windmill for?">
 		<div class="w-full max-w-lg mx-auto">
 			<p class="text-sm text-secondary mb-6">
