@@ -619,28 +619,24 @@
 						<div
 							class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1"
 						>
-							<div class="flex-shrink-0">
-								<FlowConversationsSidebar
-									bind:this={flowConversationsSidebar}
-									flowPath={flow?.path ?? ''}
-									{selectedConversationId}
-									onNewConversation={handleNewConversation}
-									onSelectConversation={handleSelectConversation}
-									onDeleteConversation={handleDeleteConversation}
-								/>
-							</div>
-							<div class="flex-1">
-								<FlowChatInterface
-									bind:this={flowChatInterface}
-									onRunFlow={runFlowForChat}
-									useStreaming={shouldUseStreaming}
-									{refreshConversations}
-									conversationId={selectedConversationId}
-									{deploymentInProgress}
-									createConversation={handleNewConversation}
-									{path}
-								/>
-							</div>
+							<FlowConversationsSidebar
+								bind:this={flowConversationsSidebar}
+								flowPath={flow?.path ?? ''}
+								{selectedConversationId}
+								onNewConversation={handleNewConversation}
+								onSelectConversation={handleSelectConversation}
+								onDeleteConversation={handleDeleteConversation}
+							/>
+							<FlowChatInterface
+								bind:this={flowChatInterface}
+								onRunFlow={runFlowForChat}
+								useStreaming={shouldUseStreaming}
+								{refreshConversations}
+								conversationId={selectedConversationId}
+								{deploymentInProgress}
+								createConversation={handleNewConversation}
+								{path}
+							/>
 						</div>
 					{:else}
 						<!-- Normal Mode: Form Layout -->
