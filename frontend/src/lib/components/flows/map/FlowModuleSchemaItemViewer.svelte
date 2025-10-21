@@ -73,7 +73,8 @@
 				)}
 				baseClass={twMerge('!px-1')}
 				title={id}
-				on:click={(e) => {
+				clickable
+				onclick={(e) => {
 					e?.preventDefault()
 					e?.stopPropagation()
 					editId = !editId

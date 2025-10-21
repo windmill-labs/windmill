@@ -219,7 +219,8 @@
 									<div class={showWorkspace ? 'w-2/12 text-xs' : 'w-3/12 text-xs'}>
 										<div class="flex flex-row gap-1">
 											<Badge
-												on:click={() => {
+												clickable
+												onclick={() => {
 													actionKind = logOrDate.log.action_kind.toLocaleLowerCase()
 												}}
 												color={kindToBadgeColor(logOrDate.log.action_kind)}
@@ -227,7 +228,8 @@
 												{logOrDate.log.action_kind}
 											</Badge>
 											<Badge
-												on:click={() => {
+												clickable
+												onclick={() => {
 													operation = logOrDate.log.operation
 												}}
 											>

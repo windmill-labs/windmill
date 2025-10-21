@@ -204,7 +204,8 @@
 								<Badge
 									small
 									baseClass="cursor-pointer"
-									on:click={() => {
+									clickable
+									onclick={() => {
 										value.style = value.style === '' ? `${v};` : `${value.style} ${v};`
 									}}
 								>
@@ -241,7 +242,8 @@
 							<Badge
 								baseClass="cursor-pointer"
 								small
-								on:click={() => {
+								clickable
+								onclick={() => {
 									value.class = value.class === '' ? cls : `${value.class} ${cls}`
 									render++
 								}}

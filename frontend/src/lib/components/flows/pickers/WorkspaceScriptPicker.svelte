@@ -79,7 +79,8 @@
 					<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
 						<Badge
 							class="cursor-pointer hover:bg-gray-200"
-							on:click={() => {
+							clickable
+							onclick={() => {
 								ownerFilter = ownerFilter == owner ? undefined : owner
 							}}
 							color={owner === ownerFilter ? 'blue' : 'gray'}
