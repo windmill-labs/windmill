@@ -1,32 +1,15 @@
 <script lang="ts">
-	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { storeLocalSetting } from '$lib/utils'
 	import CustomAIPrompts from '../copilot/CustomAIPrompts.svelte'
 	import Button from '../common/button/Button.svelte'
 	import { ChevronDown, ChevronRight } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { getUserCustomPrompts } from '$lib/aiStore'
 
 	const USER_CUSTOM_PROMPTS_KEY = 'userCustomAIPrompts'
 
-	let customPrompts = $state<Record<string, string>>({})
+	let customPrompts = $state<Record<string, string>>(getUserCustomPrompts())
 	let isExpanded = $state(false)
-
-	$effect(() => {
-		loadPrompts()
-	})
-
-	function loadPrompts() {
-		const stored = getLocalSetting(USER_CUSTOM_PROMPTS_KEY)
-		if (stored) {
-			try {
-				customPrompts = JSON.parse(stored)
-			} catch (e) {
-				console.error('Failed to parse user custom prompts', e)
-				customPrompts = {}
-			}
-		} else {
-			customPrompts = {}
-		}
-	}
 
 	function save() {
 		storeLocalSetting(USER_CUSTOM_PROMPTS_KEY, JSON.stringify(customPrompts))
