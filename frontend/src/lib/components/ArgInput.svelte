@@ -47,6 +47,7 @@
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
 	import TextInput, { inputBaseClass, inputBorderClass } from './text_input/TextInput.svelte'
+	import FileInput from './common/fileInput/FileInput.svelte'
 
 	interface Props {
 		label?: string
@@ -369,16 +370,23 @@
 	})
 
 	function fileChanged(e: any, cb: (v: string | undefined) => void) {
-		let t = e.target
+		let t = e?.target ?? e?.detail
 		if (t && 'files' in t && t.files.length > 0) {
-			let reader = new FileReader()
-			reader.onload = (e: any) => {
-				cb(e.target.result.split('base64,')[1])
-			}
-			reader.readAsDataURL(t.files[0])
+			fileChangedInner(t.files[0], cb)
 		} else {
 			cb(undefined)
 		}
+	}
+	function fileChangedInner(file: File | undefined, cb: (v: string | undefined) => void) {
+		if (!file) {
+			cb(undefined)
+			return
+		}
+		let reader = new FileReader()
+		reader.onload = (e: any) => {
+			cb(e.target.result.split('base64,')[1])
+		}
+		reader.readAsDataURL(file)
 	}
 
 	export function focus() {
@@ -1332,19 +1340,15 @@
 				</div>
 			{/if}
 		{:else if inputCat == 'base64'}
-			<div class="flex flex-col my-6 w-full">
-				<input
-					{autofocus}
-					type="file"
-					onchange={(x) => fileChanged(x, (val) => (value = val))}
+			<div class="flex flex-col w-full">
+				<FileInput
+					on:change={(x) => fileChangedInner(x.detail?.[0], (val) => (value = val))}
 					multiple={false}
 				/>
 				{#if value?.length}
-					<div class="text-2xs text-primary mt-1"
-						>File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(
-							2
-						)}MB)</div
-					>
+					<div class="text-2xs text-primary mt-1">
+						File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(2)}MB)
+					</div>
 				{/if}
 			</div>
 		{:else if inputCat == 'resource-string'}
