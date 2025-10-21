@@ -27,12 +27,7 @@
 	{/if}
 	<div class="flex flex-col gap-4">
 		<Label label="AI Mode">
-			<ToggleButtonGroup
-				bind:selected={selectedAiMode}
-				on:selected={({ detail }) => {
-					selectedAiMode = detail
-				}}
-			>
+			<ToggleButtonGroup bind:selected={selectedAiMode}>
 				{#snippet children({ item })}
 					{#each Object.values(AIMode) as mode}
 						<div class="relative">
