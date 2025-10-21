@@ -102,7 +102,6 @@ pub fn filter_schema_by_input_transforms(
             .and_then(|r| r.as_array_mut())
         {
             required.retain(|item| {
-                // Avoid unnecessary String allocation - use &str directly with HashSet
                 if let Some(key) = item.as_str() {
                     !keys_to_remove.contains(key)
                 } else {

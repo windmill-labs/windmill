@@ -364,7 +364,7 @@ pub async fn run_agent(
             vec![]
         };
 
-    // ALWAYS fetch flow context for tool input transforms (also needed for chat/memory)
+    // Fetch flow context for input transforms context, chat and memory
     let mut flow_context = get_flow_context(db, job).await;
 
     // Load previous messages from memory for text output mode (only if context length is set)
@@ -398,7 +398,7 @@ pub async fn run_agent(
         }
     }
 
-    // Extract previous step result if we have flow_status (for tool input transforms - Phase 1)
+    // Extract previous step result if we have flow_status
     let previous_result = {
         if let Some(ref flow_status) = flow_context.flow_status {
             get_previous_job_result(db, &job.workspace_id, flow_status)
@@ -410,7 +410,7 @@ pub async fn run_agent(
         }
     };
 
-    // Build IdContext for results.stepId syntax (Phase 2)
+    // Build IdContext for results.stepId syntax
     let id_context = {
         if let Some(ref flow_status) = flow_context.flow_status {
             // Get the step ID from the AI agent's flow step

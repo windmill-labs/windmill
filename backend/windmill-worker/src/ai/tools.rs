@@ -287,7 +287,7 @@ async fn execute_windmill_tool(
         )
     })?;
 
-    // Get input_transforms from the tool module and merge static transforms
+    // Get input transforms given by the user and merge them with AI given args
     let input_transforms = match tool_module.get_value()? {
         FlowModuleValue::Script { input_transforms, .. } => input_transforms,
         FlowModuleValue::RawScript { input_transforms, .. } => input_transforms,
@@ -299,9 +299,6 @@ async fn execute_windmill_tool(
             )));
         }
     };
-
-    // Evaluate input transforms (both static and JavaScript)
-    // If no flow context, static transforms will still be applied
     evaluate_input_transforms(
         &mut tool_call_args,
         &input_transforms,
