@@ -371,7 +371,11 @@ pub async fn run_agent(
     if matches!(output_type, OutputType::Text) {
         if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
             if let Some(step_id) = job.flow_step_id.as_deref() {
-                if let Some(memory_id) = flow_context.memory_id {
+                if let Some(memory_id) = flow_context
+                    .flow_status
+                    .as_ref()
+                    .and_then(|fs| fs.memory_id)
+                {
                     // Read messages from memory
                     match read_from_memory(&job.workspace_id, memory_id, step_id).await {
                         Ok(Some(loaded_messages)) => {
@@ -595,9 +599,17 @@ pub async fn run_agent(
                             content = Some(OpenAIContent::Text(response_content.clone()));
 
                             // Add assistant message to conversation if chat_input_enabled
-                            let chat_enabled = flow_context.chat_input_enabled;
+                            let chat_enabled = flow_context
+                                .flow_status
+                                .as_ref()
+                                .and_then(|fs| fs.chat_input_enabled)
+                                .unwrap_or(false);
                             if chat_enabled && !response_content.is_empty() {
-                                if let Some(mid) = flow_context.memory_id {
+                                if let Some(memory_id) = flow_context
+                                    .flow_status
+                                    .as_ref()
+                                    .and_then(|fs| fs.memory_id)
+                                {
                                     let agent_job_id = job.id;
                                     let db_clone = db.clone();
                                     let message_content = response_content.clone();
@@ -610,7 +622,7 @@ pub async fn run_agent(
                                     tokio::spawn(async move {
                                         if let Err(e) = add_message_to_conversation(
                                             &db_clone,
-                                            &mid,
+                                            &memory_id,
                                             Some(agent_job_id),
                                             &message_content,
                                             MessageType::Assistant,
@@ -619,7 +631,7 @@ pub async fn run_agent(
                                         )
                                         .await
                                         {
-                                            tracing::warn!("Failed to add assistant message to conversation {}: {}", mid, e);
+                                            tracing::warn!("Failed to add assistant message to conversation {}: {}", memory_id, e);
                                         }
                                     });
                                 }
@@ -750,7 +762,7 @@ pub async fn run_agent(
                     let start_idx = all_messages.len().saturating_sub(context_length);
                     let messages_to_persist = all_messages[start_idx..].to_vec();
 
-                    if let Some(memory_id) = flow_context.memory_id {
+                    if let Some(memory_id) = flow_context.flow_status.and_then(|fs| fs.memory_id) {
                         if let Err(e) = write_to_memory(
                             &job.workspace_id,
                             memory_id,

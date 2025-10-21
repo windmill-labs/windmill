@@ -680,9 +680,19 @@ async fn add_tool_message_to_chat(
     content: &str,
     success: bool,
 ) {
-    let chat_enabled = ctx.flow_context.chat_input_enabled;
+    let chat_enabled = ctx
+        .flow_context
+        .flow_status
+        .as_ref()
+        .and_then(|fs| fs.chat_input_enabled)
+        .unwrap_or(false);
     if chat_enabled {
-        if let Some(mid) = ctx.flow_context.memory_id {
+        if let Some(memory_id) = ctx
+            .flow_context
+            .flow_status
+            .as_ref()
+            .and_then(|fs| fs.memory_id)
+        {
             let db_clone = ctx.db.clone();
             let step_name =
                 get_step_name_from_flow(ctx.summary.as_deref(), ctx.job.flow_step_id.as_deref());
@@ -692,7 +702,7 @@ async fn add_tool_message_to_chat(
             tokio::spawn(async move {
                 if let Err(e) = add_message_to_conversation(
                     &db_clone,
-                    &mid,
+                    &memory_id,
                     tool_job_id,
                     &content,
                     MessageType::Tool,
@@ -701,7 +711,11 @@ async fn add_tool_message_to_chat(
                 )
                 .await
                 {
-                    tracing::warn!("Failed to add tool message to conversation {}: {}", mid, e);
+                    tracing::warn!(
+                        "Failed to add tool message to conversation {}: {}",
+                        memory_id,
+                        e
+                    );
                 }
             });
         }

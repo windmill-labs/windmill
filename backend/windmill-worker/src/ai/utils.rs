@@ -137,9 +137,7 @@ pub async fn get_flow_job_runnable_and_raw_flow(
 
 #[derive(Debug, Clone, Default)]
 pub struct FlowContext {
-    pub memory_id: Option<Uuid>,
-    pub chat_input_enabled: bool,
-    pub args: Option<HashMap<String, Box<RawValue>>>,
+    pub flow_inputs: Option<HashMap<String, Box<RawValue>>>,
     pub flow_status: Option<windmill_common::flow_status::FlowStatus>,
 }
 
@@ -157,8 +155,6 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
     match sqlx::query!(
         r#"
         SELECT
-            (js.flow_status->>'memory_id')::uuid as memory_id,
-            (js.flow_status->>'chat_input_enabled')::boolean as chat_input_enabled,
             j.args as "args: Json<HashMap<String, Box<RawValue>>>",
             js.flow_status as "flow_status: Json<windmill_common::flow_status::FlowStatus>"
         FROM v2_job_status js
@@ -171,9 +167,7 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
     .await
     {
         Ok(Some(row)) => FlowContext {
-            memory_id: row.memory_id,
-            chat_input_enabled: row.chat_input_enabled.unwrap_or(false),
-            args: row.args.map(|j| j.0),
+            flow_inputs: row.args.map(|j| j.0),
             flow_status: row.flow_status.map(|j| j.0),
         },
         Ok(None) => {
@@ -577,8 +571,8 @@ pub async fn evaluate_input_transforms(
                 ctx.insert("params".to_string(), Arc::new(to_raw_value(&tool_args)));
 
                 // Prepare flow_input as Marc for eval_timeout
-                let flow_input = flow_context
-                    .args
+                let flow_inputs = flow_context
+                    .flow_inputs
                     .as_ref()
                     .map(|args| mappable_rc::Marc::new(args.clone()));
 
@@ -586,7 +580,7 @@ pub async fn evaluate_input_transforms(
                 let result = crate::js_eval::eval_timeout(
                     expr.clone(),
                     ctx,
-                    flow_input,
+                    flow_inputs,
                     Some(client),
                     id_context,
                     None,
