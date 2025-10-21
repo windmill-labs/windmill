@@ -14,7 +14,11 @@
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { validateToolName } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
-	import { inputBorderClass } from '../text_input/TextInput.svelte'
+	import {
+		inputBaseClass,
+		inputBorderClass,
+		inputSizeClasses
+	} from '../text_input/TextInput.svelte'
 	import { flowAIBtnClasses } from './chat/flow/FlowAIButton.svelte'
 
 	type PromptConfig = {
@@ -305,7 +309,7 @@ Generate a tool name for the script below:
 				use:autosize
 				{...elementProps}
 				placeholder={!active ? elementProps.placeholder : ''}
-				class={active ? '!indent-[3.5rem]' : ''}
+				class="{inputBaseClass} {inputSizeClasses.md} {inputBorderClass()} w-full"
 				on:focus={() => (focused = true)}
 				on:blur={() => (focused = false)}
 			></textarea>
@@ -316,10 +320,12 @@ Generate a tool name for the script below:
 			bind:value={content}
 			placeholder={!active ? elementProps.placeholder : ''}
 			class={twMerge(
+				inputBaseClass,
+				inputSizeClasses.md,
 				inputBorderClass({
 					error: promptConfigName === 'agentToolFunctionName' && !validateToolName(content ?? '')
 				}),
-				active ? '!indent-[3.5rem]' : ''
+				'w-full'
 			)}
 			on:focus={() => (focused = true)}
 			on:blur={() => (focused = false)}
