@@ -72,7 +72,7 @@
 		onClick={onPress}
 		startIcon={{ icon: WandSparkles }}
 		iconOnly
-		wrapperClasses="h-full"
+		wrapperClasses="h-7"
 		btnClasses={flowAIBtnClasses(selected ? 'selected' : 'default')}
 	>
 		AI Panel
