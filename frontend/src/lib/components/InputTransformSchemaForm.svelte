@@ -25,6 +25,7 @@
 		enableAi?: boolean
 		class?: string
 		helperScript?: DynamicInputTypes.HelperScript
+		isAgentTool?: boolean
 	}
 
 	let {
@@ -38,7 +39,8 @@
 		pickableProperties = undefined,
 		enableAi = false,
 		class: clazz = '',
-		helperScript = undefined
+		helperScript = undefined,
+		isAgentTool = false
 	}: Props = $props()
 
 	let inputCheck: { [id: string]: boolean } = $state({})
@@ -119,6 +121,7 @@
 						{pickableProperties}
 						{enableAi}
 						{helperScript}
+						{isAgentTool}
 						otherArgs={Object.fromEntries(
 							Object.entries(args ?? {}).filter(([key]) => key !== argName)
 						)}

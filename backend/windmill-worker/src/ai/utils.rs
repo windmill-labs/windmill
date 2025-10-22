@@ -1,19 +1,26 @@
 use crate::ai::types::{ToolDef, ToolDefFunction};
 use anyhow::Context;
 use serde_json::value::RawValue;
-use std::{collections::HashMap, sync::Arc};
+use sqlx::types::Json;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use uuid::Uuid;
-use windmill_common::mcp_client::{McpClient, McpResource, McpToolSource};
 use windmill_common::{
     ai_providers::AIProvider,
     db::DB,
     error::Error,
     flow_conversations::{add_message_to_conversation_tx, MessageType},
     flow_status::AgentAction,
-    flows::Step,
+    flows::{InputTransform, Step},
     jobs::JobKind,
     scripts::{ScriptHash, ScriptLang},
     worker::to_raw_value,
+};
+use windmill_common::{
+    flows::FlowModuleValue,
+    mcp_client::{McpClient, McpResource, McpToolSource},
 };
 use windmill_queue::{flow_status::get_step_of_flow_status, MiniPulledJob};
 
@@ -51,6 +58,66 @@ pub fn parse_raw_script_schema(
     Ok(to_raw_value(&schema))
 }
 
+/// Filters out properties from a JSON schema that have completed input transforms.
+/// This allows AI agents to only see and fill parameters that don't have user-configured values.
+pub fn filter_schema_by_input_transforms(
+    schema: Box<RawValue>,
+    input_transforms: &HashMap<String, InputTransform>,
+) -> Result<Box<RawValue>, Error> {
+    // Parse the schema JSON
+    let mut schema_value: serde_json::Value = serde_json::from_str(schema.get())
+        .context("Failed to parse schema JSON")
+        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+    // Collect keys to remove (parameters with completed input transforms)
+    let keys_to_remove: HashSet<String> = input_transforms
+        .iter()
+        .filter_map(|(key, transform)| {
+            let is_completed = match transform {
+                InputTransform::Static { value } => {
+                    let val = value.get().trim();
+                    !val.is_empty() && val != "null"
+                }
+                InputTransform::Javascript { expr } => !expr.trim().is_empty(),
+            };
+            if is_completed {
+                Some(key.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if !keys_to_remove.is_empty() {
+        // Remove completed parameters from properties
+        if let Some(properties) = schema_value
+            .get_mut("properties")
+            .and_then(|p| p.as_object_mut())
+        {
+            for key in &keys_to_remove {
+                properties.remove(key);
+            }
+        }
+
+        // Also remove from required array
+        if let Some(required) = schema_value
+            .get_mut("required")
+            .and_then(|r| r.as_array_mut())
+        {
+            required.retain(|item| {
+                if let Some(key) = item.as_str() {
+                    !keys_to_remove.contains(key)
+                } else {
+                    true
+                }
+            });
+        }
+    }
+
+    // Convert back to RawValue
+    Ok(to_raw_value(&schema_value))
+}
+
 pub struct FlowJobRunnableIdAndRawFlow {
     pub runnable_id: Option<ScriptHash>,
     pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
@@ -72,45 +139,51 @@ pub async fn get_flow_job_runnable_and_raw_flow(
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct FlowChatSettings {
-    pub memory_id: Option<Uuid>,
-    pub chat_input_enabled: bool,
+pub struct FlowContext {
+    pub flow_inputs: Option<HashMap<String, Box<RawValue>>>,
+    pub flow_status: Option<windmill_common::flow_status::FlowStatus>,
 }
 
-/// Get chat settings (memory_id and chat_input_enabled) from root flow's flow_status
-pub async fn get_flow_chat_settings(db: &DB, job: &MiniPulledJob) -> FlowChatSettings {
+/// Get flow context (chat settings + args + flow_status) from root flow's job data
+pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
     let root_job_id = job
         .root_job
         .or(job.flow_innermost_root_job)
         .or(job.parent_job);
 
     let Some(root_job_id) = root_job_id else {
-        return FlowChatSettings::default();
+        return FlowContext::default();
     };
 
     match sqlx::query!(
-        "SELECT
-            (flow_status->>'memory_id')::uuid as memory_id,
-            (flow_status->>'chat_input_enabled')::boolean as chat_input_enabled
-         FROM v2_job_status
-         WHERE id = $1",
+        r#"
+        SELECT
+            j.args as "args: Json<HashMap<String, Box<RawValue>>>",
+            js.flow_status as "flow_status: Json<windmill_common::flow_status::FlowStatus>"
+        FROM v2_job_status js
+        INNER JOIN v2_job j ON j.id = js.id
+        WHERE js.id = $1
+        "#,
         root_job_id
     )
     .fetch_optional(db)
     .await
     {
-        Ok(Some(row)) => FlowChatSettings {
-            memory_id: row.memory_id,
-            chat_input_enabled: row.chat_input_enabled.unwrap_or(false),
+        Ok(Some(row)) => FlowContext {
+            flow_inputs: row.args.map(|j| j.0),
+            flow_status: row.flow_status.map(|j| j.0),
         },
-        Ok(None) => FlowChatSettings::default(),
-        Err(e) => {
+        Ok(None) => {
             tracing::warn!(
-                "Failed to get chat settings from flow status for job {}: {}",
-                job.id,
-                e
+                "No flow context found for root job {} (agent job {}), returning default",
+                root_job_id,
+                job.id
             );
-            FlowChatSettings::default()
+            FlowContext::default()
+        }
+        Err(e) => {
+            tracing::error!("Failed to get flow context for job {}: {}", job.id, e);
+            FlowContext::default()
         }
     }
 }
@@ -462,4 +535,29 @@ pub async fn execute_mcp_tool(
         .context("MCP tool call failed")?;
 
     Ok(result)
+}
+
+/// Check if any tool's input transforms reference previous_result
+pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
+    tools.iter().any(|tool| {
+        if let Some(module) = &tool.module {
+            if let Ok(module_value) = module.get_value() {
+                let input_transforms = match module_value {
+                    FlowModuleValue::Script { input_transforms, .. } => input_transforms,
+                    FlowModuleValue::RawScript { input_transforms, .. } => input_transforms,
+                    FlowModuleValue::FlowScript { input_transforms, .. } => input_transforms,
+                    _ => return false,
+                };
+
+                return input_transforms.iter().any(|(_, transform)| {
+                    if let windmill_common::flows::InputTransform::Javascript { expr } = transform {
+                        expr.contains("previous_result")
+                    } else {
+                        false
+                    }
+                });
+            }
+        }
+        false
+    })
 }

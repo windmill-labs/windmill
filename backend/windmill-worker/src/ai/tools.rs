@@ -2,21 +2,25 @@ use crate::ai::providers::openai::OpenAIToolCall;
 use crate::ai::query_builder::StreamEventProcessor;
 use crate::ai::types::*;
 use crate::ai::utils::{
-    add_message_to_conversation, execute_mcp_tool, get_flow_chat_settings, get_step_name_from_flow,
+    add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
     update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
-    FlowChatSettings,
+    FlowContext,
 };
 use crate::common::{error_to_value, OccupancyMetrics};
 use crate::result_processor::handle_non_flow_job_error;
-use crate::worker_flow::{raw_script_to_payload, script_to_payload, JobPayloadWithTag};
+use crate::worker_flow::{
+    evaluate_input_transform, raw_script_to_payload, script_to_payload, JobPayloadWithTag,
+};
 use crate::{
     create_job_dir, handle_queued_job, JobCompletedReceiver, JobCompletedSender, SendResult,
     SendResultPayload,
 };
 use anyhow::Context;
+use mappable_rc::Marc;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
+use windmill_common::flows::InputTransform;
 use windmill_common::jobs::JobPayload;
 use windmill_common::mcp_client::{McpClient, McpToolSource};
 use windmill_common::{
@@ -26,7 +30,7 @@ use windmill_common::{
     flow_conversations::MessageType,
     flow_status::AgentAction,
     flows::FlowModuleValue,
-    worker::Connection,
+    worker::{to_raw_value, Connection},
 };
 use windmill_queue::{
     get_mini_pulled_job, push, JobCompleted, MiniPulledJob, PushArgs, PushIsolationLevel,
@@ -57,7 +61,9 @@ pub struct ToolExecutionContext<'a> {
 
     // Optional streaming & chat
     pub stream_event_processor: Option<&'a StreamEventProcessor>,
-    pub chat_settings: &'a mut Option<FlowChatSettings>,
+    pub flow_context: &'a mut FlowContext,
+    pub previous_result: &'a Option<Box<RawValue>>,
+    pub id_context: &'a Option<crate::js_eval::IdContext>,
 }
 
 /// Execute all tool calls from an AI response
@@ -257,10 +263,7 @@ async fn execute_windmill_tool(
 ) -> Result<(), Error> {
     // Regular Windmill tools must have a module
     let tool_module = tool.module.as_ref().ok_or_else(|| {
-        Error::internal_err(format!(
-            "Tool {} has no module (MCP tools should be handled above)",
-            tool_call.function.name
-        ))
+        Error::internal_err(format!("Tool {} has no module", tool_call.function.name))
     })?;
 
     let job_id = ulid::Ulid::new().into();
@@ -278,7 +281,7 @@ async fn execute_windmill_tool(
         tool_call.function.arguments.clone()
     };
 
-    let tool_call_args = serde_json::from_str::<HashMap<String, Box<RawValue>>>(
+    let mut tool_call_args = serde_json::from_str::<HashMap<String, Box<RawValue>>>(
         &raw_tool_call_args,
     )
     .with_context(|| {
@@ -287,6 +290,54 @@ async fn execute_windmill_tool(
             tool_call.function.name, tool_call.function.arguments
         )
     })?;
+
+    // Get input transforms given by the user and merge them with AI given args
+    let input_transforms = match tool_module.get_value()? {
+        FlowModuleValue::Script { input_transforms, .. } => input_transforms,
+        FlowModuleValue::RawScript { input_transforms, .. } => input_transforms,
+        FlowModuleValue::FlowScript { input_transforms, .. } => input_transforms,
+        _ => {
+            return Err(Error::internal_err(format!(
+                "Unsupported tool: {}",
+                tool_call.function.name
+            )));
+        }
+    };
+
+    // Prepare context for transform evaluation
+    let last_result = Arc::new(
+        ctx.previous_result
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null)),
+    );
+
+    let flow_inputs = ctx
+        .flow_context
+        .flow_inputs
+        .as_ref()
+        .map(|args| Marc::new(args.clone()));
+
+    // Evaluate each input transform and merge with AI-provided args
+    for (key, transform) in input_transforms.iter() {
+        // We skip static empty / null values, those are the one the AI will fill in
+        if let InputTransform::Static { value } = transform {
+            let val = value.get().trim();
+            if val.is_empty() || val == "null" {
+                continue;
+            }
+        }
+        let result = evaluate_input_transform::<Box<RawValue>>(
+            transform,
+            last_result.clone(),
+            flow_inputs.clone(),
+            Some(ctx.client),
+            ctx.id_context.as_ref(),
+        )
+        .await?;
+
+        tool_call_args.insert(key.clone(), result);
+    }
 
     let job_payload = match tool_module.get_value()? {
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
@@ -659,18 +710,19 @@ async fn add_tool_message_to_chat(
     content: &str,
     success: bool,
 ) {
-    if ctx.chat_settings.is_none() {
-        *ctx.chat_settings = Some(get_flow_chat_settings(ctx.db, ctx.job).await);
-    }
-
     let chat_enabled = ctx
-        .chat_settings
+        .flow_context
+        .flow_status
         .as_ref()
-        .map(|s| s.chat_input_enabled)
+        .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);
-
     if chat_enabled {
-        if let Some(mid) = ctx.chat_settings.as_ref().and_then(|s| s.memory_id) {
+        if let Some(memory_id) = ctx
+            .flow_context
+            .flow_status
+            .as_ref()
+            .and_then(|fs| fs.memory_id)
+        {
             let db_clone = ctx.db.clone();
             let step_name =
                 get_step_name_from_flow(ctx.summary.as_deref(), ctx.job.flow_step_id.as_deref());
@@ -680,7 +732,7 @@ async fn add_tool_message_to_chat(
             tokio::spawn(async move {
                 if let Err(e) = add_message_to_conversation(
                     &db_clone,
-                    &mid,
+                    &memory_id,
                     tool_job_id,
                     &content,
                     MessageType::Tool,
@@ -689,7 +741,11 @@ async fn add_tool_message_to_chat(
                 )
                 .await
                 {
-                    tracing::warn!("Failed to add tool message to conversation {}: {}", mid, e);
+                    tracing::warn!(
+                        "Failed to add tool message to conversation {}: {}",
+                        memory_id,
+                        e
+                    );
                 }
             });
         }

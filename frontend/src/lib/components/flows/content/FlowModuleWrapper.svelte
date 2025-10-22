@@ -294,16 +294,17 @@
 		{/if}
 	{/each}
 {:else if flowModule.value.type === 'aiagent'}
-	{@const toolIndex = flowModule.value.tools.findIndex((t) => t.id === $selectedId)}
-	{#if toolIndex !== -1}
-		<AgentToolWrapper
-			{noEditor}
-			bind:tool={flowModule.value.tools[toolIndex]}
-			parentModule={flowModule}
-			{previousModule}
-			{enableAi}
-			{forceTestTab}
-			{highlightArg}
-		/>
-	{/if}
+	{#each flowModule.value.tools as tool, toolIndex (toolIndex)}
+		{#if $selectedId === tool.id}
+			<AgentToolWrapper
+				{noEditor}
+				bind:tool={flowModule.value.tools[toolIndex]}
+				parentModule={flowModule}
+				{previousModule}
+				{enableAi}
+				{forceTestTab}
+				{highlightArg}
+			/>
+		{/if}
+	{/each}
 {/if}
