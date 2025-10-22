@@ -32,8 +32,9 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::flows::FlowValue;
 use windmill_common::utils::{query_elems_from_hub, WarnAfterExt};
-use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -385,6 +386,7 @@ async fn create_flow(
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
+    guard_flow_from_debounce_data(&nf).await?;
     if *CLOUD_HOSTED {
         let nb_flows =
             sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
@@ -743,10 +745,9 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
-    dbg!(&nf);
-
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
+    guard_flow_from_debounce_data(&nf).await?;
 
     #[cfg(not(feature = "enterprise"))]
     if nf
@@ -1361,6 +1362,32 @@ async fn archive_flow_by_path(
     Ok(format!("Flow {path} archived"))
 }
 
+async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
+    dbg!(&nf);
+    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await && {
+        let flow_value: FlowValue = serde_json::from_value(nf.value.clone())?;
+        use windmill_common::flows::FlowModuleValue::*;
+        let mut debounce_used = false;
+        FlowValue::traverse_leafs(&flow_value.modules, &mut |fmv, _step| {
+            match fmv {
+                RawScript { custom_debounce_key, debounce_delay_s, .. }
+                | FlowScript { custom_debounce_key, debounce_delay_s, .. } => {
+                    debounce_used = custom_debounce_key.is_some() || debounce_delay_s.is_some();
+                }
+                _ => {}
+            }
+            Ok(())
+        })?;
+
+        debounce_used || flow_value.debounce_key.is_some() || flow_value.debounce_delay_s.is_some()
+    } {
+        // TODO: add tracing.
+        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "TODO".into() })
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Deserialize)]
 struct DeleteFlowQuery {
     keep_captures: Option<bool>,
@@ -1523,6 +1550,8 @@ mod tests {
                         custom_concurrency_key: None,
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
+                        custom_debounce_key: None,
+                        debounce_delay_s: None,
                         is_trigger: None,
                         assets: None,
                     }),

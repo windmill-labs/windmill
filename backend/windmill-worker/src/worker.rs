@@ -18,6 +18,7 @@ use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
+use windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
@@ -1590,31 +1591,32 @@ pub async fn run_worker(
                             }
                         };
 
-                        // Essential debouncing job preprocessing.
-                        if let Ok(windmill_queue::PulledJobResult {
-                            job: Some(ref mut pulled_job),
-                            ..
-                        }) = &mut job
-                        {
-                            match timeout(
-                                core::time::Duration::from_secs(10),
-                                preprocess_dependency_job(pulled_job, &db),
-                            )
-                            .warn_after_seconds(2)
-                            .await
+                        if *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
+                            // Essential debouncing job preprocessing.
+                            if let Ok(windmill_queue::PulledJobResult {
+                                job: Some(ref mut pulled_job),
+                                ..
+                            }) = &mut job
                             {
-                                Ok(Err(e)) => {
-                                    tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor failed: {e:?}");
-                                    job = Err(e.into());
+                                match timeout(
+                                    core::time::Duration::from_secs(10),
+                                    preprocess_dependency_job(pulled_job, &db),
+                                )
+                                .warn_after_seconds(2)
+                                .await
+                                {
+                                    Ok(Err(e)) => {
+                                        tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor failed: {e:?}");
+                                        job = Err(e.into());
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor has timed out: {e:?}");
+                                        job = Err(e.into());
+                                    }
+                                    _ => {}
                                 }
-                                Err(e) => {
-                                    tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor has timed out: {e:?}");
-                                    job = Err(e.into());
-                                }
-                                _ => {}
                             }
                         }
-
                         add_time!(bench, "job pulled from DB");
                         let duration_pull_s = pull_time.elapsed().as_secs_f64();
                         let err_pull = job.is_ok();

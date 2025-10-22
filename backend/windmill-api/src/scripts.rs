@@ -46,7 +46,7 @@ use windmill_common::{
     s3_helpers::upload_artifact_to_store,
     scripts::hash_script,
     utils::WarnAfterExt,
-    worker::CLOUD_HOSTED,
+    worker::{CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING},
 };
 
 use windmill_common::{
@@ -388,6 +388,7 @@ async fn create_snapshot_script(
     Path(w_id): Path<String>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
+    // TODO: Check for debouncing here as well.
     let mut script_hash = None;
     let mut tx = None;
     let mut uploaded = false;
@@ -518,8 +519,9 @@ async fn create_script_internal<'c>(
     Transaction<'c, Postgres>,
     Option<HandleDeploymentMetadata>,
 )> {
-    dbg!(&ns);
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
+
+    guard_script_from_debounce_data(&ns).await?;
 
     let codebase = ns.codebase.as_ref();
     #[cfg(not(feature = "enterprise"))]
@@ -2133,4 +2135,16 @@ async fn delete_scripts_bulk(
     }
 
     Ok(Json(deleted_paths))
+}
+
+async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
+    dbg!(&ns);
+    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+        && (ns.debounce_key.is_some() || ns.debounce_delay_s.is_some())
+    {
+        // TODO: add tracing.
+        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "TODO".into() })
+    } else {
+        Ok(())
+    }
 }

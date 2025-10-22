@@ -145,11 +145,13 @@ impl ApiServer {
 pub struct RunJob {
     pub payload: JobPayload,
     pub args: serde_json::Map<String, serde_json::Value>,
+    pub debounce_job_id_o: Option<Uuid>,
+    pub scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl From<JobPayload> for RunJob {
     fn from(payload: JobPayload) -> Self {
-        Self { payload, args: Default::default() }
+        Self { payload, args: Default::default(), debounce_job_id_o: None, scheduled_for_o: None }
     }
 }
 
@@ -159,8 +161,21 @@ impl RunJob {
         self
     }
 
+    pub fn push_arg_debounce_job_id_o(mut self, job_id: Option<Uuid>) -> Self {
+        self.debounce_job_id_o = job_id;
+        self
+    }
+
+    pub fn push_arg_scheduled_for_o(
+        mut self,
+        scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Self {
+        self.scheduled_for_o = scheduled_for_o;
+        self
+    }
+
     pub async fn push(self, db: &Pool<Postgres>) -> Uuid {
-        let RunJob { payload, args } = self;
+        let RunJob { payload, args, debounce_job_id_o, scheduled_for_o } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -177,7 +192,7 @@ impl RunJob {
             /* email  */ "test@windmill.dev",
             /* permissioned_as */ "u/test-user".to_string(),
             /* token_prefix */ None,
-            /* scheduled_for_o */ None,
+            scheduled_for_o,
             /* schedule_path */ None,
             /* parent_job */ None,
             /* root job  */ None,
@@ -194,7 +209,7 @@ impl RunJob {
             None,
             false,
             None,
-            None,
+            debounce_job_id_o,
         )
         .await
         .expect("push has to succeed");

@@ -104,9 +104,9 @@ $tag$
                 "lock": "# py: 3.11\n",
                 "type": "rawscript",
                 "assets": [],
-                "content": "def main(x: str, y: str):\n    return x",
+                "content": "import time\n\ndef main(x: str, y: str):\n    time.sleep(30)\n\n    return x",
                 "language": "python3",
-                "debounce_delay_s": 15,
+                "concurrent_limit": 1,
                 "input_transforms": {
                     "x": {
                         "type": "static",
@@ -117,25 +117,49 @@ $tag$
                         "value": ""
                     }
                 },
-                "concurrency_time_window_s": 0
+                "concurrency_time_window_s": 5
             },
             "continue_on_error": false
         },
         {
             "id": "b",
             "value": {
-                "type": "branchall",
-                "branches": [
+                "type": "whileloopflow",
+                "modules": [
                     {
-                        "expr": "false",
-                        "modules": [],
-                        "summary": "",
-                        "skip_failure": false
+                        "id": "c",
+                        "value": {
+                            "lock": "# py: 3.11\n",
+                            "type": "rawscript",
+                            "assets": [],
+                            "content": "# import wmill\n\n\ndef main(x: str):\n    return x",
+                            "language": "python3",
+                            "input_transforms": {
+                                "x": {
+                                    "type": "static",
+                                    "value": ""
+                                }
+                            }
+                        }
+                    },
+                    {
+                        "id": "d",
+                        "value": {
+                            "type": "rawscript",
+                            "assets": [],
+                            "content": "# import wmill\n\n\ndef main(x: str):\n    return x",
+                            "language": "python3",
+                            "input_transforms": {
+                                "x": {
+                                    "type": "static",
+                                    "value": ""
+                                }
+                            }
+                        }
                     }
                 ],
-                "parallel": true
-            },
-            "summary": ""
+                "skip_failures": false
+            }
         }
     ]
 }$tag$,

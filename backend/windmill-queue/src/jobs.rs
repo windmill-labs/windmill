@@ -36,7 +36,7 @@ use windmill_common::bench::BenchmarkIter;
 use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::{calculate_hash, now_from_db};
-use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
+use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
@@ -1384,8 +1384,9 @@ async fn restart_job_if_perpetual_inner(
                     .unwrap_or_else(|| ScriptLang::Deno),
                 priority: queued_job.priority,
                 apply_preprocessor: false,
-                custom_debounce_key: todo!(),
-                debounce_delay_s: todo!(),
+                // TODO(debouncing): handle properly
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             },
             queued_job
                 .args
@@ -3669,8 +3670,8 @@ pub async fn push<'c, 'd>(
             cache_ttl,
             dedicated_worker,
             None,
-            None,
-            None,
+            custom_debounce_key,
+            debounce_delay_s,
         ),
         JobPayload::Dependencies { hash, language, path, dedicated_worker } => (
             Some(hash.0),
@@ -3832,6 +3833,8 @@ pub async fn push<'c, 'd>(
             let concurrency_key = value.concurrency_key.clone();
             let concurrent_limit = value.concurrent_limit;
             let concurrency_time_window_s = value.concurrency_time_window_s;
+            let debounce_key = value.debounce_key.clone();
+            let debounce_delay_s = value.debounce_delay_s;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let priority = value.priority;
             (
@@ -3848,8 +3851,8 @@ pub async fn push<'c, 'd>(
                 cache_ttl,
                 None,
                 priority,
-                None,
-                None,
+                debounce_key,
+                debounce_delay_s,
             )
         }
         JobPayload::SingleStepFlow {
@@ -4158,6 +4161,8 @@ pub async fn push<'c, 'd>(
             let concurrency_key = value.concurrency_key.clone();
             let concurrent_limit = value.concurrent_limit;
             let concurrency_time_window_s = value.concurrency_time_window_s;
+            let debounce_key = value.debounce_key.clone();
+            let debounce_delay_s = value.debounce_delay_s;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
@@ -4181,8 +4186,8 @@ pub async fn push<'c, 'd>(
                 cache_ttl,
                 None,
                 priority,
-                None,
-                None,
+                debounce_key,
+                debounce_delay_s,
             )
         }
         JobPayload::DeploymentCallback { path } => (
@@ -4262,7 +4267,10 @@ pub async fn push<'c, 'd>(
     // This is not the case for scripts, so we can potentially have multiple djobs for scripts at the same time.
     if let (Some(path), true) = (
         &script_path,
-        cfg!(feature = "private") && job_kind.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING,
+        cfg!(feature = "private")
+            && job_kind.is_dependency()
+            && !*WMDEBUG_NO_DJOB_DEBOUNCING
+            && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
     ) {
         custom_concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
         concurrent_limit = Some(1);
@@ -4408,10 +4416,14 @@ pub async fn push<'c, 'd>(
         job_kind.is_dependency(),
         script_path.clone(),
         *WMDEBUG_NO_DJOB_DEBOUNCING,
+        *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
         // We only do debouncing for jobs triggered by relative imports
         // We do not want this be the case for normal djobs, since they will always be sequential.
         args.args.contains_key("triggered_by_relative_import"),
     ) {
+        (_, _, _, _, false, _) => {
+            // TODO(claude): add tracing warn that debouncing is disabled bc there are workers behind, and you neeed to update workers to be atleast xyz.
+        }
         // === DEPENDENCY JOB DEBOUNCING ===
         //
         // Debouncing consolidates multiple dependency job requests into a single execution,
@@ -4422,7 +4434,8 @@ pub async fn push<'c, 'd>(
         // 2. Job is a dependency job
         // 3. Object path is provided (script/flow/app path)
         // 4. Fallback mode is disabled (normal operation)
-        // 5. Job was created by relative imports (triggered by dependency chain)
+        // 5. min version supports debouncing
+        // 6. Job was created by relative imports (triggered by dependency chain)
         //
         // How it works:
         //
@@ -4442,7 +4455,7 @@ pub async fn push<'c, 'd>(
         //   - Retrieve all accumulated nodes/components from debounce_stale_data
         //   - Process all collected dependencies in single execution
         //   - Clean up both debounce_key and debounce_stale_data entries
-        (true, true, Some(obj_path), false, true) => {
+        (true, true, Some(obj_path), false, true, true) => {
             // Generate unique debounce key: "workspace_id:object_path:dependency"
             // This ensures each workspace+path combination has independent debounce window
             let debounce_key = format!("{workspace_id}:{obj_path}:dependency");

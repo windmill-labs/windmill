@@ -4388,8 +4388,9 @@ pub async fn run_workflow_as_code(
                 concurrency_time_window_s: job.concurrency_time_window_s,
                 cache_ttl: job.cache_ttl,
                 dedicated_worker: None,
-                custom_debounce_key: todo!(),
-                debounce_delay_s: todo!(),
+                // TODO(debouncing): enable for this mode
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             }),
             Some(job.tag.clone()),
             None,

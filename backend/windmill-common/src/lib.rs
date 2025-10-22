@@ -17,7 +17,7 @@ use std::{
         Arc,
     },
 };
-use worker::MIN_VERSION_IS_AT_LEAST_1_563;
+use worker::MIN_VERSION_SUPPORTS_DEBOUNCING;
 
 use tokio::{spawn, sync::broadcast};
 
@@ -866,8 +866,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<String>,
     String,
 )> {
-    if *MIN_VERSION_IS_AT_LEAST_1_563.read().await {
-        let r_o = sqlx::query!(
+    let r_o = sqlx::query!(
             "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
@@ -878,55 +877,24 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         .fetch_optional(db)
         .await?;
 
-        let script = utils::not_found_if_none(r_o, "script", script_path)?;
+    let script = utils::not_found_if_none(r_o, "script", script_path)?;
 
-        Ok((
-            scripts::ScriptHash(script.hash),
-            script.tag,
-            script.concurrency_key,
-            script.concurrent_limit,
-            script.concurrency_time_window_s,
-            script.debounce_key,
-            script.debounce_delay_s,
-            script.cache_ttl,
-            script.language,
-            script.dedicated_worker,
-            script.priority,
-            script.timeout,
-            script.on_behalf_of_email,
-            script.created_by,
-        ))
-    } else {
-        let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script
-             WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
-             ORDER BY created_at DESC LIMIT 1",
-            script_path,
-            w_id,
-            require_locked
-        )
-        .fetch_optional(db)
-        .await?;
-
-        let script = utils::not_found_if_none(r_o, "script", script_path)?;
-
-        Ok((
-            scripts::ScriptHash(script.hash),
-            script.tag,
-            script.concurrency_key,
-            script.concurrent_limit,
-            script.concurrency_time_window_s,
-            None,
-            None,
-            script.cache_ttl,
-            script.language,
-            script.dedicated_worker,
-            script.priority,
-            script.timeout,
-            script.on_behalf_of_email,
-            script.created_by,
-        ))
-    }
+    Ok((
+        scripts::ScriptHash(script.hash),
+        script.tag,
+        script.concurrency_key,
+        script.concurrent_limit,
+        script.concurrency_time_window_s,
+        script.debounce_key,
+        script.debounce_delay_s,
+        script.cache_ttl,
+        script.language,
+        script.dedicated_worker,
+        script.priority,
+        script.timeout,
+        script.on_behalf_of_email,
+        script.created_by,
+    ))
 }
 
 pub struct KillpillSender {
