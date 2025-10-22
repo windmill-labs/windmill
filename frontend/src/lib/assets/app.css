@@ -3,8 +3,10 @@
 @tailwind components;
 @tailwind utilities;
 
-html {
-  font-size: 16px; /* Default is 16px */
+@media (min-width: 1760px) {
+  :root {
+    font-size: 18px;
+  }
 }
 
 @layer base {
