@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Select from '$lib/components/select/Select.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { addWhitespaceBeforeCapitals, capitalize } from '$lib/utils'
 	import type { RichConfiguration } from '../../types'
@@ -69,7 +70,7 @@
 	}
 </script>
 
-<div class="p-2 border">
+<div class="p-2 border rounded-md">
 	{#if oneOf}
 		<div class="mb-2 text-sm font-semibold">
 			{capitalize(addWhitespaceBeforeCapitals(key))}&nbsp;
@@ -77,19 +78,18 @@
 				<Tooltip light>{tooltip}</Tooltip>
 			{/if}
 		</div>
-		<select
-			class="w-full border border-gray-300 rounded-md p-2"
-			value={oneOf.selected}
-			onchange={(e) => {
-				oneOf = { ...oneOf, selected: e?.target?.['value'] }
-			}}
-		>
-			{#each Object.keys(inputSpecsConfiguration ?? {}) as choice}
-				{#if (!disabledOptions.includes(choice) && !getValueOfDeprecated(inputSpecsConfiguration[choice])) || oneOf.selected === choice}
-					<option value={choice}>{labels?.[choice] ?? choice}</option>
-				{/if}
-			{/each}
-		</select>
+		<Select
+			bind:value={() => oneOf.selected, (selected) => (oneOf = { ...oneOf, selected })}
+			items={Object.keys(inputSpecsConfiguration ?? {})
+				.filter(
+					(choice) =>
+						(!disabledOptions.includes(choice) &&
+							!getValueOfDeprecated(inputSpecsConfiguration[choice])) ||
+						oneOf.selected === choice
+				)
+				.map((choice) => ({ label: labels?.[choice] ?? choice, value: choice }))}
+		/>
+
 		{#if oneOf.selected !== 'none' && oneOf.selected !== 'errorOverlay'}
 			<div class="mb-4"></div>
 		{/if}
