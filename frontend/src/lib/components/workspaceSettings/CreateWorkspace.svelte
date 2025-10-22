@@ -260,10 +260,10 @@
 		<label class="flex flex-col gap-1">
 			{#if isFork}
 				<span class="text-xs font-semibold text-emphasis">Fork name</span>
-				<span class="text-2xs text-secondary">Displayable name of the forked workspace</span>
+				<span class="text-xs text-secondary">Displayable name of the forked workspace</span>
 			{:else}
 				<span class="text-xs font-semibold text-emphasis">Workspace name</span>
-				<span class="text-2xs text-secondary">Displayable name</span>
+				<span class="text-xs text-secondary">Displayable name</span>
 			{/if}
 			<!-- svelte-ignore a11y_autofocus -->
 			<TextInput inputProps={{ autofocus: true }} bind:value={name} />
@@ -295,7 +295,7 @@
 		</label>
 		<label class="flex flex-col gap-1">
 			<span class="text-xs font-semibold text-emphasis">Workspace color</span>
-			<span class="text-2xs text-primary"
+			<span class="text-xs text-secondary"
 				>Color to identify the current workspace in the list of workspaces</span
 			>
 			<div class="flex items-center gap-4">
