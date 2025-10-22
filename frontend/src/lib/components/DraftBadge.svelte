@@ -16,14 +16,14 @@
 			{#snippet text()}
 				Never deployed and is only a draft
 			{/snippet}
-			<Badge small color="violet">Draft only</Badge>
+			<Badge small color="indigo">Draft only</Badge>
 		</Popover>
 	{:else}
 		<Popover notClickable>
 			{#snippet text()}
 				Is deployed and has a draft
 			{/snippet}
-			<Badge small color="violet">+Draft</Badge>
+			<Badge small color="indigo">+Draft</Badge>
 		</Popover>
 	{/if}
 {/if}

@@ -54,7 +54,7 @@
 		yellow: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-700/40 dark:text-yellow-300',
 		orange: 'bg-orange-100 text-orange-800 dark:bg-orange-700/40 dark:text-orange-300',
 		indigo: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-700/40 dark:text-indigo-300',
-		violet: 'bg-violet-100 text-violet-800 dark:bg-violet-700/40 dark:text-violet-300',
+		violet: 'bg-violet-100 text-violet-800 dark:bg-violet-800/30 dark:text-violet-300',
 		['dark-gray']: 'bg-gray-500 text-gray-100 dark:bg-gray-600 dark:text-gray-200',
 		['dark-blue']: 'bg-blue-500 text-blue-100 dark:bg-blue-600 dark:text-blue-200',
 		['dark-red']: 'bg-red-500 text-white dark:bg-red-600 dark:text-red-100',
@@ -89,7 +89,7 @@
 
 	const hovers: Partial<Record<BadgeColor, string>> = {
 		gray: 'hover:bg-surface-hover',
-		blue: 'hover:bg-luminance-blue-200 dark:hover:bg-luminance-blue-500/25',
+		blue: 'hover:bg-luminance-blue-200 dark:hover:bg-luminance-blue-700/40',
 		red: 'hover:bg-red-200 dark:hover:bg-red-500/25',
 		green: 'hover:bg-green-200 dark:hover:bg-green-500/25',
 		yellow: 'hover:bg-yellow-200 dark:hover:bg-yellow-500/25',
@@ -110,7 +110,7 @@
 	let badgeClass = $derived(
 		twMerge(
 			baseClass,
-			small ? 'text-xs' : verySmall ? 'text-2xs' : large ? 'text-xs' : 'text-2xs',
+			small ? 'text-2xs' : verySmall ? 'text-2xs' : large ? 'text-xs' : 'text-2xs',
 			selected ? selectedColors[color] : colors[color],
 			clickable &&
 				!selected &&
