@@ -1,5 +1,8 @@
 <script module lang="ts">
-	export function validateToolName(name: string) {
+	export function validateToolName(name: string, type?: string) {
+		if (type === 'mcp') {
+			return name.length > 0
+		}
 		return /^[a-zA-Z0-9_]+$/.test(name)
 	}
 
@@ -8,6 +11,7 @@
 	export const BELOW_ADDITIONAL_OFFSET = 19
 
 	export const AI_TOOL_CALL_PREFIX = '_wm_ai_agent_tool_call'
+	export const AI_MCP_TOOL_CALL_PREFIX = '_wm_ai_mcp_tool_call'
 	export const AI_TOOL_MESSAGE_PREFIX = '_wm_ai_agent_message'
 
 	const ROW_WIDTH = 275
@@ -79,11 +83,22 @@
 			let tools: {
 				id: string
 				name: string
+				type?: string
 				stateType?: GraphModuleState['type']
-			}[] = node.data.module.value.tools.map((t) => ({
-				id: t.id,
-				name: t.summary ?? ''
-			}))
+			}[] = node.data.module.value.tools.map((t, idx) => {
+				// Handle both FlowModule tools and MCP tools
+				const toolType =
+					t.value.tool_type === 'mcp'
+						? 'mcp'
+						: t.value.tool_type === 'flowmodule'
+							? t.value.type
+							: undefined
+				return {
+					id: t.id,
+					name: t.summary ?? '',
+					type: toolType
+				}
+			})
 
 			const agentActions = !insertable && flowModuleStates?.[node.id]?.agent_actions
 			if (agentActions) {
@@ -91,8 +106,11 @@
 				baseOffset = BELOW_ADDITIONAL_OFFSET + AI_TOOL_BASE_OFFSET
 				rowOffset = AI_TOOL_ROW_OFFSET
 				tools = agentActions.map((a, idx) => {
-					if (a.type === 'tool_call') {
-						const id = getToolCallId(idx, node.id, a.module_id)
+					if (a.type === 'tool_call' || a.type === 'mcp_tool_call') {
+						const id =
+							a.type === 'tool_call'
+								? getToolCallId(idx, node.id, a.module_id)
+								: AI_MCP_TOOL_CALL_PREFIX + '-' + node.id + '-' + idx
 						return {
 							id,
 							name: a.function_name
@@ -131,6 +149,7 @@
 					parentId: node.id,
 					data: {
 						tool: tool.name,
+						type: tool.type,
 						eventHandlers,
 						moduleId: tool.id,
 						insertable,
@@ -232,7 +251,7 @@
 		NewAiToolN,
 		NodeLayout
 	} from '../../graphBuilder.svelte'
-	import { MessageCircle, Play, Wrench, X } from 'lucide-svelte'
+	import { MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getContext } from 'svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
@@ -282,14 +301,21 @@
 			>
 				{#if data.moduleId.startsWith(AI_TOOL_MESSAGE_PREFIX)}
 					<MessageCircle size={16} class="ml-1 shrink-0" />
-				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX)}
+				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX) || data.moduleId.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
 					<Play size={16} class="ml-1 shrink-0" />
+				{:else if data.type === 'mcp'}
+					<Plug size={16} class="ml-1 shrink-0" />
 				{:else}
 					<Wrench size={16} class="ml-1 shrink-0" />
 				{/if}
 
-				<span class={twMerge('text-3xs truncate flex-1 font-normal')}>
-					{data.tool || 'No tool name'}
+				<span
+					class={twMerge(
+						'text-3xs truncate flex-1',
+						!validateToolName(data.tool, data.type) && 'text-red-400'
+					)}
+				>
+					{data.tool || 'Missing name'}
 				</span>
 			</button>
 			{#if data.insertable}

@@ -21,6 +21,7 @@
 	import FlowWhileLoop from './FlowWhileLoop.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
 	import { formatCron } from '$lib/utils'
+	import AgentToolWrapper from './AgentToolWrapper.svelte'
 
 	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -293,12 +294,16 @@
 		{/if}
 	{/each}
 {:else if flowModule.value.type === 'aiagent'}
-	{#each flowModule.value.tools as _, index (index)}
-		<FlowModuleWrapper
+	{@const toolIndex = flowModule.value.tools.findIndex((t) => t.id === $selectedId)}
+	{#if toolIndex !== -1}
+		<AgentToolWrapper
 			{noEditor}
-			bind:flowModule={flowModule.value.tools[index]}
-			bind:parentModule={flowModule}
-			isAgentTool
+			bind:tool={flowModule.value.tools[toolIndex]}
+			parentModule={flowModule}
+			{previousModule}
+			{enableAi}
+			{forceTestTab}
+			{highlightArg}
 		/>
-	{/each}
+	{/if}
 {/if}

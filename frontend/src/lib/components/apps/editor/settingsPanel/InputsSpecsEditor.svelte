@@ -45,6 +45,7 @@
 
 	const mapping = {
 		onSuccess: 'On success wizard',
+		onSubmit: 'On submit wizard',
 		onError: 'On error wizard'
 	}
 </script>

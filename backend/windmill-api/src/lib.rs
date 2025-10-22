@@ -62,7 +62,7 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
+use windmill_common::{utils::{configure_client, GIT_VERSION}, BASE_URL, INSTANCE_NAME};
 
 use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
@@ -199,11 +199,11 @@ lazy_static::lazy_static! {
 
     pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
-    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+    pub static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
-        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
+        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok()))
         .build().unwrap();
 
 

@@ -693,12 +693,16 @@
 
 												<div class="flex items-center gap-2">
 													<span class="text-xs font-mono text-left">
-														<b>
-															{mode === 'aiagent'
-																? module.summary
-																	? 'Tool call'
-																	: 'Message'
-																: module.id}
+														<b class="flex items-center gap-1">
+															{#if mode === 'aiagent'}
+																{#if module.summary}
+																	Tool call: {module.summary}
+																{:else}
+																	Message
+																{/if}
+															{:else}
+																{module.id}
+															{/if}
 														</b>
 														{#if mode === 'flow'}
 															{#if module.value.type === 'forloopflow'}
@@ -715,7 +719,7 @@
 																Step
 															{/if}
 														{/if}
-														{#if module.summary}
+														{#if module.summary && mode !== 'aiagent'}
 															: {module.summary}
 														{/if}
 														{#if hasEmptySubflowValue}

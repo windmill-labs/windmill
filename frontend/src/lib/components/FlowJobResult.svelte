@@ -2,9 +2,10 @@
 	import { Loader2 } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import LogViewer from './LogViewer.svelte'
-	import type { CompletedJob, FlowModule, Job } from '$lib/gen'
+	import type { CompletedJob, Job } from '$lib/gen'
 	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import type { AgentTool } from './flows/agentToolUtils'
 
 	interface Props {
 		waitingForExecutor?: boolean
@@ -22,7 +23,7 @@
 		downloadLogs?: boolean
 		tagLabel?: string | undefined
 		aiAgentStatus?: {
-			tools: FlowModule[]
+			tools: AgentTool[]
 			agentJob: Partial<CompletedJob> & Pick<CompletedJob, 'id'> & { type: 'CompletedJob' }
 			storedToolCallJobs?: Record<number, Job>
 			onToolJobLoaded?: (job: Job, idx: number) => void

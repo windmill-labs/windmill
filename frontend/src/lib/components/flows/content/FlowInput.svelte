@@ -472,7 +472,10 @@
 			<Toggle
 				size="sm"
 				checked={chatInputEnabled}
-				on:change={handleToggleChatMode}
+				on:click={(e) => {
+					e.preventDefault()
+					handleToggleChatMode()
+				}}
 				options={{
 					right: 'Chat Mode',
 					rightTooltip:
