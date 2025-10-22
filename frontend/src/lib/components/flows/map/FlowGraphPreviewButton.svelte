@@ -5,6 +5,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '$lib/components/Popover.svelte'
 	import type { Job } from '$lib/gen'
+	import { NODE } from '$lib/components/graph'
 
 	interface Props {
 		isRunning?: boolean
@@ -43,9 +44,11 @@
 		size="sm"
 		variant="accent-secondary"
 		btnClasses={twMerge(
-			'relative p-1.5 mt-[2.5px] h-[33px] transition-all duration-200 drop-shadow-base',
-			wide ? 'w-[120px]' : 'w-[44.5px]'
+			'relative p-1.5 transition-all duration-200 drop-shadow-base',
+			wide ? 'w-[120px]' : 'w-[44.5px]',
+			'max-[1760px]:mt-[1.5px]' // Magic number comes from app.css (when :root fontSize becomes bigger)
 		)}
+		style="height: {NODE.height}px;"
 		on:click={() => {
 			onTestFlow?.()
 		}}
