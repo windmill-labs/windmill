@@ -1138,17 +1138,19 @@
 					{#snippet children({ item })}
 						<ToggleButton
 							icon={AlignHorizontalSpaceAround}
+							iconOnly
 							value={'false'}
 							tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
 							{item}
-							size="sm"
+							size="md"
 						/>
 						<ToggleButton
 							tooltip="The width is of the app if the full width of its container"
 							icon={Expand}
+							iconOnly
 							value={'true'}
 							{item}
-							size="sm"
+							size="md"
 						/>
 					{/snippet}
 				</ToggleButtonGroup>
@@ -1164,21 +1166,50 @@
 					{#snippet children({ item })}
 						<ToggleButton
 							icon={SunMoon}
+							iconOnly
 							value={'auto'}
 							tooltip="The app mode between dark/light is automatic"
 							{item}
-							size="sm"
+							size="md"
 						/>
-						<ToggleButton icon={Sun} value={'sun'} tooltip="Force light mode" {item} size="sm" />
-						<ToggleButton tooltip="Force dark mode" icon={Moon} value={'dark'} {item} size="sm" />
+						<ToggleButton
+							icon={Sun}
+							iconOnly
+							value={'sun'}
+							tooltip="Force light mode"
+							{item}
+							size="md"
+						/>
+						<ToggleButton
+							tooltip="Force dark mode"
+							icon={Moon}
+							iconOnly
+							value={'dark'}
+							{item}
+							size="md"
+						/>
 					{/snippet}
 				</ToggleButtonGroup>
 			{/if}
 			<div class="flex flex-row gap-2">
 				<ToggleButtonGroup bind:selected={$breakpoint}>
 					{#snippet children({ item })}
-						<ToggleButton tooltip="Computer View" icon={Laptop2} value={'lg'} {item} size="sm" />
-						<ToggleButton tooltip="Mobile View" icon={Smartphone} value={'sm'} {item} size="sm" />
+						<ToggleButton
+							tooltip="Computer View"
+							icon={Laptop2}
+							iconOnly
+							value={'lg'}
+							{item}
+							size="md"
+						/>
+						<ToggleButton
+							tooltip="Mobile View"
+							icon={Smartphone}
+							iconOnly
+							value={'sm'}
+							{item}
+							size="md"
+						/>
 						{#if $breakpoint === 'sm'}
 							<Toggle
 								size="xs"
