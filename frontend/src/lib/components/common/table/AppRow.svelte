@@ -88,20 +88,10 @@
 >
 	{#snippet badges()}
 		{#if app.execution_mode == 'anonymous'}
-			<Badge small>
-				<div class="flex gap-1 items-center">
-					<Eye size={16} />
-					Public
-				</div></Badge
-			>
+			<Badge small icon={{ icon: Eye }}>Public</Badge>
 		{/if}
 		{#if app.raw_app}
-			<Badge small>
-				<div class="flex gap-1 items-center">
-					<FileJson size={16} />
-					Raw
-				</div></Badge
-			>
+			<Badge small icon={{ icon: FileJson }}>Raw</Badge>
 		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
 		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
