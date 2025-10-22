@@ -68,7 +68,7 @@
 			horizontalPadding,
 			height,
 			'text-primary data-[state=on]:text-primary',
-			'data-[state=on]:bg-surface-tertiary data-[state=off]:border-transparent data-[state=on]:border',
+			'data-[state=on]:bg-surface-tertiary data-[state=off]:border-transparent data-[state=on]:border-border-normal/30',
 			'bg-surface-transparent hover:bg-surface-hover',
 			disabled ? '!shadow-none' : '',
 			className
