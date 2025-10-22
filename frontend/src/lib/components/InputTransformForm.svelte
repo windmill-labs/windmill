@@ -620,7 +620,6 @@
 							{#snippet children({ item })}
 								{#if isAgentTool}
 									<ToggleButton
-										light
 										small
 										label="AI"
 										value="ai"
