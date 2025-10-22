@@ -16,7 +16,8 @@
 		X,
 		Play,
 		Loader2,
-		TriangleAlert
+		TriangleAlert,
+		Timer
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -317,11 +318,10 @@
 						transition:fade|local={{ duration: 200 }}
 						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
 					>
-						<!-- TODO: Find icon for debouncing -->
-						<Gauge size={12} />
+						<Timer size={12} />
 					</div>
 					{#snippet text()}
-						Debouncing						
+						Debouncing
 					{/snippet}
 				</Popover>
 			{/if}

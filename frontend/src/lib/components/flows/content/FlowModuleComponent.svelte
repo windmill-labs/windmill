@@ -746,7 +746,13 @@
 												{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'debouncing'}
 													<Section label="Debouncing" class="flex flex-col gap-4" eeOnly>
 														{#snippet header()}
-															<Tooltip>TODO</Tooltip>
+															<Tooltip
+																documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing"
+															>
+																Debounce jobs to consolidate multiple executions into a single run,
+																reducing redundant work when the same job is triggered multiple times
+																within the debounce window.
+															</Tooltip>
 														{/snippet}
 														{#if flowModule.value.type == 'rawscript'}
 															<Label label="Debounce Delay in seconds. (if not set - disabled)">
@@ -827,7 +833,7 @@
 														<Section label="Debouncing" eeOnly>
 															{#snippet header()}
 																<Tooltip
-																	documentationLink="https://www.windmill.dev/docs/core_concepts/TODO"
+																	documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing"
 																>
 																	Debounce Jobs
 																</Tooltip>
@@ -850,7 +856,7 @@
 																<Label label="Custom debounce key (optional)">
 																	{#snippet header()}
 																		<Tooltip
-																			documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits#TODO"
+																			documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing#custom-debounce-key"
 																		>
 																			Debounce Keys are global, you can have them be workspace specific
 																			using the variable `$workspace`. You can also use an argument's value
@@ -861,7 +867,7 @@
 																		type="text"
 																		autofocus
 																		bind:value={flowModule.value.debounce_key}
-																		placeholder={`$workspace/script/TODO-$args[foo]`}
+																		placeholder={`$workspace/mypath-$args[myarg]`}
 																	/>
 																</Label>
 															</div>

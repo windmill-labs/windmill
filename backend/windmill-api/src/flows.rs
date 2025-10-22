@@ -1381,8 +1381,10 @@ async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
 
         debounce_used || flow_value.debounce_key.is_some() || flow_value.debounce_delay_s.is_some()
     } {
-        // TODO: add tracing.
-        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "TODO".into() })
+        tracing::warn!(
+            "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
+        );
+        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.564.0".into() })
     } else {
         Ok(())
     }
