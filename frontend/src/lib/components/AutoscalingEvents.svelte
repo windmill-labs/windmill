@@ -39,7 +39,9 @@
 
 <div>
 	<h6
-		class={!$enterpriseLicense || (events != undefined && events.length == 0) ? 'text-primary' : ''}
+		class={!$enterpriseLicense || (events != undefined && events.length == 0)
+			? 'text-xs text-emphasis font-semibold'
+			: ''}
 		>Autoscaling events {#if $enterpriseLicense}<span class="text-xs text-primary">(5 last)</span>
 			<span class="inline-flex ml-6">
 				<Button
@@ -59,7 +61,7 @@
 			</span>{/if}
 	</h6>
 	{#if !$enterpriseLicense}
-		<div class="text-xs pt-2 text-primary">Autoscaling is an EE feature</div>
+		<div class="text-xs pt-1 text-secondary">Autoscaling is an EE feature</div>
 	{:else if loading}
 		<Skeleton layout={[[12], 1]} />
 	{:else if events}
