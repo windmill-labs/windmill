@@ -4,9 +4,9 @@ export const classes: Record<AlertType, Record<string, string>> = {
 	info: {
 		bgClass:
 			'bg-luminance-blue-50 border-luminance-blue-100 border dark:bg-luminance-blue-900/60 dark:border-luminance-blue-700/40',
-		iconClass: 'text-luminance-blue-400 dark:text-luminance-blue-200',
-		titleClass: 'text-luminance-blue-600 dark:text-luminance-blue-100',
-		descriptionClass: 'text-luminance-blue-400 dark:text-luminance-blue-100/90'
+		iconClass: 'text-luminance-blue-600 dark:text-luminance-blue-50',
+		titleClass: 'text-luminance-blue-700 dark:text-luminance-blue-50',
+		descriptionClass: 'text-luminance-blue-600 dark:text-luminance-blue-50/80'
 	},
 	warning: {
 		bgClass:

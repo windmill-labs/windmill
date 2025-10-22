@@ -77,7 +77,7 @@
 		storage using S3Object and use the wmill sdk to read and write large files backed by an object
 		storage. Large-scale log management and distributed dependency caching is under <a
 			href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#instance-object-storage"
-			class="text-blue-500">Instance object storage</a
+			>Instance object storage</a
 		>, set by the superadmins in the instance settings UI.
 	</Alert>
 {/if}
