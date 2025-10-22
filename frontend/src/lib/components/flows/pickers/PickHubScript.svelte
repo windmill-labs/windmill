@@ -163,11 +163,11 @@
 								{/if}
 							</div>
 
-							<div class="w-full text-left font-normal">
-								<div class="text-primary flex-wrap text-xs font-normal mb-1">
+							<div class="w-full text-left">
+								<div class="text-emphasis flex-wrap text-xs font-medium mb-1">
 									{item.summary ?? ''}
 								</div>
-								<div class="text-secondary text-xs">
+								<div class="text-secondary text-2xs font-normal">
 									{item.path}
 								</div>
 							</div>

@@ -68,7 +68,7 @@
 			<RowIcon {href} {kind} />
 		</div>
 		<div class="grow">
-			<div class="text-primary font-medium flex-wrap text-left text-xs">
+			<div class="text-emphasis flex-wrap text-left text-xs font-medium">
 				{#if marked}
 					{@html marked}
 				{:else}

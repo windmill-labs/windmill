@@ -68,8 +68,8 @@
 						<div class="flex items-center gap-4">
 							<RowIcon kind="app" />
 
-							<div class="w-full text-left font-normal">
-								<div class="text-primary flex-wrap text-xs font-normal">
+							<div class="w-full text-left">
+								<div class="text-emphasis flex-wrap text-xs font-medium">
 									{#if item.marked}
 										{@html item.marked ?? ''}
 									{:else}
