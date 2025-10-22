@@ -295,7 +295,9 @@
 									onclick={() => emailTriggerEditor?.openEdit(path, is_flow)}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
-									<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
+									<div
+										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
+									>
 										{#if marked}
 											<span class="text-xs">
 												{@html marked}

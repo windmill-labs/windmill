@@ -539,10 +539,10 @@
 
 {#snippet variableInput()}
 	{#if variableEditor}
-		<div class="text-sm text-hint">
+		<div class="text-2xs text-hint">
 			{#if value && typeof value == 'string' && value?.startsWith('$var:')}
 				Linked to variable <button
-					class="text-nord-950 underline font-normal"
+					class="text-accent underline font-normal"
 					onclick={() => variableEditor?.editVariable?.(value.slice(5))}>{value.slice(5)}</button
 				>
 			{/if}
