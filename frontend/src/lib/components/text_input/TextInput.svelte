@@ -11,7 +11,9 @@
 			forceFocus
 				? '!border-border-selected'
 				: '!border-border-light hover:!border-border-selected/50 focus:!border-border-selected',
-			error ? '!border-red-300 focus:!border-red-400 hover:!border-red-500' : ''
+			error
+				? '!border-red-300 dark:!border-red-400/45 focus:!border-red-400 hover:!border-red-500 dark:hover:!border-red-400/75'
+				: ''
 		)
 	}
 
