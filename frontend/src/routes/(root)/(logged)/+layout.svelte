@@ -502,7 +502,7 @@
 											}}
 											label="Ask AI"
 											class="!text-xs"
-											iconClasses="!text-ai-inverse"
+											iconClasses="!text-ai-inverse dark:!text-ai"
 											shortcut={`${getModifierKey()}L`}
 										/>
 									</div>
@@ -576,7 +576,7 @@
 									}}
 									label="Ask AI"
 									class="!text-xs"
-									iconClasses="!text-ai-inverse"
+									iconClasses="!text-ai-inverse dark:!text-ai"
 									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
@@ -689,7 +689,7 @@
 									}}
 									label="Ask AI"
 									class="!text-xs"
-									iconClasses="!text-ai-inverse"
+									iconClasses="!text-ai-inverse dark:!text-ai"
 									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
