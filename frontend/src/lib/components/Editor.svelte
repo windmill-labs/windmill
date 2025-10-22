@@ -256,7 +256,7 @@
 
 	export function insertAtCurrentLine(code: string): void {
 		if (editor) {
-			insertAtLine(code, editor.getPosition()?.lineNumber ?? 0)
+			insertAtLine(code, editor.getPosition()?.lineNumber ?? 0);
 		}
 	}
 
@@ -1251,7 +1251,7 @@
 					$relativeLineNumbers
 				),
 				model,
-				fontSize: small ? 13 : 13,
+				fontSize: !small ? 14 : 12,
 				lineNumbersMinChars,
 				// overflowWidgetsDomNode: widgets,
 				tabSize: lang == 'python' ? 4 : 2,
