@@ -2,21 +2,25 @@ use crate::ai::providers::openai::OpenAIToolCall;
 use crate::ai::query_builder::StreamEventProcessor;
 use crate::ai::types::*;
 use crate::ai::utils::{
-    add_message_to_conversation, evaluate_input_transforms, execute_mcp_tool,
-    get_step_name_from_flow, update_flow_status_module_with_actions,
-    update_flow_status_module_with_actions_success, FlowContext,
+    add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
+    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
+    FlowContext,
 };
 use crate::common::{error_to_value, OccupancyMetrics};
 use crate::result_processor::handle_non_flow_job_error;
-use crate::worker_flow::{raw_script_to_payload, script_to_payload, JobPayloadWithTag};
+use crate::worker_flow::{
+    evaluate_input_transform, raw_script_to_payload, script_to_payload, JobPayloadWithTag,
+};
 use crate::{
     create_job_dir, handle_queued_job, JobCompletedReceiver, JobCompletedSender, SendResult,
     SendResultPayload,
 };
 use anyhow::Context;
+use mappable_rc::Marc;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
+use windmill_common::flows::InputTransform;
 use windmill_common::jobs::JobPayload;
 use windmill_common::mcp_client::{McpClient, McpToolSource};
 use windmill_common::{
@@ -26,7 +30,7 @@ use windmill_common::{
     flow_conversations::MessageType,
     flow_status::AgentAction,
     flows::FlowModuleValue,
-    worker::Connection,
+    worker::{to_raw_value, Connection},
 };
 use windmill_queue::{
     get_mini_pulled_job, push, JobCompleted, MiniPulledJob, PushArgs, PushIsolationLevel,
@@ -299,15 +303,41 @@ async fn execute_windmill_tool(
             )));
         }
     };
-    evaluate_input_transforms(
-        &mut tool_call_args,
-        &input_transforms,
-        &ctx.flow_context,
-        ctx.previous_result.as_ref(),
-        ctx.id_context.as_ref(),
-        ctx.client,
-    )
-    .await?;
+
+    // Prepare context for transform evaluation
+    let last_result = Arc::new(
+        ctx.previous_result
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null)),
+    );
+
+    let flow_inputs = ctx
+        .flow_context
+        .flow_inputs
+        .as_ref()
+        .map(|args| Marc::new(args.clone()));
+
+    // Evaluate each input transform and merge with AI-provided args
+    for (key, transform) in input_transforms.iter() {
+        // We skip static empty / null values, those are the one the AI will fill in
+        if let InputTransform::Static { value } = transform {
+            let val = value.get().trim();
+            if val.is_empty() || val == "null" {
+                continue;
+            }
+        }
+        let result = evaluate_input_transform::<Box<RawValue>>(
+            transform,
+            last_result.clone(),
+            flow_inputs.clone(),
+            Some(ctx.client),
+            ctx.id_context.as_ref(),
+        )
+        .await?;
+
+        tool_call_args.insert(key.clone(), result);
+    }
 
     let job_payload = match tool_module.get_value()? {
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
