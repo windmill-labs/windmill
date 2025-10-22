@@ -12,12 +12,12 @@
 	let { onPress, Icon = Plus, title, id }: Props = $props()
 </script>
 
-<button
-	{title}
-	{id}
-	type="button"
-	class={'w-[17.5px] h-[17.5px] flex items-center justify-center text-primary border border-border-normal bg-surface-secondary hover:opacity-60 transition-opacity rounded-md'}
-	onpointerdown={onPress}
->
-	<Icon size={12} />
+<button class="center-center p-2 group" onpointerdown={onPress}>
+	<div
+		{title}
+		{id}
+		class={'w-[20px] h-[20px] flex items-center justify-center text-primary border border-border-normal bg-surface-secondary group-hover:bg-surface-accent-primary group-hover:text-white group-hover:border-none transition-all rounded-md'}
+	>
+		<Icon size={12} />
+	</div>
 </button>
