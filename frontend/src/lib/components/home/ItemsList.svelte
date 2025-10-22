@@ -414,7 +414,7 @@
 				bind:value={filter}
 				class="!pr-10"
 			/>
-			<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-3 mr-4">
+			<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-2 mr-4">
 				<svg
 					class="h-4 w-4 fill-current"
 					xmlns="http://www.w3.org/2000/svg"
