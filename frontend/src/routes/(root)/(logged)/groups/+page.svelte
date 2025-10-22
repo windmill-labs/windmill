@@ -96,7 +96,7 @@
 						containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 					>
 						{#snippet trigger()}
-							<Button unifiedSize="lg" variant="accent" startIcon={{ icon: Plus }} nonCaptureEvent
+							<Button unifiedSize="md" variant="accent" startIcon={{ icon: Plus }} nonCaptureEvent
 								>New&nbsp;group</Button
 							>
 						{/snippet}

@@ -341,7 +341,7 @@
 					</div>
 					<div>
 						<Button
-							size="xs"
+							unifiedSize="md"
 							variant="default"
 							startIcon={{
 								icon: LineChart
