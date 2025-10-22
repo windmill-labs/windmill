@@ -234,7 +234,8 @@
 				? ButtonType.ExtendedFontSizeClasses[extendedSize]
 				: ButtonType.FontSizeClasses[size],
 			getSpacingClass(variant, size, spacingSize, iconOnly, unifiedSize, extendedSize),
-			'focus-visible:ring-2 font-medium',
+			unifiedSize ? ButtonType.UnifiedFontSizes[unifiedSize] : '',
+			'focus-visible:ring-2',
 			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md' : 'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
 			'active:opacity-80 transition-[background-color,opacity] duration-150',
@@ -354,7 +355,12 @@
 				<endIcon.icon class={twMerge('shrink-0', endIcon?.classes)} size={lucideIconSize} />
 			{/if}
 			{#if shortCut && !shortCut.hide}
-				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-medium">
+				<div
+					class={twMerge(
+						'flex flex-row items-center !text-md opacity-60 gap-0',
+						ButtonType.UnifiedFontSizes[size]
+					)}
+				>
 					{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<shortCut.Icon
 							class="w-4 h-4 shrink-0"
 							size={lucideIconSize}
@@ -399,7 +405,12 @@
 			{/if}
 			{#if shortCut && !shortCut.hide}
 				{@const Icon = shortCut.Icon}
-				<div class="flex flex-row items-center !text-md opacity-60 gap-0 font-medium">
+				<div
+					class={twMerge(
+						'flex flex-row items-center !text-md opacity-60 gap-0',
+						ButtonType.UnifiedFontSizes[size]
+					)}
+				>
 					{#if shortCut.withoutModifier !== true}{getModifierKey()}{/if}{#if shortCut.Icon}<Icon
 							class="shrink-0"
 							size={lucideIconSize}
