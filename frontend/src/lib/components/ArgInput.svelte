@@ -369,14 +369,6 @@
 		evalValueToRaw()
 	})
 
-	function fileChanged(e: any, cb: (v: string | undefined) => void) {
-		let t = e?.target ?? e?.detail
-		if (t && 'files' in t && t.files.length > 0) {
-			fileChangedInner(t.files[0], cb)
-		} else {
-			cb(undefined)
-		}
-	}
 	function fileChangedInner(file: File | undefined, cb: (v: string | undefined) => void) {
 		if (!file) {
 			cb(undefined)
