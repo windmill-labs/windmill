@@ -72,7 +72,7 @@
 >
 	<div
 		class={twMerge(
-			'flex bg-surface-sunken/30 rounded-md h-full',
+			'flex bg-surface-sunken/70 rounded-md h-full',
 			wrap ? 'flex-wrap' : '',
 			tabListClass
 		)}
