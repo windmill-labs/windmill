@@ -62,6 +62,7 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<Button
 		variant="default"
+		unifiedSize="sm"
 		wrapperClasses={twMerge('min-w-36 h-7', small ? 'max-w-52' : 'max-w-64')}
 		btnClasses={twMerge(
 			aiModuleActionToBgColor(action),
@@ -116,8 +117,8 @@
 	>
 		{#snippet trigger({ toggleOpen })}
 			<Button
-				size="xs"
-				wrapperClasses="h-full min-w-36 h-7"
+				unifiedSize="sm"
+				wrapperClasses="min-w-36 h-7"
 				title={`Add failure module`}
 				variant="default"
 				id={`flow-editor-add-step-error-handler-button`}

@@ -31,10 +31,10 @@
 	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
-<div class="flex flex-row gap-2 h-9 p-1 rounded-md bg-surface">
+<div class="flex flex-row gap-2 h-8 p-1 rounded-md bg-surface">
 	{#if !disableSettings}
 		<Button
-			size="xs"
+			unifiedSize="sm"
 			wrapperClasses="min-w-36"
 			startIcon={{ icon: Settings }}
 			selected={$selectedId?.startsWith('settings')}
@@ -58,7 +58,7 @@
 		<Popover>
 			<Button
 				wrapperClasses="h-full"
-				size="xs"
+				unifiedSize="sm"
 				startIcon={{ icon: DollarSign }}
 				selected={$selectedId === 'constants'}
 				variant="default"
