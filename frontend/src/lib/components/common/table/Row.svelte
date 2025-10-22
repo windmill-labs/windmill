@@ -68,7 +68,7 @@
 			<RowIcon {href} {kind} />
 		</div>
 		<div class="grow">
-			<div class="text-emphasis flex-wrap text-left text-xs font-medium">
+			<div class="text-emphasis flex-wrap text-left text-xs font-semibold">
 				{#if marked}
 					{@html marked}
 				{:else}
@@ -92,7 +92,7 @@
 	{/if}
 
 	{#if canFavorite}
-		<div class="center-center h-full text-xs font-medium text-secondary">
+		<div class="center-center h-full text-xs font-semibold text-secondary">
 			<Star
 				{kind}
 				{path}
