@@ -1092,7 +1092,7 @@ pub async fn update_min_version(conn: &Connection) -> bool {
     }
 
     *MIN_VERSION_SUPPORTS_DEBOUNCING.write().await =
-        min_version >= Version::new(1, 562 /* TODO */, 0);
+        min_version >= Version::new(1, 564, 0);
     *MIN_VERSION_IS_AT_LEAST_1_461.write().await = min_version >= Version::new(1, 461, 0);
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);

@@ -2142,8 +2142,10 @@ async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
     if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
         && (ns.debounce_key.is_some() || ns.debounce_delay_s.is_some())
     {
-        // TODO: add tracing.
-        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "TODO".into() })
+        tracing::warn!(
+            "Script debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
+        );
+        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.564.0".into() })
     } else {
         Ok(())
     }

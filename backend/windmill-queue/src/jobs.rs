@@ -4553,7 +4553,10 @@ pub async fn push<'c, 'd>(
         args.args.contains_key("triggered_by_relative_import"),
     ) {
         (_, _, _, _, false, _) => {
-            // TODO(claude): add tracing warn that debouncing is disabled bc there are workers behind, and you neeed to update workers to be atleast xyz.
+            tracing::warn!(
+                "Debouncing is disabled because workers are behind the minimum required version 1.564.0. \
+                Please update workers to enable debouncing feature."
+            );
         }
         // === DEPENDENCY JOB DEBOUNCING ===
         //

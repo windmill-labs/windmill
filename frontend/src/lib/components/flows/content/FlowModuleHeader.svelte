@@ -14,7 +14,8 @@
 		Repeat,
 		Save,
 		Square,
-		Pin
+		Pin,
+		Timer
 	} from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
@@ -67,8 +68,7 @@
 				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
 				onClick={() => dispatch('toggleDebouncing')}
 			>
-						<!-- TODO: Find icon for debouncing -->
-				<Gauge size={14} />
+				<Timer size={14} />
 				{#snippet text()}
 					Debouncing
 				{/snippet}

@@ -492,8 +492,8 @@
 								}}
 								options={{
 									right: 'Debounce limits',
-									rightTooltip: 'TODO',
-									rightDocumentationLink: 'https://www.windmill.dev/docs/flows/TODO'
+									rightTooltip: 'Consolidate multiple flow executions into a single run within a time window',
+									rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/debouncing'
 								}}
 								class="py-1"
 								eeOnly={true}

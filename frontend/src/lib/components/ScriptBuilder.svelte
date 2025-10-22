@@ -1266,7 +1266,7 @@
 									<Section label="Debouncing" eeOnly>
 										{#snippet header()}
 											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/TODO"
+												documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing"
 											>
 												Debounce Jobs
 											</Tooltip>
@@ -1289,7 +1289,7 @@
 											<Label label="Custom debounce key (optional)">
 												{#snippet header()}
 													<Tooltip
-														documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits#TODO"
+														documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing#custom-debounce-key"
 													>
 														Debounce Keys are global, you can have them be workspace specific
 														using the variable `$workspace`. You can also use an argument's value
