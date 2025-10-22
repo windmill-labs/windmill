@@ -46,7 +46,7 @@ use windmill_common::jobs::{
 };
 use windmill_common::scripts::ScriptHash;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::utils::WarnAfterExt;
+use windmill_common::utils::{not_found_if_none, WarnAfterExt};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{
     add_time, get_latest_flow_version_info_for_path, get_script_info_for_hash, FlowVersionInfo,
@@ -293,7 +293,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         flow_data,
         stop_early,
         skip_if_stop_early,
-        nresult,
+        mut nresult,
         is_failure_step,
         _cleanup_module,
     ) = {
@@ -1460,6 +1460,34 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
 
             let success = success && (!is_failure_step || result_has_recover_true(nresult.clone()));
+
+            nresult = if let Some(step_id) = flow_data.flow.early_return.as_ref() {
+                let result = sqlx::query_scalar!(
+                    r#"
+                    SELECT cj.result as "result: Json<Box<RawValue>>"
+                    FROM v2_job_completed cj
+                    JOIN v2_job j ON j.id = cj.id
+                    WHERE j.flow_step_id = $1
+                    AND j.flow_innermost_root_job = $2
+                    "#,
+                    step_id,
+                    flow_job.id
+                )
+                .fetch_optional(db)
+                .await?;
+
+                if let Some(result) = result {
+                    Arc::new(
+                        result
+                            .map(|x| x.0)
+                            .unwrap_or_else(|| to_raw_value(&json!({}))),
+                    )
+                } else {
+                    nresult
+                }
+            } else {
+                nresult
+            };
 
             add_time!(bench, "flow status update 1");
             let duration = if success {
@@ -3178,7 +3206,9 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
-        if value_with_parallel.type_ == "forloopflow" && value_with_parallel.parallel.unwrap_or(false) {
+        if value_with_parallel.type_ == "forloopflow"
+            && value_with_parallel.parallel.unwrap_or(false)
+        {
             if let Some(parallelism_transform) = &value_with_parallel.parallelism {
                 tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
 
