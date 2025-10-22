@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO debounce_key (key, job_id) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET job_id = EXCLUDED.job_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "44bf04fb504cd1b708657f01c8fb26e81e78807315226557f08449bf43982abb"
+}
