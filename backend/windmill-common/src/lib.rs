@@ -60,6 +60,7 @@ pub mod git_sync_ee;
 pub mod git_sync_oss;
 pub mod jobs;
 pub mod jwt;
+pub mod mcp_client;
 pub mod more_serde;
 pub mod oauth2;
 #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
@@ -207,18 +208,17 @@ pub async fn shutdown_signal(
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         tokio::select! {
             _ = terminate() => {
-                tracing::info!("2nd shutdown monitor received terminate");
+                tracing::error!("2nd shutdown monitor received terminate");
             },
             _ = tokio::signal::ctrl_c() => {
-                tracing::info!("2nd shutdown monitor received ctrl-c");
+                tracing::error!("2nd shutdown monitor received ctrl-c");
             },
         }
 
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {},
-            _ = rx.recv() => {
-                tracing::info!("2nd shutdown monitor received killpill");
+            _ = tokio::signal::ctrl_c() => {
+                tracing::errr!("2nd shutdown monitor received ctrl-c")
             },
         }
 

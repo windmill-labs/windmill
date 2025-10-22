@@ -685,9 +685,7 @@
 					{#if tab === 'default'}
 						{#if (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)).length > 0}
 							<div class="p-2">
-								<div class="py-2 px-1 text-xs font-semibold text-tertiary">
-									Flows/Scripts/Apps
-								</div>
+								<div class="py-2 px-1 text-xs font-semibold text-primary"> Flows/Scripts/Apps </div>
 								{#each (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)) as el}
 									<QuickMenuItem
 										onselect={(shift) => {
@@ -719,7 +717,7 @@
 									bind:mouseMoved
 								/>
 								<div class="flex w-full justify-center items-center">
-									<div class="text-tertiary text-center">
+									<div class="text-primary text-center">
 										<div class="pt-1 text-sm">Tip: press `esc` to quickly clear the search bar</div>
 									</div>
 								</div>

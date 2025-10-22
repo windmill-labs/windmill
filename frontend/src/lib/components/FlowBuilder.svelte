@@ -88,6 +88,7 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
+	import { inputSizeClasses } from './text_input/TextInput.svelte'
 
 	let {
 		initialPath = $bindable(''),
@@ -1017,8 +1018,7 @@
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
-							variant="contained"
-							color="light"
+							variant="subtle"
 							size="xs"
 							on:click={async () => {
 								select('triggers')
@@ -1036,26 +1036,24 @@
 
 					{#if customUi?.topBar?.path != false}
 						<div class="flex justify-start w-full">
-							<div>
-								<button
-									onclick={async () => {
-										select('settings-metadata')
-										document.getElementById('path')?.focus()
-									}}
+							<button
+								onclick={async () => {
+									select('settings-metadata')
+									document.getElementById('path')?.focus()
+								}}
+							>
+								<Badge
+									color="gray"
+									class="text-primary rounded-r-none border border-r-0 {inputSizeClasses.md}"
 								>
-									<Badge
-										color="gray"
-										class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[28px]  !w-[70px] rounded-r-none"
-									>
-										<Pen size={12} class="mr-2" /> Path
-									</Badge>
-								</button>
-							</div>
+									<Pen size={12} class="mr-2" /> Path
+								</Badge>
+							</button>
 							<input
 								type="text"
 								readonly
 								value={$pathStore && $pathStore != '' ? $pathStore : 'Choose a path'}
-								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
+								class="font-mono !text-2xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 cursor-default !rounded-l-none {inputSizeClasses.md}"
 								onfocus={({ currentTarget }) => {
 									currentTarget.select()
 								}}
@@ -1081,9 +1079,8 @@
 					{/if}
 					{#if customUi?.topBar?.diff != false}
 						<Button
-							color="light"
-							variant="border"
-							size="xs"
+							variant="default"
+							unifiedSize="md"
 							on:click={async () => {
 								if (!savedFlow) {
 									return
@@ -1110,11 +1107,9 @@
 								})
 							}}
 							disabled={!savedFlow}
+							startIcon={{ icon: DiffIcon }}
 						>
-							<div class="flex flex-row gap-2 items-center">
-								<DiffIcon size={14} />
-								Diff
-							</div>
+							Diff
 						</Button>
 					{/if}
 					<FlowPreviewButtons
@@ -1138,13 +1133,12 @@
 					/>
 					<Button
 						loading={loadingDraft}
-						size="xs"
+						unifiedSize="md"
+						variant="accent"
 						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}
 						disabled={(!newFlow && !savedFlow) || loading}
-						shortCut={{
-							key: 'S'
-						}}
+						shortCut={{ key: 'S' }}
 					>
 						Draft
 					</Button>

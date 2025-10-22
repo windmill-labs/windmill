@@ -290,7 +290,7 @@
 		</div>
 		{#if selectedLen > 0}
 			<span
-				class="text-2xs text-tertiary font-mono font-normal w-10 truncate"
+				class="text-2xs text-primary font-mono font-normal w-10 truncate"
 				title={msToReadableTime(selectedLen, 1)}>{msToReadableTimeShort(selectedLen, 1)}</span
 			>
 		{/if}

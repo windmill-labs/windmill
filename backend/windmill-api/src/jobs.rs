@@ -3873,7 +3873,7 @@ async fn batch_rerun_handle_job(
                 user_db.clone(),
                 w_id.clone(),
                 StripPath(job.script_path.clone()),
-                RunJobQuery { ..Default::default() },
+                RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                 PushArgsOwned { extra: None, args },
             )
             .await;
@@ -3889,7 +3889,7 @@ async fn batch_rerun_handle_job(
                     user_db.clone(),
                     w_id.clone(),
                     StripPath(job.script_path.clone()),
-                    RunJobQuery { ..Default::default() },
+                    RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
                 )
                 .await
@@ -3900,7 +3900,7 @@ async fn batch_rerun_handle_job(
                     user_db.clone(),
                     w_id.clone(),
                     job.script_hash,
-                    RunJobQuery { ..Default::default() },
+                    RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
                 )
                 .await

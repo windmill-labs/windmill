@@ -4,7 +4,6 @@
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
 	import { GitBranchPlus, Maximize2 } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
 
@@ -71,13 +70,7 @@
 					'/' +
 					(state?.iteration_total ?? '?')
 				: ''}
-			bgColor={getStateColor(data.editMode ? undefined : type, darkMode, true, state?.skipped)}
-			bgHoverColor={getStateHoverColor(
-				data.editMode ? undefined : type,
-				darkMode,
-				true,
-				state?.skipped
-			)}
+			nodeState={state?.skipped ? '_Skipped' : type}
 			moving={data.moving}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
@@ -107,9 +100,6 @@
 			onEditInput={data.eventHandlers.editInput}
 			flowJob={data.flowJob}
 			isOwner={data.isOwner}
-			{type}
-			{darkMode}
-			skipped={state?.skipped}
 		/>
 
 		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">

@@ -470,10 +470,12 @@
 	{#snippet action()}
 		{#if !disabled}
 			<Toggle
-				textClass="font-normal text-sm"
 				size="sm"
 				checked={chatInputEnabled}
-				on:change={handleToggleChatMode}
+				on:click={(e) => {
+					e.preventDefault()
+					handleToggleChatMode()
+				}}
 				options={{
 					right: 'Chat Mode',
 					rightTooltip:
@@ -549,28 +551,22 @@
 							<div class={twMerge('flex flex-row divide-x', ButtonType.ColorVariants.blue.divider)}>
 								<SideBarTab {dropdownItems} fullMenu={!!$flowInputEditorState?.selectedTab}>
 									{#snippet close_button()}
-										<button
-											onclick={() => {
-												handleEditSchema()
-											}}
-											title={!!$flowInputEditorState?.selectedTab
-												? 'Close input editor'
-												: 'Open input editor'}
-											class={twMerge(
-												ButtonType.ColorVariants.blue.contained,
-												!!$flowInputEditorState?.selectedTab
-													? 'rounded-tl-md border-l border-t'
-													: 'rounded-md border'
-											)}
-										>
-											<div class="p-2 center-center">
-												{#if !!$flowInputEditorState?.selectedTab}
-													<ChevronRight size={14} />
-												{:else}
-													<Pen size={14} />
-												{/if}
-											</div>
-										</button>
+										<Button
+											onClick={() => handleEditSchema()}
+											{...!!$flowInputEditorState?.selectedTab
+												? {
+														title: 'Close input editor',
+														startIcon: { icon: ChevronRight },
+														btnClasses: 'rounded-none rounded-tl-md'
+													}
+												: {
+														title: 'Open input editor',
+														startIcon: { icon: Pen }
+													}}
+											variant="accent"
+											iconOnly
+											wrapperClasses="h-full"
+										/>
 									{/snippet}
 								</SideBarTab>
 							</div>
@@ -594,8 +590,7 @@
 											: 'Update schema'}
 									</Button>
 									<Button
-										variant="border"
-										color="light"
+										variant="default"
 										size="xs"
 										startIcon={{ icon: X }}
 										shortCut={{ key: 'esc', withoutModifier: true }}
@@ -742,7 +737,7 @@
 						{#snippet runButton()}
 							<div class="w-full flex justify-end pr-5">
 								<Button
-									color="dark"
+									variant="accent"
 									btnClasses="w-fit"
 									disabled={runDisabled || !isValid}
 									size="xs"

@@ -26,29 +26,24 @@
 	import RubyIcon from '$lib/components/icons/RubyIcon.svelte'
 
 	interface Props {
-		lang: 
-		| SupportedLanguage
-		| 'mysql'
-		| 'bun'
-		| 'pgsql'
-		| 'javascript'
-		| 'fetch'
-		| 'docker'
-		| 'powershell'
-		| 'bunnative';
-		width?: number;
-		height?: number;
-		scale?: number;
+		lang:
+			| SupportedLanguage
+			| 'mysql'
+			| 'bun'
+			| 'pgsql'
+			| 'javascript'
+			| 'fetch'
+			| 'docker'
+			| 'powershell'
+			| 'bunnative'
+		width?: number
+		height?: number
+		scale?: number
 		[key: string]: any
+		size?: number
 	}
 
-	let {
-		lang,
-		width = 30,
-		height = 30,
-		scale = 1,
-		...rest
-	}: Props = $props();
+	let { lang, width = 30, height = 30, scale = 1, size = undefined, ...rest }: Props = $props()
 
 	const languageLabel: Record<Script['language'] | 'bunnative', String> = {
 		python3: 'Python',
@@ -74,7 +69,7 @@
 		nu: 'Nu',
 		java: 'Java',
 		ruby: 'Ruby'
-		// for related places search: ADD_NEW_LANG 
+		// for related places search: ADD_NEW_LANG
 	}
 
 	const langToComponent: Record<
@@ -114,14 +109,14 @@
 
 	let subIconScale = width === 30 ? 0.6 : 0.8
 
-	const SvelteComponent = $derived(langToComponent[lang]);
+	const SvelteComponent = $derived(langToComponent[lang])
 </script>
 
 <div class="relative">
 	<SvelteComponent
 		title={languageLabel[lang]}
-		width={width * scale}
-		height={height * scale}
+		width={size ? size : width * scale}
+		height={size ? size : height * scale}
 		{...rest}
 	/>
 	{#if lang === 'deno'}

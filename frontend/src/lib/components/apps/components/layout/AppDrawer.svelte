@@ -122,9 +122,10 @@
 					}
 					appDrawer?.toggleDrawer()
 				}}
-				size={resolvedConfig.size}
+				extendedSize={resolvedConfig.size}
 				color={resolvedConfig.color}
 				style={css?.button?.style}
+				variant="contained"
 			>
 				{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
 					<div>{resolvedConfig.label}</div>

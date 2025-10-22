@@ -79,7 +79,6 @@
 				size="sm"
 				endIcon={{ icon: platform === 'slack' ? Slack : MsTeamsIcon }}
 				btnClasses="mt-2"
-				variant="border"
 				disabled={!$enterpriseLicense && platform === 'teams'}
 				on:click={onDisconnect}
 			>
@@ -104,8 +103,7 @@
 		<div class="flex flex-row gap-2 items-center">
 			{#if platform === 'teams'}
 				<Button
-					size="xs"
-					color="dark"
+					unifiedSize="md"
 					on:click={connectTeams}
 					startIcon={{ icon: MsTeamsIcon }}
 					disabled={!selectedTeam || !$enterpriseLicense}
@@ -123,7 +121,7 @@
 					/>
 				{/if}
 			{:else}
-				<Button size="xs" color="dark" href={connectHref} startIcon={{ icon: Slack }}>
+				<Button size="xs" variant="accent" href={connectHref} startIcon={{ icon: Slack }}>
 					Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
 				</Button>
 			{/if}
@@ -136,7 +134,7 @@
 	<div class="text-primary font-md font-semibold"> Script or flow to run on /windmill command </div>
 	<div class="relative">
 		{#if !teamName || (!$enterpriseLicense && platform === 'teams')}
-			<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40"></div>
+			<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/20 z-40"></div>
 		{/if}
 		<ScriptPicker
 			kinds={['script']}
@@ -148,7 +146,7 @@
 		/>
 	</div>
 
-	<div class="prose text-2xs text-tertiary">
+	<div class="prose text-2xs text-primary">
 		Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon
 		connection, templates for a <a href="{$hubBaseUrlStore}/scripts/{platform}/1405/">script</a>
 		and <a href="{$hubBaseUrlStore}/flows/28/">flow</a> are available.

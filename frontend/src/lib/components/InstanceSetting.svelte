@@ -204,10 +204,10 @@
 	{#if setting.fieldType == 'select'}
 		<div>
 			<!-- svelte-ignore a11y_label_has_associated_control -->
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">{setting.label}</span>
+			<label class="block pb-1">
+				<span class="text-emphasis font-semibold text-xs pb-1">{setting.label}</span>
 				{#if setting.description}
-					<span class="text-secondary text-xs">
+					<span class="text-secondary text-xs font-normal">
 						{@html setting.description}
 					</span>
 				{/if}
@@ -228,10 +228,10 @@
 	{:else if setting.fieldType == 'select_python'}
 		<div>
 			<!-- svelte-ignore a11y_label_has_associated_control -->
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">{setting.label}</span>
+			<label class="mb-1 flex flex-col gap-1">
+				<span class="text-emphasis font-semibold text-xs">{setting.label}</span>
 				{#if setting.description}
-					<span class="text-secondary text-xs">
+					<span class="text-secondary text-xs font-normal">
 						{@html setting.description}
 					</span>
 				{/if}
@@ -247,19 +247,17 @@
 							item={toggleButtonn}
 						/>
 					{/each}
-					<PopoverMelt closeButton={!isPyFetching}>
+					<PopoverMelt closeButton={!isPyFetching} contentClasses="max-w-md">
 						{#snippet trigger()}
 							{#if setting.select_items?.some((e) => e.label == $values[setting.key] || e.value == $values[setting.key])}
 								<Button
-									variant="border"
-									color="dark"
+									variant="default"
 									btnClasses="px-1.5 py-1.5 text-2xs bg-surface-secondary border-0"
 									nonCaptureEvent={true}>Select Custom</Button
 								>
 							{:else}
 								<Button
-									variant="border"
-									color="dark"
+									variant="default"
 									btnClasses="px-1.5 py-1.5 text-2xs border-0 shadow-md"
 									nonCaptureEvent={true}>Custom | {$values[setting.key]}</Button
 								>
@@ -289,14 +287,15 @@
 			</ToggleButtonGroup>
 		</div>
 	{:else}
-		<!-- svelte-ignore a11y_label_has_associated_control -->
-		<label class="block pb-2">
-			<span class="text-primary font-semibold text-sm">{setting.label}</span>
-			{#if setting.description}
-				<span class="text-secondary text-xs">
-					{@html setting.description}
-				</span>
-			{/if}
+		{#snippet settingContent()}
+			<div class="text-emphasis font-semibold text-xs flex flex-col gap-1 mb-1"
+				>{setting.label}
+				{#if setting.description}
+					<span class="text-secondary font-normal text-xs">
+						{@html setting.description}
+					</span>
+				{/if}
+			</div>
 			{#if setting.tooltip}
 				<Tooltip>{setting.tooltip}</Tooltip>
 			{/if}
@@ -353,21 +352,13 @@
 						</div>
 					{/if}
 				{:else if setting.fieldType == 'codearea'}
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						onclick={(ev) => {
-							ev.stopPropagation() // this is to prevent wrapping label interference
-						}}
-					>
-						<SimpleEditor
-							autoHeight
-							class="editor"
-							lang={setting.codeAreaLang ?? 'txt'}
-							bind:code={$values[setting.key]}
-							fixedOverflowWidgets={false}
-						/></div
-					>
+					<SimpleEditor
+						autoHeight
+						class="editor"
+						lang={setting.codeAreaLang ?? 'txt'}
+						bind:code={$values[setting.key]}
+						fixedOverflowWidgets={false}
+					/>
 				{:else if setting.fieldType == 'license_key'}
 					{@const { valid, expiration } = parseLicenseKey($values[setting.key] ?? '')}
 					<div class="flex gap-2">
@@ -380,8 +371,9 @@
 							bind:password={$values[setting.key]}
 						/>
 						<Button
-							variant={$values[setting.key] ? 'contained' : 'border'}
-							size="xs"
+							variant="accent"
+							unifiedSize="md"
+							disabled={!$values[setting.key]}
 							on:click={async () => {
 								await SettingService.testLicenseKey({
 									requestBody: { license_key: $values[setting.key] }
@@ -396,9 +388,8 @@
 						{#if $values[setting.key]?.length > 0}
 							{#if valid}
 								<div class="flex flex-row gap-1 items-center">
-									<Info size={12} class="text-tertiary" />
-									<span class="text-tertiary text-xs"
-										>License key expires on {expiration ?? ''}</span
+									<Info size={12} class="text-primary" />
+									<span class="text-primary text-xs">License key expires on {expiration ?? ''}</span
 									>
 								</div>
 							{:else if expiration}
@@ -495,10 +486,10 @@
 
 						{#if valid || expiration}
 							<div class="flex flex-row gap-2 mt-1">
-								<Button on:click={renewLicenseKey} loading={renewing} size="xs" color="dark"
+								<Button on:click={renewLicenseKey} loading={renewing} size="xs" variant="accent"
 									>Renew key
 								</Button>
-								<Button color="dark" size="xs" loading={opening} on:click={openCustomerPortal}>
+								<Button variant="accent" size="xs" loading={opening} on:click={openCustomerPortal}>
 									Open customer portal
 								</Button>
 							</div>
@@ -515,8 +506,7 @@
 						/>
 						<div class="flex flex-row">
 							<Button
-								variant="border"
-								color="light"
+								variant="default"
 								disabled={!$enterpriseLicense}
 								size="xs"
 								on:click={() => {
@@ -645,8 +635,7 @@
 					</div>
 					<div class="flex mt-2 gap-20 items-center">
 						<Button
-							variant="border"
-							color="light"
+							variant="default"
 							size="xs"
 							btnClasses="mt-1"
 							on:click={() => {
@@ -665,8 +654,7 @@
 						<div class="flex mt-1">
 							<Button
 								disabled={!$enterpriseLicense}
-								variant="border"
-								color="light"
+								variant="default"
 								size="xs"
 								on:click={async () => {
 									try {
@@ -693,7 +681,7 @@
 								size="sm"
 								endIcon={{ icon: Slack }}
 								btnClasses="mt-2"
-								variant="border"
+								variant="default"
 								on:click={async () => {
 									$values[setting.key] = undefined
 								}}
@@ -703,7 +691,7 @@
 						{:else}
 							<Button
 								size="xs"
-								color="dark"
+								variant="accent"
 								href="{base}/api/oauth/connect_slack?instance=true"
 								startIcon={{ icon: Slack }}
 								disabled={!$enterpriseLicense}
@@ -716,7 +704,7 @@
 					<div class="flex flex-col gap-4 mt-4">
 						{#if $values[setting.key]}
 							<div>
-								<label for="writer_memory_budget" class="block text-sm font-medium">
+								<label for="writer_memory_budget" class="block text-xs font-semibold text-emphasis">
 									Index writer memory budget (MB)
 									<Tooltip>
 										The allocated memory arena for the indexer. A bigger value means less writing to
@@ -739,9 +727,12 @@
 									value={$values[setting.key].writer_memory_budget / (1024 * 1024)}
 								/>
 							</div>
-							<h3>Completed Job Index</h3>
+							<h3 class="text-sm font-semibold text-emphasis mt-8">Completed Job Index</h3>
 							<div>
-								<label for="commit_job_max_batch_size" class="block text-sm font-medium">
+								<label
+									for="commit_job_max_batch_size"
+									class="block text-xs font-semibold text-emphasis"
+								>
 									Commit max batch size <Tooltip>
 										The max amount of documents (here jobs) per commit. To optimize indexing
 										throughput, it is best to keep this as high as possible. However, especially
@@ -760,7 +751,7 @@
 								/>
 							</div>
 							<div>
-								<label for="refresh_index_period" class="block text-sm font-medium">
+								<label for="refresh_index_period" class="block text-xs font-semibold text-emphasis">
 									Refresh index period (s) <Tooltip>
 										The index will query new jobs periodically and write them on the index. This
 										setting sets that period.
@@ -775,7 +766,10 @@
 								/>
 							</div>
 							<div>
-								<label for="max_indexed_job_log_size" class="block text-sm font-medium">
+								<label
+									for="max_indexed_job_log_size"
+									class="block text-xs font-semibold text-emphasis"
+								>
 									Max indexed job log size (KB) <Tooltip>
 										Job logs are included when indexing, but to avoid the index size growing
 										artificially, the logs will be truncated after a size has been reached.
@@ -797,9 +791,11 @@
 									value={$values[setting.key].max_indexed_job_log_size / 1024}
 								/>
 							</div>
-							<h3>Service Logs Index</h3>
+							<h3 class="text-sm font-semibold text-emphasis mt-8">Service logs index</h3>
 							<div>
-								<label for="commit_log_max_batch_size" class="block text-sm font-medium"
+								<label
+									for="commit_log_max_batch_size"
+									class="block text-xs font-semibold text-emphasis"
 									>Commit max batch size <Tooltip>
 										The max amount of documents per commit. In this case 1 document is one log file
 										representing all logs during 1 minute for a specific host. To optimize indexing
@@ -819,7 +815,10 @@
 								/>
 							</div>
 							<div>
-								<label for="refresh_log_index_period" class="block text-sm font-medium">
+								<label
+									for="refresh_log_index_period"
+									class="block text-xs font-semibold text-emphasis"
+								>
 									Refresh index period (s) <Tooltip>
 										The index will query new service logs peridically and write them on the index.
 										This setting sets that period.
@@ -833,9 +832,11 @@
 									bind:value={$values[setting.key].refresh_log_index_period}
 								/>
 							</div>
-							<h3>Reset Index</h3>
-							This buttons will clear the whole index, and the service will start reindexing from scratch.
-							Full text search might be down during this time.
+							<h3 class="text-sm font-semibold text-emphasis mt-8">Reset Index</h3>
+							<p class="text-xs text-primary font-normal">
+								This buttons will clear the whole index, and the service will start reindexing from
+								scratch. Full text search might be down during this time.
+							</p>
 							<div>
 								<ConfirmButton
 									on:click={async () => {
@@ -853,7 +854,7 @@
 										})
 										console.log('asasd')
 										sendUserToast(r)
-									}}>Clear <b>Service Logs</b> Index</ConfirmButton
+									}}>Clear <b>Service logs</b> index</ConfirmButton
 								>
 							</div>
 						{/if}
@@ -886,7 +887,8 @@
 								></div
 							>
 							<div>
-								<label for="smtp_host" class="block text-sm font-medium">Host</label>
+								<label for="smtp_host" class="block text-xs font-semibold text-emphasis">Host</label
+								>
 								<input
 									type="text"
 									id="smtp_host"
@@ -895,7 +897,8 @@
 								/>
 							</div>
 							<div>
-								<label for="smtp_port" class="block text-sm font-medium">Port</label>
+								<label for="smtp_port" class="block text-xs font-semibold text-emphasis">Port</label
+								>
 								<input
 									type="number"
 									id="smtp_port"
@@ -904,7 +907,9 @@
 								/>
 							</div>
 							<div>
-								<label for="smtp_username" class="block text-sm font-medium">Username</label>
+								<label for="smtp_username" class="block text-xs font-semibold text-emphasis"
+									>Username</label
+								>
 								<input
 									type="text"
 									id="smtp_username"
@@ -913,11 +918,15 @@
 								/>
 							</div>
 							<div>
-								<label for="smtp_password" class="block text-sm font-medium">Password</label>
+								<label for="smtp_password" class="block text-xs font-semibold text-emphasis"
+									>Password</label
+								>
 								<Password bind:password={$values[setting.key].smtp_password} />
 							</div>
 							<div>
-								<label for="smtp_from" class="block text-sm font-medium">From Address</label>
+								<label for="smtp_from" class="block text-xs font-semibold text-emphasis"
+									>From Address</label
+								>
 								<input
 									type="email"
 									id="smtp_from"
@@ -931,7 +940,6 @@
 									id="smtp_tls_implicit"
 									bind:checked={$values[setting.key].smtp_tls_implicit}
 									options={{ right: 'Implicit TLS' }}
-									label="Implicit TLS"
 								/>
 							</div>
 							<div>
@@ -945,7 +953,6 @@
 										}
 									}}
 									options={{ right: 'Disable TLS' }}
-									label="Disable TLS"
 								/>
 							</div>
 						{/if}
@@ -959,27 +966,25 @@
 									id="tracing_enabled"
 									bind:checked={$values[setting.key].tracing_enabled}
 									options={{ right: 'Tracing' }}
-									label="Tracing"
 								/>
 								<Toggle
 									disabled={!$enterpriseLicense}
 									id="logs_enabled"
 									bind:checked={$values[setting.key].logs_enabled}
 									options={{ right: 'Logs' }}
-									label="logs"
 								/>
 								<Toggle
 									disabled
 									id="metrics_enabled"
 									bind:checked={$values[setting.key].logs_enabled}
 									options={{ right: 'Metrics (coming soon)' }}
-									label="metrics"
 								/>
 							</div>
 
 							<div>
-								<label for="OTEL_EXPORTER_OTLP_ENDPOINT" class="block text-sm font-medium"
-									>Endpoint</label
+								<label
+									for="OTEL_EXPORTER_OTLP_ENDPOINT"
+									class="block text-xs font-semibold text-emphasis">Endpoint</label
 								>
 								<input
 									disabled={!$enterpriseLicense}
@@ -990,8 +995,9 @@
 								/>
 							</div>
 							<div>
-								<label for="OTEL_EXPORTER_OTLP_HEADERS" class="block text-sm font-medium"
-									>Headers</label
+								<label
+									for="OTEL_EXPORTER_OTLP_HEADERS"
+									class="block text-xs font-semibold text-emphasis">Headers</label
 								>
 								<input
 									disabled={!$enterpriseLicense}
@@ -1002,14 +1008,15 @@
 								/>
 							</div>
 							<div>
-								<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-medium"
-									>Protocol</label
+								<label
+									for="OTEL_EXPORTER_OTLP_PROTOCOL"
+									class="block text-xs font-semibold text-emphasis">Protocol</label
 								>
 								gRPC
 							</div>
 							<!-- <div>
-							<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-medium"
-								>Protocol<span class="text-2xs text-tertiary ml-4"
+							<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-semibold"
+								>Protocol<span class="text-2xs text-primary ml-4"
 									>grpc, http/protobuf, http/json</span
 								></label
 							>
@@ -1021,8 +1028,8 @@
 							/>
 						</div>
 						<div>
-							<label for="OTEL_EXPORTER_OTLP_COMPRESSION" class="block text-sm font-medium"
-								>Compression <span class="text-2xs text-tertiary ml-4">none, gzip</span></label
+							<label for="OTEL_EXPORTER_OTLP_COMPRESSION" class="block text-sm font-semibold"
+								>Compression <span class="text-2xs text-primary ml-4">none, gzip</span></label
 							>
 							<input
 								type="text"
@@ -1053,9 +1060,7 @@
 										bind:value={$values[setting.key].value}
 									/>
 								</label>
-								<label class="block">
-									<span class="text-primary font-semibold text-sm">GB</span>
-								</label>
+								<span class="text-primary font-semibold text-sm">GB</span>
 							{/if}
 						</div>
 						<div class="mb-6"></div>
@@ -1095,6 +1100,15 @@
 			{:else}
 				<input disabled placeholder="Loading..." />
 			{/if}
-		</label>
+		{/snippet}
+		{#if ['codearea', 'object_store_config'].includes(setting.fieldType)}
+			<div class="block pb-2">
+				{@render settingContent()}
+			</div>
+		{:else}
+			<label class="block pb-2">
+				{@render settingContent()}
+			</label>
+		{/if}
 	{/if}
 {/if}

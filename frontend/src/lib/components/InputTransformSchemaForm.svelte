@@ -83,7 +83,7 @@
 
 <div class="w-full mb-6 {clazz}">
 	{#if enableAi}
-		<div class="mt-2">
+		<div class="pt-2">
 			<StepInputsGen
 				{pickableProperties}
 				argNames={keys
@@ -102,7 +102,7 @@
 	{#if keys.length > 0}
 		{#each keys as argName, index (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
-				<ResizeTransitionWrapper class="mt-2 relative" innerClass="w-full" vertical>
+				<ResizeTransitionWrapper class="mt-6 relative" innerClass="w-full" vertical>
 					<InputTransformForm
 						{previousModuleId}
 						bind:arg={args[argName]}
@@ -127,7 +127,7 @@
 			{/if}
 		{/each}
 	{:else}
-		<div class="text-tertiary text-sm">No inputs</div>
+		<div class="text-primary text-xs mt-2">No inputs</div>
 	{/if}
 </div>
 
@@ -149,8 +149,7 @@
 	{#snippet submission()}
 		<div class="flex flex-row-reverse w-full border-t border-gray-200 rounded-bl-lg rounded-br-lg">
 			<Button
-				variant="border"
-				color="blue"
+				variant="accent"
 				size="sm"
 				startIcon={{ icon: Plus }}
 				on:click={() => {

@@ -839,7 +839,7 @@ pub async fn lock_debounce_key<'c>(
     );
 
     sqlx::query_scalar!(
-        "SELECT job_id FROM debounce_key WHERE key = $1 FOR UPDATE",
+        "SELECT job_id FROM debounce_key WHERE key = $1 AND job_id IN (SELECT id FROM v2_job_queue) FOR UPDATE",
         &key
     )
     .fetch_optional(&mut **tx)

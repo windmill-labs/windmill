@@ -24,8 +24,7 @@
 		}}
 	/>
 	<Button
-		variant="contained"
-		color="dark"
+		variant="accent"
 		size="xs"
 		startIcon={{ icon: Plus }}
 		id="flow-editor-add-property"

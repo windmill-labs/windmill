@@ -125,9 +125,7 @@
 				return isValidTeamsChannel(entry.teams_channel)
 			}
 			if ('slack_channel' in entry) {
-				return (
-					typeof entry.slack_channel === 'string' && entry.slack_channel.trim() !== ''
-				)
+				return typeof entry.slack_channel === 'string' && entry.slack_channel.trim() !== ''
 			}
 			if ('email' in entry) {
 				return typeof entry.email === 'string' && entry.email.trim() !== ''
@@ -247,7 +245,7 @@
 	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<Tabs {hideTabs} bind:selected={tab}>
 		{#each settingsKeys as category}
-			<Tab value={category}>{category}</Tab>
+			<Tab value={category} label={category}></Tab>
 		{/each}
 
 		{#snippet content()}
@@ -299,7 +297,7 @@
 							Enable debug mode to get more detailed logs.
 						</div>
 					{:else if category == 'Telemetry'}
-						<div class="text-secondary pb-4 text-xs">
+						<div class="text-primary pb-4 text-xs">
 							Anonymous usage data is collected to help improve Windmill.
 							<br />The following information is collected:
 							<ul class="list-disc list-inside pl-2">
@@ -316,15 +314,14 @@
 							</ul>
 						</div>
 						{#if $enterpriseLicense}
-							<div class="text-secondary pb-4 text-xs">
+							<div class="text-primary pb-4 text-xs">
 								On Enterprise Edition, you must send data to check that usage is in line with the
 								terms of the subscription. You can either enable telemetry or regularly send usage
 								data by clicking the button below.
 							</div>
 							<Button
 								on:click={sendStats}
-								variant="border"
-								color="light"
+								variant="default"
 								btnClasses="w-auto"
 								wrapperClasses="mb-4"
 								loading={sendingStats}
@@ -375,6 +372,6 @@
 </div>
 
 {#if !hideSave}
-	<Button on:click={saveSettings}>Save settings</Button>
+	<Button on:click={saveSettings} variant="accent">Save settings</Button>
 	<div class="pb-8"></div>
 {/if}

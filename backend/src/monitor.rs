@@ -1532,7 +1532,7 @@ pub struct MonitorIteration {
 
 impl MonitorIteration {
     pub fn should_run(&self, period: u8) -> bool {
-        self.iter % (period as u64) == self.rd_shift as u64
+        (self.iter + self.rd_shift as u64) % (period as u64) == 0
     }
 }
 
@@ -1718,6 +1718,7 @@ pub async fn monitor_db(
         update_min_worker_version_f,
         cleanup_concurrency_counters_f,
         cleanup_concurrency_counters_empty_keys_f,
+        cleanup_debounce_keys_f,
         cleanup_worker_group_stats_f,
         cleanup_debounce_keys_f
     );
@@ -2788,5 +2789,31 @@ pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
     let mut l = JWT_SECRET.write().await;
     *l = jwt_secret;
 
+    Ok(())
+}
+
+async fn cleanup_debounce_orphaned_keys(db: &DB) -> error::Result<()> {
+    let result = sqlx::query!(
+        "
+DELETE FROM debounce_key
+WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
+RETURNING key,job_id
+        ",
+    )
+    .fetch_all(db)
+    .await?;
+
+    tracing::debug!("Cleaning up debounce keys");
+
+    if result.len() > 0 {
+        tracing::info!("Cleaned up {} debounce keys", result.len());
+        for row in result {
+            tracing::info!(
+                "Debounce key cleaned up: key: {}, job_id: {:?}",
+                row.key,
+                row.job_id
+            );
+        }
+    }
     Ok(())
 }
