@@ -1694,29 +1694,27 @@
 						</Button>
 					{/if}
 					{#if customUi?.topBar?.path != false}
-						<div class="flex justify-start w-full border rounded-md overflow-hidden">
-							<div>
-								{#if customUi?.topBar?.editablePath != false}
-									<button
-										onclick={async () => {
-											metadataOpen = true
-										}}
+						<div class="flex justify-start w-full">
+							{#if customUi?.topBar?.editablePath != false}
+								<button
+									onclick={async () => {
+										metadataOpen = true
+									}}
+								>
+									<Badge
+										color="gray"
+										class="center-center !bg-surface-secondary !text-primary {inputSizeClasses.md}  !w-[70px] rounded-r-none hover:!bg-surface-hover transition-all border border-r-0"
 									>
-										<Badge
-											color="gray"
-											class="center-center !bg-surface-secondary !text-primary {inputSizeClasses.md}  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
-										>
-											<Pen size={12} class="mr-2" /> Path
-										</Badge>
-									</button>
-								{/if}
-							</div>
+										<Pen size={12} class="mr-2 shrink-0" /> Path
+									</Badge>
+								</button>
+							{/if}
 							<input
 								type="text"
 								readonly
 								value={script.path}
 								size={script.path?.length || 50}
-								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full {inputSizeClasses.md} !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
+								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full {inputSizeClasses.md} !my-0 !py-0 !rounded-l-none border border-l-0 !shadow-none"
 								onfocus={({ currentTarget }) => {
 									currentTarget.select()
 								}}
