@@ -96,8 +96,8 @@
 >
 	<div
 		class={twMerge(
-			active ? 'bg-blue-50 text-blue-800 rounded-md ' : '',
-			'flex gap-2 items-center my-1 px-2'
+			active ? 'bg-surface-accent-selected text-accent rounded-md' : '',
+			'flex gap-2 items-center my-2 px-4'
 		)}
 	>
 		{#if icon}

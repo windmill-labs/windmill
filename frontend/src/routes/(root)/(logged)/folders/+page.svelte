@@ -100,7 +100,7 @@
 					contentClasses="flex flex-col gap-2 p-4"
 				>
 					{#snippet trigger()}
-						<Button variant="accent" unifiedSize="lg" startIcon={{ icon: Plus }} nonCaptureEvent
+						<Button variant="accent" unifiedSize="md" startIcon={{ icon: Plus }} nonCaptureEvent
 							>New folder</Button
 						>
 					{/snippet}

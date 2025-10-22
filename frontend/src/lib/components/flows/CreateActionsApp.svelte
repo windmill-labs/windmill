@@ -27,7 +27,7 @@
 	<Button
 		aiId="apps-create-actions-app"
 		aiDescription="Create a new low-code app"
-		unifiedSize="lg"
+		unifiedSize="md"
 		startIcon={{ icon: Plus }}
 		endIcon={{ icon: LayoutDashboard }}
 		href="{base}/apps/add?nodraft=true"

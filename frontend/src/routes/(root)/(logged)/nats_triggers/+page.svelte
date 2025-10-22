@@ -263,7 +263,7 @@
 			tooltip="Windmill can consume NATS events and trigger scripts or flows based on them."
 		>
 			<Button
-				unifiedSize="lg"
+				unifiedSize="md"
 				variant="accent"
 				startIcon={{ icon: Plus }}
 				on:click={() => natsTriggerEditor?.openNew(false)}

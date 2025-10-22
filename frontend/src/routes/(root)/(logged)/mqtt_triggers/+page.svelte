@@ -252,7 +252,7 @@
 		tooltip="Windmill can connect to an MQTT broker, subscribe to specific topics, and trigger scripts or flows based on those topics."
 	>
 		<Button
-			unifiedSize="lg"
+			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
 			on:click={() => mqttTriggerEditor?.openNew(false)}

@@ -319,7 +319,7 @@
 		tooltip="Windmill enables real-time responsiveness by listening to specific database transactions—such as inserts, updates, and deletes—and automatically triggering scripts or workflows in response."
 	>
 		<Button
-			unifiedSize="lg"
+			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
 			on:click={() => postgresTriggerEditor?.openNew(false)}

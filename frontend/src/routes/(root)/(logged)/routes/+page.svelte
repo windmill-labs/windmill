@@ -233,7 +233,7 @@
 			{#if $userStore?.is_admin || $userStore?.is_super_admin}
 				<div class="flex flex-row gap-2">
 					<Button
-						size="lg"
+						unifiedSize="md"
 						variant="default"
 						startIcon={{ icon: Plus }}
 						on:click={() => {
@@ -243,7 +243,7 @@
 						From OpenAPI spec
 					</Button>
 					<Button
-						size="lg"
+						unifiedSize="md"
 						variant="default"
 						startIcon={{ icon: Plus }}
 						on:click={() => {
@@ -253,7 +253,7 @@
 						To OpenAPI spec
 					</Button>
 					<Button
-						size="lg"
+						unifiedSize="md"
 						variant="accent"
 						startIcon={{ icon: Plus }}
 						on:click={() => routeEditor?.openNew(false)}

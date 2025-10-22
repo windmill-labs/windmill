@@ -28,7 +28,7 @@
 	usePointerDownOutside
 >
 	{#snippet trigger()}
-		<Button {variant} size="xs" nonCaptureEvent={true} {disabled}>
+		<Button {variant} unifiedSize="md" nonCaptureEvent={true} {disabled}>
 			<div class="flex flex-row gap-1 items-center"
 				><Pen size={14} /> Custom tags&nbsp;<Tooltip light
 					>Tags are assigned to scripts and flows. Workers only accept jobs that correspond to their

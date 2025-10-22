@@ -248,7 +248,7 @@
 <CenteredPage>
 	<PageHeader title="SQS triggers" tooltip="SQS trigger">
 		<Button
-			unifiedSize="lg"
+			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
 			on:click={() => sqsTriggerEditor?.openNew(false)}

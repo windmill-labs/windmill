@@ -355,8 +355,8 @@
 					</div>
 					<div>
 						<Button
-							size="xs"
-							variant="subtle"
+							unifiedSize="md"
+							variant="default"
 							startIcon={{
 								icon: List
 							}}

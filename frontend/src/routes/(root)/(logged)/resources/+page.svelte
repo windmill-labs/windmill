@@ -656,7 +656,7 @@
 			<div class="flex flex-row justify-end gap-4">
 				<Button
 					variant="default"
-					unifiedSize="lg"
+					unifiedSize="md"
 					startIcon={{ icon: Plus }}
 					on:click={startNewType}
 					aiId="resources-add-resource-type"
@@ -665,7 +665,7 @@
 					Add resource type
 				</Button>
 				<Button
-					unifiedSize="lg"
+					unifiedSize="md"
 					variant="accent"
 					startIcon={{ icon: Boxes }}
 					on:click={() => appConnect?.open?.()}

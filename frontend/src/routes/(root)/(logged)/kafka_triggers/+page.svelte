@@ -264,7 +264,7 @@
 			tooltip="Windmill can consume kafka events and trigger scripts or flows based on them."
 		>
 			<Button
-				unifiedSize="lg"
+				unifiedSize="md"
 				variant="accent"
 				startIcon={{ icon: Plus }}
 				on:click={() => kafkaTriggerEditor?.openNew(false)}

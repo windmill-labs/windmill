@@ -250,7 +250,7 @@
 		tooltip="Windmill can listen to WebSocket events and trigger scripts or flows based on them."
 	>
 		<Button
-			unifiedSize="lg"
+			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
 			on:click={() => websocketTriggerEditor?.openNew(false)}

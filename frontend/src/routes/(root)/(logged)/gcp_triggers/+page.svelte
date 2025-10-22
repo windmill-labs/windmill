@@ -291,7 +291,7 @@
 <CenteredPage>
 	<PageHeader title="GCP Pub/Sub triggers" tooltip="GCP Pub/Sub trigger">
 		<Button
-			unifiedSize="lg"
+			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Plus }}
 			on:click={() => gcpTriggerEditor?.openNew(false)}

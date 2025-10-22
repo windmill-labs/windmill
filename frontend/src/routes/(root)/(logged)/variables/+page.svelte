@@ -167,7 +167,7 @@
 			<div class="flex flex-row justify-end">
 				{#if tab == 'contextual' && ($userStore?.is_admin || $userStore?.is_super_admin)}
 					<Button
-						unifiedSize="lg"
+						unifiedSize="md"
 						variant="accent"
 						startIcon={{ icon: Plus }}
 						on:click={() => contextualVariableEditor?.initNew()}
@@ -176,7 +176,7 @@
 					</Button>
 				{:else}
 					<Button
-						unifiedSize="lg"
+						unifiedSize="md"
 						variant="accent"
 						startIcon={{ icon: Plus }}
 						on:click={() => variableEditor?.initNew()}

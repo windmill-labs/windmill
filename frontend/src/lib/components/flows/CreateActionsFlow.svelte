@@ -27,7 +27,7 @@
 	<Button
 		aiId="flows-create-actions-flow"
 		aiDescription="Create a new flow"
-		unifiedSize="lg"
+		unifiedSize="md"
 		startIcon={{ icon: Plus }}
 		endIcon={{ icon: BarsStaggered }}
 		href="{base}/flows/add?nodraft=true"

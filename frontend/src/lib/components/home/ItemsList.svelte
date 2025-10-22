@@ -379,15 +379,15 @@
 				}}
 			>
 				{#snippet children({ item })}
-					<ToggleButton value="all" label="All" size="lg" {item} />
-					<ToggleButton value="script" icon={Code2} label="Scripts" size="lg" {item} />
+					<ToggleButton value="all" label="All" size="md" {item} />
+					<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
 					{#if HOME_SEARCH_SHOW_FLOW}
 						<ToggleButton
 							value="flow"
 							label="Flows"
 							icon={FlowIcon}
 							selectedColor="#14b8a6"
-							size="lg"
+							size="md"
 							{item}
 						/>
 					{/if}
@@ -396,7 +396,7 @@
 						label="Apps"
 						icon={LayoutDashboard}
 						selectedColor="#fb923c"
-						size="lg"
+						size="md"
 						{item}
 					/>
 				{/snippet}
@@ -410,7 +410,7 @@
 					autofocus: true,
 					placeholder: HOME_SEARCH_PLACEHOLDER
 				}}
-				size="lg"
+				size="md"
 				bind:value={filter}
 				class="!pr-10"
 			/>
@@ -438,7 +438,7 @@
 		<Button
 			on:click={() => openSearchWithPrefilledText('#')}
 			variant="default"
-			unifiedSize="lg"
+			unifiedSize="md"
 			endIcon={{
 				icon: SearchCode
 			}}

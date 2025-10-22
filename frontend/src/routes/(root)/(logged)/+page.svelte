@@ -266,13 +266,12 @@
 						noWFull
 					>
 						{#snippet children({ item })}
-							<ToggleButton value="script" label="Scripts" icon={Code} {item} size="lg" />
+							<ToggleButton value="script" label="Scripts" icon={Code} {item} />
 							<ToggleButton
 								value="flow"
 								label="Flows"
 								icon={FlowIcon}
 								selectedColor="#14b8a6"
-								size="lg"
 								{item}
 							/>
 							<ToggleButton
@@ -280,7 +279,6 @@
 								label="Apps"
 								icon={LayoutDashboard}
 								selectedColor="#fb923c"
-								size="lg"
 								{item}
 							/>
 						{/snippet}
@@ -290,26 +288,25 @@
 						target="_blank"
 						href={$hubBaseUrlStore}
 						variant="default"
-						unifiedSize="lg"
 					>
 						Hub
 					</Button>
 				{/snippet}
 
 				{#if subtab == 'script'}
-					<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)} size="lg">
+					<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>
 						{#snippet children()}
 							{@render toggleKinds?.()}
 						{/snippet}
 					</PickHubScript>
 				{:else if subtab == 'flow'}
-					<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)} size="lg">
+					<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}>
 						{#snippet children()}
 							{@render toggleKinds?.()}
 						{/snippet}
 					</PickHubFlow>
 				{:else if subtab == 'app'}
-					<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)} size="lg">
+					<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}>
 						{#snippet children()}
 							{@render toggleKinds?.()}
 						{/snippet}
