@@ -114,7 +114,7 @@ export namespace ButtonType {
 
 		blue: {
 			border:
-				'border-luminance-blue-500 dark:border-luminance-blue-300 hover:border-luminance-blue-700 dark:hover:border-luminance-blue-400 focus-visible:border-luminance-blue-700 bg-surface hover:bg-luminance-blue-100 dark:hover:bg-luminance-blue-900 focus-visible:bg-luminance-blue-100 focus-visible:dark:text-luminance-blue-100 dark:focus-visible:bg-luminance-blue-900 text-luminance-blue-500 dark:text-luminance-blue-300 dark:hover:text-luminance-blue-400 hover:text-luminance-blue-700 focus-visible:text-luminance-blue-700 focus-visible:ring-luminance-blue-300',
+				'border-luminance-blue-500 dark:border-luminance-blue-300 hover:border-luminance-blue-700 dark:hover:border-luminance-blue-00 focus-visible:border-luminance-blue-700 bg-surface hover:bg-luminance-blue-100 dark:hover:bg-luminance-blue-900/40 focus-visible:bg-luminance-blue-100 focus-visible:dark:text-luminance-blue-100 dark:focus-visible:bg-luminance-blue-900 text-luminance-blue-500 dark:text-luminance-blue-300 dark:hover:text-luminance-blue-200 hover:text-luminance-blue-700 focus-visible:text-luminance-blue-700 focus-visible:ring-luminance-blue-300',
 			contained:
 				'bg-luminance-blue-300 hover:bg-luminance-blue-400 focus-visible:bg-luminance-blue-500 text-white focus-visible:ring-luminance-blue-300',
 			divider: 'divide-x divide-luminance-blue-600'

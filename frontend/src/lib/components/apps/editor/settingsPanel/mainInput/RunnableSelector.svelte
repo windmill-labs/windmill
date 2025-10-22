@@ -185,7 +185,7 @@
 	{#if !hideCreateScript}
 		<Button
 			on:click={createScript}
-			size="xs"
+			unifiedSize="md"
 			variant="default"
 			startIcon={{ icon: Plus }}
 			btnClasses="truncate w-full"
@@ -196,8 +196,7 @@
 	{/if}
 	<Button
 		on:click={() => picker?.openDrawer()}
-		size="xs"
-		color="blue"
+		unifiedSize="md"
 		variant={rawApps ? 'contained' : 'border'}
 		startIcon={{ icon: MousePointer }}
 		btnClasses="truncate w-full"
