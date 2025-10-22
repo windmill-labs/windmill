@@ -29,6 +29,7 @@
 	import { AI_PROVIDERS } from '$lib/components/copilot/lib'
 	import { GitFork } from 'lucide-svelte'
 	import PrefixedInput from '../PrefixedInput.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 
 	interface Props {
 		isFork?: boolean
@@ -48,7 +49,7 @@
 	let codeCompletionEnabled = $state(true)
 	let checking = $state(false)
 
-	let workspaceColor: string | null = $state(null)
+	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
 
 	function generateRandomColor() {
@@ -246,98 +247,109 @@
 </script>
 
 <CenteredModal title="{isFork ? 'Forking' : 'New'} Workspace">
-	{#if isFork}
-		<div class="flex flex-block gap-2">
-			<GitFork />
-			<span class="text-secondary text-l"> Forking </span>
-			<span class="text-secondary font-bold text-l">
-				{$workspaceStore}
-			</span>
-		</div>
-	{/if}
-	<label class="block pb-4 pt-4">
+	<div class="flex flex-col gap-8">
 		{#if isFork}
-			<span class="text-secondary text-sm">Fork name</span>
-			<span class="ml-4 text-tertiary text-xs">Displayable name of the forked workspace</span>
-		{:else}
-			<span class="text-secondary text-sm">Workspace name</span>
-			<span class="ml-4 text-tertiary text-xs">Displayable name</span>
+			<div class="flex flex-block gap-2">
+				<GitFork size={16} />
+				<span class="text-xs text-normal">Forking </span>
+				<span class="text-xs text-emphasis font-semibold">
+					{$workspaceStore}
+				</span>
+			</div>
 		{/if}
-		<!-- svelte-ignore a11y_autofocus -->
-		<input autofocus type="text" bind:value={name} />
-	</label>
-	<label class="block pb-4">
-		<span class="text-secondary text-sm">Workspace ID</span>
-		{#if isFork}
-			<span class="ml-10 text-tertiary text-xs"
-				>Slug to uniquely identify your fork (this will also set the branch name)</span
-			>
-		{:else}
-			<span class="ml-10 text-tertiary text-xs">Slug to uniquely identify your workspace</span>
-		{/if}
-		{#if errorId}
-			<span class="text-red-500 text-xs">{errorId}</span>
-		{/if}
+		<label class="flex flex-col gap-1">
+			{#if isFork}
+				<span class="text-xs font-semibold text-emphasis">Fork name</span>
+				<span class="text-xs text-secondary">Displayable name of the forked workspace</span>
+			{:else}
+				<span class="text-xs font-semibold text-emphasis">Workspace name</span>
+				<span class="text-xs text-secondary">Displayable name</span>
+			{/if}
+			<!-- svelte-ignore a11y_autofocus -->
+			<TextInput inputProps={{ autofocus: true }} bind:value={name} />
+		</label>
+		<label class="flex flex-col gap-1">
+			<span class="text-xs font-semibold text-emphasis">Workspace ID</span>
+			{#if isFork}
+				<span class="text-2xs text-secondary"
+					>Slug to uniquely identify your fork (this will also set the branch name)</span
+				>
+			{:else}
+				<span class="text-2xs text-secondary">Slug to uniquely identify your workspace</span>
+			{/if}
 
-		{#if isFork}
-			<PrefixedInput
-				prefix={WM_FORK_PREFIX}
-				type="text"
-				bind:value={id}
-				placeholder="example.com"
-				class={errorId != '' ? 'input-error' : ''}
-			/>
-		{:else}
-			<input type="text" bind:value={id} class:input-error={errorId != ''} />
-		{/if}
-	</label>
-	<label class="block pb-4">
-		<span class="text-secondary text-sm">Workspace color</span>
-		<span class="ml-5 text-tertiary text-xs"
-			>Color to identify the current workspace in the list of workspaces</span
-		>
-		<div class="flex items-center gap-2">
-			<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
-			{#if colorEnabled}<input
-					class="w-10"
-					type="color"
-					bind:value={workspaceColor}
-					disabled={!colorEnabled}
-				/>{/if}
-			<input
-				type="text"
-				class="w-24 text-sm"
-				bind:value={workspaceColor}
-				disabled={!colorEnabled}
-			/>
-			<Button on:click={generateRandomColor} size="xs" disabled={!colorEnabled}>Random</Button>
-		</div>
-	</label>
-	{#if !automateUsernameCreation}
-		<label class="block pb-4">
-			<span class="text-secondary text-sm">Your username in that workspace</span>
-			<input type="text" bind:value={username} onkeyup={handleKeyUp} />
-			{#if errorUser}
-				<span class="text-red-500 text-xs">{errorUser}</span>
+			{#if isFork}
+				<PrefixedInput
+					prefix={WM_FORK_PREFIX}
+					type="text"
+					bind:value={id}
+					placeholder="example.com"
+					class={errorId != '' ? 'input-error' : ''}
+				/>
+			{:else}
+				<TextInput bind:value={id} error={errorId} />
+			{/if}
+			{#if errorId}
+				<span class="text-red-500 text-2xs font-normal">{errorId}</span>
 			{/if}
 		</label>
-	{/if}
-	{#if !isFork}
-		<div class="block pb-4">
-			<label for="ai-key" class="flex flex-col gap-1">
-				<span class="text-secondary text-sm">
-					AI key for Windmill AI
-					<Tooltip>
-						Find out how it can help you <a
-							href="https://www.windmill.dev/docs/core_concepts/ai_generation"
-							target="_blank"
-							rel="noopener noreferrer">in the docs</a
-						>
-					</Tooltip>
-					<span class="text-2xs text-tertiary ml-2">(optional but recommended)</span>
-				</span>
+		<label class="flex flex-col gap-1">
+			<span class="text-xs font-semibold text-emphasis">Workspace color</span>
+			<span class="text-xs text-secondary"
+				>Color to identify the current workspace in the list of workspaces</span
+			>
+			<div class="flex items-center gap-4">
+				<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
+				{#if colorEnabled}
+					<div class="flex items-center gap-1 grow">
+						<input
+							class="grow min-w-10"
+							type="color"
+							bind:value={workspaceColor}
+							disabled={!colorEnabled}
+						/>
 
-				<div class="pb-2">
+						<TextInput
+							class="w-24"
+							bind:value={workspaceColor}
+							inputProps={{ disabled: !colorEnabled }}
+						/>
+						<Button
+							on:click={generateRandomColor}
+							size="xs"
+							variant="default"
+							disabled={!colorEnabled}>Random</Button
+						>
+					</div>
+				{/if}
+			</div>
+		</label>
+		{#if !automateUsernameCreation}
+			<label class="flex flex-col gap-1">
+				<span class="text-xs font-semibold text-emphasis">Your username in that workspace</span>
+				<TextInput bind:value={username} inputProps={{ onkeyup: handleKeyUp }} error={errorUser} />
+				{#if errorUser}
+					<span class="text-red-500 text-2xs">{errorUser}</span>
+				{/if}
+			</label>
+		{/if}
+		{#if !isFork}
+			<div class="block">
+				<div class="flex flex-col gap-1">
+					<label for="ai-key" class="flex flex-row gap-2">
+						<span class="text-xs font-semibold text-emphasis">
+							AI key for Windmill AI
+							<Tooltip>
+								Find out how it can help you <a
+									href="https://www.windmill.dev/docs/core_concepts/ai_generation"
+									target="_blank"
+									rel="noopener noreferrer">in the docs</a
+								>
+							</Tooltip>
+						</span>
+						<span class="text-2xs text-secondary">(optional but recommended)</span>
+					</label>
+
 					<ToggleButtonGroup bind:selected>
 						{#snippet children({ item })}
 							<ToggleButton value="openai" label="OpenAI" {item} />
@@ -346,82 +358,96 @@
 							<ToggleButton value="deepseek" label="DeepSeek" {item} />
 						{/snippet}
 					</ToggleButtonGroup>
+					<div class="flex flex-row gap-1">
+						<input
+							id="ai-key"
+							type="password"
+							autocomplete="new-password"
+							bind:value={aiKey}
+							onkeyup={handleKeyUp}
+						/>
+						<TestAIKey
+							apiKey={aiKey}
+							disabled={!aiKey}
+							aiProvider={selected}
+							model={AI_PROVIDERS[selected].defaultModels[0]}
+						/>
+					</div>
 				</div>
-			</label>
 
-			<div class="flex flex-row gap-1 pb-4">
-				<input
-					id="ai-key"
-					type="password"
-					autocomplete="new-password"
-					bind:value={aiKey}
-					onkeyup={handleKeyUp}
-				/>
-				<TestAIKey
-					apiKey={aiKey}
-					disabled={!aiKey}
-					aiProvider={selected}
-					model={AI_PROVIDERS[selected].defaultModels[0]}
-				/>
+				{#if aiKey}
+					<div class="flex flex-col gap-2 mt-2">
+						<Toggle
+							disabled={!aiKey}
+							bind:checked={codeCompletionEnabled}
+							options={{ right: 'Enable code completion' }}
+						/>
+					</div>
+				{/if}
 			</div>
-			{#if aiKey}
+			<div class="flex flex-col gap-1">
+				<label for="auto-invite" class="text-xs font-semibold text-emphasis"
+					>{isCloudHosted()
+						? `Auto-invite anyone from ${domain}`
+						: `Auto-invite anyone joining the instance`}</label
+				>
 				<Toggle
-					disabled={!aiKey}
-					bind:checked={codeCompletionEnabled}
-					options={{ right: 'Enable code completion' }}
+					id="auto-invite"
+					disabled={isCloudHosted() && !isDomainAllowed}
+					bind:checked={auto_invite}
 				/>
-			{/if}
-		</div>
-		<Toggle
-			disabled={isCloudHosted() && !isDomainAllowed}
-			bind:checked={auto_invite}
-			options={{
-				right: isCloudHosted()
-					? `Auto-invite anyone from ${domain}`
-					: `Auto-invite anyone joining the instance`
-			}}
-		/>
-		{#if isCloudHosted() && isDomainAllowed == false}
-			<div class="text-tertiary text-sm mb-4 mt-2">{domain} domain not allowed for auto-invite</div>
-		{/if}
-		<div class={'overflow-hidden transition-all ' + (auto_invite ? 'h-36' : 'h-0')}>
-			<div class="text-xs mb-1 leading-6 pt-2">
-				Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
-			</div>
+				{#if isCloudHosted() && isDomainAllowed == false}
+					<div class="text-secondary text-2xs">{domain} domain not allowed for auto-invite</div>
+				{/if}
 
-			<div class="text-xs mb-1 leading-6 pt-2"
-				>Role <Tooltip>Role of the auto-invited users</Tooltip></div
+				{#if auto_invite}
+					<div class="bg-surface-tertiary p-4 rounded-md flex flex-col gap-8">
+						<!-- svelte-ignore a11y_label_has_associated_control -->
+						<label class="flex flex-col gap-1">
+							<span class="text-xs font-semibold text-emphasis">Mode</span>
+							<span class="text-xs text-secondary font-normal"
+								>Whether to invite or add users directly to the workspace.</span
+							>
+						</label>
+
+						<label class="font-semibold flex flex-col gap-1">
+							<span class="text-xs font-semibold text-emphasis">Role</span>
+							<span class="text-xs text-secondary font-normal">Role of the auto-invited users</span>
+							<ToggleButtonGroup
+								selected={operatorOnly ? 'operator' : 'developer'}
+								on:selected={(e) => {
+									operatorOnly = e.detail == 'operator'
+								}}
+							>
+								{#snippet children({ item })}
+									<ToggleButton value="operator" label="Operator" {item} />
+									<ToggleButton value="developer" label="Developer" {item} />
+								{/snippet}
+							</ToggleButtonGroup>
+						</label>
+					</div>
+				{/if}
+			</div>
+		{/if}
+		<div class="flex flex-wrap flex-row justify-between pt-12 gap-4">
+			<Button variant="default" size="sm" href="{base}/user/workspaces"
+				>&leftarrow; Back to workspaces</Button
 			>
-			<ToggleButtonGroup
-				selected={operatorOnly ? 'operator' : 'developer'}
-				on:selected={(e) => {
-					operatorOnly = e.detail == 'operator'
-				}}
+			<Button
+				variant="accent"
+				disabled={checking ||
+					errorId != '' ||
+					!name ||
+					(!automateUsernameCreation && (errorUser != '' || !username)) ||
+					!id}
+				on:click={createOrForkWorkspace}
 			>
-				{#snippet children({ item })}
-					<ToggleButton value="operator" small label="Operator" {item} />
-					<ToggleButton value="developer" small label="Developer" {item} />
-				{/snippet}
-			</ToggleButtonGroup>
+				{#if isFork}
+					Fork workspace
+				{:else}
+					Create workspace
+				{/if}
+			</Button>
 		</div>
-	{/if}
-	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
-		<Button variant="border" size="sm" href="{base}/user/workspaces"
-			>&leftarrow; Back to workspaces</Button
-		>
-		<Button
-			disabled={checking ||
-				errorId != '' ||
-				!name ||
-				(!automateUsernameCreation && (errorUser != '' || !username)) ||
-				!id}
-			on:click={createOrForkWorkspace}
-		>
-			{#if isFork}
-				Fork workspace
-			{:else}
-				Create workspace
-			{/if}
-		</Button>
 	</div>
 </CenteredModal>

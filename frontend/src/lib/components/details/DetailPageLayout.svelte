@@ -77,17 +77,17 @@
 			{@render header?.()}
 			<div class="grow min-h-0 w-full flex flex-col">
 				<Tabs bind:selected={mobileTab} wrapperClass="flex-none">
-					<Tab value="form">{isChatMode ? 'Chat' : 'Run form'}</Tab>
+					<Tab value="form" label={isChatMode ? 'Chat' : 'Run form'} />
 					{#if !isChatMode}
-						<Tab value="saved_inputs">Inputs</Tab>
+						<Tab value="saved_inputs" label="Inputs" />
 					{/if}
 					{#if !isOperator}
-						<Tab value="triggers">Triggers</Tab>
+						<Tab value="triggers" label="Triggers" />
 					{/if}
 					{#if flow_json}
-						<Tab value="raw">Export</Tab>
+						<Tab value="raw" label="Export" />
 					{:else}
-						<Tab value="script">Script</Tab>
+						<Tab value="script" label="Script" />
 					{/if}
 
 					{#snippet content()}

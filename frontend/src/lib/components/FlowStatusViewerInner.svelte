@@ -1314,15 +1314,17 @@
 		{#if render}
 			{#if innerModules && innerModules.length > 0 && !isListJob}
 				<Tabs class="mx-auto {wideResults ? '' : 'max-w-7xl'}" bind:selected>
-					<Tab value="graph"><span class="font-semibold text-md">Graph</span></Tab>
+					<Tab value="graph" label="Graph" />
 					<Tab
 						value="logs"
 						class={animateLogsTab
 							? 'animate-pulse animate-duration-1000 bg-surface-inverse text-primary-inverse'
-							: ''}><span class="font-semibold">Logs</span></Tab
-					>
-					<Tab value="sequence"><span class="font-semibold">Details</span></Tab>
-					<Tab value="assets"><span class="font-semibold">Assets</span></Tab>
+							: ''}
+						label="Logs"
+					/>
+
+					<Tab value="sequence" label="Details" />
+					<Tab value="assets" label="Assets" />
 				</Tabs>
 			{:else}
 				<div class="h-[30px]"></div>
@@ -1334,13 +1336,13 @@
 			style="min-height: {minTabHeight}px"
 		>
 			{#if isListJob}
-				<h3 class="text-md leading-6 font-bold text-tertiary border-b mb-4">
+				<h3 class="text-md leading-6 font-bold text-primary border-b mb-4">
 					Subflows ({flowJobIds?.flowJobs.length})
 				</h3>
 				<div class="overflow-auto max-h-1/2">
 					{#each flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
 						{#if render && j + subflowsSize + 1 == (flowJobIds?.flowJobs.length ?? 0)}
-							<Button variant="border" color="light" on:click={() => (subflowsSize += 500)}
+							<Button variant="default" on:click={() => (subflowsSize += 500)}
 								>Load 500 more...</Button
 							>
 						{/if}
@@ -1447,7 +1449,7 @@
 					{#each modules as mod, i}
 						{#if render}
 							<div class="line w-8 h-10"></div>
-							<h3 class="text-tertiary mb-2 w-full">
+							<h3 class="text-primary mb-2 w-full">
 								{#if mod.id === 'preprocessor'}
 									Preprocessor module
 								{:else if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length + hasPreprocessor}
@@ -1674,7 +1676,7 @@
 					{/each}
 				</ul>
 			{:else}
-				<div class="p-2 text-tertiary text-sm italic">Empty flow</div>
+				<div class="p-2 text-primary text-sm italic">Empty flow</div>
 			{/if}
 		</div>
 		{#if selected == 'logs' && render}
@@ -1782,15 +1784,14 @@
 					>
 						<Tabs bind:selected={rightColumnSelect}>
 							{#if !hideTimeline}
-								<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
+								<Tab value="timeline" label="Timeline" />
 							{/if}
-							<Tab value="node_status"><span class="font-semibold">Node status</span></Tab>
+							<Tab value="node_status" label="Node status" />
 							{#if !hideNodeDefinition}
-								<Tab value="node_definition"><span class="font-semibold">Node definition</span></Tab
-								>
+								<Tab value="node_definition" label="Node definition" />
 							{/if}
 							{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
-								<Tab value="user_states"><span class="font-semibold">User States</span></Tab>
+								<Tab value="user_states" label="User States" />
 							{/if}
 						</Tabs>
 						{#if rightColumnSelect == 'timeline'}
@@ -1809,7 +1810,7 @@
 								durationStatuses={localDurationStatuses}
 							/>
 						{:else if rightColumnSelect == 'node_status'}
-							<div class="pt-2 grow flex flex-col">
+							<div class="p-2 grow flex flex-col gap-6">
 								{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
 									<div class="pt-2 px-4 pb-4">
 										<Alert type="info" title="Message output is available on the AI agent node" />
@@ -1870,100 +1871,110 @@
 											module && module.value.type === 'aiagent' ? module.value.tools : undefined}
 										{@const parentLoopsPrefix = getParentLoopsPrefix(module?.id ?? '')}
 										{#if node.flow_jobs_results}
-											<span class="pl-1 text-tertiary"
-												>Result of step as collection of all subflows</span
-											>
-											<div class="overflow-auto max-h-[200px] p-2">
-												<DisplayResult
-													workspaceId={job?.workspace_id}
-													result={node.flow_jobs_results}
-													nodeId={selectedNode}
-													jobId={job?.id}
-													language={job?.language}
-												/>
-											</div>
-											<span class="pl-1 text-tertiary text-lg pt-4">Selected subflow</span>
-										{/if}
-										<div class="px-2 flex gap-2 min-w-0 w-full">
-											<ModuleStatus
-												type={node.type}
-												scheduled_for={node.scheduled_for}
-												skipped={node.skipped}
-											/>
-											{#if node.duration_ms}
-												<Badge>
-													<Hourglass class="mr-2" size={10} />
-													{msToSec(node.duration_ms)} s
-												</Badge>
-											{/if}
-											{#if node.job_id}
-												<div class="grow w-full flex flex-row-reverse">
-													<a
-														class="text-right text-xs"
-														rel="noreferrer"
-														target="_blank"
-														href="{base}/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
-													>
-														{truncateRev(node.job_id ?? '', 10)}
-													</a>
+											<div>
+												<span class="pl-1 text-emphasis text-xs font-medium"
+													>Result of step as collection of all subflows</span
+												>
+												<div class="overflow-auto max-h-[200px] p-2">
+													<DisplayResult
+														workspaceId={job?.workspace_id}
+														result={node.flow_jobs_results}
+														nodeId={selectedNode}
+														jobId={job?.id}
+														language={job?.language}
+													/>
 												</div>
-											{/if}
-										</div>
-										{#if !node.isListJob}
-											<div class="px-1 py-1">
-												<JobArgs
-													id={node.job_id}
-													workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
-													args={node.args}
-												/>
 											</div>
 										{/if}
-										<FlowJobResult
-											tagLabel={customUi?.tagLabel}
-											workspaceId={job?.workspace_id}
-											jobId={node.job_id}
-											noBorder
-											loading={node.type != 'Success' && node.type != 'Failure'}
-											waitingForExecutor={node.type == 'WaitingForExecutor'}
-											refreshLog={node.type == 'InProgress'}
-											col
-											result_stream={resultStreams[node.job_id ?? '']}
-											result={node.result}
-											tag={node.tag}
-											logs={node.logs}
-											downloadLogs={!hideDownloadLogs}
-											aiAgentStatus={agentTools &&
-											node?.job_id &&
-											(node.type === 'Success' || node.type === 'Failure')
-												? {
-														tools: agentTools,
-														agentJob: {
-															id: node.job_id,
-															result: node.result,
-															logs: node.logs,
-															args: node.args,
-															success: node.type === 'Success',
-															type: 'CompletedJob'
-														},
-														storedToolCallJobs: module
-															? toolCallStore?.getLocalToolCallJobs(parentLoopsPrefix)
-															: undefined,
-														onToolJobLoaded: (job, idx) => {
-															if (module) {
-																const storeKey = parentLoopsPrefix + module.id + '-' + idx
-																toolCallStore?.setStoredToolCallJob(storeKey, job)
+										<div class="flex flex-col gap-2">
+											{#if node.flow_jobs_results}
+												<span class="pl-1 text-xs font-medium text-emphasis pt-4"
+													>Selected subflow</span
+												>
+											{/if}
+											<div class="flex flex-col gap-6">
+												<div class="flex flex-col gap-1">
+													<div class="flex gap-2 min-w-0 w-full items-center">
+														<ModuleStatus
+															type={node.type}
+															scheduled_for={node.scheduled_for}
+															skipped={node.skipped}
+														/>
+														{#if node.duration_ms}
+															<Badge>
+																<Hourglass class="mr-2" size={10} />
+																{msToSec(node.duration_ms)} s
+															</Badge>
+														{/if}
+														{#if node.job_id}
+															<div class="grow w-full flex flex-row-reverse">
+																<a
+																	class="text-right text-xs"
+																	rel="noreferrer"
+																	target="_blank"
+																	href="{base}/run/{node.job_id ??
+																		''}?workspace={job?.workspace_id}"
+																>
+																	{truncateRev(node.job_id ?? '', 10)}
+																</a>
+															</div>
+														{/if}
+													</div>
+													{#if !node.isListJob}
+														<JobArgs
+															id={node.job_id}
+															workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+															args={node.args}
+														/>
+													{/if}
+												</div>
+												<FlowJobResult
+													tagLabel={customUi?.tagLabel}
+													workspaceId={job?.workspace_id}
+													jobId={node.job_id}
+													loading={node.type != 'Success' && node.type != 'Failure'}
+													waitingForExecutor={node.type == 'WaitingForExecutor'}
+													refreshLog={node.type == 'InProgress'}
+													col
+													result_stream={resultStreams[node.job_id ?? '']}
+													result={node.result}
+													tag={node.tag}
+													logs={node.logs}
+													downloadLogs={!hideDownloadLogs}
+													aiAgentStatus={agentTools &&
+													node?.job_id &&
+													(node.type === 'Success' || node.type === 'Failure')
+														? {
+																tools: agentTools,
+																agentJob: {
+																	id: node.job_id,
+																	result: node.result,
+																	logs: node.logs,
+																	args: node.args,
+																	success: node.type === 'Success',
+																	type: 'CompletedJob'
+																},
+																storedToolCallJobs: module
+																	? toolCallStore?.getLocalToolCallJobs(parentLoopsPrefix)
+																	: undefined,
+																onToolJobLoaded: (job, idx) => {
+																	if (module) {
+																		const storeKey = parentLoopsPrefix + module.id + '-' + idx
+																		toolCallStore?.setStoredToolCallJob(storeKey, job)
+																	}
+																}
 															}
-														}
-													}
-												: undefined}
-										/>
+														: undefined}
+												/>
+											</div>
+										</div>
 									{:else}
-										<p class="p-2 text-tertiary italic"
+										<p class="p-2 text-primary italic"
 											>The execution of this node has no information attached to it. The job likely
 											did not run yet</p
 										>
 									{/if}
-								{:else}<p class="p-2 text-tertiary italic">Select a node to see its details here</p
+								{:else}<p class="p-2 text-primary italic">Select a node to see its details here</p
 									>{/if}
 							</div>
 						{:else if rightColumnSelect == 'node_definition'}

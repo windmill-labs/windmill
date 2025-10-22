@@ -41,7 +41,7 @@
 		}
 	}
 	run(() => {
-		flowModule.mock, untrack(() => updateMock(flowModule.mock))
+		;(flowModule.mock, untrack(() => updateMock(flowModule.mock)))
 	})
 
 	function updateMockValue({ detail }: any) {
@@ -92,7 +92,7 @@
 				<JsonEditor {code} on:changeValue={updateMockValue} />
 			{/key}
 		{:else}
-			<pre class="text-xs border rounded p-2 bg-surface-disabled"
+			<pre class="text-xs border rounded p-2 bg-surface-disabled/20"
 				>{flowModule.mock?.return_value
 					? JSON.stringify(flowModule.mock?.return_value, null, 2)
 					: ''}</pre

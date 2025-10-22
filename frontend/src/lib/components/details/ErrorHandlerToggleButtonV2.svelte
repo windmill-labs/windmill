@@ -11,7 +11,7 @@
 	export let textDisabled = false
 	let toggleState = errorHandlerMuted
 
-	export let color: 'nord' | 'red' | 'blue' = 'nord'
+	export let color: 'nord' | 'red' | 'blue' | undefined = undefined
 
 	async function toggleErrorHandler(): Promise<void> {
 		toggleState = !toggleState
@@ -49,20 +49,20 @@
 				false
 			)
 		}
-		toggleState = false
 	}
 </script>
 
 <Toggle
+	textClass="font-medium"
 	{color}
-	textClass="font-normal text-sm"
 	size="xs"
 	checked={toggleState}
 	on:change={toggleErrorHandler}
 	options={{
 		right: 'Mute',
 		rightTooltip: 'Disable workspace error handler, EE only',
-		rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler'
+		rightDocumentationLink:
+			'https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler'
 	}}
 	{textDisabled}
 />

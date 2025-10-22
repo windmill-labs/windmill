@@ -30,7 +30,7 @@
 		onClick,
 		class: className = '',
 		noText = false,
-		buttonVariant = 'border',
+		buttonVariant = 'default',
 		btnClasses = '',
 		disabled = false
 	}: {
@@ -50,9 +50,8 @@
 
 <Button
 	disabled={$userStore?.operator || disabled}
-	size="xs"
+	unifiedSize={'md'}
 	variant={buttonVariant}
-	spacingSize="xs2"
 	wrapperClasses={className}
 	{btnClasses}
 	on:click={async () => {
@@ -69,12 +68,19 @@
 		}
 		onClick?.()
 	}}
+	endIcon={asset.kind === 's3object'
+		? { icon: File }
+		: asset.kind === 'resource'
+			? { icon: Database }
+			: asset.kind === 'ducklake'
+				? { icon: DucklakeIcon }
+				: undefined}
 >
 	{#if asset.kind === 's3object'}
-		<span class:hidden={noText}>Explore</span> <File size={18} />
+		<span class:hidden={noText}>Explore</span>
 	{:else if asset.kind === 'resource'}
-		<span class:hidden={noText}>Manage</span> <Database size={18} />
+		<span class:hidden={noText}>Manage</span>
 	{:else if asset.kind === 'ducklake'}
-		<span class:hidden={noText}>Manage</span> <DucklakeIcon size={18} />
+		<span class:hidden={noText}>Manage</span>
 	{/if}
 </Button>

@@ -163,7 +163,7 @@
 											</div>
 										</div>
 										{#if !isAtDefault}
-											<div class="text-xs text-tertiary flex flex-row items-center gap-1">
+											<div class="text-xs text-primary flex flex-row items-center gap-1">
 												<span>Default: {defaultTokens} tokens</span>
 												<button
 													type="button"

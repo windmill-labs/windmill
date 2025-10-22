@@ -96,3 +96,28 @@ export function aiModuleActionToBgColor(action: AIModuleAction | undefined) {
 			return ''
 	}
 }
+export function aiModuleActionToBorderColor(action: AIModuleAction | undefined) {
+	switch (action) {
+		case 'modified':
+			return '!border-orange-300 dark:!border-orange-700'
+		case 'added':
+			return '!border-green-400 dark:!border-green-700'
+		case 'removed':
+			return '!border-red-300 dark:!border-red-700'
+		default:
+			return ''
+	}
+}
+
+export function aiModuleActionToTextColor(action: AIModuleAction | undefined) {
+	switch (action) {
+		case 'modified':
+			return '!text-orange-800 dark:!text-orange-200'
+		case 'added':
+			return '!text-green-800 dark:!text-green-200'
+		case 'removed':
+			return '!text-red-800 dark:!text-red-200'
+		default:
+			return ''
+	}
+}

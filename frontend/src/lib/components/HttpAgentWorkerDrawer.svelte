@@ -109,8 +109,8 @@
 </script>
 
 <Tabs bind:selected={selectedTab}>
-	<Tab value="create">Create</Tab>
-	<Tab value="blacklist">Blacklist</Tab>
+	<Tab value="create" label="Create" />
+	<Tab value="blacklist" label="Blacklist" />
 	{#snippet content()}
 		<div class="flex flex-col gap-y-4 pt-2">
 			{#if selectedTab === 'create'}
