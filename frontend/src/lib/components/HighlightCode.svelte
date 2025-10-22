@@ -21,10 +21,27 @@
 	import HighlightTheme from './HighlightTheme.svelte'
 	import type { LanguageType } from 'svelte-highlight/languages'
 
-	export let code: string = ''
-	export let language: Script['language'] | 'bunnative' | 'frontend' | undefined
-	export let highlightLanguage: LanguageType<string> | undefined = undefined
-	export let lines = false
+	interface Props {
+		code?: string
+		language: Script['language'] | 'bunnative' | 'frontend' | undefined
+		highlightLanguage?: LanguageType<string> | undefined
+		lines?: boolean
+		className?: string
+		onApplyCode?: () => void
+		showApplyButton?: boolean
+		applyButtonIcon?: typeof ClipboardCopy
+	}
+
+	let {
+		code = '',
+		language,
+		highlightLanguage = undefined,
+		lines = false,
+		className = '',
+		onApplyCode = undefined,
+		showApplyButton = false,
+		applyButtonIcon = undefined
+	}: Props = $props()
 
 	function getLang(lang: Script['language'] | 'bunnative' | 'frontend' | undefined) {
 		switch (lang) {
@@ -71,16 +88,16 @@
 			case 'ansible':
 				return yaml
 			case 'java':
-				return java;
+				return java
 			case 'ruby':
-				return ruby;
-			// for related places search: ADD_NEW_LANG 
+				return ruby
+			// for related places search: ADD_NEW_LANG
 			default:
 				return typescript
 		}
 	}
 
-	$: lang = highlightLanguage ?? getLang(language)
+	const lang = $derived(highlightLanguage ?? getLang(language))
 </script>
 
 <HighlightTheme />
@@ -88,25 +105,39 @@
 <div class="relative">
 	<Button
 		wrapperClasses="absolute top-2 right-2 z-20"
-		on:click={() => copyToClipboard(code)}
+		onclick={() => copyToClipboard(code)}
 		color="light"
 		size="xs2"
 		startIcon={{
 			icon: ClipboardCopy
 		}}
 		iconOnly
+		title="Copy to clipboard"
 	/>
+	{#if showApplyButton}
+		<Button
+			wrapperClasses="absolute top-2 right-10 z-20"
+			onclick={onApplyCode}
+			color="light"
+			size="xs2"
+			startIcon={{
+				icon: applyButtonIcon
+			}}
+			iconOnly
+			title="Apply code"
+		/>
+	{/if}
 	<div class="overflow-x-auto">
 		{#if code?.length < 10000}
 			{#if !lines}
-				<Highlight class="nowrap {$$props.class}" language={lang} {code} />
+				<Highlight class="nowrap {className}" language={lang} {code} />
 			{:else}
-				<Highlight class="nowrap {$$props.class}" language={lang} {code} let:highlighted>
+				<Highlight class="nowrap {className}" language={lang} {code} let:highlighted>
 					<LineNumbers {highlighted} />
 				</Highlight>
 			{/if}
 		{:else}
-			<pre class="overflow-auto max-h-screen text-xs {$$props.class}"
+			<pre class="overflow-auto max-h-screen text-xs {className}"
 				><code class="language-{language}">{code}</code></pre
 			>
 		{/if}

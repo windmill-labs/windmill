@@ -2,12 +2,11 @@ use crate::ai::types::OpenAIMessage;
 use std::path::PathBuf;
 use tokio::{fs, io::AsyncWriteExt};
 use uuid::Uuid;
-use windmill_common::worker::TMP_LOGS_DIR;
+use windmill_common::worker::TMP_MEMORY_DIR;
 
 /// Get the file path for storing memory for a specific AI agent step
 pub fn path_for(workspace_id: &str, conversation_id: Uuid, step_id: &str) -> PathBuf {
-    PathBuf::from(TMP_LOGS_DIR)
-        .join("memory")
+    PathBuf::from(TMP_MEMORY_DIR)
         .join(workspace_id)
         .join(conversation_id.to_string())
         .join(format!("{step_id}.json"))
@@ -61,8 +60,7 @@ pub async fn delete_conversation_from_disk(
     workspace_id: &str,
     conversation_id: Uuid,
 ) -> anyhow::Result<()> {
-    let conversation_path = PathBuf::from(TMP_LOGS_DIR)
-        .join("memory")
+    let conversation_path = PathBuf::from(TMP_MEMORY_DIR)
         .join(workspace_id)
         .join(conversation_id.to_string());
 

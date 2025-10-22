@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO debounce_stale_data (job_id, to_relock)\n            VALUES ($1, $2)\n            ON CONFLICT (job_id)\n                DO UPDATE SET to_relock = (\n                    SELECT array_agg(DISTINCT x)\n                    FROM unnest(\n                        -- Combine existing array with new values, removing duplicates\n                        array_cat(debounce_stale_data.to_relock, EXCLUDED.to_relock)\n                    ) AS x\n                )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7ec724b84479c2f737637e91b8cbed6cae29f361167deee879b8b683ad1bf684"
+}

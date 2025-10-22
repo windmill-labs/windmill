@@ -1015,6 +1015,10 @@ You should get the schema of the script or flow before creating the schedule to 
                 "cron_version": {
                         "type": "string",
                         "description": "The version of the cron schedule to use (last is v2)"
+                },
+                "dynamic_skip": {
+                        "type": "string",
+                        "description": "Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean."
                 }
         },
         "required": [
@@ -1135,6 +1139,10 @@ You should get the schema of the script or flow before updating the schedule to 
                 "cron_version": {
                         "type": "string",
                         "description": "The version of the cron schedule to use (last is v2)"
+                },
+                "dynamic_skip": {
+                        "type": "string",
+                        "description": "Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean."
                 }
         },
         "required": [

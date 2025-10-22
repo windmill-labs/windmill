@@ -29,7 +29,7 @@
 		inputProps?: HTMLInputAttributes
 		value?: string
 		class?: string
-		error?: string
+		error?: string | boolean
 	}
 
 	export function focus() {

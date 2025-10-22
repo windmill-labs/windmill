@@ -12,7 +12,8 @@
 	import Button from '../common/button/Button.svelte'
 	import type { FlowCopilotContext } from './flow'
 	import { Check, ExternalLink, Loader2, Wand2 } from 'lucide-svelte'
-	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
+	import { stepInputCompletionEnabled } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { SchemaProperty, Schema } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
@@ -20,10 +21,14 @@
 	import { twMerge } from 'tailwind-merge'
 	import { stepInputGenButtonClasses } from './StepInputGen.svelte'
 
-	let loading = false
-	export let pickableProperties: PickableProperties | undefined = undefined
-	export let argNames: string[] = []
-	export let schema: Schema | { properties?: Record<string, any> } | undefined = undefined
+	let loading = $state(false)
+	interface Props {
+		pickableProperties?: PickableProperties | undefined
+		argNames?: string[]
+		schema?: Schema | { properties?: Record<string, any> } | undefined
+	}
+
+	let { pickableProperties = undefined, argNames = [], schema = undefined }: Props = $props()
 
 	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -32,9 +37,9 @@
 
 	let generatedContent = ''
 	let parsedInputs: string[][] = []
-	let newFlowInputs: string[] = []
+	let newFlowInputs: string[] = $state([])
 
-	let abortController = new AbortController()
+	let abortController = $state(new AbortController())
 	async function generateStepInputs() {
 		if (Object.keys($generatedExprs || {}).length > 0 || loading) {
 			return
@@ -163,8 +168,8 @@ input_name2: expression2
 		}
 	}
 
-	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
-	let openInputsModal = false
+	let out = $state(true) // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
+	let openInputsModal = $state(false)
 </script>
 
 <div class="flex flex-row justify-end">
@@ -220,11 +225,11 @@ input_name2: expression2
 			}}
 			class="w-full"
 		>
-			<svelte:fragment slot="trigger">
+			{#snippet trigger()}
 				<Button
 					size="xs"
 					color="light"
-					btnClasses="text-violet-800 dark:text-violet-400 border border-violet-200 hover:bg-violet-50"
+					btnClasses={stepInputGenButtonClasses(false)}
 					nonCaptureEvent
 					startIcon={{
 						icon: Wand2
@@ -232,8 +237,8 @@ input_name2: expression2
 				>
 					Fill inputs
 				</Button>
-			</svelte:fragment>
-			<svelte:fragment slot="content" let:close>
+			{/snippet}
+			{#snippet content({ close })}
 				<div class="p-4">
 					<p class="text-sm">
 						{#if !$copilotInfo.enabled}
@@ -250,7 +255,7 @@ input_name2: expression2
 							<a
 								href="#user-settings"
 								class="inline-flex flex-row items-center gap-1"
-								on:click={() => {
+								onclick={() => {
 									close()
 								}}
 							>
@@ -259,7 +264,7 @@ input_name2: expression2
 						{/if}
 					</p>
 				</div>
-			</svelte:fragment>
+			{/snippet}
 		</Popover>
 	{/if}
 </div>

@@ -176,9 +176,19 @@ impl FlowValue {
                 | Flow { .. }
                 | FlowScript { .. }
                 | Identity) => cb(&s, &module.id)?,
-                ForloopFlow { modules, .. }
-                | WhileloopFlow { modules, .. }
-                | AIAgent { tools: modules, .. } => Self::traverse_leafs(&modules, cb)?,
+                ForloopFlow { modules, .. } | WhileloopFlow { modules, .. } => {
+                    Self::traverse_leafs(&modules, cb)?
+                }
+                AIAgent { tools, .. } => {
+                    for tool in tools {
+                        match &tool.value {
+                            ToolValue::FlowModule(module_value) => cb(module_value, &tool.id)?,
+                            ToolValue::Mcp(_) => {
+                                // MCP tools don't have a FlowModuleValue to traverse
+                            }
+                        }
+                    }
+                }
                 BranchOne { branches, .. } | BranchAll { branches, .. } => {
                     for branch in branches {
                         Self::traverse_leafs(&branch.modules, cb)?;
@@ -393,6 +403,8 @@ pub struct FlowModule {
     pub skip_if: Option<SkipIf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub apply_preprocessor: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pass_flow_input_directly: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -405,14 +417,24 @@ pub struct FlowModuleValueWithParallel {
     #[serde(rename = "type")]
     pub type_: String,
     pub parallel: Option<bool>,
-    pub parallelism: Option<u16>,
+    #[serde(
+        default,
+        deserialize_with = "raw_value_to_input_transform::<_, u16>",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parallelism: Option<InputTransform>,
 }
 
 #[derive(Deserialize)]
 pub struct FlowModuleValueWithSkipFailures {
     pub skip_failures: Option<bool>,
     pub parallel: Option<bool>,
-    pub parallelism: Option<u16>,
+    #[serde(
+        default,
+        deserialize_with = "raw_value_to_input_transform::<_, u16>",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parallelism: Option<InputTransform>,
 }
 
 #[derive(Deserialize)]
@@ -589,6 +611,96 @@ pub struct Branch {
     pub parallel: bool,
 }
 
+// Tool types for AI Agent
+#[derive(Serialize, Debug, Clone, Deserialize)]
+pub struct AgentTool {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub value: ToolValue,
+}
+
+// Convert FlowModule -> AgentTool
+impl From<FlowModule> for AgentTool {
+    fn from(flow_module: FlowModule) -> Self {
+        let module_value = serde_json::from_str::<FlowModuleValue>(flow_module.value.get())
+            .unwrap_or(FlowModuleValue::Identity);
+
+        AgentTool {
+            id: flow_module.id,
+            summary: flow_module.summary,
+            value: ToolValue::FlowModule(module_value),
+        }
+    }
+}
+
+// Convert AgentTool -> FlowModule (only for FlowModule type tools)
+impl From<&AgentTool> for Option<FlowModule> {
+    fn from(tool: &AgentTool) -> Self {
+        match &tool.value {
+            ToolValue::FlowModule(module_value) => Some(FlowModule {
+                id: tool.id.clone(),
+                value: to_raw_value(module_value),
+                summary: tool.summary.clone(),
+                ..Default::default()
+            }),
+            ToolValue::Mcp(_) => None, // MCP tools can't be converted to FlowModule
+        }
+    }
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(tag = "tool_type", rename_all = "lowercase")]
+pub enum ToolValue {
+    FlowModule(FlowModuleValue),
+    Mcp(McpToolValue),
+}
+
+// Custom deserializer for backward compatibility with old flows
+impl<'de> Deserialize<'de> for ToolValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let content = serde_json::Value::deserialize(deserializer)?;
+
+        // First, try to deserialize as the new tagged format (with tool_type field)
+        #[derive(Deserialize)]
+        #[serde(tag = "tool_type", rename_all = "lowercase")]
+        enum TaggedToolValue {
+            FlowModule(FlowModuleValue),
+            Mcp(McpToolValue),
+        }
+
+        if let Ok(tagged) = TaggedToolValue::deserialize(&content) {
+            return Ok(match tagged {
+                TaggedToolValue::FlowModule(v) => ToolValue::FlowModule(v),
+                TaggedToolValue::Mcp(v) => ToolValue::Mcp(v),
+            });
+        }
+
+        // Fall back to legacy format (direct FlowModuleValue without tool_type)
+        FlowModuleValue::deserialize(&content)
+            .map(ToolValue::FlowModule)
+            .map_err(|_| {
+                D::Error::custom(
+                    "expected ToolValue with tool_type field or legacy FlowModuleValue",
+                )
+            })
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct McpToolValue {
+    pub resource_path: String,
+    #[serde(default)]
+    pub include_tools: Vec<String>,
+    #[serde(default)]
+    pub exclude_tools: Vec<String>,
+}
+
 #[derive(Serialize, Debug, Clone)]
 #[serde(
     tag = "type",
@@ -607,6 +719,8 @@ pub enum FlowModuleValue {
         tag_override: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pass_flow_input_directly: Option<bool>,
     },
 
     /// Reference to another flow on the workspace
@@ -615,6 +729,8 @@ pub enum FlowModuleValue {
         #[serde(alias = "input_transform")]
         input_transforms: HashMap<String, InputTransform>,
         path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pass_flow_input_directly: Option<bool>,
     },
 
     /// For loop node
@@ -627,7 +743,7 @@ pub enum FlowModuleValue {
         skip_failures: bool,
         parallel: bool,
         #[serde(skip_serializing_if = "Option::is_none")]
-        parallelism: Option<u16>,
+        parallelism: Option<InputTransform>,
     },
 
     /// While loop node
@@ -709,7 +825,7 @@ pub enum FlowModuleValue {
     // AI agent node
     AIAgent {
         input_transforms: HashMap<String, InputTransform>,
-        tools: Vec<FlowModule>,
+        tools: Vec<AgentTool>,
     },
 }
 
@@ -730,7 +846,8 @@ struct UntaggedFlowModuleValue {
     modules: Option<Vec<FlowModule>>,
     skip_failures: Option<bool>,
     parallel: Option<bool>,
-    parallelism: Option<u16>,
+    #[serde(default, deserialize_with = "raw_value_to_input_transform::<_, u16>")]
+    parallelism: Option<InputTransform>,
     branches: Option<Vec<Branch>>,
     default: Option<Vec<FlowModule>>,
     content: Option<String>,
@@ -745,7 +862,8 @@ struct UntaggedFlowModuleValue {
     default_node: Option<FlowNodeId>,
     modules_node: Option<FlowNodeId>,
     assets: Option<Vec<AssetWithAltAccessType>>,
-    tools: Option<Vec<FlowModule>>,
+    tools: Option<Vec<AgentTool>>,
+    pass_flow_input_directly: Option<bool>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -764,12 +882,14 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 hash: untagged.hash,
                 tag_override: untagged.tag_override,
                 is_trigger: untagged.is_trigger,
+                pass_flow_input_directly: untagged.pass_flow_input_directly,
             }),
             "flow" => Ok(FlowModuleValue::Flow {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
                 path: untagged
                     .path
                     .ok_or_else(|| serde::de::Error::missing_field("path"))?,
+                pass_flow_input_directly: untagged.pass_flow_input_directly,
             }),
             "forloopflow" => Ok(FlowModuleValue::ForloopFlow {
                 iterator: untagged
@@ -911,6 +1031,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             continue_on_error: None,
             skip_if: None,
             apply_preprocessor: None,
+            pass_flow_input_directly: None,
         });
     }
 }

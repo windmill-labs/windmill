@@ -18,7 +18,7 @@
 		disableAi?: boolean
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		allowTrigger?: boolean
-		scriptOnly?: boolean
+		toolMode?: boolean
 	}
 
 	let {
@@ -27,7 +27,7 @@
 		disableAi = false,
 		kind = 'script',
 		allowTrigger = true,
-		scriptOnly = false
+		toolMode = false
 	}: Props = $props()
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
@@ -39,7 +39,7 @@
 
 	let width = $state(0)
 	let height = $state(0)
-
+	let owners = $state([])
 	let displayPath = $derived(width > 650 || height > 400)
 </script>
 
@@ -69,90 +69,100 @@
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		{/if}
-		<RefreshButton {loading} on:click={() => (refreshCount.val += 1)} />
+		<RefreshButton size="md" light {loading} on:click={() => (refreshCount.val += 1)} />
 	</div>
 
 	<div class="flex flex-row grow min-h-0">
-		{#if kind === 'script' && !scriptOnly}
+		{#if kind === 'script'}
 			<div class="flex-none flex flex-col text-xs text-primary">
 				<TopLevelNode
 					label="Action"
 					selected={selectedKind === 'script'}
-					on:select={() => {
+					onSelect={() => {
 						selectedKind = 'script'
 					}}
 				/>
-				{#if customUi?.triggers != false && allowTrigger}
+				{#if toolMode}
 					<TopLevelNode
-						label="Trigger"
-						selected={selectedKind === 'trigger'}
-						on:select={() => {
-							selectedKind = 'trigger'
-						}}
-					/>
-				{/if}
-				<TopLevelNode
-					label="Approval/Prompt"
-					selected={selectedKind === 'approval'}
-					on:select={() => {
-						selectedKind = 'approval'
-					}}
-				/>
-				{#if customUi?.flowNode != false}
-					<TopLevelNode
-						label="Flow"
-						selected={selectedKind === 'flow'}
-						on:select={() => {
-							selectedKind = 'flow'
-						}}
-					/>
-				{/if}
-				{#if stop}
-					<TopLevelNode
-						label="End flow"
-						selected={selectedKind === 'script'}
-						on:select={() => {
-							selectedKind = 'script'
-						}}
-					/>
-				{/if}
-
-				<TopLevelNode
-					label="For loop"
-					on:select={() => {
-						dispatch('close')
-						dispatch('new', { kind: 'forloop' })
-					}}
-				/>
-				<TopLevelNode
-					label="While loop"
-					on:select={() => {
-						dispatch('close')
-						dispatch('new', { kind: 'whileloop' })
-					}}
-				/>
-				<TopLevelNode
-					label="Branch to one"
-					on:select={() => {
-						dispatch('close')
-						dispatch('new', { kind: 'branchone' })
-					}}
-				/>
-				<TopLevelNode
-					label="Branch to all"
-					on:select={() => {
-						dispatch('close')
-						dispatch('new', { kind: 'branchall' })
-					}}
-				/>
-				{#if customUi?.aiAgent != false}
-					<TopLevelNode
-						label="AI Agent"
-						on:select={() => {
+						label="MCP"
+						onSelect={() => {
+							dispatch('pickMcpTool')
 							dispatch('close')
-							dispatch('new', { kind: 'aiagent' })
 						}}
 					/>
+				{:else}
+					{#if customUi?.triggers != false && allowTrigger}
+						<TopLevelNode
+							label="Trigger"
+							selected={selectedKind === 'trigger'}
+							onSelect={() => {
+								selectedKind = 'trigger'
+							}}
+						/>
+					{/if}
+					<TopLevelNode
+						label="Approval/Prompt"
+						selected={selectedKind === 'approval'}
+						onSelect={() => {
+							selectedKind = 'approval'
+						}}
+					/>
+					{#if customUi?.flowNode != false}
+						<TopLevelNode
+							label="Flow"
+							selected={selectedKind === 'flow'}
+							onSelect={() => {
+								selectedKind = 'flow'
+							}}
+						/>
+					{/if}
+					{#if stop}
+						<TopLevelNode
+							label="End flow"
+							selected={selectedKind === 'script'}
+							onSelect={() => {
+								selectedKind = 'script'
+							}}
+						/>
+					{/if}
+
+					<TopLevelNode
+						label="For loop"
+						onSelect={() => {
+							dispatch('close')
+							dispatch('new', { kind: 'forloop' })
+						}}
+					/>
+					<TopLevelNode
+						label="While loop"
+						onSelect={() => {
+							dispatch('close')
+							dispatch('new', { kind: 'whileloop' })
+						}}
+					/>
+					<TopLevelNode
+						label="Branch to one"
+						onSelect={() => {
+							dispatch('close')
+							dispatch('new', { kind: 'branchone' })
+						}}
+					/>
+					<TopLevelNode
+						label="Branch to all"
+						onSelect={() => {
+							dispatch('close')
+							dispatch('new', { kind: 'branchall' })
+						}}
+					/>
+					{#if customUi?.aiAgent != false}
+						<TopLevelNode
+							label="AI Agent"
+							onSelect={() => {
+								dispatch('close')
+								dispatch('new', { kind: 'aiagent' })
+							}}
+						/>
+					{/if}
 				{/if}
 			</div>
 		{/if}
@@ -164,6 +174,7 @@
 			{disableAi}
 			{funcDesc}
 			{kind}
+			bind:owners
 			on:close={() => {
 				dispatch('close')
 			}}

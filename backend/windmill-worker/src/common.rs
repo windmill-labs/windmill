@@ -28,6 +28,7 @@ use windmill_common::{
     cache::{Cache, RawData},
     error::{self, Error},
     scripts::ScriptHash,
+    utils::configure_client,
     variables::ContextualVariable,
 };
 
@@ -236,7 +237,8 @@ pub async fn transform_json_value(
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
-            if path.split("/").count() < 2 {
+
+            if path.split("/").count() < 2 && !path.starts_with("INSTANCE_DUCKLAKE_CATALOG/") {
                 return Err(Error::internal_err(format!(
                     "Argument `{name}` is an invalid resource path: {path}",
                 )));
@@ -452,6 +454,7 @@ pub async fn get_reserved_variables(
         Some(get_root_job_id(job).to_string()),
         Some(job.scheduled_for.clone()),
         job.runnable_id,
+        job.permissioned_as_end_user_email.clone(),
     )
     .await
     .to_vec();
@@ -995,7 +998,7 @@ pub async fn save_in_cache(
         "INSERT INTO resource
         (workspace_id, path, value, resource_type, created_by, edited_at)
         VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (workspace_id, path)
-        DO UPDATE SET value = $3, edited_at = now()",
+        DO UPDATE SET value = EXCLUDED.value, edited_at = now()",
         job.workspace_id,
         &cached_path,
         raw_json as Json<&CachedResource>,
@@ -1052,10 +1055,10 @@ pub fn use_flow_root_path(flow_path: &str) -> String {
 }
 
 pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result<Client> {
-    reqwest::ClientBuilder::new()
+    configure_client(reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .timeout(timeout_duration)
-        .connect_timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(std::time::Duration::from_secs(10)))
         .build()
         .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
 }

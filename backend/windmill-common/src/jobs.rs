@@ -84,7 +84,7 @@ pub enum JobKind {
     Dependencies,
     Flow,
     FlowPreview,
-    SingleScriptFlow,
+    SingleStepFlow,
     Identity,
     FlowDependencies,
     AppDependencies,
@@ -100,7 +100,7 @@ impl JobKind {
     pub fn is_flow(&self) -> bool {
         matches!(
             self,
-            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleStepFlow | JobKind::FlowNode
         )
     }
 
@@ -327,6 +327,7 @@ pub enum JobPayload {
         path: String,
         apply_preprocessor: bool,
     },
+
     ScriptHash {
         hash: ScriptHash,
         path: String,
@@ -339,51 +340,71 @@ pub enum JobPayload {
         priority: Option<i16>,
         apply_preprocessor: bool,
     },
+
     FlowScript {
         id: FlowNodeId, // flow_node(id).
         language: ScriptLang,
+        /// Override default concurrency key
         custom_concurrency_key: Option<String>,
+        /// How many jobs can run at the same time
         concurrent_limit: Option<i32>,
+        /// In seconds
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
         path: String,
     },
+
     FlowNode {
         id: FlowNodeId, // flow_node(id).
         path: String,   // flow node inner path (e.g. `outer/branchall-42`).
     },
+
     AppScript {
         id: AppScriptId, // app_script(id).
         path: Option<String>,
         language: ScriptLang,
         cache_ttl: Option<i32>,
     },
+
     Code(RawCode),
+
+    /// Script Dependency Job
     Dependencies {
         path: String,
         hash: ScriptHash,
         language: ScriptLang,
         dedicated_worker: Option<bool>,
     },
+
+    /// Flow Dependency Job
     FlowDependencies {
         path: String,
         dedicated_worker: Option<bool>,
         version: i64,
     },
+
+    /// App Dependency Job
     AppDependencies {
         path: String,
         version: i64,
     },
+
+    /// Flow Dependency Job, exposed with API. Requirements can be partially or fully predefined
     RawFlowDependencies {
         path: String,
         flow_value: FlowValue,
     },
+
+    /// Dependency Job, exposed with API. Requirements can be predefined
     RawScriptDependencies {
         script_path: String,
+        /// Will reflect raw requirements content (e.g. requirements.txt)
         content: String,
         language: ScriptLang,
     },
+
+    /// Flow Job
     Flow {
         path: String,
         dedicated_worker: Option<bool>,
@@ -400,13 +421,17 @@ pub enum JobPayload {
         path: Option<String>,
         restarted_from: Option<RestartedFrom>,
     },
-    SingleScriptFlow {
+
+    /// Flow consisting of single script
+    SingleStepFlow {
         path: String,
-        hash: ScriptHash,
+        hash: Option<ScriptHash>,
+        flow_version: Option<i64>,
         args: HashMap<String, Box<serde_json::value::RawValue>>,
         retry: Option<Retry>,
         error_handler_path: Option<String>,
         error_handler_args: Option<HashMap<String, Box<RawValue>>>,
+        skip_handler: Option<SkipHandler>,
         custom_concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
@@ -424,6 +449,14 @@ pub enum JobPayload {
     AIAgent {
         path: String,
     },
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct SkipHandler {
+    pub path: String,
+    pub args: HashMap<String, Box<RawValue>>,
+    pub stop_condition: String,
+    pub stop_message: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
@@ -535,7 +568,7 @@ pub async fn script_path_to_payload<'e>(
                 custom_concurrency_key: concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
-                cache_ttl: cache_ttl,
+                cache_ttl,
                 language,
                 dedicated_worker,
                 priority,
@@ -764,4 +797,27 @@ pub async fn check_tag_available_for_workspace_internal(
     }
 
     return Ok(());
+}
+
+pub async fn lock_debounce_key<'c>(
+    w_id: &str,
+    runnable_path: &str,
+    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+) -> error::Result<Option<Uuid>> {
+    let key = format!("{w_id}:{runnable_path}:dependency");
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        runnable_path = %runnable_path,
+        debounce_key = %key,
+        "Locking debounce_key for dependency job scheduling"
+    );
+
+    sqlx::query_scalar!(
+        "SELECT job_id FROM debounce_key WHERE key = $1 AND job_id IN (SELECT id FROM v2_job_queue) FOR UPDATE",
+        &key
+    )
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(error::Error::from)
 }

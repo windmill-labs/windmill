@@ -19,7 +19,7 @@ type CreateTableValuesColumn = {
 	datatype: string
 	primaryKey?: boolean
 	defaultValue?: string
-	not_null?: boolean
+	nullable?: boolean
 	datatype_length?: number // e.g varchar(255)
 }
 
@@ -31,7 +31,7 @@ export function makeCreateTableQuery(values: CreateTableValues, dbType: DbType, 
 		const defValue = c.defaultValue && formatDefaultValue(c.defaultValue, datatype, dbType)
 
 		let str = `  ${c.name} ${datatype}`
-		if (c.not_null) str += ' NOT NULL'
+		if (!c.nullable) str += ' NOT NULL'
 		if (defValue) str += ` DEFAULT ${defValue}`
 		if (pkCount === 1 && c.primaryKey) str += ' PRIMARY KEY'
 		return str

@@ -60,7 +60,7 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
-        Pagination, RunnableKind, StripPath,
+        Pagination, RunnableKind, StripPath, WarnAfterExt,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
@@ -88,6 +88,10 @@ pub fn workspaced_service() -> Router {
         .route("/get/lite/*path", get(get_app_lite))
         .route("/get/draft/*path", get(get_app_w_draft))
         .route("/secret_of/*path", get(get_secret_id))
+        .route(
+            "/secret_of_latest_version/*path",
+            get(get_latest_version_secret_id),
+        )
         .route("/get/v/*id", get(get_app_by_id))
         .route("/get_data/v/*id", get(get_raw_app_data))
         .route("/exists/*path", get(exists_app))
@@ -389,19 +393,83 @@ async fn list_apps(
     Ok(Json(rows))
 }
 
-async fn get_raw_app_data(Path((w_id, version_id)): Path<(String, String)>) -> Result<Response> {
-    let file_path = format!("/tmp/wmill/{}/{}", w_id, version_id);
-    let file = tokio::fs::File::open(file_path).await?;
-    let stream = tokio_util::io::ReaderStream::new(file);
-    let res = Response::builder().header(
-        http::header::CONTENT_TYPE,
-        if version_id.ends_with(".css") {
-            "text/css"
-        } else {
-            "text/javascript"
-        },
-    );
-    Ok(res.body(Body::from_stream(stream)).unwrap())
+async fn get_raw_app_data(
+    Path((w_id, secret_with_ext)): Path<(String, String)>,
+    Extension(db): Extension<DB>,
+) -> Result<Response> {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    let object_store = windmill_common::s3_helpers::get_object_store().await;
+
+    // tracing::info!("secret_with_ext: {}", secret_with_ext);
+    let mut splitted = secret_with_ext.split('.');
+    let secret_id = splitted.next().unwrap_or("");
+
+    if secret_id.is_empty() {
+        return Err(Error::BadRequest("Invalid secret".to_string()));
+    }
+
+    let id = get_id_from_secret(
+        &db,
+        &w_id,
+        secret_id.to_string(),
+        Some(BUNDLE_SECRET_PREFIX),
+    )
+    .await?;
+
+    let file_type = splitted.next().unwrap_or("");
+    let file_type = if file_type == "css" {
+        "css"
+    } else if file_type == "js" {
+        "js"
+    } else {
+        return Err(Error::BadRequest(
+            "Invalid file type, only .css and .js are supported".to_string(),
+        ));
+    };
+    // tracing::info!("file_type: {}", file_type);
+
+    #[allow(unused_assignments)]
+    let mut body: Option<Body> = None;
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    if let Some(os) = object_store {
+        let path = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
+        let stream = os
+            .get(&object_store::path::Path::from(path))
+            .await?
+            .bytes()
+            .await?;
+        tracing::info!("stream: {}", stream.len());
+        body = Some(Body::from(stream));
+    }
+
+    if body.is_none() {
+        let get_raw_app_file = sqlx::query_scalar!(
+            "SELECT data FROM app_bundles WHERE app_version_id = $1 AND file_type = $2 AND w_id = $3",
+            id,
+            file_type,
+            &w_id,
+        )
+        .fetch_optional(&db)
+        .await?;
+        if let Some(file) = get_raw_app_file {
+            body = Some(Body::from(file));
+        }
+    }
+
+    if let Some(body) = body {
+        // let stream = tokio_util::io::ReaderStream::new(file);
+        let res = Response::builder().header(
+            http::header::CONTENT_TYPE,
+            if file_type == "css" {
+                "text/css"
+            } else {
+                "text/javascript"
+            },
+        );
+        Ok(res.body(body).unwrap())
+    } else {
+        return Err(Error::NotFound("File not found".to_string()));
+    }
 }
 
 // async fn get_app_version(
@@ -631,7 +699,7 @@ async fn update_app_history(
     check_scopes(&authed, || format!("apps:write:{}", &app_path))?;
 
     sqlx::query!(
-        "INSERT INTO deployment_metadata (workspace_id, path, app_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, app_version) WHERE app_version IS NOT NULL DO UPDATE SET deployment_msg = $4",
+        "INSERT INTO deployment_metadata (workspace_id, path, app_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, app_version) WHERE app_version IS NOT NULL DO UPDATE SET deployment_msg = EXCLUDED.deployment_msg",
         w_id,
         app_path,
         app_version,
@@ -692,14 +760,7 @@ async fn get_public_app_by_secret(
     Extension(db): Extension<DB>,
     Path((w_id, secret)): Path<(String, String)>,
 ) -> JsonResult<AppWithLastVersion> {
-    let mc = build_crypt(&db, &w_id).await?;
-
-    let decrypted = mc
-        .decrypt_bytes_to_bytes(&(hex::decode(secret)?))
-        .map_err(|e| Error::internal_err(e.to_string()))?;
-    let bytes = str::from_utf8(&decrypted).map_err(to_anyhow)?;
-
-    let id: i64 = bytes.parse().map_err(to_anyhow)?;
+    let id = get_id_from_secret(&db, &w_id, secret, None).await?;
 
     let app_o = sqlx::query_as::<_, AppWithLastVersion>(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
@@ -745,6 +806,27 @@ async fn get_public_app_by_secret(
     }
 
     Ok(Json(app))
+}
+
+async fn get_id_from_secret(
+    db: &DB,
+    w_id: &str,
+    secret: String,
+    prefix: Option<&str>,
+) -> Result<i64> {
+    let mc = build_crypt(db, w_id).await?;
+    let decrypted = mc
+        .decrypt_bytes_to_bytes(&(hex::decode(secret)?))
+        .map_err(|e| Error::internal_err(e.to_string()))?;
+    let mut bytes = str::from_utf8(&decrypted).map_err(to_anyhow)?;
+    if let Some(prefix) = prefix {
+        if !bytes.starts_with(prefix) {
+            return Err(Error::BadRequest("Invalid secret".to_string()));
+        }
+        bytes = bytes.strip_prefix(prefix).unwrap_or("");
+    }
+    let id: i64 = bytes.parse().map_err(to_anyhow)?;
+    Ok(id)
 }
 
 async fn get_public_resource(
@@ -803,15 +885,84 @@ async fn get_secret_id(
     Ok(hx)
 }
 
+const BUNDLE_SECRET_PREFIX: &str = "bundle_";
+
+async fn get_latest_version_secret_id(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
+
+    let id_o = sqlx::query_scalar!(
+        "SELECT app.versions[array_upper(app.versions, 1)] FROM app
+        WHERE app.path = $1 AND app.workspace_id = $2",
+        path,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    tx.commit().await?;
+
+    let id = not_found_if_none(id_o, "App", path.to_string())?;
+
+    let mc = build_crypt(&db, &w_id).await?;
+
+    let hx = hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, id)));
+
+    Ok(hx)
+}
+
+async fn store_raw_app_file<'a>(
+    w_id: &str,
+    id: &i64,
+    file_type: &str,
+    data: bytes::Bytes,
+    tx: &mut sqlx::Transaction<'a, sqlx::Postgres>,
+) -> Result<()> {
+    #[cfg(all(feature = "enterprise", feature = "parquet"))]
+    {
+        let object_store = windmill_common::s3_helpers::get_object_store().await;
+
+        let path: String = format!("/app_bundles/{}/{}.{}", w_id, id, file_type);
+
+        if let Some(os) = object_store {
+            if let Err(e) = os
+                .put(&object_store::path::Path::from(path.clone()), data.into())
+                .await
+            {
+                tracing::error!("Failed to put snapshot to s3 at {path}: {:?}", e);
+                return Err(windmill_common::error::Error::ExecutionErr(format!(
+                    "Failed to put {path} to s3"
+                )));
+            }
+            tracing::info!("Successfully put snapshot to s3 at {path}");
+            return Ok(());
+        }
+    }
+
+    sqlx::query!(
+        "INSERT INTO app_bundles (app_version_id, w_id, file_type, data) VALUES ($1, $2, $3, $4)",
+        id,
+        w_id,
+        file_type,
+        data.to_vec()
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
 macro_rules! process_app_multipart {
     ($authed:expr, $user_db:expr, $db:expr, $w_id:expr, $path:expr, $multipart:expr, $internal_fn:expr) => {
         async {
             let mut saved_app = None;
             let mut uploaded_js = false;
-
-            //todo: use s3 instead
-            let file_path = format!("/tmp/wmill/{}", $w_id);
-            std::fs::create_dir_all(&file_path).unwrap();
 
             let mut multipart = $multipart;
             while let Some(field) = multipart.next_field().await.unwrap() {
@@ -831,9 +982,8 @@ macro_rules! process_app_multipart {
                     .await?;
                     saved_app = Some((npath, nid, ntx));
                 } else if name == "js" {
-                    if let Some((_npath, id, _tx)) = saved_app.as_ref() {
-                        let file_path = format!("{}/{}.js", file_path, id);
-                        std::fs::write(file_path, data).unwrap();
+                    if let Some((_npath, id, tx)) = saved_app.as_mut() {
+                        store_raw_app_file($w_id, &id, "js", data, tx).await?;
                         uploaded_js = true;
                     } else {
                         return Err(Error::BadRequest(
@@ -841,9 +991,8 @@ macro_rules! process_app_multipart {
                         ));
                     }
                 } else if name == "css" {
-                    if let Some((_npath, id, _tx)) = saved_app.as_ref() {
-                        let file_path = format!("{}/{}.css", file_path, id);
-                        std::fs::write(file_path, data).unwrap();
+                    if let Some((_npath, id, tx)) = saved_app.as_mut() {
+                        store_raw_app_file($w_id, &id, "css", data, tx).await?;
                     } else {
                         return Err(Error::BadRequest(
                             "App payload need to be created first".to_string(),
@@ -1090,6 +1239,8 @@ async fn create_app_internal<'a>(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -1373,6 +1524,14 @@ async fn update_app_internal<'a>(
         path.to_owned()
     };
     let v_id = if let Some(nvalue) = &ns.value {
+        // Row lock debounce key for path. We need this to make all updates of runnables sequential and predictable.
+        tokio::time::timeout(
+            core::time::Duration::from_secs(60),
+            windmill_common::jobs::lock_debounce_key(&w_id, &npath, &mut tx),
+        )
+        .warn_after_seconds(10)
+        .await??;
+
         let app_id = sqlx::query_scalar!(
             "SELECT id FROM app WHERE path = $1 AND workspace_id = $2",
             npath,
@@ -1469,6 +1628,8 @@ async fn update_app_internal<'a>(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -1755,6 +1916,8 @@ async fn execute_component(
         (email.as_str(), permissioned_as)
     };
 
+    let end_user_email = opt_authed.as_ref().map(|a| a.email.clone());
+
     let (uuid, tx) = push(
         &db,
         tx,
@@ -1784,6 +1947,8 @@ async fn execute_component(
         None,
         None,
         false,
+        end_user_email,
+        None,
     )
     .await?;
     tx.commit().await?;

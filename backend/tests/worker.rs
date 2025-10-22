@@ -20,7 +20,6 @@ use windmill_common::flows::InputTransform;
 
 #[cfg(any(feature = "python", feature = "deno_core"))]
 use windmill_common::flow_status::RestartedFrom;
-
 use windmill_common::{
     flows::FlowValue,
     jobs::{JobPayload, RawCode},
@@ -31,6 +30,8 @@ use common::*;
 
 #[cfg(feature = "enterprise")]
 use futures::StreamExt;
+use windmill_common::flows::FlowModule;
+use windmill_common::flows::FlowModuleValue;
 
 // async fn _print_job(id: Uuid, db: &Pool<Postgres>) -> Result<(), anyhow::Error> {
 //     tracing::info!(
@@ -208,6 +209,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -252,6 +254,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                             continue_on_error: None,
                             skip_if: None,
                             apply_preprocessor: None,
+                            pass_flow_input_directly: None,
                         }],
                         modules_node: None,
                     }
@@ -270,6 +273,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
             ],
             same_worker: false,
@@ -329,9 +333,6 @@ async fn test_identity(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-use windmill_common::flows::FlowModule;
-use windmill_common::flows::FlowModuleValue;
-
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -387,6 +388,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -441,6 +443,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                 continue_on_error: None,
                                 skip_if: None,
                                 apply_preprocessor: None,
+                                pass_flow_input_directly: None,
                             },
                             FlowModule {
                                 id: "e".to_string(),
@@ -482,6 +485,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                 continue_on_error: None,
                                 skip_if: None,
                                 apply_preprocessor: None,
+                                pass_flow_input_directly: None,
                             },
                         ],
                         modules_node: None,
@@ -500,6 +504,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -547,6 +552,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
             ],
             same_worker: true,
@@ -2075,14 +2081,14 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
                     language: windmill_api_client::types::RawScriptLanguage::Bash,
                     lock: Some(ref lock),
                     ..
-                }) if lock == "")
+                }) if lock.is_empty())
                 || matches!(
                 m.value,
                 windmill_api_client::types::FlowModuleValue::RawScript(RawScript{
                     language: windmill_api_client::types::RawScriptLanguage::Go | windmill_api_client::types::RawScriptLanguage::Python3 | windmill_api_client::types::RawScriptLanguage::Deno,
                     lock: Some(ref lock),
                     ..
-                }) if lock.len() > 0),
+                }) if !lock.is_empty()),
             "{:?}", m.value
             );
         });
@@ -2741,7 +2747,7 @@ async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(job_result.get(), correct_result);
 
     let response = windmill_api::jobs::run_wait_result(
-        &db.into(),
+        &db,
         Uuid::parse_str(ordered_result_job_id).unwrap(),
         "test-workspace".to_string(),
         None,
@@ -2752,8 +2758,7 @@ async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
     let result: Box<serde_json::value::RawValue> = serde_json::from_slice(
         &axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap()
-            .to_vec(),
+            .unwrap(),
     )
     .unwrap();
     assert_eq!(result.get(), correct_result);
@@ -2797,7 +2802,7 @@ async fn test_job_labels(db: Pool<Postgres>) -> anyhow::Result<()> {
             restarted_from: None,
         })
         .arg("world", json!("you"))
-        .run_until_complete_with(&db, port, |id| async move {
+        .run_until_complete_with(db, port, |id| async move {
             sqlx::query!(
                 "UPDATE v2_job SET labels = $2 WHERE id = $1 AND $2::TEXT[] IS NOT NULL",
                 id,
@@ -2863,7 +2868,7 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
     // workflow as code require at least 2 workers:
     let db = &db;
     in_test_worker(
-        &db,
+        db,
         async move {
             let job = RunJob::from(JobPayload::Code(RawCode {
                 language: ScriptLang::Python3,
@@ -2871,7 +2876,7 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
                 ..RawCode::default()
             }))
             .arg("n", json!(3))
-            .run_until_complete(&db, port)
+            .run_until_complete(db, port)
             .await;
 
             assert_eq!(job.json_result().unwrap(), json!(["OK", 3]));

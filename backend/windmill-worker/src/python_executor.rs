@@ -413,7 +413,7 @@ pub async fn uv_pip_compile(
     );
     if let Some(db) = conn.as_sql() {
         sqlx::query!(
-        "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('5 mins')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
+        "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('5 mins')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = EXCLUDED.lockfile",
         req_hash,
         lockfile
     ).fetch_optional(db).await?;
@@ -2173,6 +2173,7 @@ pub async fn start_worker(
         None,
         None,
         None,
+        None,
     )
     .await
     .to_vec();
@@ -2286,6 +2287,7 @@ for line in sys.stdin:
         Uuid::nil().to_string().as_str(),
         "dedicated_worker",
         Some(script_path.to_string()),
+        None,
         None,
         None,
         None,

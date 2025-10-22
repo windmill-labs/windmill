@@ -30,6 +30,7 @@ use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
+use windmill_common::flow_conversations::add_message_to_conversation_tx;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
@@ -102,7 +103,8 @@ use windmill_queue::{
     PushArgsOwned, PushIsolationLevel,
 };
 
-use crate::flow_conversations::{self, MessageType};
+use crate::flow_conversations;
+use windmill_common::flow_conversations::MessageType;
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -3603,7 +3605,7 @@ where
 }
 
 fn decode_payload<D: DeserializeOwned>(t: String) -> anyhow::Result<D> {
-    let vec = base64::engine::general_purpose::URL_SAFE
+    let vec = base64::engine::general_purpose::STANDARD
         .decode(t)
         .context("invalid base64")?;
     serde_json::from_slice(vec.as_slice()).context("invalid json")
@@ -3871,7 +3873,7 @@ async fn batch_rerun_handle_job(
                 user_db.clone(),
                 w_id.clone(),
                 StripPath(job.script_path.clone()),
-                RunJobQuery { ..Default::default() },
+                RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                 PushArgsOwned { extra: None, args },
             )
             .await;
@@ -3887,7 +3889,7 @@ async fn batch_rerun_handle_job(
                     user_db.clone(),
                     w_id.clone(),
                     StripPath(job.script_path.clone()),
-                    RunJobQuery { ..Default::default() },
+                    RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
                 )
                 .await
@@ -3898,7 +3900,7 @@ async fn batch_rerun_handle_job(
                     user_db.clone(),
                     w_id.clone(),
                     job.script_hash,
-                    RunJobQuery { ..Default::default() },
+                    RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
                 )
                 .await
@@ -3942,8 +3944,7 @@ async fn handle_chat_conversation_messages(
     w_id: &str,
     flow_path: &str,
     run_query: &RunJobQuery,
-    args: &PushArgsOwned,
-    uuid: Uuid,
+    user_message_raw: Option<&Box<serde_json::value::RawValue>>,
 ) -> error::Result<()> {
     let memory_id = run_query.memory_id.ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
@@ -3951,13 +3952,19 @@ async fn handle_chat_conversation_messages(
         )
     })?;
 
-    let user_msg_raw = args.args.get("user_message").ok_or_else(|| {
+    let user_message_raw = user_message_raw.ok_or_else(|| {
         windmill_common::error::Error::BadRequest(
             "user_message argument is required for chat-enabled flows".to_string(),
         )
     })?;
 
-    let user_msg = serde_json::from_str::<String>(user_msg_raw.get())?;
+    // Deserialize the RawValue to get the actual string without quotes
+    let user_message: String = serde_json::from_str(user_message_raw.get()).map_err(|e| {
+        windmill_common::error::Error::BadRequest(format!(
+            "Failed to deserialize user_message: {}",
+            e
+        ))
+    })?;
 
     // Create conversation with provided ID (or get existing one)
     flow_conversations::get_or_create_conversation_with_id(
@@ -3965,30 +3972,20 @@ async fn handle_chat_conversation_messages(
         w_id,
         flow_path,
         &authed.username,
-        &user_msg,
+        &user_message,
         memory_id,
     )
     .await?;
 
     // Create user message
-    flow_conversations::create_message(
+    add_message_to_conversation_tx(
         tx,
         memory_id,
+        None,
+        &user_message,
         MessageType::User,
-        &user_msg,
-        None, // No job_id for user message
-        w_id,
-    )
-    .await?;
-
-    // Create placeholder assistant message in the same transaction as the job
-    flow_conversations::create_message(
-        tx,
-        memory_id,
-        MessageType::Assistant,
-        "",         // Empty content, will be updated when job completes
-        Some(uuid), // Associate with the job
-        w_id,
+        None,
+        true,
     )
     .await?;
 
@@ -4082,7 +4079,7 @@ pub async fn run_flow_by_path_inner(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
         },
-        PushArgs { args: &args.args, extra: args.extra.clone() },
+        PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
         email,
         permissioned_as,
@@ -4103,6 +4100,8 @@ pub async fn run_flow_by_path_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
 
@@ -4119,8 +4118,7 @@ pub async fn run_flow_by_path_inner(
             &w_id,
             &flow_path.to_string(),
             &run_query,
-            &args,
-            uuid,
+            args.args.get("user_message"),
         )
         .await?;
     }
@@ -4219,6 +4217,8 @@ pub async fn restart_flow(
         completed_job.priority,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4321,6 +4321,8 @@ pub async fn run_script_by_path_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4473,6 +4475,8 @@ pub async fn run_workflow_as_code(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
 
@@ -5016,6 +5020,8 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5168,6 +5174,8 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5284,6 +5292,8 @@ pub async fn run_wait_result_script_by_hash(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5574,7 +5584,7 @@ pub async fn run_wait_result_flow_by_path_internal(
             apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
                 && has_preprocessor.unwrap_or(false),
         },
-        PushArgs { args: &args.args, extra: args.extra.clone() },
+        PushArgs { args: &args.args, extra: args.extra },
         authed.display_username(),
         email,
         permissioned_as,
@@ -5595,6 +5605,8 @@ pub async fn run_wait_result_flow_by_path_internal(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
 
@@ -5611,8 +5623,7 @@ pub async fn run_wait_result_flow_by_path_internal(
             &w_id,
             &flow_path.to_string(),
             &run_query,
-            &args,
-            uuid,
+            args.args.get("user_message"),
         )
         .await?;
     }
@@ -5686,6 +5697,8 @@ async fn run_preview_script(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5802,6 +5815,8 @@ async fn run_bundle_preview_script(
                 None,
                 Some(&authed.clone().into()),
                 false,
+                None,
+                None,
             )
             .await?;
             job_id = Some(uuid);
@@ -5939,6 +5954,8 @@ async fn run_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6006,6 +6023,8 @@ async fn run_flow_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6349,6 +6368,8 @@ async fn run_preview_flow_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6522,6 +6543,8 @@ async fn run_dynamic_select(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6649,6 +6672,8 @@ pub async fn run_job_by_hash_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6871,7 +6896,7 @@ async fn get_job_update_sse(
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
-enum JobUpdateSSEStream {
+pub enum JobUpdateSSEStream {
     Update(JobUpdate),
     Error { error: String },
     NotFound,
@@ -6879,7 +6904,12 @@ enum JobUpdateSSEStream {
     Ping,
 }
 
-fn start_job_update_sse_stream(
+lazy_static::lazy_static! {
+    pub static ref TIMEOUT_SSE_STREAM: u64 =
+        std::env::var("TIMEOUT_SSE_STREAM").unwrap_or("60".to_string()).parse::<u64>().unwrap_or(60);
+}
+
+pub fn start_job_update_sse_stream(
     opt_authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
     db: DB,
@@ -7011,7 +7041,7 @@ fn start_job_update_sse_stream(
                 last_ping = Instant::now();
             }
 
-            if start.elapsed().as_secs() > 30 {
+            if start.elapsed().as_secs() > *TIMEOUT_SSE_STREAM {
                 if tx.send(JobUpdateSSEStream::Timeout).await.is_err() {
                     tracing::warn!("Failed to send job timeout for job {job_id}");
                 }
@@ -7539,8 +7569,12 @@ pub fn filter_list_completed_query(
         sqlb.and_where_le("started_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.created_or_started_after {
-        sqlb.and_where_ge("created_at", "?".bind(&dt.to_rfc3339()));
-        sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
+        let ts = dt.to_rfc3339();
+        sqlb.and_where(format!(
+            "(created_at >= '{}' OR started_at >= '{}')",
+            ts.replace("'", "''"),
+            ts.replace("'", "''")
+        ));
     }
 
     if let Some(dt) = &lq.created_before {

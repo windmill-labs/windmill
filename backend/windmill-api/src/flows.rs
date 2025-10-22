@@ -32,7 +32,7 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_common::utils::query_elems_from_hub;
+use windmill_common::utils::{query_elems_from_hub, WarnAfterExt};
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
@@ -545,6 +545,8 @@ async fn create_flow(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
 
@@ -721,7 +723,7 @@ async fn update_flow_history(
     }
 
     sqlx::query!(
-        "INSERT INTO deployment_metadata (workspace_id, path, flow_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL DO UPDATE SET deployment_msg = $4",
+        "INSERT INTO deployment_metadata (workspace_id, path, flow_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL DO UPDATE SET deployment_msg = EXCLUDED.deployment_msg",
         w_id,
         path_o.unwrap(),
         version,
@@ -883,6 +885,15 @@ async fn update_flow(
         .await?;
     }
 
+    // Row lock debounce key for path. We need this to make all updates of runnables sequential and predictable.
+    tokio::time::timeout(
+        core::time::Duration::from_secs(60),
+        windmill_common::jobs::lock_debounce_key(&w_id, &nf.path, &mut tx),
+    )
+    .warn_after_seconds(10)
+    .await??;
+
+    // This will lock anyone who is trying to iterate on flow_versions with given path and parameters.
     let version = sqlx::query_scalar!(
         "INSERT INTO flow_version (workspace_id, path, value, schema, created_by) VALUES ($1, $2, $3, $4::text::json, $5) RETURNING id",
         w_id,
@@ -899,6 +910,7 @@ async fn update_flow(
         ))
     })?;
 
+    // TODO: This should happen only after we are done with dependency job.
     sqlx::query!(
         "UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
         version, nf.path, w_id
@@ -1012,8 +1024,11 @@ async fn update_flow(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
+
     sqlx::query!(
         "UPDATE flow SET dependency_job = $1 WHERE path = $2 AND workspace_id = $3",
         dependency_job_uuid,
@@ -1476,6 +1491,7 @@ mod tests {
                         hash: None,
                         tag_override: None,
                         is_trigger: None,
+                        pass_flow_input_directly: None,
                     }),
                     stop_after_if: None,
                     stop_after_all_iters_if: None,
@@ -1491,6 +1507,7 @@ mod tests {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -1524,6 +1541,7 @@ mod tests {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -1554,6 +1572,7 @@ mod tests {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
             ],
             failure_module: Some(Box::new(FlowModule {
@@ -1564,6 +1583,7 @@ mod tests {
                     hash: None,
                     tag_override: None,
                     is_trigger: None,
+                    pass_flow_input_directly: None,
                 }
                 .into(),
                 stop_after_if: Some(StopAfterIf {
@@ -1583,6 +1603,7 @@ mod tests {
                 continue_on_error: None,
                 skip_if: None,
                 apply_preprocessor: None,
+                pass_flow_input_directly: None,
             })),
             preprocessor_module: None,
             same_worker: false,

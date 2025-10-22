@@ -7,13 +7,25 @@
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { twMerge } from 'tailwind-merge'
 
-	export let isOpen = false
-	export let openConnection: () => void
-	export let closeConnection: () => void
-	export let btnWrapperClasses = ''
-	export let id: string | undefined = undefined
+	interface Props {
+		isOpen?: boolean
+		openConnection: () => void
+		closeConnection: () => void
+		btnWrapperClasses?: string
+		id?: string | undefined
+		small?: boolean
+	}
 
-	let selected = false
+	let {
+		isOpen = false,
+		openConnection,
+		closeConnection,
+		btnWrapperClasses = '',
+		id = undefined,
+		small
+	}: Props = $props()
+
+	let selected = $state(false)
 
 	const { panzoomActive } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -51,25 +63,27 @@
 		}
 	}
 
-	function handlePointerDownOutside(e: CustomEvent) {
+	function handlePointerDownOutside() {
 		if (!$panzoomActive) {
 			deactivateConnection()
 		}
 	}
 
-	$: !isOpen && (selected = false)
+	$effect(() => {
+		!isOpen && (selected = false)
+	})
 </script>
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	use:pointerDownOutside={{
 		capture: true,
 		stopPropagation: isOpen,
 		exclude: getConnectionButtonElements,
-		customEventName: 'pointerdown_connecting'
+		customEventName: 'pointerdown_connecting',
+		onClickOutside: () => handlePointerDownOutside()
 	}}
-	on:keydown={handleKeyDown}
-	on:pointerdown_outside={handlePointerDownOutside}
+	onkeydown={handleKeyDown}
 	data-connection-button
 >
 	<AnimatedButton
@@ -79,14 +93,14 @@
 		marginWidth="2px"
 	>
 		<Button
-			size="xs"
+			size={small ? 'xs' : 'md'}
 			variant="border"
 			color="light"
 			title="Connect"
 			on:click={() => handleConnect(true)}
 			{id}
 			wrapperClasses={twMerge(btnWrapperClasses, selected ? 'opacity-100' : '')}
-			btnClasses="p-0"
+			btnClasses={small ? 'p-0' : ''}
 		>
 			<Plug size={14} />
 		</Button>

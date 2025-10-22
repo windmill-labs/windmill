@@ -20,6 +20,7 @@
 		render: boolean
 		customCss?: ComponentCustomCSS<'aggridinfinitecomponentee'> | undefined
 		actions?: TableAction[]
+		onChange?: string[] | undefined
 	}
 
 	let {
@@ -30,7 +31,8 @@
 		initializing = $bindable(undefined),
 		render,
 		customCss = undefined,
-		actions = []
+		actions = [],
+		onChange = undefined
 	}: Props = $props()
 
 	let loaded = $state(false)
@@ -54,6 +56,7 @@
 		{render}
 		{customCss}
 		{actions}
+		{onChange}
 	/>
 {:else}
 	<Loader2 class="animate-spin" />

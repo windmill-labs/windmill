@@ -43,6 +43,8 @@ use uuid::Uuid;
 #[cfg(feature = "deno_core")]
 use windmill_common::error::Error;
 #[cfg(feature = "deno_core")]
+use windmill_common::utils::configure_client;
+#[cfg(feature = "deno_core")]
 use windmill_common::worker::{write_file, TMP_DIR};
 
 use windmill_common::flow_status::JobResult;
@@ -305,11 +307,11 @@ pub async fn eval_timeout(
                     let mut client = authed_client.clone();
                     if let Some(client) = client.as_mut() {
                         client.force_client = Some(
-                            reqwest::ClientBuilder::new()
+                            configure_client(reqwest::ClientBuilder::new()
                                 .user_agent("windmill/beta")
                                 .danger_accept_invalid_certs(
                                     std::env::var("ACCEPT_INVALID_CERTS").is_ok(),
-                                )
+                                ))
                                 .build()
                                 .unwrap(),
                         );
@@ -520,7 +522,7 @@ function get_from_env(name) {{
             .map(|a| { format!("let {a} = get_from_env(\"{a}\");\n",) })
             .join(""),
         if expr.contains("error") && transform_context.contains(&"previous_result".to_string()) {
-            "let error = previous_result.error;"
+            "let error = previous_result?.error;"
         } else {
             ""
         },

@@ -10,13 +10,15 @@
 </script>
 
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { getNonStreamingCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import type { Flow, InputTransform } from '$lib/gen'
 	import ManualPopover from '../ManualPopover.svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import YAML from 'yaml'
@@ -24,32 +26,46 @@
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { FlowCopilotContext } from './flow'
-	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
+	import { stepInputCompletionEnabled } from '$lib/stores'
 	import type { SchemaProperty } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import { copilotInfo } from '$lib/aiStore'
 
-	let generatedContent = ''
-	let loading = false
-	export let focused = false
-	export let arg: InputTransform | any
-	export let schemaProperty: SchemaProperty
-	export let pickableProperties: PickableProperties | undefined = undefined
-	export let argName: string
-	export let showPopup: boolean
-	export let btnClass = ''
+	let generatedContent = $state('')
+	let loading = $state(false)
+	interface Props {
+		focused?: boolean
+		arg: InputTransform | any
+		schemaProperty: SchemaProperty
+		pickableProperties?: PickableProperties | undefined
+		argName: string
+		showPopup: boolean
+		btnClass?: string
+	}
 
-	let empty = false
-	$: empty =
-		Object.keys(arg ?? {}).length === 0 ||
-		(arg.type === 'static' && !arg.value) ||
-		(arg.type === 'javascript' && !arg.expr)
+	let {
+		focused = false,
+		arg,
+		schemaProperty,
+		pickableProperties = undefined,
+		argName,
+		showPopup,
+		btnClass = ''
+	}: Props = $props()
 
-	let btnFocused = false
+	let empty = $state(false)
+	run(() => {
+		empty =
+			Object.keys(arg ?? {}).length === 0 ||
+			(arg.type === 'static' && !arg.value) ||
+			(arg.type === 'javascript' && !arg.expr)
+	})
+
+	let btnFocused = $state(false)
 
 	let abortController = new AbortController()
-	let newFlowInput = ''
+	let newFlowInput = $state('')
 
 	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 	const { stepInputsLoading, generatedExprs } =
@@ -168,7 +184,6 @@ Only return the expression without any wrapper.`
 	}
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function cancel() {
 		abortController.abort()
@@ -190,20 +205,32 @@ Only return the expression without any wrapper.`
 		}, 150)
 	}
 
-	$: if (!focused) {
-		cancelOnOutOfFocus()
-	}
+	$effect(() => {
+		if (!focused) {
+			untrack(() => {
+				cancelOnOutOfFocus()
+			})
+		}
+	})
 
-	$: if ($copilotInfo.enabled && $stepInputCompletionEnabled && focused) {
-		automaticGeneration()
-	}
+	$effect(() => {
+		if ($copilotInfo.enabled && $stepInputCompletionEnabled && focused) {
+			untrack(() => {
+				automaticGeneration()
+			})
+		}
+	})
 
-	$: dispatchIfMounted('showExpr', generatedContent)
+	$effect(() => {
+		dispatch('showExpr', generatedContent)
+	})
 
-	$: dispatchIfMounted('showExpr', $generatedExprs?.[argName] || '')
+	$effect(() => {
+		dispatch('showExpr', $generatedExprs?.[argName] || '')
+	})
 
-	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
-	let openInputsModal = false
+	let out = $state(true) // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
+	let openInputsModal = $state(false)
 </script>
 
 {#if $copilotInfo.enabled && $stepInputCompletionEnabled}
@@ -269,10 +296,10 @@ Only return the expression without any wrapper.`
 				{/if}
 			{/if}
 		</Button>
-		<svelte:fragment slot="content">
+		{#snippet content()}
 			<div class="text-sm text-tertiary">
 				{generatedContent || $generatedExprs?.[argName]}
 			</div>
-		</svelte:fragment>
+		{/snippet}
 	</ManualPopover>
 {/if}

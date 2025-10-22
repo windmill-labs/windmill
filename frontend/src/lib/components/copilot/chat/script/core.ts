@@ -8,7 +8,7 @@ import type {
 	ChatCompletionFunctionTool,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
-import { type DBSchema, dbSchemas, getCurrentModel } from '$lib/stores'
+import { type DBSchema, dbSchemas } from '$lib/stores'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { ContextElement } from '../context'
 import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
@@ -22,6 +22,7 @@ import {
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
 import type { ReviewChangesOpts } from '../monaco-adapter'
+import { getCurrentModel } from '$lib/aiStore'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -30,7 +31,12 @@ const DOCS_CONTEXT_PERCENTAGE = 1
 // percentage of the context window for types of npm packages
 const TYPES_CONTEXT_PERCENTAGE = 1
 // good providers for diff-based edit
-const DIFF_BASED_EDIT_PROVIDERS: AIProvider[] = ['openai', 'anthropic', 'googleai', 'azure_openai']
+export const DIFF_BASED_EDIT_PROVIDERS: AIProvider[] = [
+	'openai',
+	'anthropic',
+	'googleai',
+	'azure_openai'
+]
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],

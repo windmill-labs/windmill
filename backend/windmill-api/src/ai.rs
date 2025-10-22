@@ -1,7 +1,4 @@
-use crate::{
-    db::{ApiAuthed, DB},
-    variables::get_variable_or_self,
-};
+use crate::db::{ApiAuthed, DB};
 
 use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
 use http::{HeaderMap, Method};
@@ -9,15 +6,17 @@ use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use windmill_common::variables::get_variable_or_self;
 use std::collections::HashMap;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel, AZURE_API_VERSION};
 use windmill_common::error::{to_anyhow, Error, Result};
+use windmill_common::utils::configure_client;
 
 lazy_static::lazy_static! {
-    static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+    static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .timeout(std::time::Duration::from_secs(60 * 5))
-        .user_agent("windmill/beta")
+        .user_agent("windmill/beta"))
         .build().unwrap();
 
     static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();

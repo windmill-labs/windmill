@@ -39,8 +39,8 @@ impl AuthedClient {
             .send()
             .await
             .map_err(|e| {
-                tracing::error!("Error executing get request from authed http client to {url} with query {query:?}: {e}");
-                anyhow::anyhow!("Error executing get request from authed http client to {url} with query {query:?}: {e}")
+                tracing::error!("Error executing get request from authed http client to {url} with query {query:?}: {e:#?}");
+                anyhow::anyhow!("Error executing get request from authed http client to {url} with query {query:?}: {e:#?}")
             })
     }
 

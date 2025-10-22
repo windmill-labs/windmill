@@ -41,7 +41,12 @@ use windmill_audit::ActionKind;
 use windmill_worker::process_relative_imports;
 
 use windmill_common::{
-    assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType}, error::to_anyhow, s3_helpers::upload_artifact_to_store, scripts::hash_script, utils::WarnAfterExt, worker::CLOUD_HOSTED
+    assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
+    error::to_anyhow,
+    s3_helpers::upload_artifact_to_store,
+    scripts::hash_script,
+    utils::WarnAfterExt,
+    worker::CLOUD_HOSTED,
 };
 
 use windmill_common::{
@@ -418,7 +423,12 @@ async fn create_snapshot_script(
             uploaded = true;
 
             let path = windmill_common::s3_helpers::bundle(&w_id, &hash);
-            upload_artifact_to_store(&path, data, &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR).await?;
+            upload_artifact_to_store(
+                &path,
+                data,
+                &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+            )
+            .await?;
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
     }
@@ -437,7 +447,6 @@ async fn create_snapshot_script(
     }
     return Ok((StatusCode::CREATED, format!("{}", script_hash.unwrap())));
 }
-
 
 async fn list_paths_from_workspace_runnable(
     authed: ApiAuthed,
@@ -760,6 +769,14 @@ async fn create_script_internal<'c>(
         }
     };
 
+    // Row lock debounce key for path. We need this to make all updates of runnables sequential and predictable.
+    tokio::time::timeout(
+        core::time::Duration::from_secs(60),
+        windmill_common::jobs::lock_debounce_key(&w_id, &ns.path, &mut tx),
+    )
+    .warn_after_seconds(10)
+    .await??;
+
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
@@ -808,6 +825,7 @@ async fn create_script_internal<'c>(
     )
     .execute(&mut *tx)
     .await?;
+
     let p_path_opt = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone());
     if let Some(ref p_path) = p_path_opt {
         sqlx::query!(
@@ -855,6 +873,16 @@ async fn create_script_internal<'c>(
         if let Some(schedule) = schedule {
             schedulables.push(schedule);
         }
+
+        // Update dynamic_skip references when script is renamed
+        sqlx::query!(
+            "UPDATE schedule SET dynamic_skip = $1 WHERE dynamic_skip = $2 AND workspace_id = $3",
+            &ns.path,
+            &p_path,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
 
         for schedule in schedulables {
             clear_schedule(&mut tx, &schedule.path, &w_id).await?;
@@ -980,6 +1008,8 @@ async fn create_script_internal<'c>(
             None,
             Some(&authed.clone().into()),
             false,
+            None,
+            None,
         )
         .await?;
         Ok((hash, new_tx, None))
@@ -1229,7 +1259,8 @@ async fn update_script_history(
 
     let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
-        "INSERT INTO deployment_metadata (workspace_id, path, script_hash, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, script_hash) WHERE script_hash IS NOT NULL DO UPDATE SET deployment_msg = $4",
+        "INSERT INTO deployment_metadata (workspace_id, path, script_hash, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, script_hash) WHERE script_hash IS NOT NULL
+         DO UPDATE SET deployment_msg = EXCLUDED.deployment_msg",
         w_id,
         script_path,
         script_hash.0,

@@ -45,6 +45,7 @@
 
 	const mapping = {
 		onSuccess: 'On success wizard',
+		onSubmit: 'On submit wizard',
 		onError: 'On error wizard'
 	}
 </script>
@@ -104,7 +105,8 @@
 				{#if deletable}
 					<div class="flex flex-row-reverse -mt-4">
 						<CloseButton noBg on:close={() => dispatch('delete', k)} />
-					</div>{/if}
+					</div>
+				{/if}
 			{/if}
 		{/each}
 		{#if overridenByComponent.length > 0}

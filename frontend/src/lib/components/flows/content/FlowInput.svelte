@@ -44,7 +44,7 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import type { ScriptLang } from '$lib/gen'
 	import { deepEqual } from 'fast-equals'
-	import FlowChatInterface from '../FlowChatInterface.svelte'
+	import FlowChatInterface from '$lib/components/flows/conversations/FlowChatInterface.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AI_AGENT_SCHEMA } from '../flowInfers'
 	import { nextId } from '../flowModuleNextId'
@@ -473,7 +473,10 @@
 				textClass="font-normal text-sm"
 				size="sm"
 				checked={chatInputEnabled}
-				on:change={handleToggleChatMode}
+				on:click={(e) => {
+					e.preventDefault()
+					handleToggleChatMode()
+				}}
 				options={{
 					right: 'Chat Mode',
 					rightTooltip:

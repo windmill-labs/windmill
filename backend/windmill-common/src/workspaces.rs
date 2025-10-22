@@ -212,7 +212,7 @@ pub async fn get_ducklake_from_db_unchecked(
 
 pub async fn get_ducklake_instance_pg_catalog_password(db: &DB) -> Result<String> {
     sqlx::query_scalar!(
-        "SELECT trim(both '\"' from value::text) FROM global_settings WHERE name = 'ducklake_user_pg_pwd';"
+        "SELECT value->>'ducklake_user_pg_pwd' FROM global_settings WHERE name = 'ducklake_settings';"
     )
     .fetch_optional(db)
     .await?
@@ -269,11 +269,8 @@ async fn transform_json_unchecked(
             .map_err(to_anyhow)?;
             let mc = build_crypt(&db, &w_id).await?;
             let variable = decrypt(&mc, variable).map_err(|e| {
-                    Error::internal_err(format!(
-                        "Error decrypting variable {}: {}",
-                        &s, e
-                    ))
-                })?;
+                Error::internal_err(format!("Error decrypting variable {}: {}", &s, e))
+            })?;
             serde_json::Value::String(variable)
         }
         s @ serde_json::Value::String(_) => s.clone(),

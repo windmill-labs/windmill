@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { WorkspaceService, type AIConfig, type AIProvider } from '$lib/gen'
-	import { setCopilotInfo, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { AI_PROVIDERS, fetchAvailableModels } from '../copilot/lib'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
@@ -19,6 +19,7 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import autosize from '$lib/autosize'
 	import ModelTokenLimits from './ModelTokenLimits.svelte'
+	import { setCopilotInfo } from '$lib/aiStore'
 
 	const MAX_CUSTOM_PROMPT_LENGTH = 5000
 
@@ -28,7 +29,8 @@
 		defaultModel = $bindable(),
 		customPrompts = $bindable(),
 		maxTokensPerModel = $bindable(),
-		usingOpenaiClientCredentialsOauth = $bindable()
+		usingOpenaiClientCredentialsOauth = $bindable(),
+		onSave
 	}: {
 		aiProviders: Exclude<AIConfig['providers'], undefined>
 		codeCompletionModel: string | undefined
@@ -36,6 +38,7 @@
 		customPrompts: Record<string, string>
 		maxTokensPerModel: Record<string, number>
 		usingOpenaiClientCredentialsOauth: boolean
+		onSave?: () => void
 	} = $props()
 
 	let fetchedAiModels = $state(false)
@@ -121,6 +124,7 @@
 			setCopilotInfo({})
 		}
 		sendUserToast(`Copilot settings updated`)
+		onSave?.()
 	}
 
 	async function onAiProviderChange(provider: AIProvider) {
