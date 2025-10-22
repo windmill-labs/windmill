@@ -1,5 +1,5 @@
 import type { FlowConversationMessage } from '$lib/gen/types.gen'
-import { FlowConversationService } from '$lib/gen'
+import { FlowConversationService, JobService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { waitJob } from '$lib/components/waitJob'
 import { tick } from 'svelte'
@@ -32,6 +32,7 @@ class FlowChatManager {
 	loadingMoreMessages = $state(false)
 	currentEventSource = $state<EventSource | undefined>(undefined)
 	pollingInterval = $state<ReturnType<typeof setInterval> | undefined>(undefined)
+	currentJobId = $state<string | undefined>(undefined)
 
 	// Private state
 	#conversationsCache = $state<Record<string, ChatMessage[]>>({})
@@ -69,6 +70,7 @@ class FlowChatManager {
 		this.stopPolling()
 		this.isLoading = false
 		this.isWaitingForResponse = false
+		this.currentJobId = undefined
 	}
 
 	// Public methods for component to call
@@ -84,6 +86,28 @@ class FlowChatManager {
 		this.messages = []
 		this.inputMessage = ''
 		this.page = 1
+	}
+
+	async cancelCurrentJob() {
+		if (!this.#workspace) {
+			return
+		}
+
+		try {
+			if (this.currentJobId) {
+				await JobService.cancelQueuedJob({
+					workspace: this.#workspace,
+					id: this.currentJobId,
+					requestBody: {}
+				})
+				sendUserToast(`Job ${this.currentJobId} cancelled`)
+			}
+		} catch (error) {
+			console.error('Error cancelling job:', error)
+			sendUserToast('Could not cancel job', true)
+		} finally {
+			this.cleanup()
+		}
 	}
 
 	async loadConversationMessages(conversationId?: string) {
@@ -370,6 +394,9 @@ class FlowChatManager {
 					const data = JSON.parse(event.data)
 
 					if (data.type === 'update') {
+						if (data.flow_stream_job_id) {
+							this.currentJobId = data.flow_stream_job_id
+						}
 						// Process new stream content
 						if (data.new_result_stream) {
 							// Stop polling since we are receiving last step streaming
@@ -380,9 +407,6 @@ class FlowChatManager {
 								success
 							} = this.parseStreamDeltas(data.new_result_stream)
 							accumulatedContent += newContent
-							if (accumulatedContent.length > 0 || type === 'tool_result') {
-								this.isWaitingForResponse = false
-							}
 
 							// Create tool message if type is tool_result
 							if (type === 'tool_result') {
@@ -478,6 +502,9 @@ class FlowChatManager {
 			console.error('No jobId returned from onRunFlow')
 			return
 		}
+
+		// Store the current job ID so it can be cancelled
+		this.currentJobId = jobId
 
 		if (isNewConversation) {
 			await this.#refreshConversations?.()

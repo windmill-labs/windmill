@@ -172,7 +172,10 @@
 	]
 
 	let topLevelNodes: [string, string][] = $state([])
-	function computeToplevelNodeChoices(funcDesc: string, preFilter: 'all' | 'workspace' | 'hub') {
+	function computeToplevelNodeChoices(
+		funcDesc: string,
+		preFilter: 'all' | 'workspace' | 'hub'
+	) {
 		if (funcDesc.length > 0 && preFilter == 'all' && kind == 'script') {
 			topLevelNodes = allToplevelNodes.filter((node) =>
 				node[0].toLowerCase().startsWith(funcDesc.toLowerCase())
