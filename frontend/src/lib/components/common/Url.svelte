@@ -12,7 +12,7 @@
 </script>
 
 <div class="flex justify-start w-full">
-	<Badge color="gray" class="rounded-r-none h-[27px]">{label}</Badge>
+	<Badge color="gray" class="rounded-r-none h-[36px]">{label}</Badge>
 
 	<ClipboardPanel
 		content={url}

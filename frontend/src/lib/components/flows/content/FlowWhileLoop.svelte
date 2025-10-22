@@ -109,7 +109,7 @@
 						<Button
 							on:click={() => (previewOpen = true)}
 							startIcon={{ icon: Play }}
-							color="dark"
+							variant="accent"
 							size="sm">Test an iteration</Button
 						>
 					</div>
@@ -119,12 +119,12 @@
 		<Pane size={40} minSize={20} class="flex flex-col flex-1">
 			<TabsV2 bind:selected>
 				<!-- <Tab value="retries">Retries</Tab> -->
-				<Tab value="early-stop">Early Stop/Break</Tab>
-				<Tab value="skip">Skip</Tab>
-				<Tab value="suspend">Suspend/Approval/Prompt</Tab>
-				<Tab value="sleep">Sleep</Tab>
-				<Tab value="mock">Mock</Tab>
-				<Tab value="lifetime">Lifetime</Tab>
+				<Tab value="early-stop" label="Early Stop/Break" />
+				<Tab value="skip" label="Skip" />
+				<Tab value="suspend" label="Suspend/Approval/Prompt" />
+				<Tab value="sleep" label="Sleep" />
+				<Tab value="mock" label="Mock" />
+				<Tab value="lifetime" label="Lifetime" />
 
 				{#snippet content()}
 					<div class="overflow-hidden bg-surface" style="height:calc(100% - 32px);">

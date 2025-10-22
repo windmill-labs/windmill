@@ -27,12 +27,11 @@
 	<Button
 		aiId="flows-create-actions-flow"
 		aiDescription="Create a new flow"
-		size="sm"
-		spacingSize="xl"
+		unifiedSize="lg"
 		startIcon={{ icon: Plus }}
 		endIcon={{ icon: BarsStaggered }}
 		href="{base}/flows/add?nodraft=true"
-		color="marine"
+		variant="accent"
 		dropdownItems={[
 			{
 				label: 'Import from YAML',

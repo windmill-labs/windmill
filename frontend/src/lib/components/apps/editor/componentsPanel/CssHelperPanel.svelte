@@ -125,16 +125,13 @@
 
 							<Tabs selected="selectors">
 								{#if customisation.selectors.length > 0}
-									<Tab value="selectors" size="xs">
-										Selectors ({customisation.selectors.length})
-									</Tab>
+									<Tab value="selectors" label="Selectors ({customisation.selectors.length})" />
 								{/if}
 								{#if customisation.variables.length > 0}
-									<Tab value="variables" size="xs">
-										<div class="flex flex-row gap-2 justify-center-center items-center">
-											Variables ({customisation.variables.length})
-										</div>
-									</Tab>
+									<Tab
+										value="variables"
+										label={`Variables (${customisation.variables.length})`}
+									></Tab>
 								{/if}
 								{#snippet content()}
 									<div class="h-full">

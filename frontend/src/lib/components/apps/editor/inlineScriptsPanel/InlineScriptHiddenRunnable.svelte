@@ -49,7 +49,7 @@
 			}}
 		/>
 	{:else}
-		<div class="px-2 pt-4 text-tertiary">
+		<div class="px-2 pt-4 text-primary">
 			Selected editor component is a transformer but component has no transformer
 		</div>
 	{/if}

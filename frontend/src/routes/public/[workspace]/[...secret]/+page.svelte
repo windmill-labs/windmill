@@ -100,12 +100,12 @@
 		? 'transition-opacity delay-1000 duration-1000 opacity-20 hover:delay-0 hover:opacity-100'
 		: ''}"
 >
-	<a href="https://windmill.dev" class="whitespace-nowrap text-tertiary inline-flex items-center"
+	<a href="https://windmill.dev" class="whitespace-nowrap text-primary inline-flex items-center"
 		>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
 	>
 </div>
 
-<div class="z-50 text-2xs text-tertiary absolute top-3 left-2"
+<div class="z-50 text-2xs text-primary absolute top-3 left-2"
 	>{#if $userStore}
 		<div class="flex gap-1 items-center"><User size={14} />{$userStore.username}</div>
 	{:else}<UserRoundX size={14} />{/if}

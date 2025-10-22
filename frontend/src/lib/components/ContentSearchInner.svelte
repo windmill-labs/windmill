@@ -164,10 +164,9 @@
 		<div class="p-2">
 			<ToggleButtonGroup bind:selected={searchKind} class="h-10 ">
 				{#snippet children({ item })}
-					<ToggleButton small light value="all" label={'All' + counts.all} {item} />
+					<ToggleButton small value="all" label={'All' + counts.all} {item} />
 					<ToggleButton
 						small
-						light
 						value="scripts"
 						icon={Code2}
 						label={'Scripts' + counts.scripts}
@@ -175,7 +174,6 @@
 					/>
 					<ToggleButton
 						small
-						light
 						value="resources"
 						icon={Boxes}
 						label={'Resources' + counts.resources}
@@ -183,7 +181,6 @@
 					/>
 					<ToggleButton
 						small
-						light
 						value="flows"
 						label={'Flows' + counts.flows}
 						icon={FlowIcon}
@@ -192,7 +189,6 @@
 					/>
 					<ToggleButton
 						small
-						light
 						value="apps"
 						label={'Apps' + counts.apps}
 						icon={LayoutDashboard}
@@ -436,7 +432,7 @@
 			</div>
 		{:else}
 			<div class="flex justify-center items-center h-48">
-				<div class="text-tertiary text-center">
+				<div class="text-primary text-center">
 					<div class="text-2xl font-bold">Empty Search Filter</div>
 					<div class="text-sm"
 						>Start writing, search everywhere a path is referenced for instance</div

@@ -59,7 +59,7 @@
 </script>
 
 <Splitpanes horizontal>
-	<Pane size={65} minSize={10} class="text-sm text-tertiary">
+	<Pane size={65} minSize={10} class="text-sm text-primary">
 		{#if scriptProgress}
 			<JobProgressBar job={testJob} {scriptProgress} compact={true} />
 		{/if}

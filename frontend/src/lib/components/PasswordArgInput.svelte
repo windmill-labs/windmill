@@ -82,12 +82,11 @@
 </script>
 
 {#if value?.startsWith('$var:') && !value.startsWith('$var:' + userPrefix)}
-	<div class="flex items-center gap-2 text-sm text-tertiary">
+	<div class="flex items-center gap-2 text-sm text-primary">
 		Linked to static variable
 		<Button
-			color="light"
 			size="xs"
-			variant="border"
+			variant="default"
 			onclick={() => {
 				value = ''
 			}}

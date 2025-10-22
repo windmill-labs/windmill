@@ -129,7 +129,7 @@
 						<svelte:fragment slot="trigger">
 							<div
 								class={twMerge(
-									'text-xs font-normal border text-tertiary w-10 p-1 text-center rounded-md',
+									'text-xs font-normal border text-primary w-10 p-1 text-center rounded-md',
 									!asset.access_type && !asset.alt_access_type
 										? 'text-orange-500 !border-orange-500'
 										: '',
@@ -141,7 +141,7 @@
 						</svelte:fragment>
 						<svelte:fragment slot="content">
 							{#if !asset.access_type}
-								<span class="text-sm text-tertiary leading-4">
+								<span class="text-sm text-primary leading-4">
 									Could not infer automatically <br />
 									<span class="text-xs">Please select manually </span>
 								</span>
@@ -169,7 +169,7 @@
 								{asset.path}
 							</svelte:fragment>
 						</Tooltip>
-						<span class="text-xs text-tertiary select-none">
+						<span class="text-xs text-primary select-none">
 							{liSubtitle?.(asset) ??
 								formatAssetKind({
 									...asset,

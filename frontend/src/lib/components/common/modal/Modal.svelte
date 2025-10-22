@@ -81,7 +81,7 @@
 								<slot name="settings" />
 							</div>
 
-							<div class="mt-4 text-sm text-tertiary">
+							<div class="mt-4 text-sm text-primary">
 								<slot />
 							</div>
 						</div>

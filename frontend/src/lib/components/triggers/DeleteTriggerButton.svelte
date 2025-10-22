@@ -32,10 +32,7 @@
 	{#if trigger !== undefined}
 		{@const IconComponent = triggerIconMap[trigger.type]}
 		<div class="flex flex-row gap-2 items-center grow min-w-0 pr-2 rounded-md my-4">
-			<IconComponent
-				size={16}
-				class={twMerge(trigger.isDraft ? 'text-frost-400' : '', 'shrink-0')}
-			/>
+			<IconComponent size={16} class={twMerge(trigger.isDraft ? 'text-hint' : '', 'shrink-0')} />
 			<TriggerLabel {trigger} />
 		</div>
 	{/if}

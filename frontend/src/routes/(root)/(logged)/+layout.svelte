@@ -502,7 +502,7 @@
 											}}
 											label="Ask AI"
 											class="!text-xs"
-											iconClasses="!text-violet-400 dark:!text-violet-400"
+											iconClasses="!text-ai-inverse dark:!text-ai"
 											shortcut={`${getModifierKey()}L`}
 										/>
 									</div>
@@ -576,7 +576,7 @@
 									}}
 									label="Ask AI"
 									class="!text-xs"
-									iconClasses="!text-violet-400 dark:!text-violet-400"
+									iconClasses="!text-ai-inverse dark:!text-ai"
 									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
@@ -611,7 +611,6 @@
 					<OperatorMenu {favoriteLinks} />
 				</div>
 			{/if}
-
 			<!-- Legacy menu -->
 			<div
 				class={classNames(
@@ -690,7 +689,7 @@
 									}}
 									label="Ask AI"
 									class="!text-xs"
-									iconClasses="!text-violet-400 dark:!text-violet-400"
+									iconClasses="!text-ai-inverse dark:!text-ai"
 									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>

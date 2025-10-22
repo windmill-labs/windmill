@@ -124,9 +124,8 @@
 		<div class="px-2 flex gap-1 flex-col w-full pb-4">
 			{#if !$cssEditorOpen}
 				<Button
-					color="light"
 					size="xs2"
-					variant="border"
+					variant="default"
 					on:click={() => {
 						$cssEditorOpen = true
 					}}
@@ -144,9 +143,8 @@
 
 			{#if $enterpriseLicense !== undefined}
 				<Button
-					color="light"
 					size="xs2"
-					variant="border"
+					variant="default"
 					on:click={() => {
 						migrationModal?.open()
 					}}
@@ -157,29 +155,33 @@
 		</div>
 
 		<Tabs bind:selected={tab}>
-			<Tab value="local" size="xs">
-				<div class="flex flex-row gap-2 items-center">
-					ID
-					<Badge color="indigo" size="xs">
-						{component?.id}
-					</Badge>
+			<Tab value="local">
+				{#snippet extra()}
+					<div class="flex flex-row gap-2 items-center">
+						ID
+						<Badge color="indigo" size="xs">
+							{component?.id}
+						</Badge>
 
-					<Tooltip light>
-						You can customise the CSS and the classes of this component instance. These
-						customisations will only be applied to this component. You can also apply custom classes
-						set on the Global styling panel.
-					</Tooltip>
-				</div>
+						<Tooltip light>
+							You can customise the CSS and the classes of this component instance. These
+							customisations will only be applied to this component. You can also apply custom
+							classes set on the Global styling panel.
+						</Tooltip>
+					</div>
+				{/snippet}
 			</Tab>
-			<Tab value="global" size="xs">
-				<div class="flex flex-row gap-2 items-center">
-					Global: {type ? ccomponents[type].name : ''}
+			<Tab value="global">
+				{#snippet extra()}
+					<div class="flex flex-row gap-2 items-center">
+						Global: {type ? ccomponents[type].name : ''}
 
-					<Tooltip light>
-						You can customise the CSS and the classes of all components of this type. These
-						customisations will be applied to all components of this type.
-					</Tooltip>
-				</div>
+						<Tooltip light>
+							You can customise the CSS and the classes of all components of this type. These
+							customisations will be applied to all components of this type.
+						</Tooltip>
+					</div>
+				{/snippet}
 			</Tab>
 			{#snippet content()}
 				<TabContent value="local">

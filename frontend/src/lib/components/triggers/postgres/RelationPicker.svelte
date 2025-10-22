@@ -237,10 +237,9 @@
 										/>
 									</Label>
 									<Button
-										variant="border"
+										variant="default"
 										wrapperClasses="absolute -top-3 -right-3"
 										btnClasses="hidden group-hover:block hover:bg-red-500 hover:text-white p-2 rounded-full hover:border-red-500 transition-all duration-300"
-										color="light"
 										size="xs"
 										on:click={() => {
 											if (pg14 && v.table_to_track.length > 1) {
@@ -284,8 +283,7 @@
 						</div>
 					</div>
 					<Button
-						variant="border"
-						color="light"
+						variant="default"
 						size="xs"
 						btnClasses="bg-surface-secondary hover:bg-red-500 hover:text-white p-2 rounded-full"
 						aria-label="Clear"
@@ -329,8 +327,7 @@
 			>
 				{#snippet trigger()}
 					<Button
-						variant="border"
-						color="light"
+						variant="default"
 						size="xs"
 						btnClasses="w-full"
 						disabled={!can_write || disabled}

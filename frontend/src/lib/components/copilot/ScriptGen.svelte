@@ -24,13 +24,13 @@
 	import { fade } from 'svelte/transition'
 	import { isInitialCode } from '$lib/script_helpers'
 	import { twMerge } from 'tailwind-merge'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, type ComponentProps } from 'svelte'
 	import ProviderModelSelector from './chat/ProviderModelSelector.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 
 	interface Props {
 		// props
-		iconOnly?: boolean
+		btnProps?: ComponentProps<typeof Button>
 		lang: SupportedLanguage | 'bunnative' | 'frontend' | undefined
 		editor: Editor | SimpleEditor | undefined
 		diffEditor: DiffEditor | undefined
@@ -40,7 +40,7 @@
 	}
 
 	let {
-		iconOnly = false,
+		btnProps,
 		lang = $bindable(),
 		editor,
 		diffEditor,
@@ -309,21 +309,23 @@
 			<Button
 				title="Discard generated code"
 				btnClasses="!font-medium px-2 w-7"
-				size="xs"
-				color="red"
+				unifiedSize="md"
+				destructive
 				on:click={rejectDiff}
-				variant="contained"
+				variant="accent"
 				startIcon={{ icon: X }}
 				iconOnly
+				{...btnProps}
 			/>
 			<Button
 				title="Accept generated code"
 				btnClasses="!font-medium px-2 w-7"
-				size="xs"
-				color="green"
+				unifiedSize="md"
+				variant="accent"
 				on:click={acceptDiff}
 				iconOnly
 				startIcon={{ icon: Check }}
+				{...btnProps}
 			/>
 		</div>
 	{:else}
@@ -331,22 +333,22 @@
 			<Button
 				title="Discard generated code"
 				btnClasses="!font-medium px-2"
-				size="xs"
-				color="red"
+				unifiedSize="md"
+				destructive
 				on:click={rejectDiff}
-				variant="contained"
+				variant="accent"
 				startIcon={{ icon: X }}
-				{iconOnly}
+				{...btnProps}
 			>
 				Discard
 			</Button><Button
 				title="Accept generated code"
 				btnClasses="!font-medium px-2"
-				size="xs"
-				color="green"
+				unifiedSize="md"
+				variant="accent"
 				on:click={acceptDiff}
 				startIcon={{ icon: Check }}
-				{iconOnly}
+				{...btnProps}
 			>
 				Accept
 			</Button>
@@ -375,17 +377,13 @@
 					bind:element={button}
 					iconOnly
 					title="Generate code from prompt"
-					startIcon={genLoading
-						? { icon: Ban }
-						: { icon: Wand2, classes: 'text-violet-800 dark:text-violet-400' }}
+					startIcon={genLoading ? { icon: Ban } : { icon: Wand2, classes: 'text-ai' }}
+					{...btnProps}
 				/>
 			{:else}
 				<Button
 					title="Generate code from prompt"
-					btnClasses={twMerge(
-						'!font-medium',
-						genLoading ? 'z-[5000]' : 'text-violet-800 dark:text-violet-400'
-					)}
+					btnClasses={twMerge('!font-medium', genLoading ? 'z-[5000]' : 'text-ai')}
 					size="xs"
 					color={genLoading ? 'red' : 'light'}
 					spacingSize="md"
@@ -393,7 +391,7 @@
 					propagateEvent={!genLoading}
 					on:click={genLoading ? () => abortController?.abort() : handleAiButtonClick}
 					bind:element={button}
-					{iconOnly}
+					{...btnProps}
 				>
 					{#if genLoading}
 						Stop
@@ -420,20 +418,8 @@
 						<div class="flex flex-row justify-between items-center w-96 gap-2">
 							<ToggleButtonGroup class="w-auto shrink-0 h-auto" bind:selected={mode}>
 								{#snippet children({ item })}
-									<ToggleButton
-										value={'gen'}
-										label="Generate from scratch"
-										light
-										class="px-2"
-										{item}
-									/>
-									<ToggleButton
-										value={'edit'}
-										label="Edit existing code"
-										light
-										class="px-2"
-										{item}
-									/>
+									<ToggleButton value={'gen'} label="Generate from scratch" class="px-2" {item} />
+									<ToggleButton value={'edit'} label="Edit existing code" class="px-2" {item} />
 								{/snippet}
 							</ToggleButtonGroup>
 
@@ -460,7 +446,7 @@
 								size="xs"
 								color="light"
 								buttonType="button"
-								btnClasses="!h-[34px] qhd:!h-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+								btnClasses="!h-[34px] qhd:!h-[38px] !ml-2 text-ai bg-violet-100 dark:bg-gray-700"
 								title="Generate code from prompt"
 								aria-label="Generate"
 								on:click={() => {
@@ -530,10 +516,9 @@
 													? 'Dbo'
 													: 'Public') + ' schema'}
 												small
-												light
 												{item}
 											/>
-											<ToggleButton value={'false'} label="All schemas" small light {item} />
+											<ToggleButton value={'false'} label="All schemas" small {item} />
 										{/snippet}
 									</ToggleButtonGroup>
 								{/if}

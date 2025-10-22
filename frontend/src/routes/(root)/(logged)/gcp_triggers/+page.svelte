@@ -290,7 +290,12 @@
 
 <CenteredPage>
 	<PageHeader title="GCP Pub/Sub triggers" tooltip="GCP Pub/Sub trigger">
-		<Button size="md" startIcon={{ icon: Plus }} on:click={() => gcpTriggerEditor?.openNew(false)}>
+		<Button
+			unifiedSize="md"
+			variant="accent"
+			startIcon={{ icon: Plus }}
+			on:click={() => gcpTriggerEditor?.openNew(false)}
+		>
 			New&nbsp;GCP Pub/Sub trigger
 		</Button>
 	</PageHeader>
@@ -308,13 +313,12 @@
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
 					{#snippet children({ item })}
 						<ToggleButton
-							small
 							value="trigger"
 							label="GCP Pub/Sub trigger"
 							icon={GoogleCloudIcon}
 							{item}
 						/>
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+						<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
 					{/snippet}
 				</ToggleButtonGroup>
 			</div>
@@ -337,7 +341,7 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No GCP Pub/Sub triggers </div>
+			<div class="text-center text-sm text-primary mt-2"> No GCP Pub/Sub triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { gcp_resource_path, topic_id, workspace_id, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id, subscription_id } (path)}
@@ -357,7 +361,7 @@
 								onclick={() => gcpTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
-								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
+								<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
 									{path} - {topic_id}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">
@@ -427,7 +431,7 @@
 									<Button
 										on:click={() =>
 											copyToClipboard(getHttpRoute('gcp/w', path, true, workspace_id))}
-										color="dark"
+										variant="subtle"
 										size="xs"
 										startIcon={{ icon: ClipboardCopy }}
 									>
@@ -442,7 +446,7 @@
 										: {
 												icon: Eye
 											}}
-									color="dark"
+									variant="subtle"
 								>
 									{canWrite ? 'Edit' : 'View'}
 								</Button>
@@ -525,7 +529,7 @@
 						</div>
 						<div class="w-full flex justify-between items-baseline">
 							<div
-								class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
+								class="flex flex-wrap text-[0.7em] text-primary gap-1 items-center justify-end truncate pr-2"
 								><div class="truncate">edited by {edited_by}</div><div class="truncate"
 									>the {displayDate(edited_at)}</div
 								></div

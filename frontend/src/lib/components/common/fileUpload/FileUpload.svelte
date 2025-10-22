@@ -454,8 +454,7 @@
 								{#if fileUpload.cancelled || fileUpload.errorMessage !== undefined}
 									<Button
 										size="xs2"
-										color="light"
-										variant="border"
+										variant="default"
 										on:click={() => {
 											const file = fileUpload.file
 
@@ -479,8 +478,7 @@
 									</Button>
 									<Button
 										size="xs2"
-										color="light"
-										variant="border"
+										variant="default"
 										on:click={() => {
 											const file = fileUpload.file
 
@@ -504,8 +502,7 @@
 								{#if fileUpload.progress !== undefined && fileUpload.progress < 100 && !fileUpload.cancelled && !fileUpload.errorMessage}
 									<Button
 										size="xs2"
-										color="light"
-										variant="border"
+										variant="default"
 										on:click={() => {
 											fileUpload.cancelled = true
 											fileUpload.progress = 0
@@ -521,8 +518,7 @@
 								{#if fileUpload.progress === 100 && !fileUpload.cancelled && allowDelete && (!appPath || fileUpload.deleteToken != undefined)}
 									<Button
 										size="xs2"
-										color="red"
-										variant="border"
+										variant="default"
 										on:click={() => {
 											$fileUploads = $fileUploads.filter(
 												(_fileUpload) => _fileUpload.name !== fileUpload.name
@@ -536,14 +532,14 @@
 										startIcon={{
 											icon: Trash
 										}}
+										destructive
 									>
 										Delete
 									</Button>
 								{:else if fileUpload.fromBucket}
 									<Button
 										size="xs2"
-										color="red"
-										variant="border"
+										variant="default"
 										on:click={() => {
 											$fileUploads = $fileUploads.filter(
 												(_fileUpload) => _fileUpload.name !== fileUpload.name
@@ -556,6 +552,7 @@
 										startIcon={{
 											icon: XIcon
 										}}
+										destructive
 									>
 										Remove
 									</Button>

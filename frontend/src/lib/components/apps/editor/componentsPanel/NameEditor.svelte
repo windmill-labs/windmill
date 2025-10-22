@@ -38,7 +38,7 @@
 			<div class="flex flex-row gap-2">
 				<input {onkeydown} bind:value={editedName} />
 				<Button
-					color="dark"
+					variant="accent"
 					size="xs"
 					on:click={() => {
 						dispatch('update', { path: row.path, name: editedName })

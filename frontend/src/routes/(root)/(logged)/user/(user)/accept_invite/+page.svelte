@@ -80,7 +80,7 @@
 		</label>
 	{/if}
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
-		<Button variant="border" size="sm" href="{base}/user/workspaces"
+		<Button variant="default" size="sm" href="{base}/user/workspaces"
 			>&leftarrow; Back to workspaces</Button
 		>
 		<button

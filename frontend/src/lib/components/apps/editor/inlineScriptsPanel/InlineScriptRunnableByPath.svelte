@@ -147,9 +147,8 @@
 		{/if}
 
 		<Button
-			variant="border"
+			variant="default"
 			size="xs"
-			color="light"
 			startIcon={{ icon: RefreshCw }}
 			on:click={async () => {
 				sendUserToast('Refreshing inputs')
@@ -162,8 +161,7 @@
 		/>
 		<Button
 			size="xs"
-			variant="border"
-			color="red"
+			variant="default"
 			startIcon={{ icon: Trash }}
 			on:click={() => {
 				dispatch('delete')
@@ -173,9 +171,8 @@
 		</Button>
 		{#if runnable.runType == 'flow'}
 			<Button
-				variant="border"
+				variant="default"
 				size="xs"
-				color="light"
 				startIcon={{ icon: Eye }}
 				on:click={() => {
 					flowPath = runnable.path
@@ -185,18 +182,16 @@
 				Expand
 			</Button>
 			<Button
-				variant="border"
+				variant="default"
 				size="xs"
-				color="light"
 				startIcon={{ icon: Pen }}
 				endIcon={{ icon: ExternalLink }}
 				target="_blank"
 				href="{base}/flows/edit/{runnable.path}?nodraft=true">Edit</Button
 			>
 			<Button
-				variant="border"
+				variant="default"
 				size="xs"
-				color="light"
 				startIcon={{ icon: Eye }}
 				endIcon={{ icon: ExternalLink }}
 				target="_blank"
@@ -207,7 +202,7 @@
 		{:else}
 			<Button
 				size="xs"
-				variant="border"
+				variant="default"
 				startIcon={{ icon: GitFork }}
 				on:click={() => {
 					fork(runnable.path)
@@ -238,8 +233,7 @@
 				<Button
 					nonCaptureEvent={true}
 					btnClasses={'bg-surface text-primay hover:bg-hover'}
-					color="light"
-					variant="border"
+					variant="default"
 					size="xs">Cache</Button
 				>
 			{/snippet}

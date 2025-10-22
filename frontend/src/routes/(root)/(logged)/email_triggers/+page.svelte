@@ -226,7 +226,8 @@
 		>
 			{#if $userStore?.is_admin || $userStore?.is_super_admin}
 				<Button
-					size="md"
+					unifiedSize="md"
+					variant="accent"
 					startIcon={{ icon: Plus }}
 					on:click={() => emailTriggerEditor?.openNew(false)}
 				>
@@ -270,7 +271,7 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !triggers?.length}
-				<div class="text-center text-sm text-tertiary mt-2"> No email triggers </div>
+				<div class="text-center text-sm text-primary mt-2"> No email triggers </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_local_part, path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, marked, local_part } (path)}
@@ -294,7 +295,9 @@
 									onclick={() => emailTriggerEditor?.openEdit(path, is_flow)}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
-									<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
+									<div
+										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
+									>
 										{#if marked}
 											<span class="text-xs">
 												{@html marked}
@@ -318,7 +321,7 @@
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										on:click={() => copyToClipboard(emailAddress)}
-										color="dark"
+										variant="accent"
 										size="xs"
 										startIcon={{ icon: ClipboardCopy }}
 									>
@@ -332,7 +335,7 @@
 											: {
 													icon: Eye
 												}}
-										color="dark"
+										variant="accent"
 									>
 										{canWrite ? 'Edit' : 'View'}
 									</Button>
@@ -404,7 +407,7 @@
 							</div>
 							<div class="w-full flex justify-between items-baseline">
 								<div
-									class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
+									class="flex flex-wrap text-[0.7em] text-primary gap-1 items-center justify-end truncate pr-2"
 								>
 									<div class="truncate">edited by {edited_by}</div>
 									<div class="truncate">at {displayDate(edited_at)}</div>

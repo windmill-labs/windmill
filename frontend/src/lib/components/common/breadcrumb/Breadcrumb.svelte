@@ -17,7 +17,7 @@
 		<Button
 			size="sm"
 			color="light"
-			btnClasses={selectedIndex - 1 === index ? 'text-gray-800 !font-bold' : '!text-tertiary'}
+			btnClasses={selectedIndex - 1 === index ? 'text-gray-800 !font-bold' : '!text-primary'}
 			on:click={() => dispatch('select', { index })}
 			disabled={selectedIndex - 1 === index ? disabled : false}
 		>

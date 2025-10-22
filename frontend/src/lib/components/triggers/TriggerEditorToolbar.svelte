@@ -60,6 +60,7 @@
 	{#if canSave}
 		<Button
 			size="sm"
+			variant="accent"
 			startIcon={{ icon: Save }}
 			disabled={saveDisabled}
 			on:click={() => {
@@ -75,7 +76,6 @@
 		{#if !trigger?.draftConfig && enabled !== undefined}
 			<div class="center-center">
 				<Toggle
-					size="2sm"
 					disabled={permissions === 'none'}
 					checked={enabled}
 					options={{ right: 'enable', left: 'disable' }}
@@ -91,7 +91,7 @@
 			<Button
 				size="xs"
 				startIcon={{ icon: RotateCcw }}
-				color={'light'}
+				variant="default"
 				on:click={() => {
 					onReset?.()
 				}}
@@ -102,6 +102,7 @@
 		{#if canSave}
 			<Tooltip placement="bottom-end" disablePopup={!saveDisabled && !cloudDisabled && isDeployed}>
 				<Button
+					variant="accent"
 					size="xs"
 					startIcon={{ icon: Save }}
 					disabled={saveDisabled || cloudDisabled || !isDeployed || !trigger?.draftConfig}

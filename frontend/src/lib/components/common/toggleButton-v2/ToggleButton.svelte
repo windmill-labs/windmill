@@ -3,6 +3,7 @@
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import { type ToggleGroupElements, type ToggleGroupItemProps, melt } from '@melt-ui/svelte'
 	import { Info } from 'lucide-svelte'
+	import { ButtonType } from '$lib/components/common/button/model'
 
 	interface Props {
 		label?: string | undefined
@@ -12,7 +13,7 @@
 		disabled?: boolean
 		selectedColor?: string | undefined
 		small?: boolean
-		light?: boolean
+		size?: 'sm' | 'md' | 'lg'
 		iconProps?: Record<string, any>
 		showTooltipIcon?: boolean
 		documentationLink?: string | undefined
@@ -30,7 +31,7 @@
 		disabled = false,
 		selectedColor = undefined,
 		small = false,
-		light = false,
+		size = undefined,
 		iconProps = {},
 		showTooltipIcon = false,
 		documentationLink = undefined,
@@ -39,6 +40,18 @@
 		value,
 		class: className = ''
 	}: Props = $props()
+
+	// Handle backward compatibility: small prop maps to size="sm"
+	const actualSize = $derived(size ?? (small ? 'sm' : 'md'))
+
+	// Direct access to unified sizing
+	const horizontalPadding = $derived(
+		iconOnly
+			? ButtonType.UnifiedIconOnlySizingClasses[actualSize]
+			: ButtonType.UnifiedSizingClasses[actualSize]
+	)
+	const height = $derived(ButtonType.UnifiedHeightClasses[actualSize])
+	const iconSize = $derived(ButtonType.UnifiedIconSizes[actualSize])
 </script>
 
 <Tooltip
@@ -51,13 +64,12 @@
 		{id}
 		{disabled}
 		class={twMerge(
-			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center border',
-			small ? 'px-1.5 py-0.5 text-2xs' : 'px-2 py-1 text-sm',
-			light
-				? 'hover:text-secondary data-[state=on]:text-secondary text-tertiary'
-				: 'hover:text-primary data-[state=on]:text-primary text-secondary',
-			'data-[state=on]:bg-surface data-[state=off]:border-transparent data-[state=on]:border-gray-300 dark:data-[state=on]:border-gray-500',
-			'bg-surface-secondary hover:bg-surface-hover',
+			'group rounded-md transition-all font-normal flex gap-1 flex-row items-center justify-center border text-xs',
+			horizontalPadding,
+			height,
+			'text-primary data-[state=on]:text-primary',
+			'data-[state=on]:bg-surface-tertiary data-[state=off]:border-transparent data-[state=on]:border-border-normal/30',
+			'bg-surface-transparent hover:bg-surface-hover',
 			disabled ? '!shadow-none' : '',
 			className
 		)}
@@ -67,10 +79,10 @@
 		{#if icon}
 			{@const SvelteComponent = icon}
 			<SvelteComponent
-				size={small ? 12 : 14}
+				size={iconSize}
 				{...iconProps}
 				class={twMerge(
-					light ? 'text-tertiary' : 'text-secondary',
+					'text-primary',
 					selectedColor
 						? 'group-data-[state=on]:text-[var(--selected-color)]'
 						: 'group-data-[state=on]:text-blue-500 dark:group-data-[state=on]:text-nord-800',
@@ -82,7 +94,7 @@
 			{label}
 		{/if}
 		{#if showTooltipIcon}
-			<Info size={14} class="text-gray-400" />
+			<Info size={iconSize} class="text-gray-400" />
 		{/if}
 	</button>
 

@@ -13,22 +13,22 @@
 	interface Props {
 		disabled?: boolean
 		small?: boolean
-		light?: boolean
 		id?: string | undefined
 		item?: any | undefined
 		selected?: string | undefined
 		togglableItems: TogglableItem[]
+		btnText?: string
 		class?: string
 	}
 
 	let {
 		disabled = false,
 		small = false,
-		light = false,
 		id = undefined,
 		item = undefined,
 		selected = $bindable(undefined),
 		togglableItems,
+		btnText,
 		class: className = ''
 	}: Props = $props()
 
@@ -57,7 +57,6 @@
 				value={selected ?? ''}
 				{item}
 				{small}
-				{light}
 				{id}
 				label={togglableItems.find((i) => i.value === selected)?.label}
 				{tooltip}
@@ -65,7 +64,7 @@
 			/>
 		{/if}
 		<div class="flex items-center">
-			<DropdownV2 enableFlyTransition {items} />
+			<DropdownV2 {btnText} enableFlyTransition {items} size={small ? 'sm' : 'md'} />
 		</div>
 	</div>
 </Popover>

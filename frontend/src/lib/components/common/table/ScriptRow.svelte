@@ -146,7 +146,7 @@
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
 		<DraftBadge has_draft={script.has_draft} draft_only={script.draft_only} />
 		<div class="w-8 center-center">
-			<LanguageIcon lang={script.language} width={12} height={12} />
+			<LanguageIcon lang={script.language} width={16} height={16} />
 		</div>
 	{/snippet}
 
@@ -164,9 +164,9 @@
 						<Button
 							aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
 							aiDescription={`Edits the script ${script.summary?.length > 0 ? script.summary : script.path}`}
-							color="light"
-							size="xs"
-							variant="border"
+							variant="subtle"
+							wrapperClasses="w-20"
+							unifiedSize="md"
 							startIcon={{ icon: Pen }}
 							href="{base}/scripts/edit/{script.path}"
 						>
@@ -178,9 +178,9 @@
 						<Button
 							aiId={`fork-script-button-${script.summary ?? script.path}`}
 							aiDescription={`Fork the script ${script.summary ?? script.path}`}
-							color="light"
-							size="xs"
-							variant="border"
+							variant="subtle"
+							wrapperClasses="w-20"
+							unifiedSize="md"
 							startIcon={{ icon: GitFork }}
 							href="{base}/scripts/add?template={script.path}"
 						>

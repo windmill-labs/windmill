@@ -109,8 +109,8 @@
 						(selected.tableKey === tableKey ? 'bg-gray-500/25' : 'hover:bg-gray-500/10')}
 					onclick={() => (selected.tableKey = tableKey)}
 				>
-					<Table2 class="text-gray-500/40 shrink-0" size={16} />
-					<p class="truncate text-ellipsis grow text-left">{tableKey}</p>
+					<Table2 class="text-primary shrink-0" size={16} />
+					<p class="truncate text-ellipsis grow text-left text-emphasis text-xs">{tableKey}</p>
 					{#if dbTableActionsFactory}
 						{@const dbTableActions = dbTableActionsFactory.map((f) =>
 							f({
@@ -156,7 +156,6 @@
 			{/each}
 		</div>
 		<Button
-			variant="border"
 			on:click={() => (dbTableEditorState = { open: true })}
 			wrapperClasses="mx-2 my-2 text-sm"
 			startIcon={{ icon: Plus }}

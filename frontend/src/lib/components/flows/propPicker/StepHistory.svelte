@@ -155,7 +155,7 @@
 		<JobPickerLight job={item} />
 	{/snippet}
 	{#snippet empty()}
-		<div class="text-center text-tertiary text-xs py-2 px-2">
+		<div class="text-center text-primary text-xs py-2 px-2">
 			{noHistory === 'isLoop'
 				? 'History is not available with loops.'
 				: noHistory === 'isInsideLoop'

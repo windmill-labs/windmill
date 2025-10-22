@@ -31,7 +31,7 @@
 		<Button
 			startIcon={{ icon: Edit2 }}
 			size="xs"
-			variant="border"
+			variant="default"
 			spacingSize="xs2"
 			iconOnly
 			on:click={() => (resourceEditorDrawer?.initEdit(asset.path), onClick?.())}

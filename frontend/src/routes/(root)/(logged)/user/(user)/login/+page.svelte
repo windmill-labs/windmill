@@ -125,10 +125,10 @@
 				<WindmillIcon height="80px" width="80px" spin="slow" />
 			{/if}
 		</div>
-		<h2 class="mt-6 text-center text-3xl font-bold tracking-tight text-primary">
+		<h2 class="mt-6 text-center text-2xl font-semibold tracking-tight text-emphasis">
 			Log in or sign up
 		</h2>
-		<p class="mt-2 text-center text-sm text-secondary">
+		<p class="mt-2 text-center text-xs text-secondary">
 			Log in or sign up with any of the methods below
 		</p>
 	</div>

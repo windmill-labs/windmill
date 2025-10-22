@@ -22,7 +22,7 @@
 	on:pointerdown={(e) => e.stopPropagation()}
 	startIcon={{ icon: Icon ?? X }}
 	iconOnly
-	size="sm"
+	unifiedSize="sm"
 	color="light"
 	btnClasses={twMerge(
 		'hover:bg-surface-hover rounded-full p-0',

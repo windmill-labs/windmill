@@ -60,7 +60,7 @@
 	{scopes}
 />
 
-<Section label="Default email trigger" class="flex flex-col gap-4">
+<Section label="Default email trigger" class="flex flex-col gap-6">
 	<Description link="https://www.windmill.dev/docs/advanced/email_triggers">
 		Default email trigger is a partially fixed email address that can be used to trigger a script or
 		flow. The email address is composed of the encoded workspace and script or flow path as well as

@@ -207,12 +207,7 @@
 {/each}
 
 {#each hiddenTabs ?? [] as hideTab, index}
-	<InputValue
-		key="tabHidden {index}"
-		{id}
-		input={hideTab}
-		bind:value={resolvedHiddenTabs[index]}
-	/>
+	<InputValue key="tabHidden {index}" {id} input={hideTab} bind:value={resolvedHiddenTabs[index]} />
 {/each}
 
 {#if everRender}
@@ -233,9 +228,8 @@
 								selectedClass={twMerge(css?.selectedTab?.class, 'wm-tabs-selectedTab')}
 								selectedStyle={css?.selectedTab?.style}
 								disabled={resolvedDisabledTabs[index]}
-							>
-								<span class="font-semibold">{res}</span>
-							</Tab>
+								label={res}
+							/>
 						{/if}
 					{/each}
 				</Tabs>

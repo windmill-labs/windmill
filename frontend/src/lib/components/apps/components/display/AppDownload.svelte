@@ -119,13 +119,14 @@
 				)}
 				style={css?.button?.style}
 				disabled={resolvedConfig.source == undefined}
-				size={resolvedConfig.size}
+				extendedSize={resolvedConfig.size}
 				color={resolvedConfig.color}
 				download={resolvedConfig.filename}
 				href={transformBareBase64IfNecessary(resolvedConfig.source)}
 				target="_blank"
 				ref="external"
 				nonCaptureEvent
+				variant="contained"
 			>
 				<span class="truncate inline-flex gap-2 items-center">
 					{#if resolvedConfig.beforeIcon}

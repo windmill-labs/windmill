@@ -12,7 +12,7 @@
 	<div class="flex gap-2 flex-col">
 		<div>This component is expecting a connected input: </div>
 		<div>
-			<code class="bg-gray-50 border text-tertiary">{input.connection?.path} </code>
+			<code class="bg-gray-50 border text-primary">{input.connection?.path} </code>
 		</div>
 	</div>
 {/if}

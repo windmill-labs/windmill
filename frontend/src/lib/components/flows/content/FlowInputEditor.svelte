@@ -20,9 +20,9 @@
 	<div
 		class="items-center grow-0 flex flex-row justify-between gap-2 data-schema-picker min-h-[40px]"
 	>
-		<h2 class="font-semibold text-secondary text-sm flex flex-row items-center gap-1 leading-6">
+		<h3 class="font-semibold text-emphasis text-xs flex flex-row items-center gap-1 leading-6">
 			{title}
-		</h2>
+		</h3>
 		{@render action?.()}
 	</div>
 

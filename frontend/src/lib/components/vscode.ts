@@ -10,6 +10,7 @@ import {
 	MonacoVscodeApiWrapper
 } from 'monaco-languageclient/vscodeApiWrapper'
 import getLanguagesServiceOverride from '@codingame/monaco-vscode-languages-service-override'
+import { getCssColor } from '$lib/utils'
 
 export function buildWorkerDefinition() {
 	const envEnhanced = getEnhancedMonacoEnvironment()
@@ -159,7 +160,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 						token: ''
 					},
 					{
-						foreground: '808b9f',
+						foreground: '98A7C1',
 						token: 'comment'
 					},
 					{
@@ -238,14 +239,16 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 				],
 				colors: {
 					'editor.foreground': '#D8DEE9',
-					'editor.background': '#00000000',
+					'editor.background': getCssColor('surface-input', { format: 'hex-dark' }),
 					'editor.selectionBackground': '#515A6D',
 					'editor.inactiveSelectionBackground': '#515A6DB0',
 					'editor.lineHighlightBackground': '#3B4252',
 					'editorCursor.foreground': '#D8DEE9',
 					'editorWhitespace.foreground': '#515A6D',
 					'editorIndentGuide.background1': '#5A647860',
-					'editorIndentGuide.activeBackground1': '#6A7488'
+					'editorIndentGuide.activeBackground1': '#6A7488',
+					'editorLineNumber.foreground': '#515A6D',
+					'editorLineNumber.activeForeground': '#D8DEE980'
 				}
 			})
 
@@ -254,7 +257,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 				inherit: true,
 				rules: [],
 				colors: {
-					'editor.background': '#FFFFFF00',
+					'editor.background': '#FFFFFF',
 					'editor.foreground': '#2d3748',
 					'editorLineNumber.foreground': '#C2C9D1',
 					'editorLineNumber.activeForeground': '#989DA5',

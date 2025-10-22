@@ -182,7 +182,7 @@
 															</Badge>
 														</div>
 														<Button
-															color="dark"
+															variant="accent"
 															size="xs"
 															on:click={() => {
 																if (component?.customCss?.[cssKey]?.style != undefined) {
@@ -236,7 +236,7 @@
 															</Badge>
 														</div>
 														<Button
-															color="dark"
+															variant="accent"
 															size="xs"
 															on:click={() => {
 																if (type && $app.css?.[type]) {
@@ -285,7 +285,7 @@
 							</div>
 							<Button
 								size="xs"
-								color="dark"
+								variant="accent"
 								on:click={() => {
 									appendMigrationsToCss(migrations)
 									migrationModalOpen = false

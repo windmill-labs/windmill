@@ -269,7 +269,7 @@
 			<Button
 				on:click={next}
 				size="xs2"
-				color="dark"
+				variant="accent"
 				endIcon={{ icon: ArrowRight }}
 				disabled={isNextDisabled ||
 					currentNodeId === lastNodeId ||

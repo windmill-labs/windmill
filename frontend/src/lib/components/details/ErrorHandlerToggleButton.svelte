@@ -52,9 +52,9 @@
 	title={errorHandlerMuted === undefined || !errorHandlerMuted
 		? 'Disable workspace error handler for this script'
 		: 'Enable workspace error handler for this script'}
-	size="xs"
+	unifiedSize="md"
 	on:click={toggleErrorHandler}
-	color="light"
+	variant="subtle"
 	startIcon={{
 		icon: errorHandlerMuted === undefined || !errorHandlerMuted ? Bell : BellOff
 	}}

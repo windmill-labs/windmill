@@ -92,8 +92,6 @@
 					autofocus
 				/>
 				<Button
-					color="light"
-					variant="border"
 					on:click={() => {
 						refreshing = true
 						loadItems()
@@ -114,7 +112,7 @@
 					<Skeleton layout={[[5], 0.2]} />
 				{/each}
 			{:else if !items?.length}
-				<div class="text-center text-sm text-tertiary mt-2">
+				<div class="text-center text-sm text-primary mt-2">
 					{@html noItemMessage}
 				</div>
 			{:else if filteredItems?.length}
@@ -174,7 +172,7 @@
 										<div>
 											<Button
 												size="sm"
-												variant="border"
+												variant="default"
 												on:click={() => {
 													button(obj['path'] ?? '')
 												}}

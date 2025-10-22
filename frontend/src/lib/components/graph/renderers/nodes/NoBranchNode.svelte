@@ -1,7 +1,6 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { NoBranchN } from '../../graphBuilder.svelte'
 
 	interface Props {
@@ -19,9 +18,6 @@
 			hideId={true}
 			selectable={true}
 			selected={false}
-			bgColor={getStateColor(undefined, darkMode)}
-			bgHoverColor={getStateHoverColor(undefined, darkMode)}
-			borderColor={getStateColor(undefined, darkMode)}
 			on:select={(e) => {
 				setTimeout(() => data?.eventHandlers?.select(e.detail))
 			}}

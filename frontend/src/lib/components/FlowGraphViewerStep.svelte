@@ -266,7 +266,7 @@
 			<div class="flex-col flex gap-2">
 				<div class="flex flex-row gap-4 text-sm p-2">
 					<Badge large={true} color="blue">Default branch</Badge>
-					<p class="italic text-tertiary"
+					<p class="italic text-primary"
 						>If none of the predicates' expressions evaluated in-order match, this branch is chosen</p
 					>
 				</div>

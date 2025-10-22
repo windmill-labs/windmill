@@ -27,11 +27,11 @@
 	<Button
 		aiId="apps-create-actions-app"
 		aiDescription="Create a new low-code app"
-		size="sm"
-		spacingSize="xl"
+		unifiedSize="lg"
 		startIcon={{ icon: Plus }}
+		endIcon={{ icon: LayoutDashboard }}
 		href="{base}/apps/add?nodraft=true"
-		color="marine"
+		variant="accent"
 		dropdownItems={[
 			{
 				label: 'Import low-code app from YAML',
@@ -53,9 +53,7 @@
 			// }
 		]}
 	>
-		<div class="flex flex-row items-center">
-			App <LayoutDashboard class="ml-1.5" size={18} />
-		</div>
+		<div class="flex flex-row items-center"> App </div>
 	</Button>
 </div>
 

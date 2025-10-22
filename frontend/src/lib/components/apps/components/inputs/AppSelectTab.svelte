@@ -127,10 +127,8 @@
 					style={css?.allTabs?.style}
 					selectedClass={twMerge(css?.selectedTab?.class, 'wm-select-tab-selected')}
 					selectedStyle={css?.selectedTab?.style}
-					size={resolvedConfig?.tabSize}
-				>
-					<span class="font-semibold text-md">{item.label}</span>
-				</Tab>
+					label={item.label}
+				/>
 			{/each}
 		</Tabs>
 	</div>

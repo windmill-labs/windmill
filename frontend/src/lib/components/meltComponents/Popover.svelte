@@ -171,7 +171,7 @@
 		use:melt={$content}
 		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
 		class={twMerge(
-			'relative border rounded-md bg-surface shadow-lg',
+			'relative border rounded-md bg-surface-tertiary shadow-lg',
 			fullScreen
 				? `fixed !top-1/2 !left-1/2 !-translate-x-1/2 !-translate-y-1/2 !resize-none`
 				: 'w-fit',
@@ -217,6 +217,6 @@
 		@apply absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full;
 		@apply text-primary  transition-colors hover:bg-surface-hover;
 		@apply focus-visible:ring focus-visible:ring-gray-400 focus-visible:ring-offset-2;
-		@apply bg-surface p-0 text-sm font-medium;
+		@apply bg-surface p-0 text-sm font-semibold;
 	}
 </style>

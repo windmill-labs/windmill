@@ -166,7 +166,7 @@
 	<div class="flex my-4">
 		<Button
 			size="xs2"
-			color="dark"
+			variant="accent"
 			on:click={() => {
 				$connectingInput = {
 					opened: true,

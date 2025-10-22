@@ -47,9 +47,12 @@
 
 		const endStart = new Date().getTime()
 		// toggle concurrencyGroupsLoading to false in 1 secs to let some time for the animation to play
-		setTimeout(() => {
-			concurrencyGroupsLoading = false
-		}, 1000 - (endStart - timeStart))
+		setTimeout(
+			() => {
+				concurrencyGroupsLoading = false
+			},
+			1000 - (endStart - timeStart)
+		)
 	}
 
 	async function deleteConcurrencyGroup(concurrencyGroupId: string) {
@@ -63,10 +66,9 @@
 <CenteredPage>
 	<PageHeader title="Concurrency Groups">
 		<Button
-			color="light"
 			size="md"
 			btnClasses="w-full h-8"
-			variant="border"
+			variant="default"
 			on:click={loadConcurrencyGroupsOnce}
 		>
 			<RefreshCw class={concurrencyGroupsLoading ? 'animate-spin' : ''} size="xs" />Refresh

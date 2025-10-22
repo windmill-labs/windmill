@@ -38,7 +38,7 @@
 						label: 'Within last minute',
 						computeMinMax: () => computeMinMaxInc(60 * 1000)
 					}
-			  ]
+				]
 			: []),
 		{
 			label: 'Within last 5 minutes',
@@ -70,16 +70,14 @@
 			}
 		},
 		...fixedManualDates
-
 	]
 
 	const dispatch = createEventDispatcher()
 </script>
 
 <Button
-	color="light"
-	size="xs"
-	variant="border"
+	unifiedSize="md"
+	variant="default"
 	on:click={() => {
 		const ts = computeMinMax()
 		if (ts) {

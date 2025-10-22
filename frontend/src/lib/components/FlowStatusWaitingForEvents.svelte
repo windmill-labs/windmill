@@ -115,7 +115,7 @@
 	}
 </script>
 
-<div class="w-full h-full mt-2 text-sm text-tertiary">
+<div class="w-full h-full mt-2 text-xs text-primary">
 	{#if !light}
 		<p>Waiting to be resumed</p>
 	{/if}
@@ -128,18 +128,18 @@
 				{#if cancelUrl && !hide_cancel}
 					<div>
 						<Button
-							color="red"
 							title="Cancel the flow"
 							iconOnly
 							startIcon={{ icon: X }}
-							variant="border"
+							variant="default"
+							destructive
 							on:click={() => continu(false)}
 						/>
 					</div>
 				{/if}
 				<div>
-					<Button color="green" variant="border" on:click={() => continu(true)}
-						>Resume <Tooltip
+					<Button variant="accent" on:click={() => continu(true)}
+						>Resume <Tooltip class="text-primary-inverse"
 							>Since you are an owner of this flow, you can send resume events without necessarily
 							knowing the resume id sent by the approval step</Tooltip
 						></Button

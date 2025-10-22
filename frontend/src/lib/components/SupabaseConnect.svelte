@@ -106,11 +106,8 @@
 		{#if step === 'init' || selectedDatabase == undefined}
 			<h2
 				>Connect an existing database <div class="inline-block ml-2"
-					><Button
-						variant="border"
-						color="light"
-						wrapperClasses="self-stretch"
-						on:click={listDatabases}><RotateCwIcon size={12} /></Button
+					><Button variant="default" wrapperClasses="self-stretch" on:click={listDatabases}
+						><RotateCwIcon size={12} /></Button
 					></div
 				>
 			</h2>
@@ -178,9 +175,9 @@
 		{#snippet actions()}
 			<div class="flex gap-1">
 				{#if step == 'resource' && selectedDatabase != undefined}
-					<Button variant="border" on:click={() => (step = 'init')}>Back</Button>
+					<Button variant="default" on:click={() => (step = 'init')}>Back</Button>
 
-					<Button {disabled} on:click={save}>Save</Button>
+					<Button {disabled} on:click={save} variant="accent">Save</Button>
 				{/if}
 			</div>
 		{/snippet}

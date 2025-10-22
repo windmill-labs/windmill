@@ -29,7 +29,8 @@
 <Button
 	disabled={loading}
 	loading={loadingSave}
-	size="xs"
+	variant="accent"
+	unifiedSize="md"
 	startIcon={{ icon: Save }}
 	on:click={() => dispatch('save')}
 	dropdownItems={!newFlow ? dropdownItems : undefined}
@@ -70,7 +71,8 @@
 				bind:this={msgInput}
 			/>
 			<Button
-				size="sm"
+				unifiedSize="md"
+				variant="accent"
 				on:click={async () => dispatch('save', deploymentMsg)}
 				endIcon={{ icon: CornerDownLeft }}
 				loading={loadingSave}

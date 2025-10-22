@@ -7,15 +7,20 @@
 		white?: boolean
 		spin?: 'slow' | 'medium' | 'fast' | 'veryfast' | undefined
 		class?: string
+		size?: number
 	}
 
 	let {
-		height = '24px',
-		width = '24px',
+		height: heightProp = '24px',
+		width: widthProp = '24px',
 		white = false,
 		spin = undefined,
-		class: classNames = ''
+		class: classNames = '',
+		size = undefined
 	}: Props = $props()
+
+	let width = $derived(size ? `${size}px` : widthProp)
+	let height = $derived(size ? `${size}px` : heightProp)
 </script>
 
 {#if customIcon.white || customIcon.normal}

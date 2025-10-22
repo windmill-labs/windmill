@@ -238,7 +238,7 @@
 				{:else}
 					{@render nonRenderedPlaceholder?.()}
 					{#if !Array.isArray(result)}
-						<div class="text-center text-tertiary">Input data is not an array</div>
+						<div class="text-center text-primary">Input data is not an array</div>
 					{/if}
 				{/if}
 			</div>
@@ -248,8 +248,7 @@
 				>
 					<Button
 						size="xs2"
-						variant="border"
-						color="light"
+						variant="default"
 						btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
 						on:click={() => {
 							isPreviousLoading = true
@@ -267,8 +266,7 @@
 					</Button>
 					<Button
 						size="xs2"
-						variant="border"
-						color="light"
+						variant="default"
 						btnClasses="flex flex-row gap-1 items-center wm-list-pagination-buttons"
 						on:click={() => {
 							isNextLoading = true

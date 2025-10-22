@@ -29,8 +29,8 @@
 	<li
 		role="listitem"
 		class={twMerge(
-			allowClear ? 'pr-1' : 'pr-3',
-			'pl-3 min-h-6 border bg-surface rounded-full flex items-center gap-0.5',
+			allowClear ? 'pr-0' : 'pr-2',
+			'pl-2 min-h-6 border bg-surface rounded-full flex items-center',
 			currentlyDraggingIndex !== undefined ? 'hover:opacity-20' : ''
 		)}
 		style={currentlyDraggingIndex === index
@@ -51,10 +51,10 @@
 			dragPos = [0, 0]
 		}}
 	>
-		<span class="text-sm select-none">{item.label || item.value}</span>
+		<span class="text-xs select-none">{item.label || item.value}</span>
 		{#if allowClear}
 			<CloseButton
-				class="text-hint bg-transparent"
+				class="text-hint bg-transparent border-none"
 				small
 				on:close={(e) => (onRemove(item), e.stopPropagation())}
 			/>

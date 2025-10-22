@@ -4,6 +4,6 @@
 </script>
 
 <Tooltip>
-	<FlaskConical size={14} class="text-tertiary inline-block" />
+	<FlaskConical size={14} class="text-primary inline-block" />
 	<span slot="text">Config used for creating a testing endpoint</span>
 </Tooltip>

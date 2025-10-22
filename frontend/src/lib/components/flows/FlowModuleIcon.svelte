@@ -20,7 +20,7 @@
 </script>
 
 {#if module?.value?.type === 'aiagent'}
-	<Bot size={16} class="text-violet-800 dark:text-violet-400" />
+	<Bot size={16} class="text-ai" />
 {:else if module?.value?.type === 'rawscript'}
 	<LanguageIcon lang={module.value.language} width={iconWidth} height={iconHeight} />
 {:else if module?.summary === 'Terminate flow'}

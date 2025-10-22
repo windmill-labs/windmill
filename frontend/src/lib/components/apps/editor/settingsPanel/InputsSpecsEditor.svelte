@@ -58,7 +58,7 @@
 					<span class="text-xs font-semibold truncate text-primary">
 						{k}
 					</span>
-					<div class="text-tertiary text-xs">Managed by the component</div>
+					<div class="text-primary text-xs">Managed by the component</div>
 				</div>
 			{:else if finalInputSpecsConfiguration[k]?.type == 'oneOf'}
 				<OneOfInputSpecsEditor
@@ -115,7 +115,7 @@
 					<span class="text-xs font-semibold truncate text-primary">
 						{k}
 					</span>
-					<div class="text-tertiary text-xs">
+					<div class="text-primary text-xs">
 						Managed by the component
 						<Tooltip light>
 							The input is managed by the component and cannot be edited here: It will be injected
@@ -127,5 +127,5 @@
 		{/if}
 	</div>
 {:else}
-	<div class="text-tertiary text-sm">No inputs</div>
+	<div class="text-primary text-xs">No inputs</div>
 {/if}

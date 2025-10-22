@@ -241,8 +241,7 @@
 						/>
 					{/if}
 					<Button
-						variant="border"
-						color="light"
+						variant="default"
 						size="xs"
 						btnClasses="mt-1"
 						on:click={() => {

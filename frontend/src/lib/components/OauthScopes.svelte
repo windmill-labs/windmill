@@ -10,8 +10,7 @@
 		<div class="flex flex-row max-w-md mb-2">
 			<input type="text" bind:value={v} />
 			<Button
-				variant="border"
-				color="light"
+				variant="default"
 				size="xs"
 				btnClasses="mx-6"
 				on:click={() => {
@@ -26,18 +25,17 @@
 
 <div class="flex items-center mt-1">
 	<Button
-		variant="border"
-		color="light"
+		variant="default"
 		hover="yo"
-		size="sm"
-		endIcon={{ icon: Plus }}
+		size="xs"
+		startIcon={{ icon: Plus }}
 		on:click={() => {
 			scopes = (scopes ?? []).concat('')
 		}}
 	>
 		Add item
 	</Button>
-	<span class="ml-2 text-sm text-tertiary">
+	<span class="ml-2 text-xs text-primary font-normal">
 		({(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''})
 	</span>
 </div>

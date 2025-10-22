@@ -36,7 +36,7 @@
 			</Button>
 			<Button
 				size="xs2"
-				color="dark"
+				variant="accent"
 				endIcon={{ icon: ArrowRight }}
 				on:click={() => {
 					dispatch('next')

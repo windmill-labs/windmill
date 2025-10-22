@@ -147,7 +147,7 @@
 <svelte:window onkeydown={onKeyDown} />
 {#if filteredItems}
 	{#if filteredItems.length == 0}
-		<div class="text-2xs text-tertiary font-light text-center py-2 px-3 items-center">
+		<div class="text-2xs text-primary font-light text-center py-2 px-3 items-center">
 			{kind == 'flow' ? 'No flows found.' : 'No scripts found.'}
 		</div>
 	{/if}

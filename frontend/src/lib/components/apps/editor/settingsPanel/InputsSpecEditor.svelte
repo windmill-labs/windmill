@@ -178,7 +178,7 @@
 					{/if}
 				</div>
 				{#if displayType}
-					<div class="text-xs text-tertiary mr-1">
+					<div class="text-xs text-primary mr-1">
 						{fieldType === 'array' && subFieldType
 							? `${fieldTypeToTsType(subFieldType)}[]`
 							: fieldTypeToTsType(fieldType)}
@@ -219,43 +219,18 @@
 						}}
 					>
 						{#snippet children({ item })}
-							<ToggleButton
-								small
-								light
-								value="static"
-								icon={Pen}
-								iconOnly
-								tooltip="Static"
-								{item}
-							/>
+							<ToggleButton small value="static" icon={Pen} iconOnly tooltip="Static" {item} />
 							{#if userInputEnabled}
-								<ToggleButton
-									small
-									light
-									value="user"
-									icon={User}
-									iconOnly
-									tooltip="User Input"
-									{item}
-								/>
+								<ToggleButton small value="user" icon={User} iconOnly tooltip="User Input" {item} />
 							{/if}
 							{#if fileUpload}
-								<ToggleButton
-									small
-									light
-									value="upload"
-									icon={Upload}
-									iconOnly
-									tooltip="Upload"
-									{item}
-								/>
+								<ToggleButton small value="upload" icon={Upload} iconOnly tooltip="Upload" {item} />
 							{/if}
 							{#if fileUploadS3}
 								<ToggleButton
 									value="uploadS3"
 									icon={UploadCloud}
 									iconOnly
-									light
 									small
 									tooltip="Upload S3"
 									{item}
@@ -263,7 +238,6 @@
 							{/if}
 							{#if componentInput?.type === 'connected'}
 								<ToggleButton
-									light
 									value="connected"
 									icon={Plug2}
 									iconOnly
@@ -277,7 +251,6 @@
 									value="eval"
 									icon={FunctionSquare}
 									iconOnly
-									light
 									small
 									tooltip="Eval Legacy"
 									{item}
@@ -285,7 +258,6 @@
 							{/if}
 							<ToggleButton
 								value="evalv2"
-								light
 								icon={FunctionSquare}
 								iconOnly
 								small
@@ -365,8 +337,7 @@
 					/>
 				{/if}
 				<Button
-					variant="border"
-					color="light"
+					variant="default"
 					size="xs"
 					btnClasses="mt-1"
 					on:click={() => {
@@ -389,7 +360,7 @@
 				regexFilter={/\.(png|jpg|jpeg|svg|webp)$/i}
 			/>
 		{:else if componentInput?.type === 'user'}
-			<span class="text-2xs italic text-tertiary">Field's value is set by the user</span>
+			<span class="text-2xs italic text-primary">Field's value is set by the user</span>
 		{/if}
 		{#if (componentInput?.type === 'evalv2' || componentInput?.type === 'connected' || componentInput?.type === 'user') && ((fieldType == 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object') || fieldType == 'resource')}
 			<div class="flex flex-row items-center">

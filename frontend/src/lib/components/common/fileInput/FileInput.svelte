@@ -228,12 +228,12 @@
 						<span class="pr-2 ellipsize">{name}</span>
 						<Button
 							size="xs"
-							color="red"
-							variant="border"
+							variant="default"
 							iconOnly
 							btnClasses="bg-transparent"
 							startIcon={{ icon: Trash }}
 							on:click={() => removeFile(i)}
+							destructive
 						/>
 					</li>
 				{/each}
@@ -258,7 +258,7 @@
 		{...$$restProps}
 	/>
 	{#if defaultFile && (!Array.isArray(defaultFile) || defaultFile.length > 0)}
-		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-tertiary mt-2">
+		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-primary mt-2">
 			Default file: <span class="text-nord-900">{defaultFile}</span>
 		</div>
 	{/if}

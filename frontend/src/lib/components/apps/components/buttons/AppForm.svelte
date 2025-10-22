@@ -149,8 +149,9 @@
 						on:click={() => {
 							runnableComponent?.runComponent()
 						}}
-						size={resolvedConfig.size}
+						extendedSize={resolvedConfig.size}
 						color={resolvedConfig.color}
+						variant="contained"
 					>
 						{resolvedConfig.label}
 					</Button>

@@ -40,7 +40,7 @@
 		'While loop': { icon: Repeat },
 		'Branch to one': { icon: GitBranch },
 		'Branch to all': { icon: GitBranch },
-		'AI Agent': { icon: BotIcon, iconClass: 'text-violet-800 dark:text-violet-400' },
+		'AI Agent': { icon: BotIcon, iconClass: 'text-ai' },
 		MCP: { icon: Plug, showChevron: true }
 	}
 

@@ -88,7 +88,7 @@
 				{/if}
 				{@render trigger_badges?.()}
 			</div>
-			<div class="flex gap-1 md:gap-2 items-center">
+			<div class="flex gap-1 items-center">
 				{#if menuItems.length > 0}
 					{#key menuItems}
 						<DropdownV2
@@ -99,6 +99,7 @@
 								type: item.color === 'red' ? 'delete' : 'action'
 							}))}
 							placement="bottom-end"
+							size="md"
 						/>
 					{/key}
 				{/if}

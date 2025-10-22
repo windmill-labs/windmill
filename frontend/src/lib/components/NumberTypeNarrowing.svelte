@@ -81,7 +81,7 @@
 		</Label>
 	</div>
 	<div class="flex gap-2">
-		<Label label="Currency" class=" col-span-2">
+		<Label label="Currency">
 			{#snippet header()}
 				<Tooltip light small>
 					Select a currency to display the number in. If a currency is selected, you can also select

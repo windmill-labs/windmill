@@ -71,7 +71,7 @@
 			<li class="flex justify-between py-3 leading-4 text-sm pl-4">
 				<div class="flex flex-col flex-1 truncate">
 					{asset.path}
-					<span class="text-2xs text-tertiary">
+					<span class="text-2xs text-primary">
 						{formatAssetKind({
 							...asset,
 							...(asset.kind === 'resource'
@@ -91,7 +91,7 @@
 		{/each}
 	</ul>
 {:else}
-	<div class="text-sm text-tertiary">No assets found</div>
+	<div class="text-sm text-primary">No assets found</div>
 {/if}
 
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />

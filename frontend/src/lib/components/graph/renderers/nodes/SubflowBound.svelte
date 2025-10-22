@@ -4,7 +4,6 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { Minimize2 } from 'lucide-svelte'
-	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { SubflowBoundN } from '../../graphBuilder.svelte'
 
 	interface Props {
@@ -21,9 +20,6 @@
 			preLabel={data.preLabel}
 			selectable
 			selected={data.selected}
-			bgColor={getStateColor(undefined, darkMode)}
-			bgHoverColor={getStateHoverColor(undefined, darkMode)}
-			borderColor={undefined}
 			on:select={() => {
 				setTimeout(() => data.eventHandlers?.select(data.id))
 			}}

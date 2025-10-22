@@ -40,18 +40,16 @@
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
 				style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
 			>
-				<div
-					class=" rounded-md p-1 flex justify-center items-center border bg-gray-50 border-gray-200 dark:bg-transparent dark:border-gray-900"
-				>
+				<div class="flex justify-center items-center">
 					{#if depth === 0}
-						<Folder size={20} color="#aaa" />
+						<Folder size={16} class="text-secondary" />
 					{:else}
-						<FolderTree size={20} color="#aaa" />
+						<FolderTree size={16} class="text-secondary" />
 					{/if}
 				</div>
 
 				<div>
-					<span class="whitespace-nowrap"
+					<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
 						>{#if depth === 0}f/{/if}{item.folderName}</span
 					>
 					<div class="text-2xs font-normal text-secondary whitespace-nowrap">
@@ -61,15 +59,15 @@
 			</div>
 			<button class="w-full flex flex-row-reverse">
 				{#if opened}
-					<ChevronUp size={20} />
+					<ChevronUp size={16} />
 				{:else}
-					<ChevronDown size={20} />
+					<ChevronDown size={16} />
 				{/if}
 			</button>
 		</div>
 		{#if opened || isSearching}
 			<div>
-				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
+				{#each item.items.slice(0, showMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}
 					<TreeView
 						{isSearching}
 						{collapseAll}
@@ -87,7 +85,7 @@
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="text-center text-sm text-secondary cursor-pointer hover:text-primary"
+						class="text-center text-xs py-2 text-secondary cursor-pointer hover:text-primary"
 						onclick={() => {
 							if (isFolder(item)) {
 								showMax += Math.min(30, item.items.length - showMax)
@@ -113,14 +111,14 @@
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
 				style={depth > 0 ? `padding-left: ${depth * 16}px;` : ''}
 			>
-				<div
-					class=" rounded-md p-1 flex justify-center items-center border bg-gray-50 border-gray-200 dark:bg-transparent dark:border-gray-900"
-				>
-					<User size={20} color="#aaa" />
+				<div class="flex justify-center items-center">
+					<User size={16} class="text-secondary" />
 				</div>
 
 				<div>
-					<span class="whitespace-nowrap">u/{item.username}</span>
+					<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
+						>u/{item.username}</span
+					>
 					<div class="text-2xs font-normal text-secondary whitespace-nowrap"
 						>({pluralize(item.items.length, ' item')})</div
 					>
@@ -128,15 +126,15 @@
 			</div>
 			<div class="w-full flex flex-row-reverse">
 				{#if opened}
-					<ChevronUp size={20} />
+					<ChevronUp size={16} />
 				{:else}
-					<ChevronDown size={20} />
+					<ChevronDown size={16} />
 				{/if}
 			</div>
 		</div>
 		{#if opened || isSearching}
 			<div>
-				{#each item.items.slice(0, showMax) as subItem ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] : undefined) ?? 'folder__' + subItem['folderName'])}
+				{#each item.items.slice(0, showMax) as subItem, index ((subItem['path'] ? subItem['type'] + '__' + subItem['path'] + '__' + index : undefined) ?? 'folder__' + subItem['folderName'] + '__' + index)}
 					<TreeView
 						{collapseAll}
 						item={subItem}
@@ -153,7 +151,7 @@
 					<!-- svelte-ignore a11y_click_events_have_key_events -->
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="text-center text-sm text-secondary cursor-pointer py-2 hover:text-primary"
+						class="text-center text-xs text-secondary cursor-pointer py-2 hover:text-primary"
 						onclick={() => {
 							if (isUser(item)) {
 								showMax += Math.min(30, item.items.length - showMax)

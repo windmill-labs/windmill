@@ -90,11 +90,10 @@
 >
 	<svelte:fragment slot="trigger" let:isOpen>
 		<Button
-			variant="contained"
-			color="light"
-			btnClasses={hover || isOpen ? 'block -my-2 hover:bg-surface bg-transparent' : 'hidden'}
+			variant="subtle"
+			unifiedSize="sm"
+			btnClasses={hover || isOpen ? 'block -my-2 bg-transparent' : 'hidden'}
 			wrapperClasses="p-0"
-			size="xs2"
 			iconOnly
 			nonCaptureEvent
 			startIcon={{ icon: Eye }}
@@ -106,7 +105,7 @@
 			style="width: {ajustedWidth ? ajustedWidth + 'px' : '50vh'}; max-height: 50vh"
 		>
 			{#if payloadData === 'WINDMILL_TOO_BIG'}
-				<div class="text-center text-tertiary text-xs">
+				<div class="text-center text-primary text-xs">
 					{#if limitPayloadSize}
 						Payload too big to be used
 					{:else}
@@ -127,7 +126,7 @@
 					{#if !objectViewerLoaded && payloadTooBigForPreview}
 						<div class="flex justify-center items-center py-4">
 							<Loader2 size={20} class="animate-spin text-primary" />
-							<span class="ml-2 text-xs text-tertiary">Loading data...</span>
+							<span class="ml-2 text-xs text-primary">Loading data...</span>
 						</div>
 					{/if}
 
@@ -148,8 +147,8 @@
 
 					<div class="absolute top-2 right-2 w-full h-full">
 						<Button
-							variant="contained"
-							size="xs2"
+							variant="subtle"
+							unifiedSize="sm"
 							class="absolute top-0 right-0"
 							iconOnly
 							startIcon={{ icon: CopyIcon }}

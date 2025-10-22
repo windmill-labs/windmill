@@ -19,10 +19,8 @@
 
 {#if !connecting}
 	<Button
-		variant="border"
-		color="light"
+		variant="default"
 		size="xs"
-		btnClasses="font-normal text-tertiary"
 		startIcon={{ icon: Plug }}
 		onclick={onClick}
 		wrapperClasses={className}

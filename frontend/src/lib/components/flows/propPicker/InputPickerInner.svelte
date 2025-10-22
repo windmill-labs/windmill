@@ -40,7 +40,7 @@
 			{#if inputTransform[key].type === 'javascript'}
 				<SquareFunction size={14} class="text-blue-500 -my-1 dark:text-blue-400" />
 			{:else if inputTransform[key].type === 'static'}
-				<DollarSign size={12} class="text-tertiary font-mono -my-1" />
+				<DollarSign size={12} class="text-primary font-mono -my-1" />
 			{/if}
 			{#if stepsInputArgs?.isArgManuallySet(id, key)}
 				<button

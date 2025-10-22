@@ -152,7 +152,7 @@ Only output the expression, do not explain or discuss.`
 			size="xs"
 			color="light"
 			btnClasses={twMerge(
-				'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover',
+				'text-ai bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover',
 				!loading && generatedContent.length > 0
 					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
 					: ''
@@ -193,7 +193,7 @@ Only output the expression, do not explain or discuss.`
 			{/if}
 		</Button>
 		{#snippet content()}
-			<div class="text-sm text-tertiary">
+			<div class="text-sm text-primary">
 				{generatedContent}
 			</div>
 		{/snippet}

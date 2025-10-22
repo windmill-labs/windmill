@@ -341,7 +341,7 @@
 					{/if}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="flex flex-row items-center {largeGap ? 'pb-4' : ''} "
+						class="flex flex-row items-center {largeGap ? 'pb-4' : 'pb-2'} "
 						onclick={() => {
 							dispatch('click', argName)
 						}}
@@ -456,7 +456,7 @@
 			</ResizeTransitionWrapper>
 		{/each}
 	{:else if !shouldHideNoInputs}
-		<div class="text-secondary text-sm">No inputs</div>
+		<div class="text-secondary text-xs">No inputs</div>
 	{/if}
 </div>
 {#if !noVariablePicker}
@@ -480,9 +480,8 @@
 		{#snippet submission()}
 			<div>
 				<Button
-					variant="border"
-					color="blue"
-					size="sm"
+					variant="default"
+					unifiedSize="md"
 					startIcon={{ icon: Plus }}
 					on:click={() => variableEditor?.initNew?.()}
 				>

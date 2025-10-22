@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { toast } from '@zerodevx/svelte-toast'
 	import { CheckCircle2, XCircleIcon } from 'lucide-svelte'
-	import { onMount } from 'svelte'
 	import Button from './common/button/Button.svelte'
-	import type { ToastAction } from '$lib/toast'
+	import { type ToastAction } from '$lib/toast'
 	import { processMessage } from './toast'
 
 	interface Props {
@@ -28,32 +27,45 @@
 		toast.pop(toastId)
 	}
 
-	// On mount, close after 5 seconds
-	onMount(() => {
-		setTimeout(() => {
+	let elapsed = $state(0)
+	$effect(() => {
+		if (elapsed >= duration * 1000) {
 			toast.pop(toastId)
-		}, duration)
+			return
+		}
+		if (hover) return
+		let animationFrame = requestAnimationFrame((x) => {
+			elapsed += x
+		})
+		return () => cancelAnimationFrame(animationFrame)
 	})
+
+	let hover = $state(false)
+
+	let color = error
+		? { text: 'text-red-400', bg: 'bg-red-400' }
+		: { text: 'text-green-400', bg: 'bg-green-300' }
 </script>
 
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="pointer-events-auto w-full max-w-sm overflow-hidden bg-surface shadow-lg ring-1 ring-black ring-opacity-5 border"
+	class="pointer-events-auto w-full max-w-sm overflow-hidden bg-surface-tertiary drop-shadow-base shadow-lg ring-1 ring-black ring-opacity-5 border rounded-md"
+	onmouseenter={() => (hover = true)}
+	onmouseleave={() => (hover = false)}
 >
 	<div class="p-2 min-h-[60px] flex flex-col">
 		<div class="flex items-start w-full">
 			<div class="flex-shrink-0 mt-0.5">
 				{#if error}
-					<XCircleIcon class="h-4 w-4 text-red-400" />
+					<XCircleIcon class="h-4 w-4 {color.text}" />
 				{:else}
-					<CheckCircle2 class="h-4 w-4 text-green-400" />
+					<CheckCircle2 class="h-4 w-4 {color.text}" />
 				{/if}
 			</div>
 			<div class="ml-3 flex-1 w-0">
-				<p class="text-sm text-secondary break-words">{@html processMessage(message)}</p>
+				<p class="text-sm text-primary break-words">{@html processMessage(message)}</p>
 				{#if errorMessage}
-					<p
-						class="text-sm text-secondary border bg-surface-secondary p-2 w-full overflow-auto mt-2"
-					>
+					<p class="text-xs {color.text} w-full overflow-auto mt-2">
 						{errorMessage}
 					</p>
 				{/if}
@@ -63,7 +75,7 @@
 				<button
 					type="button"
 					onclick={handleClose}
-					class="inline-flex rounded-md bg-surface-secondary text-gray-400 hover:text-tertiary focus:outline-none"
+					class="inline-flex rounded-md text-gray-400 hover:text-primary focus:outline-none"
 				>
 					<span class="sr-only">Close</span>
 					<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -74,18 +86,25 @@
 				</button>
 			</div>
 		</div>
-		<div class="mt-2 flex flex-col gap-2 h-15 items-center">
+		<div class="mt-2 flex flex-col gap-2 w-full items-center">
 			{#each actions as action, index (index)}
 				<Button
-					on:click={() => {
+					variant={action.buttonType ?? 'default'}
+					onClick={() => {
 						action.callback()
 						toast.pop(toastId)
 					}}
-					class="text-sm !text-primary"
+					wrapperClasses="w-full"
 				>
 					{action.label}
 				</Button>
 			{/each}
 		</div>
+	</div>
+	<!-- Duration indicator -->
+	<div
+		class="h-0.5 {color.bg}"
+		style="width: {Math.max(0, 1 - elapsed / (duration * 1000)) * 100}%"
+	>
 	</div>
 </div>

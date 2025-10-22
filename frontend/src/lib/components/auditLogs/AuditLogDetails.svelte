@@ -19,63 +19,69 @@
 	{#if selectedId}
 		{@const log = logs.find((e) => e.id === selectedId)}
 		{#if log}
-			<span class="font-semibold text-xs leading-6">ID</span>
-			<span class="text-xs">{log.id}</span>
-			<span class="font-semibold text-xs leading-6">Parameters</span>
-			<div class="text-xs p-2 bg-surface-secondary rounded-sm">
-				{JSON.stringify(log.parameters, null, 2)}
+			<div class="flex flex-col gap-6 w-full">
+				<div class="flex flex-col gap-1">
+					<span class="font-semibold text-xs text-emphasis">ID</span>
+					<span class="text-xs">{log.id}</span>
+				</div>
+				<div class="flex flex-col gap-1">
+					<span class="font-semibold text-xs text-emphasis">Parameters</span>
+					<div class="text-xs p-2 bg-surface-secondary rounded-md">
+						{JSON.stringify(log.parameters, null, 2)}
+					</div>
+				</div>
+
+				{#if log?.parameters?.uuid}
+					<Button
+						href={`run/${log.parameters.uuid}`}
+						variant="accent"
+						unifiedSize="md"
+						target="_blank"
+						wrapperClasses="w-fit"
+					>
+						View run
+					</Button>
+				{/if}
+
+				{#if log.operation === 'jobs.run.script'}
+					<Button
+						href={`scripts/get/${log.resource}`}
+						variant="default"
+						unifiedSize="md"
+						target="_blank"
+						wrapperClasses="w-fit"
+					>
+						View script
+					</Button>
+				{/if}
+
+				{#if ViewFlowOp.includes(log.operation)}
+					<Button
+						href={`flows/get/${log.resource}`}
+						variant="default"
+						unifiedSize="md"
+						target="_blank"
+						endIcon={{ icon: ArrowRight }}
+						wrapperClasses="w-fit"
+					>
+						View flow
+					</Button>
+				{/if}
+				{#if ViewAppOp.includes(log.operation)}
+					<Button
+						href={`apps/get/${log.resource}`}
+						variant="default"
+						unifiedSize="md"
+						target="_blank"
+						endIcon={{ icon: ArrowRight }}
+						wrapperClasses="w-fit"
+					>
+						View app
+					</Button>
+				{/if}
 			</div>
-
-			{#if log?.parameters?.uuid}
-				<Button
-					href={`run/${log.parameters.uuid}`}
-					color="light"
-					variant="border"
-					size="xs"
-					target="_blank"
-				>
-					View run
-				</Button>
-			{/if}
-
-			{#if log.operation === 'jobs.run.script'}
-				<Button
-					href={`scripts/get/${log.resource}`}
-					color="dark"
-					variant="contained"
-					size="xs"
-					target="_blank"
-				>
-					View script
-				</Button>
-			{/if}
-
-			{#if ViewFlowOp.includes(log.operation)}
-				<Button
-					href={`flows/get/${log.resource}`}
-					color="dark"
-					variant="contained"
-					size="xs"
-					target="_blank"
-					endIcon={{ icon: ArrowRight }}
-				>
-					View flow
-				</Button>
-			{/if}
-			{#if ViewAppOp.includes(log.operation)}
-				<Button
-					href={`apps/get/${log.resource}`}
-					color="dark"
-					variant="contained"
-					size="xs"
-					target="_blank"
-					endIcon={{ icon: ArrowRight }}
-				>
-					View app
-				</Button>
-			{/if}
 		{/if}
 	{:else}
-		<span class="text-xs">No log selected</span>
+		<span class="text-xs text-primary font-normal">No log selected</span>
 	{/if}
 </div>

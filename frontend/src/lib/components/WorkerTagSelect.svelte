@@ -16,7 +16,8 @@
 		nullTag = undefined,
 		disabled = false,
 		placeholder,
-		inputClass
+		inputClass,
+		alwaysDisplayRefresh = false
 	}: {
 		tag: string | undefined
 		noLabel?: boolean
@@ -26,6 +27,7 @@
 		language?: string
 		class?: string
 		inputClass?: string
+		alwaysDisplayRefresh?: boolean
 	} = $props()
 
 	let loading = $state(false)
@@ -129,7 +131,7 @@
 {/snippet}
 <div class="flex gap-1 items-center relative">
 	{#if !noLabel}
-		<div class="text-tertiary text-2xs">{placeholder ?? 'tag'}</div>
+		<div class="text-primary text-xs">{placeholder ?? 'tag'}</div>
 	{/if}
 	<Select
 		clearable
@@ -142,19 +144,25 @@
 		bind:value={() => tag, (value) => ((tag = value), dispatch('change', value))}
 		{startSnippet}
 	/>
-	{#if open}
-		<div class="absolute top-0 -right-12">
-			<Button
-				iconOnly
-				variant="border"
-				color="dark"
-				size="xs"
-				startIcon={{ icon: RotateCw, classes: loading ? 'animate-spin' : '' }}
-				on:click={async () => {
-					loadWorkerGroups(true)
-					open = true
-				}}
-			></Button>
+	{#if alwaysDisplayRefresh}
+		{@render refreshAll()}
+	{:else if open}
+		<div class="absolute top-0 -right-10">
+			{@render refreshAll()}
 		</div>
 	{/if}
 </div>
+
+{#snippet refreshAll()}
+	<Button
+		iconOnly
+		variant="subtle"
+		unifiedSize="md"
+		startIcon={{ icon: RotateCw, classes: loading ? 'animate-spin' : '' }}
+		on:click={async () => {
+			loadWorkerGroups(true)
+			open = true
+		}}
+		title="Refresh worker groups"
+	></Button>
+{/snippet}

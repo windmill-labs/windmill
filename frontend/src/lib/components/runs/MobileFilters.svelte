@@ -8,7 +8,7 @@
 
 <Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
 	<svelte:fragment slot="trigger">
-		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: Filter }}>
+		<Button variant="accent" size="xs" nonCaptureEvent={true} startIcon={{ icon: Filter }}>
 			Filters
 		</Button>
 	</svelte:fragment>

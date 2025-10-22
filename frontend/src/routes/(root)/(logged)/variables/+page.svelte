@@ -167,14 +167,20 @@
 			<div class="flex flex-row justify-end">
 				{#if tab == 'contextual' && ($userStore?.is_admin || $userStore?.is_super_admin)}
 					<Button
-						size="md"
+						unifiedSize="md"
+						variant="accent"
 						startIcon={{ icon: Plus }}
 						on:click={() => contextualVariableEditor?.initNew()}
 					>
 						New&nbsp;contextual&nbsp;variable
 					</Button>
 				{:else}
-					<Button size="md" startIcon={{ icon: Plus }} on:click={() => variableEditor?.initNew()}>
+					<Button
+						unifiedSize="md"
+						variant="accent"
+						startIcon={{ icon: Plus }}
+						on:click={() => variableEditor?.initNew()}
+					>
 						New&nbsp;variable
 					</Button>
 				{/if}
@@ -194,23 +200,16 @@
 		/>
 
 		<Tabs bind:selected={tab}>
-			<Tab size="md" value="workspace">
-				<div class="flex gap-2 items-center my-1">
-					<Building size={18} />
-					Workspace
-				</div>
-			</Tab>
-			<Tab size="md" value="contextual">
-				<div class="flex gap-2 items-center my-1">
-					<DollarSign size={18} />
-					Contextual
+			<Tab value="workspace" label="Workspace" icon={Building} />
+			<Tab value="contextual" label="Contextual" icon={DollarSign}>
+				{#snippet extra()}
 					<Tooltip
 						documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables"
 					>
 						Contextual variables are passed as environment variables when running a script and
 						depends on the execution context.
 					</Tooltip>
-				</div>
+				{/snippet}
 			</Tab>
 		</Tabs>
 		{#if tab == 'workspace'}
@@ -285,7 +284,7 @@
 										</span>
 									</Cell>
 									<Cell class="break-words">
-										<span class="text-xs text-tertiary">{truncate(description ?? '', 50)} </span>
+										<span class="text-xs text-primary">{truncate(description ?? '', 50)} </span>
 									</Cell>
 
 									<Cell class="text-center">
@@ -454,7 +453,9 @@
 					<PageHeader title="Custom contextual variables" primary={false} />
 					{#if contextualVariables.filter((x) => x.is_custom).length === 0}
 						<div class="flex flex-col items-center justify-center h-full">
-							<div class="text-md font-medium">No custom contextual variables found</div>
+							<div class="text-xs text-primary font-normal"
+								>No custom contextual variables found</div
+							>
 						</div>
 					{:else}
 						<TableSimple

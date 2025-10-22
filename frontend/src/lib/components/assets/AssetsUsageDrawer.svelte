@@ -32,16 +32,16 @@
 					<a
 						href={getAssetUsagePageUri(u)}
 						aria-label={`${u.kind}/${u.path}`}
-						class="text-sm text-primary flex items-center py-3 px-4 gap-3 hover:bg-surface-hover cursor-pointer"
+						class="text-xs text-primary font-normal flex items-center py-3 px-4 gap-3 hover:bg-surface-hover cursor-pointer"
 					>
 						<RowIcon kind={u.kind} />
 						<div class="flex flex-col justify-center flex-1">
-							<span class="font-semibold">{u.path}</span>
-							<span class="text-xs text-tertiary">{u.kind}</span>
+							<span class="font-semibold text-emphasis">{u.path}</span>
+							<span class="text-2xs text-secondary">{u.kind}</span>
 						</div>
 						<div
 							class={twMerge(
-								'text-xs font-normal border text-tertiary w-10 p-1 text-center rounded-md',
+								'text-xs font-normal border text-primary w-10 p-1 text-center rounded-md',
 								!u.access_type ? 'hover:bg-surface active:opacity-80' : ''
 							)}
 						>

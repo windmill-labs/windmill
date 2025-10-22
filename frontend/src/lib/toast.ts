@@ -1,9 +1,12 @@
 import Toast from '$lib/components/Toast.svelte'
 import { toast } from '@zerodevx/svelte-toast'
+import type { ComponentProps } from 'svelte'
+import type { Button } from './components/common'
 
 export type ToastAction = {
 	label: string
 	callback: () => void
+	buttonType?: ComponentProps<typeof Button>['variant']
 }
 
 export function sendUserToast(
@@ -43,7 +46,8 @@ export function sendUserToast(
 		theme: {
 			'--toastPadding': '0',
 			'--toastMsgPadding': '0',
-			'--toastBackground': 'var(--color-surface)'
+			'--toastBackground': '#00000000',
+			'--toastBorderRadius': '0.4rem'
 		}
 	})
 }

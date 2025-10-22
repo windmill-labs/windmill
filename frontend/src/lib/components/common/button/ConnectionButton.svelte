@@ -94,8 +94,7 @@
 	>
 		<Button
 			size={small ? 'xs' : 'md'}
-			variant="border"
-			color="light"
+			variant="default"
 			title="Connect"
 			on:click={() => handleConnect(true)}
 			{id}

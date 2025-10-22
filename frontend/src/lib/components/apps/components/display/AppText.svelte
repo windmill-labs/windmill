@@ -97,7 +97,7 @@
 	function getClasses() {
 		switch (resolvedConfig.style) {
 			case 'Caption':
-				return 'text-sm italic text-tertiary'
+				return 'text-sm italic text-primary'
 			case 'Label':
 				return 'font-semibold text-sm'
 			default:
@@ -268,9 +268,8 @@
 							<div class="flex items-center">
 								<Button
 									title="Copy to clipboard"
-									variant="border"
+									variant="default"
 									size="xs"
-									color="light"
 									btnClasses="!p-1"
 									on:click={() => copyToClipboard(result)}
 								>

@@ -576,7 +576,7 @@
 				{@const maxTsN = new Date(maxTs).getTime()}
 				{@const diff = maxTsN - minTsN}
 				{#if searchTerm === ''}
-					<div class="flex w-full text-2xs text-tertiary pb-6">
+					<div class="flex w-full text-2xs text-primary pb-6">
 						<div style="width: 60px;"></div>
 
 						<div class="flex justify-between w-full"
@@ -653,7 +653,7 @@
 											{#if loadingLogCounts}
 												<Loader2 size={15} class="animate-spin" />
 											{:else if countsPerHost}
-												<div class="text-tertiary text-xs">
+												<div class="text-primary text-xs">
 													{countsPerHost[hostKey]?.doc_count ?? 0} matches
 												</div>
 											{:else}
@@ -682,7 +682,7 @@
 					</div>
 				{/each}
 				{#if !loadingLogCounts && sumOtherDocCount != 0}
-					<div class="text-tertiary italic text-sm">
+					<div class="text-primary italic text-sm">
 						Note: {sumOtherDocCount} additional matches weren't grouped into any of the above hosts.
 					</div>
 				{/if}
@@ -693,14 +693,14 @@
 		<div class="relative h-full flex flex-col gap-1 pb-2">
 			{#if selected}
 				{#if !loadingLogs && logs == undefined}
-					<div class="w-full bg-surface-primary-inverse text-tertiary text-xs text-center">
+					<div class="w-full bg-surface-primary-inverse text-primary text-xs text-center">
 						1 min delay: logs are compacted before being available
 					</div>
 				{/if}
 				<div class="grow overflow-auto" id="logviewer">
 					{#if loadingLogs}
 						<div class="flex w-full justify-center items-center h-48">
-							<div class="text-tertiary text-center">
+							<div class="text-primary text-center">
 								<Loader2 size={34} class="animate-spin" />
 							</div>
 						</div>
@@ -720,7 +720,7 @@
 								/>
 							{/each}
 							{#if logs.hits.length === 0}
-								<div class="text-center py-20 text-bold text-xl text-tertiary"> No logs </div>
+								<div class="text-center py-20 text-bold text-xl text-primary"> No logs </div>
 							{/if}
 							{#if logs.hits.length === 1000}
 								<div class="pl-6 py-6 text-sm text-secondary">
@@ -789,7 +789,7 @@
 				</div>
 				{#if searchTerm == ''}
 					<div class="flex w-full items-center gap-4">
-						<div class="text-tertiary px-1 text-2xs">Last 5 log files up to:</div>
+						<div class="text-primary px-1 text-2xs">Last 5 log files up to:</div>
 						<div class="flex grow text-xs justify-center px-2 items-center gap-2">
 							{#if upTo}
 								<button

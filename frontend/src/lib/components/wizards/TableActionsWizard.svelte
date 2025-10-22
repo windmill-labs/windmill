@@ -71,11 +71,8 @@
 						/>
 						<Button
 							size="xs"
-							color="light"
-							startIcon={{
-								icon: Code
-							}}
-							variant="border"
+							startIcon={{ icon: Code }}
+							variant="default"
 							on:click={() => {
 								actionsOrder = undefined
 							}}
@@ -85,11 +82,8 @@
 					{:else}
 						<Button
 							size="xs"
-							color="light"
-							startIcon={{
-								icon: Code
-							}}
-							variant="border"
+							startIcon={{ icon: Code }}
+							variant="default"
 							on:click={() => {
 								actionsOrder = {
 									fieldType: 'text',

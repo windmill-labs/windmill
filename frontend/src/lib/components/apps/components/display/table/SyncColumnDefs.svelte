@@ -163,7 +163,12 @@
 							{/each}
 						</div>
 						<div class="w-full flex fles-row justify-end">
-							<Button startIcon={{ icon: RefreshCw }} size="xs" color="dark" on:click={syncColumns}>
+							<Button
+								startIcon={{ icon: RefreshCw }}
+								size="xs"
+								variant="accent"
+								on:click={syncColumns}
+							>
 								Sync columns definition
 							</Button>
 						</div>

@@ -106,12 +106,10 @@
 									<div class="relative flex justify-center items-center">
 										<SvelteComponent
 											size={14}
-											class={isSelectedTrigger
-												? 'text-blue-500'
-												: 'text-gray-500 dark:text-gray-400'}
+											class={isSelectedTrigger ? 'text-accent' : 'text-hint'}
 										/>
 										{#if trigger.isPrimary}
-											<Star size={8} class="absolute -mt-3 ml-3 text-blue-400" />
+											<Star size={8} class="absolute -mt-3 ml-3 text-accent" />
 										{/if}
 									</div>
 									<div class="flex grow min-w-0 items-center text-left">

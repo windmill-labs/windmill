@@ -44,7 +44,7 @@
 					: 'border-blue-500 border'
 			} else {
 				return current
-					? 'border-gray-500 border bg-gray-200 text-tertiary'
+					? 'border-gray-500 border bg-gray-200 text-primary'
 					: 'border-gray-500 border'
 			}
 		}
@@ -52,7 +52,7 @@
 </script>
 
 <div class="flex justify-between">
-	<ol class="relative z-20 flex justify-between items-centers text-sm font-medium text-tertiary">
+	<ol class="relative z-20 flex justify-between items-centers text-sm font-medium text-primary">
 		{#each tabs ?? [] as step, index}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
@@ -82,7 +82,7 @@
 				<span
 					class={classNames(
 						'hidden sm:block',
-						selectedIndex === index ? 'font-semibold text-primary' : 'font-normal text-tertiary'
+						selectedIndex === index ? 'font-semibold text-primary' : 'font-normal text-primary'
 					)}
 				>
 					{step}

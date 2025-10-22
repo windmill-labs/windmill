@@ -90,8 +90,7 @@
 		<Button
 			spacingSize="sm"
 			size="xs"
-			color="light"
-			variant="border"
+			variant="default"
 			on:click={testTriggerConnection}
 			loading={testLoading}
 			clickableWhileLoading

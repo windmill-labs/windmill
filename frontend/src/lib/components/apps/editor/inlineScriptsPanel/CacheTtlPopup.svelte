@@ -4,12 +4,14 @@
 	import { Database } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { autoPlacement } from '@floating-ui/core'
+	import type { ComponentProps } from 'svelte'
 
 	interface Props {
 		cache_ttl: number | undefined
+		btnProps?: ComponentProps<typeof Button>
 	}
 
-	let { cache_ttl = $bindable() }: Props = $props()
+	let { cache_ttl = $bindable(), btnProps }: Props = $props()
 </script>
 
 <Popover
@@ -35,6 +37,7 @@
 			iconOnly
 			startIcon={{ icon: Database }}
 			title="Cache settings"
+			{...btnProps}
 		/>
 	{/snippet}
 	{#snippet content()}

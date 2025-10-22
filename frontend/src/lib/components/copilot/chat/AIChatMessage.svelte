@@ -75,7 +75,7 @@
 				message.role === 'user' &&
 					'px-2 border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900 rounded-lg relative group',
 				(message.role === 'assistant' || message.role === 'tool') && 'px-[1px]',
-				message.role === 'tool' && 'text-tertiary'
+				message.role === 'tool' && 'text-primary'
 			)}
 		>
 			{#if message.role === 'assistant'}
@@ -88,12 +88,11 @@
 		</div>
 	{/if}
 	{#if message.role === 'user' && message.snapshot}
-		<div class="mx-2 text-sm text-tertiary flex flex-row items-center justify-between gap-2 mt-2">
+		<div class="mx-2 text-sm text-primary flex flex-row items-center justify-between gap-2 mt-2">
 			Saved a flow snapshot
 			<Button
 				size="xs2"
-				variant="border"
-				color="light"
+				variant="default"
 				on:click={() => {
 					if (message.snapshot) {
 						aiChatManager.flowAiChatHelpers?.revertToSnapshot(message.snapshot)
@@ -111,9 +110,8 @@
 	<div class="flex justify-end px-2 -mt-1">
 		<Button
 			size="xs2"
-			variant="border"
+			variant="default"
 			title="Retry generation"
-			color="light"
 			startIcon={{ icon: RefreshCwIcon }}
 			onclick={() => aiChatManager.retryRequest(messageIndex)}
 		>

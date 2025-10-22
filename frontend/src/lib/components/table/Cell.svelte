@@ -42,7 +42,9 @@
 		if (shouldStopPropagation) e.stopPropagation()
 	}}
 	class={twMerge(
-		'text-left text-xs text-primary font-normal',
+		'text-left font-normal',
+		// Typography based on brand guidelines
+		head ? 'text-2xs text-primary' : 'text-xs text-primary',
 		wrap ? 'break-words' : 'whitespace-nowrap',
 		first ? 'sm:pl-6' : '',
 		last ? 'sm:pr-6' : '',
@@ -51,8 +53,7 @@
 		last && size === 'xs' ? 'sm:pr-3' : '',
 
 		numeric ? 'text-right' : '',
-		head ? 'font-semibold ' : '',
-		sticky ? `!p-0 sticky ${first ? 'left-0' : 'right-0'}` : 'px-2 py-3.5',
+		sticky ? `!p-0 sticky ${first ? 'left-0' : 'right-0'}` : 'px-2 py-2',
 		size === 'sm' ? 'px-1.5 py-2.5' : '',
 		size === 'lg' ? 'px-3 py-4' : '',
 		size === 'xs' ? 'px-1 py-1.5' : '',

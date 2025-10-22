@@ -23,8 +23,7 @@
 		on:click
 		size="sm"
 		spacingSize="md"
-		variant="border"
-		color="light"
+		variant="default"
 		disabled={disabled || (enterpriseLangs.includes(lang || '') && !$enterpriseLicense)}
 		{id}
 	>

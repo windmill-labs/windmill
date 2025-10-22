@@ -54,7 +54,7 @@
 				>
 					<div class="flex flex-col gap-2">
 						<div class="flex justify-between">
-							<h3 class="text-lg font-medium text-primary">
+							<h3 class="text-lg font-semibold text-primary">
 								{title}
 							</h3>
 							<Button

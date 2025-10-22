@@ -11,7 +11,7 @@
 		by a schedule, and returning a list of the changed states so we can iterate over them.
 	</Description>
 
-	<Label label="Setting a scheduled poll" primary>
+	<Label label="Setting a scheduled poll">
 		<ul class="pt-4 space-y-2 text-sm">
 			<li>
 				1. Choose a trigger script using the script picker that will poll for new events regularly <img

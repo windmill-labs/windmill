@@ -281,8 +281,8 @@
 								size="xs"
 								on:click={() => dispatch('captureToggle', {})}
 								{disabled}
-								color={captureInfo.active ? 'light' : 'dark'}
-								btnClasses={captureInfo.active ? 'text-blue-500' : ''}
+								variant={captureInfo.active ? 'default' : 'accent-secondary'}
+								selected={captureInfo.active}
 								startIcon={captureInfo.active
 									? { icon: CircleStop }
 									: { icon: CaptureIcon, props: { variant: 'redDot' } }}
@@ -402,7 +402,7 @@
 								: 'Apply args to inputs'}
 					<Button
 						size="xs2"
-						color="dark"
+						variant="accent"
 						btnClasses="h-[27px]"
 						dropdownItems={[
 							{
@@ -475,7 +475,7 @@
 					/>
 				</div>
 			{:else}
-				<div class="text-center text-tertiary p-4 bg-surface rounded-md"
+				<div class="text-center text-primary p-4 bg-surface rounded-md"
 					>No captures to show yet.</div
 				>
 			{/if}

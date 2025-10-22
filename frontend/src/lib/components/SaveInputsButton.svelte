@@ -49,9 +49,8 @@
 	{disabled}
 	loading={savingInputs}
 	startIcon={{ icon: Save }}
-	variant={small ? 'border' : 'contained'}
-	color="light"
-	size="xs"
+	variant={small ? 'subtle' : 'default'}
+	unifiedSize="md"
 >
 	<span>{small ? 'Save inputs' : 'Save current input'}</span>
 	{#if showTooltip}

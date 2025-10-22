@@ -8,7 +8,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
 
-	let { idx, mode } = $props<{ idx: number, mode?: 'sync' | 'promotion' }>()
+	let { idx, mode } = $props<{ idx: number; mode?: 'sync' | 'promotion' }>()
 
 	const gitSyncContext = getGitSyncContext()
 	const repo = $derived(gitSyncContext.getRepository(idx))
@@ -19,15 +19,18 @@
 		const abortController = new AbortController()
 
 		if (repo?.git_repo_resource_path) {
-			gitSyncContext.getTargetBranch(repo).then(branch => {
-				if (!abortController.signal.aborted) {
-					targetBranch = branch
-				}
-			}).catch(error => {
-				if (!abortController.signal.aborted) {
-					console.warn('Failed to get target branch:', error)
-				}
-			})
+			gitSyncContext
+				.getTargetBranch(repo)
+				.then((branch) => {
+					if (!abortController.signal.aborted) {
+						targetBranch = branch
+					}
+				})
+				.catch((error) => {
+					if (!abortController.signal.aborted) {
+						console.warn('Failed to get target branch:', error)
+					}
+				})
 		}
 
 		return () => {
@@ -73,7 +76,6 @@
 		}
 	}
 </script>
-
 
 {#if repo}
 	<div class="space-y-4">
@@ -174,7 +176,7 @@
 
 		<!-- Job status display -->
 		{#if repo.detectionJobId && (repo.detectionState === 'loading' || repo.detectionState === 'error')}
-			<div class="flex items-center gap-2 text-xs text-tertiary">
+			<div class="flex items-center gap-2 text-xs text-primary">
 				{#if repo.detectionJobStatus === 'running'}
 					<Loader2 class="animate-spin" size={14} />
 				{:else if repo.detectionJobStatus === 'success'}

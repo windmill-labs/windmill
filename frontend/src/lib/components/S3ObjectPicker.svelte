@@ -84,10 +84,8 @@
 		/>
 	{/if}
 	<Button
-		variant="border"
-		color="light"
-		size="xs"
-		btnClasses="mt-1"
+		variant="default"
+		unifiedSize="sm"
 		on:click={() => {
 			s3FilePicker?.open?.(value)
 		}}

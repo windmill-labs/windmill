@@ -11,8 +11,7 @@
 
 <div class={twMerge('flex', $$props.class)}>
 	<Button
-		variant="border"
-		color="light"
+		variant="default"
 		btnClasses="text-primary {small ? 'text-xs' : ''} "
 		on:click={() => (open = !open)}
 		endIcon={{ icon: ChevronDown, classes: open ? 'transform rotate-180' : '' }}

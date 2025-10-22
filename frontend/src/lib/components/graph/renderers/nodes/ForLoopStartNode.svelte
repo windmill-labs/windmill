@@ -1,9 +1,7 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import type { FlowModule, FlowStatusModule } from '$lib/gen'
-	import { getStateColor, getStateHoverColor } from '../../util'
-	import type { GraphModuleState } from '../../model'
+	import type { FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import type { ForLoopStartN } from '../../graphBuilder.svelte'
@@ -29,16 +27,6 @@
 			return { iter_parent: inputJson.iter_parent }
 		}
 		return {}
-	}
-
-	function computeStatus(
-		state: GraphModuleState | undefined
-	): FlowStatusModule['type'] | undefined {
-		if (state?.type == 'InProgress' || state?.type == 'Success' || state?.type == 'Failure') {
-			let r = state?.flow_jobs_success?.[state?.selectedForloopIndex ?? 0]
-			if (r == undefined) return 'InProgress'
-			return r ? 'Success' : 'InProgress'
-		}
 	}
 
 	function isSelectedDescendant(
@@ -73,9 +61,6 @@
 			selected={false}
 			id={data.id}
 			hideId
-			bgColor={getStateColor(undefined, darkMode)}
-			bgHoverColor={getStateHoverColor(undefined, darkMode)}
-			borderColor={getStateColor(computeStatus(data.flowModuleState), darkMode)}
 			on:select={(e) => {
 				setTimeout(() => data?.eventHandlers?.select(e.detail))
 			}}

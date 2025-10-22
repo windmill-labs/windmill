@@ -63,8 +63,8 @@
 			/>
 		</div>
 	{:else if $search.length > 0}
-		<div class="text-xs pl-2 text-tertiary">No results</div>
+		<div class="text-xs pl-2 text-primary">No results</div>
 	{:else}
-		<div class="text-xs pl-2 text-tertiary">No outputs</div>
+		<div class="text-xs pl-2 text-primary">No outputs</div>
 	{/if}
 {/if}

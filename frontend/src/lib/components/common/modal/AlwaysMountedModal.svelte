@@ -55,7 +55,7 @@
 							}}
 							class="hover:bg-surface-hover bg-surface-secondary rounded-full w-8 h-8 flex items-center justify-center transition-all"
 						>
-							<X class="text-tertiary" />
+							<X class="text-primary" />
 						</button>
 					</div>
 				</div>

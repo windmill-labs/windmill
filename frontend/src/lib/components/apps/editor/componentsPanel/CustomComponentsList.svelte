@@ -88,7 +88,7 @@
 				/></div
 			></div
 		>
-		<Button on:click={() => addCustomComponent(nameField)} color="dark" size="xs"
+		<Button on:click={() => addCustomComponent(nameField)} variant="accent" size="xs"
 			>Add Custom Component</Button
 		>
 	</div>

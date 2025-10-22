@@ -115,15 +115,16 @@
 				on:click={() => dispatch('close')}
 				startIcon={{ icon: X }}
 				iconOnly
-				size="sm"
-				color="light"
+				unifiedSize="md"
+				variant="default"
 				btnClasses="hover:bg-surface-hover  bg-surface-secondaryw-8 h-8 rounded-full p-0"
 			/>
 		</div>
 
 		{#if isRunning}
 			<Button
-				color="red"
+				variant="accent"
+				destructive
 				on:click={async () => {
 					isRunning = false
 					try {
@@ -135,7 +136,7 @@
 							}))
 					} catch {}
 				}}
-				size="sm"
+				unifiedSize="md"
 				btnClasses="w-full max-w-lg"
 				loading={true}
 				clickableWhileLoading
@@ -144,10 +145,9 @@
 			</Button>
 		{:else}
 			<Button
-				variant="contained"
+				variant="accent"
 				startIcon={{ icon: isRunning ? RefreshCw : Play }}
-				color="dark"
-				size="sm"
+				unifiedSize="md"
 				btnClasses="w-full max-w-lg"
 				on:click={() => runPreview(previewArgs, undefined)}
 				id="flow-editor-test-flow-drawer"
@@ -184,7 +184,7 @@
 					bind:selectedJobStep
 				/>
 			{:else}
-				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>
+				<div class="italic text-primary h-full grow"> Flow status will be displayed here </div>
 			{/if}
 		</div>
 	</div>

@@ -86,7 +86,7 @@
 					{/if}
 				</div>
 				{#if displayType}
-					<div class="text-xs text-tertiary mr-1">
+					<div class="text-xs text-primary mr-1">
 						{fieldType === 'array' && subFieldType
 							? `${fieldTypeToTsType(subFieldType)}[]`
 							: fieldTypeToTsType(fieldType)}
@@ -96,7 +96,7 @@
 
 			<div class={classNames('flex gap-x-2 gap-y-1 justify-end items-center')}>
 				{#if componentInput?.type && allowTypeChange !== false}
-					<ToggleButtonGroup class="h-7" bind:selected={componentInput.type}>
+					<ToggleButtonGroup bind:selected={componentInput.type}>
 						{#snippet children({ item })}
 							<ToggleButton {item} value="user" icon={User} iconOnly tooltip="User Input" />
 							<ToggleButton {item} value="static" icon={Pen} iconOnly tooltip="Static" />
@@ -119,7 +119,7 @@
 				/>
 			</div>
 		{:else if componentInput?.type === 'user' || componentInput?.type == undefined}
-			<span class="text-2xs italic text-tertiary">Field's value is a frontend input</span>
+			<span class="text-2xs italic text-primary">Field's value is a frontend input</span>
 		{/if}
 		{#if componentInput?.type === 'user' && ((fieldType == 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object') || fieldType == 'resource')}
 			<div class="flex flex-row items-center">

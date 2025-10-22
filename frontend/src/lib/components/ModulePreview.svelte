@@ -18,6 +18,7 @@
 		noEditor?: boolean
 		scriptProgress?: any
 		focusArg?: string
+		class?: string
 		onJobDone?: () => void
 	}
 
@@ -30,6 +31,7 @@
 		noEditor = false,
 		scriptProgress = $bindable(undefined),
 		focusArg = undefined,
+		class: className = '',
 		onJobDone
 	}: Props = $props()
 
@@ -51,7 +53,7 @@
 	{onJobDone}
 />
 
-<div class="p-4">
+<div class="p-4 {className}">
 	{#if flowStore.val.value.same_worker}
 		<div class="mb-1 bg-yellow-100 text-yellow-700 p-1 text-xs"
 			>The `./shared` folder is not passed across individual "Test this step"</div
@@ -66,7 +68,7 @@
 			</Button>
 		{:else}
 			<Button
-				color="dark"
+				variant="accent"
 				btnClasses="truncate"
 				size="sm"
 				on:click={runTestWithStepArgs}

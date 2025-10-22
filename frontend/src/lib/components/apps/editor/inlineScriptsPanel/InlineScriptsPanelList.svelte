@@ -180,7 +180,7 @@
 					</div>
 				{/if}
 				{#if runnables.inline.length == 0 && $app.unusedInlineScripts?.length == 0 && runnables.imported.length == 0}
-					<div class="text-xs text-tertiary">No scripts/flows</div>
+					<div class="text-xs text-primary">No scripts/flows</div>
 				{/if}
 			</div>
 		</div>
@@ -198,8 +198,7 @@
 				</div>
 				<Button
 					size="xs"
-					color="light"
-					variant="border"
+					variant="default"
 					btnClasses="!rounded-full !p-1"
 					title="Create a new background runnable"
 					aria-label="Create a new background runnable"
@@ -242,7 +241,7 @@
 						{/if}
 					{/each}
 				{:else}
-					<div class="text-xs text-tertiary">No background runnable</div>
+					<div class="text-xs text-primary">No background runnable</div>
 				{/if}
 			</div>
 		</div>

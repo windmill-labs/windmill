@@ -19,7 +19,7 @@
 	}: Props = $props()
 </script>
 
-<Label label="Raw body" class="w-full">
+<Label label="Raw body" for="raw-body-toggle" class="w-full">
 	{#snippet header()}
 		<Tooltip
 			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing#body-processing-options"
@@ -39,10 +39,11 @@
 				raw_string = !raw_string
 			}}
 			{disabled}
+			id="raw-body-toggle"
 		/>
 	{/snippet}
 </Label>
-<Label label="Wrap body" class="w-full">
+<Label label="Wrap body" for="wrap-body-toggle" class="w-full">
 	{#snippet header()}
 		<Tooltip
 			documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing#body-processing-options"
@@ -61,6 +62,7 @@
 				wrap_body = !wrap_body
 			}}
 			{disabled}
+			id="wrap-body-toggle"
 		/>
 	{/snippet}
 </Label>

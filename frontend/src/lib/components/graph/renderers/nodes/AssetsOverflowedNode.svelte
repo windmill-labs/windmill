@@ -43,7 +43,7 @@
 			usePointerDownOutside
 			bind:isOpen
 			class={twMerge(
-				'!w-full text-2xs font-normal bg-surface h-6 pr-0.5 flex justify-center items-center rounded-sm text-tertiary border',
+				'!w-full text-2xs font-normal bg-surface h-6 pr-0.5 flex justify-center items-center rounded-sm text-primary border',
 				includesSelected ? 'bg-surface-secondary border-surface-inverse' : 'border-transparent',
 				'hover:bg-surface-secondary hover:border-surface-inverse active:opacity-55'
 			)}

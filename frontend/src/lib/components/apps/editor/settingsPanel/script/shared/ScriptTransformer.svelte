@@ -27,7 +27,7 @@
 			<Button
 				size="xs"
 				color={checked ? 'red' : 'light'}
-				variant="border"
+				variant="default"
 				on:click={() => {
 					if (appInput.transformer) {
 						appInput.transformer = undefined
