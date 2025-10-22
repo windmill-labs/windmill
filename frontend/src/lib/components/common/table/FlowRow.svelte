@@ -127,6 +127,7 @@
 					<div>
 						<Button
 							variant="subtle"
+							wrapperClasses="w-20"
 							unifiedSize="md"
 							startIcon={{ icon: Pen }}
 							href="{base}/flows/edit/{flow.path}?nodraft=true"
@@ -140,6 +141,7 @@
 					<div>
 						<Button
 							variant="subtle"
+							wrapperClasses="w-20"
 							unifiedSize="md"
 							startIcon={{ icon: GitFork }}
 							href="{base}/flows/add?template={flow.path}"

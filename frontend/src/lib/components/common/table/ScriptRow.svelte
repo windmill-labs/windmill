@@ -165,6 +165,7 @@
 							aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
 							aiDescription={`Edits the script ${script.summary?.length > 0 ? script.summary : script.path}`}
 							variant="subtle"
+							wrapperClasses="w-20"
 							unifiedSize="md"
 							startIcon={{ icon: Pen }}
 							href="{base}/scripts/edit/{script.path}"
@@ -178,6 +179,7 @@
 							aiId={`fork-script-button-${script.summary ?? script.path}`}
 							aiDescription={`Fork the script ${script.summary ?? script.path}`}
 							variant="subtle"
+							wrapperClasses="w-20"
 							unifiedSize="md"
 							startIcon={{ icon: GitFork }}
 							href="{base}/scripts/add?template={script.path}"
