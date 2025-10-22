@@ -72,7 +72,7 @@
 
 <div class="p-2 border rounded-md">
 	{#if oneOf}
-		<div class="mb-2 text-sm font-semibold">
+		<div class="mb-2 text-xs font-semibold">
 			{capitalize(addWhitespaceBeforeCapitals(key))}&nbsp;
 			{#if tooltip}
 				<Tooltip light>{tooltip}</Tooltip>
