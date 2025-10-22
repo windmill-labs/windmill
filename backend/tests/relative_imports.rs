@@ -2544,9 +2544,7 @@ mod normal_job_debouncing {
                             .fetch_one(db)
                             .await
                             .unwrap(),
-                            windmill_common::utils::calculate_hash(
-                                "test-workspace/script/f/scripts/script_1#args:\"33\":\"ey\""
-                            )
+                                "test-workspace/script/f/scripts/script_1#args:\"33\":\"ey\"".to_owned()
                         );
 
                         // Verify it is scheduled for future and not now.
@@ -2680,9 +2678,7 @@ mod normal_job_debouncing {
                             .fetch_one(db)
                             .await
                             .unwrap(),
-                            windmill_common::utils::calculate_hash(
-                                "test-workspace:my-custom-debounce-key:ey"
-                            )
+                                "test-workspace:my-custom-debounce-key:ey".to_owned()
                         );
 
                         // Verify it is scheduled for future and not now.
@@ -3180,9 +3176,7 @@ mod normal_job_debouncing {
                             .fetch_one(db)
                             .await
                             .unwrap(),
-                            windmill_common::utils::calculate_hash(
-                                "test-workspace/script/f/flows/flow_full/a#args:"
-                            )
+                                "test-workspace/script/f/flows/flow_full/a#args:".to_owned()
                         );
 
                         // Verify it is scheduled for future and not now.
@@ -3327,9 +3321,7 @@ mod normal_job_debouncing {
                             .fetch_one(db)
                             .await
                             .unwrap(),
-                            windmill_common::utils::calculate_hash(
-                                "test-workspace/script/f/flows/flow_full/a#args:"
-                            )
+                                "test-workspace/script/f/flows/flow_full/a#args:".to_owned()
                         );
 
                         // Verify it is scheduled for future and not now.

@@ -2453,30 +2453,6 @@ WHERE concurrency_id IN (SELECT concurrency_id FROM rows_to_delete)  RETURNING c
     Ok(())
 }
 
-async fn cleanup_debounce_orphaned_keys(db: &DB) -> error::Result<()> {
-    let result = sqlx::query!(
-        "
-DELETE FROM debounce_key
-WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
-RETURNING key,job_id
-        ",
-    )
-    .fetch_all(db)
-    .await?;
-
-    if result.len() > 0 {
-        tracing::info!("Cleaned up {} debounce keys", result.len());
-        for row in result {
-            tracing::info!(
-                "Debounce key cleaned up: key: {}, job_id: {:?}",
-                row.key,
-                row.job_id
-            );
-        }
-    }
-    Ok(())
-}
-
 async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
     let flows = sqlx::query!(
         r#"
