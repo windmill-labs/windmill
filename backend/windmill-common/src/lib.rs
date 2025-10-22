@@ -17,7 +17,6 @@ use std::{
         Arc,
     },
 };
-use worker::MIN_VERSION_SUPPORTS_DEBOUNCING;
 
 use tokio::{spawn, sync::broadcast};
 
