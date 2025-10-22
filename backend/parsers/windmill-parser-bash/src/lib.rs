@@ -45,10 +45,10 @@ pub fn parse_powershell_sig(code: &str) -> anyhow::Result<MainArgSignature> {
 }
 
 lazy_static::lazy_static! {
-    static ref RE_BASH: Regex = Regex::new(r#"(?m)^(\w+)="\$(?:(\d+)|\{(\d+)\}|\{(\d+):-(.*)\})"(?:[\t ]*)?(?:#.*)?$"#).unwrap();
+    static ref RE_BASH: Regex = Regex::new(r#"(?m)^(\w+)="\$(?:(\d+)|\{(\d+)\}|\{(\d+):-(.*)\})"(?:[\t ]*)?(?:#.*)?\r?$"#).unwrap();
 
     pub static ref RE_POWERSHELL_PARAM: Regex = Regex::new(r#"(?m)param[\t ]*\(([^)]*)\)"#).unwrap();
-    static ref RE_POWERSHELL_ARGS: Regex = Regex::new(r#"(?:\[([\w\[\]]+)\])?\$(\w+)[\t ]*(?:=[\t ]*(?:(?:(?:"|')([^"\n\r\$]*)(?:"|'))|([\d.]+)))?"#).unwrap();
+    static ref RE_POWERSHELL_ARGS: Regex = Regex::new(r#"(?:\[([\w\[\]]+)\])?\$(\w+)[\t ]*(?:=[\t ]*(?:(?:(?:"|')([^"\n\r\$]*)(?:"|'))|([\d.]+)))?\r?"#).unwrap();
 }
 
 fn parse_bash_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
@@ -350,6 +350,65 @@ non_required="${5:-}"
                 has_preprocessor: None
             }
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_bash_sig_with_crlf() -> anyhow::Result<()> {
+        // Test with CRLF line endings (Windows-style)
+        let code = "\r\ntoken=\"$1\"\r\nimage=\"$2\"\r\ndigest=\"${3:-latest with spaces}\"\r\ntext=\"$4\" # with comment\r\nnon_required=\"${5:-}\"\r\n\r\n\r\n";
+        assert_eq!(
+            parse_bash_sig(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        otyp: None,
+                        name: "token".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "image".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "digest".to_string(),
+                        typ: Typ::Str(None),
+                        default: Some(json!("latest with spaces")),
+                        has_default: true,
+                        oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "text".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false,
+                        oidx: None
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "non_required".to_string(),
+                        typ: Typ::Str(None),
+                        default: Some(json!("")),
+                        has_default: true,
+                        oidx: None
+                    }
+                ],
+                no_main_func: None,
+                has_preprocessor: None
+            }
+        );
+
         Ok(())
     }
 }
