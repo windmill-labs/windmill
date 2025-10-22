@@ -1720,7 +1720,6 @@ pub async fn monitor_db(
         cleanup_concurrency_counters_empty_keys_f,
         cleanup_debounce_keys_f,
         cleanup_worker_group_stats_f,
-        cleanup_debounce_keys_f
     );
 }
 
