@@ -56,7 +56,7 @@
 				<div
 					class="flex flex-row justify-between items-start gap-2 border border-border-light p-4 rounded-md"
 				>
-					<div class="font-medium text-emphasis text-xs flex items-center">
+					<div class="font-semibold text-emphasis text-xs flex items-center">
 						Theme <DarkModeToggle forcedDarkMode={false} />
 					</div>
 					<div class="text-xs text-emphasis flex-col flex">

@@ -112,7 +112,7 @@
 	<DrawerContent title="Share {path}" on:close={drawer?.closeDrawer}>
 		<div class="flex flex-col gap-2">
 			<h1 class="text-sm font-semibold text-emphasis">{path}</h1>
-			<span class="text-xs font-medium text-emphasis"
+			<span class="text-xs font-semibold text-emphasis"
 				>Extra Permissions ({acls?.length ?? 0}) &nbsp; <Tooltip
 					>Items already have default permissions. If belonging to an user or group, that group or
 					user owns it and can write to it as well as modify its permisions and move it. Folders

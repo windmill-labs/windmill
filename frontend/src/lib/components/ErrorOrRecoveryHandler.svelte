@@ -367,7 +367,7 @@
 		</div>
 	{/if}
 	{#if handlerPath}
-		<p class="font-medium text-xs mt-6 mb-1">Extra arguments</p>
+		<p class="font-semibold text-xs mt-6 mb-1">Extra arguments</p>
 		{#await import('$lib/components/SchemaForm.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}

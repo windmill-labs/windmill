@@ -751,7 +751,7 @@
 								bind:checked={useClientCredentials}
 								id="useClienCrediential"
 							/>
-							<label for="useClienCrediential" class="text-xs font-medium text-emphasis"
+							<label for="useClienCrediential" class="text-xs font-semibold text-emphasis"
 								>Use Client Credentials Flow</label
 							>
 							<Tooltip>
@@ -764,14 +764,14 @@
 						{#if useClientCredentials}
 							<form class="flex flex-col gap-6">
 								<label class="flex flex-col gap-1">
-									<span class="text-xs font-medium text-emphasis">Client ID</span>
+									<span class="text-xs font-semibold text-emphasis">Client ID</span>
 									<TextInput
 										bind:value={clientId}
 										inputProps={{ placeholder: 'Enter OAuth client ID', required: true }}
 									/>
 								</label>
 								<label class="flex flex-col gap-1">
-									<span class="text-xs font-medium text-emphasis">Client Secret</span>
+									<span class="text-xs font-semibold text-emphasis">Client Secret</span>
 									<TextInput
 										inputProps={{
 											type: 'password',
@@ -782,7 +782,7 @@
 									/>
 								</label>
 								<label class="flex flex-col gap-1">
-									<span class="text-xs font-medium text-emphasis"
+									<span class="text-xs font-semibold text-emphasis"
 										>Token URL Override (Optional)</span
 									>
 									<div class="text-xs text-primary font-normal">
@@ -803,7 +803,7 @@
 				{/if}
 
 				<div class="flex flex-col gap-1">
-					<h3 class="text-xs font-medium text-emphasis flex gap-4"
+					<h3 class="text-xs font-semibold text-emphasis flex gap-4"
 						>Scopes <button
 							onclick={() => {
 								editScopes = !editScopes
@@ -841,7 +841,7 @@
 			<ul class="mt-6">
 				<li class="text-xs text-primary font-normal">
 					1. A secret variable containing the {apiTokenApps[resourceType]?.linkedSecret ?? 'token'}
-					<span class="font-medium text-emphasis">{truncateRev(value, 5, '*****')}</span>
+					<span class="font-semibold text-emphasis">{truncateRev(value, 5, '*****')}</span>
 					will be stored a
 					<span class="font-mono whitespace-nowrap text-emphasis">{path}</span>.
 				</li>

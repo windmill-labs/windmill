@@ -159,19 +159,19 @@
 		<div class="flex flex-col gap-2 mt-2 p-2 border rounded-md">
 			{#if bucket_config.type === 'S3'}
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis">Bucket</span>
+					<span class="text-xs font-semibold text-emphasis">Bucket</span>
 					<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
 				</label>
 
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis">Region</span>
+					<span class="text-xs font-semibold text-emphasis">Region</span>
 					<span class="text-primary text-2xs"
 						>If left empty, will be derived automatically from $AWS_REGION</span
 					>
 					<input type="text" bind:value={bucket_config.region} />
 				</label>
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis">Access key ID</span>
+					<span class="text-xs font-semibold text-emphasis">Access key ID</span>
 					<span class="text-primary text-2xs"
 						>If left empty, will be derived automatically from $AWS_ACCESS_KEY_ID, pod or ec2
 						profile</span
@@ -179,7 +179,7 @@
 					<input type="text" bind:value={bucket_config.access_key} />
 				</label>
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis">Secret key</span>
+					<span class="text-xs font-semibold text-emphasis">Secret key</span>
 					<span class="text-primary text-2xs"
 						>If left empty, will be derived automatically from $AWS_SECRET_KEY, pod or ec2 profile</span
 					>
@@ -190,7 +190,7 @@
 					/>
 				</label>
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis">Endpoint</span>
+					<span class="text-xs font-semibold text-emphasis">Endpoint</span>
 					<span class="text-primary text-2xs"
 						>Only needed for non AWS S3 providers like R2 or MinIo</span
 					>
@@ -204,11 +204,11 @@
 				</div>
 			{:else if bucket_config.type === 'Azure'}
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis">Account name</span>
+					<span class="text-xs font-semibold text-emphasis">Account name</span>
 					<input type="text" placeholder="account-name" bind:value={bucket_config.accountName} />
 				</label>
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis">Container name</span>
+					<span class="text-xs font-semibold text-emphasis">Container name</span>
 					<input
 						type="text"
 						placeholder="container-name"
@@ -216,23 +216,23 @@
 					/>
 				</label>
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis">Access key</span>
+					<span class="text-xs font-semibold text-emphasis">Access key</span>
 					<input type="password" autocomplete="new-password" bind:value={bucket_config.accessKey} />
 				</label>
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis"
+					<span class="text-xs font-semibold text-emphasis"
 						>Tenant ID <span class="text-2xs text-primary">(optional)</span></span
 					>
 					<input type="text" bind:value={bucket_config.tenantId} />
 				</label>
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis"
+					<span class="text-xs font-semibold text-emphasis"
 						>Client ID <span class="text-2xs text-primary">(optional)</span></span
 					>
 					<input type="text" bind:value={bucket_config.clientId} />
 				</label>
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis"
+					<span class="text-xs font-semibold text-emphasis"
 						>Endpoint <span class="text-2xs text-primary">(optional)</span></span
 					>
 					<span class="text-primary text-2xs"
@@ -242,15 +242,15 @@
 				</label>
 			{:else if bucket_config.type === 'AwsOidc'}
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis">Bucket</span>
+					<span class="text-xs font-semibold text-emphasis">Bucket</span>
 					<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
 				</label>
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis">Region</span>
+					<span class="text-xs font-semibold text-emphasis">Region</span>
 					<input type="text" placeholder="region" bind:value={bucket_config.region} />
 				</label>
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis">Role ARN</span>
+					<span class="text-xs font-semibold text-emphasis">Role ARN</span>
 					<input
 						type="text"
 						placeholder="arn:aws:iam::123456789012:role/test"
@@ -259,11 +259,11 @@
 				</label>
 			{:else if bucket_config.type === 'Gcs'}
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis">Bucket</span>
+					<span class="text-xs font-semibold text-emphasis">Bucket</span>
 					<input type="text" placeholder="bucket-name" bind:value={bucket_config.bucket} />
 				</label>
 				<label class="block pb-2">
-					<span class="text-xs font-medium text-emphasis">Service Account Key</span>
+					<span class="text-xs font-semibold text-emphasis">Service Account Key</span>
 					<span class="text-primary text-2xs">JSON content of the service account key file</span>
 					<SimpleEditor
 						lang="json"

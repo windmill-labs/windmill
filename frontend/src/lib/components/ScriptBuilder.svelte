@@ -1299,7 +1299,7 @@
 													right: 'Cache the results for each possible inputs'
 												}}
 											/>
-											<span class="text-xs font-medium text-emphasis leading-none">
+											<span class="text-xs font-semibold text-emphasis leading-none">
 												How long to the keep cache valid
 											</span>
 											{#if script.cache_ttl}
@@ -1332,7 +1332,7 @@
 													right: 'Add a custom timeout for this script'
 												}}
 											/>
-											<span class="text-xs font-medium text-emphasis leading-none">
+											<span class="text-xs font-semibold text-emphasis leading-none">
 												Timeout duration
 											</span>
 											{#if script.timeout}

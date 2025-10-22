@@ -258,7 +258,7 @@
 	<div class="space-y-4">
 		<!-- Resource Picker -->
 		<div class="flex gap-2 items-center">
-			<div class="font-medium">Resource:</div>
+			<div class="font-semibold">Resource:</div>
 			<div class="flex-1">
 				<ResourcePicker
 					bind:value={repo.git_repo_resource_path}
@@ -422,7 +422,7 @@
 	<div class="rounded-lg border bg-surface p-4 mb-4">
 		<div class="flex items-center justify-between mb-4">
 			<div class="flex flex-col">
-				<h3 class="text-xs font-medium text-emphasis">{displayTitle}</h3>
+				<h3 class="text-xs font-semibold text-emphasis">{displayTitle}</h3>
 				{#if displayDescription}
 					<p class="text-2xs text-secondary">{displayDescription}</p>
 				{/if}
@@ -475,7 +475,7 @@
 					<span class="text-lg font-semibold">{displayTitle}</span>
 					{#if repo.legacyImported}
 						<span
-							class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 border border-orange-200"
+							class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-orange-100 text-orange-800 border border-orange-200"
 						>
 							Legacy Configuration
 						</span>

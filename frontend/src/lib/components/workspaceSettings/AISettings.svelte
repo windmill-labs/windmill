@@ -163,7 +163,7 @@
 
 <div class="flex flex-col gap-8">
 	<div class="flex flex-col gap-2">
-		<p class="font-medium text-xs text-emphasis">AI Providers</p>
+		<p class="font-semibold text-xs text-emphasis">AI Providers</p>
 		<div class="flex flex-col gap-4">
 			{#each Object.entries(AI_PROVIDERS) as [provider, details]}
 				<div class="flex flex-col gap-2">

@@ -199,7 +199,7 @@
 	})
 
 	const categoryContentClasses = 'overflow-y-auto pb-4'
-	const categoryTitleClasses = 'font-medium text-xs text-emphasis'
+	const categoryTitleClasses = 'font-semibold text-xs text-emphasis'
 </script>
 
 <div class="flex flex-col h-full">

@@ -159,7 +159,7 @@
 								<Cell first>
 									<div class="flex flex-row gap-2 justify-between">
 										<div>
-											<span class="text-emphasis text-xs font-medium">{name}</span>
+											<span class="text-emphasis text-xs font-semibold">{name}</span>
 											{#if summary}
 												<br />
 												<span class="text-2xs font-normal text-secondary">{summary}</span>
@@ -250,7 +250,7 @@
 											({workspace.role})
 										{/each}
 									{:else}
-										<span class="text-emphasis font-medium text-xs">No workspaces</span>
+										<span class="text-emphasis font-semibold text-xs">No workspaces</span>
 									{/if}
 								</Cell>
 							</Row>

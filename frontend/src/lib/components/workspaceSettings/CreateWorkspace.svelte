@@ -252,24 +252,24 @@
 			<div class="flex flex-block gap-2">
 				<GitFork size={16} />
 				<span class="text-xs text-normal">Forking </span>
-				<span class="text-xs text-emphasis font-medium">
+				<span class="text-xs text-emphasis font-semibold">
 					{$workspaceStore}
 				</span>
 			</div>
 		{/if}
 		<label class="flex flex-col gap-1">
 			{#if isFork}
-				<span class="text-xs font-medium text-emphasis">Fork name</span>
+				<span class="text-xs font-semibold text-emphasis">Fork name</span>
 				<span class="text-2xs text-secondary">Displayable name of the forked workspace</span>
 			{:else}
-				<span class="text-xs font-medium text-emphasis">Workspace name</span>
+				<span class="text-xs font-semibold text-emphasis">Workspace name</span>
 				<span class="text-2xs text-secondary">Displayable name</span>
 			{/if}
 			<!-- svelte-ignore a11y_autofocus -->
 			<TextInput inputProps={{ autofocus: true }} bind:value={name} />
 		</label>
 		<label class="flex flex-col gap-1">
-			<span class="text-xs font-medium text-emphasis">Workspace ID</span>
+			<span class="text-xs font-semibold text-emphasis">Workspace ID</span>
 			{#if isFork}
 				<span class="text-2xs text-secondary"
 					>Slug to uniquely identify your fork (this will also set the branch name)</span
@@ -294,7 +294,7 @@
 			{/if}
 		</label>
 		<label class="flex flex-col gap-1">
-			<span class="text-xs font-medium text-emphasis">Workspace color</span>
+			<span class="text-xs font-semibold text-emphasis">Workspace color</span>
 			<span class="text-2xs text-primary"
 				>Color to identify the current workspace in the list of workspaces</span
 			>
@@ -326,7 +326,7 @@
 		</label>
 		{#if !automateUsernameCreation}
 			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-emphasis">Your username in that workspace</span>
+				<span class="text-xs font-semibold text-emphasis">Your username in that workspace</span>
 				<TextInput bind:value={username} inputProps={{ onkeyup: handleKeyUp }} error={errorUser} />
 				{#if errorUser}
 					<span class="text-red-500 text-2xs">{errorUser}</span>
@@ -337,7 +337,7 @@
 			<div class="block">
 				<div class="flex flex-col gap-1">
 					<label for="ai-key" class="flex flex-row gap-2">
-						<span class="text-xs font-medium text-emphasis">
+						<span class="text-xs font-semibold text-emphasis">
 							AI key for Windmill AI
 							<Tooltip>
 								Find out how it can help you <a
@@ -386,7 +386,7 @@
 				{/if}
 			</div>
 			<div class="flex flex-col gap-1">
-				<label for="auto-invite" class="text-xs font-medium text-emphasis"
+				<label for="auto-invite" class="text-xs font-semibold text-emphasis"
 					>{isCloudHosted()
 						? `Auto-invite anyone from ${domain}`
 						: `Auto-invite anyone joining the instance`}</label
@@ -404,14 +404,14 @@
 					<div class="bg-surface-tertiary p-4 rounded-md flex flex-col gap-8">
 						<!-- svelte-ignore a11y_label_has_associated_control -->
 						<label class="flex flex-col gap-1">
-							<span class="text-xs font-medium text-emphasis">Mode</span>
+							<span class="text-xs font-semibold text-emphasis">Mode</span>
 							<span class="text-xs text-secondary font-normal"
 								>Whether to invite or add users directly to the workspace.</span
 							>
 						</label>
 
-						<label class="font-medium flex flex-col gap-1">
-							<span class="text-xs font-medium text-emphasis">Role</span>
+						<label class="font-semibold flex flex-col gap-1">
+							<span class="text-xs font-semibold text-emphasis">Role</span>
 							<span class="text-xs text-secondary font-normal">Role of the auto-invited users</span>
 							<ToggleButtonGroup
 								selected={operatorOnly ? 'operator' : 'developer'}

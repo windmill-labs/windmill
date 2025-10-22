@@ -183,7 +183,7 @@
 			</div>
 			<a
 				href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
-				class="text-xs font-medium"
+				class="text-xs font-semibold"
 				target={blankLink ? '_blank' : undefined}
 			>
 				ID: {job?.id ?? ''}
@@ -204,7 +204,7 @@
 					<Calendar size={16} class="text-accent" />
 					<div class="flex flex-col gap-1">
 						<span class="text-2xs font-normal text-secondary">Job is scheduled for</span>
-						<span class="text-xs font-medium text-emphasis"
+						<span class="text-xs font-semibold text-emphasis"
 							>{new Date(job?.['scheduled_for']).toLocaleString()}</span
 						>
 					</div>

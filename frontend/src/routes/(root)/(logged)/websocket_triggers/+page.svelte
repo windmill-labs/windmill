@@ -269,7 +269,7 @@
 		<div class="w-full pb-4 pt-6">
 			<input type="text" placeholder="Search WS triggers" bind:value={filter} class="search-item" />
 			<div class="flex flex-row items-center gap-2 mt-2">
-				<div class="text-xs font-medium text-emphasis shrink-0"> Filter by path of </div>
+				<div class="text-xs font-semibold text-emphasis shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
 					{#snippet children({ item })}
 						<ToggleButton value="trigger" label="WS trigger" icon={Unplug} {item} />
@@ -316,7 +316,7 @@
 								onclick={() => websocketTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
-								<div class="text-emphasis flex-wrap text-left text-xs font-medium mb-1 truncate">
+								<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
 									{#if marked}
 										<span class="text-xs">
 											{@html marked}

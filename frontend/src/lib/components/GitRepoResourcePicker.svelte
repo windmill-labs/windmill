@@ -165,7 +165,7 @@
 	>
 		<div class="flex flex-col gap-4 p-4">
 			<div class="flex flex-col gap-1">
-				<div class="text-xs font-medium text-emphasis"> Git Repository Resource </div>
+				<div class="text-xs font-semibold text-emphasis"> Git Repository Resource </div>
 
 				{#if currentResource}
 					<div
@@ -174,7 +174,7 @@
 						<div class="flex items-center gap-2">
 							<GitBranch size={16} class="text-blue-600 dark:text-blue-400 flex-shrink-0" />
 							<div class="flex-1 min-w-0">
-								<div class="text-xs font-medium text-blue-800 dark:text-blue-200">
+								<div class="text-xs font-semibold text-blue-800 dark:text-blue-200">
 									Currently delegating to:
 								</div>
 								<div class="text-xs text-blue-600 dark:text-blue-300 truncate">
@@ -210,7 +210,7 @@
 
 			<!-- Playbook Configuration -->
 			<div class="flex flex-col gap-1">
-				<div class="text-xs font-medium text-emphasis">
+				<div class="text-xs font-semibold text-emphasis">
 					Playbook Path
 					<span class="text-xs text-primary font-normal ml-1">(optional)</span>
 				</div>
@@ -239,7 +239,7 @@
 			</div>
 			{#if selectedResource}
 				<div class="flex flex-col gap-2">
-					<div class="text-xs font-medium text-emphasis"> Inventories Location </div>
+					<div class="text-xs font-semibold text-emphasis"> Inventories Location </div>
 					<input
 						type="text"
 						bind:value={inventoriesLocation}

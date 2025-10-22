@@ -53,7 +53,7 @@
 				class={twMerge(
 					'text-emphasis flex flex-row items-center gap-1',
 					breakAll ? 'break-all' : '',
-					small ? 'text-xs font-medium' : 'text-sm font-medium',
+					small ? 'text-xs font-semibold' : 'text-sm font-semibold',
 					headerClass
 				)}
 			>

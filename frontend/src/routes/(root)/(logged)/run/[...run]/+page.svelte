@@ -452,7 +452,7 @@
 			<h1 class="text-red-400 mt-6 text-2xl font-semibold"
 				>Job {page.params.run} not found in {$workspaceStore}</h1
 			>
-			<h2 class="text-primary text-lg font-medium">Are you in the right workspace?</h2>
+			<h2 class="text-primary text-lg font-semibold">Are you in the right workspace?</h2>
 			<div class="flex flex-col gap-2">
 				{#each $userWorkspaces as workspace}
 					<div>
@@ -652,7 +652,7 @@
 						{/snippet}
 						{#snippet content()}
 							<label class="block text-primary">
-								<div class="pb-1 text-xs font-medium text-emphasis"
+								<div class="pb-1 text-xs font-semibold text-emphasis"
 									>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
 								>
 								<div class="flex w-full">

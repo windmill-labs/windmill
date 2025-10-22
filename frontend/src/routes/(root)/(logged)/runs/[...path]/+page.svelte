@@ -1182,7 +1182,7 @@
 											/>
 										</div>
 										<label
-											class="cursor-pointer whitespace-nowrap text-xs text-emphasis font-medium"
+											class="cursor-pointer whitespace-nowrap text-xs text-emphasis font-semibold"
 											for="select-all">Select all</label
 										>
 									</div>

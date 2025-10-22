@@ -164,7 +164,7 @@
 							</div>
 
 							<div class="w-full text-left">
-								<div class="text-emphasis flex-wrap text-xs font-medium mb-1">
+								<div class="text-emphasis flex-wrap text-xs font-semibold mb-1">
 									{item.summary ?? ''}
 								</div>
 								<div class="text-secondary text-2xs font-normal">

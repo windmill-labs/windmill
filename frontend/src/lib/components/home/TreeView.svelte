@@ -49,7 +49,7 @@
 				</div>
 
 				<div>
-					<span class="whitespace-nowrap text-xs text-emphasis font-medium"
+					<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
 						>{#if depth === 0}f/{/if}{item.folderName}</span
 					>
 					<div class="text-2xs font-normal text-secondary whitespace-nowrap">
@@ -116,7 +116,9 @@
 				</div>
 
 				<div>
-					<span class="whitespace-nowrap text-xs text-emphasis font-medium">u/{item.username}</span>
+					<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
+						>u/{item.username}</span
+					>
 					<div class="text-2xs font-normal text-secondary whitespace-nowrap"
 						>({pluralize(item.items.length, ' item')})</div
 					>

@@ -21,7 +21,7 @@
 		{#if log}
 			<div class="flex flex-col gap-6 w-full">
 				<div class="flex flex-col gap-1">
-					<span class="font-medium text-xs text-emphasis">ID</span>
+					<span class="font-semibold text-xs text-emphasis">ID</span>
 					<span class="text-xs">{log.id}</span>
 				</div>
 				<div class="flex flex-col gap-1">

@@ -714,7 +714,7 @@
 				<ChangeWorkspaceColor />
 			</div>
 
-			<div class="text-xs font-medium text-emphasis mt-6 mb-1">Export workspace</div>
+			<div class="text-xs font-semibold text-emphasis mt-6 mb-1">Export workspace</div>
 			<div class="flex justify-start">
 				<Button
 					size="sm"
@@ -774,7 +774,7 @@
 		{:else if tab == 'webhook'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-xs font-medium text-emphasis"> Workspace Webhook</div>
+					<div class="text-xs font-semibold text-emphasis"> Workspace Webhook</div>
 					<Description
 						link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
 					>
@@ -785,7 +785,7 @@
 			</div>
 			<div class="flex flex-col gap-4 my-4">
 				<div class="flex flex-col gap-1">
-					<div class="text-xs font-medium text-emphasis"> URL to send requests to</div>
+					<div class="text-xs font-semibold text-emphasis"> URL to send requests to</div>
 					<div class="text-primary text-xs">
 						This URL will be POSTed to with a JSON body depending on the type of event. The type is
 						indicated by the type field. The other fields are dependent on the type.
@@ -817,7 +817,7 @@
 			</div>
 			<div class="flex flex-col gap-4 my-4">
 				<div class="flex flex-col gap-1">
-					<div class="text-xs font-medium text-emphasis">
+					<div class="text-xs font-semibold text-emphasis">
 						Script or flow to run as error handler</div
 					>
 				</div>
@@ -1010,7 +1010,7 @@
 					}}>Save & Re-encrypt workspace</Button
 				>
 			</div>
-			<label for="workspace-encryption-key" class="text-xs font-medium text-emphasis mt-1">
+			<label for="workspace-encryption-key" class="text-xs font-semibold text-emphasis mt-1">
 				Workspace encryption key
 			</label>
 			<div class="flex gap-2 mt-1">

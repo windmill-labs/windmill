@@ -221,7 +221,7 @@
 
 		{#if !emptyString(resourceTypeInfo?.description)}
 			<div class="flex flex-col gap-1">
-				<h4 class="text-xs text-emphasis font-medium">{resourceTypeInfo?.name} description</h4>
+				<h4 class="text-xs text-emphasis font-semibold">{resourceTypeInfo?.name} description</h4>
 				<div class="text-xs text-primary font-normal">
 					<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
 				</div>
@@ -229,7 +229,7 @@
 		{/if}
 
 		<div class="flex flex-col gap-1">
-			<h4 class="inline-flex items-center gap-2 text-xs text-emphasis font-medium"
+			<h4 class="inline-flex items-center gap-2 text-xs text-emphasis font-semibold"
 				>Resource description <Required required={false} />
 				{#if can_write}
 					<Button

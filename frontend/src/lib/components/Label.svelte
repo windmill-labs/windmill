@@ -43,7 +43,9 @@
 		{#if !headless}
 			<div class={twMerge('flex flex-row items-center gap-2', headerClass)}>
 				<span
-					class="{primary ? 'text-primary' : 'text-emphasis'} text-xs font-medium whitespace-nowrap"
+					class="{primary
+						? 'text-emphasis'
+						: 'text-emphasis'} text-xs font-semibold whitespace-nowrap"
 					><label for={forAttr}>{label}</label>
 					{#if required}
 						<Required required={true} />

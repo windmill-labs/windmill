@@ -489,9 +489,9 @@
 							<div class="flex flex-col gap-1">
 								{#if is_static_website}
 									<p class="text-xs text-primary">
-										Upload or specify a <b class="font-medium text-emphasis">folder</b> on S3. All its
-										files will be served under the path above. Use this full path as the base URL of
-										your website to ensure relative imports work correctly.
+										Upload or specify a <b class="font-semibold text-emphasis">folder</b> on S3. All
+										its files will be served under the path above. Use this full path as the base URL
+										of your website to ensure relative imports work correctly.
 									</p>
 								{/if}
 								<div class="flex flex-col gap-4">

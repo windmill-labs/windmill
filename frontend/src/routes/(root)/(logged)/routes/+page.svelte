@@ -267,7 +267,7 @@
 			<div class="w-full pb-4 pt-6">
 				<input type="text" placeholder="Search routes" bind:value={filter} class="search-item" />
 				<div class="flex flex-row items-center gap-2 mt-2">
-					<div class="text-xs font-medium text-emphasis shrink-0"> Filter by path of </div>
+					<div class="text-xs font-semibold text-emphasis shrink-0"> Filter by path of </div>
 					<ToggleButtonGroup bind:selected={selectedFilterKind}>
 						{#snippet children({ item })}
 							<ToggleButton value="trigger" label="Route" icon={Route} {item} />
@@ -312,7 +312,9 @@
 									onclick={() => routeEditor?.openEdit(path, is_flow)}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
-									<div class="text-emphasis font-medium flex-wrap text-left text-xs mb-1 truncate">
+									<div
+										class="text-emphasis font-semibold flex-wrap text-left text-xs mb-1 truncate"
+									>
 										{#if marked}
 											<span class="text-xs">
 												{@html marked}
@@ -449,7 +451,7 @@
 		{#if items && items?.length > 15 && nbDisplayed < items.length}
 			<span class="text-xs font-normal text-primary"
 				>{nbDisplayed} items out of {items.length}
-				<button class="ml-4 font-medium text-emphasis" onclick={() => (nbDisplayed += 30)}
+				<button class="ml-4 font-semibold text-emphasis" onclick={() => (nbDisplayed += 30)}
 					>load 30 more</button
 				></span
 			>

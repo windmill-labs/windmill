@@ -36,14 +36,14 @@
 
 	<form class="flex flex-col gap-6">
 		<div class="w-full text-primary flex flex-col gap-1">
-			<div class="text-xs text-emphasis font-medium">Email</div>
+			<div class="text-xs text-emphasis font-semibold">Email</div>
 			<span class="text-xs font-normal text-primary">
 				{$usersWorkspaceStore?.email}
 			</span>
 		</div>
 
 		<label class="flex flex-col gap-1 w-120">
-			<span class="text-xs text-emphasis font-medium">Password</span>
+			<span class="text-xs text-emphasis font-semibold">Password</span>
 			{#if login_type == 'password'}
 				<div class="flex flex-row gap-1 items-center">
 					<TextInput

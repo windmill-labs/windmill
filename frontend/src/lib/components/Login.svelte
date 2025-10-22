@@ -347,14 +347,14 @@
 					</p>
 				{/if}
 				<div class="space-y-1">
-					<label for="email" class="block text-xs font-medium text-emphasis"> Email </label>
+					<label for="email" class="block text-xs font-semibold text-emphasis"> Email </label>
 					<div>
 						<input type="email" bind:value={email} id="email" autocomplete="email" />
 					</div>
 				</div>
 
 				<div class="space-y-1">
-					<label for="password" class="block text-xs font-medium text-emphasis"> Password </label>
+					<label for="password" class="block text-xs font-semibold text-emphasis"> Password </label>
 					<div>
 						<input
 							onkeyup={handleKeyUp}

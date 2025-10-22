@@ -288,7 +288,7 @@
 
 		{#if scopes != undefined}
 			<div class="mb-4">
-				<span class="block mb-1 text-emphasis text-xs font-medium">Scope</span>
+				<span class="block mb-1 text-emphasis text-xs font-semibold">Scope</span>
 				{#each scopes as scope}
 					<TextInput inputProps={{ disabled: true }} value={scope} class="mb-2 w-full" />
 				{/each}
@@ -318,7 +318,7 @@
 		<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
 			{#if mcpCreationMode}
 				<div>
-					<span class="block mb-1 text-emphasis text-xs font-medium">Scope</span>
+					<span class="block mb-1 text-emphasis text-xs font-semibold">Scope</span>
 					<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false}>
 						{#snippet children({ item })}
 							<ToggleButton
@@ -345,13 +345,13 @@
 
 				{#if newMcpScope === 'folder'}
 					<div>
-						<span class="block mb-1 text-emphasis text-xs font-medium">Select Folder</span>
+						<span class="block mb-1 text-emphasis text-xs font-semibold">Select Folder</span>
 						<FolderPicker bind:folderName={selectedFolder} />
 					</div>
 				{/if}
 
 				<div>
-					<span class="block mb-1 text-emphasis text-xs font-medium">Hub scripts (optional)</span>
+					<span class="block mb-1 text-emphasis text-xs font-semibold">Hub scripts (optional)</span>
 					{#if loadingApps}
 						<div>Loading...</div>
 					{:else if errorFetchApps}
@@ -366,7 +366,7 @@
 				</div>
 
 				<div>
-					<span class="block mb-1 text-emphasis text-xs font-medium">Workspace</span>
+					<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
 					<select bind:value={newTokenWorkspace} disabled={workspaces.length === 1} class="w-full">
 						{#each workspaces as workspace}
 							<option value={workspace.id}>{workspace.name}</option>
@@ -376,7 +376,7 @@
 			{/if}
 
 			<div>
-				<span class="block mb-1 text-emphasis text-xs font-medium"
+				<span class="block mb-1 text-emphasis text-xs font-semibold"
 					>Label <span class="text-xs text-primary">(optional)</span></span
 				>
 				<TextInput inputProps={{ type: 'text' }} bind:value={newTokenLabel} class="w-full" />
@@ -384,7 +384,7 @@
 
 			{#if !mcpCreationMode}
 				<div>
-					<span class="block mb-1 text-xs text-emphasis font-medium"
+					<span class="block mb-1 text-xs text-emphasis font-semibold"
 						>Expires In <span class="text-xs text-primary">(optional)</span></span
 					>
 					<Select

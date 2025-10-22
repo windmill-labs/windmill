@@ -285,7 +285,7 @@
 			text-xs mt-1 flex flex-row justify-between items-center"
 		>
 			<div class="grow">
-				<span class="font-mono font-medium text-emphasis">{invite.workspace_id}</span>
+				<span class="font-mono font-semibold text-emphasis">{invite.workspace_id}</span>
 				{#if invite.is_admin}
 					<span class="text-xs text-primary">as an admin</span>
 				{:else if invite.operator}
@@ -346,7 +346,7 @@
 						{#if inviteWorkspace?.parent_workspace_id}
 							<GitFork size={12} class="text-secondary flex-shrink-0" />
 						{/if}
-						<span class="font-mono font-medium text-emphasis">{invite.workspace_id}</span>
+						<span class="font-mono font-semibold text-emphasis">{invite.workspace_id}</span>
 					</div>
 					{#if invite.is_admin}
 						<span class="text-xs text-primary">as an admin</span>
@@ -361,7 +361,7 @@
 				</div>
 				<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
 					<a
-						class="font-medium text-xs p-1"
+						class="font-semibold text-xs p-1"
 						href="{base}/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
 							? `&rd=${encodeURIComponent(rd)}`
 							: ''}"
@@ -370,7 +370,7 @@
 					</a>
 
 					<button
-						class="text-red-700 font-medium text-xs p-1"
+						class="text-red-700 font-semibold text-xs p-1"
 						on:click={async () => {
 							await UserService.declineInvite({
 								requestBody: { workspace_id: invite.workspace_id }
@@ -422,7 +422,7 @@
 		class="border rounded-md shadow-md bg-white w-full max-w-[640px] p-4 sm:py-8 sm:px-10 mb-6 md:mb-20"
 	>
 		<h1 class="text-center mb-2">Select a workspace</h1>
-		<p class="text-center font-medium text-primary text-xs mb-10">
+		<p class="text-center font-semibold text-primary text-xs mb-10">
 			Logged in as {$usersWorkspaceStore?.email}
 		</p>
 	</div>

@@ -36,7 +36,7 @@
 					>
 						<RowIcon kind={u.kind} />
 						<div class="flex flex-col justify-center flex-1">
-							<span class="font-medium text-emphasis">{u.path}</span>
+							<span class="font-semibold text-emphasis">{u.path}</span>
 							<span class="text-2xs text-secondary">{u.kind}</span>
 						</div>
 						<div

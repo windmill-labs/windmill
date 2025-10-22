@@ -73,7 +73,7 @@
 	class={twMerge(
 		'border-b-2 border-border-light py-1 px-2 cursor-pointer transition-all z-10 ease-linear text-primary font-normal text-xs',
 		isSelected
-			? 'text-emphasis font-medium border-border-normal'
+			? 'text-emphasis font-semibold border-border-normal'
 			: 'border-opacity-0 hover:border-opacity-100',
 		c,
 		isSelected ? selectedClass : '',

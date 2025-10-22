@@ -217,6 +217,6 @@
 		@apply absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full;
 		@apply text-primary  transition-colors hover:bg-surface-hover;
 		@apply focus-visible:ring focus-visible:ring-gray-400 focus-visible:ring-offset-2;
-		@apply bg-surface p-0 text-sm font-medium;
+		@apply bg-surface p-0 text-sm font-semibold;
 	}
 </style>

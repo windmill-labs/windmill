@@ -34,15 +34,15 @@
 <h3 class="text-sm font-semibold text-emphasis">Add new user to instance</h3>
 <div class="flex flex-row flex-wrap gap-2 mb-2 items-end">
 	<label class="block shrink min-w-0">
-		<span class="text-xs font-medium text-emphasis">Email</span>
+		<span class="text-xs font-semibold text-emphasis">Email</span>
 		<input type="email" placeholder="email" bind:value={$globalEmailInvite} />
 	</label>
 	<label class="block shrink min-w-0">
-		<span class="text-xs font-medium text-emphasis">Password</span>
+		<span class="text-xs font-semibold text-emphasis">Password</span>
 		<input bind:value={password} />
 	</label>
 	<div>
-		<span class="text-xs font-medium text-emphasis">Name (optional)</span>
+		<span class="text-xs font-semibold text-emphasis">Name (optional)</span>
 		<input type="text" placeholder="name (optional)" bind:value={name} />
 	</div>
 	<Toggle class="mx-2 mb-1" bind:checked={is_super_admin} options={{ right: 'Superadmin' }} />

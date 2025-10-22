@@ -319,7 +319,7 @@
 								onclick={() => sqsTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
-								<div class="text-emphasis flex-wrap text-left text-xs font-medium mb-1 truncate">
+								<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
 									{path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light"></div>

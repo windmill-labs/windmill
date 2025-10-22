@@ -288,7 +288,7 @@
 			</TableCustom>
 
 			{#if instance_group?.emails}
-				<h2 class="mt-6 text-emphasis text-xs font-medium">Members from the instance group</h2>
+				<h2 class="mt-6 text-emphasis text-xs font-semibold">Members from the instance group</h2>
 				<TableCustom>
 					<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
 					<tr slot="header-row">

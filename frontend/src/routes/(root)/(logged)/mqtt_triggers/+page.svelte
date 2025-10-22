@@ -323,7 +323,7 @@
 								onclick={() => mqttTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
-								<div class="text-emphasis font-medium text-xs truncate text-left">
+								<div class="text-emphasis font-semibold text-xs truncate text-left">
 									{path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light">

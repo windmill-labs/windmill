@@ -27,7 +27,7 @@
 		<div>
 			<div class="text-primary whitespace-nowrap truncate text-xs">
 				{#if ['flow', 'flowpreview', 'flownode'].includes(job.job_kind)}
-					<span class="font-medium text-emphasis text-xs mr-1">Flow:</span>
+					<span class="font-semibold text-emphasis text-xs mr-1">Flow:</span>
 				{/if}
 				<a
 					rel="noreferrer"

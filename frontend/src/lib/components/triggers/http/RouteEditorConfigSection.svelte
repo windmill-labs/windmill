@@ -121,7 +121,7 @@
 			<label class="block grow w-full">
 				<div class="flex flex-col gap-1">
 					<div
-						class="text-emphasis text-xs font-medium flex items-center gap-1 w-full justify-between"
+						class="text-emphasis text-xs font-semibold flex items-center gap-1 w-full justify-between"
 					>
 						<div>
 							Path

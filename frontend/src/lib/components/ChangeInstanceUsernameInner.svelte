@@ -77,7 +77,7 @@
 		<span class="text-sm mb-2 leading-6 font-semibold text-emphasis">Fix username conflict</span>
 	{/if}
 
-	<span class="text-xs font-medium text-emphasis mb-1 leading-6"
+	<span class="text-xs font-semibold text-emphasis mb-1 leading-6"
 		>{isConflict ? 'Auto-generated instance username' : 'New username'}</span
 	>
 	<input

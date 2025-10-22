@@ -202,7 +202,7 @@
 <div class="w-full flex space-x-8">
 	<div class="w-full flex flex-col gap-4">
 		<div class="flex flex-col gap-1">
-			<label for="cron-schedule" class="text-xs font-medium text-emphasis">Cron</label>
+			<label for="cron-schedule" class="text-xs font-semibold text-emphasis">Cron</label>
 
 			<div class="flex flex-row gap-2 items-center">
 				<TextInput
@@ -256,7 +256,7 @@
 	</div>
 
 	<div class="w-full flex flex-col space-y-2">
-		<div class="text-xs font-medium text-emphasis leading-none"
+		<div class="text-xs font-semibold text-emphasis leading-none"
 			>Estimated upcoming events ({timezone})</div
 		>
 		<div class="flex flex-col space-y-2">
@@ -274,7 +274,7 @@
 		{#snippet children({ close })}
 			<div class="w-full flex flex-col gap-6">
 				<div class="w-full flex flex-col gap-1">
-					<div class="text-emphasis font-medium text-xs leading-none">Execute schedule every</div>
+					<div class="text-emphasis font-semibold text-xs leading-none">Execute schedule every</div>
 
 					<div class="w-full flex gap-4">
 						<div class="w-full flex flex-col gap-1 mb-2">
@@ -371,13 +371,13 @@
 
 				{#if executeEvery == 'day-month' || executeEvery == 'month' || executeEvery == 'day-week'}
 					<div class="w-full flex flex-col gap-1">
-						<small class="font-medium text-emphasis text-xs">At time</small>
+						<small class="font-semibold text-emphasis text-xs">At time</small>
 						<input {disabled} type="time" name="atUTCTime" id="atUTCTime" bind:value={UTCTime} />
 					</div>
 				{/if}
 
 				<div class="w-full flex flex-col gap-1">
-					<div class="text-emphasis font-medium text-xs">Preview New Cron</div>
+					<div class="text-emphasis font-semibold text-xs">Preview New Cron</div>
 
 					<div class="flex p-2 px-4 rounded-md bg-surface-secondary text-xs text-primary">
 						<span>{nschedule}</span>

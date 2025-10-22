@@ -91,7 +91,7 @@
 		<div class={twMerge('ml-1 w-full')}>
 			<div class={twMerge('w-full flex flex-row items-center justify-between h-8')}>
 				<span
-					class={twMerge('text-xs font-medium', classes[type].titleClass, titleClass)}
+					class={twMerge('text-xs font-semibold', classes[type].titleClass, titleClass)}
 					style={titleStyle}
 				>
 					{title}

@@ -205,9 +205,9 @@
 		<div>
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<label class="block pb-1">
-				<span class="text-emphasis font-medium text-xs pb-1">{setting.label}</span>
+				<span class="text-emphasis font-semibold text-xs pb-1">{setting.label}</span>
 				{#if setting.description}
-					<span class="text-primary text-xs">
+					<span class="text-secondary text-xs font-normal">
 						{@html setting.description}
 					</span>
 				{/if}
@@ -229,9 +229,9 @@
 		<div>
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<label class="mb-1 flex flex-col gap-1">
-				<span class="text-emphasis font-medium text-xs">{setting.label}</span>
+				<span class="text-emphasis font-semibold text-xs">{setting.label}</span>
 				{#if setting.description}
-					<span class="text-primary text-xs">
+					<span class="text-secondary text-xs font-normal">
 						{@html setting.description}
 					</span>
 				{/if}
@@ -288,10 +288,10 @@
 		</div>
 	{:else}
 		{#snippet settingContent()}
-			<div class="text-emphasis font-medium text-xs flex flex-col gap-1 mb-1"
+			<div class="text-emphasis font-semibold text-xs flex flex-col gap-1 mb-1"
 				>{setting.label}
 				{#if setting.description}
-					<span class="text-primary font-normal text-xs">
+					<span class="text-secondary font-normal text-xs">
 						{@html setting.description}
 					</span>
 				{/if}
@@ -704,7 +704,7 @@
 					<div class="flex flex-col gap-4 mt-4">
 						{#if $values[setting.key]}
 							<div>
-								<label for="writer_memory_budget" class="block text-xs font-medium text-emphasis">
+								<label for="writer_memory_budget" class="block text-xs font-semibold text-emphasis">
 									Index writer memory budget (MB)
 									<Tooltip>
 										The allocated memory arena for the indexer. A bigger value means less writing to
@@ -731,7 +731,7 @@
 							<div>
 								<label
 									for="commit_job_max_batch_size"
-									class="block text-xs font-medium text-emphasis"
+									class="block text-xs font-semibold text-emphasis"
 								>
 									Commit max batch size <Tooltip>
 										The max amount of documents (here jobs) per commit. To optimize indexing
@@ -751,7 +751,7 @@
 								/>
 							</div>
 							<div>
-								<label for="refresh_index_period" class="block text-xs font-medium text-emphasis">
+								<label for="refresh_index_period" class="block text-xs font-semibold text-emphasis">
 									Refresh index period (s) <Tooltip>
 										The index will query new jobs periodically and write them on the index. This
 										setting sets that period.
@@ -768,7 +768,7 @@
 							<div>
 								<label
 									for="max_indexed_job_log_size"
-									class="block text-xs font-medium text-emphasis"
+									class="block text-xs font-semibold text-emphasis"
 								>
 									Max indexed job log size (KB) <Tooltip>
 										Job logs are included when indexing, but to avoid the index size growing
@@ -795,7 +795,7 @@
 							<div>
 								<label
 									for="commit_log_max_batch_size"
-									class="block text-xs font-medium text-emphasis"
+									class="block text-xs font-semibold text-emphasis"
 									>Commit max batch size <Tooltip>
 										The max amount of documents per commit. In this case 1 document is one log file
 										representing all logs during 1 minute for a specific host. To optimize indexing
@@ -817,7 +817,7 @@
 							<div>
 								<label
 									for="refresh_log_index_period"
-									class="block text-xs font-medium text-emphasis"
+									class="block text-xs font-semibold text-emphasis"
 								>
 									Refresh index period (s) <Tooltip>
 										The index will query new service logs peridically and write them on the index.
@@ -887,7 +887,8 @@
 								></div
 							>
 							<div>
-								<label for="smtp_host" class="block text-xs font-medium text-emphasis">Host</label>
+								<label for="smtp_host" class="block text-xs font-semibold text-emphasis">Host</label
+								>
 								<input
 									type="text"
 									id="smtp_host"
@@ -896,7 +897,8 @@
 								/>
 							</div>
 							<div>
-								<label for="smtp_port" class="block text-xs font-medium text-emphasis">Port</label>
+								<label for="smtp_port" class="block text-xs font-semibold text-emphasis">Port</label
+								>
 								<input
 									type="number"
 									id="smtp_port"
@@ -905,7 +907,7 @@
 								/>
 							</div>
 							<div>
-								<label for="smtp_username" class="block text-xs font-medium text-emphasis"
+								<label for="smtp_username" class="block text-xs font-semibold text-emphasis"
 									>Username</label
 								>
 								<input
@@ -916,13 +918,13 @@
 								/>
 							</div>
 							<div>
-								<label for="smtp_password" class="block text-xs font-medium text-emphasis"
+								<label for="smtp_password" class="block text-xs font-semibold text-emphasis"
 									>Password</label
 								>
 								<Password bind:password={$values[setting.key].smtp_password} />
 							</div>
 							<div>
-								<label for="smtp_from" class="block text-xs font-medium text-emphasis"
+								<label for="smtp_from" class="block text-xs font-semibold text-emphasis"
 									>From Address</label
 								>
 								<input
@@ -982,7 +984,7 @@
 							<div>
 								<label
 									for="OTEL_EXPORTER_OTLP_ENDPOINT"
-									class="block text-xs font-medium text-emphasis">Endpoint</label
+									class="block text-xs font-semibold text-emphasis">Endpoint</label
 								>
 								<input
 									disabled={!$enterpriseLicense}
@@ -995,7 +997,7 @@
 							<div>
 								<label
 									for="OTEL_EXPORTER_OTLP_HEADERS"
-									class="block text-xs font-medium text-emphasis">Headers</label
+									class="block text-xs font-semibold text-emphasis">Headers</label
 								>
 								<input
 									disabled={!$enterpriseLicense}
@@ -1008,12 +1010,12 @@
 							<div>
 								<label
 									for="OTEL_EXPORTER_OTLP_PROTOCOL"
-									class="block text-xs font-medium text-emphasis">Protocol</label
+									class="block text-xs font-semibold text-emphasis">Protocol</label
 								>
 								gRPC
 							</div>
 							<!-- <div>
-							<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-medium"
+							<label for="OTEL_EXPORTER_OTLP_PROTOCOL" class="block text-sm font-semibold"
 								>Protocol<span class="text-2xs text-primary ml-4"
 									>grpc, http/protobuf, http/json</span
 								></label
@@ -1026,7 +1028,7 @@
 							/>
 						</div>
 						<div>
-							<label for="OTEL_EXPORTER_OTLP_COMPRESSION" class="block text-sm font-medium"
+							<label for="OTEL_EXPORTER_OTLP_COMPRESSION" class="block text-sm font-semibold"
 								>Compression <span class="text-2xs text-primary ml-4">none, gzip</span></label
 							>
 							<input

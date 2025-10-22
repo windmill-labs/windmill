@@ -170,7 +170,7 @@
 								}}
 							>
 								<Cell first>
-									<span class="text-emphasis text-xs font-medium">{name}</span>
+									<span class="text-emphasis text-xs font-semibold">{name}</span>
 									{#if summary}
 										<br />
 										<span class="text-2xs font-normal text-secondary">{summary}</span>

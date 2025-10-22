@@ -55,7 +55,7 @@
 				<ChangeInstanceUsernameInner {email} {username} on:renamed noPadding />
 			{/if}
 			<label class="block text-primary">
-				<div class="pb-1 text-xs font-medium text-emphasis">Name</div>
+				<div class="pb-1 text-xs font-semibold text-emphasis">Name</div>
 				<div class="flex w-full">
 					<TextInput
 						inputProps={{
@@ -88,7 +88,7 @@
 				</Button>
 			</label>
 			<label class="block text-primary">
-				<div class="pb-1 text-xs font-medium text-emphasis">Password</div>
+				<div class="pb-1 text-xs font-semibold text-emphasis">Password</div>
 				<div class="flex w-full">
 					<input
 						type="password"
@@ -117,7 +117,7 @@
 				</Button>
 			</label>
 			<label class="block text-primary">
-				<div class="mb-1 text-xs font-medium text-emphasis">Login type</div>
+				<div class="mb-1 text-xs font-semibold text-emphasis">Login type</div>
 
 				<div class="flex w-full">
 					<input

@@ -682,7 +682,7 @@
 			<Section label="Metadata">
 				<div class="flex flex-col gap-6">
 					<label class="flex flex-col gap-1">
-						<span class="text-xs font-medium text-emphasis">Summary</span>
+						<span class="text-xs font-semibold text-emphasis">Summary</span>
 						<!-- svelte-ignore a11y_autofocus -->
 						<TextInput
 							inputProps={{
@@ -707,7 +707,7 @@
 					</label>
 
 					<div class="flex flex-col gap-1">
-						<label for="path" class="text-xs font-medium text-emphasis">Path</label>
+						<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
 						{#if !edit && !trigger?.isPrimary}
 							<Path
 								bind:dirty={dirtyPath}
@@ -744,7 +744,7 @@
 					</div>
 
 					<label class="flex flex-col gap-1">
-						<span class="text-xs font-medium text-emphasis">Description</span>
+						<span class="text-xs font-semibold text-emphasis">Description</span>
 						<textarea
 							rows="4"
 							use:autosize

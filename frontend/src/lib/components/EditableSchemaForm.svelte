@@ -476,7 +476,7 @@
 								<div class="flex flex-col gap-2 h-full">
 									{#if dynamicFunctions.length > 0}
 										<div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
-											<div class="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+											<div class="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-2">
 												Expected Functions for Dynamic Input Fields:
 											</div>
 											<ul class="text-xs text-blue-700 dark:text-blue-300 space-y-1">

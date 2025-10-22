@@ -128,7 +128,7 @@
 							<div class="flex flex-col gap-2 pb-4">
 								<div class="flex flex-row items-center gap-2">
 									<!-- svelte-ignore a11y_label_has_associated_control -->
-									<label class="text-md font-medium text-primary">{k}</label>
+									<label class="text-md font-semibold text-primary">{k}</label>
 									<CloseButton
 										on:close={() => {
 											if (oauths) {
@@ -140,7 +140,7 @@
 								</div>
 								<div class="p-2 border rounded">
 									<label class="block pb-2">
-										<span class="text-primary font-medium text-xs">Custom Name</span>
+										<span class="text-primary font-semibold text-xs">Custom Name</span>
 										<input
 											type="text"
 											placeholder="Custom Name"
@@ -148,11 +148,11 @@
 										/>
 									</label>
 									<label class="block pb-2">
-										<span class="text-primary font-medium text-xs">Client Id</span>
+										<span class="text-primary font-semibold text-xs">Client Id</span>
 										<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />
 									</label>
 									<label class="block pb-2">
-										<span class="text-primary font-medium text-xs">Client Secret</span>
+										<span class="text-primary font-semibold text-xs">Client Secret</span>
 										<input
 											type="text"
 											placeholder="Client Secret"
@@ -219,7 +219,7 @@
 						<div class="flex flex-col gap-2 pb-4">
 							<div class="flex flex-row items-center gap-2">
 								<!-- svelte-ignore a11y_label_has_associated_control -->
-								<label class="text-md font-medium text-primary">{k}</label>
+								<label class="text-md font-semibold text-primary">{k}</label>
 								<CloseButton
 									on:close={() => {
 										if (oauths) {
@@ -231,11 +231,11 @@
 							</div>
 							<div class="p-2 border rounded">
 								<label class="block pb-2">
-									<span class="text-primary font-medium text-xs">Client Id</span>
+									<span class="text-primary font-semibold text-xs">Client Id</span>
 									<input type="text" placeholder="Client Id" bind:value={oauths[k]['id']} />
 								</label>
 								<label class="block pb-2">
-									<span class="text-primary font-medium text-xs">Client Secret</span>
+									<span class="text-primary font-semibold text-xs">Client Secret</span>
 									<input type="text" placeholder="Client Secret" bind:value={oauths[k]['secret']} />
 								</label>
 								{#if k === 'visma' || !windmillBuiltins.includes(k)}
@@ -288,7 +288,7 @@
 								{/if}
 								{#if k == 'snowflake_oauth'}
 									<label class="block pb-2">
-										<span class="text-primary font-medium text-xs flex gap-2 items-center"
+										<span class="text-primary font-semibold text-xs flex gap-2 items-center"
 											><a
 												href="https://docs.snowflake.com/en/user-guide/admin-account-identifier#using-an-account-name-as-an-identifier"
 												target="_blank">Snowflake Account Identifier</a

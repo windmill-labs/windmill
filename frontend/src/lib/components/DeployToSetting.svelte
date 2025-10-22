@@ -87,7 +87,7 @@
 	}
 </script>
 
-<h3 class="mt-6 text-xs font-medium text-emphasis">Workspace to link to</h3>
+<h3 class="mt-6 text-xs font-semibold text-emphasis">Workspace to link to</h3>
 <div class="flex min-w-0 mt-1">
 	<select
 		bind:value={workspaceToDeployTo}
@@ -117,7 +117,7 @@
 <div class="flex flex-wrap gap-20">
 	<div class="max-w-md w-full">
 		{#if Array.isArray(deployUiSettings?.include_path)}
-			<h4 class="flex gap-2 mb-2 text-xs font-medium text-emphasis"
+			<h4 class="flex gap-2 mb-2 text-xs font-semibold text-emphasis"
 				>Filter on path<Tooltip>
 					Only scripts, flows and apps with their path matching one of those filters will be allowed
 					to be deployed in the deploy UI. The filters allow '*'' and '**' characters, with '*''
@@ -159,7 +159,7 @@
 	</div>
 
 	<div class="max-w-md w-full">
-		<h4 class="flex gap-2 mb-2 text-xs font-medium text-emphasis"
+		<h4 class="flex gap-2 mb-2 text-xs font-semibold text-emphasis"
 			>Filter on type<Tooltip>
 				You can filter which types of item can be deployed to the production workspace. By default
 				everything is deployable.

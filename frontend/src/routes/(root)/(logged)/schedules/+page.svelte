@@ -285,7 +285,7 @@
 			<div class="w-full pb-4 pt-6">
 				<input type="text" placeholder="Search schedule" bind:value={filter} class="search-item" />
 				<div class="flex flex-row items-center gap-2 mt-2">
-					<div class="text-xs font-medium text-emphasis shrink-0"> Filter by path of </div>
+					<div class="text-xs font-semibold text-emphasis shrink-0"> Filter by path of </div>
 					<ToggleButtonGroup bind:selected={selectedFilterKind}>
 						{#snippet children({ item })}
 							<ToggleButton value="schedule" label="Schedule" icon={Calendar} {item} />
@@ -319,7 +319,7 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !schedules?.length}
-				<div class="text-center text-xs font-medium text-emphasis mt-2"> No schedules </div>
+				<div class="text-center text-xs font-semibold text-emphasis mt-2"> No schedules </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, marked, jobs, paused_until } (path)}
@@ -340,7 +340,7 @@
 									onclick={() => scheduleEditor?.openEdit(path, is_flow)}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
-									<div class="text-primary flex-wrap text-left text-xs font-medium mb-1 truncate">
+									<div class="text-primary flex-wrap text-left text-xs font-semibold mb-1 truncate">
 										{#if marked}
 											<span class="text-xs">
 												{@html marked}
@@ -548,7 +548,7 @@
 			{/if}
 		</div>
 		{#if items && items?.length > 15 && nbDisplayed < items.length}
-			<div class="flex items-center gap-4 text-xs font-medium text-emphasis">
+			<div class="flex items-center gap-4 text-xs font-semibold text-emphasis">
 				<span>{nbDisplayed} items out of {items.length}</span>
 				<Button size="xs" variant="subtle" on:click={() => (nbDisplayed += 30)}>
 					Load 30 more

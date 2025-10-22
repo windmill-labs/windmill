@@ -145,7 +145,7 @@
 			{/if}
 
 			<div class="flex flex-col gap-1">
-				<label for="path" class="text-xs font-medium text-emphasis">Path</label>
+				<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
 				<Path
 					disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
 					bind:error={pathError}
@@ -156,7 +156,7 @@
 				/>
 			</div>
 			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-emphasis">Secret</span>
+				<span class="text-xs font-semibold text-emphasis">Secret</span>
 				<Toggle
 					on:change={() => edit && loadVariable(initialPath)}
 					bind:checked={variable.is_secret}
@@ -173,7 +173,7 @@
 
 			<div class="flex flex-col gap-1">
 				<label for="variable-value" class="flex flex-row justify-left items-center">
-					<span class="text-xs font-medium text-emphasis">Variable value&nbsp;</span>
+					<span class="text-xs font-semibold text-emphasis">Variable value&nbsp;</span>
 
 					<span class="text-xs text-secondary font-normal">
 						({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)
@@ -242,7 +242,7 @@
 				</div>
 			</div>
 			<label class="flex flex-col gap-1">
-				<span class="text-xs font-medium text-emphasis">Description</span>
+				<span class="text-xs font-semibold text-emphasis">Description</span>
 				<textarea rows="4" use:autosize bind:value={variable.description} placeholder="Used for X"
 				></textarea>
 			</label>

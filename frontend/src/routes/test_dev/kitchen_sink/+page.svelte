@@ -190,7 +190,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Default</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Default</h4>
 					<p class="text-xs text-secondary">Standard actions</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -204,7 +204,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Accent</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Accent</h4>
 					<p class="text-xs text-secondary">Primary actions</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -218,7 +218,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Accent Secondary</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Accent Secondary</h4>
 					<p class="text-xs text-secondary">Secondary actions</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -232,7 +232,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Subtle</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Subtle</h4>
 					<p class="text-xs text-secondary">Utility actions</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -252,7 +252,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Destructive Default</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Destructive Default</h4>
 					<p class="text-xs text-secondary">Delete actions (subtle)</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -267,7 +267,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Destructive Accent</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Destructive Accent</h4>
 					<p class="text-xs text-secondary">Critical delete actions</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -283,7 +283,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Destructive Accent Secondary</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Destructive Accent Secondary</h4>
 					<p class="text-xs text-secondary">Important delete actions</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -299,7 +299,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Destructive Subtle</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Destructive Subtle</h4>
 					<p class="text-xs text-secondary">Minimal delete actions</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -319,7 +319,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Large (lg)</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Large (lg)</h4>
 					<p class="text-xs text-secondary">Prominent actions</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -332,7 +332,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Medium (sm)</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Medium (sm)</h4>
 					<p class="text-xs text-secondary">Standard size</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -345,7 +345,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Small (xs)</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Small (xs)</h4>
 					<p class="text-xs text-secondary">Compact interfaces</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -364,7 +364,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Default with dropdown</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Default with dropdown</h4>
 					<p class="text-xs text-secondary">Standard actions with menu</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -382,7 +382,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Accent with dropdown</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Accent with dropdown</h4>
 					<p class="text-xs text-secondary">Primary actions with menu</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -400,7 +400,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Accent Secondary with dropdown</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Accent Secondary with dropdown</h4>
 					<p class="text-xs text-secondary">Secondary actions with menu</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -420,7 +420,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Subtle with dropdown</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Subtle with dropdown</h4>
 					<p class="text-xs text-secondary">Utility actions with menu</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -438,7 +438,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Destructive with dropdown</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Destructive with dropdown</h4>
 					<p class="text-xs text-secondary">Delete actions with menu</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -472,7 +472,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Basic Toggle</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Basic Toggle</h4>
 					<p class="text-xs text-secondary">Simple option selection</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -491,7 +491,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">With Icons</h4>
+					<h4 class="text-xs font-semibold text-emphasis">With Icons</h4>
 					<p class="text-xs text-secondary">Toggle with icon variants</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -510,7 +510,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Icon Only</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Icon Only</h4>
 					<p class="text-xs text-secondary">Compact icon-only toggles</p>
 				</div>
 				<div class="flex flex-col space-y-2">
@@ -544,7 +544,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Standard Actions</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Standard Actions</h4>
 					<p class="text-xs text-secondary">Common operations</p>
 				</div>
 				<div class="flex justify-end">
@@ -556,7 +556,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">With Links</h4>
+					<h4 class="text-xs font-semibold text-emphasis">With Links</h4>
 					<p class="text-xs text-secondary">Navigation items</p>
 				</div>
 				<div class="flex justify-end">
@@ -568,7 +568,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Mixed States</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Mixed States</h4>
 					<p class="text-xs text-secondary">Enabled and disabled</p>
 				</div>
 				<div class="flex justify-end">
@@ -595,7 +595,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Basic Text Input</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Basic Text Input</h4>
 					<p class="text-xs text-secondary">Standard text field</p>
 				</div>
 				<div class="space-y-2">
@@ -611,7 +611,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Input States</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Input States</h4>
 					<p class="text-xs text-secondary">Error and disabled states</p>
 				</div>
 				<div class="space-y-2">
@@ -624,7 +624,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Clearable Inputs</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Clearable Inputs</h4>
 					<p class="text-xs text-secondary">Text inputs with clear button</p>
 				</div>
 				<div class="space-y-2">
@@ -637,7 +637,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Text Area</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Text Area</h4>
 					<p class="text-xs text-secondary">Multi-line text input</p>
 				</div>
 				<div class="space-y-2">
@@ -653,7 +653,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">Date Input</h4>
+					<h4 class="text-xs font-semibold text-emphasis">Date Input</h4>
 					<p class="text-xs text-secondary">Date picker component</p>
 				</div>
 				<div class="space-y-2">
@@ -665,7 +665,7 @@
 				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 			>
 				<div class="space-y-1">
-					<h4 class="text-xs font-medium text-emphasis">DateTime Input</h4>
+					<h4 class="text-xs font-semibold text-emphasis">DateTime Input</h4>
 					<p class="text-xs text-secondary">Date and time picker</p>
 				</div>
 				<div class="space-y-2">
