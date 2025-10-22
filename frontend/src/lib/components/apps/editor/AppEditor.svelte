@@ -1059,7 +1059,7 @@
 
 									<div id="app-editor-top-level-drawer"></div>
 									<div
-										class="absolute pointer-events-none inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#666666_1px,transparent_1px)] [background-size:16px_16px]"
+										class="absolute pointer-events-none inset-0 h-full w-full surface-secondary bg-[radial-gradient(#dbdbdb_1px,transparent_1px)] dark:bg-[radial-gradient(#66666650_1px,transparent_1px)] [background-size:16px_16px]"
 									></div>
 
 									<!-- svelte-ignore a11y_no_static_element_interactions -->
