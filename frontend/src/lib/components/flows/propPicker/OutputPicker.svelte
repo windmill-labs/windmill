@@ -170,6 +170,7 @@
 								bottomBarOpen ? 'opacity-100' : 'opacity-0',
 								inputOpen ? 'bg-surface-secondary' : 'bg-surface-tertiary'
 							)}
+							btnClasses="font-normal"
 							endIcon={{ icon: ChevronDown }}
 							size="xs3"
 						>
@@ -223,6 +224,7 @@
 								'w-full h-full rounded-b-md transition-colors',
 								outputOpen ? 'bg-surface-secondary' : 'bg-surface-tertiary'
 							)}
+							btnClasses="font-normal"
 							endIcon={showInput ? { icon: ChevronDown } : undefined}
 							size="xs3"
 						>
