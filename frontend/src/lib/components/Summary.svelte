@@ -11,7 +11,7 @@
 </script>
 
 <div class="flex flex-row center-center gap-1 min-w-32 lg:min-w-64 w-full max-w-md">
-	<div class="relative w-full">
+	<div class="relative w-full flex">
 		<TextInput
 			inputProps={{
 				title: 'Rename',

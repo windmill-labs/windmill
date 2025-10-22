@@ -21,9 +21,9 @@
 	import { ButtonType } from '$lib/components/common/button/model'
 
 	export const inputSizeClasses = {
-		sm: `${ButtonType.UnifiedSizingClasses.sm} ${ButtonType.UnifiedHeightClasses.sm} !py-0.5`,
-		md: `${ButtonType.UnifiedSizingClasses.md} ${ButtonType.UnifiedHeightClasses.md}`,
-		lg: `${ButtonType.UnifiedSizingClasses.lg} ${ButtonType.UnifiedHeightClasses.lg}`
+		sm: `${ButtonType.UnifiedSizingClasses.sm} ${ButtonType.UnifiedMinHeightClasses.sm} !py-0.5`,
+		md: `${ButtonType.UnifiedSizingClasses.md} ${ButtonType.UnifiedMinHeightClasses.md}`,
+		lg: `${ButtonType.UnifiedSizingClasses.lg} ${ButtonType.UnifiedMinHeightClasses.lg}`
 	}
 </script>
 
@@ -37,6 +37,7 @@
 		class?: string
 		error?: string | boolean
 		size?: 'sm' | 'md' | 'lg'
+		unifiedHeight?: boolean
 	}
 
 	export function focus() {
@@ -50,7 +51,8 @@
 		value = $bindable(),
 		class: className = '',
 		error,
-		size = 'md'
+		size = 'md',
+		unifiedHeight = true
 	}: Props = $props()
 </script>
 
@@ -62,6 +64,7 @@
 		'w-full',
 		'[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
 		inputBorderClass({ error: !!error }),
+		unifiedHeight ? ButtonType.UnifiedHeightClasses[size] : '',
 		className
 	)}
 	bind:this={inputEl}
