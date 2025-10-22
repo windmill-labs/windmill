@@ -14,7 +14,7 @@ html {
 	.border-x, .border-y, 
 	.divide-x > :not([hidden]) ~ :not([hidden]), 
 	.divide-y > :not([hidden]) ~ :not([hidden]) {
-		border-color: #e5e7eb; /* gray-200 */
+		border-color: rgb(var(--color-border-light));
 	}
 
 	/* Dark mode: change border color */
@@ -22,7 +22,7 @@ html {
 	.dark .border-x, .dark .border-y, 
 	.dark .divide-x > :not([hidden]) ~ :not([hidden]), 
 	.dark .divide-y > :not([hidden]) ~ :not([hidden]) {
-		border-color: #4b5563; /* gray-700 */
+		border-color: rgb(var(--color-border-light));
 	}
 
 	/* Chrome, Edge, and Safari */
