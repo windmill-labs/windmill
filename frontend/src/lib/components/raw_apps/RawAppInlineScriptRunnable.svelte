@@ -94,8 +94,7 @@
 		}
 	}
 	$effect(() => {
-		;[runnable?.fields]
-		untrack(() => onFieldsChange(runnable?.fields ?? {}))
+		onFieldsChange(runnable?.fields ?? {})
 	})
 </script>
 
@@ -187,7 +186,7 @@
 										<SchemaForm
 											on:keydownCmdEnter={testPreview}
 											disabledArgs={Object.entries(runnable?.fields ?? {})
-												.filter(([k, v]) => v.type == 'static')
+												.filter(([_, v]) => v.type == 'static')
 												.map(([k]) => k)}
 											schema={runnable ? getSchema(runnable) : {}}
 											bind:args
