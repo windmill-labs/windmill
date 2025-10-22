@@ -25,7 +25,7 @@
 					<span class="text-xs">{log.id}</span>
 				</div>
 				<div class="flex flex-col gap-1">
-					<span class="font=medium text-xs text-emphasis">Parameters</span>
+					<span class="font-semibold text-xs text-emphasis">Parameters</span>
 					<div class="text-xs p-2 bg-surface-secondary rounded-md">
 						{JSON.stringify(log.parameters, null, 2)}
 					</div>

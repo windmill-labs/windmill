@@ -5,7 +5,6 @@
 
 	interface Props {
 		label?: string | undefined
-		primary?: boolean
 		disabled?: boolean
 		headless?: boolean
 		required?: boolean
@@ -21,7 +20,6 @@
 
 	let {
 		label = undefined,
-		primary = false,
 		disabled = false,
 		headless = false,
 		required = false,
@@ -42,10 +40,7 @@
 	<div class="flex flex-row justify-between items-center w-full">
 		{#if !headless}
 			<div class={twMerge('flex flex-row items-center gap-2', headerClass)}>
-				<span
-					class="{primary
-						? 'text-emphasis'
-						: 'text-emphasis'} text-xs font-semibold whitespace-nowrap"
+				<span class="text-emphasis text-xs font-semibold whitespace-nowrap"
 					><label for={forAttr}>{label}</label>
 					{#if required}
 						<Required required={true} />

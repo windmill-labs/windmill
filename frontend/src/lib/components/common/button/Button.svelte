@@ -160,7 +160,12 @@
 				? ButtonType.DestructiveVariantStyles[variant]
 				: ButtonType.VariantStyles[variant]
 			// For default variant with dropdowns, remove border from button since it's on wrapper
-			if (variant === 'default' && dropdownItems && dropdownItems.length > 0) {
+			if (
+				variant === 'default' &&
+				dropdownItems &&
+				((typeof dropdownItems === 'function' && dropdownItems().length > 0) ||
+					dropdownItems.length > 0)
+			) {
 				style = style.replace('border border-border-light', '')
 			}
 			return style
@@ -295,11 +300,13 @@
 	$effect(() => {
 		$open !== undefined && dispatchIfMounted('tooltipOpen', $open)
 	})
+
+	const dividerClass = $derived(getDividerClass(color, variant))
 </script>
 
 <div
 	class={twMerge(
-		dropdownItems && dropdownItems.length > 0 ? getDividerClass(color, variant) : '',
+		dropdownItems && dropdownItems.length > 0 ? dividerClass : '',
 		wrapperClasses,
 		'flex flex-row rounded-md',
 		disabled ? 'divide-text-disabled cursor-not-allowed' : ''
