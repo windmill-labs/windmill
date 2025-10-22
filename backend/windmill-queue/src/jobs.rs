@@ -68,7 +68,6 @@ use backon::ConstantBuilder;
 use backon::{BackoffBuilder, Retryable};
 
 use crate::flow_status::{update_flow_status_in_progress, update_workflow_as_code_status};
-use crate::jobs_ee::maybe_apply_debouncing;
 use crate::schedule::{get_schedule_opt, push_scheduled_job};
 use crate::tags::per_workspace_tag;
 #[cfg(feature = "cloud")]
@@ -4721,7 +4720,8 @@ pub async fn push<'c, 'd>(
         }
     };
 
-    if let Some(debounced_job_id) = maybe_apply_debouncing(
+    #[cfg(feature = "enterprise")]
+    if let Some(debounced_job_id) = create::jobs_ee::maybe_apply_debouncing(
         &job_id,
         debounce_delay_s,
         custom_debounce_key,
