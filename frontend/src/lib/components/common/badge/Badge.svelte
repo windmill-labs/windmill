@@ -63,7 +63,7 @@
 		['dark-indigo']: 'bg-indigo-500 text-indigo-100 dark:bg-indigo-600 dark:text-indigo-200',
 		['dark-orange']: 'bg-orange-500 text-orange-100 dark:bg-orange-600 dark:text-orange-200',
 		['dark-violet']: 'bg-violet-500 text-violet-100 dark:bg-violet-600 dark:text-violet-200',
-		transparent: 'bg-transparent border border-gray-300 dark:border-gray-600'
+		transparent: 'bg-transparent border'
 	}
 
 	const selectedColors: Record<BadgeColor, string> = {
