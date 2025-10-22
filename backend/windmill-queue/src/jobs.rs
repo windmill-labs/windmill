@@ -4590,7 +4590,7 @@ pub async fn push<'c, 'd>(
                 );
 
                 sqlx::query!(
-                    "INSERT INTO debounce_key (key, job_id) VALUES ($1, $2)",
+                    "INSERT INTO debounce_key (key, job_id) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET job_id = EXCLUDED.job_id",
                     &debounce_key,
                     job_id,
                 )
