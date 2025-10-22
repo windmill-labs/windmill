@@ -11,7 +11,7 @@
 	<Button
 		{aiId}
 		{aiDescription}
-		unifiedSize="md"
+		unifiedSize="lg"
 		variant="accent"
 		startIcon={{ icon: Plus }}
 		href="{base}/scripts/add"
