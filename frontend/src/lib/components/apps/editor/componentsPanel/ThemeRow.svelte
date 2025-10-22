@@ -200,7 +200,7 @@
 				<Button color="light" size="xs" on:click={preview} startIcon={{ icon: Eye }}>
 					Preview
 				</Button>
-				<Button color="dark" size="xs2" on:click={apply}>Apply</Button>
+				<Button variant="accent" size="xs2" on:click={apply}>Apply</Button>
 			{/if}
 
 			<Dropdown items={getDropdownItems} class="w-fit" />

@@ -98,7 +98,7 @@
 					style="position: absolute; overflow: hidden; width: 1.67772e+07px; height: 1.67772e+07px; transform: translate3d(0px, 0px, 0px); contain: strict; top: 0px; left: 0px;"
 				>
 					<div
-						class="view-lines monaco-mouse-cursor-text text-tertiary/60"
+						class="view-lines monaco-mouse-cursor-text text-primary/60"
 						style="line-height: {lineHeight}px; position: absolute; font-family: {fontFamily}; font-weight: normal; font-size: {fontSize}px; font-feature-settings: 'liga' 0, 'calt' 0; font-variation-settings: normal; line-height: {lineHeight}px; letter-spacing: 0px; width: 1143px; height: 789px;"
 					>
 						{#each lines as line, i}

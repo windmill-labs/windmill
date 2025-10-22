@@ -32,8 +32,8 @@
 	<DrawerContent title="App Export" on:close={() => jsonViewerDrawer.toggleDrawer()}>
 		<div>
 			<Tabs bind:selected={rawType}>
-				<Tab value="yaml">YAML</Tab>
-				<Tab value="json">JSON</Tab>
+				<Tab value="yaml" label="YAML" />
+				<Tab value="json" label="JSON" />
 				{#snippet content()}
 					<div class="relative pt-2">
 						<Button
@@ -43,8 +43,7 @@
 										? YAML.stringify(app ?? {})
 										: JSON.stringify(app ?? {}, null, 4)
 								)}
-							color="dark"
-							variant="border"
+							variant="accent"
 							size="sm"
 							startIcon={{ icon: Clipboard }}
 							btnClasses="absolute top-2 right-2 w-min z-20"

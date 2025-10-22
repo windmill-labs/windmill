@@ -244,9 +244,8 @@
 
 											<Button
 												loading={i.isSaving}
-												color="light"
 												size="xs"
-												variant="border"
+												variant="default"
 												spacingSize="xs2"
 												btnClasses={'group-hover:block hidden -my-2'}
 												on:click={(e) => {
@@ -261,10 +260,9 @@
 												<Edit class="w-4 h-4" />
 											</Button>
 											<Button
-												color="red"
 												size="xs"
 												spacingSize="xs2"
-												variant="border"
+												variant="default"
 												btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden -my-2'}
 												on:click={() => deleteInput(i)}
 											>
@@ -272,13 +270,13 @@
 											</Button>
 										</div>
 									{:else}
-										<span class="text-xs text-tertiary">By {i.created_by}</span>
+										<span class="text-xs text-primary">By {i.created_by}</span>
 									{/if}
 								</div>
 							</button>
 						{/each}
 					{:else}
-						<div class="text-center text-tertiary">No saved Inputs</div>
+						<div class="text-center text-primary">No saved Inputs</div>
 					{/if}
 				</div>
 			</div>
@@ -290,7 +288,7 @@
 
 				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
 					{#if loading && (jobs == undefined || jobs?.length == 0)}
-						<div class="text-left text-tertiary text-xs">Loading current runs...</div>
+						<div class="text-left text-primary text-xs">Loading current runs...</div>
 					{:else if jobs?.length > 0}
 						{#each jobs as i (i.id)}
 							<button
@@ -329,7 +327,7 @@
 										{i.created_by}
 									</div>
 									<div
-										class="whitespace-nowrap col-span-3 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+										class="whitespace-nowrap col-span-3 !text-primary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
 									>
 										<TimeAgo noDate date={i.started_at ?? ''} />
 									</div>
@@ -347,12 +345,12 @@
 							</button>
 						{/each}
 						{#if jobs?.length == 5}
-							<div class="text-left text-tertiary text-xs"
+							<div class="text-left text-primary text-xs"
 								>... there may be more runs not displayed here as the limit is 5</div
 							>
 						{/if}
 					{:else}
-						<div class="text-left text-tertiary text-xs">No job currently running</div>
+						<div class="text-left text-primary text-xs">No job currently running</div>
 					{/if}
 				</div>
 
@@ -386,12 +384,12 @@
 										{i.created_by}
 									</div>
 									<div
-										class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+										class="whitespace-nowrap col-span-2 !text-primary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
 									>
 										{displayDateOnly(new Date(i.created_at))}
 									</div>
 									<div
-										class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+										class="whitespace-nowrap col-span-2 !text-primary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
 									>
 										<TimeAgo noDate date={i.created_at ?? ''} />
 									</div>
@@ -409,7 +407,7 @@
 							</button>
 						{/each}
 					{:else}
-						<div class="text-center text-tertiary">No previous Runs</div>
+						<div class="text-center text-primary">No previous Runs</div>
 					{/if}
 				</div>
 			</div>
@@ -443,7 +441,7 @@
 								<ObjectViewer json={previewArgs} />
 							</div>
 						{:else}
-							<div class="text-center text-tertiary">
+							<div class="text-center text-primary">
 								Select an Input to preview scripts arguments
 							</div>
 						{/if}

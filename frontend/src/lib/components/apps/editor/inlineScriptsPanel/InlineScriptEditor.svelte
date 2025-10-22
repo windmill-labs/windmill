@@ -24,6 +24,7 @@
 	import CacheTtlPopup from './CacheTtlPopup.svelte'
 	import EditorSettings from '$lib/components/EditorSettings.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	const {
 		runnableComponents,
@@ -265,17 +266,19 @@
 			{#if name !== undefined}
 				{#if !transformer}
 					<div class="flex flex-row gap-2 w-full items-center">
-						<input
-							onkeydown={stopPropagation(bubble('keydown'))}
+						<TextInput
 							bind:value={name}
-							placeholder="Inline script name"
-							class="!text-xs !rounded-sm !shadow-none"
-							onkeyup={() => {
-								$app = $app
-								if (stateId) {
-									$stateId++
-								}
+							inputProps={{
+								onkeyup: () => {
+									$app = $app
+									if (stateId) {
+										$stateId++
+									}
+								},
+								placeholder: 'Inline script name',
+								onkeydown: () => stopPropagation(bubble('keydown'))
 							}}
+							size="sm"
 						/>
 						<div
 							title={validCode ? 'Main function parsable' : 'Main function not parsable'}
@@ -288,7 +291,10 @@
 			{/if}
 			<div class="flex w-full flex-row gap-1 items-center justify-end">
 				{#if inlineScript}
-					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
+					<CacheTtlPopup
+						bind:cache_ttl={inlineScript.cache_ttl}
+						btnProps={{ unifiedSize: 'sm', variant: 'subtle' }}
+					/>
 				{/if}
 				<ScriptGen
 					lang={inlineScript?.language}
@@ -300,14 +306,15 @@
 						return acc
 					}, {})}
 					{transformer}
+					btnProps={{ unifiedSize: 'sm', variant: 'subtle' }}
 				/>
-				<EditorSettings />
+				<EditorSettings btnProps={{ unifiedSize: 'sm', variant: 'subtle' }} />
 
 				<Button
 					title="Delete"
-					size="xs2"
-					color="light"
-					variant="contained"
+					unifiedSize="sm"
+					variant="subtle"
+					destructive
 					aria-label="Delete"
 					on:click={() => dispatch('delete')}
 					endIcon={{ icon: Trash2 }}
@@ -315,10 +322,9 @@
 				/>
 				{#if inlineScript.language != 'frontend'}
 					<Button
-						size="xs2"
-						color="light"
+						unifiedSize="sm"
+						variant="subtle"
 						title="Full Editor"
-						variant="contained"
 						on:click={() => {
 							inlineScriptEditorDrawer?.openDrawer()
 						}}
@@ -328,9 +334,8 @@
 				{/if}
 
 				<Button
-					variant="border"
-					size="xs2"
-					color="light"
+					variant="default"
+					unifiedSize="sm"
 					on:click={async () => {
 						editor?.format()
 						simpleEditor?.format()

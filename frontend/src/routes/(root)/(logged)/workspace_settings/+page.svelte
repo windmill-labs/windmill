@@ -57,6 +57,7 @@
 	} from '$lib/components/workspaceSettings/DucklakeSettings.svelte'
 	import { AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -502,12 +503,7 @@
 	{#if $userStore?.is_admin || $superadmin}
 		<PageHeader title="Workspace settings: {$workspaceStore}"
 			>{#if $superadmin}
-				<Button
-					variant="border"
-					color="dark"
-					size="sm"
-					on:click={() => goto('#superadmin-settings')}
-				>
+				<Button variant="default" size="sm" on:click={() => goto('#superadmin-settings')}>
 					Instance settings
 				</Button>
 			{/if}</PageHeader
@@ -526,107 +522,86 @@
 				}}
 			>
 				<Tab
-					size="xs"
 					value="users"
 					aiId="workspace-settings-users"
 					aiDescription="Users workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Users</div>
-				</Tab>
+					label="Users"
+				/>
 				<Tab
-					size="xs"
 					value="git_sync"
 					aiId="workspace-settings-git-sync"
 					aiDescription="Git sync workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Git Sync</div>
-				</Tab>
+					label="Git Sync"
+				/>
 				<Tab
-					size="xs"
 					value="deploy_to"
 					aiId="workspace-settings-deploy-to"
 					aiDescription="Deployment UI workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Deployment UI</div>
-				</Tab>
+					label="Deployment UI"
+				/>
+
 				{#if WORKSPACE_SHOW_SLACK_CMD}
 					<Tab
-						size="xs"
 						value="slack"
 						aiId="workspace-settings-slack"
 						aiDescription="Slack / Teams workspace settings"
-					>
-						<div class="flex gap-2 items-center my-1">Slack / Teams</div>
-					</Tab>
+						label="Slack / Teams"
+					/>
 				{/if}
 				{#if isCloudHosted()}
 					<Tab
-						size="xs"
 						value="premium"
 						aiId="workspace-settings-premium"
 						aiDescription="Premium plans workspace settings"
-					>
-						<div class="flex gap-2 items-center my-1">Premium Plans</div>
-					</Tab>
+						label="Premium Plans"
+					/>
 				{/if}
 				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
 					<Tab
-						size="xs"
 						value="webhook"
 						aiId="workspace-settings-webhook"
 						aiDescription="Webhook workspace settings"
-					>
-						<div class="flex gap-2 items-center my-1">Webhook</div>
-					</Tab>
+						label="Webhook"
+					/>
 				{/if}
 				<Tab
-					size="xs"
 					value="error_handler"
 					aiId="workspace-settings-error-handler"
 					aiDescription="Error handler workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Error Handler</div>
-				</Tab>
+					label="Error Handler"
+				/>
 				<Tab
-					size="xs"
 					value="ai"
 					aiId="workspace-settings-ai"
 					aiDescription="Windmill AI workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Windmill AI</div>
-				</Tab>
+					label="Windmill AI"
+				/>
 				<Tab
-					size="xs"
 					value="windmill_lfs"
 					aiId="workspace-settings-windmill-lfs"
 					aiDescription="Object Storage (S3) workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Object Storage (S3)</div>
-				</Tab>
+					label="Object Storage (S3)"
+				/>
 				<Tab
-					size="xs"
 					value="default_app"
 					aiId="workspace-settings-default-app"
 					aiDescription="Default app workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Default App</div>
-				</Tab>
+					label="Default App"
+				/>
+
 				<Tab
-					size="xs"
 					value="encryption"
 					aiId="workspace-settings-encryption"
 					aiDescription="Encryption workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Encryption</div>
-				</Tab>
+					label="Encryption"
+				/>
+
 				<Tab
-					size="xs"
 					value="general"
 					aiId="workspace-settings-general"
 					aiDescription="General workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">General</div>
-				</Tab>
+					label="General"
+				/>
 			</Tabs>
 		</div>
 		{#if !loadedSettings}
@@ -636,7 +611,7 @@
 		{:else if tab == 'deploy_to'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold">
+					<div class="text-sm font-semibold text-emphasis">
 						Link this Workspace to another Staging / Prod Workspace
 					</div>
 					<Description link="https://www.windmill.dev/docs/core_concepts/staging_prod">
@@ -659,7 +634,7 @@
 		{:else if tab == 'slack'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold"
+					<div class="text-sm font-semibold text-emphasis"
 						>Workspace connections to Slack and Teams</div
 					>
 					<Description link="https://www.windmill.dev/docs/integrations/slack">
@@ -669,12 +644,8 @@
 				</div>
 
 				<Tabs bind:selected={slack_tabs}>
-					<Tab size="xs" value="slack_commands">
-						<div class="flex gap-2 items-center my-1"> Slack</div>
-					</Tab>
-					<Tab size="xs" value="teams_commands">
-						<div class="flex gap-2 items-center my-1"> Teams</div>
-					</Tab>
+					<Tab value="slack_commands" label="Slack" />
+					<Tab value="teams_commands" label="Teams" />
 				</Tabs>
 
 				{#if slack_tabs === 'slack_commands'}
@@ -728,22 +699,22 @@
 				{/if}
 			</div>
 		{:else if tab == 'general'}
-			<div class="flex flex-col gap-4 my-8">
+			<div class="flex flex-col gap-4 my-6">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold">General</div>
+					<div class="text-sm font-semibold text-emphasis">General</div>
 					<Description link="https://www.windmill.dev/docs/core_concepts/workspace_settings">
 						Configure general workspace settings.
 					</Description>
 				</div>
 			</div>
 
-			<div class="flex flex-col gap-10">
+			<div class="flex flex-col gap-6">
 				<ChangeWorkspaceName />
 				<ChangeWorkspaceId />
 				<ChangeWorkspaceColor />
 			</div>
 
-			<PageHeader title="Export workspace" primary={false} />
+			<div class="text-xs font-semibold text-emphasis mt-6 mb-1">Export workspace</div>
 			<div class="flex justify-start">
 				<Button
 					size="sm"
@@ -754,22 +725,22 @@
 				</Button>
 			</div>
 
-			<div class="mt-20"></div>
-			<PageHeader title="Delete workspace" primary={false} />
+			<div class="mt-12"></div>
+			<span class="text-sm font-semibold text-emphasis">Delete workspace</span>
 			{#if !$superadmin}
-				<p class="italic text-xs"> Only instance superadmins can delete a workspace. </p>
+				<p class="text-2xs text-secondary"> Only instance superadmins can delete a workspace. </p>
 			{/if}
 			{#if $workspaceStore === 'admins' || $workspaceStore === 'starter'}
-				<p class="italic text-xs">
+				<p class="text-2xs text-secondary">
 					This workspace cannot be deleted as it has a special function. Consult the documentation
 					for more information.
 				</p>
 			{/if}
 			<div class="flex gap-2">
 				<Button
-					color="red"
+					destructive
 					disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
-					size="sm"
+					unifiedSize="md"
 					btnClasses="mt-2"
 					on:click={async () => {
 						await WorkspaceService.archiveWorkspace({ workspace: $workspaceStore ?? '' })
@@ -803,7 +774,7 @@
 		{:else if tab == 'webhook'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold"> Workspace Webhook</div>
+					<div class="text-xs font-semibold text-emphasis"> Workspace Webhook</div>
 					<Description
 						link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
 					>
@@ -814,8 +785,8 @@
 			</div>
 			<div class="flex flex-col gap-4 my-4">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-base font-semibold"> URL to send requests to</div>
-					<div class="text-tertiary text-xs">
+					<div class="text-xs font-semibold text-emphasis"> URL to send requests to</div>
+					<div class="text-primary text-xs">
 						This URL will be POSTed to with a JSON body depending on the type of event. The type is
 						indicated by the type field. The other fields are dependent on the type.
 					</div>
@@ -836,7 +807,7 @@
 			{/if}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold"> Workspace Error Handler</div>
+					<div class="text-sm font-semibold text-emphasis"> Workspace Error Handler</div>
 					<Description
 						link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
 					>
@@ -846,7 +817,7 @@
 			</div>
 			<div class="flex flex-col gap-4 my-4">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-base font-semibold">
+					<div class="text-xs font-semibold text-emphasis">
 						Script or flow to run as error handler</div
 					>
 				</div>
@@ -907,7 +878,7 @@
 			</div>
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold"> Workspace Critical Alerts</div>
+					<div class="text-sm font-semibold text-emphasis"> Workspace Critical Alerts</div>
 					<Description link="https://www.windmill.dev/docs/core_concepts/critical_alerts">
 						Critical alerts within the scope of a workspace are sent to the workspace admins through
 						a UI notification.
@@ -960,12 +931,12 @@
 				}}
 			/>
 			<DucklakeSettings
-			bind:ducklakeSettings
-			bind:ducklakeSavedSettings
-			onSave={() => {
-				ducklakeSavedSettings = clone(ducklakeSettings)
-			}}
-		/>
+				bind:ducklakeSettings
+				bind:ducklakeSavedSettings
+				onSave={() => {
+					ducklakeSavedSettings = clone(ducklakeSettings)
+				}}
+			/>
 		{:else if tab == 'git_sync'}
 			{#if $workspaceStore}
 				<GitSyncSection />
@@ -977,7 +948,7 @@
 		{:else if tab == 'default_app'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold">Workspace Default App</div>
+					<div class="text-sm font-semibold text-emphasis">Workspace Default App</div>
 					<Description>
 						If configured, users who are operators in this workspace will be redirected to this app
 						automatically when logging into this workspace.
@@ -1011,7 +982,7 @@
 		{:else if tab == 'encryption'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold">Workspace Secret Encryption</div>
+					<div class="text-sm font-semibold text-emphasis">Workspace Secret Encryption</div>
 					<Description>
 						When updating the encryption key of a workspace, all secrets will be re-encrypted with
 						the new key and the previous key will be replaced by the new one.
@@ -1039,16 +1010,20 @@
 					}}>Save & Re-encrypt workspace</Button
 				>
 			</div>
-			<h6> Workspace encryption key </h6>
+			<label for="workspace-encryption-key" class="text-xs font-semibold text-emphasis mt-1">
+				Workspace encryption key
+			</label>
 			<div class="flex gap-2 mt-1">
-				<input
-					class="justify-start"
-					type="text"
-					placeholder={'*'.repeat(64)}
+				<TextInput
+					inputProps={{
+						id: 'workspace-encryption-key',
+						placeholder: '*'.repeat(64)
+					}}
 					bind:value={editedWorkspaceEncryptionKey}
 				/>
 				<Button
-					color="light"
+					variant="default"
+					unifiedSize="md"
 					on:click={() => {
 						loadWorkspaceEncryptionKey()
 					}}>Load current key</Button
