@@ -17681,25 +17681,58 @@ components:
           - target_workspace_id
           - migration_type
 
-    MigrateJobResponse:
+    MigrateJobsBatchRequest:
       type: object
       properties:
-        source_workspace:
+        source_workspace_id:
           type: string
-        total_jobs:
+          description: source workspace id
+        target_workspace_id:
+          type: string
+          description: target workspace id
+        batch_size:
           type: integer
           format: int64
+          default: 10000
+          description: number of jobs to migrate per batch
+      required:
+        - source_workspace_id
+        - target_workspace_id
+
+    MigrateJobsBatchResponse:
+      type: object
+      properties:
+        migrated_count:
+          type: integer
+          format: int64
+          description: number of jobs migrated in this batch
         remaining_jobs:
           type: integer
           format: int64
+          description: number of jobs still remaining
+        total_jobs:
+          type: integer
+          format: int64
+          description: total number of jobs
         migration_progress:
           type: number
           format: float
+          description: migration progress percentage
       required:
-        - source_workspace
-        - total_jobs
+        - migrated_count
         - remaining_jobs
+        - total_jobs
         - migration_progress
+
+    MigrateJobResponse:
+      type: object
+      properties:
+        processed_jobs:
+          type: integer
+          format: int64
+          description: number of jobs processed (remaining in source workspace)
+      required:
+        - processed_jobs
 
     DucklakeInstanceCatalogDbStatusLogs:
       type: object

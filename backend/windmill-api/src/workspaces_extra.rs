@@ -25,7 +25,7 @@ use windmill_common::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
-pub(crate) struct MigrateWorkspaceRequest {
+pub struct MigrateWorkspaceRequest {
     source_workspace_id: String,
     target_workspace_name: String,
     target_workspace_id: String,
@@ -234,7 +234,7 @@ async fn is_workspace_owner(
     Ok(owner.map(|o| o == authed.email).unwrap_or(false))
 }
 
-pub(crate) async fn migrate_workspace(
+pub async fn migrate_workspace(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Json(req): Json<MigrateWorkspaceRequest>,
@@ -255,17 +255,19 @@ pub(crate) async fn migrate_workspace(
 
     let mut tx = db.begin().await?;
 
-    check_w_id_conflict(&mut tx, &req.target_workspace_id).await?;
+    if req.migration_type != MigrationType::Jobs {
+        check_w_id_conflict(&mut tx, &req.target_workspace_id).await?;
 
-    sqlx::query!(
-        "INSERT INTO 
-            workspace SELECT $1, $2, owner, deleted, premium FROM workspace WHERE id = $3",
-        &req.target_workspace_id,
-        &req.target_workspace_name,
-        &req.source_workspace_id
-    )
-    .execute(&mut *tx)
-    .await?;
+        sqlx::query!(
+            "INSERT INTO
+                workspace SELECT $1, $2, owner, deleted, premium FROM workspace WHERE id = $3",
+            &req.target_workspace_id,
+            &req.target_workspace_name,
+            &req.source_workspace_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     match req.migration_type {
         MigrationType::Metadata | MigrationType::All => {
@@ -277,18 +279,15 @@ pub(crate) async fn migrate_workspace(
 
     match req.migration_type {
         MigrationType::Jobs | MigrationType::All => {
-            migrate_job_tables(&mut tx, &req.source_workspace_id, &req.target_workspace_id).await?;
+            let result = migrate_jobs_batch(
+                &mut tx,
+                &req.source_workspace_id,
+                &req.target_workspace_id,
+                DEFAULT_BATCH_SIZE,
+            )
+            .await?;
         }
         _ => {}
-    }
-
-    if req.disable_workspace && req.migration_type != MigrationType::Jobs {
-        sqlx::query!(
-            "UPDATE workspace SET deleted = true WHERE id = $1",
-            &req.source_workspace_id
-        )
-        .execute(&mut *tx)
-        .await?;
     }
 
     audit_log(
@@ -335,7 +334,6 @@ async fn migrate_metadata_tables(
     source: &str,
     target: &str,
 ) -> Result<()> {
-    // Simple tables that can be updated directly (in same order as change_workspace_id)
     let simple_tables = vec![
         "account",
         "app",
@@ -475,15 +473,19 @@ async fn migrate_job_tables(
     Ok(())
 }
 
+const DEFAULT_BATCH_SIZE: i64 = 10000;
+
 #[derive(Serialize)]
-pub(crate) struct MigrationStatus {
-    source_workspace: String,
-    total_jobs: i64,
-    remaining_jobs: i64,
-    migration_progress: f64,
+pub struct MigrateJobsBatchResponse {
+    migrated_count: i64,
 }
 
-pub(crate) async fn get_migration_status(
+#[derive(Serialize)]
+pub struct MigrationStatus {
+    processed_jobs: i64,
+}
+
+pub async fn get_migration_status(
     authed: ApiAuthed,
     Query(params): Query<std::collections::HashMap<String, String>>,
     Extension(db): Extension<DB>,
@@ -495,26 +497,39 @@ pub(crate) async fn get_migration_status(
         .ok_or_else(|| Error::BadRequest("source_workspace parameter required".to_string()))?;
 
     let source_jobs = sqlx::query_scalar!(
-        "SELECT COALESCE(
-            (SELECT COUNT(*) FROM v2_job WHERE workspace_id = $1) +
-            (SELECT COUNT(*) FROM v2_job_completed WHERE workspace_id = $1) +
-            (SELECT COUNT(*) FROM v2_job_queue WHERE workspace_id = $1),
-            0
-        )",
+        "SELECT COUNT(*) FROM v2_job_completed WHERE workspace_id = $1",
         source_workspace
     )
     .fetch_one(&db)
     .await?
     .unwrap_or(0);
 
-    let total_jobs = source_jobs;
+    Ok(Json(MigrationStatus { processed_jobs: source_jobs }))
+}
 
-    let progress = if total_jobs > 0 { 0.0 } else { 100.0 };
+async fn migrate_jobs_batch(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+    batch_size: i64,
+) -> Result<MigrateJobsBatchResponse> {
+    let migrated_count = sqlx::query_scalar!(
+        "WITH batch AS (
+                SELECT id FROM v2_job_completed
+                WHERE workspace_id = $1
+                LIMIT $2
+            )
+            UPDATE v2_job_completed
+            SET workspace_id = $3
+            WHERE id IN (SELECT id FROM batch)
+            RETURNING 1",
+        source_workspace_id,
+        batch_size,
+        target_workspace_id
+    )
+    .fetch_all(&mut **tx)
+    .await?
+    .len() as i64;
 
-    Ok(Json(MigrationStatus {
-        source_workspace: source_workspace.to_string(),
-        total_jobs,
-        remaining_jobs: source_jobs,
-        migration_progress: progress,
-    }))
+    Ok(MigrateJobsBatchResponse { migrated_count })
 }
