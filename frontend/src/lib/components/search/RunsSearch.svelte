@@ -112,13 +112,13 @@
 <div class="flex h-full p-2 divide-x">
 	{#if loadingCompletedRuns}
 		<div class="flex w-full justify-center items-center h-48">
-			<div class="text-tertiary text-center">
+			<div class="text-primary text-center">
 				<Loader2 size={34} class="animate-spin" />
 			</div>
 		</div>
 	{:else if loadedRuns && loadedRuns.length > 0}
 		<div class="w-4/12 max-h-[70vh] flex flex-col">
-			<div class="text-tertiary text-xs">
+			<div class="text-primary text-xs">
 				{runSearchTotalCount} jobs matched the query
 			</div>
 			<div class="overflow-y-auto">
@@ -126,7 +126,7 @@
 					{#if r.search_id === 'opt:load_more_jobs'}
 						<div class="pt-4"></div>
 						{#if loadingMoreJobs}
-							<div class="pl-8 pb-8 text-tertiary text-center">
+							<div class="pl-8 pb-8 text-primary text-center">
 								<Loader2 size={20} class="animate-spin" />
 							</div>
 						{:else}
@@ -187,12 +187,12 @@
 										<div class="text-xs"> {r?.document.script_path} </div>
 										<div class="flex flex-row gap-2">
 											<div
-												class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+												class="whitespace-nowrap col-span-2 !text-primary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
 											>
 												{displayDateOnly(new Date(r?.document.created_at[0]))}
 											</div>
 											<div
-												class="whitespace-nowrap col-span-2 !text-tertiary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
+												class="whitespace-nowrap col-span-2 !text-primary !text-2xs overflow-hidden text-ellipsis flex-shrink text-center"
 											>
 												<TimeAgo date={r?.document.created_at[0] ?? ''} />
 											</div>
@@ -235,7 +235,7 @@
 		</div>
 	{:else}
 		<div class="flex flex-col h-full w-full justify-center items-center h-48">
-			<div class="text-tertiary text-center">
+			<div class="text-primary text-center">
 				{#if searchTerm === ''}
 					<div class="text-2xl font-bold">Enter your search terms</div>
 					<div class="text-sm">Start typing to do full-text search across completed runs</div>

@@ -299,8 +299,8 @@
 					on:click={() => dispatch('close')}
 					startIcon={{ icon: X }}
 					iconOnly
-					size="sm"
-					color="light"
+					unifiedSize="md"
+					variant="default"
 					btnClasses="hover:bg-surface-hover  bg-surface-secondaryw-8 h-8 rounded-full p-0"
 				/>
 			</div>
@@ -308,11 +308,12 @@
 			{#if isRunning}
 				<div class="mx-auto">
 					<Button
-						color="red"
+						variant="accent"
+						destructive
 						on:click={async () => {
 							cancelTest()
 						}}
-						size="sm"
+						unifiedSize="md"
 						btnClasses="w-full max-w-lg"
 						loading={true}
 						clickableWhileLoading
@@ -321,13 +322,12 @@
 					</Button>
 				</div>
 			{:else}
-				<div class="grow justify-center flex flex-row gap-4">
+				<div class="grow justify-center flex flex-row gap-2">
 					{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel && aiChatManager.flowAiChatHelpers?.getModuleAction(selectedJobStep) !== 'removed'}
 						{#if selectedJobStepType == 'single'}
 							<Button
-								size="xs"
-								color="light"
-								variant="border"
+								unifiedSize="md"
+								variant="default"
 								title={`Re-start this flow from step ${selectedJobStep} (included).`}
 								on:click={() => {
 									runPreview(previewArgs.val, {
@@ -351,8 +351,7 @@
 								{#snippet button()}
 									<Button
 										title={`Re-start this flow from step ${selectedJobStep} (included).`}
-										variant="border"
-										color="blue"
+										variant="default"
 										startIcon={{ icon: RefreshCw }}
 										on:click={() => {
 											runPreview(previewArgs.val, {
@@ -420,9 +419,8 @@
 					{/if}
 					{#if !flowStore.val.value?.chat_input_enabled}
 						<Button
-							variant="contained"
+							variant="accent"
 							startIcon={{ icon: isRunning ? RefreshCw : Play }}
-							color="dark"
 							size="sm"
 							btnClasses="w-full max-w-lg"
 							on:click={() => runPreview(previewArgs.val, undefined)}
@@ -499,7 +497,6 @@
 							<div class="flex flex-row gap-2">
 								<Toggle
 									bind:checked={jsonView}
-									label="JSON View"
 									size="xs"
 									options={{
 										right: 'JSON',
@@ -618,11 +615,11 @@
 					{customUi}
 				/>
 			{:else if loadingHistory}
-				<div class="italic text-tertiary h-full grow mx-auto flex flex-row items-center gap-2">
+				<div class="italic text-primary h-full grow mx-auto flex flex-row items-center gap-2">
 					<Loader2 class="animate-spin" /> <span> Loading history... </span>
 				</div>
 			{:else}
-				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>
+				<div class="italic text-primary h-full grow"> Flow status will be displayed here </div>
 			{/if}
 		</div>
 	</div>

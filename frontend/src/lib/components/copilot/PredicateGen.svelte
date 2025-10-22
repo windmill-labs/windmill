@@ -101,7 +101,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				startIcon={{ icon: Wand2 }}
 				iconOnly
 				title="AI Assistant"
-				btnClasses="min-h-[30px] text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+				btnClasses="min-h-[30px] text-ai bg-violet-100 dark:bg-gray-700"
 				{loading}
 				clickableWhileLoading
 				on:click={loading ? () => abortController?.abort() : () => {}}
@@ -125,7 +125,7 @@ Only return the expression without any wrapper. Do not explain or discuss.`
 				color="light"
 				variant="contained"
 				buttonType="button"
-				btnClasses="!p-1 !w-[38px] !ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+				btnClasses="!p-1 !w-[38px] !ml-2 text-ai bg-violet-100 dark:bg-gray-700"
 				title="Generate predicate from prompt"
 				aria-label="Generate"
 				iconOnly

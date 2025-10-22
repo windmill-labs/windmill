@@ -67,7 +67,7 @@
 
 <Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
 	{#snippet trigger()}
-		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: MailPlus }}>
+		<Button variant="accent" size="xs" nonCaptureEvent={true} startIcon={{ icon: MailPlus }}>
 			Invite
 		</Button>
 	{/snippet}
@@ -104,13 +104,7 @@
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
-			<Button
-				variant="contained"
-				color="blue"
-				size="sm"
-				on:click={inviteUser}
-				disabled={email === undefined}
-			>
+			<Button variant="accent" size="sm" on:click={inviteUser} disabled={email === undefined}>
 				Invite
 			</Button>
 		</div>

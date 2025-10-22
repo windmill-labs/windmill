@@ -173,6 +173,6 @@
 			{/each}
 		{/if}
 	{:else}
-		<div class="text-center text-sm text-tertiary"> Loading test step arguments... </div>
+		<div class="text-center text-sm text-primary"> Loading test step arguments... </div>
 	{/if}
 </div>

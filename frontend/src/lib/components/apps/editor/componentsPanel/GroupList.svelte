@@ -93,7 +93,7 @@
 <div class="p-2 flex flex-col items-start w-auto gap-2 relative">
 	<div class="w-full flex flex-row gap-2 items-center">
 		<input bind:value={nameField} placeholder={'Group name'} />
-		<Button on:click={() => addGroup(nameField)} color="dark" size="xs">Create group</Button>
+		<Button on:click={() => addGroup(nameField)} variant="accent" size="xs">Create group</Button>
 	</div>
 
 	{#if loading}

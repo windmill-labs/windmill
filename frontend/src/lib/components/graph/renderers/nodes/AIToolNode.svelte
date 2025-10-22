@@ -258,7 +258,7 @@
 
 	import type { Writable } from 'svelte/store'
 	import type { GraphModuleState } from '../../model'
-	import { getStateColor, getStateHoverColor } from '../../util'
+	import { getNodeColorClasses } from '../../util'
 	import { deepEqual } from 'fast-equals'
 
 	let hover = $state(false)
@@ -274,21 +274,29 @@
 	}>('FlowGraphContext')
 
 	const flowModuleState = $derived(data.flowModuleStates?.[data.moduleId])
+	let colorClasses = $derived(
+		getNodeColorClasses(
+			!validateToolName(data.tool) ? 'Failure' : flowModuleState?.type,
+			$selectedId === data.moduleId
+		)
+	)
 </script>
 
 <NodeWrapper>
 	{#snippet children({ darkMode })}
-		{@const bgColor = getStateColor(flowModuleState?.type, darkMode, true, false)}
-		{@const bgHoverColor = getStateHoverColor(flowModuleState?.type, darkMode, true, false)}
-
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
+		<div
+			class="relative bg-surface-secondary rounded-md"
+			onmouseenter={() => (hover = true)}
+			onmouseleave={() => (hover = false)}
+		>
 			<button
 				class={twMerge(
-					'text-left bg-surface h-6 flex items-center gap-1.5 rounded-sm text-secondary overflow-clip w-full outline-offset-0 outline-slate-500 dark:outline-gray-400',
-					$selectedId === data.moduleId ? 'outline outline-1' : 'active:outline active:outline-1'
+					'text-left h-6 flex items-center gap-1.5 rounded-md overflow-clip w-full outline-offset-0 drop-shadow-base',
+					colorClasses.outline,
+					colorClasses.text,
+					colorClasses.bg
 				)}
-				style={`background-color: ${hover ? bgHoverColor : bgColor};`}
 				onclick={() => data.eventHandlers.select(data.moduleId)}
 			>
 				{#if data.moduleId.startsWith(AI_TOOL_MESSAGE_PREFIX)}

@@ -1005,8 +1005,7 @@
 		{#snippet actions()}
 			<div class="flex flex-row gap-4">
 				<Button
-					variant="border"
-					color="light"
+					variant="accent"
 					disabled={!savedApp || savedApp.draft_only}
 					on:click={async () => {
 						if (!savedApp) {
@@ -1047,6 +1046,7 @@
 					</div>
 				</Button>
 				<Button
+					variant="accent"
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' || customPathError != ''}
 					on:click={() => {
@@ -1130,7 +1130,6 @@
 
 			{#if $app}
 				<ToggleButtonGroup
-					class="h-[30px]"
 					selected={$app.fullscreen ? 'true' : 'false'}
 					on:selected={({ detail }) => {
 						$app.fullscreen = detail === 'true'
@@ -1139,24 +1138,25 @@
 					{#snippet children({ item })}
 						<ToggleButton
 							icon={AlignHorizontalSpaceAround}
+							iconOnly
 							value={'false'}
 							tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
-							iconProps={{ size: 16 }}
 							{item}
+							size="md"
 						/>
 						<ToggleButton
 							tooltip="The width is of the app if the full width of its container"
 							icon={Expand}
+							iconOnly
 							value={'true'}
-							iconProps={{ size: 16 }}
 							{item}
+							size="md"
 						/>
 					{/snippet}
 				</ToggleButtonGroup>
 			{/if}
 			{#if $app}
 				<ToggleButtonGroup
-					class="h-[30px]"
 					on:selected={({ detail }) => {
 						const theme = detail === 'dark' ? true : detail === 'sun' ? false : undefined
 						setTheme(theme)
@@ -1166,44 +1166,49 @@
 					{#snippet children({ item })}
 						<ToggleButton
 							icon={SunMoon}
+							iconOnly
 							value={'auto'}
 							tooltip="The app mode between dark/light is automatic"
-							iconProps={{ size: 16 }}
 							{item}
+							size="md"
 						/>
 						<ToggleButton
 							icon={Sun}
+							iconOnly
 							value={'sun'}
 							tooltip="Force light mode"
-							iconProps={{ size: 16 }}
 							{item}
+							size="md"
 						/>
 						<ToggleButton
 							tooltip="Force dark mode"
 							icon={Moon}
+							iconOnly
 							value={'dark'}
-							iconProps={{ size: 16 }}
 							{item}
+							size="md"
 						/>
 					{/snippet}
 				</ToggleButtonGroup>
 			{/if}
 			<div class="flex flex-row gap-2">
-				<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
+				<ToggleButtonGroup bind:selected={$breakpoint}>
 					{#snippet children({ item })}
 						<ToggleButton
 							tooltip="Computer View"
 							icon={Laptop2}
+							iconOnly
 							value={'lg'}
-							iconProps={{ size: 16 }}
 							{item}
+							size="md"
 						/>
 						<ToggleButton
 							tooltip="Mobile View"
 							icon={Smartphone}
+							iconOnly
 							value={'sm'}
-							iconProps={{ size: 16 }}
 							{item}
+							size="md"
 						/>
 						{#if $breakpoint === 'sm'}
 							<Toggle
@@ -1283,23 +1288,22 @@
 					}
 					$jobsDrawerOpen = true
 				}}
-				color={hasErrors ? 'red' : 'light'}
-				size="xs"
-				variant="border"
-				btnClasses="relative"
+				unifiedSize="md"
+				variant={hasErrors ? 'accent' : 'default'}
+				btnClasses={'relative'}
+				destructive={hasErrors}
+				startIcon={{ icon: Bug }}
 			>
 				<div class="flex flex-row gap-1 items-center">
-					<Bug size={14} />
 					<div>Debug runs</div>
-					<div class="text-2xs text-tertiary"
+					<div class="text-2xs text-primary"
 						>({$jobs?.length > 99 ? '99+' : ($jobs?.length ?? 0)})</div
 					>
 					{#if hasErrors}
 						<Button
 							size="xs"
 							btnClasses="-my-2 !px-1 !py-0"
-							color="light"
-							variant="border"
+							variant="default"
 							on:click={() => errorByComponent.set({})}
 							><BellOff size={12} />
 						</Button>
@@ -1310,20 +1314,22 @@
 		<AppExportButton bind:this={appExport} />
 		<PreviewToggle loading={loading.save} />
 		<Button
+			variant="accent"
 			loading={loading.save}
 			startIcon={{ icon: Save }}
 			on:click={() => saveDraft()}
-			size="xs"
+			unifiedSize="md"
 			disabled={!newApp && !savedApp}
 			shortCut={{ key: 'S' }}
 		>
 			Draft
 		</Button>
 		<Button
+			variant="accent"
 			loading={loading.save}
 			startIcon={{ icon: Save }}
 			on:click={save}
-			size="xs"
+			unifiedSize="md"
 			dropdownItems={$appPath != ''
 				? () => [
 						{

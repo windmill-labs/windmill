@@ -355,7 +355,7 @@
 
 			{#if !hideTarget}
 				<Section label="Runnable">
-					<p class="text-xs mb-1 text-tertiary">
+					<p class="text-xs mb-1 text-primary">
 						Pick a script or flow to be triggered<Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
@@ -373,7 +373,7 @@
 						{#if emptyString(script_path)}
 							<Button
 								btnClasses="ml-4 mt-2"
-								color="dark"
+								variant="accent"
 								size="xs"
 								disabled={!can_write}
 								href={itemKind === 'flow' ? '/flows/add?hub=65' : '/scripts/add?hub=hub%2F19659'}
@@ -397,8 +397,8 @@
 				<div class="flex flex-col gap-4">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
-							<Tab value="error_handler">Error Handler</Tab>
-							<Tab value="retries">Retries</Tab>
+							<Tab value="error_handler" label="Error Handler" />
+							<Tab value="retries" label="Retries" />
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler

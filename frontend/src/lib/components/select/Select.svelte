@@ -7,7 +7,12 @@
 	import { getLabel, processItems, type ProcessedItem } from './utils.svelte'
 	import SelectDropdown from './SelectDropdown.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { inputBaseClass, inputBorderClass } from '../text_input/TextInput.svelte'
+	import {
+		inputBaseClass,
+		inputBorderClass,
+		inputSizeClasses
+	} from '../text_input/TextInput.svelte'
+	import { ButtonType } from '../common/button/model'
 
 	type Value = Item['value']
 
@@ -33,6 +38,7 @@
 		id,
 		itemLabelWrapperClasses,
 		itemButtonWrapperClasses,
+		size = 'md',
 		groupBy,
 		sortBy,
 		onFocus,
@@ -64,6 +70,7 @@
 		id?: string
 		itemLabelWrapperClasses?: string
 		itemButtonWrapperClasses?: string
+		size?: 'sm' | 'md' | 'lg'
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onFocus?: () => void
@@ -76,6 +83,7 @@
 	} = $props()
 
 	let disabled = $derived(_disabled || (loading && !value))
+	let iconSize = $derived(ButtonType.UnifiedIconSizes[size])
 
 	let inputEl: HTMLInputElement | undefined = $state()
 
@@ -119,15 +127,20 @@
 >
 	{#if loading}
 		<div class="absolute z-10 right-2 h-full flex items-center">
-			<Loader2 size={18} class="animate-spin" />
+			<Loader2 size={iconSize} class="animate-spin" />
 		</div>
 	{:else if clearable && !disabled && value}
 		<div class="absolute z-10 right-2 h-full flex items-center">
-			<CloseButton class="bg-transparent text-hint" noBg small on:close={clearValue} />
+			<CloseButton
+				class="bg-transparent text-secondary hover:text-primary"
+				noBg
+				small
+				on:close={clearValue}
+			/>
 		</div>
 	{:else if RightIcon}
 		<div class="absolute z-10 right-2 h-full flex items-center">
-			<RightIcon size={18} class="text-tertiary/35" />
+			<RightIcon size={iconSize} class="text-secondary" />
 		</div>
 	{/if}
 	<!-- svelte-ignore a11y_autofocus -->
@@ -135,17 +148,25 @@
 		{autofocus}
 		{disabled}
 		type="text"
-		bind:value={() => filterText, (v) => (filterText = v)}
-		placeholder={loading && !value
-			? 'Loading...'
-			: (valueEntry?.label ?? getLabel({ value }) ?? placeholder)}
+		bind:value={
+			() => (open ? filterText : (valueEntry?.label ?? getLabel({ value }) ?? '')),
+			(v) => {
+				if (open) {
+					filterText = v
+				}
+			}
+		}
+		placeholder={loading && !value ? 'Loading...' : value ? valueEntry?.label : placeholder}
 		style={containerStyle}
 		class={twMerge(
 			inputBaseClass,
+			inputSizeClasses[size],
+			ButtonType.UnifiedHeightClasses[size],
 			inputBorderClass({ error, forceFocus: open }),
 			'w-full',
 			open ? '' : 'cursor-pointer',
-			!loading && value && !disabled ? '!placeholder-secondary' : 'placeholder-hint',
+			// Show value as placeholder when opening the dropdown and the search is empty
+			!value ? 'placeholder-hint' : '!placeholder-primary',
 			(clearable || RightIcon) && !disabled && value ? 'pr-8' : '',
 			inputClass ?? ''
 		)}

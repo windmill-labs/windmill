@@ -217,7 +217,7 @@ pub async fn shutdown_signal(
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                tracing::errr!("2nd shutdown monitor received ctrl-c")
+                tracing::error!("2nd shutdown monitor received ctrl-c")
             },
         }
 

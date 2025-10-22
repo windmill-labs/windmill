@@ -244,8 +244,8 @@
 			class="mb-4"
 		>
 			{#snippet children({ item })}
-				<ToggleButton value="normal" small label="Any jobs within worker tags" {item} />
-				<ToggleButton value="dedicated" small label="Dedicated to a script/flow" {item} />
+				<ToggleButton value="normal" label="Any jobs within worker tags" {item} />
+				<ToggleButton value="dedicated" label="Dedicated to a script/flow" {item} />
 			{/snippet}
 		</ToggleButtonGroup>
 		{#if selected == 'normal'}
@@ -383,7 +383,7 @@
 								dirty = true
 							}
 						}}
-						disabled{!$enterpriseLicense}
+						disabled={!$enterpriseLicense}
 					/>
 					{#if nconfig.min_alive_workers_alert_threshold !== undefined}
 						<div class="flex flex-row items-center justify-between">
@@ -504,9 +504,8 @@
 				{#if $superadmin || $devopsRole}
 					<div class="flex">
 						<Button
-							variant="contained"
-							color="blue"
-							size="xs"
+							variant="default"
+							unifiedSize="md"
 							startIcon={{ icon: Plus }}
 							on:click={() => {
 								customEnvVars.push({ key: '', type: 'dynamic', value: undefined })
@@ -522,8 +521,7 @@
 			{#if !($superadmin || $devopsRole)}
 				<div class="flex flex-wrap items-center gap-1 pt-2">
 					<Button
-						variant="contained"
-						color="light"
+						variant="subtle"
 						size="xs"
 						on:click={() => {
 							let updated = false
@@ -550,8 +548,7 @@
 						>
 					</Button>
 					<Button
-						variant="contained"
-						color="light"
+						variant="subtle"
 						size="xs"
 						on:click={() => {
 							let updated = false
@@ -635,8 +632,7 @@
 					{#if $superadmin || $devopsRole}
 						<div class="flex">
 							<Button
-								variant="contained"
-								color="blue"
+								variant="accent"
 								size="xs"
 								startIcon={{ icon: Plus }}
 								on:click={() => {
@@ -691,8 +687,7 @@
 					{#if $superadmin || $devopsRole}
 						<div class="flex">
 							<Button
-								variant="contained"
-								color="blue"
+								variant="accent"
 								size="xs"
 								startIcon={{ icon: Plus }}
 								on:click={() => {
@@ -836,8 +831,7 @@
 						<div class="text-red-600 text-xs whitespace-nowrap">Non applied changes</div>
 					{/if}
 					<Button
-						variant="contained"
-						color="dark"
+						variant="accent"
 						on:click={async () => {
 							if (
 								nconfig?.min_alive_workers_alert_threshold &&
@@ -913,8 +907,8 @@
 	<div class="flex gap-2 items-center justify-end flex-row my-2">
 		{#if $superadmin}
 			<Button
-				color="light"
-				size="xs"
+				variant="subtle"
+				unifiedSize="md"
 				on:click={() => {
 					dirty = false
 					loadNConfig()
@@ -928,8 +922,8 @@
 			</Button>
 
 			<Button
-				color="light"
-				size="xs"
+				unifiedSize="md"
+				variant="subtle"
 				on:click={() => {
 					navigator.clipboard.writeText(
 						YAML.stringify({
@@ -946,8 +940,8 @@
 
 			{#if config}
 				<Button
-					color="light"
-					size="xs"
+					unifiedSize="md"
+					variant="subtle"
 					on:click={() => {
 						if (!$enterpriseLicense) {
 							sendUserToast('Worker Management UI is an EE feature', true)
@@ -963,8 +957,8 @@
 			{/if}
 
 			<Button
-				color="light"
-				size="xs"
+				unifiedSize="md"
+				variant="subtle"
 				on:click={() => {
 					loadNConfig()
 
@@ -977,14 +971,14 @@
 			</Button>
 		{:else if config}
 			<Button
-				color="light"
-				size="xs"
+				unifiedSize="md"
+				variant="accent"
 				on:click={() => {
 					loadNConfig()
 					drawer?.openDrawer()
 				}}
 			>
-				<div class="flex flex-row gap-1 items-center"> config </div>
+				Config
 			</Button>
 		{/if}
 	</div>
