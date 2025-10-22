@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type FlowNodeColorClasses } from '$lib/components/graph'
+	import { NODE, type FlowNodeColorClasses } from '$lib/components/graph'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -51,7 +51,7 @@
 			onTop ? 'z-[901]' : '',
 			className
 		)}
-		style="width: 275px; max-height: 34px;"
+		style="width: {NODE.width}px; height: {NODE.height}px;"
 		onpointerdown={() => {
 			if (selectable) {
 				dispatch('select', id || label || '')
@@ -66,15 +66,7 @@
 		title={label ? label + ' ' : ''}
 		id={`flow-editor-virtual-${encodeURIComponent(label || label || '')}`}
 	>
-		<div
-			class={twMerge(
-				'absolute rounded-md',
-				colorClasses.outline,
-				selectable ? 'cursor-pointer' : ''
-			)}
-			style={`width: 275px; height: 33px;`}
-		>
-		</div>
+		<div class={twMerge('absolute rounded-md inset-0', selectable ? 'cursor-pointer' : '')}> </div>
 		{@render children?.({ hover })}
 	</div>
 
