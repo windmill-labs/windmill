@@ -35,7 +35,7 @@ use windmill_common::auth::JobPerms;
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
-use windmill_common::utils::{calculate_hash, now_from_db};
+use windmill_common::utils::{configure_client, now_from_db};
 use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::{
