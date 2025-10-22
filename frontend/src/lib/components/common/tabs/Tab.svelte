@@ -97,7 +97,7 @@
 	<div
 		class={twMerge(
 			active ? 'bg-surface-accent-selected text-accent rounded-md' : '',
-			'flex gap-2 items-center my-2 px-4'
+			'flex gap-2 items-center my-1 px-4'
 		)}
 	>
 		{#if icon}
