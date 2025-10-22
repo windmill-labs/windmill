@@ -1749,7 +1749,7 @@
 						aiId="script-builder-settings"
 						aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
 						variant="default"
-						size="xs"
+						unifiedSize="md"
 						on:click={() => (metadataOpen = true)}
 						startIcon={{ icon: Settings }}
 					>
@@ -1758,7 +1758,7 @@
 				{/if}
 				<Button
 					loading={loadingDraft}
-					size="xs"
+					unifiedSize="md"
 					variant="accent"
 					startIcon={{ icon: Save }}
 					on:click={() => saveDraft()}

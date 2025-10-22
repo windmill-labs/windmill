@@ -161,6 +161,7 @@
 		class={twMerge(
 			inputBaseClass,
 			inputSizeClasses[size],
+			ButtonType.UnifiedHeightClasses[size],
 			inputBorderClass({ error, forceFocus: open }),
 			'w-full',
 			open ? '' : 'cursor-pointer',
