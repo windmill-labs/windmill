@@ -256,9 +256,9 @@
 											class="cursor-move transition-all border w-[64px] shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 											justify-center bg-surface rounded-md hover:bg-blue-50 dark:hover:bg-blue-900 duration-200 hover:border-blue-500"
 										>
-											<SvelteComponent class="text-primary" />
+											<SvelteComponent class="text-secondary" />
 										</button>
-										<div class="text-xs text-center flex-wrap text-secondary mt-1">
+										<div class="text-2xs text-center flex-wrap text-secondary mt-1">
 											{componentsRecord[item].name}
 										</div>
 									</div>
@@ -275,7 +275,7 @@
 											>
 												<SvelteComponent_1 class="text-secondary" />
 											</button>
-											<div class="text-xs text-center flex-wrap text-secondary mt-1">
+											<div class="text-2xs text-center flex-wrap text-secondary mt-1">
 												{presetsRecord[presetItem].name}
 											</div>
 										</div>
