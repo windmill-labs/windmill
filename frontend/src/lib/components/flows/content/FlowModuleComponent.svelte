@@ -226,6 +226,7 @@
 		const model = editor?.getModel()
 		if (model == undefined) return
 		diffMode = true
+
 		diffEditor?.showWithModelAndOriginal((savedModule?.value as RawScript).content ?? '', model)
 		editor?.hide()
 	}
@@ -424,7 +425,6 @@
 							customUi={customUi?.editorBar}
 							{validCode}
 							{editor}
-							{diffEditor}
 							lang={flowModule.value['language'] ?? 'deno'}
 							{websocketAlive}
 							iconOnly={width < 950}

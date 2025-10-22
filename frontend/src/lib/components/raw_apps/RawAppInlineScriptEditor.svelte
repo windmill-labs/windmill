@@ -5,25 +5,21 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview, ScriptLang } from '$lib/gen'
 	import { createEventDispatcher, onMount } from 'svelte'
-	import { Maximize2, Trash2 } from 'lucide-svelte'
+	import { Trash2 } from 'lucide-svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Editor from '$lib/components/Editor.svelte'
 	import { emptySchema } from '$lib/utils'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
-	import ScriptGen from '$lib/components/copilot/ScriptGen.svelte'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
-	import EditorSettings from '$lib/components/EditorSettings.svelte'
-	import InlineScriptEditorDrawer from '../apps/editor/inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
 	import type { InlineScript } from '../apps/types'
 	import type { AppInput } from '../apps/inputType'
 	import CacheTtlPopup from '../apps/editor/inlineScriptsPanel/CacheTtlPopup.svelte'
 	import RunButton from '$lib/components/RunButton.svelte'
 	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'
 	import EditorBar from '../EditorBar.svelte'
-
-	let inlineScriptEditorDrawer = $state() as InlineScriptEditorDrawer | undefined
+	import { LanguageIcon } from '../common/languageIcons'
 
 	interface Props {
 		inlineScript: (InlineScript & { language: ScriptLang }) | undefined
@@ -83,7 +79,6 @@
 		const model = editor?.getModel()
 		if (model == undefined) return
 		diffMode = true
-		console.log(model.getValue())
 		diffEditor?.showWithModelAndOriginal(lastDeployedCode ?? '', model)
 		editor?.hide()
 	}
@@ -118,6 +113,9 @@
 {#if inlineScript}
 	<div class="h-full flex flex-col gap-1" bind:clientWidth={width}>
 		<div class="flex justify-between w-full gap-2 px-2 pt-1 flex-row items-center">
+			<div class="mx-0.5">
+				<LanguageIcon lang={inlineScript.language} width={20} height={20} />
+			</div>
 			{#if name !== undefined}
 				<div class="flex flex-row gap-2 w-full items-center">
 					<input
@@ -126,59 +124,29 @@
 						placeholder="Inline script name"
 						class="!text-xs !rounded-sm !shadow-none"
 					/>
-					<div
-						title={validCode ? 'Main function parsable' : 'Main function not parsable'}
-						class="rounded-full !w-2 !h-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
-					></div>
 				</div>
-			{/if}
-			<div class="flex w-full flex-row gap-1 items-center justify-end">
-				{#if inlineScript}
-					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
-				{/if}
-				<ScriptGen
-					lang={inlineScript?.language}
-					{editor}
-					{diffEditor}
-					inlineScript
-					args={Object.entries(fields ?? {}).reduce((acc, [key, obj]) => {
-						acc[key] = obj.type === 'static' ? obj.value : undefined
-						return acc
-					}, {})}
-				/>
-				<EditorSettings />
-
 				<Button
-					title="Delete"
+					title="Clear script"
 					size="xs2"
 					color="light"
 					variant="contained"
-					aria-label="Delete"
+					aria-label="Clear script"
 					on:click={() => dispatch('delete')}
 					endIcon={{ icon: Trash2 }}
 					iconOnly
 				/>
-				<Button
-					size="xs2"
-					color="light"
-					title="Full Editor"
-					variant="contained"
-					on:click={() => {
-						inlineScriptEditorDrawer?.openDrawer()
-					}}
-					endIcon={{ icon: Maximize2 }}
-					iconOnly
-				/>
+			{/if}
+			<div class="flex w-full flex-row gap-2 items-center justify-end">
+				{#if inlineScript}
+					<CacheTtlPopup bind:cache_ttl={inlineScript.cache_ttl} />
+				{/if}
 
 				<Button
 					variant="border"
-					size="xs2"
+					size="xs"
 					color="light"
 					on:click={async () => {
 						editor?.format()
-					}}
-					shortCut={{
-						key: 'S'
 					}}
 				>
 					Format
@@ -191,7 +159,6 @@
 			<EditorBar
 				{validCode}
 				{editor}
-				{diffEditor}
 				lang={inlineScript.language}
 				{websocketAlive}
 				iconOnly={width < 950}
@@ -206,11 +173,10 @@
 			/>
 		</div>
 
-		<div class="border-y h-full w-full">
+		<div class="border-y h-full w-full relative">
 			<Editor
 				path={path + '/' + id}
 				bind:this={editor}
-				small
 				class="flex flex-1 grow h-full"
 				scriptLang={inlineScript.language}
 				bind:code={inlineScript.content}
@@ -243,6 +209,7 @@
 			<DiffEditor
 				open={false}
 				bind:this={diffEditor}
+				modifiedModel={editor?.getModel()}
 				className="h-full"
 				automaticLayout
 				fixedOverflowWidgets

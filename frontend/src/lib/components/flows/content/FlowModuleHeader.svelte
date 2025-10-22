@@ -12,7 +12,6 @@
 		PhoneIncoming,
 		RefreshCcw,
 		Repeat,
-		Save,
 		Square,
 		Pin
 	} from 'lucide-svelte'
@@ -22,6 +21,7 @@
 	import { getLatestHashForScript } from '$lib/scripts'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import FlowModuleWorkerTagSelect from './FlowModuleWorkerTagSelect.svelte'
+	import SaveToWorkspace from '$lib/components/SaveToWorkspace.svelte'
 
 	interface Props {
 		module: FlowModule
@@ -200,14 +200,6 @@
 			tag={module.value.tag}
 			on:change={(e) => dispatch('tagChange', e.detail)}
 		/>
-		<Button
-			size="xs"
-			color="light"
-			startIcon={{ icon: Save }}
-			on:click={() => dispatch('createScriptFromInlineScript')}
-			iconOnly={false}
-		>
-			Save to workspace
-		</Button>
+		<SaveToWorkspace saveToWorkspace={() => dispatch('createScriptFromInlineScript')} />
 	{/if}
 </div>

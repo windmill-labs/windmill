@@ -567,7 +567,6 @@
 				collabUsers={peers}
 				kind={asKind(kind)}
 				{template}
-				{diffEditor}
 				{args}
 				{noHistory}
 				{saveToWorkspace}

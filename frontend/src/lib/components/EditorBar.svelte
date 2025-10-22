@@ -36,13 +36,11 @@
 		Package,
 		Plus,
 		RotateCw,
-		Save,
 		Users
 	} from 'lucide-svelte'
 	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
-	import type DiffEditor from './DiffEditor.svelte'
 	import { getResetCode } from '$lib/script_helpers'
 	import Popover from './Popover.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
@@ -54,6 +52,7 @@
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
 	import GitRepoPopoverPicker from './GitRepoPopoverPicker.svelte'
 	import { insertDelegateToGitRepoInCode } from '$lib/ansibleUtils'
+	import SaveToWorkspace from './SaveToWorkspace.svelte'
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -73,7 +72,6 @@
 		collabLive?: boolean
 		collabUsers?: { name: string }[]
 		scriptPath?: string | undefined
-		diffEditor?: DiffEditor | undefined
 		args?: Record<string, any>
 		noHistory?: boolean
 		saveToWorkspace?: boolean
@@ -1075,15 +1073,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			</Button>
 		{/if}
 		{#if saveToWorkspace}
-			<Button
-				size="xs"
-				color="light"
-				startIcon={{ icon: Save }}
-				on:click={() => dispatch('createScriptFromInlineScript')}
-				iconOnly={false}
-			>
-				Save to workspace
-			</Button>
+			<SaveToWorkspace saveToWorkspace={() => dispatch('createScriptFromInlineScript')} />
 		{/if}
 	</div>
 </div>
