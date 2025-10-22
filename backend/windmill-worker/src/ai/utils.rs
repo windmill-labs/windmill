@@ -7,7 +7,6 @@ use std::{
     sync::Arc,
 };
 use uuid::Uuid;
-use windmill_common::mcp_client::{McpClient, McpResource, McpToolSource};
 use windmill_common::{
     ai_providers::AIProvider,
     db::DB,
@@ -18,6 +17,10 @@ use windmill_common::{
     jobs::JobKind,
     scripts::{ScriptHash, ScriptLang},
     worker::to_raw_value,
+};
+use windmill_common::{
+    flows::FlowModuleValue,
+    mcp_client::{McpClient, McpResource, McpToolSource},
 };
 use windmill_queue::{flow_status::get_step_of_flow_status, MiniPulledJob};
 
@@ -532,4 +535,29 @@ pub async fn execute_mcp_tool(
         .context("MCP tool call failed")?;
 
     Ok(result)
+}
+
+/// Check if any tool's input transforms reference previous_result
+pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
+    tools.iter().any(|tool| {
+        if let Some(module) = &tool.module {
+            if let Ok(module_value) = module.get_value() {
+                let input_transforms = match module_value {
+                    FlowModuleValue::Script { input_transforms, .. } => input_transforms,
+                    FlowModuleValue::RawScript { input_transforms, .. } => input_transforms,
+                    FlowModuleValue::FlowScript { input_transforms, .. } => input_transforms,
+                    _ => return false,
+                };
+
+                return input_transforms.iter().any(|(_, transform)| {
+                    if let windmill_common::flows::InputTransform::Javascript { expr } = transform {
+                        expr.contains("previous_result")
+                    } else {
+                        false
+                    }
+                });
+            }
+        }
+        false
+    })
 }

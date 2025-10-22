@@ -1,9 +1,10 @@
 use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
 use crate::ai::utils::{
-    add_message_to_conversation, cleanup_mcp_clients, filter_schema_by_input_transforms,
-    find_unique_tool_name, get_flow_context, get_flow_job_runnable_and_raw_flow,
-    get_step_name_from_flow, is_anthropic_provider, load_mcp_tools, parse_raw_script_schema,
-    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
+    add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
+    filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
+    get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, is_anthropic_provider,
+    load_mcp_tools, parse_raw_script_schema, update_flow_status_module_with_actions,
+    update_flow_status_module_with_actions_success,
 };
 use crate::memory_oss::{read_from_memory, write_to_memory};
 use crate::worker_flow::{get_previous_job_result, get_transform_context};
@@ -402,13 +403,17 @@ pub async fn run_agent(
         }
     }
 
-    // Extract previous step result if we have flow_status
+    // Extract previous step result only if any tool needs it
     let previous_result = {
-        if let Some(ref flow_status) = flow_context.flow_status {
-            get_previous_job_result(db, &job.workspace_id, flow_status)
-                .await
-                .ok()
-                .flatten()
+        if any_tool_needs_previous_result(&tools) {
+            if let Some(ref flow_status) = flow_context.flow_status {
+                get_previous_job_result(db, &job.workspace_id, flow_status)
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            }
         } else {
             None
         }
