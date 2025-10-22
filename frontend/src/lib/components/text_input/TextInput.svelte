@@ -22,7 +22,7 @@
 
 	export const inputSizeClasses = {
 		sm: `${ButtonType.UnifiedSizingClasses.sm} ${ButtonType.UnifiedHeightClasses.sm} !py-0.5`,
-		md: `${ButtonType.UnifiedSizingClasses.md} ${ButtonType.UnifiedHeightClasses.md}`,
+		md: `${ButtonType.UnifiedSizingClasses.md} ${ButtonType.UnifiedHeightClasses.md} !py-1`,
 		lg: `${ButtonType.UnifiedSizingClasses.lg} ${ButtonType.UnifiedHeightClasses.lg}`
 	}
 </script>

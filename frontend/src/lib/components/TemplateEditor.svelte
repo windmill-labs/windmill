@@ -380,7 +380,7 @@
 	export let extraLib: string = ''
 	export let autoHeight = true
 	export let fixedOverflowWidgets = true
-	export let fontSize = 12
+	export let fontSize = 13
 	export let yPadding: number | undefined = undefined
 	export let loadAsync = false
 

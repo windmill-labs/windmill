@@ -475,7 +475,8 @@ const config = {
 				height: 'height'
 			},
 			fontSize: {
-				'2xs': '0.7rem',
+				xs: '0.8rem',
+				'2xs': '0.75rem',
 				'3xs': '0.65rem'
 			},
 			screens: {

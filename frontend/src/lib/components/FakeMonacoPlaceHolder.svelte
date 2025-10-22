@@ -20,7 +20,7 @@
 		lineNumbersOffset = 0,
 		class: className = '',
 		showNumbers = true,
-		fontSize = 14
+		fontSize = 13
 	}: Props = $props()
 
 	// https://github.com/microsoft/vscode/blob/baa2dad3cdacd97ac02eff0604984faf1167ff1e/src/vs/editor/common/config/editorOptions.ts#L5421

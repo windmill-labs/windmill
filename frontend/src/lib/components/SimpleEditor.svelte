@@ -303,7 +303,7 @@
 		}
 	})
 
-	let fontSize = $derived(small ? 12 : 14)
+	let fontSize = $derived(small ? 13 : 13)
 
 	async function loadMonaco() {
 		setMonacoJsonOptions()
@@ -611,7 +611,7 @@
 		{code}
 		autoheight
 		lineNumbersWidth={hideLineNumbers ? 0 : (23 * fontSize) / 14}
-		lineNumbersOffset={fontSize == 14 ? -8 : -11}
+		lineNumbersOffset={fontSize == 13 ? -8 : -11}
 		{fontSize}
 		showNumbers={!hideLineNumbers}
 		class={fakeMonacoPlaceholderClass}
