@@ -62,18 +62,6 @@
 				{/snippet}
 			</Popover>
 		{/if}
-		{#if module?.value?.['debounce_delay_s'] != undefined}
-			<Popover
-				placement="bottom"
-				class="center-center rounded p-2 bg-blue-100 text-blue-800 border border-blue-300 hover:bg-blue-200 dark:bg-frost-700 dark:text-frost-100 dark:border-frost-600"
-				onClick={() => dispatch('toggleDebouncing')}
-			>
-				<Timer size={14} />
-				{#snippet text()}
-					Debouncing
-				{/snippet}
-			</Popover>
-		{/if}
 		{#if module.cache_ttl != undefined}
 			<Popover
 				placement="bottom"

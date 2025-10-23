@@ -381,7 +381,6 @@
 					on:toggleRetry={() => selectAdvanced('retries')}
 					on:togglePin={() => (selected = 'test')}
 					on:toggleConcurrency={() => selectAdvanced('runtime')}
-					on:toggleDebouncing ={() => selectAdvanced('runtime')}
 					on:toggleCache={() => selectAdvanced('cache')}
 					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
 					on:fork={async () => {
@@ -655,7 +654,6 @@
 											{#if advancedSelected === 'runtime'}
 												<Tabs bind:selected={advancedRuntimeSelected} wrapperClass="shrink-0">
 													<Tab value="concurrency" label="Concurrency" />
-                          <Tab value="debouncing" label="Debouncing" />
 													<Tab value="timeout" label="Timeout" />
 													<Tab value="priority" label="Priority" />
 													<Tab value="lifetime" label="Lifetime" />
@@ -739,64 +737,6 @@
 														{:else}
 															<Alert type="warning" title="Limitation" size="xs">
 																The concurrency limit of a workspace script is only settable in the
-																script metadata itself. For hub scripts, this feature is non
-																available yet.
-															</Alert>
-														{/if}
-													</Section>
-												{:else if advancedSelected === 'runtime' && advancedRuntimeSelected === 'debouncing'}
-													<Section label="Debouncing" class="flex flex-col gap-4" eeOnly>
-														{#snippet header()}
-															<Tooltip
-																documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing"
-															>
-																Debounce jobs to consolidate multiple executions into a single run,
-																reducing redundant work when the same job is triggered multiple times
-																within the debounce window.
-															</Tooltip>
-														{/snippet}
-														{#if flowModule.value.type == 'rawscript'}
-															<Label label="Debounce Delay in seconds. (if not set - disabled)">
-																<div class="flex flex-row gap-2 max-w-sm">
-																	<input
-																		disabled={!$enterpriseLicense}
-																		bind:value={flowModule.value.debounce_delay_s}
-																		type="number"
-																	/>
-																	<Button
-																		size="xs"
-																		color="light"
-																		variant="border"
-																		on:click={() => {
-																			if (flowModule.value.type == 'rawscript') {
-																				flowModule.value.debounce_delay_s = undefined
-																			}
-																		}}
-																	>
-																		<div class="flex flex-row gap-2"> Remove Debouncing</div>
-																	</Button>
-																</div>
-															</Label>
-															<Label label="Custom debounce key (optional)">
-																{#snippet header()}
-																	<Tooltip>
-																		Debounce keys are global, you can have them be workspace
-																		specific using the variable `$workspace`. You can also use an
-																		argument's value using `$args[name_of_arg]`</Tooltip
-																	>
-																{/snippet}
-																<!-- svelte-ignore a11y_autofocus -->
-																<input
-																	type="text"
-																	autofocus
-																	disabled={!$enterpriseLicense}
-																	bind:value={flowModule.value.custom_debounce_key}
-																	placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
-																/>
-															</Label>
-														{:else}
-															<Alert type="warning" title="Limitation" size="xs">
-																The debouncing of a workspace script is only settable in the
 																script metadata itself. For hub scripts, this feature is non
 																available yet.
 															</Alert>
