@@ -317,33 +317,53 @@
 			file_key_regex: string
 		}[]
 
-		if (
-			items.findIndex((x) => {
-				const c = x.data as AppComponent
-				if (
-					c.type === 'schemaformcomponent' ||
-					c.type === 'formbuttoncomponent' ||
-					c.type === 'formcomponent'
-				) {
-					const props =
-						c.type === 'schemaformcomponent'
-							? (c.componentInput as any)?.value?.properties
-							: (c.componentInput as any)?.runnable?.type === 'runnableByName'
-								? (c.componentInput as any)?.runnable?.inlineScript?.schema?.properties
-								: (c.componentInput as any)?.runnable?.schema?.properties
-					return (
-						Object.values(props ?? {}).findIndex(
-							(p: any) =>
-								(p?.type === 'object' && p?.format === 'resource-s3_object') ||
-								(p?.type === 'array' &&
-									(p?.items?.resourceType === 's3object' || p?.items?.resourceType === 's3_object'))
-						) !== -1
-					)
-				} else {
-					return false
-				}
-			}) !== -1
-		) {
+		// Check for S3 object inputs in forms
+		const hasS3ObjectInput = items.findIndex((x) => {
+			const c = x.data as AppComponent
+			if (
+				c.type === 'schemaformcomponent' ||
+				c.type === 'formbuttoncomponent' ||
+				c.type === 'formcomponent'
+			) {
+				const props =
+					c.type === 'schemaformcomponent'
+						? (c.componentInput as any)?.value?.properties
+						: (c.componentInput as any)?.runnable?.type === 'runnableByName'
+							? (c.componentInput as any)?.runnable?.inlineScript?.schema?.properties
+							: (c.componentInput as any)?.runnable?.schema?.properties
+				
+				if (!props) return false
+				
+				return (
+					Object.values(props).findIndex((p: any) => {
+						// Check for single S3 object: {type: 'object', format: 'resource-s3_object'}
+						if (p?.type === 'object' && p?.format === 'resource-s3_object') {
+							return true
+						}
+						// Check for S3 object array: {type: 'array', items: {type: 'object', resourceType: 's3object'}}
+						if (p?.type === 'array' && p?.items) {
+							const items = p.items
+							// Check both with and without underscore
+							if (
+								items.resourceType === 's3object' ||
+								items.resourceType === 's3_object' ||
+								(items.type === 'object' &&
+									(items.resourceType === 's3object' || items.resourceType === 's3_object'))
+							) {
+								console.log('Found S3 object array input in schema', p)
+								return true
+							}
+						}
+						return false
+					}) !== -1
+				)
+			} else {
+				return false
+			}
+		}) !== -1
+		
+		if (hasS3ObjectInput) {
+			console.log('Adding workspace S3 file input policy for unnamed uploads')
 			s3_inputs.push(computeWorkspaceS3FileInputPolicy())
 		}
 
