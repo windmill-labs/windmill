@@ -730,12 +730,20 @@ pub async fn clone_script<'c>(
     deployment_message: Option<String>,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> crate::error::Result<i64> {
-    let s =
-        sqlx::query_as::<_, Script>("SELECT * FROM script WHERE hash = $1 AND workspace_id = $2")
-            .bind(base_hash.0)
-            .bind(w_id)
-            .fetch_one(&mut **tx)
-            .await?;
+    let s = sqlx::query_as::<_, Script>(
+        "SELECT workspace_id, hash, path, parent_hashes, summary, description, content, \
+         created_by, created_at, archived, schema, deleted, is_template, extra_perms, \
+         lock, lock_error_logs, language, kind, tag, draft_only, envs, concurrent_limit, \
+         concurrency_time_window_s, cache_ttl, dedicated_worker, ws_error_handler_muted, \
+         priority, timeout, delete_after_use, restart_unless_cancelled, concurrency_key, \
+         visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, \
+         assets \
+         FROM script WHERE hash = $1 AND workspace_id = $2",
+    )
+    .bind(base_hash.0)
+    .bind(w_id)
+    .fetch_one(&mut **tx)
+    .await?;
 
     let ns = NewScript {
         path: s.path.clone(),
