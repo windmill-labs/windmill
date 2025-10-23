@@ -1,10 +1,5 @@
 import type { AIProvider, AIProviderModel } from '$lib/gen'
-import {
-	workspaceStore,
-	type DBSchema,
-	type GraphqlSchema,
-	type SQLSchema
-} from '$lib/stores'
+import { workspaceStore, type DBSchema, type GraphqlSchema, type SQLSchema } from '$lib/stores'
 import { buildClientSchema, printSchema } from 'graphql'
 import OpenAI from 'openai'
 import type {
@@ -213,16 +208,16 @@ function getModelSpecificConfig(
 		return {
 			...(modelProvider.model.endsWith('/thinking')
 				? {
-					thinking: {
-						type: 'enabled',
-						budget_tokens: 1024
-					},
-					model: modelProvider.model.slice(0, -9)
-				}
+						thinking: {
+							type: 'enabled',
+							budget_tokens: 1024
+						},
+						model: modelProvider.model.slice(0, -9)
+					}
 				: {
-					model: modelProvider.model,
-					temperature: 0
-				}),
+						model: modelProvider.model,
+						temperature: 0
+					}),
 			...(tools && tools.length > 0 ? { tools } : {}),
 			max_tokens: maxTokens
 		}
@@ -553,8 +548,8 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 }): {
 	provider: AIProvider
 	config: K extends true
-	? ChatCompletionCreateParamsStreaming
-	: ChatCompletionCreateParamsNonStreaming
+		? ChatCompletionCreateParamsStreaming
+		: ChatCompletionCreateParamsNonStreaming
 } {
 	const modelProvider = forceModelProvider ?? getCurrentModel()
 	const providerConfig = PROVIDER_COMPLETION_CONFIG_MAP[modelProvider.provider]
@@ -612,13 +607,13 @@ export async function getNonStreamingCompletion(
 	}
 	const openaiClient = testOptions?.apiKey
 		? new OpenAI({
-			baseURL: `${location.origin}${OpenAPI.BASE}/ai/proxy`,
-			apiKey: 'fake-key',
-			defaultHeaders: {
-				Authorization: '' // a non empty string will be unable to access Windmill backend proxy
-			},
-			dangerouslyAllowBrowser: true
-		})
+				baseURL: `${location.origin}${OpenAPI.BASE}/ai/proxy`,
+				apiKey: 'fake-key',
+				defaultHeaders: {
+					Authorization: '' // a non empty string will be unable to access Windmill backend proxy
+				},
+				dangerouslyAllowBrowser: true
+			})
 		: workspaceAIClients.getOpenaiClient()
 
 	const completion = await openaiClient.chat.completions.create(config, fetchOptions)
@@ -737,9 +732,11 @@ export async function parseOpenAICompletion(
 	helpers: any
 ): Promise<boolean> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
+	const initializedToolCalls = new Set<string>()
 
 	let answer = ''
 	for await (const chunk of completion) {
+		console.log('HERE chunk', chunk)
 		if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
 			continue
 		}
@@ -750,6 +747,7 @@ export async function parseOpenAICompletion(
 			callbacks.onNewToken(delta)
 		}
 		const toolCalls = c.choices[0].delta.tool_calls || []
+		console.log('HERE toolCalls', toolCalls)
 		if (toolCalls.length > 0 && answer) {
 			// if tool calls are present but we have some textual content already, we need to display it to the user first
 			callbacks.onMessageEnd()
@@ -796,6 +794,12 @@ export async function parseOpenAICompletion(
 					const tool = tools.find((t) => t.def.function.name === funcName)
 					if (tool && tool.preAction) {
 						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
+					}
+
+					// Display tool call immediately in loading state
+					if (!initializedToolCalls.has(toolCallId)) {
+						callbacks.setToolStatus(toolCallId, { isLoading: true })
+						initializedToolCalls.add(toolCallId)
 					}
 				}
 			}

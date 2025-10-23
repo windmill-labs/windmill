@@ -269,7 +269,8 @@ export async function processToolCall<T>({
 		// Check if tool requires confirmation
 		const needsConfirmation = tool?.requiresConfirmation
 
-		// Add the tool to the display with appropriate status
+		// Update the tool display with parsed arguments and additional metadata
+		// This merges with the existing loading state set during parsing
 		toolCallbacks.setToolStatus(toolCall.id, {
 			...(tool?.requiresConfirmation
 				? { content: tool.confirmationMessage ?? 'Waiting for confirmation...' }
