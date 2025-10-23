@@ -1,4 +1,5 @@
 use async_recursion::async_recursion;
+#[cfg(feature = "cloud")]
 use backon::{ConstantBuilder, Retryable};
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
