@@ -364,6 +364,7 @@ export interface Tool<T> {
 
 export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
+	removeToolStatus: (id: string) => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
 }
 
