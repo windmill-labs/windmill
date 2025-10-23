@@ -251,7 +251,9 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
-    // TODO: Make sure this is correct version.
+    /// Global flag indicating if all workers support the debouncing feature (>= 1.566.0)
+    /// Debouncing consolidates multiple dependency job requests within a time window to avoid redundant work
+    /// This flag is updated during worker initialization by checking the minimum version across all workers
     pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_461: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
@@ -1090,8 +1092,10 @@ pub async fn update_min_version(conn: &Connection) -> bool {
 
     tracing::info!("Minimal worker version: {min_version}");
 
+    // Debouncing feature requires minimum version 1.566.0 across all workers
+    // This ensures all workers can handle debounce keys and stale data accumulation
     *MIN_VERSION_SUPPORTS_DEBOUNCING.write().await =
-        min_version >= Version::new(1, 563, 4);
+        min_version >= Version::new(1, 566, 0);
     *MIN_VERSION_IS_AT_LEAST_1_461.write().await = min_version >= Version::new(1, 461, 0);
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);

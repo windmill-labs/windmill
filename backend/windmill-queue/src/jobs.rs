@@ -3428,7 +3428,6 @@ pub async fn push<'c, 'd>(
     // NOTE: Only works with dependency jobs triggered by relative imports
     debounce_job_id_o: Option<Uuid>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
-    dbg!(&job_payload);
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
         let team_plan_status = windmill_common::workspaces::get_team_plan_status(_db, workspace_id).await;
@@ -4551,7 +4550,7 @@ pub async fn push<'c, 'd>(
     ) {
         (_, _, _, _, false, _) => {
             tracing::warn!(
-                "Debouncing is disabled because workers are behind the minimum required version 1.564.0. \
+                "Debouncing is disabled because workers are behind the minimum required version 1.566.0. \
                 Please update workers to enable debouncing feature."
             );
         }
