@@ -1299,7 +1299,7 @@
 												<input
 													type="text"
 													autofocus
-													bind:value={script.concurrency_key}
+													bind:value={script.debounce_key}
 													placeholder={`$workspace/script/${script.path}-$args[foo]`}
 												/>
 											</Label>
