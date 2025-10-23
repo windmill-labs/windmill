@@ -4,9 +4,9 @@ use anyhow::anyhow;
 
 use lazy_static::lazy_static;
 #[cfg(not(target_arch = "wasm32"))]
-use regex::Regex;
+use regex::{Match, Regex};
 #[cfg(target_arch = "wasm32")]
-use regex_lite::Regex;
+use regex_lite::{Match, Regex};
 
 use serde_json::json;
 
@@ -548,7 +548,7 @@ fn parse_pg_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
 
 // The regex doesn't parse types with space such as "character varying"
 // So we look for them manually and replace them with their shorter counterpart
-fn transform_types_with_spaces<'a>(cap: &regex::Match<'a>, code: &str) -> &'a str {
+fn transform_types_with_spaces<'a>(cap: &Match<'a>, code: &str) -> &'a str {
     lazy_static! {
         static ref TYPES: [(&'static str, &'static str); 6] = [
             ("character varying", "varchar"),

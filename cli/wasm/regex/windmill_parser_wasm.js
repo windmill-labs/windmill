@@ -11,11 +11,7 @@ function getUint8ArrayMemory0() {
     return cachedUint8ArrayMemory0;
 }
 
-const cachedTextEncoder = (typeof TextEncoder !== 'undefined' ? new TextEncoder('utf-8') : { encode: () => { throw Error('TextEncoder not available') } } );
-
-const encodeString = function (arg, view) {
-    return cachedTextEncoder.encodeInto(arg, view);
-};
+const cachedTextEncoder = new TextEncoder();
 
 function passStringToWasm0(arg, malloc, realloc) {
 
@@ -46,7 +42,7 @@ function passStringToWasm0(arg, malloc, realloc) {
         }
         ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
         const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
-        const ret = encodeString(arg, view);
+        const ret = cachedTextEncoder.encodeInto(arg, view);
 
         offset += ret.written;
         ptr = realloc(ptr, len, offset, 1) >>> 0;
@@ -56,13 +52,17 @@ function passStringToWasm0(arg, malloc, realloc) {
     return ptr;
 }
 
-const cachedTextDecoder = (typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8', { ignoreBOM: true, fatal: true }) : { decode: () => { throw Error('TextDecoder not available') } } );
+let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
 
-if (typeof TextDecoder !== 'undefined') { cachedTextDecoder.decode(); };
+cachedTextDecoder.decode();
+
+function decodeText(ptr, len) {
+    return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+}
 
 function getStringFromWasm0(ptr, len) {
     ptr = ptr >>> 0;
-    return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+    return decodeText(ptr, len);
 }
 /**
  * @param {string} code
@@ -305,23 +305,9 @@ const imports = {
 
 };
 
-const wasm_url = new URL('windmill_parser_wasm_bg.wasm', import.meta.url);
-let wasmCode = '';
-switch (wasm_url.protocol) {
-    case 'file:':
-    wasmCode = await Deno.readFile(wasm_url);
-    break
-    case 'https:':
-    case 'http:':
-    wasmCode = await (await fetch(wasm_url)).arrayBuffer();
-    break
-    default:
-    throw new Error(`Unsupported protocol: ${wasm_url.protocol}`);
-}
-
-const wasmInstance = (await WebAssembly.instantiate(wasmCode, imports)).instance;
-const wasm = wasmInstance.exports;
-export const __wasm = wasm;
+const wasmUrl = new URL('windmill_parser_wasm_bg.wasm', import.meta.url);
+const wasm = (await WebAssembly.instantiateStreaming(fetch(wasmUrl), imports)).instance.exports;
+export { wasm as __wasm };
 
 wasm.__wbindgen_start();
 
