@@ -834,6 +834,67 @@ paths:
               schema:
                 $ref: "#/components/schemas/MigrationStatus"
 
+  /workspaces/migrate/complete:
+    post:
+      summary: complete workspace migration by migrating authentication tables
+      operationId: completeWorkspaceMigration
+      tags:
+        - workspace
+      requestBody:
+        description: complete migration request
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteWorkspaceMigrationRequest"
+      responses:
+        "200":
+          description: migration completed
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /workspaces/migrate/{workspace}/revert:
+    post:
+      summary: revert incomplete workspace migration
+      operationId: revertWorkspaceMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: revert migration request
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevertWorkspaceMigrationRequest"
+      responses:
+        "200":
+          description: migration reverted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /workspaces/migrate/{workspace}/incomplete:
+    get:
+      summary: get incomplete migration for source workspace
+      operationId: getIncompleteMigration
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: target workspace id if incomplete migration exists
+          content:
+            application/json:
+              schema:
+                type: string
+                nullable: true
+
   /settings/get_ducklake_instance_catalog_db_status:
     post:
       summary: Returns the set-up statuses of ducklake instance catalog dbs
@@ -17721,6 +17782,28 @@ components:
       required:
           - source_workspace_id
           - target_workspace_name
+          - target_workspace_id
+
+    CompleteWorkspaceMigrationRequest:
+      type: object
+      properties:
+        source_workspace_id:
+          type: string
+          description: source workspace id
+        target_workspace_id:
+          type: string
+          description: target workspace id
+      required:
+          - source_workspace_id
+          - target_workspace_id
+
+    RevertWorkspaceMigrationRequest:
+      type: object
+      properties:
+        target_workspace_id:
+          type: string
+          description: target workspace id to revert
+      required:
           - target_workspace_id
 
     MigrateJobsRequest:

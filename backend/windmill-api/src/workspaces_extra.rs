@@ -1,6 +1,9 @@
 use crate::db::ApiAuthed;
 
-use crate::workspaces::{check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN, MIGRATE_JOBS_WORKSPACE_REQUIRE_SUPERADMIN, WM_FORK_PREFIX};
+use crate::workspaces::{
+    check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN,
+    MIGRATE_JOBS_WORKSPACE_REQUIRE_SUPERADMIN, WM_FORK_PREFIX,
+};
 use crate::{db::DB, utils::require_super_admin};
 
 use axum::extract::Query;
@@ -275,16 +278,17 @@ pub async fn migrate_workspace(
     sqlx::query!(
         r#"
             INSERT INTO
-                workspace 
-            SELECT $1, $2, owner, deleted, premium 
+                workspace (id, name, owner, deleted, premium, parent_workspace_id)
+            SELECT $1, $2, owner, deleted, premium, $3
             FROM 
                 workspace 
             WHERE 
-                id = $3
+                id = $4
         "#,
         &req.target_workspace_id,
         &req.target_workspace_name,
-        &req.source_workspace_id
+        &req.source_workspace_id,
+        &req.source_workspace_id,
     )
     .execute(&mut *tx)
     .await?;
@@ -321,7 +325,7 @@ async fn migrate_metadata_tables(
     source: &str,
     target: &str,
 ) -> Result<()> {
-    let simple_tables = [
+    let non_auth_tables = [
         "account",
         "app",
         "audit",
@@ -346,20 +350,14 @@ async fn migrate_metadata_tables(
         "resource_type",
         "schedule",
         "script",
-        "token",
-        "usr",
         "variable",
-        "workspace_env",
-        "workspace_invite",
-        "workspace_key",
-        "workspace_settings",
         "job_logs",
         "job_stats",
         "v2_job_queue",
         "v2_job",
     ];
 
-    for table in simple_tables {
+    for table in non_auth_tables {
         sqlx::query(&format!(
             "UPDATE {} SET workspace_id = $1 WHERE workspace_id = $2",
             table
@@ -414,6 +412,214 @@ async fn migrate_metadata_tables(
     .await?;
 
     Ok(())
+}
+
+async fn migrate_auth_tables(
+    tx: &mut Transaction<'_, Postgres>,
+    source: &str,
+    target: &str,
+) -> Result<()> {
+    let auth_tables = [
+        "token",
+        "usr",
+        "workspace_env",
+        "workspace_invite",
+        "workspace_key",
+        "workspace_settings",
+    ];
+
+    for table in auth_tables {
+        sqlx::query(&format!(
+            "UPDATE {} SET workspace_id = $1 WHERE workspace_id = $2",
+            table
+        ))
+        .bind(target)
+        .bind(source)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct CompleteWorkspaceMigrationRequest {
+    source_workspace_id: String,
+    target_workspace_id: String,
+}
+
+pub async fn complete_workspace_migration(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(req): Json<CompleteWorkspaceMigrationRequest>,
+) -> Result<String> {
+    is_allowed_to_migrate(&db, &authed, *CREATE_WORKSPACE_REQUIRE_SUPERADMIN).await?;
+
+    let mut tx = db.begin().await?;
+
+    let source_workspace_id = sqlx::query_scalar!(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+        &req.target_workspace_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    match source_workspace_id {
+        Some(workspace) => {
+            if workspace != req.source_workspace_id {
+                return Err(Error::BadRequest(
+                    "Invalid migration: target workspace was not created from source workspace"
+                        .to_string(),
+                ));
+            }
+        }
+        None => {
+            return Err(Error::BadRequest(
+                "Target workspace does not exist".to_string(),
+            ));
+        }
+    }
+
+    migrate_auth_tables(&mut tx, &req.source_workspace_id, &req.target_workspace_id).await?;
+
+    sqlx::query!(
+        "UPDATE workspace SET parent_workspace_id = NULL WHERE id = $1",
+        &req.target_workspace_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspace.complete_migration",
+        ActionKind::Update,
+        &req.target_workspace_id,
+        Some(&authed.email),
+        Some(
+            [
+                ("source", req.source_workspace_id.as_str()),
+                ("target", req.target_workspace_id.as_str()),
+            ]
+            .into(),
+        ),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!(
+        "Completed migration from {} to {}",
+        &req.source_workspace_id, &req.target_workspace_id
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct RevertWorkspaceMigrationRequest {
+    target_workspace_id: String,
+}
+
+pub async fn revert_workspace_migration(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<RevertWorkspaceMigrationRequest>,
+) -> Result<String> {
+    is_allowed_to_migrate(&db, &authed, *CREATE_WORKSPACE_REQUIRE_SUPERADMIN).await?;
+
+    let mut tx = db.begin().await?;
+
+    let from_workspace_id = sqlx::query_scalar!(
+        r#"
+        SELECT 
+            parent_workspace_id 
+        FROM 
+            workspace 
+        WHERE 
+            id = $1
+        "#,
+        &req.target_workspace_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
+    let source_workspace_id = match from_workspace_id {
+        Some(source_workspace_id) => {
+            if source_workspace_id != w_id {
+                return Err(Error::BadRequest(
+                    "No incomplete migration found for this workspace".to_string(),
+                ));
+            }
+            source_workspace_id
+        }
+        None => {
+            return Err(Error::BadRequest(
+                "Target workspace does not exist".to_string(),
+            ));
+        }
+    };
+
+    migrate_metadata_tables(&mut tx, &req.target_workspace_id, &source_workspace_id).await?;
+
+    sqlx::query!(
+        r#"DELETE FROM workspace WHERE id = $1"#,
+        req.target_workspace_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspace.revert_migration",
+        ActionKind::Delete,
+        &req.target_workspace_id,
+        Some(&authed.email),
+        Some(
+            [
+                ("source", source_workspace_id.as_str()),
+                ("target", req.target_workspace_id.as_str()),
+            ]
+            .into(),
+        ),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!(
+        "Reverted migration for workspace {}",
+        &req.target_workspace_id
+    ))
+}
+
+pub async fn get_incomplete_migration(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Option<String>> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let target_workspace = sqlx::query_scalar!(
+        r#"
+        SELECT 
+            w.id 
+        FROM 
+            workspace w 
+        WHERE 
+            w.parent_workspace_id = $1 
+        AND NOT EXISTS (
+            SELECT 1 FROM usr u WHERE u.workspace_id = w.id
+        )
+        "#,
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    Ok(Json(target_workspace))
 }
 
 const DEFAULT_BATCH_SIZE: i64 = 10000;

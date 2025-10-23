@@ -67,7 +67,7 @@ use crate::teams_oss::{
     workspaces_list_available_teams_channels, workspaces_list_available_teams_ids,
 };
 
-use crate::workspaces_extra::{get_migration_status, migrate_jobs, migrate_workspace};
+use crate::workspaces_extra::{get_migration_status, migrate_jobs, migrate_workspace, complete_workspace_migration, revert_workspace_migration, get_incomplete_migration};
 
 lazy_static::lazy_static! {
     static ref WORKSPACE_KEY_REGEXP: Regex = Regex::new("^[a-zA-Z0-9]{64}$").unwrap();
@@ -174,7 +174,10 @@ pub fn migrate_service() -> Router {
         Router::new()
             .route("/tables", post(migrate_workspace))
             .route("/jobs", post(migrate_jobs))
-            .route("/status", get(get_migration_status)),
+            .route("/status", get(get_migration_status))
+            .route("/complete", post(complete_workspace_migration))
+            .route("/:workspace/revert", post(revert_workspace_migration))
+            .route("/:workspace/incomplete", get(get_incomplete_migration)),
     )
 }
 pub fn global_service() -> Router {
