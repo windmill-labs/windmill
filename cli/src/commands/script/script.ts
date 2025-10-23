@@ -142,7 +142,7 @@ export async function findResourceFile(path: string) {
   if (validCandidates.length > 1) {
     throw new Error(
       "Found two resource files for the same resource" +
-        validCandidates.join(", ")
+      validCandidates.join(", ")
     );
   }
   if (validCandidates.length < 1) {
@@ -214,7 +214,8 @@ export async function handleFile(
       if (codebase.customBundler) {
         log.info(`Using custom bundler ${codebase.customBundler} for ${path}`);
         bundleContent = execSync(
-          codebase.customBundler + " " + path
+          codebase.customBundler + " " + path,
+          { maxBuffer: 1024 * 1024 * 50 }
         ).toString();
         log.info("Custom bundler executed for " + path);
       } else {
@@ -273,20 +274,20 @@ export async function handleFile(
     let typed = opts?.skipScriptsMetadata
       ? undefined
       : (
-          await parseMetadataFile(
-            remotePath,
-            opts
-              ? {
-                  ...opts,
-                  path,
-                  workspaceRemote: workspace,
-                  schemaOnly: codebase ? true : undefined,
-                }
-              : undefined,
-            globalDeps,
-            codebases
-          )
-        )?.payload;
+        await parseMetadataFile(
+          remotePath,
+          opts
+            ? {
+              ...opts,
+              path,
+              workspaceRemote: workspace,
+              schemaOnly: codebase ? true : undefined,
+            }
+            : undefined,
+          globalDeps,
+          codebases
+        )
+      )?.payload;
 
     const workspaceId = workspace.workspaceId;
 
@@ -373,19 +374,19 @@ export async function handleFile(
             deepEqual(typed.schema, remote.schema) &&
             typed.tag == remote.tag &&
             (typed.ws_error_handler_muted ?? false) ==
-              remote.ws_error_handler_muted &&
+            remote.ws_error_handler_muted &&
             typed.dedicated_worker == remote.dedicated_worker &&
             typed.cache_ttl == remote.cache_ttl &&
             typed.concurrency_time_window_s ==
-              remote.concurrency_time_window_s &&
+            remote.concurrency_time_window_s &&
             typed.concurrent_limit == remote.concurrent_limit &&
             Boolean(typed.restart_unless_cancelled) ==
-              Boolean(remote.restart_unless_cancelled) &&
+            Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
-              Boolean(remote.visible_to_runner_only) &&
+            Boolean(remote.visible_to_runner_only) &&
             Boolean(typed.no_main_func) == Boolean(remote.no_main_func) &&
             Boolean(typed.has_preprocessor) ==
-              Boolean(remote.has_preprocessor) &&
+            Boolean(remote.has_preprocessor) &&
             typed.priority == Boolean(remote.priority) &&
             typed.timeout == remote.timeout &&
             //@ts-ignore
@@ -478,8 +479,7 @@ async function createScript(
       });
     } catch (e: any) {
       throw Error(
-        `Script creation for ${body.path} with parent ${
-          body.parent_hash
+        `Script creation for ${body.path} with parent ${body.parent_hash
         }  was not successful: ${e.body ?? e.message} `
       );
     }
@@ -505,8 +505,7 @@ async function createScript(
     });
     if (req.status != 201) {
       throw Error(
-        `Script snapshot creation was not successful: ${req.status} - ${
-          req.statusText
+        `Script snapshot creation was not successful: ${req.status} - ${req.statusText
         } - ${await req.text()} `
       );
     }
@@ -518,8 +517,8 @@ export async function findContentFile(filePath: string) {
   const candidates = filePath.endsWith("script.json")
     ? exts.map((x) => filePath.replace(".script.json", x))
     : filePath.endsWith("script.lock")
-    ? exts.map((x) => filePath.replace(".script.lock", x))
-    : exts.map((x) => filePath.replace(".script.yaml", x));
+      ? exts.map((x) => filePath.replace(".script.lock", x))
+      : exts.map((x) => filePath.replace(".script.yaml", x));
 
   const validCandidates = (
     await Promise.all(
@@ -538,7 +537,7 @@ export async function findContentFile(filePath: string) {
   if (validCandidates.length > 1) {
     throw new Error(
       "No content path given and more than one candidate found: " +
-        validCandidates.join(", ")
+      validCandidates.join(", ")
     );
   }
   if (validCandidates.length < 1) {
