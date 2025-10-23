@@ -486,6 +486,8 @@ pub struct RawCode {
     pub custom_concurrency_key: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
+    pub custom_debounce_key: Option<String>,
+    pub debounce_delay_s: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub dedicated_worker: Option<bool>,
 }

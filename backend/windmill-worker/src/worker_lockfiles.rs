@@ -1044,8 +1044,6 @@ async fn lock_modules<'c>(
             concurrency_time_window_s,
             is_trigger,
             assets,
-            custom_debounce_key,
-            debounce_delay_s,
         } = e.get_value()?
         else {
             match e.get_value()? {
@@ -1360,8 +1358,6 @@ async fn lock_modules<'c>(
             concurrency_time_window_s,
             is_trigger,
             assets,
-            custom_debounce_key,
-            debounce_delay_s,
         });
         new_flow_modules.push(e);
 
@@ -1558,8 +1554,6 @@ async fn reduce_flow<'c>(
                     concurrency_time_window_s,
                     is_trigger,
                     assets,
-                    custom_debounce_key,
-                    debounce_delay_s,
                     ..
                 } = std::mem::replace(&mut val, Identity)
                 else {
@@ -1587,8 +1581,6 @@ async fn reduce_flow<'c>(
                     concurrency_time_window_s,
                     is_trigger,
                     assets,
-                    custom_debounce_key,
-                    debounce_delay_s,
                 };
             }
             ForloopFlow { modules, modules_node, .. }

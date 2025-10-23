@@ -1363,23 +1363,9 @@ async fn archive_flow_by_path(
 }
 
 async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
-    dbg!(&nf);
     if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await && {
         let flow_value: FlowValue = serde_json::from_value(nf.value.clone())?;
-        use windmill_common::flows::FlowModuleValue::*;
-        let mut debounce_used = false;
-        FlowValue::traverse_leafs(&flow_value.modules, &mut |fmv, _step| {
-            match fmv {
-                RawScript { custom_debounce_key, debounce_delay_s, .. }
-                | FlowScript { custom_debounce_key, debounce_delay_s, .. } => {
-                    debounce_used = custom_debounce_key.is_some() || debounce_delay_s.is_some();
-                }
-                _ => {}
-            }
-            Ok(())
-        })?;
-
-        debounce_used || flow_value.debounce_key.is_some() || flow_value.debounce_delay_s.is_some()
+        flow_value.debounce_key.is_some() || flow_value.debounce_delay_s.is_some()
     } {
         tracing::warn!(
             "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
@@ -1552,8 +1538,6 @@ mod tests {
                         custom_concurrency_key: None,
                         concurrent_limit: None,
                         concurrency_time_window_s: None,
-                        custom_debounce_key: None,
-                        debounce_delay_s: None,
                         is_trigger: None,
                         assets: None,
                     }),

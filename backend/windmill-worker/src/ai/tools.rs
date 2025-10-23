@@ -361,8 +361,6 @@ async fn execute_windmill_tool(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
-            custom_debounce_key,
-            debounce_delay_s,
             ..
         } => {
             let path = path
@@ -376,8 +374,6 @@ async fn execute_windmill_tool(
                 custom_concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
-                custom_debounce_key,
-                debounce_delay_s,
                 tool_module,
                 tag,
                 tool_module.delete_after_use.unwrap_or(false),
@@ -389,8 +385,6 @@ async fn execute_windmill_tool(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
-            custom_debounce_key,
-            debounce_delay_s,
             tag,
             ..
         } => {
@@ -403,8 +397,6 @@ async fn execute_windmill_tool(
                     custom_concurrency_key: custom_concurrency_key.clone(),
                     concurrent_limit,
                     concurrency_time_window_s,
-                    custom_debounce_key: custom_debounce_key.clone(),
-                    debounce_delay_s,
                     cache_ttl: tool_module.cache_ttl.map(|x| x as i32),
                     dedicated_worker: None,
                     path,

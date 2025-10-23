@@ -4454,6 +4454,8 @@ pub fn raw_script_to_payload(
             concurrency_time_window_s,
             cache_ttl: module.cache_ttl.map(|x| x as i32),
             dedicated_worker: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
         }),
         tag,
         delete_after_use,

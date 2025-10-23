@@ -171,8 +171,6 @@ mod job_payload {
                 cache_ttl: None,
                 dedicated_worker: None,
                 path: "f/system/hello/test-0".into(),
-                custom_debounce_key: None,
-                debounce_delay_s: None,
             })
             .arg("world", json!("foo"))
             .run_until_complete(&db, false, port)
@@ -193,8 +191,6 @@ mod job_payload {
                 cache_ttl: None,
                 dedicated_worker: None,
                 path: "f/system/hello/test-0".into(),
-                custom_debounce_key: None,
-                debounce_delay_s: None,
             })
             .arg("hello", json!("You know nothing Jean Neige"))
             .run_until_complete(&db, false, port)
