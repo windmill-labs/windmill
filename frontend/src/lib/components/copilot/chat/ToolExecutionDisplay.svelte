@@ -12,7 +12,7 @@
 
 	let { message }: Props = $props()
 
-	let isExpanded = $state(message.showDetails || (message.isLoading && message.needsConfirmation))
+	let isExpanded = $derived(message.showDetails || (message.isLoading && message.needsConfirmation))
 
 	const hasParameters = $derived(
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0

@@ -480,7 +480,8 @@ class AIChatManager {
 						reply += token
 					},
 					onMessageEnd: () => {},
-					setToolStatus: () => {}
+					setToolStatus: () => {},
+					removeToolStatus: () => {}
 				},
 				systemMessage
 			}
@@ -678,6 +679,15 @@ class AIChatManager {
 								...(metadata || {})
 							}
 							this.displayMessages.push(newMessage)
+						}
+					},
+					removeToolStatus: (id) => {
+						const existingIdx = this.displayMessages.findIndex(
+							(m) => m.role === 'tool' && m.tool_call_id === id
+						)
+						if (existingIdx !== -1) {
+							this.displayMessages.splice(existingIdx, 1)
+							this.displayMessages = [...this.displayMessages]
 						}
 					},
 					requestConfirmation: this.requestConfirmation

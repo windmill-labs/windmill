@@ -207,7 +207,7 @@
 						{#if provider === 'anthropic'}
 							<Badge color="blue">
 								Recommended
-								<Tooltip class="text-blue-800 dark:text-blue-800 mt-0.5">
+								<Tooltip>
 									Anthropic models handle tool calls better than other providers, which makes them a
 									better choice for AI chat.
 								</Tooltip>

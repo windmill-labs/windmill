@@ -14,6 +14,7 @@ import type {
 import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
 import { processToolCall, type Tool, type ToolCallbacks } from './shared'
+import { generateRandomString } from '$lib/utils'
 
 export async function getAnthropicCompletion(
 	messages: ChatCompletionMessageParam[],
@@ -60,6 +61,16 @@ export async function parseAnthropicCompletion(
 ): Promise<boolean> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error = null
+	let tempToolId: string | undefined = undefined
+
+	// When we receive a JSON input, we need to show a temporary tool call in loading state
+	completion.on('inputJson', (_: string) => {
+		if (!tempToolId) {
+			callbacks.onMessageEnd()
+			tempToolId = `temp-${generateRandomString(12)}`
+			callbacks.setToolStatus(tempToolId, { isLoading: true, content: 'Calling tool...' })
+		}
+	})
 
 	// Handle text streaming
 	completion.on('text', (textDelta: string, _textSnapshot: string) => {
@@ -75,6 +86,11 @@ export async function parseAnthropicCompletion(
 				addedMessages.push(assistantMessage)
 				callbacks.onMessageEnd()
 			} else if (block.type === 'tool_use') {
+				// Remove temp display if it exists
+				if (tempToolId) {
+					callbacks.removeToolStatus(tempToolId)
+				}
+
 				// Convert Anthropic tool calls to OpenAI format for compatibility
 				toolCallsToProcess.push({
 					id: block.id,
@@ -91,10 +107,17 @@ export async function parseAnthropicCompletion(
 				}
 			}
 		}
+
+		// Clear temp tracking after processing
+		tempToolId = undefined
 	})
 
 	// Handle errors
 	completion.on('error', (e: any) => {
+		if (tempToolId) {
+			callbacks.removeToolStatus(tempToolId)
+			tempToolId = undefined
+		}
 		console.error('Anthropic stream error:', e)
 		error = e
 	})
