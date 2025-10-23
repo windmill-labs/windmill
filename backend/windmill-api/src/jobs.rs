@@ -3919,7 +3919,7 @@ async fn batch_rerun_handle_job(
                 user_db.clone(),
                 w_id.clone(),
                 StripPath(job.script_path.clone()),
-                RunJobQuery { ..Default::default() },
+                RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                 PushArgsOwned { extra: None, args },
             )
             .await;
@@ -3935,7 +3935,7 @@ async fn batch_rerun_handle_job(
                     user_db.clone(),
                     w_id.clone(),
                     StripPath(job.script_path.clone()),
-                    RunJobQuery { ..Default::default() },
+                    RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
                 )
                 .await
@@ -3946,7 +3946,7 @@ async fn batch_rerun_handle_job(
                     user_db.clone(),
                     w_id.clone(),
                     job.script_hash,
-                    RunJobQuery { ..Default::default() },
+                    RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
                 )
                 .await
@@ -4434,6 +4434,9 @@ pub async fn run_workflow_as_code(
                 concurrency_time_window_s: job.concurrency_time_window_s,
                 cache_ttl: job.cache_ttl,
                 dedicated_worker: None,
+                // TODO(debouncing): enable for this mode
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             }),
             Some(job.tag.clone()),
             None,
@@ -5264,6 +5267,8 @@ pub async fn run_wait_result_script_by_hash(
         concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
+        debounce_key,
+        debounce_delay_s,
         mut cache_ttl,
         language,
         dedicated_worker,
@@ -5310,6 +5315,8 @@ pub async fn run_wait_result_script_by_hash(
             custom_concurrency_key: concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
+            custom_debounce_key: debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -5718,6 +5725,8 @@ async fn run_preview_script(
                 custom_concurrency_key: None,
                 concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
                 concurrency_time_window_s: None, // TODO(gbouv): same as above
+                custom_debounce_key: None, // TODO(pyra): same as for concurrency limits.
+                debounce_delay_s: None,
                 cache_ttl: None,
                 dedicated_worker: preview.dedicated_worker,
             }),
@@ -5839,6 +5848,8 @@ async fn run_bundle_preview_script(
                     cache_ttl: None,
                     dedicated_worker: preview.dedicated_worker,
                     custom_concurrency_key: None,
+                    custom_debounce_key: None,
+                    debounce_delay_s: None,
                 }),
                 PushArgs::from(&args),
                 authed.display_username(),
@@ -6567,6 +6578,8 @@ async fn run_dynamic_select(
             concurrency_time_window_s: None,
             cache_ttl: None,
             dedicated_worker: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
         }),
         PushArgs::from(&request.args.unwrap_or_default()),
         authed.display_username(),
@@ -6642,6 +6655,8 @@ pub async fn run_job_by_hash_inner(
         concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
+        debounce_delay_s,
+        debounce_key,
         mut cache_ttl,
         language,
         dedicated_worker,
@@ -6690,6 +6705,8 @@ pub async fn run_job_by_hash_inner(
             custom_concurrency_key: concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
+            custom_debounce_key: debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -6951,7 +6968,7 @@ pub enum JobUpdateSSEStream {
 }
 
 lazy_static::lazy_static! {
-    pub static ref TIMEOUT_SSE_STREAM: u64 = 
+    pub static ref TIMEOUT_SSE_STREAM: u64 =
         std::env::var("TIMEOUT_SSE_STREAM").unwrap_or("60".to_string()).parse::<u64>().unwrap_or(60);
 }
 

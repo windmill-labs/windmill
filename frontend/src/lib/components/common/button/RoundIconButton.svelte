@@ -3,8 +3,8 @@
 	export let border: boolean = false
 
 	$: colorClasses = {
-		light: 'text-tertiary bg-surface hover:bg-surface-hover text-tertiary',
-		dark: 'text-tertiary hover:bg-surface-hover-dark text-tertiary'
+		light: 'text-primary bg-surface hover:bg-surface-hover text-primary',
+		dark: 'text-primary hover:bg-surface-hover-dark text-primary'
 	}[color ?? 'light']
 </script>
 

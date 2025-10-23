@@ -138,7 +138,7 @@
 				<Popover>
 					<svelte:fragment slot="trigger">
 						<div
-							class="border rounded-md px-1 py-0.5 font-normal text-tertiary text-xs hover:bg-surface-hover bg-surface"
+							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
 							>@</div
 						>
 					</svelte:fragment>

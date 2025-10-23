@@ -349,6 +349,8 @@ export async function handleFile(
       has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
+      debounce_key: typed?.debounce_key,
+      debounce_delay_s: typed?.debounce_delay_s,
       codebase: await codebase?.getDigest(),
       timeout: typed?.timeout,
       on_behalf_of_email: typed?.on_behalf_of_email,
@@ -388,6 +390,8 @@ export async function handleFile(
             typed.timeout == remote.timeout &&
             //@ts-ignore
             typed.concurrency_key == remote["concurrency_key"] &&
+            typed.debounce_key == remote["debounce_key"] &&
+            typed.debounce_delay_s == remote["debounce_delay_s"] &&
             typed.codebase == remote.codebase &&
             typed.on_behalf_of_email == remote.on_behalf_of_email)
         ) {

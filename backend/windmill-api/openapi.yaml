@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.563.4
+  version: 1.565.0
   title: Windmill API
 
   contact:
@@ -4296,6 +4296,35 @@ paths:
                   required:
                     - path
                     - value
+
+  /w/{workspace}/resources/mcp_tools/{path}:
+    get:
+      summary: get MCP tools from resource
+      operationId: getMcpTools
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: list of MCP tools
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+                    parameters:
+                      type: object
+                  required:
+                    - name
+                    - parameters
 
   /w/{workspace}/resources/list_names/{name}:
     get:
@@ -15385,6 +15414,10 @@ components:
           type: string
         concurrency_key:
           type: string
+        debounce_key:
+          type: string
+        debounce_delay_s:
+          type: integer
         visible_to_runner_only:
           type: boolean
         no_main_func:

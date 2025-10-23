@@ -43,10 +43,10 @@
 
 <Tabs bind:selected={tab}>
 	{#if !noGraph}
-		<Tab value="ui">Graph</Tab>
+		<Tab value="ui" label="Graph" />
 	{/if}
-	<Tab value="raw">Raw</Tab>
-	<Tab value="schema">Input Schema</Tab>
+	<Tab value="raw" label="Raw" />
+	<Tab value="schema" label="Input Schema" />
 
 	{#snippet content()}
 		<TabContent value="ui">

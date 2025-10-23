@@ -146,8 +146,7 @@
 		{#if canEditResourceType || originalType == 'string[]' || originalType == 'object[]'}
 			<div class="flex flex-row mb-1 mt-2">
 				<Button
-					color="light"
-					variant="border"
+					variant="default"
 					size="sm"
 					on:click={() => {
 						if (itemsType?.enum) {
@@ -160,8 +159,7 @@
 					<Plus size={14} />
 				</Button>
 				<Button
-					color="light"
-					variant="border"
+					variant="default"
 					size="sm"
 					btnClasses="ml-2"
 					on:click={() => itemsType?.enum && (itemsType.enum = undefined)}

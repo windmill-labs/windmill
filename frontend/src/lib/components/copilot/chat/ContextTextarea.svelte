@@ -360,7 +360,7 @@
 		padding: 0.25rem;
 		border: 1px solid transparent;
 		font-family: inherit;
-		font-size: 0.875rem;
+		font-size: 0.75rem;
 		line-height: 1.72;
 		white-space: pre-wrap;
 		word-break: break-words;

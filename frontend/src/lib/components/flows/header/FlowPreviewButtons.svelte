@@ -129,8 +129,8 @@
 </script>
 
 <Button
-	color="dark"
-	size="xs"
+	variant="accent-secondary"
+	unifiedSize="md"
 	on:click={() => {
 		previewMode = 'whole'
 		previewOpen = !previewOpen

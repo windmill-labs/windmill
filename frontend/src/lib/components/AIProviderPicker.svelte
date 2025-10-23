@@ -229,36 +229,33 @@
 	})
 </script>
 
-<div
-	class="w-full flex flex-col gap-1 bg-surface-secondary border-[1px] border-nord-400 dark:border-nord-300 rounded-md"
->
+<div class="w-full flex flex-col gap-1 border rounded-md p-4">
 	<!-- Provider Selection -->
-	<div class="flex flex-col gap-2 m-[-1px] mt-[-1px]">
-		<ToggleButtonGroup
-			selected={value?.kind}
-			onSelected={onProviderChange}
-			{disabled}
-			wrap
-			tabListClass="w-full bg-transparent"
-		>
-			{#snippet children({ item })}
-				{#each providerOptions.slice(0, 3) as option}
-					<ToggleButton value={option.value} label={option.label} {item} class="bg-transparent" />
-				{/each}
-				<ToggleButtonMore
-					class="ml-auto"
-					togglableItems={providerOptions.slice(3)}
-					{item}
-					bind:selected={() => value?.kind, (v) => v && onProviderChange(v)}
-				/>
-			{/snippet}
-		</ToggleButtonGroup>
-	</div>
+	<ToggleButtonGroup
+		selected={value?.kind}
+		onSelected={onProviderChange}
+		{disabled}
+		wrap
+		tabListClass="w-full"
+	>
+		{#snippet children({ item })}
+			{#each providerOptions.slice(0, 3) as option}
+				<ToggleButton value={option.value} label={option.label} {item} />
+			{/each}
+			<ToggleButtonMore
+				class="ml-auto"
+				btnText={providerOptions.findIndex((p) => p.value === value.kind) >= 3 ? '' : 'More'}
+				togglableItems={providerOptions.slice(3)}
+				{item}
+				bind:selected={() => value?.kind, (v) => v && onProviderChange(v)}
+			/>
+		{/snippet}
+	</ToggleButtonGroup>
 
 	<!-- Resource Selection -->
-	<div class="flex flex-col rounded-md p-2 gap-2">
+	<div class="flex flex-col rounded-md pt-2 gap-2">
 		<div class="flex flex-col gap-1">
-			<p class="text-sm font-normal text-tertiary">resource</p>
+			<p class="text-xs font-normal text-primary">resource</p>
 			<ResourcePicker
 				bind:value={
 					() => resourceValueToPath(value?.resource),
@@ -272,13 +269,12 @@
 				disabled={disabled || !value?.kind}
 				placeholder="Select resource"
 				selectFirst={true}
-				selectInputClass="!bg-surface"
 			/>
 		</div>
 
 		<!-- Model Selection -->
 		<div class="flex flex-col gap-1">
-			<p class="text-sm font-normal text-tertiary">model</p>
+			<p class="text-xs font-normal text-primary">model</p>
 			<Select
 				{items}
 				bind:value={value.model}
@@ -293,7 +289,6 @@
 				clearable={false}
 				noItemsMsg={'No models available'}
 				bind:filterText
-				inputClass="min-h-10 !bg-surface disabled:!bg-surface-disabled"
 			/>
 		</div>
 

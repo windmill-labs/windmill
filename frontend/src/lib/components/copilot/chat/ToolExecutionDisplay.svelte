@@ -12,7 +12,7 @@
 
 	let { message }: Props = $props()
 
-	let isExpanded = $state(message.showDetails || (message.isLoading && message.needsConfirmation))
+	let isExpanded = $derived(message.showDetails || (message.isLoading && message.needsConfirmation))
 
 	const hasParameters = $derived(
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0
@@ -70,8 +70,7 @@
 					)}
 				>
 					<Button
-						variant="border"
-						color="gray"
+						variant="default"
 						size="xs"
 						on:click={() => {
 							if (message.tool_call_id) {
@@ -79,10 +78,10 @@
 							}
 						}}
 						startIcon={{ icon: XCircle }}
+						destructive
 					></Button>
 					<Button
-						variant="border"
-						color="green"
+						variant="accent"
 						size="xs"
 						on:click={() => {
 							if (message.tool_call_id) {

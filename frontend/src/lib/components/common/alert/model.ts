@@ -2,10 +2,11 @@ export type AlertType = 'success' | 'error' | 'warning' | 'info'
 
 export const classes: Record<AlertType, Record<string, string>> = {
 	info: {
-		bgClass: 'bg-blue-50 border-blue-200 border dark:bg-blue-900/40 dark:border-blue-700/40',
-		iconClass: 'text-blue-500 dark:text-blue-300',
-		titleClass: 'text-blue-800 dark:text-blue-100',
-		descriptionClass: 'text-blue-700 dark:text-blue-100'
+		bgClass:
+			'bg-luminance-blue-50 border-luminance-blue-100 border dark:bg-luminance-blue-900/60 dark:border-luminance-blue-700/40',
+		iconClass: 'text-luminance-blue-600 dark:text-luminance-blue-50',
+		titleClass: 'text-luminance-blue-700 dark:text-luminance-blue-50',
+		descriptionClass: 'text-luminance-blue-600 dark:text-luminance-blue-50/80'
 	},
 	warning: {
 		bgClass:

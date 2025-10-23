@@ -1,0 +1,38 @@
+summary: AI Agent with Parallel Execution
+description: An AI agent configured to execute tools in parallel
+value:
+  modules:
+    - id: parallel_agent
+      value:
+        type: aiagent
+        parallel: true
+        input_transforms:
+          instruction:
+            type: static
+            value: "Process data in parallel"
+          model:
+            type: javascript
+            expr: "'gpt-4'"
+        tools:
+          - id: parallel_tool_1
+            summary: First parallel tool
+            value:
+              tool_type: flowmodule
+              type: rawscript
+              input_transforms: {}
+              content: |
+                export async function main() {
+                  return { result: "tool_1" };
+                }
+              language: bun
+          - id: parallel_tool_2
+            summary: Second parallel tool
+            value:
+              tool_type: flowmodule
+              type: rawscript
+              input_transforms: {}
+              content: |
+                export async function main() {
+                  return { result: "tool_2" };
+                }
+              language: deno

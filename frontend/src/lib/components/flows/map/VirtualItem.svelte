@@ -13,16 +13,14 @@
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
 	import type { Job } from '$lib/gen'
+	import { getNodeColorClasses } from '$lib/components/graph'
 
 	interface Props {
 		label?: string | undefined
-		bgColor?: string
-		bgHoverColor?: string
 		selected: boolean
 		selectable: boolean
 		id?: string | undefined
 		center?: boolean
-		borderColor?: string | undefined
 		hideId?: boolean
 		preLabel?: string | undefined
 		inputJson?: Object | undefined
@@ -41,21 +39,16 @@
 		individualStepTests?: boolean
 		nodeKind?: 'input' | 'result'
 		job?: Job
-		type?: string
 		showJobStatus?: boolean
-		darkMode?: boolean
 		flowHasChanged?: boolean
 	}
 
 	let {
 		label = undefined,
-		bgColor = '',
-		bgHoverColor = '',
 		selected,
 		selectable,
 		id = undefined,
 		center = true,
-		borderColor = undefined,
 		hideId = false,
 		preLabel = undefined,
 		inputJson = undefined,
@@ -75,7 +68,6 @@
 		individualStepTests = false,
 		job,
 		showJobStatus = false,
-		darkMode = false,
 		flowHasChanged = false
 	}: Props = $props()
 
@@ -97,17 +89,16 @@
 					: undefined
 			: undefined
 	)
+	let colorClasses = $derived(getNodeColorClasses(outputType ?? '_VirtualItem', selected))
 </script>
 
 <VirtualItemWrapper
 	{label}
-	{bgColor}
-	{bgHoverColor}
-	{selected}
 	{selectable}
 	{id}
 	outputPickerVisible={outputPickerVisible ?? false}
 	className={editMode ? aiModuleActionToBgColor(action) : ''}
+	{colorClasses}
 	on:select
 >
 	{#snippet children({ hover })}
@@ -116,17 +107,16 @@
 		{/if}
 		<div class="flex flex-col w-full">
 			<div
-				style={borderColor ? `border-color: ${borderColor};` : 'border: 0'}
-				class="flex flex-row justify-between {center
+				class="flex flex-row justify-between {colorClasses.outline} {center
 					? 'items-center'
-					: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400 dark:border-gray-600"
+					: 'items-baseline'} w-full overflow-hidden rounded-md p-2 text-2xs module text-primary"
 			>
 				{#if icon}
 					{@render icon?.()}
 				{/if}
 				<div class="flex flex-col flex-grow shrink-0 max-w-full min-w-0">
 					{#if label}
-						<div class="truncate text-center">{label}</div>
+						<div class="truncate text-center {colorClasses.text}">{label}</div>
 					{/if}
 					{#if preLabel}
 						<div class="truncate text-2xs text-center"><pre>{preLabel}</pre></div>
@@ -147,8 +137,6 @@
 					id={id ?? ''}
 					isConnectingCandidate={nodeKind !== 'result'}
 					variant="virtual"
-					type={outputType}
-					{darkMode}
 				>
 					{#snippet children({ allowCopy, isConnecting, selectConnection })}
 						<OutputPickerInner
