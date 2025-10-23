@@ -16,7 +16,8 @@
 		X,
 		Play,
 		Loader2,
-		TriangleAlert
+		TriangleAlert,
+		Timer
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -66,6 +67,8 @@
 		modType?: string | undefined
 		nodeState?: FlowNodeState
 		concurrency?: boolean
+		// TODO: Implement for this one. See how concurrency is implemented.
+		debouncing?: boolean
 		retries?: number | undefined
 		warningMessage?: string | undefined
 		isTrigger?: boolean
@@ -99,6 +102,7 @@
 		modType = undefined,
 		nodeState,
 		concurrency = false,
+		debouncing = false,
 		retries = undefined,
 		warningMessage = undefined,
 		isTrigger = false,
@@ -305,6 +309,19 @@
 					</div>
 					{#snippet text()}
 						Concurrency Limits
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if debouncing}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<Timer size={12} />
+					</div>
+					{#snippet text()}
+						Debouncing
 					{/snippet}
 				</Popover>
 			{/if}

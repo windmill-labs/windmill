@@ -70,9 +70,9 @@ use windmill_common::{
         load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
-        store_suspended_pull_query, update_min_version, Connection, WorkerConfig,
-        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY,
-        SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP,
+        store_suspended_pull_query, Connection, WorkerConfig, DEFAULT_TAGS_PER_WORKSPACE,
+        DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, TMP_DIR,
+        WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE, CRITICAL_ALERT_MUTE_UI_ENABLED,
     CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
@@ -1590,7 +1590,7 @@ pub async fn monitor_db(
     };
 
     let cleanup_debounce_keys_f = async {
-        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(20) {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
             if let Some(db) = conn.as_sql() {
                 if let Err(e) = cleanup_debounce_orphaned_keys(&db).await {
                     tracing::error!("Error cleaning up debounce keys: {:?}", e);
@@ -1700,7 +1700,8 @@ pub async fn monitor_db(
     };
 
     let update_min_worker_version_f = async {
-        update_min_version(conn).await;
+        #[cfg(not(feature = "test_job_debouncing"))]
+        windmill_common::worker::update_min_version(conn).await;
     };
 
     join!(

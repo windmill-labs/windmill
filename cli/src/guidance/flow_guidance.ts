@@ -29,6 +29,8 @@ value:
   concurrent_limit: 0  # Limit concurrent executions
   concurrency_key: "string"  # Custom concurrency grouping
   concurrency_time_window_s: 0
+  custom_debounce_key: "key"
+  debounce_delay_s: 0
   skip_expr: "javascript_expression"  # Skip workflow condition
   cache_ttl: 0  # Cache results duration
   priority: 0  # Execution priority
@@ -59,6 +61,8 @@ value:
   concurrent_limit: 0
   concurrency_time_window_s: 0
   custom_concurrency_key: "key"
+  custom_debounce_key: "key"
+  debounce_delay_s: 0
   is_trigger: false
   assets: []
 \`\`\`

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO debounce_key (key, job_id)\n                VALUES ($1, $2)\n                ON CONFLICT (key)\n                DO UPDATE SET job_id = debounce_key.job_id  -- No actual change, just to trigger UPDATE\n                RETURNING CASE WHEN xmax != 0 THEN job_id ELSE NULL END AS job_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f1fe8508f6cd29d4c0d354473529fc46f506ddf98d45fc870e2855c4a4b424ea"
+}

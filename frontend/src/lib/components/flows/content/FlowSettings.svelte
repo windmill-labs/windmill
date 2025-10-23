@@ -473,6 +473,63 @@
 					</div>
 				{/if}
 
+				<!-- Debouncing Section -->
+				{#if customUi?.settingsTabs?.debouncing != false}
+					<div>
+						<div class="flex flex-row items-center gap-2">
+							<Toggle
+								textClass="font-normal text-sm"
+								color="nord"
+								size="xs"
+								disabled={!$enterpriseLicense}
+								checked={Boolean(flowStore.val.value.debounce_delay_s)}
+								on:change={() => {
+									if (flowStore.val.value.debounce_delay_s) {
+										flowStore.val.value.debounce_delay_s = undefined
+									} else {
+										flowStore.val.value.debounce_delay_s = 1
+									}
+								}}
+								options={{
+									right: 'Debounce limits',
+									rightTooltip: 'Consolidate multiple flow executions into a single run within a time window',
+									rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/debouncing'
+								}}
+								class="py-1"
+								eeOnly={true}
+							/>
+						</div>
+
+						{#if flowStore.val.value.debounce_delay_s}
+							<div class="flex flex-col gap-4">
+								<Label label="Delay in seconds">
+									<SecondsInput
+										disabled={!$enterpriseLicense}
+										bind:seconds={flowStore.val.value.debounce_delay_s}
+									/>
+								</Label>
+								<Label label="Custom debounce key (optional)">
+									{#snippet header()}
+										<Tooltip>
+											Debounce keys are global, you can have them be workspace specific using the
+											variable `$workspace`. You can also use an argument's value using
+											`$args[name_of_arg]`</Tooltip
+										>
+									{/snippet}
+									<!-- svelte-ignore a11y_autofocus -->
+									<input
+										type="text"
+										autofocus
+										disabled={!$enterpriseLicense}
+										bind:value={flowStore.val.value.debounce_key}
+										placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
+									/>
+								</Label>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
 				<!-- Priority Section -->
 				<Toggle
 					textClass="font-medium"

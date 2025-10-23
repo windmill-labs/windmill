@@ -84,6 +84,8 @@ pub enum Error {
     ArgumentErr(String),
     #[error("{1}")]
     Generic(StatusCode, String),
+    #[error("{feature} is unavailable due to some workers being behind. Do not use the feature or make sure all workers run at least {min_version}")]
+    WorkersAreBehind { feature: String, min_version: String },
 }
 
 impl Error {

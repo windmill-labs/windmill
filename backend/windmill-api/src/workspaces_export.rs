@@ -102,6 +102,10 @@ struct ScriptMetadata {
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debounce_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debounce_delay_s: Option<i32>,
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -426,6 +430,8 @@ pub(crate) async fn tarball_workspace(
                 concurrency_key: script.concurrency_key,
                 has_preprocessor: script.has_preprocessor,
                 on_behalf_of_email: script.on_behalf_of_email,
+                debounce_key: script.debounce_key,
+                debounce_delay_s: script.debounce_delay_s,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
             archive
@@ -509,10 +515,7 @@ pub(crate) async fn tarball_workspace(
                 && var.is_secret
             {
                 var.value = Some(decrypt(&mc, var.value.unwrap()).map_err(|e| {
-                    Error::internal_err(format!(
-                        "Error decrypting variable {}: {}",
-                        var.path, e
-                    ))
+                    Error::internal_err(format!("Error decrypting variable {}: {}", var.path, e))
                 })?);
             }
             let var_str = &to_string_without_metadata(&var, false, None).unwrap();

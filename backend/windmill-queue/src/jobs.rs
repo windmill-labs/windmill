@@ -36,7 +36,7 @@ use windmill_common::bench::BenchmarkIter;
 use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::utils::{configure_client, now_from_db};
-use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
+use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
@@ -428,6 +428,8 @@ pub async fn push_init_job<'c>(
             custom_concurrency_key: None,
             concurrent_limit: None,
             concurrency_time_window_s: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
             cache_ttl: None,
             dedicated_worker: None,
         }),
@@ -484,6 +486,8 @@ pub async fn push_periodic_bash_job<'c>(
             custom_concurrency_key: None,
             concurrent_limit: None,
             concurrency_time_window_s: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
             cache_ttl: None,
             dedicated_worker: None,
         }),
@@ -1379,6 +1383,9 @@ async fn restart_job_if_perpetual_inner(
                     .unwrap_or_else(|| ScriptLang::Deno),
                 priority: queued_job.priority,
                 apply_preprocessor: false,
+                // TODO(debouncing): handle properly
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             },
             queued_job
                 .args
@@ -2681,7 +2688,7 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
     }
 }
 
-fn fullpath_with_workspace(
+pub fn fullpath_with_workspace(
     workspace_id: &str,
     script_path: Option<&String>,
     job_kind: &JobKind,
@@ -3400,7 +3407,7 @@ pub async fn push<'c, 'd>(
     mut email: &str,
     mut permissioned_as: String,
     token_prefix: Option<&str>,
-    scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
+    mut scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
     root_job: Option<Uuid>,
@@ -3418,6 +3425,7 @@ pub async fn push<'c, 'd>(
     running: bool, // whether the job is already running: only set this to true if you don't want the job to be picked up by a worker from the queue. It will also set started_at to now.
     end_user_email: Option<String>,
     // If we know there is already a debounce job, we can use this for debouncing.
+    // NOTE: Only works with dependency jobs triggered by relative imports
     debounce_job_id_o: Option<Uuid>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
@@ -3610,6 +3618,8 @@ pub async fn push<'c, 'd>(
         cache_ttl,
         dedicated_worker,
         _low_level_priority,
+        custom_debounce_key,
+        debounce_delay_s,
     ) = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -3622,6 +3632,8 @@ pub async fn push<'c, 'd>(
             dedicated_worker,
             priority,
             apply_preprocessor,
+            custom_debounce_key,
+            debounce_delay_s,
         } => {
             if apply_preprocessor {
                 preprocessed = Some(false);
@@ -3641,6 +3653,8 @@ pub async fn push<'c, 'd>(
                 cache_ttl,
                 dedicated_worker,
                 priority,
+                custom_debounce_key,
+                debounce_delay_s,
             )
         }
         JobPayload::FlowScript {
@@ -3666,6 +3680,8 @@ pub async fn push<'c, 'd>(
             cache_ttl,
             dedicated_worker,
             None,
+            None, // custom_debounce_key removed for flow steps
+            None, // debounce_delay_s removed for flow steps
         ),
         JobPayload::FlowNode { id, path } => {
             let data = cache::flow::fetch_flow(_db, id).await?;
@@ -3693,6 +3709,8 @@ pub async fn push<'c, 'd>(
                 None,
                 None,
                 None,
+                None,
+                None,
             )
         }
         JobPayload::AppScript {
@@ -3712,6 +3730,8 @@ pub async fn push<'c, 'd>(
             None,
             None,
             cache_ttl,
+            None,
+            None,
             None,
             None,
         ),
@@ -3746,6 +3766,8 @@ pub async fn push<'c, 'd>(
                 None,
                 None,
                 None,
+                None,
+                None,
             )
         }
         JobPayload::Code(RawCode {
@@ -3759,6 +3781,8 @@ pub async fn push<'c, 'd>(
             concurrency_time_window_s,
             cache_ttl,
             dedicated_worker,
+            custom_debounce_key,
+            debounce_delay_s,
         }) => (
             hash,
             path,
@@ -3773,6 +3797,8 @@ pub async fn push<'c, 'd>(
             cache_ttl,
             dedicated_worker,
             None,
+            custom_debounce_key,
+            debounce_delay_s,
         ),
         JobPayload::Dependencies { hash, language, path, dedicated_worker } => (
             Some(hash.0),
@@ -3787,6 +3813,8 @@ pub async fn push<'c, 'd>(
             None,
             None,
             dedicated_worker,
+            None,
+            None,
             None,
         ),
 
@@ -3805,6 +3833,8 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
+            None,
+            None,
         ),
 
         // CLI usage, is not modifying db, no need for debouncing.
@@ -3814,6 +3844,8 @@ pub async fn push<'c, 'd>(
             None,
             JobKind::FlowDependencies,
             Some(flow_value),
+            None,
+            None,
             None,
             None,
             None,
@@ -3858,6 +3890,8 @@ pub async fn push<'c, 'd>(
                 None,
                 dedicated_worker,
                 None,
+                None,
+                None,
             )
         }
         JobPayload::AppDependencies { path, version } => (
@@ -3865,6 +3899,8 @@ pub async fn push<'c, 'd>(
             Some(path.clone()),
             None,
             JobKind::AppDependencies,
+            None,
+            None,
             None,
             None,
             None,
@@ -3924,6 +3960,8 @@ pub async fn push<'c, 'd>(
             let concurrency_key = value.concurrency_key.clone();
             let concurrent_limit = value.concurrent_limit;
             let concurrency_time_window_s = value.concurrency_time_window_s;
+            let debounce_key = value.debounce_key.clone();
+            let debounce_delay_s = value.debounce_delay_s;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let priority = value.priority;
             (
@@ -3940,6 +3978,8 @@ pub async fn push<'c, 'd>(
                 cache_ttl,
                 None,
                 priority,
+                debounce_key,
+                debounce_delay_s,
             )
         }
         JobPayload::SingleStepFlow {
@@ -3959,6 +3999,8 @@ pub async fn push<'c, 'd>(
             tag_override,
             trigger_path,
             apply_preprocessor,
+            custom_debounce_key,
+            debounce_delay_s,
         } => {
             // Determine if this is a flow or a script
             let is_flow = flow_version.is_some();
@@ -4094,6 +4136,8 @@ pub async fn push<'c, 'd>(
                 failure_module,
                 concurrency_time_window_s,
                 concurrent_limit,
+                debounce_key: custom_debounce_key.clone(),
+                debounce_delay_s,
                 priority,
                 cache_ttl: cache_ttl.map(|val| val as u32),
                 concurrency_key: custom_concurrency_key.clone(),
@@ -4119,6 +4163,8 @@ pub async fn push<'c, 'd>(
                 cache_ttl,
                 None,
                 priority,
+                custom_debounce_key,
+                debounce_delay_s,
             )
         }
         JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version } => {
@@ -4146,11 +4192,16 @@ pub async fn push<'c, 'd>(
             let concurrency_time_window_s = value.concurrency_time_window_s;
             let mut concurrent_limit = value.concurrent_limit;
 
+            let custom_debounce_key = value.debounce_key.clone();
+            let mut debounce_delay_s = value.debounce_delay_s;
+
             if !apply_preprocessor {
                 value.preprocessor_module = None;
             } else {
                 tag = None;
                 concurrent_limit = None;
+                // TODO: May be re-enable?
+                debounce_delay_s = None;
                 preprocessed = Some(false);
             }
 
@@ -4185,6 +4236,8 @@ pub async fn push<'c, 'd>(
                 cache_ttl,
                 dedicated_worker,
                 priority,
+                custom_debounce_key,
+                debounce_delay_s,
             )
         }
         JobPayload::RestartedFlow { completed_job_id, step_id, branch_or_iteration_n } => {
@@ -4235,6 +4288,8 @@ pub async fn push<'c, 'd>(
             let concurrency_key = value.concurrency_key.clone();
             let concurrent_limit = value.concurrent_limit;
             let concurrency_time_window_s = value.concurrency_time_window_s;
+            let debounce_key = value.debounce_key.clone();
+            let debounce_delay_s = value.debounce_delay_s;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
@@ -4258,6 +4313,8 @@ pub async fn push<'c, 'd>(
                 cache_ttl,
                 None,
                 priority,
+                debounce_key,
+                debounce_delay_s,
             )
         }
         JobPayload::DeploymentCallback { path } => (
@@ -4274,12 +4331,16 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
+            None,
+            None,
         ),
         JobPayload::Identity => (
             None,
             None,
             None,
             JobKind::Identity,
+            None,
+            None,
             None,
             None,
             None,
@@ -4304,12 +4365,16 @@ pub async fn push<'c, 'd>(
             None,
             None,
             None,
+            None,
+            None,
         ),
         JobPayload::AIAgent { path } => (
             None,
             Some(path),
             None,
             JobKind::AIAgent,
+            None,
+            None,
             None,
             None,
             None,
@@ -4329,7 +4394,10 @@ pub async fn push<'c, 'd>(
     // This is not the case for scripts, so we can potentially have multiple djobs for scripts at the same time.
     if let (Some(path), true) = (
         &script_path,
-        cfg!(feature = "private") && job_kind.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING,
+        cfg!(feature = "private")
+            && job_kind.is_dependency()
+            && !*WMDEBUG_NO_DJOB_DEBOUNCING
+            && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
     ) {
         custom_concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
         concurrent_limit = Some(1);
@@ -4475,10 +4543,17 @@ pub async fn push<'c, 'd>(
         job_kind.is_dependency(),
         script_path.clone(),
         *WMDEBUG_NO_DJOB_DEBOUNCING,
+        *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
         // We only do debouncing for jobs triggered by relative imports
         // We do not want this be the case for normal djobs, since they will always be sequential.
         args.args.contains_key("triggered_by_relative_import"),
     ) {
+        (_, _, _, _, false, _) => {
+            tracing::warn!(
+                "Debouncing is disabled because workers are behind the minimum required version 1.566.0. \
+                Please update workers to enable debouncing feature."
+            );
+        }
         // === DEPENDENCY JOB DEBOUNCING ===
         //
         // Debouncing consolidates multiple dependency job requests into a single execution,
@@ -4489,7 +4564,8 @@ pub async fn push<'c, 'd>(
         // 2. Job is a dependency job
         // 3. Object path is provided (script/flow/app path)
         // 4. Fallback mode is disabled (normal operation)
-        // 5. Job was created by relative imports (triggered by dependency chain)
+        // 5. min version supports debouncing
+        // 6. Job was created by relative imports (triggered by dependency chain)
         //
         // How it works:
         //
@@ -4509,7 +4585,7 @@ pub async fn push<'c, 'd>(
         //   - Retrieve all accumulated nodes/components from debounce_stale_data
         //   - Process all collected dependencies in single execution
         //   - Clean up both debounce_key and debounce_stale_data entries
-        (true, true, Some(obj_path), false, true) => {
+        (true, true, Some(obj_path), false, true, true) => {
             // Generate unique debounce key: "workspace_id:object_path:dependency"
             // This ensures each workspace+path combination has independent debounce window
             let debounce_key = format!("{workspace_id}:{obj_path}:dependency");
@@ -4642,6 +4718,28 @@ pub async fn push<'c, 'd>(
             );
         }
     };
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    {
+        let (_, _) = (debounce_delay_s, custom_debounce_key);
+        scheduled_for_o = scheduled_for_o;
+    }
+
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let Some(debounced_job_id) = crate::jobs_ee::maybe_apply_debouncing(
+        &job_id,
+        debounce_delay_s,
+        custom_debounce_key,
+        workspace_id,
+        script_path.clone(),
+        &job_kind,
+        &args,
+        &mut scheduled_for_o,
+        &mut tx,
+    )
+    .await?
+    {
+        return Ok((debounced_job_id, tx));
+    }
 
     if concurrent_limit.is_some() {
         insert_concurrency_key(
@@ -5430,6 +5528,11 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
 
             job.runnable_id.replace(new_id.into());
 
+            if !*windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
+                tx.commit().await?;
+                tracing::warn!("Debouncing is not supported on this version of Windmill. Minimum version required for debouncing support.");
+                return Ok(());
+            }
             // === RETRIEVE ACCUMULATED DEBOUNCE DATA ===
             //
             // For flows and apps, retrieve all nodes/components that were accumulated
