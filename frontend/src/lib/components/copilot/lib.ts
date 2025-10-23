@@ -732,7 +732,6 @@ export async function parseOpenAICompletion(
 	helpers: any
 ): Promise<boolean> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
-	const initializedToolCalls = new Set<string>()
 
 	let answer = ''
 	for await (const chunk of completion) {
@@ -795,10 +794,7 @@ export async function parseOpenAICompletion(
 					}
 
 					// Display tool call immediately in loading state
-					if (!initializedToolCalls.has(toolCallId)) {
-						callbacks.setToolStatus(toolCallId, { isLoading: true })
-						initializedToolCalls.add(toolCallId)
-					}
+					callbacks.setToolStatus(toolCallId, { isLoading: true, content: 'Calling tool...' })
 				}
 			}
 		}

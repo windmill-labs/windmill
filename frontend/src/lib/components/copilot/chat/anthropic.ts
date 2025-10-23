@@ -69,7 +69,7 @@ export async function parseAnthropicCompletion(
 		if (!tempToolId) {
 			callbacks.onMessageEnd()
 			tempToolId = `temp-${generateRandomString(12)}`
-			callbacks.setToolStatus(tempToolId, { isLoading: true })
+			callbacks.setToolStatus(tempToolId, { isLoading: true, content: 'Calling tool...' })
 		}
 	})
 
