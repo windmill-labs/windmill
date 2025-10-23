@@ -193,6 +193,7 @@ pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
 /// to only use IPv4 addresses by binding to 0.0.0.0
 pub fn configure_client(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     if *FORCE_IPV4 {
+        tracing::info!("FORCE_IPV4 is enabled - HTTP client will only use IPv4");
         builder.local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)))
     } else {
         builder
