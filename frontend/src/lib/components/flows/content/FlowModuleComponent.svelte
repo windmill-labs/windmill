@@ -126,7 +126,7 @@
 		shellcheck: false
 	})
 
-	let selected = $state(preprocessorModule || isAgentTool ? 'test' : 'inputs')
+	let selected = $state(preprocessorModule ? 'test' : 'inputs')
 	let advancedSelected = $state('retries')
 	let advancedRuntimeSelected = $state('concurrency')
 	let s3Kind = $state('s3_client')
@@ -554,7 +554,7 @@
 								<Pane minSize={36} bind:size={leftPanelSize}>
 									<div class="flex flex-col relative h-[99.99%]">
 										<Tabs bind:selected wrapperClass="shrink-0">
-											{#if !preprocessorModule && !isAgentTool}
+											{#if !preprocessorModule}
 												<Tab value="inputs" label="Step Input" />
 											{/if}
 											<Tab value="test" label="Test this step" />
@@ -598,6 +598,7 @@
 														}
 														extraLib={stepPropPicker.extraLib}
 														{enableAi}
+														{isAgentTool}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 													/>
 												</PropPickerWrapper>
