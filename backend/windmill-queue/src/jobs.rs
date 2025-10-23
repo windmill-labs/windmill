@@ -3667,8 +3667,6 @@ pub async fn push<'c, 'd>(
             cache_ttl,
             dedicated_worker,
             path,
-            custom_debounce_key,
-            debounce_delay_s,
         } => (
             Some(id.0),
             Some(path),
@@ -3683,8 +3681,8 @@ pub async fn push<'c, 'd>(
             cache_ttl,
             dedicated_worker,
             None,
-            custom_debounce_key,
-            debounce_delay_s,
+            None, // custom_debounce_key removed for flow steps
+            None, // debounce_delay_s removed for flow steps
         ),
         JobPayload::FlowNode { id, path } => {
             let data = cache::flow::fetch_flow(_db, id).await?;

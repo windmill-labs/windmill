@@ -1,0 +1,20 @@
+summary: Invalid AI Agent - Invalid Tool Type
+description: An AI agent with an invalid tool_type value
+value:
+  modules:
+    - id: invalid_tool_agent
+      value:
+        type: aiagent
+        input_transforms:
+          task:
+            type: static
+            value: "Perform task"
+        tools:
+          - id: bad_tool
+            summary: Tool with invalid type
+            value:
+              tool_type: invalid_type  # Should be 'flowmodule' or 'mcp'
+              type: rawscript
+              input_transforms: {}
+              content: "export async function main() { return {}; }"
+              language: deno

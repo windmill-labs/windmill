@@ -799,10 +799,6 @@ pub enum FlowModuleValue {
         is_trigger: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         assets: Option<Vec<AssetWithAltAccessType>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        custom_debounce_key: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        debounce_delay_s: Option<i32>,
     },
 
     /// Just a placeholder
@@ -829,10 +825,6 @@ pub enum FlowModuleValue {
         is_trigger: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
         assets: Option<Vec<AssetWithAltAccessType>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        custom_debounce_key: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        debounce_delay_s: Option<i32>,
     },
 
     // AI agent node
@@ -877,8 +869,6 @@ struct UntaggedFlowModuleValue {
     assets: Option<Vec<AssetWithAltAccessType>>,
     tools: Option<Vec<AgentTool>>,
     pass_flow_input_directly: Option<bool>,
-    custom_debounce_key: Option<String>,
-    debounce_delay_s: Option<i32>,
 }
 
 impl<'de> Deserialize<'de> for FlowModuleValue {
@@ -956,8 +946,6 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 concurrency_time_window_s: untagged.concurrency_time_window_s,
                 is_trigger: untagged.is_trigger,
                 assets: untagged.assets,
-                custom_debounce_key: untagged.custom_debounce_key,
-                debounce_delay_s: untagged.debounce_delay_s,
             }),
             "flowscript" => Ok(FlowModuleValue::FlowScript {
                 input_transforms: untagged.input_transforms.unwrap_or_default(),
@@ -973,8 +961,6 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 concurrency_time_window_s: untagged.concurrency_time_window_s,
                 is_trigger: untagged.is_trigger,
                 assets: untagged.assets,
-                custom_debounce_key: untagged.custom_debounce_key,
-                debounce_delay_s: untagged.debounce_delay_s,
             }),
             "identity" => Ok(FlowModuleValue::Identity),
             "aiagent" => Ok(FlowModuleValue::AIAgent {
@@ -1119,8 +1105,6 @@ pub async fn resolve_module(
                 concurrency_time_window_s,
                 is_trigger,
                 assets,
-                custom_debounce_key,
-                debounce_delay_s,
             } = std::mem::replace(&mut val, Identity)
             else {
                 unreachable!()
@@ -1145,8 +1129,6 @@ pub async fn resolve_module(
                 concurrency_time_window_s,
                 is_trigger,
                 assets,
-                custom_debounce_key,
-                debounce_delay_s,
             };
         }
         ForloopFlow { modules, modules_node, .. } | WhileloopFlow { modules, modules_node, .. } => {

@@ -365,8 +365,6 @@ pub enum JobPayload {
         custom_concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
-        custom_debounce_key: Option<String>,
-        debounce_delay_s: Option<i32>,
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
         path: String,
@@ -488,8 +486,6 @@ pub struct RawCode {
     pub custom_concurrency_key: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
-    pub custom_debounce_key: Option<String>,
-    pub debounce_delay_s: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub dedicated_worker: Option<bool>,
 }

@@ -3743,8 +3743,6 @@ async fn compute_next_flow_transform(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
-            custom_debounce_key,
-            debounce_delay_s,
             ..
         } => {
             let path = path.unwrap_or_else(|| get_path(flow_job, status, module));
@@ -3757,8 +3755,6 @@ async fn compute_next_flow_transform(
                 custom_concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
-                custom_debounce_key,
-                debounce_delay_s,
                 module,
                 tag,
                 delete_after_use,
@@ -3775,8 +3771,6 @@ async fn compute_next_flow_transform(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
-            custom_debounce_key,
-            debounce_delay_s,
             ..
         } => {
             let path = get_path(flow_job, status, module);
@@ -3791,8 +3785,6 @@ async fn compute_next_flow_transform(
                     cache_ttl: module.cache_ttl.map(|x| x as i32),
                     dedicated_worker: None,
                     path,
-                    custom_debounce_key,
-                    debounce_delay_s,
                 },
                 tag: tag.clone(),
                 delete_after_use,
@@ -4397,8 +4389,6 @@ async fn payload_from_simple_module(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
-            custom_debounce_key,
-            debounce_delay_s,
             ..
         } => raw_script_to_payload(
             path.unwrap_or_else(|| inner_path),
@@ -4408,8 +4398,6 @@ async fn payload_from_simple_module(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
-            custom_debounce_key,
-            debounce_delay_s,
             module,
             tag,
             delete_after_use,
@@ -4421,8 +4409,6 @@ async fn payload_from_simple_module(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
-            custom_debounce_key,
-            debounce_delay_s,
             ..
         } => JobPayloadWithTag {
             payload: JobPayload::FlowScript {
@@ -4434,8 +4420,6 @@ async fn payload_from_simple_module(
                 cache_ttl: module.cache_ttl.map(|x| x as i32),
                 dedicated_worker: None,
                 path: inner_path,
-                custom_debounce_key,
-                debounce_delay_s,
             },
             tag,
             delete_after_use,
@@ -4454,8 +4438,6 @@ pub fn raw_script_to_payload(
     custom_concurrency_key: Option<String>,
     concurrent_limit: Option<i32>,
     concurrency_time_window_s: Option<i32>,
-    custom_debounce_key: Option<String>,
-    debounce_delay_s: Option<i32>,
     module: &FlowModule,
     tag: Option<String>,
     delete_after_use: bool,
@@ -4470,8 +4452,6 @@ pub fn raw_script_to_payload(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
-            custom_debounce_key,
-            debounce_delay_s,
             cache_ttl: module.cache_ttl.map(|x| x as i32),
             dedicated_worker: None,
         }),
@@ -4598,7 +4578,7 @@ pub async fn script_to_payload(
     })
 }
 
-async fn get_transform_context(
+pub async fn get_transform_context(
     flow_job: &MiniPulledJob,
     previous_id: &str,
     status: &FlowStatus,
@@ -4665,7 +4645,7 @@ fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(Suspend, Uuid)
 }
 
 // returns the result of the previous step of a running flow (if the job was successful)
-async fn get_previous_job_result(
+pub async fn get_previous_job_result(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
     flow_status: &FlowStatus,
