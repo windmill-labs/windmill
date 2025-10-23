@@ -9,8 +9,7 @@ import type {
 	ToolUnion,
 	ToolUseBlockParam,
 	Tool as AnthropicTool,
-	Message,
-	ContentBlock
+	Message
 } from '@anthropic-ai/sdk/resources'
 import type { MessageStream } from '@anthropic-ai/sdk/lib/MessageStream'
 import { getProviderAndCompletionConfig, workspaceAIClients } from '../lib'
