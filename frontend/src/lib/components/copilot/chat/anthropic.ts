@@ -114,6 +114,10 @@ export async function parseAnthropicCompletion(
 
 	// Handle errors
 	completion.on('error', (e: any) => {
+		if (tempToolId) {
+			callbacks.removeToolStatus(tempToolId)
+			tempToolId = undefined
+		}
 		console.error('Anthropic stream error:', e)
 		error = e
 	})
