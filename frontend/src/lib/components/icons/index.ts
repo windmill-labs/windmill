@@ -208,7 +208,7 @@ export const APP_TO_ICON_COMPONENT = {
 	kafka: KafkaIcon,
 	nats: NatsIcon,
 	mqtt: MqttIcon,
-	apify_oauth: ApifyIcon,
+	apify: ApifyIcon,
 	mcp: McpIcon,
 	zoho: ZohoIcon
 } as const

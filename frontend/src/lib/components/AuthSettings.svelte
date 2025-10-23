@@ -70,7 +70,7 @@
 		'snowflake_oauth',
 		'teams',
 		'xero',
-		'apify_oauth'
+		'apify'
 	]
 
 	let oauth_name = $state(undefined)

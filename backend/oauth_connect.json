@@ -162,7 +162,7 @@
     }
   },
   "snowflake_oauth": {},
-  "apify_oauth": {
+  "apify": {
     "auth_url": "https://console.apify.com/authorize/oauth",
     "token_url": "https://console-backend.apify.com/oauth/apps/token",
     "scopes": [
