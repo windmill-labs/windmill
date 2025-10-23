@@ -257,7 +257,8 @@
 				{#if !job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel}
 					<Button
 						btnClasses="grow"
-						color="red"
+						variant="accent"
+						destructive
 						on:click|once={cancel}
 						size="md"
 						disabled={completed || alreadyResumed}>Deny</Button
@@ -268,7 +269,7 @@
 
 				<Button
 					btnClasses="grow"
-					color="green"
+					variant="accent"
 					on:click|once={resume}
 					size="md"
 					disabled={completed || alreadyResumed || !valid}>Approve</Button
