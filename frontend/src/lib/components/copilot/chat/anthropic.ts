@@ -89,6 +89,9 @@ export async function parseAnthropicCompletion(
 				if (tool && tool.preAction) {
 					tool.preAction({ toolCallbacks: callbacks, toolId: block.id })
 				}
+
+				// Display tool call immediately in loading state
+				callbacks.setToolStatus(block.id, { isLoading: true })
 			}
 		}
 	})
