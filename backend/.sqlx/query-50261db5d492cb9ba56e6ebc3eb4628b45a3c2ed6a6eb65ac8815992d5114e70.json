@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT fv.value->>'early_return' as \"early_return\"\n            FROM v2_job j\n            INNER JOIN flow_version fv ON fv.id = j.runnable_id\n            WHERE j.id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "early_return",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "50261db5d492cb9ba56e6ebc3eb4628b45a3c2ed6a6eb65ac8815992d5114e70"
+}
