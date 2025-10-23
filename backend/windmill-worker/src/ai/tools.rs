@@ -331,6 +331,7 @@ async fn execute_windmill_tool(
             transform,
             last_result.clone(),
             flow_inputs.clone(),
+            None,
             Some(ctx.client),
             ctx.id_context.as_ref(),
         )
