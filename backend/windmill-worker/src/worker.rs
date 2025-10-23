@@ -18,7 +18,6 @@ use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
-use windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
