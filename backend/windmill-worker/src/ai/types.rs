@@ -1,8 +1,8 @@
 use crate::ai::providers::openai::OpenAIToolCall;
-use windmill_common::mcp_client::McpToolSource;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
+use windmill_common::mcp_client::McpToolSource;
 use windmill_common::{
     ai_providers::AIProvider, db::DB, error::Error, flow_status::AgentAction, flows::FlowModule,
     s3_helpers::S3Object,
@@ -385,4 +385,12 @@ impl OpenAPISchema {
         }
         self
     }
+}
+
+/// Wrapper for S3Object with type discriminator for conversation storage
+#[derive(Serialize)]
+pub struct S3ObjectWithType {
+    #[serde(flatten)]
+    s3_object: S3Object,
+    r#type: String,
 }
