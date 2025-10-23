@@ -717,31 +717,35 @@ pub async fn run_agent(
                             {
                                 let agent_job_id = job.id;
                                 let db_clone = db.clone();
-
-                                // Create extended version with type discriminator, to avoid conflicts with outputs that are of the same format as S3 objects
-                                let message_content = if let Ok(mut s3_value) =
-                                    serde_json::from_str::<serde_json::Value>(content.get())
-                                {
-                                    if let Some(obj) = s3_value.as_object_mut() {
-                                        obj.insert(
-                                            "type".to_string(),
-                                            serde_json::Value::String(
-                                                "windmill_s3_object".to_string(),
-                                            ),
-                                        );
-                                    }
-                                    serde_json::to_string(&s3_value)
-                                        .unwrap_or_else(|_| content.get().to_string())
-                                } else {
-                                    content.get().to_string()
-                                };
-                                let step_name = get_step_name_from_flow(
-                                    summary.as_deref(),
-                                    job.flow_step_id.as_deref(),
-                                );
+                                let content_clone = content.clone();
+                                let flow_step_id_owned = job.flow_step_id.clone();
+                                let summary_owned = summary.map(|s| s.to_string());
 
                                 // Spawn task because we do not need to wait for the result
                                 tokio::spawn(async move {
+                                    // Create extended version with type discriminator, to avoid conflicts with outputs that are of the same format as S3 objects
+                                    let message_content = if let Ok(mut s3_value) =
+                                        serde_json::from_str::<serde_json::Value>(
+                                            content_clone.get(),
+                                        ) {
+                                        if let Some(obj) = s3_value.as_object_mut() {
+                                            obj.insert(
+                                                "type".to_string(),
+                                                serde_json::Value::String(
+                                                    "windmill_s3_object".to_string(),
+                                                ),
+                                            );
+                                        }
+                                        serde_json::to_string(&s3_value)
+                                            .unwrap_or_else(|_| content_clone.get().to_string())
+                                    } else {
+                                        content_clone.get().to_string()
+                                    };
+                                    let step_name = get_step_name_from_flow(
+                                        summary_owned.as_deref(),
+                                        flow_step_id_owned.as_deref(),
+                                    );
+
                                     if let Err(e) = add_message_to_conversation(
                                         &db_clone,
                                         &memory_id,
@@ -760,7 +764,7 @@ pub async fn run_agent(
                         }
 
                         // Return early since image generation is complete
-                        return Ok(to_raw_value(&content));
+                        return Ok(content);
                     }
                 }
             }
