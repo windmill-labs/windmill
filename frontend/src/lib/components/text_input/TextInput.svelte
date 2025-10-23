@@ -69,6 +69,9 @@
 		unifiedHeight ? ButtonType.UnifiedHeightClasses[size] : '',
 		className
 	)}
+	onpointerdown={(e) => {
+		e.stopImmediatePropagation()
+	}}
 	bind:this={inputEl}
 	bind:value
 />
