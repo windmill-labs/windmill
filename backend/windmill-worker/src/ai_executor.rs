@@ -698,9 +698,64 @@ pub async fn run_agent(
                         used_structured_output_tool = tool_used_structured_output;
                     }
                     ParsedResponse::Image { base64_data } => {
-                        // For image output with tools, we got an image response
+                        // For image output, upload to S3 and track in conversation
                         let s3_object = upload_image_to_s3(&base64_data, job, client).await?;
-                        return Ok(to_raw_value(&s3_object));
+
+                        let content = to_raw_value(&s3_object);
+
+                        // Add assistant message to conversation if chat_input_enabled
+                        let chat_enabled = flow_context
+                            .flow_status
+                            .as_ref()
+                            .and_then(|fs| fs.chat_input_enabled)
+                            .unwrap_or(false);
+                        if chat_enabled {
+                            if let Some(memory_id) = flow_context
+                                .flow_status
+                                .as_ref()
+                                .and_then(|fs| fs.memory_id)
+                            {
+                                let agent_job_id = job.id;
+                                let db_clone = db.clone();
+                                let flow_step_id_owned = job.flow_step_id.clone();
+                                let summary_owned = summary.map(|s| s.to_string());
+
+                                // Create extended version with type discriminator for conversation storage
+                                // This avoids conflicts with outputs that are of the same format as S3 objects
+                                let s3_with_type = S3ObjectWithType {
+                                    s3_object: s3_object.clone(),
+                                    r#type: "windmill_s3_object".to_string(),
+                                };
+
+                                let message_content = serde_json::to_string(&s3_with_type)
+                                    .unwrap_or_else(|_| content.get().to_string());
+
+                                // Spawn task because we do not need to wait for the result
+                                tokio::spawn(async move {
+                                    let step_name = get_step_name_from_flow(
+                                        summary_owned.as_deref(),
+                                        flow_step_id_owned.as_deref(),
+                                    );
+
+                                    if let Err(e) = add_message_to_conversation(
+                                        &db_clone,
+                                        &memory_id,
+                                        Some(agent_job_id),
+                                        &message_content,
+                                        MessageType::Assistant,
+                                        &step_name,
+                                        true,
+                                    )
+                                    .await
+                                    {
+                                        tracing::warn!("Failed to add assistant message to conversation {}: {}", memory_id, e);
+                                    }
+                                });
+                            }
+                        }
+
+                        // Return early since image generation is complete
+                        return Ok(content);
                     }
                 }
             }
