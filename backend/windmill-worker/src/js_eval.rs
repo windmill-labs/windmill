@@ -199,9 +199,8 @@ pub async fn eval_timeout(
         let flow_arg_name = if *flow_prefix == FLOW_INPUT_PREFIX_SQUARE {
             let suffix = &expr[FLOW_INPUT_PREFIX_SQUARE.len()..];
             let flow_arg_name = suffix
-                .find("\"]")
-                .filter(|pos| pos + 2 == suffix.len()) //ensure expr ends with "]
-                .and_then(|_| Some(&expr[FLOW_INPUT_PREFIX_SQUARE.len()..expr.len() - 2]))
+                .ends_with("\"]")
+                .then(|| &expr[FLOW_INPUT_PREFIX_SQUARE.len()..expr.len() - 2])
                 .filter(|s| s.len() > 0);
             flow_arg_name
         } else {
@@ -337,13 +336,15 @@ pub async fn eval_timeout(
                     let mut client = authed_client.clone();
                     if let Some(client) = client.as_mut() {
                         client.force_client = Some(
-                            configure_client(reqwest::ClientBuilder::new()
-                                .user_agent("windmill/beta")
-                                .danger_accept_invalid_certs(
-                                    std::env::var("ACCEPT_INVALID_CERTS").is_ok(),
-                                ))
-                                .build()
-                                .unwrap(),
+                            configure_client(
+                                reqwest::ClientBuilder::new()
+                                    .user_agent("windmill/beta")
+                                    .danger_accept_invalid_certs(
+                                        std::env::var("ACCEPT_INVALID_CERTS").is_ok(),
+                                    ),
+                            )
+                            .build()
+                            .unwrap(),
                         );
                     }
                     op_state.put(OptAuthedClient(client));
