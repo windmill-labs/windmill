@@ -439,7 +439,7 @@ async fn is_premium(
     require_admin(authed.is_admin, &authed.username)?;
     #[cfg(feature = "cloud")]
     let premium = windmill_common::workspaces::get_team_plan_status(&_db, &_w_id)
-        .await
+        .await?
         .premium;
     #[cfg(not(feature = "cloud"))]
     let premium = false;

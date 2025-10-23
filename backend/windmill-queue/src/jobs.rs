@@ -1435,9 +1435,6 @@ fn apply_completed_job_cloud_usage(
         let email2 = email.clone();
         tokio::task::spawn(async move {
             let additional_usage = _duration / 1000;
-            let premium_workspace = windmill_common::workspaces::get_team_plan_status(&db, &w_id)
-                .await
-                .premium;
             let result = tokio::time::timeout(std::time::Duration::from_secs(10), async move {
                 // Update workspace usage
                 let workspace_result = sqlx::query!(
@@ -1454,22 +1451,30 @@ fn apply_completed_job_cloud_usage(
                     tracing::error!("Failed to update workspace usage for {}: {:#}", w_id, e);
                 }
 
-                // Update user usage for non-premium workspaces
-                if !premium_workspace {
-                    let user_result = sqlx::query!(
-                        "INSERT INTO usage (id, is_workspace, month_, usage)
-                        VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2)
-                        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + EXCLUDED.usage",
-                        &email,
-                        additional_usage as i32
-                    )
-                    .execute(&db)
-                    .await;
+                match windmill_common::workspaces::get_team_plan_status(&db, &w_id).await {
+                    Ok(team_plan_status) => {
+                        // Update user usage for non-premium workspaces
+                        if !team_plan_status.premium {
+                            let user_result = sqlx::query!(
+                                "INSERT INTO usage (id, is_workspace, month_, usage)
+                                VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2)
+                                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + EXCLUDED.usage",
+                                &email,
+                                additional_usage as i32
+                            )
+                            .execute(&db)
+                            .await;
 
-                    if let Err(e) = user_result {
-                        tracing::error!("Failed to update user usage for {}: {:#}", email, e);
+                            if let Err(e) = user_result {
+                                tracing::error!("Failed to update user usage for {}: {:#}", email, e);
+                            }
+                        }
+                    },
+                    Err(err) => {
+                        tracing::error!("Failed to get team plan status to update usage for workspace {w_id}: {err:#}");
                     }
-                }
+                };
+                
             }).await;
 
             if let Err(_) = result {
@@ -3273,10 +3278,7 @@ lazy_static::lazy_static! {
 const SUPERADMIN_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[cfg(feature = "cloud")]
-async fn is_superadmin_cached(
-    db: &Pool<Postgres>,
-    email: &str,
-) -> Result<bool, Error> {
+async fn is_superadmin_cached(db: &Pool<Postgres>, email: &str) -> Result<bool, Error> {
     let now = std::time::Instant::now();
 
     // Try to get from cache first
@@ -3290,18 +3292,19 @@ async fn is_superadmin_cached(
     }
 
     // Cache miss or expired, fetch from database
-    let is_super_admin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1",
-        email
-    )
-    .fetch_optional(db)
-    .await?
-    .unwrap_or(false);
+    let is_super_admin =
+        sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
+            .fetch_optional(db)
+            .await?
+            .unwrap_or(false);
 
     // Update cache
     {
         let mut cache = SUPERADMIN_CACHE.write().await;
-        cache.insert(email.to_string(), (is_super_admin, now + SUPERADMIN_CACHE_TTL));
+        cache.insert(
+            email.to_string(),
+            (is_super_admin, now + SUPERADMIN_CACHE_TTL),
+        );
     }
 
     Ok(is_super_admin)
@@ -3347,11 +3350,7 @@ async fn check_usage_limits(
 }
 
 #[cfg(feature = "cloud")]
-fn increment_usage_async(
-    db: Pool<Postgres>,
-    workspace_id: String,
-    email: Option<String>,
-) {
+fn increment_usage_async(db: Pool<Postgres>, workspace_id: String, email: Option<String>) {
     tokio::task::spawn(async move {
         let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
             // Update workspace usage
@@ -3430,7 +3429,8 @@ pub async fn push<'c, 'd>(
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        let team_plan_status = windmill_common::workspaces::get_team_plan_status(_db, workspace_id).await;
+        let team_plan_status =
+            windmill_common::workspaces::get_team_plan_status(_db, workspace_id).await?;
         // we track only non flow steps
         let (workspace_usage, user_usage) = if !matches!(
             job_payload,
@@ -3445,7 +3445,11 @@ pub async fn push<'c, 'd>(
             increment_usage_async(
                 _db.clone(),
                 workspace_id.to_string(),
-                if !team_plan_status.premium { Some(email.to_string()) } else { None },
+                if !team_plan_status.premium {
+                    Some(email.to_string())
+                } else {
+                    None
+                },
             );
 
             // Return the current usage + 1 to account for this job

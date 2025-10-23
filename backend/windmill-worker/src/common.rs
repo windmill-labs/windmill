@@ -669,13 +669,16 @@ pub async fn resolve_job_timeout(
 ) -> (Duration, Option<String>, bool) {
     let mut warn_msg: Option<String> = None;
     #[cfg(feature = "cloud")]
-    let cloud_premium_workspace = *CLOUD_HOSTED
+    let cloud_premium_workspace =
+        *CLOUD_HOSTED
         && windmill_common::workspaces::get_team_plan_status(
             _conn.as_sql().expect("cloud cannot use http connection"),
             _w_id,
         )
         .await
-        .premium;
+        .inspect_err(|err| tracing::error!("Failed to get team plan status to resolve job timeout for workspace {_w_id}: {err:#}"))
+        .map(|s| s.premium)
+        .unwrap_or(true);
     #[cfg(not(feature = "cloud"))]
     let cloud_premium_workspace = false;
 
