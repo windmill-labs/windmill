@@ -635,7 +635,7 @@ async fn add_user_igroup(
     .await?;
 
     // Sync user to workspaces configured with this instance group
-    #[cfg(feature = "private")]
+    #[cfg(all(feature = "private", feature = "enterprise"))]
     {
         use crate::workspaces_ee::auto_add_user;
         let workspaces = sqlx::query!("SELECT workspace_id, auto_add_instance_groups_roles FROM workspace_settings WHERE $1 = ANY(COALESCE(auto_add_instance_groups, '{}'))", &name).fetch_all(&mut *tx).await?;
@@ -797,7 +797,7 @@ async fn remove_user_igroup(
     .await?;
 
     // Remove user from workspaces where they were added via this instance group
-    #[cfg(feature = "private")]
+    #[cfg(all(feature = "private", feature = "enterprise"))]
     {
         use crate::workspaces_ee::remove_users_from_instance_group_workspaces;
         remove_users_from_instance_group_workspaces(&email, &name, &mut tx).await?;
