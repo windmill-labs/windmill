@@ -34,7 +34,6 @@ use windmill_common::{
 
 use anyhow::{anyhow, Result};
 use windmill_parser_sql::{s3_mode_extension, S3ModeArgs, S3ModeFormat};
-use windmill_queue::flow_status::get_step_of_flow_status;
 use windmill_queue::MiniPulledJob;
 
 use std::collections::HashSet;
@@ -1055,12 +1054,14 @@ pub fn use_flow_root_path(flow_path: &str) -> String {
 }
 
 pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result<Client> {
-    configure_client(reqwest::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .timeout(timeout_duration)
-        .connect_timeout(std::time::Duration::from_secs(10)))
-        .build()
-        .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
+    configure_client(
+        reqwest::ClientBuilder::new()
+            .user_agent("windmill/beta")
+            .timeout(timeout_duration)
+            .connect_timeout(std::time::Duration::from_secs(10)),
+    )
+    .build()
+    .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
 }
 
 pub fn get_root_job_id(job: &MiniPulledJob) -> uuid::Uuid {
