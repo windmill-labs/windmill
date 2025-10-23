@@ -770,10 +770,10 @@ paths:
               schema:
                 type: boolean
 
-  /workspaces/migrate:
+  /workspaces/migrate/tables:
     post:
       summary: migrate workspace data from source to target
-      operationId: migrateWorkspace
+      operationId: migrateWorkspaceTables
       tags:
         - workspace
       requestBody:
@@ -791,7 +791,29 @@ paths:
               schema:
                 type: string
 
-  /workspaces/migration/status:
+  /workspaces/migrate/jobs:
+    post:
+      summary: migrate workspace jobs from source to target
+      operationId: migrateWorkspaceJobs
+      tags:
+        - workspace
+      requestBody:
+        description: migration jobs
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MigrateJobsRequest"
+      responses:
+        "200":
+          description: migration completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MigrateJobsStatus"
+
+
+  /workspaces/migrate/status:
     get:
       summary: get migration status
       operationId: getMigrationStatus
@@ -810,7 +832,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/MigrateJobResponse"
+                $ref: "#/components/schemas/MigrationStatus"
 
   /settings/get_ducklake_instance_catalog_db_status:
     post:
@@ -17667,21 +17689,12 @@ components:
         target_workspace_name:
           type: string
           description: target workspace name
-        migration_type:
-          type: string
-          enum: [all, metadata, jobs]
-          description: type of migration to perform
-        disable_workspace:
-          type: boolean
-          default: true
-          description: whether to disable source workspace after migration
       required:
           - source_workspace_id
           - target_workspace_name
           - target_workspace_id
-          - migration_type
 
-    MigrateJobsBatchRequest:
+    MigrateJobsRequest:
       type: object
       properties:
         source_workspace_id:
@@ -17699,38 +17712,23 @@ components:
         - source_workspace_id
         - target_workspace_id
 
-    MigrateJobsBatchResponse:
+    MigrateJobsStatus:
       type: object
       properties:
         migrated_count:
           type: integer
           format: int64
           description: number of jobs migrated in this batch
-        remaining_jobs:
-          type: integer
-          format: int64
-          description: number of jobs still remaining
-        total_jobs:
-          type: integer
-          format: int64
-          description: total number of jobs
-        migration_progress:
-          type: number
-          format: float
-          description: migration progress percentage
       required:
         - migrated_count
-        - remaining_jobs
-        - total_jobs
-        - migration_progress
-
-    MigrateJobResponse:
+    
+    MigrationStatus:
       type: object
       properties:
         processed_jobs:
           type: integer
           format: int64
-          description: number of jobs processed (remaining in source workspace)
+          description: number of jobs processed in source workspace
       required:
         - processed_jobs
 

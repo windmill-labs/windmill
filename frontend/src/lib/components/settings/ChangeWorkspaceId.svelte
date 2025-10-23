@@ -8,8 +8,7 @@
 	import { Pen } from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { onDestroy } from 'svelte'
-
-	const HUB_MIGRATE_SCRIPT_PATH = 'u/admin/workspace_migrate'
+	import { hubPaths } from '$lib/hub'
 
 	let { open = $bindable(false) } = $props()
 
@@ -50,14 +49,11 @@
 			loading = true
 			oldWorkspaceId = $workspaceStore!
 
-			const jobId = await JobService.runScriptByPath({
-				workspace: $workspaceStore!,
-				path: HUB_MIGRATE_SCRIPT_PATH,
+			await WorkspaceService.migrateWorkspaceTables({
 				requestBody: {
-					source_workspace_id: $workspaceStore!,
+					source_workspace_id: oldWorkspaceId,
 					target_workspace_id: newId,
-					target_workspace_name: newName,
-					migration_type: 'metadata'
+					target_workspace_name: newName
 				}
 			})
 
@@ -101,12 +97,11 @@
 
 			jobMigrationJobId = await JobService.runScriptByPath({
 				workspace: $workspaceStore!,
-				path: HUB_MIGRATE_SCRIPT_PATH,
+				path: hubPaths.workspaceMigrator,
 				requestBody: {
 					source_workspace_id: oldWorkspaceId,
 					target_workspace_id: newId,
-					target_workspace_name: newName,
-					migration_type: 'jobs'
+					target_workspace_name: newName
 				}
 			})
 
@@ -159,7 +154,7 @@
 
 	function startPolling() {
 		if (!pollInterval) {
-			pollInterval = setInterval(checkJobStatus, 2000) as any
+			pollInterval = setInterval(checkJobStatus, 1000) as any
 		}
 	}
 

@@ -1,6 +1,6 @@
 use crate::db::ApiAuthed;
 
-use crate::workspaces::{check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN, WM_FORK_PREFIX};
+use crate::workspaces::{check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN, MIGRATE_JOBS_WORKSPACE_REQUIRE_SUPERADMIN, WM_FORK_PREFIX};
 use crate::{db::DB, utils::require_super_admin};
 
 use axum::extract::Query;
@@ -13,6 +13,7 @@ use sqlx::{Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 
+use windmill_common::db::UserDB;
 use windmill_common::error::JsonResult;
 use windmill_common::worker::CLOUD_HOSTED;
 
@@ -25,17 +26,22 @@ use windmill_common::{
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
-pub struct MigrateWorkspaceRequest {
+pub struct MigrateJobRequest {
     source_workspace_id: String,
-    target_workspace_name: String,
     target_workspace_id: String,
-    migration_type: MigrationType,
-    #[serde(default = "default_disable_workspace")]
-    disable_workspace: bool,
+    #[serde(default = "default_batch_size")]
+    batch_size: i64,
 }
 
-fn default_disable_workspace() -> bool {
-    true
+#[derive(Deserialize)]
+pub struct MigrateWorkspaceRequest {
+    source_workspace_id: String,
+    target_workspace_id: String,
+    target_workspace_name: String,
+}
+
+fn default_batch_size() -> i64 {
+    DEFAULT_BATCH_SIZE
 }
 
 #[derive(Default, Deserialize, Serialize, Debug, Clone, Copy, PartialEq)]
@@ -234,61 +240,52 @@ async fn is_workspace_owner(
     Ok(owner.map(|o| o == authed.email).unwrap_or(false))
 }
 
-pub async fn migrate_workspace(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Json(req): Json<MigrateWorkspaceRequest>,
-) -> Result<String> {
-    if *CLOUD_HOSTED && !is_super_admin_email(&db, &authed.email).await? {
+#[inline]
+pub async fn is_allowed_to_migrate(db: &DB, authed: &ApiAuthed, predicate: bool) -> Result<()> {
+    if *CLOUD_HOSTED && !is_super_admin_email(db, &authed.email).await? {
         return Err(Error::BadRequest(
             "This feature is not available on the cloud".to_string(),
         ));
     }
 
-    if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
-        require_super_admin(&db, &authed.email).await?;
+    if predicate {
+        require_super_admin(db, &authed.email).await?;
     } else {
         require_admin(authed.is_admin, &authed.username)?;
     }
 
-    require_super_admin(&db, &authed.email).await?;
+    Ok(())
+}
+
+pub async fn migrate_workspace(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(req): Json<MigrateWorkspaceRequest>,
+) -> Result<String> {
+    is_allowed_to_migrate(&db, &authed, *CREATE_WORKSPACE_REQUIRE_SUPERADMIN).await?;
 
     let mut tx = db.begin().await?;
 
-    if req.migration_type != MigrationType::Jobs {
-        check_w_id_conflict(&mut tx, &req.target_workspace_id).await?;
+    check_w_id_conflict(&mut tx, &req.target_workspace_id).await?;
 
-        sqlx::query!(
-            "INSERT INTO
-                workspace SELECT $1, $2, owner, deleted, premium FROM workspace WHERE id = $3",
-            &req.target_workspace_id,
-            &req.target_workspace_name,
-            &req.source_workspace_id
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
+    sqlx::query!(
+        r#"
+            INSERT INTO
+                workspace 
+            SELECT $1, $2, owner, deleted, premium 
+            FROM 
+                workspace 
+            WHERE 
+                id = $3
+        "#,
+        &req.target_workspace_id,
+        &req.target_workspace_name,
+        &req.source_workspace_id
+    )
+    .execute(&mut *tx)
+    .await?;
 
-    match req.migration_type {
-        MigrationType::Metadata | MigrationType::All => {
-            migrate_metadata_tables(&mut tx, &req.source_workspace_id, &req.target_workspace_id)
-                .await?;
-        }
-        _ => {}
-    }
-
-    match req.migration_type {
-        MigrationType::Jobs | MigrationType::All => {
-            let result = migrate_jobs_batch(
-                &mut tx,
-                &req.source_workspace_id,
-                &req.target_workspace_id,
-                DEFAULT_BATCH_SIZE,
-            )
-            .await?;
-        }
-        _ => {}
-    }
+    migrate_metadata_tables(&mut tx, &req.source_workspace_id, &req.target_workspace_id).await?;
 
     audit_log(
         &mut *tx,
@@ -301,14 +298,6 @@ pub async fn migrate_workspace(
             [
                 ("source", req.source_workspace_id.as_str()),
                 ("target", req.target_workspace_id.as_str()),
-                (
-                    "type",
-                    match req.migration_type {
-                        MigrationType::All => "all",
-                        MigrationType::Metadata => "metadata",
-                        MigrationType::Jobs => "jobs",
-                    },
-                ),
             ]
             .into(),
         ),
@@ -318,14 +307,8 @@ pub async fn migrate_workspace(
     tx.commit().await?;
 
     Ok(format!(
-        "Migrated {} from {} to {}",
-        match req.migration_type {
-            MigrationType::All => "all data",
-            MigrationType::Metadata => "metadata",
-            MigrationType::Jobs => "jobs",
-        },
-        &req.source_workspace_id,
-        &req.target_workspace_id
+        "Migrated from {} to {}",
+        &req.source_workspace_id, &req.target_workspace_id
     ))
 }
 
@@ -334,7 +317,7 @@ async fn migrate_metadata_tables(
     source: &str,
     target: &str,
 ) -> Result<()> {
-    let simple_tables = vec![
+    let simple_tables = [
         "account",
         "app",
         "audit",
@@ -366,6 +349,10 @@ async fn migrate_metadata_tables(
         "workspace_invite",
         "workspace_key",
         "workspace_settings",
+        "job_logs",
+        "job_stats",
+        "v2_job_queue",
+        "v2_job",
     ];
 
     for table in simple_tables {
@@ -425,54 +412,6 @@ async fn migrate_metadata_tables(
     Ok(())
 }
 
-async fn migrate_job_tables(
-    tx: &mut Transaction<'_, Postgres>,
-    source: &str,
-    target: &str,
-) -> Result<()> {
-    sqlx::query!(
-        "UPDATE job_logs SET workspace_id = $1 WHERE workspace_id = $2",
-        target,
-        source
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    sqlx::query!(
-        "UPDATE job_stats SET workspace_id = $1 WHERE workspace_id = $2",
-        target,
-        source
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    sqlx::query!(
-        "UPDATE v2_job_queue SET workspace_id = $1 WHERE workspace_id = $2",
-        target,
-        source
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    sqlx::query!(
-        "UPDATE v2_job SET workspace_id = $1 WHERE workspace_id = $2",
-        target,
-        source
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    sqlx::query!(
-        "UPDATE v2_job_completed SET workspace_id = $1 WHERE workspace_id = $2",
-        target,
-        source
-    )
-    .execute(&mut **tx)
-    .await?;
-
-    Ok(())
-}
-
 const DEFAULT_BATCH_SIZE: i64 = 10000;
 
 #[derive(Serialize)]
@@ -507,12 +446,36 @@ pub async fn get_migration_status(
     Ok(Json(MigrationStatus { processed_jobs: source_jobs }))
 }
 
-async fn migrate_jobs_batch(
-    tx: &mut Transaction<'_, Postgres>,
-    source_workspace_id: &str,
-    target_workspace_id: &str,
-    batch_size: i64,
-) -> Result<MigrateJobsBatchResponse> {
+pub async fn migrate_jobs(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Json(req): Json<MigrateJobRequest>,
+) -> JsonResult<MigrateJobsBatchResponse> {
+    is_allowed_to_migrate(&db, &authed, *MIGRATE_JOBS_WORKSPACE_REQUIRE_SUPERADMIN).await?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let _ = sqlx::query_scalar!(
+        r#"
+        SELECT 
+            1 
+        FROM 
+            workspace 
+        WHERE 
+            id = $1
+        "#,
+        &req.target_workspace_id
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|_| {
+        Error::NotFound(format!(
+            "Workspace: {} does not exists",
+            req.target_workspace_id
+        ))
+    })?;
+
     let migrated_count = sqlx::query_scalar!(
         "WITH batch AS (
                 SELECT id FROM v2_job_completed
@@ -523,13 +486,15 @@ async fn migrate_jobs_batch(
             SET workspace_id = $3
             WHERE id IN (SELECT id FROM batch)
             RETURNING 1",
-        source_workspace_id,
-        batch_size,
-        target_workspace_id
+        req.source_workspace_id,
+        req.batch_size,
+        req.target_workspace_id
     )
-    .fetch_all(&mut **tx)
+    .fetch_all(&mut *tx)
     .await?
     .len() as i64;
 
-    Ok(MigrateJobsBatchResponse { migrated_count })
+    tx.commit().await?;
+
+    Ok(Json(MigrateJobsBatchResponse { migrated_count }))
 }
