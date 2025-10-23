@@ -4718,13 +4718,13 @@ pub async fn push<'c, 'd>(
             );
         }
     };
-    #[cfg(not(feature = "enterprise"))]
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
     {
         let (_, _) = (debounce_delay_s, custom_debounce_key);
         scheduled_for_o = scheduled_for_o;
     }
 
-    #[cfg(feature = "enterprise")]
+    #[cfg(all(feature = "enterprise", feature = "private"))]
     if let Some(debounced_job_id) = crate::jobs_ee::maybe_apply_debouncing(
         &job_id,
         debounce_delay_s,
