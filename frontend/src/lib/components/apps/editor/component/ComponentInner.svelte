@@ -858,6 +858,7 @@
 				tabs={component.tabs}
 				disabledTabs={component.disabledTabs}
 				hiddenTabs={component.hiddenTabs}
+				tooltipTabs={component.tooltipTabs}
 				onTabChange={component.onTabChange}
 				customCss={component.customCss}
 				{componentContainerHeight}

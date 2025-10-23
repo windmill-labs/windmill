@@ -29,6 +29,7 @@
 		render: boolean
 		disabledTabs: RichConfiguration[]
 		hiddenTabs: RichConfiguration[]
+		tooltipTabs: RichConfiguration[] | undefined
 		onTabChange?: string[] | undefined
 	}
 
@@ -41,6 +42,7 @@
 		render,
 		disabledTabs,
 		hiddenTabs,
+		tooltipTabs = undefined,
 		onTabChange = undefined
 	}: Props = $props()
 
@@ -157,7 +159,7 @@
 
 	let resolvedDisabledTabs: boolean[] = $state([])
 	let resolvedHiddenTabs: boolean[] = $state([])
-
+	let resolvedTooltipTabs: string[] = $state([])
 	// Filter visible tabs based on hiddenTabs configuration
 	let visibleTabsIndices = $derived(
 		(tabs ?? []).map((_, index) => index).filter((index) => !resolvedHiddenTabs[index])
@@ -210,6 +212,10 @@
 	<InputValue key="tabHidden {index}" {id} input={hideTab} bind:value={resolvedHiddenTabs[index]} />
 {/each}
 
+{#each tooltipTabs ?? [] as tooltipTab, index}
+	<InputValue key="tabTooltip {index}" {id} input={tooltipTab} bind:value={resolvedTooltipTabs[index]} />
+{/each}
+
 {#if everRender}
 	<div class={resolvedConfig.tabsKind == 'sidebar' ? 'flex gap-4 w-full h-full' : 'w-full'}>
 		{#if !resolvedConfig.tabsKind || resolvedConfig.tabsKind == 'tabs' || (resolvedConfig.tabsKind == 'invisibleOnView' && $mode == 'dnd')}
@@ -229,6 +235,9 @@
 								selectedStyle={css?.selectedTab?.style}
 								disabled={resolvedDisabledTabs[index]}
 								label={res}
+								tooltip={resolvedTooltipTabs[index] && String(resolvedTooltipTabs[index]).length > 0
+									? String(resolvedTooltipTabs[index])
+									: undefined}
 							/>
 						{/if}
 					{/each}
@@ -245,6 +254,11 @@
 			>
 				{#each tabs ?? [] as res, index}
 					{#if !resolvedHiddenTabs[index]}
+					<div
+					title={resolvedTooltipTabs[index] && String(resolvedTooltipTabs[index]).length > 0
+						? String(resolvedTooltipTabs[index])
+						: undefined}
+				>
 						<button
 							onpointerdown={stopPropagation(bubble('pointerdown'))}
 							onclick={() => !resolvedDisabledTabs[index] && (selected = res)}
@@ -269,7 +283,8 @@
 								: css?.allTabs?.style}
 						>
 							{res}
-						</button>
+							</button>
+						</div>
 					{/if}
 				{/each}
 			</div>
@@ -279,29 +294,35 @@
 				{#each tabs ?? [] as res, index}
 					{#if !resolvedHiddenTabs[index]}
 						<div class="border-b">
-							<button
-								onpointerdown={stopPropagation(bubble('pointerdown'))}
-								onclick={() => !resolvedDisabledTabs[index] && (selected = res)}
-								disabled={resolvedDisabledTabs[index]}
-								class={twMerge(
-									'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
-									css?.allTabs?.class,
-									'wm-tabs-alltabs',
-									selected == res
-										? twMerge(
-												'bg-surface text-primary ',
-												css?.selectedTab?.class,
-												'wm-tabs-selectedTab'
-											)
-										: 'text-secondary',
-									resolvedDisabledTabs[index]
-										? 'opacity-50 cursor-not-allowed hover:text-secondary'
-										: ''
-								)}
+							<div
+							title={resolvedTooltipTabs[index] && String(resolvedTooltipTabs[index]).length > 0
+								? String(resolvedTooltipTabs[index])
+								: undefined}
 							>
-								<span class="mr-2 w-8 font-mono">{selected == res ? '-' : '+'}</span>
-								{res}
-							</button>
+								<button
+									onpointerdown={stopPropagation(bubble('pointerdown'))}
+									onclick={() => !resolvedDisabledTabs[index] && (selected = res)}
+									disabled={resolvedDisabledTabs[index]}
+									class={twMerge(
+										'w-full text-left bg-surface !truncate text-sm hover:text-primary px-1 py-2',
+										css?.allTabs?.class,
+										'wm-tabs-alltabs',
+										selected == res
+											? twMerge(
+													'bg-surface text-primary ',
+													css?.selectedTab?.class,
+													'wm-tabs-selectedTab'
+												)
+											: 'text-secondary',
+										resolvedDisabledTabs[index]
+											? 'opacity-50 cursor-not-allowed hover:text-secondary'
+											: ''
+									)}
+								>
+									<span class="mr-2 w-8 font-mono">{selected == res ? '-' : '+'}</span>
+									{res}
+								</button>
+							</div>
 							<div class={selected == res ? 'border-t' : ''}>
 								<SubGridEditor
 									{id}

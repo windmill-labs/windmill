@@ -244,6 +244,7 @@ export type TabsComponent = BaseComponent<'tabscomponent'> & {
 	tabs: string[]
 	disabledTabs: RichConfiguration[]
 	hiddenTabs: RichConfiguration[]
+	tooltipTabs: RichConfiguration[]
 	onTabChange?: string[]
 }
 
@@ -3124,6 +3125,10 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 			hiddenTabs: [
 				{ type: 'static', value: false, fieldType: 'boolean' },
 				{ type: 'static', value: false, fieldType: 'boolean' }
+			] as RichConfiguration[],
+			tooltipTabs: [
+				{ type: 'static', value: '', fieldType: 'text' },
+				{ type: 'static', value: '', fieldType: 'text' },
 			] as RichConfiguration[]
 		}
 	},
