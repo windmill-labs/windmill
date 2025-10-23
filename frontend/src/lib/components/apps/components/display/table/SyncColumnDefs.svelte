@@ -191,7 +191,7 @@
 							<Button
 								startIcon={{ icon: RefreshCw }}
 								size="xs"
-								color="red"
+								variant="accent"
 								on:click={setEmptyColumns}
 							>
 								Fix columns definitions
@@ -211,7 +211,7 @@
 							<Button
 								startIcon={{ icon: RefreshCw }}
 								size="xs"
-								color="red"
+								variant="accent"
 								on:click={setEmptyColumns}
 							>
 								Fix columns definitions

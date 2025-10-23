@@ -457,6 +457,124 @@
 		</div>
 	</div>
 
+	<!-- Contained Buttons with Colors -->
+	<div class="flex flex-col gap-6 mt-8">
+		<h3 class="text-sm font-semibold text-emphasis">Contained buttons with colors</h3>
+		<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-semibold text-emphasis">Blue</h4>
+					<p class="text-xs text-secondary">Primary actions</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<Button variant="contained" color="blue" size="sm">Blue Button</Button>
+					<Button variant="contained" color="blue" size="xs" startIcon={{ icon: Play }}>Run</Button>
+					<Button variant="contained" color="blue" size="xs" disabled>Disabled</Button>
+				</div>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-semibold text-emphasis">Marine</h4>
+					<p class="text-xs text-secondary">Alternative primary</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<Button variant="contained" color="marine" size="sm">Marine Button</Button>
+					<Button variant="contained" color="marine" size="xs" startIcon={{ icon: Settings }}>Settings</Button>
+					<Button variant="contained" color="marine" size="xs" disabled>Disabled</Button>
+				</div>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-semibold text-emphasis">Green</h4>
+					<p class="text-xs text-secondary">Success actions</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<Button variant="contained" color="green" size="sm">Success Button</Button>
+					<Button variant="contained" color="green" size="xs" startIcon={{ icon: Save }}>Save</Button>
+					<Button variant="contained" color="green" size="xs" disabled>Disabled</Button>
+				</div>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-semibold text-emphasis">Red</h4>
+					<p class="text-xs text-secondary">Destructive actions</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<Button variant="contained" color="red" size="sm">Delete Button</Button>
+					<Button variant="contained" color="red" size="xs" startIcon={{ icon: Trash }}>Delete</Button>
+					<Button variant="contained" color="red" size="xs" disabled>Disabled</Button>
+				</div>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-semibold text-emphasis">Gray</h4>
+					<p class="text-xs text-secondary">Neutral actions</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<Button variant="contained" color="gray" size="sm">Gray Button</Button>
+					<Button variant="contained" color="gray" size="xs" startIcon={{ icon: Copy }}>Copy</Button>
+					<Button variant="contained" color="gray" size="xs" disabled>Disabled</Button>
+				</div>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-semibold text-emphasis">Dark</h4>
+					<p class="text-xs text-secondary">High contrast</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<Button variant="contained" color="dark" size="sm">Dark Button</Button>
+					<Button variant="contained" color="dark" size="xs" startIcon={{ icon: Eye }}>View</Button>
+					<Button variant="contained" color="dark" size="xs" disabled>Disabled</Button>
+				</div>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-semibold text-emphasis">Light</h4>
+					<p class="text-xs text-secondary">Subtle emphasis</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<Button variant="contained" color="light" size="sm">Light Button</Button>
+					<Button variant="contained" color="light" size="xs" startIcon={{ icon: Search }}>Search</Button>
+					<Button variant="contained" color="light" size="xs" disabled>Disabled</Button>
+				</div>
+			</div>
+
+			<div
+				class="flex flex-col space-y-4 p-6 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
+			>
+				<div class="space-y-1">
+					<h4 class="text-xs font-semibold text-emphasis">Nord</h4>
+					<p class="text-xs text-secondary">Theme variant</p>
+				</div>
+				<div class="flex flex-col space-y-2">
+					<Button variant="contained" color="nord" size="sm">Nord Button</Button>
+					<Button variant="contained" color="nord" size="xs" startIcon={{ icon: Plus }}>Add</Button>
+					<Button variant="contained" color="nord" size="xs" disabled>Disabled</Button>
+				</div>
+			</div>
+		</div>
+	</div>
+
 	<!-- TOGGLE SECTION HEADER -->
 	<header class="flex flex-col gap-2 border-b border-gray-200 dark:border-gray-700 pb-4 mt-12">
 		<h2 class="text-lg font-semibold text-emphasis">Toggle Buttons</h2>
