@@ -736,7 +736,6 @@ export async function parseOpenAICompletion(
 
 	let answer = ''
 	for await (const chunk of completion) {
-		console.log('HERE chunk', chunk)
 		if (!('choices' in chunk && chunk.choices.length > 0 && 'delta' in chunk.choices[0])) {
 			continue
 		}
@@ -747,7 +746,6 @@ export async function parseOpenAICompletion(
 			callbacks.onNewToken(delta)
 		}
 		const toolCalls = c.choices[0].delta.tool_calls || []
-		console.log('HERE toolCalls', toolCalls)
 		if (toolCalls.length > 0 && answer) {
 			// if tool calls are present but we have some textual content already, we need to display it to the user first
 			callbacks.onMessageEnd()

@@ -64,28 +64,22 @@ export async function parseAnthropicCompletion(
 	let error = null
 	let tempToolId: string | undefined = undefined
 
-	completion.on('inputJson', (inputJson: string) => {
-		console.log('HERE inputJson', inputJson)
-		// Get the index from the current tracking
+	// When we receive a JSON input, we need to show a temporary tool call in loading state
+	completion.on('inputJson', (_: string) => {
 		if (!tempToolId) {
-			// Flush any pending text message before showing tool calls
 			callbacks.onMessageEnd()
-
 			tempToolId = `temp-${generateRandomString(12)}`
-			// Display temporary tool call in loading state
 			callbacks.setToolStatus(tempToolId, { isLoading: true })
 		}
 	})
 
 	// Handle text streaming
 	completion.on('text', (textDelta: string, _textSnapshot: string) => {
-		console.log('HERE textDelta', textDelta)
 		callbacks.onNewToken(textDelta)
 	})
 
 	completion.on('message', (message: Message) => {
 		for (const block of message.content) {
-			console.log('HERE block', block)
 			if (block.type === 'text') {
 				const text = block.text
 				const assistantMessage = { role: 'assistant' as const, content: text }
