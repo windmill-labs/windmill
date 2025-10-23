@@ -50,6 +50,8 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 
+	let DEFAULT_PER_PAGE = 100
+
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
 	let loadingSelectedIds = $state(false)
@@ -114,6 +116,9 @@
 	let schedulePath = $state(page.url.searchParams.get('schedule_path') ?? undefined)
 	let jobKindsCat = $state(page.url.searchParams.get('job_kinds') ?? 'runs')
 	let allWorkspaces = $state(page.url.searchParams.get('all_workspaces') == 'true')
+	let perPage = $state(
+		parseInt(page.url.searchParams.get('per_page') ?? DEFAULT_PER_PAGE.toString())
+	)
 	let lastFetchWentToEnd = $state(false)
 
 	function loadFromQuery() {
@@ -160,6 +165,7 @@
 		minTs = page.url.searchParams.get('min_ts') ?? undefined
 		maxTs = page.url.searchParams.get('max_ts') ?? undefined
 		schedulePath = page.url.searchParams.get('schedule_path') ?? undefined
+		perPage = parseInt(page.url.searchParams.get('per_page') ?? DEFAULT_PER_PAGE.toString())
 		jobKindsCat = page.url.searchParams.get('job_kinds') ?? 'runs'
 		allWorkspaces = page.url.searchParams.get('all_workspaces') == 'true'
 	}
@@ -328,6 +334,12 @@
 			searchParams.set('graph', graph)
 		} else {
 			searchParams.delete('graph')
+		}
+
+		if (perPage != DEFAULT_PER_PAGE) {
+			searchParams.set('per_page', perPage.toString())
+		} else {
+			searchParams.delete('per_page')
 		}
 
 		let newPath = path ? `/${path}` : ''
@@ -746,7 +758,8 @@
 			minTs,
 			allWorkspaces,
 			allowWildcards,
-			$workspaceStore
+			$workspaceStore,
+			perPage
 		]
 
 		untrack(() => setQuery(false))
@@ -803,8 +816,6 @@
 	const verySmallScreenWidth = 1300
 
 	let forceCancelInPopup = $state(false)
-
-	let perPage = $state(100)
 
 	const warnJobLimitMsg = $derived(
 		`The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last ${perPage} jobs are taken into account: a job that was started earlier than this limit will not be taken into account`
