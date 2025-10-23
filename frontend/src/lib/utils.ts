@@ -9,8 +9,8 @@
 import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
-import { sendUserToast } from './toast'
-import type { Job, RunnableKind, Script, ScriptLang } from './gen'
+import { sendUserToast, type ToastAction } from './toast'
+import type { CancelablePromise, Job, RunnableKind, Script, ScriptLang } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -1646,3 +1646,31 @@ export function getCssColor(
 }
 
 export type IconType = Component<{ size?: number }> | typeof import('lucide-svelte').Dot
+
+export async function sendAlternativesToastOnTimeout<T>(
+	promise: CancelablePromise<T>,
+	actions: ToastAction[],
+	{ timeoutMs = 3000, message = 'Operation taking longer than expected' } = {}
+): Promise<{ status: 'ok'; value: T } | { status: 'cancelled'; value?: undefined }> {
+	let timeout = setTimeout(() => {
+		actions = actions.map((action) => ({
+			...action,
+			callback: () => {
+				promise.cancel()
+				return action.callback?.()
+			}
+		}))
+		sendUserToast(message, true, actions)
+	}, timeoutMs)
+	try {
+		let result = await promise
+		clearTimeout(timeout)
+		return { status: 'ok', value: result }
+	} catch (e) {
+		if (e?.name === 'CancelError') {
+			return { status: 'cancelled' }
+		}
+		clearTimeout(timeout)
+		throw e
+	}
+}

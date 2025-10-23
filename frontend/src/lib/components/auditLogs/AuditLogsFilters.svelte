@@ -37,6 +37,7 @@
 	import Select from '../select/Select.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
+	import { sendAlternativesToastOnTimeout } from '$lib/utils'
 
 	let usernames: string[] | undefined = $state()
 	let resources = usePromise(() => loadResources($workspaceStore!), { loadInit: false })
@@ -86,6 +87,10 @@
 		}
 	})
 
+	function updatePerPage(newPerPage: number) {
+		perPage = newPerPage
+	}
+
 	async function loadLogs(
 		username: string | undefined,
 		page: number | undefined,
@@ -115,18 +120,26 @@
 			resource = undefined
 		}
 
-		logs = await AuditService.listAuditLogs({
-			workspace: scope === 'instance' ? 'global' : $workspaceStore!,
-			page,
-			perPage,
-			before,
-			after,
-			username,
-			operation,
-			resource,
-			actionKind,
-			allWorkspaces: scope === 'all_workspaces'
-		})
+		logs =
+			(
+				await sendAlternativesToastOnTimeout(
+					AuditService.listAuditLogs({
+						workspace: scope === 'instance' ? 'global' : $workspaceStore!,
+						page,
+						perPage,
+						before,
+						after,
+						username,
+						operation,
+						resource,
+						actionKind,
+						allWorkspaces: scope === 'all_workspaces'
+					}),
+					perPage == 25
+						? []
+						: [{ label: 'Reduce to 25 items per page', callback: () => updatePerPage(25) }]
+				)
+			).value ?? []
 		hasMore = logs.length > 0 && logs.length === perPage
 
 		loading = false
