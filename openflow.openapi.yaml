@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.564.0
+  version: 1.565.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -54,6 +54,10 @@ components:
           type: string
         concurrency_time_window_s:
           type: number
+        debounce_delay_s:
+          type: number
+        debounce_key:
+          type: string
         skip_expr:
           type: string
         cache_ttl:
@@ -199,7 +203,6 @@ components:
           enum:
             - static
       required:
-        - value
         - type
 
     JavascriptTransform:
@@ -267,6 +270,7 @@ components:
             - graphql
             - nativets
             - php
+            # TODO: Add missing languages
         path:
           type: string
         lock:

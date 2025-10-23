@@ -11,6 +11,7 @@
 		target?: string | undefined
 		item: MenubarMenuElements['item']
 		class?: string | undefined
+		lightMode?: boolean
 		onClick?: (event: MouseEvent) => void
 		children?: import('svelte').Snippet
 		onFocusIn?: (event: FocusEvent) => void
@@ -25,6 +26,7 @@
 		target = undefined,
 		item,
 		class: classNames = undefined,
+		lightMode = false,
 		children,
 		onClick,
 		onFocusIn,
@@ -48,6 +50,7 @@
 		}}
 		{href}
 		class={classNames}
+		data-light-mode={lightMode}
 		role="menuitem"
 		aria-disabled={disabled}
 		tabindex={disabled ? -1 : undefined}
@@ -72,6 +75,7 @@
 		{disabled}
 		class={classNames}
 		role="menuitem"
+		data-light-mode={lightMode}
 		onfocusin={onFocusIn}
 		onfocusout={onFocusOut}
 	>

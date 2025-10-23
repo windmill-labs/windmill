@@ -19,21 +19,21 @@
 				<div>
 					<WindmillIcon height="100px" width="100px" spin="slow" />
 				</div>
-				<h2 class="text-center pt-2 text-primary">Windmill</h2>
+				<h2 class="text-center py-2 text-primary">Windmill</h2>
 			</div>
 		{/if}
 
 		<div
-			class="border rounded-md shadow-md bg-surface w-full {large
+			class="rounded-md bg-surface w-full {large
 				? 'max-w-5xl'
 				: 'max-w-[640px]'} p-4 sm:py-8 sm:px-10 mb-6 md:mb-20 z-10"
 		>
 			<div class="mb-10">
-				<h1 class="text-center text-primary">
+				<h1 class="text-center text-lg text-emphasis font-semibold">
 					{title}
 				</h1>
 				{#if subtitle}
-					<p class="text-sm text-center text-secondary mt-2">
+					<p class="text-sm font-semibold text-emphasis text-center mt-2">
 						{subtitle}
 					</p>
 				{/if}

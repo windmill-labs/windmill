@@ -105,8 +105,8 @@
 							<td>{emails?.length ?? 0} members</td>
 							<td
 								><Button
-									color="red"
-									variant="border"
+									variant="default"
+									destructive
 									on:click={async () => {
 										await GroupService.deleteInstanceGroup({ name })
 										sendUserToast(`Instance group ${name} deleted`)

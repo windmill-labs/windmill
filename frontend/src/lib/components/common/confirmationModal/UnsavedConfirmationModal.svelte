@@ -113,8 +113,7 @@
 		{#if savedValue && modifiedValue && diffDrawer}
 			<Button
 				wrapperClasses="self-start"
-				color="light"
-				variant="border"
+				variant="default"
 				size="xs"
 				on:click={() => {
 					if (!savedValue || !modifiedValue) {

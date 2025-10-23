@@ -1,12 +1,13 @@
 use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
 use crate::ai::utils::{
-    add_message_to_conversation, cleanup_mcp_clients, find_unique_tool_name,
-    get_flow_chat_settings, get_flow_job_runnable_and_raw_flow, get_step_name_from_flow,
-    is_anthropic_provider, load_mcp_tools, parse_raw_script_schema,
-    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
-    FlowChatSettings,
+    add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
+    filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
+    get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, is_anthropic_provider,
+    load_mcp_tools, parse_raw_script_schema, update_flow_status_module_with_actions,
+    update_flow_status_module_with_actions_success,
 };
 use crate::memory_oss::{read_from_memory, write_to_memory};
+use crate::worker_flow::{get_previous_job_result, get_transform_context};
 use async_recursion::async_recursion;
 use regex::Regex;
 use serde_json::value::RawValue;
@@ -161,70 +162,69 @@ pub async fn handle_ai_agent_job(
                 )));
             };
 
-            let schema = match &t.get_value() {
-                Ok(FlowModuleValue::Script {
+            // Extract schema and input_transforms from the module value
+            let module_value = t.get_value()?;
+            let (schema, input_transforms) = match &module_value {
+                FlowModuleValue::Script {
                     hash,
                     path,
                     tag_override,
                     input_transforms,
                     is_trigger,
                     pass_flow_input_directly,
-                }) => match hash {
-                    Some(hash) => {
-                        let (_, metadata) = cache::script::fetch(conn, hash.clone()).await?;
-                        Ok::<_, Error>(
-                            metadata
-                                .schema
-                                .clone()
-                                .map(|s| RawValue::from_string(s).ok())
-                                .flatten(),
-                        )
-                    }
-                    None => {
-                        if path.starts_with("hub/") {
-                            let hub_script = get_full_hub_script_by_path(
-                                StripPath(path.to_string()),
-                                &HTTP_CLIENT,
-                                None,
+                } => {
+                    let schema = match hash {
+                        Some(hash) => {
+                            let (_, metadata) = cache::script::fetch(conn, hash.clone()).await?;
+                            Ok::<_, Error>(
+                                metadata
+                                    .schema
+                                    .clone()
+                                    .map(|s| RawValue::from_string(s).ok())
+                                    .flatten(),
                             )
-                            .await?;
-                            Ok(Some(hub_script.schema))
-                        } else {
-                            let hash = get_latest_hash_for_path(
-                                db,
-                                &job.workspace_id,
-                                path.as_str(),
-                                true,
-                            )
-                            .await?
-                            .0;
-                            // update module definition to use a fixed hash so all tool calls match the same schema
-                            t.value = to_raw_value(&FlowModuleValue::Script {
-                                hash: Some(hash),
-                                path: path.clone(),
-                                tag_override: tag_override.clone(),
-                                input_transforms: input_transforms.clone(),
-                                is_trigger: *is_trigger,
-                                pass_flow_input_directly: *pass_flow_input_directly,
-                            });
-                            let (_, metadata) = cache::script::fetch(conn, hash).await?;
-                            Ok(metadata
-                                .schema
-                                .clone()
-                                .map(|s| RawValue::from_string(s).ok())
-                                .flatten())
                         }
-                    }
-                },
-                Ok(FlowModuleValue::RawScript { content, language, .. }) => {
-                    Ok(Some(parse_raw_script_schema(&content, &language)?))
+                        None => {
+                            if path.starts_with("hub/") {
+                                let hub_script = get_full_hub_script_by_path(
+                                    StripPath(path.to_string()),
+                                    &HTTP_CLIENT,
+                                    None,
+                                )
+                                .await?;
+                                Ok(Some(hub_script.schema))
+                            } else {
+                                let hash = get_latest_hash_for_path(
+                                    db,
+                                    &job.workspace_id,
+                                    path.as_str(),
+                                    true,
+                                )
+                                .await?
+                                .0;
+                                // update module definition to use a fixed hash so all tool calls match the same schema
+                                t.value = to_raw_value(&FlowModuleValue::Script {
+                                    hash: Some(hash),
+                                    path: path.clone(),
+                                    tag_override: tag_override.clone(),
+                                    input_transforms: input_transforms.clone(),
+                                    is_trigger: *is_trigger,
+                                    pass_flow_input_directly: *pass_flow_input_directly,
+                                });
+                                let (_, metadata) = cache::script::fetch(conn, hash).await?;
+                                Ok(metadata
+                                    .schema
+                                    .clone()
+                                    .map(|s| RawValue::from_string(s).ok())
+                                    .flatten())
+                            }
+                        }
+                    }?;
+                    (schema, input_transforms)
                 }
-                Err(e) => {
-                    return Err(Error::internal_err(format!(
-                        "Invalid tool {}: {}",
-                        summary,
-                        e.to_string()
-                    )));
+                FlowModuleValue::RawScript { content, language, input_transforms, .. } => {
+                    let schema = Some(parse_raw_script_schema(&content, &language)?);
+                    (schema, input_transforms)
                 }
                 _ => {
                     return Err(Error::internal_err(format!(
@@ -232,7 +232,14 @@ pub async fn handle_ai_agent_job(
                         summary
                     )));
                 }
-            }?;
+            };
+
+            // Filter schema based on user given input transforms
+            let schema = if let Some(s) = schema {
+                Some(filter_schema_by_input_transforms(s, input_transforms)?)
+            } else {
+                None
+            };
 
             Ok(Tool {
                 def: ToolDef {
@@ -358,15 +365,18 @@ pub async fn run_agent(
             vec![]
         };
 
-    let mut chat_settings: Option<FlowChatSettings> = None;
+    // Fetch flow context for input transforms context, chat and memory
+    let mut flow_context = get_flow_context(db, job).await;
 
     // Load previous messages from memory for text output mode (only if context length is set)
     if matches!(output_type, OutputType::Text) {
         if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
             if let Some(step_id) = job.flow_step_id.as_deref() {
-                // Fetch chat settings from root flow
-                chat_settings = Some(get_flow_chat_settings(db, job).await);
-                if let Some(memory_id) = chat_settings.as_ref().and_then(|s| s.memory_id) {
+                if let Some(memory_id) = flow_context
+                    .flow_status
+                    .as_ref()
+                    .and_then(|fs| fs.memory_id)
+                {
                     // Read messages from memory
                     match read_from_memory(&job.workspace_id, memory_id, step_id).await {
                         Ok(Some(loaded_messages)) => {
@@ -392,6 +402,37 @@ pub async fn run_agent(
             }
         }
     }
+
+    // Extract previous step result only if any tool needs it
+    let previous_result = {
+        if any_tool_needs_previous_result(&tools) {
+            if let Some(ref flow_status) = flow_context.flow_status {
+                get_previous_job_result(db, &job.workspace_id, flow_status)
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    // Build IdContext for results.stepId syntax
+    let id_context = {
+        if let Some(ref flow_status) = flow_context.flow_status {
+            // Get the step ID from the AI agent's flow step
+            let previous_id = job
+                .flow_step_id
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string());
+
+            Some(get_transform_context(job, &previous_id, flow_status).await?)
+        } else {
+            None
+        }
+    };
 
     // Create user message with optional images
     let mut parts = vec![ContentPart::Text { text: args.user_message.clone() }];
@@ -563,16 +604,16 @@ pub async fn run_agent(
                             content = Some(OpenAIContent::Text(response_content.clone()));
 
                             // Add assistant message to conversation if chat_input_enabled
-                            if chat_settings.is_none() {
-                                chat_settings = Some(get_flow_chat_settings(db, job).await);
-                            }
-                            let chat_enabled = chat_settings
+                            let chat_enabled = flow_context
+                                .flow_status
                                 .as_ref()
-                                .map(|s| s.chat_input_enabled)
+                                .and_then(|fs| fs.chat_input_enabled)
                                 .unwrap_or(false);
-
                             if chat_enabled && !response_content.is_empty() {
-                                if let Some(mid) = chat_settings.as_ref().and_then(|s| s.memory_id)
+                                if let Some(memory_id) = flow_context
+                                    .flow_status
+                                    .as_ref()
+                                    .and_then(|fs| fs.memory_id)
                                 {
                                     let agent_job_id = job.id;
                                     let db_clone = db.clone();
@@ -586,7 +627,7 @@ pub async fn run_agent(
                                     tokio::spawn(async move {
                                         if let Err(e) = add_message_to_conversation(
                                             &db_clone,
-                                            &mid,
+                                            &memory_id,
                                             Some(agent_job_id),
                                             &message_content,
                                             MessageType::Assistant,
@@ -595,7 +636,7 @@ pub async fn run_agent(
                                         )
                                         .await
                                         {
-                                            tracing::warn!("Failed to add assistant message to conversation {}: {}", mid, e);
+                                            tracing::warn!("Failed to add assistant message to conversation {}: {}", memory_id, e);
                                         }
                                     });
                                 }
@@ -633,7 +674,9 @@ pub async fn run_agent(
                             job_completed_tx,
                             killpill_rx,
                             stream_event_processor: stream_event_processor.as_ref(),
-                            chat_settings: &mut chat_settings,
+                            flow_context: &mut flow_context,
+                            previous_result: &previous_result,
+                            id_context: &id_context,
                         };
 
                         let (tool_messages, tool_content, tool_used_structured_output) =
@@ -655,9 +698,64 @@ pub async fn run_agent(
                         used_structured_output_tool = tool_used_structured_output;
                     }
                     ParsedResponse::Image { base64_data } => {
-                        // For image output with tools, we got an image response
+                        // For image output, upload to S3 and track in conversation
                         let s3_object = upload_image_to_s3(&base64_data, job, client).await?;
-                        return Ok(to_raw_value(&s3_object));
+
+                        let content = to_raw_value(&s3_object);
+
+                        // Add assistant message to conversation if chat_input_enabled
+                        let chat_enabled = flow_context
+                            .flow_status
+                            .as_ref()
+                            .and_then(|fs| fs.chat_input_enabled)
+                            .unwrap_or(false);
+                        if chat_enabled {
+                            if let Some(memory_id) = flow_context
+                                .flow_status
+                                .as_ref()
+                                .and_then(|fs| fs.memory_id)
+                            {
+                                let agent_job_id = job.id;
+                                let db_clone = db.clone();
+                                let flow_step_id_owned = job.flow_step_id.clone();
+                                let summary_owned = summary.map(|s| s.to_string());
+
+                                // Create extended version with type discriminator for conversation storage
+                                // This avoids conflicts with outputs that are of the same format as S3 objects
+                                let s3_with_type = S3ObjectWithType {
+                                    s3_object: s3_object.clone(),
+                                    r#type: "windmill_s3_object".to_string(),
+                                };
+
+                                let message_content = serde_json::to_string(&s3_with_type)
+                                    .unwrap_or_else(|_| content.get().to_string());
+
+                                // Spawn task because we do not need to wait for the result
+                                tokio::spawn(async move {
+                                    let step_name = get_step_name_from_flow(
+                                        summary_owned.as_deref(),
+                                        flow_step_id_owned.as_deref(),
+                                    );
+
+                                    if let Err(e) = add_message_to_conversation(
+                                        &db_clone,
+                                        &memory_id,
+                                        Some(agent_job_id),
+                                        &message_content,
+                                        MessageType::Assistant,
+                                        &step_name,
+                                        true,
+                                    )
+                                    .await
+                                    {
+                                        tracing::warn!("Failed to add assistant message to conversation {}: {}", memory_id, e);
+                                    }
+                                });
+                            }
+                        }
+
+                        // Return early since image generation is complete
+                        return Ok(content);
                     }
                 }
             }
@@ -724,7 +822,7 @@ pub async fn run_agent(
                     let start_idx = all_messages.len().saturating_sub(context_length);
                     let messages_to_persist = all_messages[start_idx..].to_vec();
 
-                    if let Some(memory_id) = chat_settings.as_ref().and_then(|s| s.memory_id) {
+                    if let Some(memory_id) = flow_context.flow_status.and_then(|fs| fs.memory_id) {
                         if let Err(e) = write_to_memory(
                             &job.workspace_id,
                             memory_id,

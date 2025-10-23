@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            flow_step_id,\n            (flow_status->'step')::integer as step,\n            jsonb_array_length(flow_status->'modules') as len,\n            runnable_path ~ '/branchone-\\d+$' as is_branch_one,\n            parent_job as next_parent\n        FROM v2_job\n            LEFT JOIN v2_job_status USING (id)\n        WHERE v2_job.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "flow_step_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "step",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "len",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_branch_one",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "next_parent",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      null,
+      null,
+      true
+    ]
+  },
+  "hash": "5c13c681df0c57fcdbd1364f0f084aad096911efd453dd50f6865e53c1e77881"
+}

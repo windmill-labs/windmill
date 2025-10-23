@@ -53,8 +53,7 @@
 						/>
 					</div>
 					<Button
-						variant="border"
-						color="light"
+						variant="default"
 						size="xs"
 						btnClasses="mx-2 "
 						on:click={() => {

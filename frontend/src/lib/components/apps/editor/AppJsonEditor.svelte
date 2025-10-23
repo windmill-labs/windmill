@@ -87,10 +87,10 @@
 
 		{#snippet actions()}
 			{#if !$userStore?.operator}
-				<Button on:click={saveDraft} startIcon={{ icon: Save }} color="dark" size="xs">
+				<Button on:click={saveDraft} startIcon={{ icon: Save }} variant="accent" size="xs">
 					Save as draft
 				</Button>
-				<Button on:click={saveApp} startIcon={{ icon: Globe }} color="dark" size="xs">
+				<Button on:click={saveApp} startIcon={{ icon: Globe }} variant="accent" size="xs">
 					Deploy
 				</Button>
 			{/if}

@@ -84,13 +84,10 @@
 		{#snippet buttonReplacement()}
 			<Button
 				nonCaptureEvent
-				size="xs"
-				color="light"
-				variant="border"
+				unifiedSize="md"
+				variant="subtle"
 				iconOnly
-				startIcon={{
-					icon: BookOpen
-				}}
+				startIcon={{ icon: BookOpen }}
 			/>
 		{/snippet}
 	</Dropdown>

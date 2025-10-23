@@ -10,10 +10,7 @@
 		children?: import('svelte').Snippet
 	}
 
-	let {
-		isOpen = $bindable(false),
-		children
-	}: Props = $props()
+	let { isOpen = $bindable(false), children }: Props = $props()
 
 	const dispatch = createEventDispatcher<{
 		selected: { resourcePath: string }
@@ -72,9 +69,9 @@
 				</div>
 			{:else if gitRepoResources.length === 0}
 				<div class="p-4 text-center">
-					<GitBranch size={20} class="mx-auto mb-2 text-tertiary" />
+					<GitBranch size={20} class="mx-auto mb-2 text-primary" />
 					<p class="text-sm text-secondary mb-1">No git repositories found</p>
-					<p class="text-xs text-tertiary">Create a git repository resource first</p>
+					<p class="text-xs text-primary">Create a git repository resource first</p>
 				</div>
 			{:else}
 				<div class="py-1">
@@ -83,11 +80,11 @@
 							class="w-full text-left px-3 py-2 hover:bg-surface-hover text-sm flex items-center gap-2 transition-colors"
 							onclick={() => handleSelect(resource.path)}
 						>
-							<GitBranch size={14} class="text-tertiary flex-shrink-0" />
+							<GitBranch size={14} class="text-primary flex-shrink-0" />
 							<div class="flex-1 min-w-0">
 								<div class="font-medium text-primary truncate">{resource.path}</div>
 								{#if resource.description}
-									<div class="text-xs text-tertiary truncate">{resource.description}</div>
+									<div class="text-xs text-primary truncate">{resource.description}</div>
 								{/if}
 							</div>
 						</button>
