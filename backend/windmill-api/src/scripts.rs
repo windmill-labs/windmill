@@ -2137,6 +2137,8 @@ async fn delete_scripts_bulk(
     Ok(Json(deleted_paths))
 }
 
+/// Validates that script debouncing configuration is supported by all workers
+/// Returns an error if debouncing is configured but workers are behind required version
 async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
     if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
         && (ns.debounce_key.is_some() || ns.debounce_delay_s.is_some())
@@ -2144,7 +2146,7 @@ async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
         tracing::warn!(
             "Script debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
-        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.564.0".into() })
+        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
     } else {
         Ok(())
     }

@@ -770,13 +770,11 @@ Windmill Community Edition {GIT_VERSION}
                             create_default_worker_suffix(&hostname)
                         };
 
-                        dbg!(&suffix);
-
                         let worker_conn = WorkerConn {
                             conn: if i == 0 || mode != Mode::Agent {
                                 conn.clone()
                             } else {
-                                Connection::Http(build_agent_http_client(dbg!(&suffix), None, None))
+                                Connection::Http(build_agent_http_client(&suffix, None, None))
                             },
                             worker_name: worker_name_with_suffix(
                                 mode == Mode::Agent,

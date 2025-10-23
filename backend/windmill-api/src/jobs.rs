@@ -6621,7 +6621,7 @@ pub async fn run_job_by_hash_inner(
         created_by,
         delete_after_use,
         ..
-    } = dbg!(get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash).await?);
+    } = get_script_info_for_hash(Some(userdb_authed), &db, &w_id, hash).await?;
 
     check_scopes(&authed, || format!("jobs:run:scripts:{path}"))?;
     if let Some(run_query_cache_ttl) = run_query.cache_ttl {

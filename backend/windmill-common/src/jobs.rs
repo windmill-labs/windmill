@@ -571,7 +571,7 @@ pub async fn script_path_to_payload<'e>(
             on_behalf_of_email,
             created_by,
             ..
-        } = dbg!(get_latest_deployed_hash_for_path(db_authed, db, w_id, script_path).await?);
+        } = get_latest_deployed_hash_for_path(db_authed, db, w_id, script_path).await?;
 
         let on_behalf_of = if let Some(email) = on_behalf_of_email {
             Some(OnBehalfOf {
