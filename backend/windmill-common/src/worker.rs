@@ -1090,7 +1090,9 @@ pub async fn update_min_version(conn: &Connection) -> bool {
         }
     };
 
-    tracing::info!("Minimal worker version: {min_version}");
+    if min_version != cur_version {
+        tracing::info!("Minimal worker version: {min_version}");
+    }
 
     // Debouncing feature requires minimum version 1.566.0 across all workers
     // This ensures all workers can handle debounce keys and stale data accumulation
