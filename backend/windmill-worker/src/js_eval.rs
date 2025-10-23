@@ -163,8 +163,8 @@ impl NetPermissions for PermissionsContainer {
 #[cfg(feature = "deno_core")]
 pub struct OptAuthedClient(Option<AuthedClient>);
 
-const FLOW_INPUT_PREFIX: [&'static str; 2] = ["flow_input.", "flow_input["];
-
+const FLOW_INPUT_PREFIX_SQUARE: &'static str = "flow_input[\"";
+const FLOW_INPUT_PREFIX: [&'static str; 2] = ["flow_input.", FLOW_INPUT_PREFIX_SQUARE];
 const ENV_KEY_PREFIX: &'static str = "env.";
 const ENV_KEY_PREFIX_LEN: usize = ENV_KEY_PREFIX.len();
 
@@ -194,12 +194,25 @@ pub async fn eval_timeout(
         .iter()
         .find(|prefix| expr.starts_with(*prefix))
     {
-        let flow_args_name = &expr[flow_prefix.len()..];
-        if let Some(args_value) = flow_input
-            .as_ref()
-            .and_then(|flow_input| flow_input.get(flow_args_name))
-        {
-            return Ok(args_value.clone());
+        let flow_arg_name = if *flow_prefix == FLOW_INPUT_PREFIX_SQUARE {
+            let suffix = &expr[FLOW_INPUT_PREFIX_SQUARE.len()..];
+            let flow_arg_name = suffix
+                .find("\"]")
+                .filter(|pos| pos + 2 == suffix.len()) //ensure expr ends with "]
+                .and_then(|_| Some(&expr[FLOW_INPUT_PREFIX_SQUARE.len()..expr.len() - 2]))
+                .filter(|s| s.len() > 0);
+            flow_arg_name
+        } else {
+            Some(&expr[flow_prefix.len()..])
+        };
+
+        if let Some(key) = flow_arg_name {
+            if let Some(args_value) = flow_input
+                .as_ref()
+                .and_then(|flow_input| flow_input.get(key))
+            {
+                return Ok(args_value.clone());
+            }
         }
     }
 
