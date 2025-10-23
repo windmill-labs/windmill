@@ -199,7 +199,6 @@ components:
           enum:
             - static
       required:
-        - value
         - type
 
     JavascriptTransform:

@@ -1,0 +1,39 @@
+summary: Basic AI Agent Flow
+description: A flow with an AI agent using FlowModule tools
+schema:
+  type: object
+  properties:
+    prompt:
+      type: string
+      default: "Analyze the data"
+value:
+  modules:
+    - id: agent_step
+      value:
+        type: aiagent
+        input_transforms:
+          prompt:
+            type: static
+            value: "Please analyze the data"
+        tools:
+          - id: tool_1
+            summary: Data fetcher
+            value:
+              tool_type: flowmodule
+              type: rawscript
+              input_transforms: {}
+              content: |
+                export async function main() {
+                  return { data: [1, 2, 3] };
+                }
+              language: deno
+          - id: tool_2
+            summary: Calculator
+            value:
+              tool_type: flowmodule
+              type: script
+              path: f/scripts/calculator
+              input_transforms:
+                operation:
+                  type: javascript
+                  expr: "previous.result"

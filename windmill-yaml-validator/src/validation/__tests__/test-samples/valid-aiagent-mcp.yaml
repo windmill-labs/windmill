@@ -1,0 +1,27 @@
+summary: AI Agent with MCP Tools
+description: A flow with an AI agent using MCP server tools
+value:
+  modules:
+    - id: mcp_agent
+      value:
+        type: aiagent
+        input_transforms:
+          task:
+            type: static
+            value: "Search for information"
+        tools:
+          - id: mcp_search
+            summary: Search tool from MCP
+            value:
+              tool_type: mcp
+              resource_path: f/resources/mcp_server
+              include_tools:
+                - search
+                - fetch
+          - id: mcp_calculator
+            summary: Math operations
+            value:
+              tool_type: mcp
+              resource_path: f/resources/calculator_mcp
+              exclude_tools:
+                - deprecated_function
