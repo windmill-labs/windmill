@@ -29,6 +29,7 @@ export type GitSyncRepository = BackendGitRepositorySettings & {
 export type GitSyncTestJob = {
 	jobId: string
 	status: 'running' | 'success' | 'failure' | undefined
+	error?: string
 }
 
 export type GitSyncSettings = {
@@ -547,14 +548,25 @@ export function createGitSyncContext(workspace: string) {
 					onProgress: (status) => {
 						gitSyncTestJobs[idx].status = status.status === 'success' ? 'success' :
 							status.status === 'failure' ? 'failure' : 'running'
+						if (status.status === 'failure') {
+							gitSyncTestJobs[idx].error = status.error
+						}
 					}
 				}
 			)
-
-			// If we get here, the job completed successfully
-			gitSyncTestJobs[idx].status = 'success'
-		} catch (error) {
-			gitSyncTestJobs[idx].status = 'failure'
+		} catch (error: any) {
+			// Initialize the job entry if it doesn't exist (e.g., job creation failed)
+			const errorMessage = (typeof error?.body === 'string' ? error.body : error?.body?.message) || error?.message || error?.toString() || 'Failed to run test job'
+			if (!gitSyncTestJobs[idx]) {
+				gitSyncTestJobs[idx] = {
+					jobId: '',
+					status: 'failure',
+					error: errorMessage
+				}
+			} else {
+				gitSyncTestJobs[idx].status = 'failure'
+				gitSyncTestJobs[idx].error = errorMessage
+			}
 		}
 	}
 
