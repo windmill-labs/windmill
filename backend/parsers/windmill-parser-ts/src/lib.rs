@@ -255,6 +255,28 @@ pub fn parse_deno_signature(
     let mut symbol_table: HashMap<String, TypeDecl> = HashMap::new();
 
     for item in ast {
+        // Check for named exports (e.g., export { preprocessor } from "./other")
+        if let ModuleItem::ModuleDecl(ModuleDecl::ExportNamed(named_export)) = &item {
+            if !has_preprocessor {
+                for specifier in &named_export.specifiers {
+                    if let swc_ecma_ast::ExportSpecifier::Named(spec) = specifier {
+                        let export_name = match &spec.exported {
+                            Some(swc_ecma_ast::ModuleExportName::Ident(ident)) => ident.sym.as_ref(),
+                            Some(swc_ecma_ast::ModuleExportName::Str(s)) => s.value.as_ref(),
+                            None => match &spec.orig {
+                                swc_ecma_ast::ModuleExportName::Ident(ident) => ident.sym.as_ref(),
+                                swc_ecma_ast::ModuleExportName::Str(s) => s.value.as_ref(),
+                            },
+                        };
+                        if export_name == "preprocessor" {
+                            has_preprocessor = true;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         if let ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl { decl, .. }))
         | ModuleItem::Stmt(Stmt::Decl(decl)) = item
         {
