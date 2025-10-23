@@ -679,7 +679,7 @@
 		</div>
 
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="relative" onkeyup={handleKeyUp}>
+		<div class="relative w-full" onkeyup={handleKeyUp}>
 			<!-- {#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
 				<span
 					class={'text-white  z-50 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute top-0 right-0 bg-blue-500'}
