@@ -300,10 +300,8 @@ pub struct Script {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_time_window_s: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    // #[sqlx(json(nullable))]
     pub debounce_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    // #[sqlx(json(nullable))]
     pub debounce_delay_s: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
@@ -417,9 +415,9 @@ pub struct NewScript {
     pub concurrency_key: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub debounce_key: Option<String>,
-    // #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub debounce_delay_s: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub dedicated_worker: Option<bool>,

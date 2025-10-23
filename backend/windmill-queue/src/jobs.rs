@@ -2328,7 +2328,6 @@ pub async fn pull(
             });
         }
 
-        // TODO: Test debouncing for agent workers as well.
         if let Some((query_suspended, query_no_suspend)) = query_o {
             let njob = {
                 let job = if query_suspended.is_empty() {
