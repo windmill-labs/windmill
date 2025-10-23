@@ -15,19 +15,19 @@
 	let { message }: Props = $props()
 
 	// Parse content to detect S3 objects
-	const parsedContent = $derived.by(() => {
+	const s3Object: any | undefined = $derived.by(() => {
 		if (message.message_type === 'assistant' && message.content) {
 			try {
 				const parsed = JSON.parse(message.content)
 				// Check if it's a Windmill S3 object with type discriminator
 				if (parsed?.type === 'windmill_s3_object' && parsed?.s3 && typeof parsed.s3 === 'string') {
-					return { type: 's3object', data: parsed }
+					return parsed
 				}
 			} catch (e) {
 				// Not JSON, treat as regular text
 			}
 		}
-		return { type: 'text', data: message.content }
+		return undefined
 	})
 
 	const messageClass = $derived.by(() => {
@@ -54,13 +54,9 @@
 			<span>Processing...</span>
 		</div>
 	{:else if message.content}
-		{#if parsedContent.type === 's3object'}
+		{#if s3Object}
 			<div class="px-3 pb-3 {!message.step_name ? 'pt-3' : ''}">
-				<DisplayResult
-					result={parsedContent.data}
-					workspaceId={$workspaceStore}
-					noControls={true}
-				/>
+				<DisplayResult result={s3Object} workspaceId={$workspaceStore} noControls={true} />
 			</div>
 		{:else}
 			<div
