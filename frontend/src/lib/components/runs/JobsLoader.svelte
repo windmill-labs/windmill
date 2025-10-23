@@ -49,7 +49,7 @@
 		allWorkspaces?: boolean
 		computeMinAndMax: (() => { minTs: string; maxTs: string | undefined } | undefined) | undefined
 		lookback?: number
-		perPage?: number | undefined
+		perPage?: number
 		allowWildcards?: boolean
 	}
 
@@ -87,7 +87,7 @@
 		allWorkspaces = false,
 		computeMinAndMax,
 		lookback = 0,
-		perPage = undefined,
+		perPage = 1000,
 		allowWildcards = false
 	}: Props = $props()
 	let intervalId: number | undefined = $state()
@@ -143,7 +143,7 @@
 			let olderJobs = await fetchJobs(undefined, minTs, undefined, minCreated)
 			jobs = jobs.concat(olderJobs)
 			computeCompletedJobs()
-			return olderJobs?.length < 1000
+			return olderJobs?.length < perPage
 		}
 		return false
 	}
@@ -219,7 +219,7 @@
 		loadingFetch = true
 		try {
 			return ConcurrencyGroupsService.listExtendedJobs({
-				rowLimit: 1000,
+				rowLimit: perPage,
 				concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined : concurrencyKey,
 				workspace: $workspaceStore!,
 				createdOrStartedBefore: startedBefore,

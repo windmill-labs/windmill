@@ -48,6 +48,7 @@
 	import { createBubbler } from 'svelte/legacy'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -702,9 +703,6 @@
 		}
 	}
 
-	const warnJobLimitMsg =
-		'The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last 1000 jobs are taken into account: a job that was started earlier than this limit will not be taken into account'
-
 	function jobsFilter(f: 'waiting' | 'suspended') {
 		path = null
 		user = null
@@ -805,6 +803,12 @@
 	const verySmallScreenWidth = 1300
 
 	let forceCancelInPopup = $state(false)
+
+	let perPage = $state(100)
+
+	const warnJobLimitMsg = $derived(
+		`The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last ${perPage} jobs are taken into account: a job that was started earlier than this limit will not be taken into account`
+	)
 </script>
 
 <JobsLoader
@@ -838,6 +842,7 @@
 	{argError}
 	{resultError}
 	{tag}
+	{perPage}
 	bind:loading
 	bind:this={jobsLoader}
 	lookback={graphIsRunsChart ? 0 : lookback}
@@ -1127,6 +1132,7 @@
 					canSelect={!selectionMode}
 					minTimeSet={minTs}
 					maxTimeSet={maxTs}
+					totalRowsFetched={jobs?.length ?? 0}
 					maxIsNow={maxTs == undefined}
 					onLoadExtra={loadExtra}
 					jobs={completedJobs}
@@ -1285,6 +1291,7 @@
 									on:filterBySchedule={filterBySchedule}
 									on:filterByWorker={filterByWorker}
 									bind:this={runsTable}
+									{perPage}
 								></RunsTable>
 							{:else}
 								<div class="gap-1 flex flex-col">
@@ -1293,6 +1300,25 @@
 									{/each}
 								</div>
 							{/if}
+						</div>
+						<div class="bg-surface-secondary flex text-xs px-2 py-1 items-center justify-end gap-2">
+							Per page:
+							<Select
+								class="w-20"
+								bind:value={
+									() => perPage,
+									(newPerPage) => {
+										perPage = newPerPage
+										if (newPerPage > (jobs?.length ?? 1000)) loadExtra()
+									}
+								}
+								items={[
+									{ value: 25, label: '25' },
+									{ value: 100, label: '100' },
+									{ value: 1000, label: '1000' },
+									{ value: 10000, label: '10000' }
+								]}
+							/>
 						</div>
 					</div>
 				</Pane>
