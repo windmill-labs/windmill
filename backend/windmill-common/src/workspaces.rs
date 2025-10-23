@@ -95,10 +95,10 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(feature = "cloud")]
-pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> TeamPlanStatus {
+pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPlanStatus> {
     let cached = TEAM_PLAN_CACHE.get(_w_id);
     if let Some(cached) = cached {
-        return cached;
+        return Ok(cached);
     }
 
     let team_plan_info = (|| async {
@@ -130,28 +130,21 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> TeamPlanStatu
             "Failed to get team plan status for workspace {_w_id} (will retry in {dur:?}): {err:#}"
         );
     })
-    .await;
+    .await
+    .map_err(|err| {
+        Error::internal_err(format!(
+            "Failed to get team plan status for workspace {_w_id} after 10 retries: {err:#}"
+        ))
+    })?
+    .unwrap_or_else(|| TeamPlanStatus {
+        premium: false,
+        is_past_due: false,
+        max_tolerated_executions: None,
+    });
 
-    match team_plan_info {
-        Ok(team_plan_info) => {
-            let info = team_plan_info.unwrap_or_else(|| TeamPlanStatus {
-                premium: false,
-                is_past_due: false,
-                max_tolerated_executions: None,
-            });
+    TEAM_PLAN_CACHE.insert(_w_id.to_string(), team_plan_info.clone());
 
-            TEAM_PLAN_CACHE.insert(_w_id.to_string(), info.clone());
-
-            info
-        }
-        Err(err) => {
-            tracing::error!(
-                "Failed to get team plan status for workspace {} after 10 retries: {err:#}",
-                _w_id
-            );
-            TeamPlanStatus { premium: false, is_past_due: false, max_tolerated_executions: None }
-        }
-    }
+    Ok(team_plan_info)
 }
 
 #[derive(Deserialize, Serialize, Debug)]

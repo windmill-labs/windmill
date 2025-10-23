@@ -670,13 +670,16 @@ pub async fn resolve_job_timeout(
 ) -> (Duration, Option<String>, bool) {
     let mut warn_msg: Option<String> = None;
     #[cfg(feature = "cloud")]
-    let cloud_premium_workspace = *CLOUD_HOSTED
+    let cloud_premium_workspace =
+        *CLOUD_HOSTED
         && windmill_common::workspaces::get_team_plan_status(
             _conn.as_sql().expect("cloud cannot use http connection"),
             _w_id,
         )
         .await
-        .premium;
+        .inspect_err(|err| tracing::error!("Failed to get team plan status to resolve job timeout for workspace {_w_id}: {err:#}"))
+        .map(|s| s.premium)
+        .unwrap_or(true);
     #[cfg(not(feature = "cloud"))]
     let cloud_premium_workspace = false;
 
@@ -1055,12 +1058,14 @@ pub fn use_flow_root_path(flow_path: &str) -> String {
 }
 
 pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result<Client> {
-    configure_client(reqwest::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .timeout(timeout_duration)
-        .connect_timeout(std::time::Duration::from_secs(10)))
-        .build()
-        .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
+    configure_client(
+        reqwest::ClientBuilder::new()
+            .user_agent("windmill/beta")
+            .timeout(timeout_duration)
+            .connect_timeout(std::time::Duration::from_secs(10)),
+    )
+    .build()
+    .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
 }
 
 pub fn get_root_job_id(job: &MiniPulledJob) -> uuid::Uuid {
