@@ -287,10 +287,6 @@ components:
           type: number
         custom_concurrency_key:
           type: string
-        debounce_delay_s:
-          type: number
-        custom_debounce_key:
-          type: string
         is_trigger:
           type: boolean
         assets:

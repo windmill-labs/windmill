@@ -14,8 +14,7 @@
 		Repeat,
 		Save,
 		Square,
-		Pin,
-		Timer
+		Pin
 	} from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
