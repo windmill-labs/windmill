@@ -1,4 +1,5 @@
 use async_recursion::async_recursion;
+use backon::{ConstantBuilder, Retryable};
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -99,30 +100,58 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> TeamPlanStatu
     if let Some(cached) = cached {
         return cached;
     }
-    let team_plan_info = sqlx::query_as!(
-        TeamPlanStatus,
-        r#"
-            SELECT
-                w.premium,
-                COALESCE(cw.is_past_due, false) as "is_past_due!",
-                cw.max_tolerated_executions
-            FROM
-                workspace w
-                LEFT JOIN cloud_workspace_settings cw ON cw.workspace_id = w.id
-            WHERE
-                w.id = $1
-        "#,
-        _w_id
+
+    let team_plan_info = (|| async {
+        sqlx::query_as!(
+            TeamPlanStatus,
+            r#"
+                SELECT
+                    w.premium,
+                    COALESCE(cw.is_past_due, false) as "is_past_due!",
+                    cw.max_tolerated_executions
+                FROM
+                    workspace w
+                    LEFT JOIN cloud_workspace_settings cw ON cw.workspace_id = w.id
+                WHERE
+                    w.id = $1
+            "#,
+            _w_id
+        )
+        .fetch_optional(_db)
+        .await
+    })
+    .retry(
+        ConstantBuilder::default()
+            .with_delay(std::time::Duration::from_secs(5))
+            .with_max_times(10),
     )
-    .fetch_one(_db)
-    .await
-    .unwrap_or_else(|_| TeamPlanStatus {
-        premium: false,
-        is_past_due: false,
-        max_tolerated_executions: None,
-    });
-    TEAM_PLAN_CACHE.insert(_w_id.to_string(), team_plan_info.clone());
-    team_plan_info
+    .notify(|err, dur| {
+        tracing::error!(
+            "Failed to get team plan status for workspace {_w_id} (will retry in {dur:?}): {err:#}"
+        );
+    })
+    .await;
+
+    match team_plan_info {
+        Ok(team_plan_info) => {
+            let info = team_plan_info.unwrap_or_else(|| TeamPlanStatus {
+                premium: false,
+                is_past_due: false,
+                max_tolerated_executions: None,
+            });
+
+            TEAM_PLAN_CACHE.insert(_w_id.to_string(), info.clone());
+
+            info
+        }
+        Err(err) => {
+            tracing::error!(
+                "Failed to get team plan status for workspace {} after 10 retries: {err:#}",
+                _w_id
+            );
+            TeamPlanStatus { premium: false, is_past_due: false, max_tolerated_executions: None }
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug)]
