@@ -5523,6 +5523,11 @@ pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::R
 
             job.runnable_id.replace(new_id.into());
 
+            if !*windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
+                tx.commit().await?;
+                tracing::warn!("Debouncing is not supported on this version of Windmill. Minimum version required for debouncing support.");
+                return Ok(());
+            }
             // === RETRIEVE ACCUMULATED DEBOUNCE DATA ===
             //
             // For flows and apps, retrieve all nodes/components that were accumulated

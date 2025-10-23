@@ -1597,30 +1597,28 @@ pub async fn run_worker(
                             }
                         };
 
-                        if *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
-                            // Essential debouncing job preprocessing.
-                            if let Ok(windmill_queue::PulledJobResult {
-                                job: Some(ref mut pulled_job),
-                                ..
-                            }) = &mut job
+                        // Essential debouncing job preprocessing.
+                        if let Ok(windmill_queue::PulledJobResult {
+                            job: Some(ref mut pulled_job),
+                            ..
+                        }) = &mut job
+                        {
+                            match timeout(
+                                core::time::Duration::from_secs(10),
+                                preprocess_dependency_job(pulled_job, &db),
+                            )
+                            .warn_after_seconds(2)
+                            .await
                             {
-                                match timeout(
-                                    core::time::Duration::from_secs(10),
-                                    preprocess_dependency_job(pulled_job, &db),
-                                )
-                                .warn_after_seconds(2)
-                                .await
-                                {
-                                    Ok(Err(e)) => {
-                                        tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor failed: {e:?}");
-                                        job = Err(e.into());
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor has timed out: {e:?}");
-                                        job = Err(e.into());
-                                    }
-                                    _ => {}
+                                Ok(Err(e)) => {
+                                    tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor failed: {e:?}");
+                                    job = Err(e.into());
                                 }
+                                Err(e) => {
+                                    tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor has timed out: {e:?}");
+                                    job = Err(e.into());
+                                }
+                                _ => {}
                             }
                         }
                         add_time!(bench, "job pulled from DB");
