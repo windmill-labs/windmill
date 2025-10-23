@@ -1,14 +1,15 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
 		OauthService,
 		ResourceService,
 		VariableService,
 		type TokenResponse,
-		type ResourceType
+		type ResourceType,
+		JobService
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
 	import { createEventDispatcher, onDestroy } from 'svelte'
@@ -30,6 +31,8 @@
 	import type { SchemaProperty } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import { usePromise } from '$lib/svelte5Utils.svelte'
+	import { pollJobResult } from './jobs/utils'
 
 	interface Props {
 		step?: number
@@ -512,6 +515,23 @@
 	let filteredConnectsManual: { key: string; img?: string; instructions: string[] }[] = $state([])
 
 	let editScopes = $state(false)
+
+	let hubRtSync = usePromise(
+		async () => {
+			let jobUuid = await JobService.runScriptByPath({
+				workspace: 'admins',
+				path: 'u/admin/hub_sync',
+				requestBody: {}
+			})
+			await pollJobResult(jobUuid, 'admins')
+			connectsManual = undefined
+			await loadResourceTypes()
+			connects = undefined
+			await loadConnects()
+			sendUserToast('Hub resource types sync completed')
+		},
+		{ loadInit: false }
+	)
 </script>
 
 {#if !express}
@@ -577,20 +597,11 @@
 
 		{#if connectsManual && connectsManual?.length < 10}
 			<div class="text-secondary text-xs p-2">
-				Resource Types have not been synced with the hub. Go to the admins workspace to sync them
-				(and add a schedule to do daily):
-				<p class="mt-4"
-					>1. Go to the "admins" workspaces:
-					<img src="{base}/sync_resource_types.png" alt="sync resource types" class="mt-2" />
-				</p>
-				<p class="mt-4">
-					2: Run the synchronization script:
-					<img src="{base}/sync_resource_types2.png" alt="sync resource types" class="mt-2" />
-				</p>
+				Resource Types have not been synced with the hub
 			</div>
 		{/if}
 
-		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center">
+		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 			{#if filteredConnectsManual}
 				{#each filteredConnectsManual as { key }}
 					{#if nativeLanguagesCategory.includes(key)}
@@ -609,9 +620,6 @@
 					{/if}
 				{/each}
 			{/if}
-		</div>
-
-		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 			{#if filteredConnectsManual}
 				{#each filteredConnectsManual as { key }}
 					{#if !nativeLanguagesCategory.includes(key)}
@@ -639,6 +647,20 @@
 				{/each}
 			{/if}
 		</div>
+		{#if $superadmin}
+			<Button
+				loading={hubRtSync.status === 'loading'}
+				onClick={() => hubRtSync.refresh()}
+				wrapperClasses="mt-6"
+			>
+				Sync resource types with Hub
+			</Button>
+			{#if hubRtSync.status === 'error'}
+				<span class="text-red-400 dark:text-red-500 text-xs">
+					Error syncing resource types : {JSON.stringify(hubRtSync.error)}
+				</span>
+			{/if}
+		{/if}
 	{:else if step == 2 && manual}
 		<div class="flex flex-col gap-8">
 			<Path
