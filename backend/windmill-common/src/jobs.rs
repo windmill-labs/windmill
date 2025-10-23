@@ -827,6 +827,11 @@ pub async fn lock_debounce_key<'c>(
     runnable_path: &str,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> error::Result<Option<Uuid>> {
+    if !*crate::worker::MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
+        tracing::warn!("Debouncing is not supported on this version of Windmill. Minimum version required for debouncing support.");
+        return Ok(None);
+    }
+
     let key = format!("{w_id}:{runnable_path}:dependency");
 
     tracing::debug!(
