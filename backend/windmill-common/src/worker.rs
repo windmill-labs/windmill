@@ -412,7 +412,7 @@ fn format_pull_query(peek: String) -> String {
         ), delete_debounce AS NOT MATERIALIZED (
             DELETE FROM debounce_key 
             USING j
-            WHERE j.kind::text != 'dependency' AND debounce_key.job_id = j.id 
+            WHERE j.kind::text != 'dependencies' AND j.kind::text != 'appdependencies' AND j.kind::text != 'flowdependencies' AND debounce_key.job_id = j.id 
         ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
             j.runnable_id, j.runnable_path, j.args, canceled_by,
             canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
@@ -1094,8 +1094,7 @@ pub async fn update_min_version(conn: &Connection) -> bool {
 
     // Debouncing feature requires minimum version 1.566.0 across all workers
     // This ensures all workers can handle debounce keys and stale data accumulation
-    *MIN_VERSION_SUPPORTS_DEBOUNCING.write().await =
-        min_version >= Version::new(1, 566, 0);
+    *MIN_VERSION_SUPPORTS_DEBOUNCING.write().await = min_version >= Version::new(1, 566, 0);
     *MIN_VERSION_IS_AT_LEAST_1_461.write().await = min_version >= Version::new(1, 461, 0);
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);

@@ -929,6 +929,20 @@ def main():
             let (_client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
 
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
+
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_IS_AT_LEAST_1_440
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
+
             // Function to create a dependency job
             let create_dependency_job =
                 |delay,
@@ -1005,10 +1019,6 @@ def main():
             in_test_worker(
                 &db2,
                 async {
-                    windmill_common::worker::update_min_version(
-                        &windmill_common::worker::Connection::Sql(db2.clone()),
-                    )
-                    .await;
                     // Small delay to ensure the job is marked as running
                     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
@@ -1030,29 +1040,16 @@ def main():
                                 .unwrap(),
                             1
                         );
+
+                        dbg!(sqlx::query_scalar!("SELECT kind::text FROM v2_job")
+                            .fetch_one(&db)
+                            .await
+                            .unwrap()
+                            .unwrap());
                     }
 
-                    // Block all tests using this variable until we are done
-                    // let mut min_v = windmill_common::worker::MIN_VERSION_IS_AT_LEAST_1_440
-                    //     .write()
-                    //     .await;
-
-                    // // Save initial min_v value;
-                    // let initi_min_v = *min_v;
-
-                    // // Make it true for this test.
-                    // *min_v = true;
-
-                    // Now push a second dependency job while the first is being processed
-                    // This should trigger the race condition handling code
                     let job2 =
                         create_dependency_job(0, vec!["b", "c"], db.clone(), 1, Some(job1)).await;
-
-                    // Set it back to initial
-                    // *min_v = initi_min_v;
-
-                    // Unblock all other tests
-                    // drop(min_v);
 
                     // Process the first job completion, and the second job should also get debounced by this one
                     completed.next().await;
