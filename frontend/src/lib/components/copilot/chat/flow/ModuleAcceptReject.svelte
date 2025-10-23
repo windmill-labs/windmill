@@ -1,7 +1,25 @@
 <script module lang="ts">
-	export const getAiModuleAction = (id: string | undefined) => {
+	import type { AIModuleAction } from './core'
+
+	/**
+	 * Check if debug diff mode is enabled via localStorage
+	 * Usage: localStorage.setItem('windmill_debug_diff_mode', 'true')
+	 */
+	function isDebugDiffModeEnabled(): boolean {
+		if (typeof window === 'undefined') return false
+		return localStorage.getItem('windmill_debug_diff_mode') === 'true'
+	}
+
+	export const getAiModuleAction = (id: string | undefined): AIModuleAction | undefined => {
 		if (!id) return undefined
-		return aiChatManager.flowAiChatHelpers?.getModuleAction(id)
+		const realAction = aiChatManager.flowAiChatHelpers?.getModuleAction(id)
+
+		// In debug mode, show all modules as modified if they don't have a real action
+		if (isDebugDiffModeEnabled() && !realAction) {
+			return 'modified'
+		}
+
+		return realAction
 	}
 </script>
 
@@ -9,7 +27,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { Check, DiffIcon, X } from 'lucide-svelte'
 	import { aiChatManager } from '../AIChatManager.svelte'
-	import type { AIModuleAction } from './core'
 
 	let {
 		id,

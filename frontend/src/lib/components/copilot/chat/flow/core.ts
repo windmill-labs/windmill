@@ -76,6 +76,7 @@ export interface FlowAIChatHelpers {
 		}
 	) => Promise<void>
 	setCode: (id: string, code: string) => Promise<void>
+	setFlowYaml: (yaml: string) => Promise<void>
 }
 
 const searchScriptsSchema = z.object({
@@ -363,6 +364,20 @@ const setCodeToolDef = createToolDef(
 	'Set the code for the current step.'
 )
 
+const setFlowYamlSchema = z.object({
+	yaml: z
+		.string()
+		.describe(
+			'Complete flow YAML including modules array, and optionally preprocessor_module and failure_module'
+		)
+})
+
+const setFlowYamlToolDef = createToolDef(
+	setFlowYamlSchema,
+	'set_flow_yaml',
+	'Set the entire flow structure using YAML. Use this for complex multi-step changes where multiple modules need to be added, removed, or reorganized. The YAML should include the complete modules array, and optionally preprocessor_module and failure_module. All existing modules will be replaced.'
+)
+
 class WorkspaceScriptsSearch {
 	private uf: uFuzzy
 	private workspace: string | undefined = undefined
@@ -482,247 +497,247 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			return JSON.stringify(scriptResults)
 		}
 	},
-	{
-		def: addStepToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = addStepSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, {
-				content:
-					parsedArgs.location.type === 'after'
-						? `Adding a step after step '${parsedArgs.location.afterId}'`
-						: parsedArgs.location.type === 'start'
-							? 'Adding a step at the start'
-							: parsedArgs.location.type === 'start_inside_forloop'
-								? `Adding a step at the start of the forloop step '${parsedArgs.location.inside}'`
-								: parsedArgs.location.type === 'start_inside_branch'
-									? `Adding a step at the start of the branch ${parsedArgs.location.branchIndex + 1} of step '${parsedArgs.location.inside}'`
-									: parsedArgs.location.type === 'preprocessor'
-										? 'Adding a preprocessor step'
-										: parsedArgs.location.type === 'failure'
-											? 'Adding a failure step'
-											: 'Adding a step'
-			})
-			const id = await helpers.insertStep(parsedArgs.location, parsedArgs.step)
-			helpers.selectStep(id)
+	// {
+	// 	def: addStepToolDef,
+	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+	// 		const parsedArgs = addStepSchema.parse(args)
+	// 		toolCallbacks.setToolStatus(toolId, {
+	// 			content:
+	// 				parsedArgs.location.type === 'after'
+	// 					? `Adding a step after step '${parsedArgs.location.afterId}'`
+	// 					: parsedArgs.location.type === 'start'
+	// 						? 'Adding a step at the start'
+	// 						: parsedArgs.location.type === 'start_inside_forloop'
+	// 							? `Adding a step at the start of the forloop step '${parsedArgs.location.inside}'`
+	// 							: parsedArgs.location.type === 'start_inside_branch'
+	// 								? `Adding a step at the start of the branch ${parsedArgs.location.branchIndex + 1} of step '${parsedArgs.location.inside}'`
+	// 								: parsedArgs.location.type === 'preprocessor'
+	// 									? 'Adding a preprocessor step'
+	// 									: parsedArgs.location.type === 'failure'
+	// 										? 'Adding a failure step'
+	// 										: 'Adding a step'
+	// 		})
+	// 		const id = await helpers.insertStep(parsedArgs.location, parsedArgs.step)
+	// 		helpers.selectStep(id)
 
-			toolCallbacks.setToolStatus(toolId, { content: `Added step '${id}'` })
+	// 		toolCallbacks.setToolStatus(toolId, { content: `Added step '${id}'` })
 
-			return `Step ${id} added. Here is the updated flow, make sure to take it into account when adding another step:\n${YAML.stringify(helpers.getModules())}`
-		}
-	},
-	{
-		def: removeStepToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: `Removing step ${args.id}...` })
-			const parsedArgs = removeStepSchema.parse(args)
-			helpers.removeStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, { content: `Removed step '${parsedArgs.id}'` })
-			return `Step '${parsedArgs.id}' removed. Here is the updated flow:\n${YAML.stringify(helpers.getModules())}`
-		}
-	},
-	{
-		def: getStepInputsToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: `Getting step ${args.id} inputs...` })
-			const parsedArgs = getStepInputsSchema.parse(args)
-			const inputs = await helpers.getStepInputs(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, { content: `Retrieved step '${parsedArgs.id}' inputs` })
-			return YAML.stringify(inputs)
-		}
-	},
-	{
-		def: setStepInputsToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: `Setting step ${args.id} inputs...` })
-			const parsedArgs = setStepInputsSchema.parse(args)
-			await helpers.setStepInputs(parsedArgs.id, parsedArgs.inputs)
-			helpers.selectStep(parsedArgs.id)
-			const inputs = await helpers.getStepInputs(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, { content: `Set step '${parsedArgs.id}' inputs` })
-			return `Step '${parsedArgs.id}' inputs set. New inputs:\n${YAML.stringify(inputs)}`
-		},
-		preAction: ({ toolCallbacks, toolId }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Setting step inputs...' })
-		}
-	},
-	{
-		def: setFlowInputsSchemaToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Setting flow inputs schema...' })
-			const parsedArgs = setFlowInputsSchemaSchema.parse(args)
-			const schema = JSON.parse(parsedArgs.schema)
-			await helpers.setFlowInputsSchema(schema)
-			helpers.selectStep('Input')
-			const updatedSchema = await helpers.getFlowInputsSchema()
-			toolCallbacks.setToolStatus(toolId, { content: 'Set flow inputs schema' })
-			return `Flow inputs schema set. New schema:\n${JSON.stringify(updatedSchema)}`
-		},
-		preAction: ({ toolCallbacks, toolId }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Setting flow inputs schema...' })
-		}
-	},
-	{
-		def: getInstructionsForCodeGenerationToolDef,
-		fn: async ({ args, toolId, toolCallbacks }) => {
-			const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
-			const langContext = getLangContext(parsedArgs.language, {
-				allowResourcesFetch: true,
-				isPreprocessor: parsedArgs.id === 'preprocessor'
-			})
-			toolCallbacks.setToolStatus(toolId, {
-				content: 'Retrieved instructions for code generation in ' + parsedArgs.language
-			})
-			return langContext
-		}
-	},
-	{
-		def: setCodeToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = setCodeSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Setting code for step '${parsedArgs.id}'...`
-			})
-			await helpers.setCode(parsedArgs.id, parsedArgs.code)
-			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, { content: `Set code for step '${parsedArgs.id}'` })
-			return `Step code set`
-		},
-		preAction: ({ toolCallbacks, toolId }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Setting code for step...' })
-		}
-	},
-	{
-		def: setBranchPredicateToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = setBranchPredicateSchema.parse(args)
-			await helpers.setBranchPredicate(parsedArgs.id, parsedArgs.branchIndex, parsedArgs.expression)
-			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Set predicate of branch ${parsedArgs.branchIndex + 1} of '${parsedArgs.id}'`
-			})
-			return `Branch ${parsedArgs.branchIndex} of '${parsedArgs.id}' predicate set`
-		}
-	},
-	{
-		def: addBranchToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = addBranchSchema.parse(args)
-			await helpers.addBranch(parsedArgs.id)
-			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, { content: `Added branch to '${parsedArgs.id}'` })
-			return `Branch added to '${parsedArgs.id}'`
-		}
-	},
-	{
-		def: removeBranchToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = removeBranchSchema.parse(args)
-			await helpers.removeBranch(parsedArgs.id, parsedArgs.branchIndex)
-			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Removed branch ${parsedArgs.branchIndex + 1} of '${parsedArgs.id}'`
-			})
-			return `Branch ${parsedArgs.branchIndex} of '${parsedArgs.id}' removed`
-		}
-	},
-	{
-		def: setForLoopIteratorExpressionToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = setForLoopIteratorExpressionSchema.parse(args)
-			await helpers.setForLoopIteratorExpression(parsedArgs.id, parsedArgs.expression)
-			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Set forloop '${parsedArgs.id}' iterator expression`
-			})
-			return `Forloop '${parsedArgs.id}' iterator expression set`
-		}
-	},
-	{
-		def: {
-			...setForLoopOptionsToolDef,
-			function: { ...setForLoopOptionsToolDef.function, strict: false }
-		},
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = setForLoopOptionsSchema.parse(args)
-			await helpers.setForLoopOptions(parsedArgs.id, {
-				skip_failures: parsedArgs.skip_failures,
-				parallel: parsedArgs.parallel,
-				parallelism: parsedArgs.parallelism
-			})
-			helpers.selectStep(parsedArgs.id)
+	// 		return `Step ${id} added. Here is the updated flow, make sure to take it into account when adding another step:\n${YAML.stringify(helpers.getModules())}`
+	// 	}
+	// },
+	// {
+	// 	def: removeStepToolDef,
+	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+	// 		toolCallbacks.setToolStatus(toolId, { content: `Removing step ${args.id}...` })
+	// 		const parsedArgs = removeStepSchema.parse(args)
+	// 		helpers.removeStep(parsedArgs.id)
+	// 		toolCallbacks.setToolStatus(toolId, { content: `Removed step '${parsedArgs.id}'` })
+	// 		return `Step '${parsedArgs.id}' removed. Here is the updated flow:\n${YAML.stringify(helpers.getModules())}`
+	// 	}
+	// },
+	// {
+	// 	def: getStepInputsToolDef,
+	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+	// 		toolCallbacks.setToolStatus(toolId, { content: `Getting step ${args.id} inputs...` })
+	// 		const parsedArgs = getStepInputsSchema.parse(args)
+	// 		const inputs = await helpers.getStepInputs(parsedArgs.id)
+	// 		toolCallbacks.setToolStatus(toolId, { content: `Retrieved step '${parsedArgs.id}' inputs` })
+	// 		return YAML.stringify(inputs)
+	// 	}
+	// },
+	// {
+	// 	def: setStepInputsToolDef,
+	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+	// 		toolCallbacks.setToolStatus(toolId, { content: `Setting step ${args.id} inputs...` })
+	// 		const parsedArgs = setStepInputsSchema.parse(args)
+	// 		await helpers.setStepInputs(parsedArgs.id, parsedArgs.inputs)
+	// 		helpers.selectStep(parsedArgs.id)
+	// 		const inputs = await helpers.getStepInputs(parsedArgs.id)
+	// 		toolCallbacks.setToolStatus(toolId, { content: `Set step '${parsedArgs.id}' inputs` })
+	// 		return `Step '${parsedArgs.id}' inputs set. New inputs:\n${YAML.stringify(inputs)}`
+	// 	},
+	// 	preAction: ({ toolCallbacks, toolId }) => {
+	// 		toolCallbacks.setToolStatus(toolId, { content: 'Setting step inputs...' })
+	// 	}
+	// },
+	// {
+	// 	def: setFlowInputsSchemaToolDef,
+	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+	// 		toolCallbacks.setToolStatus(toolId, { content: 'Setting flow inputs schema...' })
+	// 		const parsedArgs = setFlowInputsSchemaSchema.parse(args)
+	// 		const schema = JSON.parse(parsedArgs.schema)
+	// 		await helpers.setFlowInputsSchema(schema)
+	// 		helpers.selectStep('Input')
+	// 		const updatedSchema = await helpers.getFlowInputsSchema()
+	// 		toolCallbacks.setToolStatus(toolId, { content: 'Set flow inputs schema' })
+	// 		return `Flow inputs schema set. New schema:\n${JSON.stringify(updatedSchema)}`
+	// 	},
+	// 	preAction: ({ toolCallbacks, toolId }) => {
+	// 		toolCallbacks.setToolStatus(toolId, { content: 'Setting flow inputs schema...' })
+	// 	}
+	// },
+	// {
+	// 	def: getInstructionsForCodeGenerationToolDef,
+	// 	fn: async ({ args, toolId, toolCallbacks }) => {
+	// 		const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
+	// 		const langContext = getLangContext(parsedArgs.language, {
+	// 			allowResourcesFetch: true,
+	// 			isPreprocessor: parsedArgs.id === 'preprocessor'
+	// 		})
+	// 		toolCallbacks.setToolStatus(toolId, {
+	// 			content: 'Retrieved instructions for code generation in ' + parsedArgs.language
+	// 		})
+	// 		return langContext
+	// 	}
+	// },
+	// {
+	// 	def: setCodeToolDef,
+	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+	// 		const parsedArgs = setCodeSchema.parse(args)
+	// 		toolCallbacks.setToolStatus(toolId, {
+	// 			content: `Setting code for step '${parsedArgs.id}'...`
+	// 		})
+	// 		await helpers.setCode(parsedArgs.id, parsedArgs.code)
+	// 		helpers.selectStep(parsedArgs.id)
+	// 		toolCallbacks.setToolStatus(toolId, { content: `Set code for step '${parsedArgs.id}'` })
+	// 		return `Step code set`
+	// 	},
+	// 	preAction: ({ toolCallbacks, toolId }) => {
+	// 		toolCallbacks.setToolStatus(toolId, { content: 'Setting code for step...' })
+	// 	}
+	// },
+	// {
+	// 	def: setBranchPredicateToolDef,
+	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+	// 		const parsedArgs = setBranchPredicateSchema.parse(args)
+	// 		await helpers.setBranchPredicate(parsedArgs.id, parsedArgs.branchIndex, parsedArgs.expression)
+	// 		helpers.selectStep(parsedArgs.id)
+	// 		toolCallbacks.setToolStatus(toolId, {
+	// 			content: `Set predicate of branch ${parsedArgs.branchIndex + 1} of '${parsedArgs.id}'`
+	// 		})
+	// 		return `Branch ${parsedArgs.branchIndex} of '${parsedArgs.id}' predicate set`
+	// 	}
+	// },
+	// {
+	// 	def: addBranchToolDef,
+	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+	// 		const parsedArgs = addBranchSchema.parse(args)
+	// 		await helpers.addBranch(parsedArgs.id)
+	// 		helpers.selectStep(parsedArgs.id)
+	// 		toolCallbacks.setToolStatus(toolId, { content: `Added branch to '${parsedArgs.id}'` })
+	// 		return `Branch added to '${parsedArgs.id}'`
+	// 	}
+	// },
+	// {
+	// 	def: removeBranchToolDef,
+	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+	// 		const parsedArgs = removeBranchSchema.parse(args)
+	// 		await helpers.removeBranch(parsedArgs.id, parsedArgs.branchIndex)
+	// 		helpers.selectStep(parsedArgs.id)
+	// 		toolCallbacks.setToolStatus(toolId, {
+	// 			content: `Removed branch ${parsedArgs.branchIndex + 1} of '${parsedArgs.id}'`
+	// 		})
+	// 		return `Branch ${parsedArgs.branchIndex} of '${parsedArgs.id}' removed`
+	// 	}
+	// },
+	// {
+	// 	def: setForLoopIteratorExpressionToolDef,
+	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+	// 		const parsedArgs = setForLoopIteratorExpressionSchema.parse(args)
+	// 		await helpers.setForLoopIteratorExpression(parsedArgs.id, parsedArgs.expression)
+	// 		helpers.selectStep(parsedArgs.id)
+	// 		toolCallbacks.setToolStatus(toolId, {
+	// 			content: `Set forloop '${parsedArgs.id}' iterator expression`
+	// 		})
+	// 		return `Forloop '${parsedArgs.id}' iterator expression set`
+	// 	}
+	// },
+	// {
+	// 	def: {
+	// 		...setForLoopOptionsToolDef,
+	// 		function: { ...setForLoopOptionsToolDef.function, strict: false }
+	// 	},
+	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+	// 		const parsedArgs = setForLoopOptionsSchema.parse(args)
+	// 		await helpers.setForLoopOptions(parsedArgs.id, {
+	// 			skip_failures: parsedArgs.skip_failures,
+	// 			parallel: parsedArgs.parallel,
+	// 			parallelism: parsedArgs.parallelism
+	// 		})
+	// 		helpers.selectStep(parsedArgs.id)
 
-			const message = `Set forloop '${parsedArgs.id}' options`
-			toolCallbacks.setToolStatus(toolId, {
-				content: message
-			})
-			return `${message}: ${JSON.stringify(parsedArgs)}`
-		}
-	},
-	{
-		def: {
-			...setModuleControlOptionsToolDef,
-			function: { ...setModuleControlOptionsToolDef.function, strict: false }
-		},
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = setModuleControlOptionsSchema.parse(args)
-			await helpers.setModuleControlOptions(parsedArgs.id, {
-				stop_after_if: parsedArgs.stop_after_if,
-				stop_after_if_expr: parsedArgs.stop_after_if_expr,
-				skip_if: parsedArgs.skip_if,
-				skip_if_expr: parsedArgs.skip_if_expr
-			})
-			helpers.selectStep(parsedArgs.id)
+	// 		const message = `Set forloop '${parsedArgs.id}' options`
+	// 		toolCallbacks.setToolStatus(toolId, {
+	// 			content: message
+	// 		})
+	// 		return `${message}: ${JSON.stringify(parsedArgs)}`
+	// 	}
+	// },
+	// {
+	// 	def: {
+	// 		...setModuleControlOptionsToolDef,
+	// 		function: { ...setModuleControlOptionsToolDef.function, strict: false }
+	// 	},
+	// 	fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+	// 		const parsedArgs = setModuleControlOptionsSchema.parse(args)
+	// 		await helpers.setModuleControlOptions(parsedArgs.id, {
+	// 			stop_after_if: parsedArgs.stop_after_if,
+	// 			stop_after_if_expr: parsedArgs.stop_after_if_expr,
+	// 			skip_if: parsedArgs.skip_if,
+	// 			skip_if_expr: parsedArgs.skip_if_expr
+	// 		})
+	// 		helpers.selectStep(parsedArgs.id)
 
-			// Emit UI intent to show early-stop tab when stop_after_if is configured
-			const modules = helpers.getModules()
-			const module = findModuleById(modules, parsedArgs.id)
-			if (!module) {
-				throw new Error(`Module with id '${parsedArgs.id}' not found in flow.`)
-			}
-			const moduleType = module?.value.type
-			const hasSpecificComponents = ['forloopflow', 'whileloopflow', 'branchall', 'branchone']
-			const prefix = hasSpecificComponents.includes(moduleType) ? `${moduleType}` : 'flow'
-			if (typeof parsedArgs.stop_after_if === 'boolean') {
-				emitUiIntent({
-					kind: 'open_module_tab',
-					componentId: `${prefix}-${parsedArgs.id}`,
-					tab: 'early-stop'
-				})
-			}
+	// 		// Emit UI intent to show early-stop tab when stop_after_if is configured
+	// 		const modules = helpers.getModules()
+	// 		const module = findModuleById(modules, parsedArgs.id)
+	// 		if (!module) {
+	// 			throw new Error(`Module with id '${parsedArgs.id}' not found in flow.`)
+	// 		}
+	// 		const moduleType = module?.value.type
+	// 		const hasSpecificComponents = ['forloopflow', 'whileloopflow', 'branchall', 'branchone']
+	// 		const prefix = hasSpecificComponents.includes(moduleType) ? `${moduleType}` : 'flow'
+	// 		if (typeof parsedArgs.stop_after_if === 'boolean') {
+	// 			emitUiIntent({
+	// 				kind: 'open_module_tab',
+	// 				componentId: `${prefix}-${parsedArgs.id}`,
+	// 				tab: 'early-stop'
+	// 			})
+	// 		}
 
-			if (typeof parsedArgs.skip_if === 'boolean') {
-				emitUiIntent({
-					kind: 'open_module_tab',
-					componentId: `${prefix}-${parsedArgs.id}`,
-					tab: 'skip'
-				})
-			}
+	// 		if (typeof parsedArgs.skip_if === 'boolean') {
+	// 			emitUiIntent({
+	// 				kind: 'open_module_tab',
+	// 				componentId: `${prefix}-${parsedArgs.id}`,
+	// 				tab: 'skip'
+	// 			})
+	// 		}
 
-			const message = `Set module '${parsedArgs.id}' control options`
-			toolCallbacks.setToolStatus(toolId, {
-				content: message
-			})
-			return `${message}: ${JSON.stringify(parsedArgs)}`
-		}
-	},
-	{
-		def: resourceTypeToolDef,
-		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
-			const parsedArgs = resourceTypeToolSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, {
-				content: 'Searching resource types for "' + parsedArgs.query + '"...'
-			})
-			const formattedResourceTypes = await getFormattedResourceTypes(
-				parsedArgs.language,
-				parsedArgs.query,
-				workspace
-			)
-			toolCallbacks.setToolStatus(toolId, {
-				content: 'Retrieved resource types for "' + parsedArgs.query + '"'
-			})
-			return formattedResourceTypes
-		}
-	},
+	// 		const message = `Set module '${parsedArgs.id}' control options`
+	// 		toolCallbacks.setToolStatus(toolId, {
+	// 			content: message
+	// 		})
+	// 		return `${message}: ${JSON.stringify(parsedArgs)}`
+	// 	}
+	// },
+	// {
+	// 	def: resourceTypeToolDef,
+	// 	fn: async ({ args, toolId, workspace, toolCallbacks }) => {
+	// 		const parsedArgs = resourceTypeToolSchema.parse(args)
+	// 		toolCallbacks.setToolStatus(toolId, {
+	// 			content: 'Searching resource types for "' + parsedArgs.query + '"...'
+	// 		})
+	// 		const formattedResourceTypes = await getFormattedResourceTypes(
+	// 			parsedArgs.language,
+	// 			parsedArgs.query,
+	// 			workspace
+	// 		)
+	// 		toolCallbacks.setToolStatus(toolId, {
+	// 			content: 'Retrieved resource types for "' + parsedArgs.query + '"'
+	// 		})
+	// 		return formattedResourceTypes
+	// 	}
+	// },
 	{
 		def: testRunFlowToolDef,
 		fn: async function ({ args, workspace, helpers, toolCallbacks, toolId }) {
@@ -882,6 +897,22 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		requiresConfirmation: true,
 		confirmationMessage: 'Run flow step test',
 		showDetails: true
+	},
+	{
+		def: setFlowYamlToolDef,
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = setFlowYamlSchema.parse(args)
+			toolCallbacks.setToolStatus(toolId, { content: 'Parsing and applying flow YAML...' })
+
+			await helpers.setFlowYaml(parsedArgs.yaml)
+
+			toolCallbacks.setToolStatus(toolId, { content: 'Flow YAML applied successfully' })
+
+			return 'Flow structure updated via YAML. All affected modules have been marked and require review/acceptance.'
+		},
+		requiresConfirmation: true,
+		confirmationMessage: 'Apply flow YAML changes',
+		showDetails: true
 	}
 ]
 
@@ -995,6 +1026,55 @@ When configuring for-loop steps, consider these options:
   - Only supports script/rawscript steps
 
 Both modules only support a script or rawscript step. You cannot nest modules using forloop/branchone/branchall.
+
+### Bulk Flow Updates with set_flow_yaml
+
+For complex multi-step changes, you can use the **set_flow_yaml** tool to modify the entire flow structure at once. This is more efficient than multiple individual tool calls for:
+- Reorganizing the order of multiple modules
+- Adding/removing several modules in one operation
+- Making structural changes to loops and branches
+- Applying complex refactorings across the flow
+
+**YAML Structure:**
+\`\`\`yaml
+modules:
+  - id: step_a
+    summary: "First step"
+    value:
+      type: rawscript
+      language: bun
+      content: "export async function main() {...}"
+      input_transforms: {}
+  - id: step_b
+    summary: "Second step"
+    value:
+      type: forloopflow
+      iterator:
+        type: javascript
+        expr: "results.step_a"
+      modules:
+        - id: step_b_a
+          value:
+            type: rawscript
+            ...
+preprocessor_module:  # optional
+  id: preprocessor
+  value:
+    type: rawscript
+    ...
+failure_module:  # optional
+  id: failure
+  value:
+    type: rawscript
+    ...
+\`\`\`
+
+**Important Notes:**
+- The YAML must include the **complete modules array**, not just changed modules
+- Module IDs must be unique and valid identifiers (alphanumeric, underscore, hyphen)
+- After applying, all modules are marked as modified and require user acceptance
+- This tool requires user confirmation before execution
+- Use individual tools (add_step, set_code, etc.) for simple single-step changes
 
 ### Contexts
 

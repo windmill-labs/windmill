@@ -18,6 +18,15 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { AgentTool } from '$lib/components/flows/agentToolUtils'
+	import YAML from 'yaml'
+
+	/**
+	 * Check if debug diff mode is enabled via localStorage
+	 */
+	function isDebugDiffModeEnabled(): boolean {
+		if (typeof window === 'undefined') return false
+		return localStorage.getItem('windmill_debug_diff_mode') === 'true'
+	}
 
 	let {
 		flowModuleSchemaMap
@@ -131,6 +140,12 @@
 			}
 		},
 		showModuleDiff(id: string) {
+			// In debug mode, create a snapshot if none exists
+			// This allows testing the diff UI even without real AI changes
+			if (!lastSnapshot && isDebugDiffModeEnabled()) {
+				lastSnapshot = $state.snapshot(flowStore).val
+			}
+
 			if (!lastSnapshot) {
 				return
 			}
@@ -575,6 +590,66 @@
 
 			refreshStateStore(flowStore)
 			setModuleStatus(id, 'modified')
+		},
+		setFlowYaml: async (yaml: string) => {
+			try {
+				// Parse YAML to JavaScript object
+				const parsed = YAML.parse(yaml)
+
+				// Validate that it has the expected structure
+				if (!parsed.modules || !Array.isArray(parsed.modules)) {
+					throw new Error('YAML must contain a "modules" array')
+				}
+
+				// Create snapshot for diff/revert functionality if it doesn't exist
+				if (!lastSnapshot) {
+					lastSnapshot = $state.snapshot(flowStore).val
+				}
+
+				// Store IDs of modules that existed before the change
+				const previousModuleIds = new Set(dfsApply(flowStore.val.value.modules, (m) => m.id))
+
+				// Update the flow structure
+				flowStore.val.value.modules = parsed.modules
+
+				if (parsed.preprocessor_module !== undefined) {
+					flowStore.val.value.preprocessor_module = parsed.preprocessor_module || undefined
+				}
+
+				if (parsed.failure_module !== undefined) {
+					flowStore.val.value.failure_module = parsed.failure_module || undefined
+				}
+
+				// Mark all modules as modified
+				const newModuleIds = dfsApply(flowStore.val.value.modules, (m) => m.id)
+				for (const id of newModuleIds) {
+					// If module is new, mark as added; otherwise mark as modified
+					const action = previousModuleIds.has(id) ? 'modified' : 'added'
+					setModuleStatus(id, action)
+				}
+
+				// Mark modules that were removed
+				for (const id of previousModuleIds) {
+					if (!newModuleIds.includes(id)) {
+						setModuleStatus(id, 'removed')
+					}
+				}
+
+				// Mark special modules if changed
+				if (parsed.preprocessor_module !== undefined) {
+					setModuleStatus('preprocessor', 'modified')
+				}
+				if (parsed.failure_module !== undefined) {
+					setModuleStatus('failure', 'modified')
+				}
+
+				// Refresh the state store to update UI
+				refreshStateStore(flowStore)
+			} catch (error) {
+				throw new Error(
+					`Failed to parse or apply YAML: ${error instanceof Error ? error.message : String(error)}`
+				)
+			}
 		}
 	}
 
