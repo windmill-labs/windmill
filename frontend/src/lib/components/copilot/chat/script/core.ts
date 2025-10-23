@@ -30,13 +30,8 @@ const SCORE_THRESHOLD = 1000
 const DOCS_CONTEXT_PERCENTAGE = 1
 // percentage of the context window for types of npm packages
 const TYPES_CONTEXT_PERCENTAGE = 1
-// good providers for diff-based edit
-export const DIFF_BASED_EDIT_PROVIDERS: AIProvider[] = [
-	'openai',
-	'anthropic',
-	'googleai',
-	'azure_openai'
-]
+// TODO: Explore this again when we have better diff-based edit providers
+export const DIFF_BASED_EDIT_PROVIDERS: AIProvider[] = []
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
