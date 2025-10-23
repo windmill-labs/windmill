@@ -54,6 +54,10 @@ components:
           type: string
         concurrency_time_window_s:
           type: number
+        debounce_delay_s:
+          type: number
+        debounce_key:
+          type: string
         skip_expr:
           type: string
         cache_ttl:
@@ -266,6 +270,7 @@ components:
             - graphql
             - nativets
             - php
+            # TODO: Add missing languages
         path:
           type: string
         lock:
