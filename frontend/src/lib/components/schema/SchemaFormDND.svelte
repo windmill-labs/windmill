@@ -6,7 +6,7 @@
 	import type { Schema } from '$lib/common'
 	import { deepEqual } from 'fast-equals'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
-	import { generateRandomString, type DynamicInput } from '$lib/utils'
+	import { generateRandomString, readFieldsRecursively, type DynamicInput } from '$lib/utils'
 	interface Props {
 		schema: Schema
 		args?: Record<string, any>
@@ -93,7 +93,8 @@
 		dispatch('reorder', newOrder)
 	}
 	$effect(() => {
-		schema && dragDisabledState && untrack(() => updateItems())
+		readFieldsRecursively(schema)
+		dragDisabledState && untrack(() => updateItems())
 	})
 </script>
 
