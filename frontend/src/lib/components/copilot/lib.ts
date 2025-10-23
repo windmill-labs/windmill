@@ -794,7 +794,10 @@ export async function parseOpenAICompletion(
 					}
 
 					// Display tool call immediately in loading state
-					callbacks.setToolStatus(toolCallId, { isLoading: true, content: 'Calling tool...' })
+					callbacks.setToolStatus(toolCallId, {
+						isLoading: true,
+						content: `Calling ${funcName} tool...`
+					})
 				}
 			}
 		}
