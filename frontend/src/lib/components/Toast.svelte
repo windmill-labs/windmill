@@ -29,11 +29,11 @@
 	requestAnimationFrame(update)
 
 	function registerToast(toastId: string, duration: number) {
+		toastStates[toastId] = { hover: false, elapsed: 0, duration, alive: true }
 		if (!isLoopRunning) {
 			lastTime = performance.now()
 			requestAnimationFrame(update)
 		}
-		toastStates[toastId] = { hover: false, elapsed: 0, duration, alive: true }
 	}
 </script>
 
