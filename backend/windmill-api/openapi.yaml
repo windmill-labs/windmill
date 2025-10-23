@@ -15414,6 +15414,10 @@ components:
           type: string
         concurrency_key:
           type: string
+        debounce_key:
+          type: string
+        debounce_delay_s:
+          type: integer
         visible_to_runner_only:
           type: boolean
         no_main_func:

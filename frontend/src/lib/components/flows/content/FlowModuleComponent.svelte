@@ -771,48 +771,6 @@
 																}`
 															}}
 														/>
-														<Section label="Debouncing" eeOnly>
-															{#snippet header()}
-																<Tooltip
-																	documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing"
-																>
-																	Debounce Jobs
-																</Tooltip>
-															{/snippet}
-															<div class="flex flex-col gap-4">
-																<Label label="Debounce Delay in seconds. (if not set - disabled)">
-																	<SecondsInput
-																		bind:seconds={flowModule.value.debounce_delay_s}
-																	/>
-																	<Button
-																		size="sm"
-																		color="light"
-																		on:click={() => {
-																			flowModule.value.debounce_delay_s = undefined
-																			flowModule.value.custom_debounce_key = undefined
-																		}}
-																		variant="border">Remove Debouncing</Button
-																	>
-																</Label>
-																<Label label="Custom debounce key (optional)">
-																	{#snippet header()}
-																		<Tooltip
-																			documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing#custom-debounce-key"
-																		>
-																			Debounce Keys are global, you can have them be workspace specific
-																			using the variable `$workspace`. You can also use an argument's value
-																			using `$args[name_of_arg]`</Tooltip
-																		>
-																	{/snippet}
-																	<input
-																		type="text"
-																		autofocus
-																		bind:value={flowModule.value.debounce_key}
-																		placeholder={`$workspace/mypath-$args[myarg]`}
-																	/>
-																</Label>
-															</div>
-														</Section>
 														<Label label="Priority number">
 															{#snippet header()}
 																<Tooltip>The higher the number, the higher the priority.</Tooltip>

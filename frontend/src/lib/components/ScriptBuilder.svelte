@@ -1281,7 +1281,7 @@
 													color="light"
 													on:click={() => {
 														script.debounce_delay_s = undefined
-														script.custom_debounce_key = undefined
+														script.debounce_key = undefined
 													}}
 													variant="border">Remove Debouncing</Button
 												>
