@@ -391,6 +391,6 @@ impl OpenAPISchema {
 #[derive(Serialize)]
 pub struct S3ObjectWithType {
     #[serde(flatten)]
-    s3_object: S3Object,
-    r#type: String,
+    pub s3_object: S3Object,
+    pub r#type: String,
 }
