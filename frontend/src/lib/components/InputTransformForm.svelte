@@ -19,7 +19,7 @@
 	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
 	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, ButtonType } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { tick } from 'svelte'
@@ -553,9 +553,10 @@
 						/>
 					{/if}
 
-					<div>
+					<div class="{ButtonType.UnifiedHeightClasses.sm} relative">
 						<ToggleButtonGroup
 							selected={propertyType}
+							class="h-full"
 							on:selected={(e) => {
 								if (e.detail == propertyType) return
 								const staticTemplate = isStaticTemplate(inputCat)
@@ -678,7 +679,7 @@
 		</div>
 
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="relative" onkeyup={handleKeyUp}>
+		<div class="relative w-full" onkeyup={handleKeyUp}>
 			<!-- {#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
 				<span
 					class={'text-white  z-50 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute top-0 right-0 bg-blue-500'}

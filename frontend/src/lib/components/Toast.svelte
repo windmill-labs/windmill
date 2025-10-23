@@ -1,9 +1,48 @@
+<script lang="ts" module>
+	type ToastState = { hover: boolean; elapsed: number; duration: number }
+	const toastStates: Record<string, ToastState> = $state({})
+
+	let lastTime = 0
+	let isLoopRunning = false
+	function update(time: number) {
+		isLoopRunning = true
+		const delta = time - lastTime
+		for (const toastId in toastStates) {
+			const state = toastStates[toastId]
+			if (state.hover) continue
+			if (state.elapsed >= state.duration) {
+				delete toastStates[toastId]
+				continue
+			}
+			state.elapsed += delta
+		}
+		lastTime = time
+
+		if (Object.values(toastStates).length > 0) {
+			requestAnimationFrame(update)
+		} else {
+			isLoopRunning = false
+		}
+	}
+
+	function registerToast(toastId: string, duration: number) {
+		toastStates[toastId] = { hover: false, elapsed: 0, duration }
+		if (!isLoopRunning) {
+			requestAnimationFrame((time) => {
+				lastTime = time
+				update(time)
+			})
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { toast } from '@zerodevx/svelte-toast'
 	import { CheckCircle2, XCircleIcon } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
 	import { type ToastAction } from '$lib/toast'
 	import { processMessage } from './toast'
+	import { onDestroy, untrack } from 'svelte'
 
 	interface Props {
 		message: string
@@ -27,20 +66,18 @@
 		toast.pop(toastId)
 	}
 
-	let elapsed = $state(0)
-	$effect(() => {
-		if (elapsed >= duration * 1000) {
-			toast.pop(toastId)
-			return
-		}
-		if (hover) return
-		let animationFrame = requestAnimationFrame((x) => {
-			elapsed += x
-		})
-		return () => cancelAnimationFrame(animationFrame)
+	$effect.pre(() => {
+		untrack(() => registerToast(toastId, duration))
 	})
-
-	let hover = $state(false)
+	onDestroy(() => {
+		delete toastStates[toastId]
+	})
+	let state = $derived.by(() => toastStates[toastId] as ToastState | undefined)
+	$effect(() => {
+		if (!state) {
+			toast.pop(toastId)
+		}
+	})
 
 	let color = error
 		? { text: 'text-red-400', bg: 'bg-red-400' }
@@ -50,8 +87,8 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="pointer-events-auto w-full max-w-sm overflow-hidden bg-surface-tertiary drop-shadow-base shadow-lg ring-1 ring-black ring-opacity-5 border rounded-md"
-	onmouseenter={() => (hover = true)}
-	onmouseleave={() => (hover = false)}
+	onmouseenter={() => state && (state.hover = true)}
+	onmouseleave={() => state && (state.hover = false)}
 >
 	<div class="p-2 min-h-[60px] flex flex-col">
 		<div class="flex items-start w-full">
@@ -104,7 +141,7 @@
 	<!-- Duration indicator -->
 	<div
 		class="h-0.5 {color.bg}"
-		style="width: {Math.max(0, 1 - elapsed / (duration * 1000)) * 100}%"
+		style="width: {Math.max(0, 1 - (state?.elapsed ?? duration) / duration) * 100}%"
 	>
 	</div>
 </div>

@@ -34,7 +34,6 @@ use windmill_common::{
 
 use anyhow::{anyhow, Result};
 use windmill_parser_sql::{s3_mode_extension, S3ModeArgs, S3ModeFormat};
-use windmill_queue::flow_status::get_step_of_flow_status;
 use windmill_queue::MiniPulledJob;
 
 use std::collections::HashSet;
@@ -1055,12 +1054,14 @@ pub fn use_flow_root_path(flow_path: &str) -> String {
 }
 
 pub fn build_http_client(timeout_duration: std::time::Duration) -> error::Result<Client> {
-    configure_client(reqwest::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .timeout(timeout_duration)
-        .connect_timeout(std::time::Duration::from_secs(10)))
-        .build()
-        .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
+    configure_client(
+        reqwest::ClientBuilder::new()
+            .user_agent("windmill/beta")
+            .timeout(timeout_duration)
+            .connect_timeout(std::time::Duration::from_secs(10)),
+    )
+    .build()
+    .map_err(|e| Error::internal_err(format!("Error building http client: {e:#}")))
 }
 
 pub fn get_root_job_id(job: &MiniPulledJob) -> uuid::Uuid {
@@ -1077,76 +1078,115 @@ pub struct StreamNotifier {
     job_id: uuid::Uuid,
     parent_job: uuid::Uuid,
     root_job: uuid::Uuid,
+    flow_step_id: Option<String>,
 }
 
-#[async_recursion]
-async fn check_if_nested_step_is_last(
-    db: &DB,
-    parent_job: Uuid,
-    parent_of_parent_job: Option<Uuid>,
-    root_job: Uuid,
-    visited: Option<HashSet<Uuid>>,
-) -> error::Result<bool> {
-    // Initialize or use the provided visited set for cycle detection
-    let mut visited = visited.unwrap_or_else(HashSet::new);
+// Helper struct to hold parent job information
+#[derive(Debug)]
+struct JobInfo {
+    flow_step_id: Option<String>,
+    step: Option<i32>,
+    len: Option<i32>,
+    is_branch_one: Option<bool>,
+    next_parent: Option<Uuid>,
+}
 
-    // Check for cycles - if we've already visited this job, return false to break the recursion
-    if !visited.insert(parent_job) {
-        return Ok(false);
-    }
-
-    // get parent of parent job to get step of parent job
-    let parent_of_parent_job = parent_of_parent_job.or(sqlx::query_scalar!(
-        "SELECT parent_job FROM v2_job WHERE id = $1",
-        parent_job
+// Shared helper function to fetch parent job info with flow status
+async fn get_job_info(db: &DB, job_id: Uuid) -> error::Result<JobInfo> {
+    sqlx::query_as!(
+        JobInfo,
+        r#"SELECT
+            flow_step_id,
+            (flow_status->'step')::integer as step,
+            jsonb_array_length(flow_status->'modules') as len,
+            runnable_path ~ '/branchone-\d+$' as is_branch_one,
+            parent_job as next_parent
+        FROM v2_job
+            LEFT JOIN v2_job_status USING (id)
+        WHERE v2_job.id = $1"#,
+        job_id
     )
     .fetch_one(db)
-    .await?);
-    if let Some(parent_of_parent_job) = parent_of_parent_job {
-        // Check for cycles again with the parent_of_parent_job
-        if !visited.insert(parent_of_parent_job) {
+    .await
+    .map_err(|e| Error::internal_err(format!("fetching parent job info: {e:#}")))
+}
+
+async fn check_if_last_step(
+    db: &DB,
+    mut next_parent: Option<Uuid>,
+    root_job: Uuid,
+) -> error::Result<bool> {
+    let mut visited = HashSet::new();
+    loop {
+        // Get parent of current job
+        let Some(parent_job) = next_parent else {
+            return Ok(false);
+        };
+
+        // Check for cycles
+        if !visited.insert(parent_job) {
             return Ok(false);
         }
 
-        let r = sqlx::query!(
-            r#"SELECT 
-                (flow_status->'step')::integer as step,
-                jsonb_array_length(flow_status->'modules') as len,
-                flow_status->'modules'->-1->>'branch_chosen' IS NOT NULL as is_branch_one,
-                parent_job as ppp_job
-            FROM v2_job 
-                LEFT JOIN v2_job_status USING (id)
-            WHERE v2_job.id = $1"#,
-            parent_of_parent_job
-        )
-        .fetch_one(db)
-        .await
-        .map_err(|e| Error::internal_err(format!("fetching step flow status: {e:#}")))?;
+        let parent_info = get_job_info(db, parent_job).await?;
 
-        if let Some(step) = r.step {
-            let step = Step::from_i32_and_len(step, r.len.unwrap_or(0) as usize);
-
-            // if parent job is last and a branch one and
-            // - root_job is equal to parent of parent job, return true
-            // - root job is not equal to parent of parent job, recursively check if the parent of parent job is a branch one and last
-            if step.is_last_step() && r.is_branch_one.unwrap_or(false) {
-                if parent_of_parent_job == root_job {
+        if let Some(step) = parent_info.step {
+            let step = Step::from_i32_and_len(step, parent_info.len.unwrap_or(0) as usize);
+            if step.is_last_step() {
+                if parent_job == root_job {
                     return Ok(true);
-                } else {
-                    return check_if_nested_step_is_last(
-                        db,
-                        parent_of_parent_job,
-                        r.ppp_job,
-                        root_job,
-                        Some(visited),
-                    )
-                    .await;
+                } else if parent_info.is_branch_one.unwrap_or(false) {
+                    next_parent = parent_info.next_parent;
+                    continue;
                 }
             }
         }
-    }
 
-    Ok(false)
+        return Ok(false);
+    }
+}
+
+// Iterative implementation to avoid stack overflow from async_recursion
+// Checks if we're at last step in nested branches AND if any parent's flow_step_id matches early_return_id
+async fn check_if_early_return_or_last_in_early_return_parent(
+    db: &DB,
+    mut next_parent: Option<Uuid>,
+    mut step_id: Option<String>,
+    early_return_id: &str,
+    root_job: Uuid,
+) -> error::Result<bool> {
+    let mut visited = HashSet::new();
+    loop {
+        if step_id.is_none() {
+            return Ok(false);
+        }
+
+        let Some(parent_job) = next_parent else {
+            return Ok(false);
+        };
+
+        // Check for cycles
+        if !visited.insert(parent_job) {
+            return Ok(false);
+        }
+
+        // If the parent's flow_step_id matches early_return_id, we found it!
+        if step_id.as_deref() == Some(early_return_id) && parent_job == root_job {
+            return Ok(true);
+        } else {
+            let parent_info = get_job_info(db, parent_job).await?;
+            if let Some(step) = parent_info.step {
+                let step = Step::from_i32_and_len(step, parent_info.len.unwrap_or(0) as usize);
+                // we only continue if we are at the last step and the parent is a branch one
+                if step.is_last_step() && parent_info.is_branch_one.unwrap_or(false) {
+                    next_parent = parent_info.next_parent;
+                    step_id = parent_info.flow_step_id;
+                    continue;
+                }
+            }
+            return Ok(false);
+        }
+    }
 }
 
 impl StreamNotifier {
@@ -1159,6 +1199,7 @@ impl StreamNotifier {
                     parent_job: job.parent_job.unwrap(),
                     job_id: job.id,
                     root_job,
+                    flow_step_id: job.flow_step_id.clone(),
                 }),
                 Connection::Http(_) => {
                     tracing::warn!(
@@ -1177,13 +1218,36 @@ impl StreamNotifier {
         parent_job: Uuid,
         job_id: Uuid,
         root_job: Uuid,
+        flow_step_id: Option<String>,
     ) -> Result<(), Error> {
-        let step = get_step_of_flow_status(&db, parent_job).await?;
+        // Check if early_return is set at the flow level
+        let early_return_node_id = sqlx::query_scalar!(
+            r#"
+            SELECT fv.value->>'early_return' as "early_return"
+            FROM v2_job j
+            INNER JOIN flow_version fv ON fv.id = j.runnable_id
+            WHERE j.id = $1
+            "#,
+            root_job
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten();
 
-        if step.is_last_step()
-            && (parent_job == root_job
-                || check_if_nested_step_is_last(&db, parent_job, None, root_job, None).await?)
-        {
+        let should_set_stream_job = if let Some(ref early_return_id) = early_return_node_id {
+            check_if_early_return_or_last_in_early_return_parent(
+                &db,
+                Some(parent_job),
+                flow_step_id,
+                early_return_id,
+                root_job,
+            )
+            .await?
+        } else {
+            check_if_last_step(&db, Some(parent_job), root_job).await?
+        };
+
+        if should_set_stream_job {
             sqlx::query!(r#"
                     UPDATE v2_job_status
                     SET flow_status = jsonb_set(flow_status, array['stream_job'], to_jsonb($1::UUID::TEXT))
@@ -1203,10 +1267,16 @@ impl StreamNotifier {
         let parent_job = self.parent_job;
         let job_id = self.job_id;
         let root_job = self.root_job;
+        let flow_step_id = self.flow_step_id.clone();
         tokio::spawn(async move {
-            if let Err(err) =
-                Self::update_flow_status_with_stream_job_inner(db, parent_job, job_id, root_job)
-                    .await
+            if let Err(err) = Self::update_flow_status_with_stream_job_inner(
+                db,
+                parent_job,
+                job_id,
+                root_job,
+                flow_step_id,
+            )
+            .await
             {
                 tracing::error!("Could not notify about stream job {}: {err:#?}", parent_job);
             }
