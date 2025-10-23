@@ -1,8 +1,6 @@
 <script lang="ts" module>
-	const toastStates: Record<
-		string,
-		{ hover: boolean; alive: boolean; elapsed: number; duration: number }
-	> = $state({})
+	type ToastState = { hover: boolean; elapsed: number; duration: number }
+	const toastStates: Record<string, ToastState> = $state({})
 
 	let lastTime = 0
 	let isLoopRunning = false
@@ -11,9 +9,9 @@
 		const delta = time - lastTime
 		for (const toastId in toastStates) {
 			const state = toastStates[toastId]
-			if (state.hover || !state.alive) continue
+			if (state.hover) continue
 			if (state.elapsed >= state.duration) {
-				state.alive = false
+				delete toastStates[toastId]
 				continue
 			}
 			state.elapsed += delta
@@ -26,13 +24,14 @@
 			isLoopRunning = false
 		}
 	}
-	requestAnimationFrame(update)
 
 	function registerToast(toastId: string, duration: number) {
-		toastStates[toastId] = { hover: false, elapsed: 0, duration, alive: true }
+		toastStates[toastId] = { hover: false, elapsed: 0, duration }
 		if (!isLoopRunning) {
-			lastTime = performance.now()
-			requestAnimationFrame(update)
+			requestAnimationFrame((time) => {
+				lastTime = time
+				update(time)
+			})
 		}
 	}
 </script>
@@ -73,9 +72,9 @@
 	onDestroy(() => {
 		delete toastStates[toastId]
 	})
-	let state = $derived.by(() => toastStates[toastId])
+	let state = $derived.by(() => toastStates[toastId] as ToastState | undefined)
 	$effect(() => {
-		if (!state.alive) {
+		if (!state) {
 			toast.pop(toastId)
 		}
 	})
@@ -88,8 +87,8 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="pointer-events-auto w-full max-w-sm overflow-hidden bg-surface-tertiary drop-shadow-base shadow-lg ring-1 ring-black ring-opacity-5 border rounded-md"
-	onmouseenter={() => (state.hover = true)}
-	onmouseleave={() => (state.hover = false)}
+	onmouseenter={() => state && (state.hover = true)}
+	onmouseleave={() => state && (state.hover = false)}
 >
 	<div class="p-2 min-h-[60px] flex flex-col">
 		<div class="flex items-start w-full">
@@ -140,6 +139,9 @@
 		</div>
 	</div>
 	<!-- Duration indicator -->
-	<div class="h-0.5 {color.bg}" style="width: {Math.max(0, 1 - state.elapsed / duration) * 100}%">
+	<div
+		class="h-0.5 {color.bg}"
+		style="width: {Math.max(0, 1 - (state?.elapsed ?? duration) / duration) * 100}%"
+	>
 	</div>
 </div>
