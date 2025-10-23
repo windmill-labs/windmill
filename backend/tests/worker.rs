@@ -906,6 +906,8 @@ fn main(world: String) -> Result<String, String> {
         concurrency_time_window_s: None,
         cache_ttl: None,
         dedicated_worker: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
     }))
     .arg("world", json!("Hyrule"))
     .run_until_complete(&db, false, port)
@@ -1017,6 +1019,8 @@ def main [ msg: string ] {
         concurrency_time_window_s: None,
         cache_ttl: None,
         dedicated_worker: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
     }))
     .arg("msg", json!("world"))
     .run_until_complete(&db, false, port)
@@ -1070,6 +1074,8 @@ def main [
         concurrency_time_window_s: None,
         cache_ttl: None,
         dedicated_worker: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
     }))
     .arg("a", json!("3"))
     .arg("b", json!("null"))
@@ -1132,6 +1138,8 @@ public class Main {
         concurrency_time_window_s: None,
         cache_ttl: None,
         dedicated_worker: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
     }))
     .arg("a", json!(3))
     .arg("b", json!(3.0))

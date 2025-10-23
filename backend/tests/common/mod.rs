@@ -8,7 +8,6 @@ use serde_json::json;
 use sqlx::{postgres::PgListener, Pool, Postgres};
 use tokio::sync::RwLock;
 use uuid::Uuid;
-use windmill_api::agent_workers_ee::AgentAuth;
 use windmill_api_client::types::NewScript;
 #[cfg(feature = "python")]
 use windmill_common::flow_status::FlowStatusModule;
@@ -17,7 +16,7 @@ use windmill_common::{
     jobs::{JobKind, JobPayload, RawCode},
     jwt::{encode_with_internal_secret, JWT_SECRET},
     scripts::{ScriptHash, ScriptLang},
-    worker::{Connection, HttpClient, WORKER_CONFIG},
+    worker::{Connection, WORKER_CONFIG},
     KillpillSender,
 };
 use windmill_queue::PushIsolationLevel;
@@ -230,9 +229,9 @@ impl RunJob {
 
         let conn = match agent_mode {
             false => Connection::Sql(db.clone()),
-            #[cfg(feature = "agent_worker_server")]
+            #[cfg(all(feature = "private", feature = "agent_worker_server"))]
             true => testing_http_connection(port).await,
-            #[cfg(not(feature = "agent_worker_server"))]
+            #[cfg(not(all(feature = "private", feature = "agent_worker_server")))]
             true => {
                 panic!("to use agent worker test, you need to enable 'agent_worker_server' feature")
             }
@@ -257,9 +256,9 @@ impl RunJob {
 
         let conn = match agent_mode {
             false => Connection::Sql(db.clone()),
-            #[cfg(feature = "agent_worker_server")]
+            #[cfg(all(feature = "private", feature = "agent_worker_server"))]
             true => testing_http_connection(port).await,
-            #[cfg(not(feature = "agent_worker_server"))]
+            #[cfg(not(all(feature = "private", feature = "agent_worker_server")))]
             true => {
                 panic!("to use agent worker test, you need to enable 'agent_worker_server' feature")
             }
@@ -762,6 +761,7 @@ pub async fn run_preview_relative_imports(
     Ok(())
 }
 
+#[cfg(all(feature = "private", feature = "agent_worker_server"))]
 pub async fn testing_http_connection(port: u16) -> Connection {
     let suffix = windmill_common::utils::create_default_worker_suffix("test-agent-worker");
     Connection::Http(windmill_common::agent_workers::build_agent_http_client(
@@ -769,7 +769,7 @@ pub async fn testing_http_connection(port: u16) -> Connection {
         Some(format!(
             "{}{}",
             AGENT_JWT_PREFIX,
-            encode_with_internal_secret(AgentAuth {
+            encode_with_internal_secret(windmill_api::agent_workers_ee::AgentAuth {
                 worker_group: "testing-agent".to_owned(),
                 suffix: Some(suffix.clone()),
                 tags: vec!["flow".into(), "python3".into(), "dependency".into()],
