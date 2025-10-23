@@ -19,14 +19,7 @@
 			<DefaultScriptsInner />
 		</DrawerContent>
 	</Drawer>
-	<Button
-		on:click={drawer?.openDrawer}
-		startIcon={{ icon: SettingsIcon }}
-		color="light"
-		{size}
-		btnClasses="!text-tertiary"
-		variant="contained"
-	>
+	<Button on:click={drawer?.openDrawer} startIcon={{ icon: SettingsIcon }} variant="subtle" {size}>
 		{noText ? '' : 'defaults'}
 	</Button>
 {/if}

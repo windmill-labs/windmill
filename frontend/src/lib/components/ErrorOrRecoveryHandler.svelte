@@ -58,7 +58,7 @@
 		handlerExtraArgs = $bindable(),
 		customScriptTemplate,
 		customHandlerKind = $bindable('script'),
-		customTabTooltip,
+		customTabTooltip
 	}: Props = $props()
 
 	let customHandlerSchema: Schema | undefined = $state()
@@ -324,18 +324,15 @@
 
 <div>
 	<Tabs bind:selected={handlerSelected} class="mt-2 mb-4">
-		<Tab value="slack" disabled={!isEditable}>Slack</Tab>
-		<Tab value="teams" disabled={!isEditable}>Teams</Tab>
-		<Tab value="email" disabled={!isEditable}>Email</Tab>
-		<Tab value="custom" disabled={!isEditable}>
-			Custom
-			{@render customTabTooltip?.()}
-		</Tab>
+		<Tab value="slack" disabled={!isEditable} label="Slack" />
+		<Tab value="teams" disabled={!isEditable} label="Teams" />
+		<Tab value="email" disabled={!isEditable} label="Email" />
+		<Tab value="custom" disabled={!isEditable} label="Custom" extra={customTabTooltip} />
 	</Tabs>
 </div>
 
 {#if handlerSelected === 'custom'}
-	<div class="flex flex-row mb-2">
+	<div class="flex flex-row mb-6">
 		<ScriptPicker
 			disabled={!isEditable || !$enterpriseLicense}
 			kinds={['script', 'failure']}
@@ -348,8 +345,8 @@
 
 		{#if !handlerPath}
 			<Button
-				btnClasses="ml-4 mt-2"
-				color="dark"
+				btnClasses="ml-4"
+				variant="default"
 				size="xs"
 				href={customScriptTemplate}
 				disabled={!isEditable}
@@ -360,7 +357,7 @@
 		{/if}
 	</div>
 	{#if showScriptHelpText}
-		<div class="text-xs">
+		<div class="text-2xs text-secondary">
 			Example of error handler scripts can be found on <a
 				target="_blank"
 				href="{$hubBaseUrlStore}/failures"
@@ -370,7 +367,7 @@
 		</div>
 	{/if}
 	{#if handlerPath}
-		<p class="font-semibold text-sm mt-4 mb-2">Extra arguments</p>
+		<p class="font-semibold text-xs mt-6 mb-1">Extra arguments</p>
 		{#await import('$lib/components/SchemaForm.svelte')}
 			<Loader2 class="animate-spin" />
 		{:then Module}
@@ -434,21 +431,16 @@
 							href="{base}/workspace_settings?tab=slack">configure it here</a
 						>.
 					</p>
-					<Button
-						variant="border"
-						color="light"
-						on:click={loadSlackResources}
-						startIcon={{ icon: RotateCw }}
-					/>
+					<Button variant="default" on:click={loadSlackResources} startIcon={{ icon: RotateCw }} />
 				</div>
 			</Alert>
 		{:else}
 			<Button
 				disabled={emptyString(handlerExtraArgs['channel'])}
 				btnClasses="w-32 text-center"
-				color="dark"
+				variant="default"
 				on:click={() => sendSlackMessage(handlerExtraArgs['channel'])}
-				size="xs">Send test message</Button
+				unifiedSize="md">Send test message</Button
 			>
 			{#if connectionTestJob !== undefined}
 				<p class="text-normal text-2xs mt-1 gap-2">
@@ -493,7 +485,7 @@
 		<div class="w-2/3 flex flex-col gap-2">
 			<div class="flex flex-row items-center gap-2">
 				<div class="pt-1 flex-shrink-0">
-					<MsTeamsIcon height="24px" width="24px" />
+					<MsTeamsIcon size={24} />
 				</div>
 				<p class="text-sm">Teams Channel</p>
 			</div>
@@ -513,8 +505,8 @@
 									}
 								: undefined,
 						(channel) => {
-							handlerExtraArgs['channel'] = channel?.channel_id;
-							handlerExtraArgs['channel_name'] = channel?.channel_name;
+							handlerExtraArgs['channel'] = channel?.channel_id
+							handlerExtraArgs['channel_name'] = channel?.channel_name
 						}
 					}
 					onError={(e) => sendUserToast('Failed to load channels: ' + e.message, true)}
@@ -547,19 +539,14 @@
 							>workspace settings</a
 						>.
 					</p>
-					<Button
-						variant="border"
-						color="light"
-						on:click={loadTeamsResources}
-						startIcon={{ icon: RotateCw }}
-					/>
+					<Button variant="default" on:click={loadTeamsResources} startIcon={{ icon: RotateCw }} />
 				</div>
 			</Alert>
 		{:else}
 			<Button
 				disabled={emptyString(handlerExtraArgs['channel'])}
 				btnClasses="w-32 text-center mt-2"
-				color="dark"
+				variant="default"
 				on:click={() => sendTeamsMessage(handlerExtraArgs['channel'] ?? '')}
 				size="xs">Send test message</Button
 			>
@@ -615,7 +602,7 @@
 				class="w-full"
 			/>
 			{#if handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length > 0}
-				<span class="text-sm text-tertiary">
+				<span class="text-sm text-primary">
 					{handlerExtraArgs[EMAIL_RECIPIENTS_KEY]?.length} email{handlerExtraArgs[
 						EMAIL_RECIPIENTS_KEY
 					]?.length === 1

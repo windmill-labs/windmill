@@ -11,10 +11,10 @@
 
 <Popover
 	floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-	contentClasses="border rounded-lg shadow-lg p-4 flex flex-col w-80 pt-8 bg-surface"
+	contentClasses="p-4 flex flex-col w-80 pt-8 bg-surface"
 >
 	{#snippet trigger()}
-		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: Filter }}>
+		<Button variant="accent" unifiedSize="md" nonCaptureEvent={true} startIcon={{ icon: Filter }}>
 			Filters
 		</Button>
 	{/snippet}

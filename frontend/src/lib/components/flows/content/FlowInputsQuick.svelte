@@ -172,7 +172,10 @@
 	]
 
 	let topLevelNodes: [string, string][] = $state([])
-	function computeToplevelNodeChoices(funcDesc: string, preFilter: 'all' | 'workspace' | 'hub') {
+	function computeToplevelNodeChoices(
+		funcDesc: string,
+		preFilter: 'all' | 'workspace' | 'hub'
+	) {
 		if (funcDesc.length > 0 && preFilter == 'all' && kind == 'script') {
 			topLevelNodes = allToplevelNodes.filter((node) =>
 				node[0].toLowerCase().startsWith(funcDesc.toLowerCase())
@@ -282,7 +285,7 @@
 						{/each}
 						<div class="pb-1.5"></div>
 					{:else}
-						<div class="text-2xs text-tertiary font-light text-center py-3 px-3 items-center">
+						<div class="text-2xs text-primary font-light text-center py-3 px-3 items-center">
 							No items found.
 						</div>
 					{/if}
@@ -351,19 +354,17 @@
 						<Button
 							on:click={() => (openScriptSettings = true)}
 							startIcon={{ icon: SettingsIcon }}
-							color="light"
 							size="xs2"
-							btnClasses="!text-tertiary"
-							variant="contained"
+							btnClasses="!text-primary"
+							variant="subtle"
 							title="Edit global default scripts"
 						/>
 					{:else}
 						<Button
 							on:click={() => (openScriptSettings = false)}
 							startIcon={{ icon: SettingsIcon }}
-							color="dark"
+							variant="accent"
 							size="xs2"
-							variant="contained"
 						>
 							Close
 						</Button>

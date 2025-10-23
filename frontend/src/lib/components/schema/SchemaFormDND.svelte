@@ -141,7 +141,7 @@
 >
 	{#snippet actions()}
 		{#if !disableDnd}
-			<div class="w-4 h-8 cursor-move ml-2 handle mt-[9px]" aria-label="drag-handle" use:dragHandle>
+			<div class="w-4 h-6 cursor-move ml-2 handle mt-[9px]" aria-label="drag-handle" use:dragHandle>
 				<GripVertical size={16} />
 			</div>
 		{/if}

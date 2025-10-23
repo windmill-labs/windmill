@@ -289,7 +289,9 @@
 	{#if chatInputEnabled}
 		<div class="p-2 pb-0">
 			<Alert type="warning" title="Chat Input Mode Enabled" size="xs">
-				This flow will only accept <span class="font-mono text-xs bg-surface-secondary px-1 rounded">user_message</span> as input parameter.
+				This flow will only accept
+				<span class="font-mono text-xs bg-surface-secondary px-1 rounded"> user_message</span>
+				as input parameter.
 			</Alert>
 		</div>
 	{/if}
@@ -319,9 +321,12 @@
 								class="w-fit h-fit"
 								placement="right-start"
 							>
-								<Button size="xs" nonCaptureEvent btnClasses="p-2 w-fit" wrapperClasses="p-0">
-									<Plus size="14" />
-								</Button>
+								<Button
+									variant="accent"
+									btnClasses="h-8 w-8 p-0"
+									nonCaptureEvent
+									startIcon={{ icon: Plus }}
+								/>
 							</AddTriggersButton>
 							<TriggersBadge
 								showOnlyWithCount={false}
@@ -390,7 +395,7 @@
 								</div>
 							{/key}
 						{:else}
-							<span class="text-sm text-tertiary text-center mx-auto mt-2"
+							<span class="text-sm text-primary text-center mx-auto mt-2"
 								>{`Select a trigger from the ${useVerticalTriggerBar ? 'left toolbar' : 'table'} or create a new one`}</span
 							>
 						{/if}

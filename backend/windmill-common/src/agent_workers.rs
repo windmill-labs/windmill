@@ -11,7 +11,7 @@ use std::time::Duration;
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 
-use crate::{jwt::decode_without_verify, worker::HttpClient};
+use crate::{jwt::decode_without_verify, utils::configure_client, worker::HttpClient};
 
 lazy_static! {
     pub static ref AGENT_TOKEN: String = std::env::var("AGENT_TOKEN").unwrap_or_default();
@@ -37,11 +37,11 @@ pub const AGENT_JWT_PREFIX: &str = "jwt_agent_";
 
 pub fn build_agent_http_client(worker_suffix: &str) -> HttpClient {
     let client = ClientBuilder::new(
-        reqwest::Client::builder()
+        configure_client(reqwest::Client::builder()
             .pool_max_idle_per_host(10)
             .pool_idle_timeout(Duration::from_secs(60))
             .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(30)))
             .default_headers({
                 let mut headers = reqwest::header::HeaderMap::new();
                 headers.insert(

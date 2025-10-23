@@ -1,7 +1,6 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import { getStateColor } from '../../util'
 	import type { ForLoopEndN } from '../../graphBuilder.svelte'
 
 	interface Props {
@@ -20,8 +19,6 @@
 				selected={false}
 				id={data.id}
 				hideId
-				bgColor={getStateColor(undefined, darkMode)}
-				borderColor={getStateColor(data.flowModuleState?.type, darkMode)}
 				on:select={(e) => {
 					setTimeout(() => data?.eventHandlers?.select(e.detail))
 				}}
@@ -32,8 +29,6 @@
 				selectable={true}
 				selected={false}
 				id={data.id}
-				bgColor={getStateColor(undefined, darkMode)}
-				borderColor={getStateColor(data.flowModuleState?.type, darkMode)}
 				on:select={(e) => {
 					setTimeout(() => data?.eventHandlers?.select(e.detail))
 				}}

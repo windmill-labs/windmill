@@ -1,30 +1,35 @@
+use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
+use crate::ai::utils::{
+    add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
+    filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
+    get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, is_anthropic_provider,
+    load_mcp_tools, parse_raw_script_schema, update_flow_status_module_with_actions,
+    update_flow_status_module_with_actions_success,
+};
 use crate::memory_oss::{read_from_memory, write_to_memory};
-use anyhow::Context;
+use crate::worker_flow::{get_previous_job_result, get_transform_context};
 use async_recursion::async_recursion;
 use regex::Regex;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
-use ulid;
 use uuid::Uuid;
+use windmill_common::mcp_client::McpClient;
 use windmill_common::{
-    ai_providers::{AIProvider, AZURE_API_VERSION},
+    ai_providers::AZURE_API_VERSION,
     cache,
     client::AuthedClient,
     db::DB,
-    error::{self, to_anyhow, Error},
-    flow_conversations::{add_message_to_conversation_tx, MessageType},
+    error::{self, Error},
+    flow_conversations::MessageType,
     flow_status::AgentAction,
-    flows::{FlowModuleValue, FlowValue, Step},
+    flows::{FlowModule, FlowModuleValue, ToolValue},
     get_latest_hash_for_path,
     jobs::JobKind,
-    scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
+    scripts::get_full_hub_script_by_path,
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, Connection},
 };
-use windmill_queue::{
-    flow_status::get_step_of_flow_status, get_mini_pulled_job, push, CanceledBy, JobCompleted,
-    MiniPulledJob, PushArgs, PushIsolationLevel,
-};
+use windmill_queue::{CanceledBy, MiniPulledJob};
 
 use crate::{
     ai::{
@@ -34,15 +39,9 @@ use crate::{
         },
         types::*,
     },
-    common::{
-        build_args_map, error_to_value, resolve_job_timeout, OccupancyMetrics, StreamNotifier,
-    },
-    create_job_dir,
+    common::{build_args_map, resolve_job_timeout, OccupancyMetrics, StreamNotifier},
     handle_child::run_future_with_polling_update_job_poller,
-    handle_queued_job, parse_sig_of_lang,
-    result_processor::handle_non_flow_job_error,
-    worker_flow::{raw_script_to_payload, script_to_payload},
-    JobCompletedSender, SendResult, SendResultPayload,
+    JobCompletedSender,
 };
 
 lazy_static::lazy_static! {
@@ -50,124 +49,6 @@ lazy_static::lazy_static! {
 }
 
 const MAX_AGENT_ITERATIONS: usize = 10;
-
-fn parse_raw_script_schema(content: &str, language: &ScriptLang) -> Result<Box<RawValue>, Error> {
-    let main_arg_signature = parse_sig_of_lang(content, Some(&language), None)?.unwrap(); // safe to unwrap as langauge is some
-
-    let schema = OpenAPISchema {
-        r#type: Some(SchemaType::default()),
-        properties: Some(
-            main_arg_signature
-                .args
-                .iter()
-                .map(|arg| {
-                    let name = arg.name.clone();
-                    let typ = OpenAPISchema::from_typ(&arg.typ);
-                    (name, Box::new(typ))
-                })
-                .collect(),
-        ),
-        required: Some(
-            main_arg_signature
-                .args
-                .iter()
-                .map(|arg| arg.name.clone())
-                .collect(),
-        ),
-        ..Default::default()
-    };
-
-    Ok(to_raw_value(&schema))
-}
-
-pub struct FlowJobRunnableIdAndRawFlow {
-    pub runnable_id: Option<ScriptHash>,
-    pub raw_flow: Option<sqlx::types::Json<Box<RawValue>>>,
-    pub kind: JobKind,
-}
-
-pub async fn get_flow_job_runnable_and_raw_flow(
-    db: &DB,
-    job_id: &uuid::Uuid,
-) -> windmill_common::error::Result<FlowJobRunnableIdAndRawFlow> {
-    let job = sqlx::query_as!(
-        FlowJobRunnableIdAndRawFlow,
-        "SELECT runnable_id as \"runnable_id: ScriptHash\", raw_flow as \"raw_flow: _\", kind as \"kind: _\" FROM v2_job WHERE id = $1",
-        job_id
-    )
-    .fetch_one(db)
-    .await?;
-    Ok(job)
-}
-
-#[derive(Debug, Clone, Default)]
-struct FlowChatSettings {
-    memory_id: Option<Uuid>,
-    chat_input_enabled: bool,
-}
-
-/// Get chat settings (memory_id and chat_input_enabled) from root flow's flow_status
-async fn get_flow_chat_settings(db: &DB, job: &MiniPulledJob) -> FlowChatSettings {
-    let root_job_id = job
-        .root_job
-        .or(job.flow_innermost_root_job)
-        .or(job.parent_job);
-
-    let Some(root_job_id) = root_job_id else {
-        return FlowChatSettings::default();
-    };
-
-    match sqlx::query!(
-        "SELECT
-            (flow_status->>'memory_id')::uuid as memory_id,
-            (flow_status->>'chat_input_enabled')::boolean as chat_input_enabled
-         FROM v2_job_status
-         WHERE id = $1",
-        root_job_id
-    )
-    .fetch_optional(db)
-    .await
-    {
-        Ok(Some(row)) => FlowChatSettings {
-            memory_id: row.memory_id,
-            chat_input_enabled: row.chat_input_enabled.unwrap_or(false),
-        },
-        Ok(None) => FlowChatSettings::default(),
-        Err(e) => {
-            tracing::warn!(
-                "Failed to get chat settings from flow status for job {}: {}",
-                job.id,
-                e
-            );
-            FlowChatSettings::default()
-        }
-    }
-}
-
-// Add message to conversation
-async fn add_message_to_conversation(
-    db: &DB,
-    conversation_id: &Uuid,
-    job_id: &Uuid,
-    message_content: &str,
-    message_type: MessageType,
-    step_name: &Option<String>,
-    success: bool,
-) -> Result<(), Error> {
-    let mut tx = db.begin().await?;
-    add_message_to_conversation_tx(
-        &mut tx,
-        *conversation_id,
-        Some(*job_id),
-        &message_content,
-        message_type,
-        step_name.as_deref(),
-        success,
-    )
-    .await?;
-    tx.commit().await?;
-    Ok(())
-}
 
 pub async fn handle_ai_agent_job(
     // connection
@@ -191,7 +72,6 @@ pub async fn handle_ai_agent_job(
     has_stream: &mut bool,
 ) -> Result<Box<RawValue>, Error> {
     let args = build_args_map(job, client, conn).await?;
-
     let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
 
     let Some(flow_step_id) = &job.flow_step_id else {
@@ -225,6 +105,7 @@ pub async fn handle_ai_agent_job(
     let value = flow_data.value();
 
     let module = value.modules.iter().find(|m| m.id == *flow_step_id);
+    let summary = module.as_ref().and_then(|m| m.summary.clone());
 
     let Some(module) = module else {
         return Err(Error::internal_err(
@@ -238,7 +119,38 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    let tools = futures::future::try_join_all(tools.into_iter().map(|mut t| {
+    // Separate Windmill tools from MCP tools and extract MCP resource configs
+    let mut windmill_modules: Vec<FlowModule> = Vec::new();
+    let mut mcp_configs: Vec<crate::ai::utils::McpResourceConfig> = Vec::new();
+
+    for tool in tools {
+        match &tool.value {
+            ToolValue::Mcp(mcp_config) => {
+                // This is an MCP tool - extract config
+                tracing::debug!(
+                    "MCP server module: path={}, include={:?}, exclude={:?}",
+                    mcp_config.resource_path,
+                    mcp_config.include_tools,
+                    mcp_config.exclude_tools
+                );
+                mcp_configs.push(crate::ai::utils::McpResourceConfig {
+                    resource_path: mcp_config.resource_path.clone(),
+                    include_tools: Some(mcp_config.include_tools.clone()),
+                    exclude_tools: Some(mcp_config.exclude_tools.clone()),
+                });
+            }
+            ToolValue::FlowModule(_) => {
+                // Regular Windmill flow module (script, flow, etc.) - convert to FlowModule
+                tracing::debug!("Windmill module: {:?}", tool.id);
+                if let Some(flow_module) = Option::<FlowModule>::from(&tool) {
+                    windmill_modules.push(flow_module);
+                }
+            }
+        }
+    }
+
+    // Process Windmill flow modules into Tool definitions
+    let tools = futures::future::try_join_all(windmill_modules.into_iter().map(|mut t| {
         let conn = conn;
         let db = db;
         let job = job;
@@ -250,65 +162,69 @@ pub async fn handle_ai_agent_job(
                 )));
             };
 
-            let schema = match &t.get_value() {
-                Ok(FlowModuleValue::Script {
+            // Extract schema and input_transforms from the module value
+            let module_value = t.get_value()?;
+            let (schema, input_transforms) = match &module_value {
+                FlowModuleValue::Script {
                     hash,
                     path,
                     tag_override,
                     input_transforms,
                     is_trigger,
                     pass_flow_input_directly,
-                }) => match hash {
-                    Some(hash) => {
-                        let (_, metadata) = cache::script::fetch(conn, hash.clone()).await?;
-                        Ok::<_, Error>(
-                            metadata
-                                .schema
-                                .clone()
-                                .map(|s| RawValue::from_string(s).ok())
-                                .flatten(),
-                        )
-                    }
-                    None => {
-                        if path.starts_with("hub/") {
-                            let hub_script = get_full_hub_script_by_path(
-                                StripPath(path.to_string()),
-                                &HTTP_CLIENT,
-                                None,
+                } => {
+                    let schema = match hash {
+                        Some(hash) => {
+                            let (_, metadata) = cache::script::fetch(conn, hash.clone()).await?;
+                            Ok::<_, Error>(
+                                metadata
+                                    .schema
+                                    .clone()
+                                    .map(|s| RawValue::from_string(s).ok())
+                                    .flatten(),
                             )
-                            .await?;
-                            Ok(Some(hub_script.schema))
-                        } else {
-                            let hash = get_latest_hash_for_path(db, &job.workspace_id, path, true)
+                        }
+                        None => {
+                            if path.starts_with("hub/") {
+                                let hub_script = get_full_hub_script_by_path(
+                                    StripPath(path.to_string()),
+                                    &HTTP_CLIENT,
+                                    None,
+                                )
+                                .await?;
+                                Ok(Some(hub_script.schema))
+                            } else {
+                                let hash = get_latest_hash_for_path(
+                                    db,
+                                    &job.workspace_id,
+                                    path.as_str(),
+                                    true,
+                                )
                                 .await?
                                 .0;
-                            // update module definition to use a fixed hash so all tool calls match the same schema
-                            t.value = to_raw_value(&FlowModuleValue::Script {
-                                hash: Some(hash),
-                                path: path.clone(),
-                                tag_override: tag_override.clone(),
-                                input_transforms: input_transforms.clone(),
-                                is_trigger: *is_trigger,
-                                pass_flow_input_directly: *pass_flow_input_directly,
-                            });
-                            let (_, metadata) = cache::script::fetch(conn, hash).await?;
-                            Ok(metadata
-                                .schema
-                                .clone()
-                                .map(|s| RawValue::from_string(s).ok())
-                                .flatten())
+                                // update module definition to use a fixed hash so all tool calls match the same schema
+                                t.value = to_raw_value(&FlowModuleValue::Script {
+                                    hash: Some(hash),
+                                    path: path.clone(),
+                                    tag_override: tag_override.clone(),
+                                    input_transforms: input_transforms.clone(),
+                                    is_trigger: *is_trigger,
+                                    pass_flow_input_directly: *pass_flow_input_directly,
+                                });
+                                let (_, metadata) = cache::script::fetch(conn, hash).await?;
+                                Ok(metadata
+                                    .schema
+                                    .clone()
+                                    .map(|s| RawValue::from_string(s).ok())
+                                    .flatten())
+                            }
                         }
-                    }
-                },
-                Ok(FlowModuleValue::RawScript { content, language, .. }) => {
-                    Ok(Some(parse_raw_script_schema(&content, &language)?))
+                    }?;
+                    (schema, input_transforms)
                 }
-                Err(e) => {
-                    return Err(Error::internal_err(format!(
-                        "Invalid tool {}: {}",
-                        summary,
-                        e.to_string()
-                    )));
+                FlowModuleValue::RawScript { content, language, input_transforms, .. } => {
+                    let schema = Some(parse_raw_script_schema(&content, &language)?);
+                    (schema, input_transforms)
                 }
                 _ => {
                     return Err(Error::internal_err(format!(
@@ -316,7 +232,14 @@ pub async fn handle_ai_agent_job(
                         summary
                     )));
                 }
-            }?;
+            };
+
+            // Filter schema based on user given input transforms
+            let schema = if let Some(s) = schema {
+                Some(filter_schema_by_input_transforms(s, input_transforms)?)
+            } else {
+                None
+            };
 
             Ok(Tool {
                 def: ToolDef {
@@ -333,11 +256,22 @@ pub async fn handle_ai_agent_job(
                         }),
                     },
                 },
-                module: t,
+                module: Some(t),
+                mcp_source: None,
             })
         }
     }))
     .await?;
+
+    // Load MCP tools if configured
+    let mut tools = tools;
+    let mcp_clients = if !mcp_configs.is_empty() {
+        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_configs).await?;
+        tools.extend(mcp_tools);
+        clients
+    } else {
+        HashMap::new()
+    };
 
     let mut inner_occupancy_metrics = occupancy_metrics.clone();
 
@@ -354,7 +288,8 @@ pub async fn handle_ai_agent_job(
         parent_job,
         &args,
         &tools,
-        value,
+        &mcp_clients,
+        summary.as_deref(),
         client,
         &mut inner_occupancy_metrics,
         job_completed_tx,
@@ -380,112 +315,10 @@ pub async fn handle_ai_agent_job(
     )
     .await?;
 
+    // Cleanup MCP clients
+    cleanup_mcp_clients(mcp_clients).await;
+
     Ok(result)
-}
-
-/// Find a unique tool name for structured output tool to avoid collisions with user-provided tools
-fn find_unique_tool_name(base_name: &str, existing_tools: Option<&[ToolDef]>) -> String {
-    let Some(tools) = existing_tools else {
-        return base_name.to_string();
-    };
-
-    if !tools.iter().any(|t| t.function.name == base_name) {
-        return base_name.to_string();
-    }
-
-    for i in 1..100 {
-        let candidate = format!("{}_{}", base_name, i);
-        if !tools.iter().any(|t| t.function.name == candidate) {
-            return candidate;
-        }
-    }
-
-    // Fallback with process id if somehow we can't find a unique name
-    format!("{}_{}_fallback", base_name, std::process::id())
-}
-
-async fn update_flow_status_module_with_actions(
-    db: &DB,
-    parent_job: &Uuid,
-    actions: &[AgentAction],
-) -> Result<(), Error> {
-    let step = get_step_of_flow_status(db, parent_job.to_owned()).await?;
-    match step {
-        Step::Step { idx: step, .. } => {
-            sqlx::query!(
-                r#"
-                UPDATE v2_job_status SET
-                    flow_status = jsonb_set(
-                        flow_status,
-                        array['modules', $3::TEXT, 'agent_actions'],
-                        $2
-                    )
-                WHERE id = $1
-                "#,
-                parent_job,
-                sqlx::types::Json(actions) as _,
-                step as i32
-            )
-            .execute(db)
-            .await?;
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
-async fn update_flow_status_module_with_actions_success(
-    db: &DB,
-    parent_job: &Uuid,
-    action_success: bool,
-) -> Result<(), Error> {
-    let step = get_step_of_flow_status(db, parent_job.to_owned()).await?;
-    match step {
-        Step::Step { idx: step, .. } => {
-            // Append the new bool to the existing array, or create a new array if it doesn't exist
-            sqlx::query!(
-                r#"
-                UPDATE v2_job_status SET
-                    flow_status = jsonb_set(
-                        flow_status,
-                        array['modules', $2::TEXT, 'agent_actions_success'],
-                        COALESCE(
-                            flow_status->'modules'->$2->'agent_actions_success',
-                            to_jsonb(ARRAY[]::bool[])
-                        ) || to_jsonb(ARRAY[$3::bool])
-                    )
-                WHERE id = $1
-                "#,
-                parent_job,
-                step as i32,
-                action_success
-            )
-            .execute(db)
-            .await?;
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
-/// Get step name from the flow module (summary if exists, else id)
-fn get_step_name_from_flow(flow_value: &FlowValue, flow_step_id: Option<&str>) -> Option<String> {
-    let flow_step_id = flow_step_id?;
-    let module = flow_value.modules.iter().find(|m| m.id == flow_step_id)?;
-    Some(
-        module
-            .summary
-            .clone()
-            .unwrap_or_else(|| format!("AI Agent Step {}", module.id)),
-    )
-}
-
-/// Check if the provider is Anthropic (either direct or through OpenRouter)
-fn is_anthropic_provider(provider: &ProviderWithResource) -> bool {
-    let provider_is_anthropic = provider.kind.is_anthropic();
-    let is_openrouter_anthropic =
-        provider.kind == AIProvider::OpenRouter && provider.model.starts_with("anthropic/");
-    provider_is_anthropic || is_openrouter_anthropic
 }
 
 #[async_recursion]
@@ -499,7 +332,8 @@ pub async fn run_agent(
     parent_job: &Uuid,
     args: &AIAgentArgs,
     tools: &[Tool],
-    flow_value: &FlowValue,
+    mcp_clients: &HashMap<String, Arc<McpClient>>,
+    summary: Option<&str>,
 
     // job execution context
     client: &AuthedClient,
@@ -531,15 +365,18 @@ pub async fn run_agent(
             vec![]
         };
 
-    let mut chat_settings: Option<FlowChatSettings> = None;
+    // Fetch flow context for input transforms context, chat and memory
+    let mut flow_context = get_flow_context(db, job).await;
 
     // Load previous messages from memory for text output mode (only if context length is set)
     if matches!(output_type, OutputType::Text) {
         if let Some(context_length) = args.messages_context_length.filter(|&n| n > 0) {
             if let Some(step_id) = job.flow_step_id.as_deref() {
-                // Fetch chat settings from root flow
-                chat_settings = Some(get_flow_chat_settings(db, job).await);
-                if let Some(memory_id) = chat_settings.as_ref().and_then(|s| s.memory_id) {
+                if let Some(memory_id) = flow_context
+                    .flow_status
+                    .as_ref()
+                    .and_then(|fs| fs.memory_id)
+                {
                     // Read messages from memory
                     match read_from_memory(&job.workspace_id, memory_id, step_id).await {
                         Ok(Some(loaded_messages)) => {
@@ -565,6 +402,37 @@ pub async fn run_agent(
             }
         }
     }
+
+    // Extract previous step result only if any tool needs it
+    let previous_result = {
+        if any_tool_needs_previous_result(&tools) {
+            if let Some(ref flow_status) = flow_context.flow_status {
+                get_previous_job_result(db, &job.workspace_id, flow_status)
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    // Build IdContext for results.stepId syntax
+    let id_context = {
+        if let Some(ref flow_status) = flow_context.flow_status {
+            // Get the step ID from the AI agent's flow step
+            let previous_id = job
+                .flow_step_id
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string());
+
+            Some(get_transform_context(job, &previous_id, flow_status).await?)
+        } else {
+            None
+        }
+    };
 
     // Create user message with optional images
     let mut parts = vec![ContentPart::Text { text: args.user_message.clone() }];
@@ -736,22 +604,22 @@ pub async fn run_agent(
                             content = Some(OpenAIContent::Text(response_content.clone()));
 
                             // Add assistant message to conversation if chat_input_enabled
-                            if chat_settings.is_none() {
-                                chat_settings = Some(get_flow_chat_settings(db, job).await);
-                            }
-                            let chat_enabled = chat_settings
+                            let chat_enabled = flow_context
+                                .flow_status
                                 .as_ref()
-                                .map(|s| s.chat_input_enabled)
+                                .and_then(|fs| fs.chat_input_enabled)
                                 .unwrap_or(false);
-
                             if chat_enabled && !response_content.is_empty() {
-                                if let Some(mid) = chat_settings.as_ref().and_then(|s| s.memory_id)
+                                if let Some(memory_id) = flow_context
+                                    .flow_status
+                                    .as_ref()
+                                    .and_then(|fs| fs.memory_id)
                                 {
                                     let agent_job_id = job.id;
                                     let db_clone = db.clone();
                                     let message_content = response_content.clone();
                                     let step_name = get_step_name_from_flow(
-                                        flow_value,
+                                        summary.as_deref(),
                                         job.flow_step_id.as_deref(),
                                     );
 
@@ -759,8 +627,8 @@ pub async fn run_agent(
                                     tokio::spawn(async move {
                                         if let Err(e) = add_message_to_conversation(
                                             &db_clone,
-                                            &mid,
-                                            &agent_job_id,
+                                            &memory_id,
+                                            Some(agent_job_id),
                                             &message_content,
                                             MessageType::Assistant,
                                             &step_name,
@@ -768,7 +636,7 @@ pub async fn run_agent(
                                         )
                                         .await
                                         {
-                                            tracing::warn!("Failed to add assistant message to conversation {}: {}", mid, e);
+                                            tracing::warn!("Failed to add assistant message to conversation {}: {}", memory_id, e);
                                         }
                                     });
                                 }
@@ -790,481 +658,44 @@ pub async fn run_agent(
                             ..Default::default()
                         });
 
-                        // Handle tool calls (keeping existing tool execution logic)
-                        for tool_call in tool_calls.iter() {
-                            // Stream tool call progress
-                            if let Some(ref stream_event_processor) = stream_event_processor {
-                                let event = StreamingEvent::ToolExecution {
-                                    call_id: tool_call.id.clone(),
-                                    function_name: tool_call.function.name.clone(),
-                                };
-                                stream_event_processor
-                                    .send(event, &mut final_events_str)
-                                    .await?;
-                            }
+                        // Handle tool calls using extracted tools module
+                        let tool_execution_ctx = ToolExecutionContext {
+                            db,
+                            conn,
+                            job,
+                            parent_job,
+                            summary: &summary,
+                            client,
+                            worker_dir,
+                            base_internal_url,
+                            worker_name,
+                            hostname,
+                            occupancy_metrics,
+                            job_completed_tx,
+                            killpill_rx,
+                            stream_event_processor: stream_event_processor.as_ref(),
+                            flow_context: &mut flow_context,
+                            previous_result: &previous_result,
+                            id_context: &id_context,
+                        };
 
-                            // Check if this is the structured output tool
-                            if structured_output_tool_name
-                                .as_ref()
-                                .map_or(false, |name| tool_call.function.name == *name)
-                            {
-                                used_structured_output_tool = true;
-                                messages.push(OpenAIMessage {
-                                    role: "tool".to_string(),
-                                    content: Some(OpenAIContent::Text(
-                                        "Successfully ran structured_output tool".to_string(),
-                                    )),
-                                    tool_call_id: Some(tool_call.id.clone()),
-                                    ..Default::default()
-                                });
-                                messages.push(OpenAIMessage {
-                                    role: "assistant".to_string(),
-                                    content: Some(OpenAIContent::Text(
-                                        tool_call.function.arguments.clone(),
-                                    )),
-                                    agent_action: Some(AgentAction::Message {}),
-                                    ..Default::default()
-                                });
-                                content =
-                                    Some(OpenAIContent::Text(tool_call.function.arguments.clone()));
-                                break;
-                            }
+                        let (tool_messages, tool_content, tool_used_structured_output) =
+                            execute_tool_calls(
+                                tool_execution_ctx,
+                                &tool_calls,
+                                &tools,
+                                mcp_clients,
+                                &mut actions,
+                                &mut final_events_str,
+                                &structured_output_tool_name,
+                            )
+                            .await?;
 
-                            // Execute regular tool
-                            let tool = tools
-                                .iter()
-                                .find(|t| t.def.function.name == tool_call.function.name);
-                            if let Some(tool) = tool {
-                                let job_id = ulid::Ulid::new().into();
-                                actions.push(AgentAction::ToolCall {
-                                    job_id,
-                                    function_name: tool_call.function.name.clone(),
-                                    module_id: tool.module.id.clone(),
-                                });
-
-                                update_flow_status_module_with_actions(db, parent_job, &actions)
-                                    .await?;
-
-                                let raw_tool_call_args = if tool_call.function.arguments.is_empty()
-                                {
-                                    "{}".to_string()
-                                } else {
-                                    tool_call.function.arguments.clone()
-                                };
-                                let tool_call_args =
-                                    serde_json::from_str::<HashMap<String, Box<RawValue>>>(
-                                        &raw_tool_call_args,
-                                    )
-                                    .with_context(|| {
-                                        format!(
-                                        "Failed to parse tool call arguments for tool call {}: {}",
-                                        tool_call.function.name, tool_call.function.arguments
-                                    )
-                                    })?;
-
-                                let job_payload = match tool.module.get_value()? {
-                                    FlowModuleValue::Script {
-                                        path: script_path,
-                                        hash: script_hash,
-                                        tag_override,
-                                        ..
-                                    } => {
-                                        let payload = script_to_payload(
-                                            script_hash,
-                                            script_path,
-                                            db,
-                                            job,
-                                            &tool.module,
-                                            tag_override,
-                                            tool.module.apply_preprocessor,
-                                        )
-                                        .await?;
-                                        payload
-                                    }
-                                    FlowModuleValue::RawScript {
-                                        path,
-                                        content,
-                                        language,
-                                        lock,
-                                        tag,
-                                        custom_concurrency_key,
-                                        concurrent_limit,
-                                        concurrency_time_window_s,
-                                        ..
-                                    } => {
-                                        let path = path.unwrap_or_else(|| {
-                                            format!(
-                                                "{}/tools/{}",
-                                                job.runnable_path(),
-                                                tool.module.id
-                                            )
-                                        });
-
-                                        let payload = raw_script_to_payload(
-                                            path,
-                                            content,
-                                            language,
-                                            lock,
-                                            custom_concurrency_key,
-                                            concurrent_limit,
-                                            concurrency_time_window_s,
-                                            &tool.module,
-                                            tag,
-                                            tool.module.delete_after_use.unwrap_or(false),
-                                        );
-                                        payload
-                                    }
-                                    _ => {
-                                        return Err(Error::internal_err(format!(
-                                            "Unsupported tool: {}",
-                                            tool_call.function.name
-                                        )));
-                                    }
-                                };
-
-                                let mut tx = db.begin().await?;
-
-                                let job_perms = windmill_common::auth::get_job_perms(
-                                    &mut *tx,
-                                    &job.id,
-                                    &job.workspace_id,
-                                )
-                                .await?
-                                .map(|x| x.into());
-
-                                let (email, permissioned_as) =
-                                    if let Some(on_behalf_of) = job_payload.on_behalf_of.as_ref() {
-                                        (&on_behalf_of.email, on_behalf_of.permissioned_as.clone())
-                                    } else {
-                                        (&job.permissioned_as_email, job.permissioned_as.to_owned())
-                                    };
-
-                                let job_priority = tool.module.priority.or(job.priority);
-
-                                let tx = PushIsolationLevel::Transaction(tx);
-                                let (uuid, tx) = push(
-                                    db,
-                                    tx,
-                                    &job.workspace_id,
-                                    job_payload.payload,
-                                    PushArgs { args: &tool_call_args, extra: None },
-                                    &job.created_by,
-                                    email,
-                                    permissioned_as,
-                                    Some(&format!("job-span-{}", job.id)),
-                                    None,
-                                    job.schedule_path(),
-                                    Some(job.id),
-                                    None,
-                                    None,
-                                    Some(job_id),
-                                    false,
-                                    false,
-                                    None,
-                                    job.visible_to_owner,
-                                    Some(job.tag.clone()),
-                                    job_payload.timeout,
-                                    None,
-                                    job_priority,
-                                    job_perms.as_ref(),
-                                    true,
-                                    None,
-                                    None,
-                                )
-                                .await?;
-
-                                tx.commit().await?;
-
-                                let tool_job = get_mini_pulled_job(db, &uuid).await?;
-
-                                let Some(tool_job) = tool_job else {
-                                    return Err(Error::internal_err(
-                                        "Tool job not found".to_string(),
-                                    ));
-                                };
-
-                                let tool_job = Arc::new(tool_job);
-
-                                let (inner_job_completed_tx, inner_job_completed_rx) =
-                                    JobCompletedSender::new(&conn, 1);
-
-                                let inner_job_completed_rx = inner_job_completed_rx.expect(
-                                     "inner_job_completed_tx should be set as agent jobs are not supported on agent workers",
-                                 );
-
-                                // Spawn handle_queued_job on separate task to prevent tokio stack overflow
-                                // Clone everything needed for the spawned task
-                                let tool_job_spawn = tool_job.clone();
-                                let conn_spawn = conn.clone();
-                                let client_spawn = client.clone();
-                                let hostname_spawn = hostname.to_string();
-                                let worker_name_spawn = worker_name.to_string();
-                                let worker_dir_spawn = worker_dir.to_string();
-                                let base_internal_url_spawn = base_internal_url.to_string();
-                                let inner_job_completed_tx_spawn = inner_job_completed_tx.clone();
-                                let mut occupancy_metrics_spawn = occupancy_metrics.clone();
-                                let mut killpill_rx_spawn = killpill_rx.resubscribe();
-
-                                // Spawn on separate tokio task with fresh stack
-                                let join_handle = tokio::task::spawn(async move {
-                                    #[cfg(feature = "benchmark")]
-                                    let mut bench_spawn =
-                                        windmill_common::bench::BenchmarkIter::new();
-
-                                    let job_dir =
-                                        create_job_dir(&worker_dir_spawn, tool_job_spawn.id).await;
-
-                                    let result = handle_queued_job(
-                                        tool_job_spawn,
-                                        None,
-                                        None,
-                                        None,
-                                        None,
-                                        &conn_spawn,
-                                        &client_spawn,
-                                        &hostname_spawn,
-                                        &worker_name_spawn,
-                                        &worker_dir_spawn,
-                                        &job_dir,
-                                        None,
-                                        &base_internal_url_spawn,
-                                        inner_job_completed_tx_spawn,
-                                        &mut occupancy_metrics_spawn,
-                                        &mut killpill_rx_spawn,
-                                        None,
-                                        #[cfg(feature = "benchmark")]
-                                        &mut bench_spawn,
-                                    )
-                                    .await;
-
-                                    // Return both result and updated metrics
-                                    (result, occupancy_metrics_spawn)
-                                });
-
-                                // Await the spawned task
-                                let (handle_result, updated_occupancy) =
-                                    join_handle.await.map_err(|e| {
-                                        Error::internal_err(format!(
-                                            "Tool execution task failed: {}",
-                                            e
-                                        ))
-                                    })?;
-
-                                // Merge occupancy metrics back
-                                occupancy_metrics.total_duration_of_running_jobs =
-                                    updated_occupancy.total_duration_of_running_jobs;
-
-                                // Continue with match on handle_result
-                                match handle_result {
-                                    Err(err) => {
-                                        let err_string =
-                                            format!("{}: {}", err.name(), err.to_string());
-                                        let err_json = error_to_value(&err);
-                                        let _ = handle_non_flow_job_error(
-                                            db,
-                                            &tool_job,
-                                            0,
-                                            None,
-                                            err_string.clone(),
-                                            err_json,
-                                            worker_name,
-                                        )
-                                        .await;
-                                        let error_message =
-                                            format!("Error running tool: {}", err_string);
-                                        messages.push(OpenAIMessage {
-                                            role: "tool".to_string(),
-                                            content: Some(OpenAIContent::Text(
-                                                error_message.clone(),
-                                            )),
-                                            tool_call_id: Some(tool_call.id.clone()),
-                                            agent_action: Some(AgentAction::ToolCall {
-                                                job_id,
-                                                function_name: tool_call.function.name.clone(),
-                                                module_id: tool.module.id.clone(),
-                                            }),
-                                            ..Default::default()
-                                        });
-                                        // Stream tool result (error case)
-                                        if let Some(ref stream_event_processor) =
-                                            stream_event_processor
-                                        {
-                                            let tool_result_event = StreamingEvent::ToolResult {
-                                                call_id: tool_call.id.clone(),
-                                                function_name: tool_call.function.name.clone(),
-                                                result: error_message.clone(),
-                                                success: false,
-                                            };
-                                            stream_event_processor
-                                                .send(tool_result_event, &mut final_events_str)
-                                                .await?;
-                                        }
-
-                                        update_flow_status_module_with_actions_success(
-                                            db, parent_job, false,
-                                        )
-                                        .await?;
-
-                                        // Add tool message to conversation if chat_input_enabled (error case)
-                                        if chat_settings.is_none() {
-                                            chat_settings =
-                                                Some(get_flow_chat_settings(db, job).await);
-                                        }
-                                        let chat_enabled = chat_settings
-                                            .as_ref()
-                                            .map(|s| s.chat_input_enabled)
-                                            .unwrap_or(false);
-
-                                        if chat_enabled {
-                                            if let Some(mid) =
-                                                chat_settings.as_ref().and_then(|s| s.memory_id)
-                                            {
-                                                let tool_job_id = job_id;
-                                                let db_clone = db.clone();
-                                                let step_name = get_step_name_from_flow(
-                                                    flow_value,
-                                                    job.flow_step_id.as_deref(),
-                                                );
-
-                                                // Spawn task because we do not need to wait for the result
-                                                tokio::spawn(async move {
-                                                    if let Err(e) = add_message_to_conversation(
-                                                        &db_clone,
-                                                        &mid,
-                                                        &tool_job_id,
-                                                        &error_message,
-                                                        MessageType::Tool,
-                                                        &step_name,
-                                                        false,
-                                                    )
-                                                    .await
-                                                    {
-                                                        tracing::warn!("Failed to add tool error message to conversation {}: {}", mid, e);
-                                                    }
-                                                });
-                                            }
-                                        }
-                                    }
-                                    Ok(success) => {
-                                        let send_result =
-                                            inner_job_completed_rx.bounded_rx.try_recv().ok();
-
-                                        let result = if let Some(SendResult {
-                                            result:
-                                                SendResultPayload::JobCompleted(JobCompleted {
-                                                    result,
-                                                    ..
-                                                }),
-                                            ..
-                                        }) = send_result.as_ref()
-                                        {
-                                            job_completed_tx
-                                                .send(
-                                                    send_result.as_ref().unwrap().result.clone(),
-                                                    true,
-                                                )
-                                                .await
-                                                .map_err(to_anyhow)?;
-                                            result
-                                        } else {
-                                            if let Some(send_result) = send_result {
-                                                job_completed_tx
-                                                    .send(send_result.result, true)
-                                                    .await
-                                                    .map_err(to_anyhow)?;
-                                            }
-                                            return Err(Error::internal_err(
-                                                "Tool job completed but no result".to_string(),
-                                            ));
-                                        };
-                                        messages.push(OpenAIMessage {
-                                            role: "tool".to_string(),
-                                            content: Some(OpenAIContent::Text(
-                                                result.get().to_string(),
-                                            )),
-                                            tool_call_id: Some(tool_call.id.clone()),
-                                            agent_action: Some(AgentAction::ToolCall {
-                                                job_id,
-                                                function_name: tool_call.function.name.clone(),
-                                                module_id: tool.module.id.clone(),
-                                            }),
-                                            ..Default::default()
-                                        });
-
-                                        // Stream tool result (success case)
-                                        if let Some(ref stream_event_processor) =
-                                            stream_event_processor
-                                        {
-                                            let tool_result_event = StreamingEvent::ToolResult {
-                                                call_id: tool_call.id.clone(),
-                                                function_name: tool_call.function.name.clone(),
-                                                result: result.get().to_string(),
-                                                success: true,
-                                            };
-                                            stream_event_processor
-                                                .send(tool_result_event, &mut final_events_str)
-                                                .await?;
-                                        }
-
-                                        update_flow_status_module_with_actions_success(
-                                            db, parent_job, success,
-                                        )
-                                        .await?;
-
-                                        // Add tool message to conversation if chat_input_enabled
-                                        if chat_settings.is_none() {
-                                            chat_settings =
-                                                Some(get_flow_chat_settings(db, job).await);
-                                        }
-                                        let chat_enabled = chat_settings
-                                            .as_ref()
-                                            .map(|s| s.chat_input_enabled)
-                                            .unwrap_or(false);
-
-                                        if chat_enabled {
-                                            if let Some(mid) =
-                                                chat_settings.as_ref().and_then(|s| s.memory_id)
-                                            {
-                                                let tool_job_id = job_id;
-                                                let db_clone = db.clone();
-                                                let tool_name = tool_call.function.name.clone();
-                                                let step_name = get_step_name_from_flow(
-                                                    flow_value,
-                                                    job.flow_step_id.as_deref(),
-                                                );
-                                                let content = if success {
-                                                    format!("Used {} tool", tool_name)
-                                                } else {
-                                                    format!("Error executing {}", tool_name)
-                                                };
-
-                                                // Spawn task because we do not need to wait for the result
-                                                tokio::spawn(async move {
-                                                    if let Err(e) = add_message_to_conversation(
-                                                        &db_clone,
-                                                        &mid,
-                                                        &tool_job_id,
-                                                        &content,
-                                                        MessageType::Tool,
-                                                        &step_name,
-                                                        success,
-                                                    )
-                                                    .await
-                                                    {
-                                                        tracing::warn!("Failed to add tool message to conversation {}: {}", mid, e);
-                                                    }
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                return Err(Error::internal_err(format!(
-                                    "Tool not found: {}",
-                                    tool_call.function.name
-                                )));
-                            }
+                        messages.extend(tool_messages);
+                        if let Some(tc) = tool_content {
+                            content = Some(tc);
                         }
+                        used_structured_output_tool = tool_used_structured_output;
                     }
                     ParsedResponse::Image { base64_data } => {
                         // For image output with tools, we got an image response
@@ -1336,7 +767,7 @@ pub async fn run_agent(
                     let start_idx = all_messages.len().saturating_sub(context_length);
                     let messages_to_persist = all_messages[start_idx..].to_vec();
 
-                    if let Some(memory_id) = chat_settings.as_ref().and_then(|s| s.memory_id) {
+                    if let Some(memory_id) = flow_context.flow_status.and_then(|fs| fs.memory_id) {
                         if let Err(e) = write_to_memory(
                             &job.workspace_id,
                             memory_id,

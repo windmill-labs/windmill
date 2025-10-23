@@ -54,8 +54,12 @@ pub mod job_s3_helpers_ee;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_oss;
 
+#[cfg(feature = "private")]
+pub mod git_sync_ee;
+pub mod git_sync_oss;
 pub mod jobs;
 pub mod jwt;
+pub mod mcp_client;
 pub mod more_serde;
 pub mod oauth2;
 #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
@@ -87,9 +91,6 @@ pub mod variables;
 pub mod worker;
 pub mod worker_group_job_stats;
 pub mod workspaces;
-#[cfg(feature = "private")]
-pub mod git_sync_ee;
-pub mod git_sync_oss;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 5;
@@ -206,18 +207,17 @@ pub async fn shutdown_signal(
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         tokio::select! {
             _ = terminate() => {
-                tracing::info!("2nd shutdown monitor received terminate");
+                tracing::error!("2nd shutdown monitor received terminate");
             },
             _ = tokio::signal::ctrl_c() => {
-                tracing::info!("2nd shutdown monitor received ctrl-c");
+                tracing::error!("2nd shutdown monitor received ctrl-c");
             },
         }
 
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {},
-            _ = rx.recv() => {
-                tracing::info!("2nd shutdown monitor received killpill");
+            _ = tokio::signal::ctrl_c() => {
+                tracing::error!("2nd shutdown monitor received ctrl-c")
             },
         }
 

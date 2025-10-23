@@ -3178,7 +3178,9 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
-        if value_with_parallel.type_ == "forloopflow" && value_with_parallel.parallel.unwrap_or(false) {
+        if value_with_parallel.type_ == "forloopflow"
+            && value_with_parallel.parallel.unwrap_or(false)
+        {
             if let Some(parallelism_transform) = &value_with_parallel.parallelism {
                 tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
 
@@ -4572,7 +4574,7 @@ pub async fn script_to_payload(
     })
 }
 
-async fn get_transform_context(
+pub async fn get_transform_context(
     flow_job: &MiniPulledJob,
     previous_id: &str,
     status: &FlowStatus,
@@ -4639,7 +4641,7 @@ fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(Suspend, Uuid)
 }
 
 // returns the result of the previous step of a running flow (if the job was successful)
-async fn get_previous_job_result(
+pub async fn get_previous_job_result(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
     flow_status: &FlowStatus,

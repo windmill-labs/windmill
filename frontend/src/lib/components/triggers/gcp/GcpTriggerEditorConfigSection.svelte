@@ -191,8 +191,7 @@
 							/>
 							<Button
 								disabled={!can_write}
-								variant="border"
-								color="light"
+								variant="default"
 								wrapperClasses="self-stretch"
 								on:click={loadAllPubSubTopicsFromProject}
 								startIcon={{ icon: RefreshCw }}
@@ -284,7 +283,7 @@
 											<Url url={`${base_endpoint}/${path}`} label="Production URL" />
 										</div>
 										<Subsection label="Authenticate">
-											<p class="text-xs mb-2 text-tertiary">
+											<p class="text-xs mb-2 text-primary">
 												Enable Google Cloud authentication for push delivery using a verified token.<Required
 													required={true}
 												/>
@@ -327,8 +326,7 @@
 									/>
 									<Button
 										disabled={!can_write}
-										variant="border"
-										color="light"
+										variant="default"
 										wrapperClasses="self-stretch"
 										on:click={loadAllSubscriptionFromGooglePubSubTopic}
 										startIcon={{ icon: RefreshCw }}

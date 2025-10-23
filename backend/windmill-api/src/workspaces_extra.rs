@@ -85,6 +85,10 @@ pub(crate) async fn delete_workspace(
         require_super_admin(&db, &authed.email).await?;
     }
 
+    sqlx::query!("DELETE FROM workspace_env WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
+
     sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
