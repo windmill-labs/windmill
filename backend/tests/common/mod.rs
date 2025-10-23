@@ -12,9 +12,8 @@ use windmill_api_client::types::NewScript;
 #[cfg(feature = "python")]
 use windmill_common::flow_status::FlowStatusModule;
 use windmill_common::{
-    agent_workers::AGENT_JWT_PREFIX,
     jobs::{JobKind, JobPayload, RawCode},
-    jwt::{encode_with_internal_secret, JWT_SECRET},
+    jwt::JWT_SECRET,
     scripts::{ScriptHash, ScriptLang},
     worker::{Connection, WORKER_CONFIG},
     KillpillSender,
@@ -768,13 +767,15 @@ pub async fn testing_http_connection(port: u16) -> Connection {
         &suffix,
         Some(format!(
             "{}{}",
-            AGENT_JWT_PREFIX,
-            encode_with_internal_secret(windmill_api::agent_workers_ee::AgentAuth {
-                worker_group: "testing-agent".to_owned(),
-                suffix: Some(suffix.clone()),
-                tags: vec!["flow".into(), "python3".into(), "dependency".into()],
-                exp: Some(usize::MAX),
-            })
+            windmill_common::agent_workers::AGENT_JWT_PREFIX,
+            windmill_common::jwt::encode_with_internal_secret(
+                windmill_api::agent_workers_ee::AgentAuth {
+                    worker_group: "testing-agent".to_owned(),
+                    suffix: Some(suffix.clone()),
+                    tags: vec!["flow".into(), "python3".into(), "dependency".into()],
+                    exp: Some(usize::MAX),
+                }
+            )
             .await
             .expect("JWT token to be created")
         )),
