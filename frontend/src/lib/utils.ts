@@ -1647,10 +1647,11 @@ export function getCssColor(
 
 export type IconType = Component<{ size?: number }> | typeof import('lucide-svelte').Dot
 
+let sendAlternativesToastOnTimeoutList: Record<string, { toastAppearedAt: number }> = {}
 export async function sendAlternativesToastOnTimeout<T>(
 	promise: CancelablePromise<T>,
 	actions: ToastAction[],
-	{ timeoutMs = 3000, message = 'Operation taking longer than expected' } = {}
+	{ timeoutMs = 3000, message = 'Operation taking longer than expected', id = '' } = {}
 ): Promise<{ status: 'ok'; value: T } | { status: 'cancelled'; value?: undefined }> {
 	let timeout = setTimeout(() => {
 		actions = actions.map((action) => ({
@@ -1660,7 +1661,16 @@ export async function sendAlternativesToastOnTimeout<T>(
 				return action.callback?.()
 			}
 		}))
-		sendUserToast(message, true, actions)
+
+		// Avoid spamming when multiple timeouts occur rapidly
+		if (
+			!id ||
+			!sendAlternativesToastOnTimeoutList[id] ||
+			Date.now() - sendAlternativesToastOnTimeoutList[id].toastAppearedAt > 30000
+		) {
+			sendUserToast(message, true, actions, undefined, 8000)
+			if (id) sendAlternativesToastOnTimeoutList[id] = { toastAppearedAt: Date.now() }
+		}
 	}, timeoutMs)
 	try {
 		let result = await promise

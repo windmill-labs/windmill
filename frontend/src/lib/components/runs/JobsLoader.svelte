@@ -13,7 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 
 	import { tweened, type Tweened } from 'svelte/motion'
-	import { subtractDaysFromDateString } from '$lib/utils'
+	import { sendAlternativesToastOnTimeout, subtractDaysFromDateString } from '$lib/utils'
 
 	interface Props {
 		jobs: Job[] | undefined
@@ -158,7 +158,7 @@
 		try {
 			let scriptPathStart = folder === null || folder === '' ? undefined : `f/${folder}/`
 			let scriptPathExact = path === null || path === '' ? undefined : path
-			return JobService.listJobs({
+			let promise = JobService.listJobs({
 				workspace: $workspaceStore!,
 				createdOrStartedBefore: startedBefore,
 				createdOrStartedAfter: startedAfter,
@@ -200,6 +200,7 @@
 				perPage,
 				allowWildcards: allowWildcards ? true : undefined
 			})
+			return (await sendAlternativesToastOnTimeout(promise, [], { id: 'list-jobs' })).value ?? []
 		} catch (e) {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
 			console.error(e)

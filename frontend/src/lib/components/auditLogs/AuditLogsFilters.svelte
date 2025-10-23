@@ -137,7 +137,8 @@
 					}),
 					perPage == 25
 						? []
-						: [{ label: 'Reduce to 25 items per page', callback: () => updatePerPage(25) }]
+						: [{ label: 'Reduce to 25 items per page', callback: () => updatePerPage(25) }],
+					{ id: 'list-audit-logs' }
 				)
 			).value ?? []
 		hasMore = logs.length > 0 && logs.length === perPage
