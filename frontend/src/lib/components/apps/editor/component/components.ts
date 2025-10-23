@@ -3609,12 +3609,12 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: false,
 					tooltip: 'Make button invisible when app is used outside of the edit mode'
 				},
-				buttonLabel: {
+				label: {
 					type: 'static',
 					fieldType: 'text',
 					value: 'Press me'
 				},
-				buttonColor: {
+				color: {
 					fieldType: 'select',
 					type: 'static',
 
@@ -3622,14 +3622,14 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					value: 'blue',
 					tooltip: 'These presets can be overwritten with custom styles.'
 				},
-				buttonSize: {
+				size: {
 					fieldType: 'select',
 					type: 'static',
 
 					selectOptions: selectOptions.buttonSizeOptions,
 					value: 'xs'
 				},
-				buttonFillContainer: {
+				fillContainer: {
 					fieldType: 'boolean',
 					type: 'static',
 
@@ -3637,10 +3637,16 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					tooltip:
 						'This will make the button fill the container width and height. Height and width can be overwritten with custom styles.'
 				},
-				buttonDisabled: {
+				disabled: {
 					fieldType: 'boolean',
 					type: 'static',
 					value: false
+				},
+				tooltip: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					tooltip: 'Tooltip text to show on hover'
 				}
 			},
 			componentInput: undefined,

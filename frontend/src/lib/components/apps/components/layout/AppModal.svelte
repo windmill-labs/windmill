@@ -138,10 +138,16 @@
 {#if everRender}
 	<div class="h-full w-full">
 		<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
+			<div
+				class="inline-flex"
+				title={resolvedConfig.tooltip && String(resolvedConfig.tooltip).length > 0
+					? String(resolvedConfig.tooltip)
+					: undefined}
+			>
 			<Button
 				btnClasses={twMerge(css?.button?.class, 'wm-button', 'wm-modal-button')}
 				wrapperClasses={twMerge(
-					resolvedConfig?.buttonFillContainer ? 'w-full h-full' : '',
+					resolvedConfig?.fillContainer ? 'w-full h-full' : '',
 					css?.buttonContainer?.class,
 					'wm-button-container',
 					'wm-modal-button-container',
@@ -151,7 +157,7 @@
 				)}
 				style={css?.button?.style}
 				wrapperStyle={css?.buttonContainer?.style}
-				disabled={resolvedConfig.buttonDisabled}
+				disabled={resolvedConfig.disabled}
 				on:pointerdown={(e) => {
 					e?.stopPropagation()
 				}}
@@ -162,12 +168,13 @@
 					}
 					disposable?.openDrawer()
 				}}
-				extendedSize={resolvedConfig.buttonSize}
-				color={resolvedConfig.buttonColor}
+				extendedSize={resolvedConfig.size}
+				color={resolvedConfig.color}
 				variant="contained"
 			>
-				<div>{resolvedConfig.buttonLabel}</div>
-			</Button>
+					<div>{resolvedConfig.label}</div>
+				</Button>
+			</div>
 		</AlignWrapper>
 	</div>
 	<Portal target="#app-editor-top-level-drawer" name="app-modal">
