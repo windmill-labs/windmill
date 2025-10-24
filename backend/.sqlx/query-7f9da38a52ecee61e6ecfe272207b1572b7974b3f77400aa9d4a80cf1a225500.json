@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            INSERT INTO\n                workspace (id, name, owner, deleted, premium, parent_workspace_id)\n            SELECT $1, $2, owner, deleted, premium, $3\n            FROM \n                workspace \n            WHERE \n                id = $4\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7f9da38a52ecee61e6ecfe272207b1572b7974b3f77400aa9d4a80cf1a225500"
+}
