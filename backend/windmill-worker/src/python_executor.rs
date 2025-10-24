@@ -546,9 +546,7 @@ pub async fn handle_python_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
-    stacker::remaining_stack().map(|remaining| {
-        println!("Remaining stack 3: {} bytes", remaining);
-    });
+
     let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
     let annotations = PythonAnnotations::parse(inner_content);

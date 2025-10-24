@@ -170,15 +170,10 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
     // This is needed because we've split off the real main function above
     let code_with_fake_main = format!("{}\n\ndef main(): pass", code);
 
-    println!("code_with_fake_main: {}", code_with_fake_main);
-    stacker::remaining_stack().map(|remaining| {
-        println!("Remaining stack: {} bytes", remaining);
-    });
 
     let ast = Suite::parse(&code_with_fake_main, "main.py").map_err(|e| {
         error::Error::ExecutionErr(format!("Error parsing code for imports: {}", e.to_string()))
     })?;
-    println!("ast: {:?}", ast);
     // Note: We're still using the original code for finding pins,
     // as the TextRange values from the parsed AST would be based on code_with_fake_main
     // but we want to match against the original code
