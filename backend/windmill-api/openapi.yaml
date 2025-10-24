@@ -15466,6 +15466,10 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
+        debounce_key:
+          type: string
+        debounce_delay_s:
+          type: number
 
       required:
         - hash

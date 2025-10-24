@@ -10,7 +10,7 @@ async function migrate(
   opts: GlobalOptions & {
     token?: string;
     remote?: string;
-    sourceWorkspaceId?: string;
+    sourceWorkspace?: string;
   },
   targetWorkspaceId: string
 ) {
@@ -18,12 +18,12 @@ async function migrate(
   let remote: string;
   let sourceWorkspaceId: string;
 
-  if (opts.token && opts.remote && opts.sourceWorkspaceId) {
+  if (opts.token && opts.remote && opts.sourceWorkspace) {
     token = opts.token;
     remote = opts.remote.endsWith("/")
       ? opts.remote.substring(0, opts.remote.length - 1)
       : opts.remote;
-    sourceWorkspaceId = opts.sourceWorkspaceId;
+    sourceWorkspaceId = opts.sourceWorkspace;
     log.info(
       colors.blue("Running in worker job mode with provided credentials")
     );
@@ -117,10 +117,10 @@ const command = new Command()
   .name("migrate")
   .description("Migrate workspace data from source to target workspace")
   .arguments("<target_workspace_id:string>")
-  .option("--token <token:string>", "API token for worker job mode")
-  .option("--remote <url:string>", "Remote URL for worker job mode")
+  .option("-t --token <token:string>", "API token for worker job mode")
+  .option("-r --remote <url:string>", "Remote URL for worker job mode")
   .option(
-    "--source-workspace <workspace:string>",
+    "-s --source-workspace <workspace:string>",
     "Source workspace ID (defaults to active workspace in CLI mode, required in worker job mode)"
   )
   .action(migrate as any);
