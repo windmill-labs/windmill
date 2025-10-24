@@ -69,7 +69,8 @@
 		'spotify',
 		'snowflake_oauth',
 		'teams',
-		'xero'
+		'xero',
+		'apify'
 	]
 
 	let oauth_name = $state(undefined)
