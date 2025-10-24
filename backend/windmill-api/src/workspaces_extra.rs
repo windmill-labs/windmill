@@ -47,15 +47,6 @@ fn default_batch_size() -> i64 {
     DEFAULT_BATCH_SIZE
 }
 
-#[derive(Default, Deserialize, Serialize, Debug, Clone, Copy, PartialEq)]
-#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
-pub enum MigrationType {
-    #[default]
-    All,
-    Metadata,
-    Jobs,
-}
-
 #[derive(Deserialize)]
 pub(crate) struct DeleteWorkspaceQuery {
     pub(crate) only_delete_forks: Option<bool>,
