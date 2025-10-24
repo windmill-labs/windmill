@@ -577,6 +577,12 @@ def main():
         async fn test_1(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             // This tests if debouncing and consolidation works.
             // Also makes sures that dependency job does not create new flow version
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
 
             let (client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
@@ -792,6 +798,12 @@ def main():
         async fn test_left(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             use crate::common::RunJob;
 
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
             // TODO: We don't care about timer. If there is no timer, it will be set automatically for djobs??
             let (_client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
@@ -1114,6 +1126,12 @@ def main():
         // #[windmill::all_min_versions]
         async fn test_3(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             // This tests checks if concurrency limit works correcly and there is no race conditions.
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
 
             let (_client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
@@ -1441,6 +1459,12 @@ WHERE
         #[cfg(feature = "python")]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_1(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
             // This tests if debouncing and consolidation works.
             // Also makes sures that dependency job does not create new flow version
 
@@ -1620,6 +1644,12 @@ WHERE
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_left(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             use crate::common::RunJob;
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
 
             // TODO: We don't care about timer. If there is no timer, it will be set automatically for djobs??
             let (_client, port, _s) = init_client(db.clone()).await;
@@ -1929,6 +1959,12 @@ WHERE
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         // TODO: Same test_but script fails.
         async fn test_1(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
             // This tests if debouncing and consolidation works.
             // Also makes sures that dependency job does not create new flow version
             let (client, port, _s) = init_client(db.clone()).await;
@@ -2172,6 +2208,12 @@ WHERE
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_left(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             use crate::common::RunJob;
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
 
             // TODO: We don't care about timer. If there is no timer, it will be set automatically for djobs??
             let (_client, port, _s) = init_client(db.clone()).await;
@@ -2281,6 +2323,7 @@ WHERE
                 .await
                 .unwrap();
 
+            dbg!(&r);
             assert_eq!(r.len(), 4);
             assert!(r.contains(&Some(-221349019907577876)));
             assert!(r.contains(&Some(533400)));

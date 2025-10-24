@@ -1546,13 +1546,15 @@ pub async fn run_worker(
                 Ok(_) | Err(broadcast::error::TryRecvError::Closed) => true,
                 _ => false,
             } {
-                if !killed_but_draining_same_worker_jobs && job_completed_tx.is_sql() {
+                if !killed_but_draining_same_worker_jobs {
                     killed_but_draining_same_worker_jobs = true;
-                    tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received in worker main loop, sending killpill job");
-                    job_completed_tx
-                        .kill()
-                        .await
-                        .expect("send kill to job completed tx");
+                    if job_completed_tx.is_sql() {
+                        tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received in worker main loop, sending killpill job");
+                        job_completed_tx
+                            .kill()
+                            .await
+                            .expect("send kill to job completed tx");
+                    }
                 }
                 continue;
             } else if killed_but_draining_same_worker_jobs {
@@ -2724,22 +2726,22 @@ pub async fn handle_queued_job(
                     });
 
                     println!("=== Variables in scope ===");
-println!("job: {}", std::mem::size_of_val(job));
-println!("preview: {}", std::mem::size_of_val(&preview));
-if let Some(ref p) = preview {
-    println!("preview contents: {}", std::mem::size_of_val(&**p));
-}
-println!("conn: {}", std::mem::size_of_val(conn));
-println!("client: {}", std::mem::size_of_val(client));
-println!("mem_peak: {}", std::mem::size_of_val(mem_peak));
-println!("canceled_by: {}", std::mem::size_of_val(canceled_by));
-println!("column_order: {}", std::mem::size_of_val(column_order));
-println!("new_args: {}", std::mem::size_of_val(new_args));
-if let Some(ref args) = new_args {
-    println!("new_args contents: {}", std::mem::size_of_val(args));
-}
-println!("occupancy_metrics: {}", std::mem::size_of_val(occupancy_metrics));
-println!("precomputed_agent_info: {}", std::mem::size_of_val(&precomputed_agent_info));
+                    // println!("job: {}", std::mem::size_of_val(job));
+                    // println!("preview: {}", std::mem::size_of_val(&preview));
+                    // if let Some(ref p) = preview {
+                    //     println!("preview contents: {}", std::mem::size_of_val(&**p));
+                    // }
+                    println!("conn: {}", std::mem::size_of_val(conn));
+                    println!("client: {}", std::mem::size_of_val(client));
+                    // println!("mem_peak: {}", std::mem::size_of_val(mem_peak));
+                    // println!("canceled_by: {}", std::mem::size_of_val(canceled_by));
+                    // println!("column_order: {}", std::mem::size_of_val(column_order));
+                    // println!("new_args: {}", std::mem::size_of_val(new_args));
+                    if let Some(ref args) = new_args {
+                        println!("new_args contents: {}", std::mem::size_of_val(args));
+                    }
+                    println!("occupancy_metrics: {}", std::mem::size_of_val(occupancy_metrics));
+                    println!("precomputed_agent_info: {}", std::mem::size_of_val(&precomputed_agent_info));
 
                     let future = handle_code_execution_job(
                         job.as_ref(),
