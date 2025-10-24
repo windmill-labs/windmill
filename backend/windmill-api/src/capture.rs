@@ -398,7 +398,7 @@ async fn set_gcp_trigger_config(
         gcp_config.create_update,
         false,
         capture_config.is_flow,
-        gcp_config.ack_deadline
+        gcp_config.ack_deadline,
     )
     .await?;
     gcp_config.create_update = Some(config);
@@ -966,6 +966,8 @@ async fn http_payload(
     Path((w_id, runnable_kind, path, route_path)): Path<(String, RunnableKind, String, StripPath)>,
     args: RawHttpTriggerArgs,
 ) -> std::result::Result<StatusCode, Response> {
+    use crate::args::{build_headers, build_query};
+
     let path = path.replace(".", "/");
     let is_flow = matches!(runnable_kind, RunnableKind::Flow);
     let route_path = route_path.to_path();
@@ -1002,9 +1004,18 @@ async fn http_payload(
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect();
 
+    let headers = build_headers(&args.0.metadata.headers, None, true);
+    let query = build_query(args.0.metadata.query.as_deref(), None, true);
+
     let preprocessor_args = args
         .clone()
-        .to_v2_preprocessor_args(&http_trigger_config.route_path, &route_path, &params)
+        .to_v2_preprocessor_args(
+            &http_trigger_config.route_path,
+            &route_path,
+            &params,
+            headers,
+            query,
+        )
         .map_err(|e| e.into_response())?;
 
     let main_args = args
