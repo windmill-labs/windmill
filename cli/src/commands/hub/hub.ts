@@ -48,9 +48,9 @@ export async function pull(opts: GlobalOptions) {
     const hubSecret = (await wmill.getGlobal({
       key: "hub_api_secret",
     })) as string | undefined;
-    console.log("Fetching resource types from private hub: " + hubBaseUrl);
+    log.info("Fetching resource types from private hub: " + hubBaseUrl);
     if (hubSecret) {
-      console.log("Using hub API secret");
+      log.info("Using hub API secret");
       headers["X-api-secret"] = hubSecret;
     }
   }
@@ -69,7 +69,10 @@ export async function pull(opts: GlobalOptions) {
       throw new Error("Unauthorized access to private hub: " + hubBaseUrl);
     } else {
       throw new Error(
-        "Couldn't fetch resource types from hub " + hubBaseUrl + ": " + (await res1.text())
+        "Couldn't fetch resource types from hub " +
+          hubBaseUrl +
+          ": " +
+          (await res1.text())
       );
     }
   }
@@ -77,9 +80,10 @@ export async function pull(opts: GlobalOptions) {
   let list = (await res1.json()) as HubResourceType[];
 
   if (list && list.length === 0 && hubBaseUrl !== DEFAULT_HUB_BASE_URL) {
-    console.log(
+    log.info(
       "No resource types found in private hub, fetching from public hub"
     );
+    delete headers["X-api-secret"];
     const res2 = await fetch(DEFAULT_HUB_BASE_URL + "/resource_types/list", {
       headers,
     });
