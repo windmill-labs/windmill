@@ -274,7 +274,7 @@
 <Modal
 	bind:open
 	title={jobMigrationComplete
-		? '🎉 Migration Complete'
+		? 'Migration Complete'
 		: migratingJobs
 			? 'Step 2: Migrating Jobs'
 			: 'Change Workspace ID'}
@@ -383,7 +383,7 @@
 						</div>
 						<div class="flex items-center gap-3">
 							<div class="w-4 h-4 rounded-full bg-gray-300 dark:bg-gray-600"></div>
-							<span class="text-sm text-gray-500">Step 2: Job migration (ready)</span>
+							<span class="text-sm text-gray-500">Step 2: Job migration</span>
 						</div>
 					</div>
 				</div>

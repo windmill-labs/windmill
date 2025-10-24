@@ -330,10 +330,7 @@ async fn migrate_metadata_tables(
         "deployment_metadata",
         "draft",
         "favorite",
-        "flow_version",
-        "workspace_runnable_dependencies",
         "asset",
-        "flow_node",
         "folder",
         "input",
         "raw_app",
@@ -350,7 +347,14 @@ async fn migrate_metadata_tables(
 
     for table in non_auth_tables {
         sqlx::query(&format!(
-            "UPDATE {} SET workspace_id = $1 WHERE workspace_id = $2",
+            r#"
+                UPDATE 
+                    {} 
+                SET 
+                    workspace_id = $1 
+                WHERE 
+                    workspace_id = $2
+            "#,
             table
         ))
         .bind(target)
@@ -373,6 +377,30 @@ async fn migrate_metadata_tables(
     sqlx::query!("DELETE FROM flow WHERE workspace_id = $1", source)
         .execute(&mut **tx)
         .await?;
+
+    sqlx::query!(
+        "UPDATE flow_version SET workspace_id = $1 WHERE workspace_id = $2",
+        target,
+        source
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE flow_node SET workspace_id = $1 WHERE workspace_id = $2",
+        target,
+        source
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE workspace_runnable_dependencies SET workspace_id = $1 WHERE workspace_id = $2",
+        target,
+        source
+    )
+    .execute(&mut **tx)
+    .await?;
 
     sqlx::query!(
         "INSERT INTO group_ SELECT $1, name, summary, extra_perms FROM group_ WHERE workspace_id = $2",
