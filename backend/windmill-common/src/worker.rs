@@ -430,7 +430,7 @@ fn format_pull_query(peek: String) -> String {
             ",
         peek
     );
-    tracing::debug!("pull query: {}", r);
+    // tracing::debug!("pull query: {}", r);
     r
 }
 

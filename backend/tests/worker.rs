@@ -2860,13 +2860,6 @@ from wmill import task
 import pandas as pd
 import numpy as np
 
-def main(n: int):
-    l = []
-    for i in range(n):
-        l.append(heavy_compute(i))
-    print(l)
-    return [send_result(sum(l), "example@example.com"), n]
-
 @task()
 def heavy_compute(n: int):
     df = pd.DataFrame(np.random.randn(100, 4), columns=list('ABCD'))
@@ -2876,6 +2869,14 @@ def heavy_compute(n: int):
 def send_result(res: int, email: str):
     print(f"Sending result {res} to {email}")
     return "OK"
+    
+def main(n: int):
+    l = []
+    for i in range(n):
+        l.append(heavy_compute(i))
+    print(l)
+    return [send_result(sum(l), "example@example.com"), n]
+
 
 "#;
 
