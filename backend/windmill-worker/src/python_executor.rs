@@ -546,6 +546,9 @@ pub async fn handle_python_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
 ) -> windmill_common::error::Result<Box<RawValue>> {
+    stacker::remaining_stack().map(|remaining| {
+        println!("Remaining stack 3: {} bytes", remaining);
+    });
     let script_path = crate::common::use_flow_root_path(job.runnable_path());
 
     let annotations = PythonAnnotations::parse(inner_content);
@@ -1181,13 +1184,13 @@ async fn handle_python_deps(
             let (v, requirements_lines, error_hint) = match conn {
                 Connection::Sql(db) => {
                     let mut version_specifiers = vec![];
-                    let (r, h) = windmill_parser_py_imports::parse_python_imports(
+                    let (r, h) = Box::pin(windmill_parser_py_imports::parse_python_imports(
                         inner_content,
                         w_id,
                         script_path,
                         db,
                         &mut version_specifiers,
-                    )
+                    ))
                     .await?;
 
                     let v = PyV::resolve(

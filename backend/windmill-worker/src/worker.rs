@@ -954,6 +954,10 @@ pub async fn run_worker(
     killpill_tx: KillpillSender,
     base_internal_url: &str,
 ) {
+    stacker::remaining_stack().map(|remaining| {
+        println!("Remaining stack: {} bytes", remaining);
+    });
+
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
         tracing::warn!(
@@ -2360,7 +2364,13 @@ pub async fn handle_queued_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
+    stacker::remaining_stack().map(|remaining| {
+        println!("Remaining stack 1.0: {} bytes", remaining);
+    });
     return Box::pin(async move {
+        stacker::remaining_stack().map(|remaining| {
+            println!("Remaining stack 1.1: {} bytes", remaining);
+        });
         // Extract the active span from the context
 
         if job.canceled_by.is_some() {
@@ -2520,7 +2530,7 @@ pub async fn handle_queued_job(
                     // Not a preview: fetch from the cache or the database.
                     _ => cache::job::fetch_flow(db, &job.kind, job.runnable_id).await?,
                 };
-                handle_flow(
+                Box::pin(handle_flow(
                     job,
                     &flow_data,
                     db,
@@ -2530,7 +2540,7 @@ pub async fn handle_queued_job(
                     worker_dir,
                     job_completed_tx.clone(),
                     worker_name,
-                )
+                ))
                 .warn_after_seconds(10)
                 .await?;
                 Ok(true)
@@ -2540,6 +2550,9 @@ pub async fn handle_queued_job(
                 ));
             }
         } else {
+            stacker::remaining_stack().map(|remaining| {
+                println!("Remaining stack f: {} bytes", remaining);
+            });
             let mut logs = "".to_string();
             let mut mem_peak: i32 = 0;
             let mut canceled_by: Option<CanceledBy> = None;
@@ -2596,6 +2609,9 @@ pub async fn handle_queued_job(
             let mut column_order: Option<Vec<String>> = None;
             let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
             let mut has_stream = false;
+            stacker::remaining_stack().map(|remaining| {
+                println!("Remaining stack g: {} bytes", remaining);
+            });
             let result = match job.kind {
                 JobKind::Dependencies => match conn {
                     Connection::Sql(db) => {
@@ -2703,7 +2719,29 @@ pub async fn handle_queued_job(
                         RawData::Script(data) => Some(data),
                         _ => None,
                     });
-                    let r = handle_code_execution_job(
+                    stacker::remaining_stack().map(|remaining| {
+                        println!("Remaining stack e: {} bytes", remaining);
+                    });
+
+                    println!("=== Variables in scope ===");
+println!("job: {}", std::mem::size_of_val(job));
+println!("preview: {}", std::mem::size_of_val(&preview));
+if let Some(ref p) = preview {
+    println!("preview contents: {}", std::mem::size_of_val(&**p));
+}
+println!("conn: {}", std::mem::size_of_val(conn));
+println!("client: {}", std::mem::size_of_val(client));
+println!("mem_peak: {}", std::mem::size_of_val(mem_peak));
+println!("canceled_by: {}", std::mem::size_of_val(canceled_by));
+println!("column_order: {}", std::mem::size_of_val(column_order));
+println!("new_args: {}", std::mem::size_of_val(new_args));
+if let Some(ref args) = new_args {
+    println!("new_args contents: {}", std::mem::size_of_val(args));
+}
+println!("occupancy_metrics: {}", std::mem::size_of_val(occupancy_metrics));
+println!("precomputed_agent_info: {}", std::mem::size_of_val(&precomputed_agent_info));
+
+                    let future = handle_code_execution_job(
                         job.as_ref(),
                         preview_data,
                         conn,
@@ -2721,8 +2759,13 @@ pub async fn handle_queued_job(
                         killpill_rx,
                         precomputed_agent_info,
                         &mut has_stream,
-                    )
-                    .await;
+                    );
+                    stacker::remaining_stack().map(|remaining| {
+                        println!("Remaining stack h: {} bytes", remaining);
+                    });
+                    println!("Future type: {}", std::any::type_name_of_val(&future));
+                    println!("Future size: {} bytes", std::mem::size_of_val(&future));
+                    let r = future.await;
                     occupancy_metrics.total_duration_of_running_jobs +=
                         metric_timer.elapsed().as_secs_f32();
                     r
@@ -2944,6 +2987,10 @@ async fn handle_code_execution_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
+    stacker::remaining_stack().map(|remaining| {
+        println!("Remaining stack 2: {} bytes", remaining);
+    });
+
     let script_hash = || {
         job.runnable_id
             .ok_or_else(|| Error::internal_err("expected script hash"))

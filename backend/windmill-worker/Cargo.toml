@@ -129,6 +129,7 @@ pep440_rs.workspace = true
 process-wrap.workspace = true
 async-once-cell.workspace = true
 libloading = { workspace = true, optional = true }
+stacker.workspace = true
 
 opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }

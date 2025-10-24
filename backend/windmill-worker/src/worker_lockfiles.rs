@@ -417,7 +417,7 @@ pub async fn process_relative_imports(
         // Script might have no relative imports but still be referenced by someone else.
         match timeout(
             core::time::Duration::from_secs(60),
-            trigger_dependents_to_recompute_dependencies(
+            Box::pin(trigger_dependents_to_recompute_dependencies(
                 w_id,
                 script_path,
                 deployment_message,
@@ -427,7 +427,7 @@ pub async fn process_relative_imports(
                 permissioned_as,
                 db,
                 already_visited,
-            ),
+            )),
         )
         .warn_after_seconds(10)
         .await
