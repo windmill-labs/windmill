@@ -799,14 +799,14 @@ pub async fn clone_script<'c>(
     draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
-    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets)
+    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
             content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
             draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
-            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets
+            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
             ", new_hash, base_hash.0, w_id).execute(&mut **tx).await?;
