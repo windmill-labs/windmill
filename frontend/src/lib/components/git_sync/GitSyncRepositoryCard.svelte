@@ -305,6 +305,11 @@
 					</a>
 					<span class="text-secondary">WARNING: Only read permissions are verified.</span>
 				</div>
+				{#if gitSyncTestJob.status === 'failure' && gitSyncTestJob.error}
+					<div class="text-red-600 text-xs mt-1">
+						Error: {gitSyncTestJob.error}
+					</div>
+				{/if}
 			{/if}
 
 			<!-- Warnings -->

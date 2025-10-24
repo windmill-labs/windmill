@@ -269,7 +269,6 @@ export async function processToolCall<T>({
 		// Check if tool requires confirmation
 		const needsConfirmation = tool?.requiresConfirmation
 
-		// Add the tool to the display with appropriate status
 		toolCallbacks.setToolStatus(toolCall.id, {
 			...(tool?.requiresConfirmation
 				? { content: tool.confirmationMessage ?? 'Waiting for confirmation...' }
@@ -363,6 +362,7 @@ export interface Tool<T> {
 
 export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
+	removeToolStatus: (id: string) => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
 }
 
