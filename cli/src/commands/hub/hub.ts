@@ -44,18 +44,57 @@ export async function pull(opts: GlobalOptions) {
     "X-email": userInfo.email,
   };
 
+  if (hubBaseUrl !== DEFAULT_HUB_BASE_URL) {
+    const hubSecret = (await wmill.getGlobal({
+      key: "hub_api_secret",
+    })) as string | undefined;
+    log.info("Fetching resource types from private hub: " + hubBaseUrl);
+    if (hubSecret) {
+      log.info("Using hub API secret");
+      headers["X-api-secret"] = hubSecret;
+    }
+  }
+
   if (uid) {
     headers["X-uid"] = uid;
   }
 
-  let list = await fetch(hubBaseUrl + "/resource_types/list", {
+  let res1 = await fetch(hubBaseUrl + "/resource_types/list", {
     headers,
-  }).then((r) => r.json() as Promise<HubResourceType[]>);
+  });
+
+  if (!res1.ok) {
+    if (res1.status === 401) {
+      // 401 can only happen on a private hub
+      throw new Error("Unauthorized access to private hub: " + hubBaseUrl);
+    } else {
+      throw new Error(
+        "Couldn't fetch resource types from hub " +
+          hubBaseUrl +
+          ": " +
+          (await res1.text())
+      );
+    }
+  }
+
+  let list = (await res1.json()) as HubResourceType[];
 
   if (list && list.length === 0 && hubBaseUrl !== DEFAULT_HUB_BASE_URL) {
-    list = await fetch(DEFAULT_HUB_BASE_URL + "/resource_types/list", {
+    log.info(
+      "No resource types found in private hub, fetching from public hub"
+    );
+    delete headers["X-api-secret"];
+    const res2 = await fetch(DEFAULT_HUB_BASE_URL + "/resource_types/list", {
       headers,
-    }).then((r) => r.json() as Promise<HubResourceType[]>);
+    });
+
+    if (!res2.ok) {
+      throw new Error(
+        "Couldn't fetch resource types from public hub: " + (await res2.text())
+      );
+    }
+
+    list = (await res2.json()) as HubResourceType[];
   }
 
   const resourceTypes = await wmill.listResourceType({
