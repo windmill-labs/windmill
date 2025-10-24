@@ -15317,6 +15317,10 @@ components:
           type: integer
         concurrency_key:
           type: string
+        debounce_key:
+          type: string
+        debounce_delay_s:
+          type: integer
         cache_ttl:
           type: number
         dedicated_worker:
