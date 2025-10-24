@@ -76,6 +76,7 @@
 		runnableClass?: string
 		runnableStyle?: string
 		doOnSuccess?: SideEffectAction
+		doOnSubmit?: SideEffectAction
 		doOnError?: SideEffectAction
 		render: boolean
 		recomputeIds?: string[]
@@ -112,6 +113,7 @@
 		runnableClass = '',
 		runnableStyle = '',
 		doOnSuccess = undefined,
+		doOnSubmit = undefined,
 		doOnError = undefined,
 		render,
 		recomputeIds = [],
@@ -191,6 +193,14 @@
 		)
 	}
 
+	async function handleSubmitSideEffect() {
+		if (!doOnSubmit) return
+
+		if (doOnSubmit.selected == 'none') return
+
+		await executeSideEffect(doOnSubmit, true)
+	}
+
 	export async function handleSideEffect(success: boolean, errorMessage?: string) {
 		const sideEffect = success ? doOnSuccess : doOnError
 
@@ -200,6 +210,12 @@
 		if (!sideEffect) return
 
 		if (sideEffect.selected == 'none') return
+
+		await executeSideEffect(sideEffect, success, errorMessage)
+	}
+
+	async function executeSideEffect(sideEffect: SideEffectAction, success: boolean = true, errorMessage?: string) {
+		if (!sideEffect) return
 
 		switch (sideEffect.selected) {
 			case 'setTab':
@@ -336,7 +352,9 @@
 		wrapperClass={runnableClass}
 		wrapperStyle={runnableStyle}
 		{render}
-		on:started
+		on:started={(e) => {
+			handleSubmitSideEffect()
+		}}
 		on:done
 		on:doneError
 		on:cancel

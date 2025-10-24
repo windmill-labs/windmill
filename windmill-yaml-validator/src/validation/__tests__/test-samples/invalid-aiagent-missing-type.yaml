@@ -1,0 +1,19 @@
+summary: Invalid AI Agent - Missing Type
+description: An AI agent module without the required type field
+value:
+  modules:
+    - id: typeless_agent
+      value:
+        # Missing required 'type' field
+        input_transforms:
+          query:
+            type: static
+            value: "Search query"
+        tools:
+          - id: tool_1
+            value:
+              tool_type: flowmodule
+              type: rawscript
+              input_transforms: {}
+              content: "export async function main() { return {}; }"
+              language: deno

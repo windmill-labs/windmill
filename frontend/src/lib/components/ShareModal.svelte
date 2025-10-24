@@ -13,6 +13,7 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
+	import { Trash } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -109,14 +110,14 @@
 
 <Drawer bind:this={drawer}>
 	<DrawerContent title="Share {path}" on:close={drawer?.closeDrawer}>
-		<div class="flex flex-col gap-6">
-			<h1>{path}</h1>
-			<h2
+		<div class="flex flex-col gap-2">
+			<h1 class="text-sm font-semibold text-emphasis">{path}</h1>
+			<span class="text-xs font-semibold text-emphasis"
 				>Extra Permissions ({acls?.length ?? 0}) &nbsp; <Tooltip
 					>Items already have default permissions. If belonging to an user or group, that group or
 					user owns it and can write to it as well as modify its permisions and move it. Folders
 					have read/write that apply to the whole folder and are additive to the items permissions.</Tooltip
-				></h2
+				></span
 			>
 			{#if !own}
 				<Alert type="warning" title="Not owner"
@@ -129,8 +130,8 @@
 						<div>
 							<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (owner = '')}>
 								{#snippet children({ item })}
-									<ToggleButton value="user" small label="User" {item} />
-									<ToggleButton value="group" small label="Group" {item} />
+									<ToggleButton value="user" label="User" {item} />
+									<ToggleButton value="group" label="Group" {item} />
 								{/snippet}
 							</ToggleButtonGroup>
 						</div>
@@ -140,65 +141,70 @@
 									(ownerKind === 'user' ? usernames : groups).map((x) => x.toString())
 								)}
 								bind:value={owner}
+								class="grow min-w-48"
 							/>
 						{/key}
-						<Button size="sm" disabled={!newOwner} on:click={() => addAcl(newOwner, write)}
-							>Add permission</Button
+						<Button
+							size="lg"
+							variant="accent"
+							disabled={!newOwner}
+							on:click={() => addAcl(newOwner, write)}>Add permission</Button
 						>
 					</div>
 				{/if}
-				<TableCustom>
-					<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-					<tr slot="header-row">
-						<th>owner</th>
-						<th></th>
-						<th></th>
-					</tr>
-					{#snippet body()}
-						<tbody>
-							{#each acls as [owner, write]}
-								<tr>
-									<td>{owner}</td>
-									<td
-										>{#if own}
-											<div>
-												<ToggleButtonGroup
-													selected={write ? 'writer' : 'viewer'}
-													on:selected={async (e) => {
-														const role = e.detail
-														if (role == 'writer') {
-															await addAcl(owner, true)
-														} else {
-															await addAcl(owner, false)
-														}
-														loadAcls()
-													}}
-												>
-													{#snippet children({ item })}
-														<ToggleButton value="viewer" small label="Viewer" {item} />
-														<ToggleButton value="writer" small label="Writer" {item} />
-													{/snippet}
-												</ToggleButtonGroup>
-											</div>
-										{:else}{write}{/if}</td
-									>
-									<td>
-										{#if own}
-											<Button
-												variant="border"
-												color="red"
-												size="xs"
-												on:click={() => deleteAcl(owner)}
-											>
-												Delete
-											</Button>
-										{/if}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					{/snippet}
-				</TableCustom>
+				{#if acls?.length > 0}
+					<TableCustom>
+						<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
+						<tr slot="header-row">
+							<th>owner</th>
+							<th></th>
+							<th></th>
+						</tr>
+						{#snippet body()}
+							<tbody>
+								{#each acls as [owner, write]}
+									<tr>
+										<td>{owner}</td>
+										<td
+											>{#if own}
+												<div>
+													<ToggleButtonGroup
+														selected={write ? 'writer' : 'viewer'}
+														on:selected={async (e) => {
+															const role = e.detail
+															if (role == 'writer') {
+																await addAcl(owner, true)
+															} else {
+																await addAcl(owner, false)
+															}
+															loadAcls()
+														}}
+													>
+														{#snippet children({ item })}
+															<ToggleButton value="viewer" small label="Viewer" {item} />
+															<ToggleButton value="writer" small label="Writer" {item} />
+														{/snippet}
+													</ToggleButtonGroup>
+												</div>
+											{:else}{write}{/if}</td
+										>
+										<td>
+											{#if own}
+												<Button
+													variant="default"
+													destructive
+													size="xs"
+													on:click={() => deleteAcl(owner)}
+													startIcon={{ icon: Trash }}
+												/>
+											{/if}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						{/snippet}
+					</TableCustom>
+				{/if}
 			</div>
 		</div>
 	</DrawerContent>

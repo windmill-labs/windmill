@@ -1460,7 +1460,7 @@ export function getOS() {
 
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import type { Snippet } from 'svelte'
+import type { Component, Snippet } from 'svelte'
 import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
 import type { IPosition } from 'monaco-editor'
 
@@ -1622,3 +1622,27 @@ export function createCache<Keys extends Record<string, any>, T, InitialKeys ext
 export async function wait(ms: number) {
 	return new Promise((resolve) => setTimeout(() => resolve(undefined), ms))
 }
+
+export type CssColor = keyof (typeof tokensFile)['tokens']['light']
+import tokensFile from './assets/tokens/tokens.json'
+import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
+export function getCssColor(
+	color: CssColor,
+	{
+		alpha = 1,
+		format = 'css-var'
+	}: {
+		alpha?: number
+		format?: 'css-var' | 'hex-dark' | 'hex-light'
+	}
+): string {
+	if (format === 'hex-light') {
+		return tokensFile.tokens[lightModeName][color]
+	}
+	if (format === 'hex-dark') {
+		return tokensFile.tokens[darkModeName][color]
+	}
+	return `rgb(var(--color-${color}) / ${alpha})`
+}
+
+export type IconType = Component<{ size?: number }> | typeof import('lucide-svelte').Dot

@@ -22,7 +22,7 @@
 		: ''}"
 	on:click
 >
-	<Wand2 size={14} class="text-violet-800 dark:text-violet-400" />
+	<Wand2 size={14} class="text-ai" />
 
 	<span class="grow truncate text-left text-2xs text-primary font-normal">
 		Generate "{funcDesc}" in {lang}

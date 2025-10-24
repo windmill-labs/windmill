@@ -466,6 +466,12 @@ pub enum JobCompletedSender {
     NeverUsed,
 }
 
+impl JobCompletedSender {
+    pub fn is_sql(&self) -> bool {
+        matches!(self, Self::Sql(_))
+    }
+}
+
 #[derive(Clone)]
 pub struct SqlJobCompletedSender {
     sender: flume::Sender<SendResult>,
@@ -1536,7 +1542,7 @@ pub async fn run_worker(
                 Ok(_) | Err(broadcast::error::TryRecvError::Closed) => true,
                 _ => false,
             } {
-                if !killed_but_draining_same_worker_jobs {
+                if !killed_but_draining_same_worker_jobs && job_completed_tx.is_sql() {
                     killed_but_draining_same_worker_jobs = true;
                     tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received in worker main loop, sending killpill job");
                     job_completed_tx
@@ -1614,7 +1620,6 @@ pub async fn run_worker(
                                 _ => {}
                             }
                         }
-
                         add_time!(bench, "job pulled from DB");
                         let duration_pull_s = pull_time.elapsed().as_secs_f64();
                         let err_pull = job.is_ok();

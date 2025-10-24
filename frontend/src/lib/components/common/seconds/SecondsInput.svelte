@@ -52,8 +52,8 @@
 			value={seconds == null || seconds == undefined
 				? 'Not set'
 				: disabled
-				? ''
-				: seconds + ' second' + (seconds === 1 ? '' : 's')}
+					? ''
+					: seconds + ' second' + (seconds === 1 ? '' : 's')}
 			{disabled}
 			readonly
 			type="text"

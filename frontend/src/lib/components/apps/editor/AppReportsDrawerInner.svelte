@@ -587,9 +587,9 @@ export async function main(
 			/>
 		</div>
 		<Button
-			color="dark"
+			variant="accent"
 			startIcon={{ icon: Save }}
-			size="sm"
+			unifiedSize="md"
 			on:click={async () => {
 				await enableAppReporting()
 				sendUserToast('App reporting updated')
@@ -649,28 +649,35 @@ export async function main(
 					min="768"
 				/>
 				x
-				<input type="number" class="text-sm" bind:value={customHeight} placeholder="auto" min="0" />
+				<input type="number" bind:value={customHeight} placeholder="auto" min="0" />
 			</div>
 		</Section>
 
 		<Section label="Notification">
 			<Tabs bind:selected={selectedTab}>
 				{#if !$enterpriseLicense}
-					<Tab value="custom">Custom</Tab>
+					<Tab value="custom" label="Custom" />
 				{/if}
-				<Tab value="slack" disabled={!$enterpriseLicense}
-					>Slack{!$enterpriseLicense ? ' (EE only)' : ''}</Tab
-				>
-				<Tab value="discord" disabled={!$enterpriseLicense}
-					>Discord{!$enterpriseLicense ? ' (EE only)' : ''}</Tab
-				>
-				<Tab value="email" disabled={!$enterpriseLicense}>
-					<div class="flex flex-row gap-1 items-center"
-						>Email{!$enterpriseLicense ? ' (EE only)' : ''}
-					</div>
-				</Tab>
+				<Tab
+					value="slack"
+					disabled={!$enterpriseLicense}
+					label="Slack{!$enterpriseLicense ? ' (EE only)' : ''}"
+				/>
+
+				<Tab
+					value="discord"
+					disabled={!$enterpriseLicense}
+					label="Discord{!$enterpriseLicense ? ' (EE only)' : ''}"
+				/>
+
+				<Tab
+					value="email"
+					disabled={!$enterpriseLicense}
+					label="Email{!$enterpriseLicense ? ' (EE only)' : ''}"
+				/>
+
 				{#if $enterpriseLicense}
-					<Tab value="custom">Custom</Tab>
+					<Tab value="custom" label="Custom" />
 				{/if}
 			</Tabs>
 			{#if selectedTab === 'custom'}
@@ -683,7 +690,7 @@ export async function main(
 						allowRefresh
 					/>
 				</div>
-				<div class="prose text-2xs text-tertiary mt-2">
+				<div class="prose text-2xs text-primary mt-2">
 					Pick a script that does whatever with the PDF/PNG report.
 
 					<br />
@@ -707,8 +714,7 @@ export async function main(
 									>.
 								</p>
 								<Button
-									variant="border"
-									color="light"
+									variant="default"
 									on:click={getWorspaceSlackSetting}
 									startIcon={{ icon: RotateCw }}
 								/>
@@ -735,8 +741,8 @@ export async function main(
 				loading={testLoading}
 				{disabled}
 				on:click={testReport}
-				size="xs"
-				color="dark"
+				unifiedSize="md"
+				variant="accent"
 				btnClasses="w-auto"
 			>
 				Send test report

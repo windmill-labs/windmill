@@ -4456,6 +4456,8 @@ pub fn raw_script_to_payload(
             concurrency_time_window_s,
             cache_ttl: module.cache_ttl.map(|x| x as i32),
             dedicated_worker: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
         }),
         tag,
         delete_after_use,
@@ -4520,6 +4522,8 @@ pub async fn script_to_payload(
             concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -4546,6 +4550,8 @@ pub async fn script_to_payload(
                 custom_concurrency_key: concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
+                custom_debounce_key: debounce_key,
+                debounce_delay_s,
                 cache_ttl: module.cache_ttl.map(|x| x as i32).ok_or(cache_ttl).ok(),
                 language,
                 dedicated_worker,
@@ -4576,7 +4582,7 @@ pub async fn script_to_payload(
     })
 }
 
-async fn get_transform_context(
+pub async fn get_transform_context(
     flow_job: &MiniPulledJob,
     previous_id: &str,
     status: &FlowStatus,
@@ -4643,7 +4649,7 @@ fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(Suspend, Uuid)
 }
 
 // returns the result of the previous step of a running flow (if the job was successful)
-async fn get_previous_job_result(
+pub async fn get_previous_job_result(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
     flow_status: &FlowStatus,

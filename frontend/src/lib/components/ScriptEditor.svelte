@@ -165,9 +165,12 @@
 					if (
 						v !== undefined &&
 						(v.delegate_to_git_repo_details === null ||
-							v.delegate_to_git_repo_details.resource !== ansibleAlternativeExecutionMode?.resource ||
-							v.delegate_to_git_repo_details.playbook !== ansibleAlternativeExecutionMode?.playbook ||
-							v.delegate_to_git_repo_details.inventories_location !== ansibleAlternativeExecutionMode?.inventories_location ||
+							v.delegate_to_git_repo_details.resource !==
+								ansibleAlternativeExecutionMode?.resource ||
+							v.delegate_to_git_repo_details.playbook !==
+								ansibleAlternativeExecutionMode?.playbook ||
+							v.delegate_to_git_repo_details.inventories_location !==
+								ansibleAlternativeExecutionMode?.inventories_location ||
 							v.delegate_to_git_repo_details.commit !== ansibleAlternativeExecutionMode?.commit ||
 							v.git_ssh_identity !== ansibleGitSshIdentity)
 					) {
@@ -585,8 +588,8 @@
 				<Button
 					target="_blank"
 					href="https://www.windmill.dev/docs/cli_local_dev/vscode-extension"
-					color="light"
-					size="xs"
+					variant="subtle"
+					unifiedSize="md"
 					btnClasses="hidden lg:flex"
 					startIcon={{
 						icon: Github
@@ -618,7 +621,6 @@
 								gitRepoResourcePath={ansibleAlternativeExecutionMode?.resource || ''}
 								gitSshIdentity={ansibleGitSshIdentity}
 								bind:commitHashInput={commitHashForGitRepo}
-
 							/>
 						</div>
 					</Pane>
@@ -633,10 +635,10 @@
 				{#if showTabs}
 					<div transition:slide={{ duration: 200 }}>
 						<Tabs bind:selected={selectedTab}>
-							<Tab value="main">Main</Tab>
+							<Tab value="main" label="Main" />
 							{#if hasPreprocessor}
 								<div transition:slide={{ duration: 200, axis: 'x' }}>
-									<Tab value="preprocessor">Preprocessor</Tab>
+									<Tab value="preprocessor" label="Preprocessor" />
 								</div>
 							{/if}
 						</Tabs>
@@ -667,42 +669,15 @@
 							/>
 							Cancel
 						</Button>
-					{:else if customUi?.previewPanel?.disableTriggerButton !== true}
-						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
-							<Button
-								color="dark"
-								on:click={() => {
-									runTest()
-								}}
-								btnClasses="w-full rounded-r-none"
-								size="xs"
-								startIcon={{
-									icon: Play,
-									classes: 'animate-none'
-								}}
-								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
-							>
-								{#if testIsLoading}
-									Running
-								{:else}
-									Test
-								{/if}
-							</Button>
-							<CaptureButton on:openTriggers />
-						</div>
 					{:else}
+						{@const disableTriggerButton = customUi?.previewPanel?.disableTriggerButton === true}
 						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
 							<Button
-								color="dark"
-								on:click={() => {
-									runTest()
-								}}
-								btnClasses="w-full"
+								on:click={() => runTest()}
+								btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
 								size="xs"
-								startIcon={{
-									icon: Play,
-									classes: 'animate-none'
-								}}
+								variant="accent-secondary"
+								startIcon={{ icon: Play, classes: 'animate-none' }}
 								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
 							>
 								{#if testIsLoading}
@@ -711,6 +686,9 @@
 									Test
 								{/if}
 							</Button>
+							{#if !disableTriggerButton}
+								<CaptureButton on:openTriggers />
+							{/if}
 						</div>
 					{/if}
 				</div>
@@ -790,8 +768,7 @@
 			{/if}
 			{#if lang === 'ansible' && hasDelegateToGitRepo}
 				<Button
-					color="light"
-					variant="border"
+					variant="default"
 					size="xs"
 					on:click={() => (gitRepoResourcePickerOpen = true)}
 					startIcon={{ icon: GitBranch }}
@@ -829,7 +806,7 @@
 						customHiddenIcon={{
 							icon: WandSparkles
 						}}
-						btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
+						btnClasses="!text-ai border border-gray-200 dark:border-gray-600 bg-surface"
 						on:click={() => {
 							if (!aiChatManager.open) {
 								aiChatManager.changeMode(AIMode.SCRIPT)

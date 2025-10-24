@@ -14,7 +14,7 @@
 	>
 		<svelte:fragment slot="trigger">
 			<div
-				class="text-tertiary text-xs flex flex-row items-center font-normal gap-0.5 border px-1 rounded-lg"
+				class="text-primary text-xs flex flex-row items-center font-normal gap-0.5 border px-1 rounded-lg"
 			>
 				<span class={`truncate`}>
 					{aiChatManager.mode.charAt(0).toUpperCase() + aiChatManager.mode.slice(1)} mode

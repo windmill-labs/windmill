@@ -93,7 +93,7 @@
 		</div>
 		<input type="text" bind:value={newTag} />
 		{#if extractedCustomTag}
-			<div class="text-2xs text-tertiary p-2 bg-gray-50 rounded border">
+			<div class="text-2xs text-primary p-2 bg-gray-50 rounded border">
 				<div class="font-medium mb-1">Workspace specific tag</div>
 				<div>
 					<b>Tag:</b>
@@ -110,7 +110,7 @@
 			</div>
 		{:else if newTag.trim()}
 			{#if newTag.includes('(') || newTag.includes(')') || newTag.includes('+') || newTag.includes('^') || ((newTag.includes('.') || newTag.includes('$args[')) && !dynamicTag)}
-				<div class="text-2xs text-tertiary p-2 bg-gray-50 rounded border">
+				<div class="text-2xs text-primary p-2 bg-gray-50 rounded border">
 					<div class="font-medium mb-1 text-red-500">Invalid tag</div>
 					<div>
 						<b>Tag:</b>
@@ -118,7 +118,7 @@
 					</div>
 				</div>
 			{:else}
-				<div class="text-2xs text-tertiary p-2 bg-gray-50 rounded border">
+				<div class="text-2xs text-primary p-2 bg-gray-50 rounded border">
 					<div class="font-medium mb-1">
 						{#if newTag.includes('$workspace') || newTag.includes('$args')}
 							Dynamic tag
@@ -141,8 +141,7 @@
 		{/if}
 
 		<Button
-			variant="contained"
-			color="blue"
+			variant="accent"
 			size="sm"
 			on:click={async () => {
 				await SettingService.setGlobal({
@@ -158,7 +157,7 @@
 			disabled={newTag.trim() == '' || !($superadmin || $devopsRole)}
 		>
 			Add {#if !($superadmin || $devopsRole)}
-				<span class="text-2xs text-tertiary">superadmin or devops only</span>
+				<span class="text-2xs text-primary">superadmin or devops only</span>
 			{/if}
 		</Button>
 		<span class="text-sm text-primary"
@@ -166,16 +165,16 @@
 				>worker groups <ExternalLink size={12} /></a
 			> to listen to tags</span
 		>
-		<span class="text-2xs text-tertiary"
+		<span class="text-2xs text-primary"
 			>For tags specific to some workspaces, use <pre class="inline">tag(workspace1+workspace2)</pre
 			></span
 		>
-		<span class="text-2xs text-tertiary"
+		<span class="text-2xs text-primary"
 			>To exclude 'workspace1' and 'workspace2' from a tag, use <pre class="inline"
 				>tag(^workspace1^workspace2)</pre
 			></span
 		>
-		<span class="text-2xs text-tertiary"
+		<span class="text-2xs text-primary"
 			>For <a
 				href="https://www.windmill.dev/docs/core_concepts/worker_groups#dynamic-tag"
 				target="_blank">dynamic tags</a
@@ -183,7 +182,7 @@
 			based on the workspace, use <pre class="inline">$workspace</pre>, e.g:
 			<pre class="inline">tag-$workspace</pre></span
 		>
-		<span class="text-2xs text-tertiary"
+		<span class="text-2xs text-primary"
 			>For <a
 				href="https://www.windmill.dev/docs/core_concepts/worker_groups#dynamic-tag"
 				target="_blank">dynamic tags</a

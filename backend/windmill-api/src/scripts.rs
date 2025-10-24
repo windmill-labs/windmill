@@ -46,7 +46,7 @@ use windmill_common::{
     s3_helpers::upload_artifact_to_store,
     scripts::hash_script,
     utils::WarnAfterExt,
-    worker::CLOUD_HOSTED,
+    worker::{CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING},
 };
 
 use windmill_common::{
@@ -388,6 +388,7 @@ async fn create_snapshot_script(
     Path(w_id): Path<String>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
+    // TODO: Check for debouncing here as well.
     let mut script_hash = None;
     let mut tx = None;
     let mut uploaded = false;
@@ -519,6 +520,8 @@ async fn create_script_internal<'c>(
     Option<HandleDeploymentMetadata>,
 )> {
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
+
+    guard_script_from_debounce_data(&ns).await?;
 
     let codebase = ns.codebase.as_ref();
     #[cfg(not(feature = "enterprise"))]
@@ -782,8 +785,8 @@ async fn create_script_internal<'c>(
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36)",
         &w_id,
         &hash.0,
         ns.path,
@@ -821,7 +824,9 @@ async fn create_script_internal<'c>(
             None
         },
         validate_schema,
-        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok())
+        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()),
+        ns.debounce_key,
+        ns.debounce_delay_s,
     )
     .execute(&mut *tx)
     .await?;
@@ -2130,4 +2135,19 @@ async fn delete_scripts_bulk(
     }
 
     Ok(Json(deleted_paths))
+}
+
+/// Validates that script debouncing configuration is supported by all workers
+/// Returns an error if debouncing is configured but workers are behind required version
+async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
+    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+        && (ns.debounce_key.is_some() || ns.debounce_delay_s.is_some())
+    {
+        tracing::warn!(
+            "Script debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
+        );
+        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
+    } else {
+        Ok(())
+    }
 }

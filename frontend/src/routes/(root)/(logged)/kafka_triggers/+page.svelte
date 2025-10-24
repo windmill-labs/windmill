@@ -264,7 +264,8 @@
 			tooltip="Windmill can consume kafka events and trigger scripts or flows based on them."
 		>
 			<Button
-				size="md"
+				unifiedSize="md"
+				variant="accent"
 				startIcon={{ icon: Plus }}
 				on:click={() => kafkaTriggerEditor?.openNew(false)}
 			>
@@ -290,8 +291,8 @@
 					<div class="text-sm shrink-0"> Filter by path of </div>
 					<ToggleButtonGroup bind:selected={selectedFilterKind}>
 						{#snippet children({ item })}
-							<ToggleButton small value="trigger" label="Kafka trigger" icon={KafkaIcon} {item} />
-							<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+							<ToggleButton value="trigger" label="Kafka trigger" icon={KafkaIcon} {item} />
+							<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>
@@ -314,7 +315,7 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !triggers?.length}
-				<div class="text-center text-sm text-tertiary mt-2"> No Kafka triggers </div>
+				<div class="text-center text-sm text-primary mt-2"> No Kafka triggers </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, kafka_resource_path, topics, extra_perms, canWrite, marked, server_id, error, last_server_ping, enabled } (path)}
@@ -334,7 +335,9 @@
 									onclick={() => kafkaTriggerEditor?.openEdit(path, is_flow)}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
-									<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
+									<div
+										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
+									>
 										{#if marked}
 											<span class="text-xs">
 												{@html marked}
@@ -405,17 +408,18 @@
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										on:click={() => kafkaTriggerEditor?.openEdit(path, is_flow)}
-										size="xs"
+										unifiedSize="md"
 										startIcon={canWrite
 											? { icon: Pen }
 											: {
 													icon: Eye
 												}}
-										color="dark"
+										variant="subtle"
 									>
 										{canWrite ? 'Edit' : 'View'}
 									</Button>
 									<Dropdown
+										size="md"
 										items={[
 											{
 												displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
@@ -477,8 +481,8 @@
 							</div>
 							<div class="w-full flex justify-between items-baseline">
 								<div
-									class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
-									><div class="truncate">edited by {edited_by}</div><div class="truncate"
+									class="flex flex-wrap text-2xs font-normal text-secondary gap-1 items-center justify-end truncate pr-2"
+									><div class="truncate">Edited by {edited_by}</div><div class="truncate"
 										>the {displayDate(edited_at)}</div
 									></div
 								></div

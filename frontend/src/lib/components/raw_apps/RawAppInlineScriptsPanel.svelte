@@ -52,7 +52,7 @@
 					bind:runnable={runnables[selectedRunnable]}
 				/>{/key}
 		{:else}
-			<div class="text-sm text-tertiary text-center py-8 px-2">
+			<div class="text-sm text-primary text-center py-8 px-2">
 				No runnable at id {selectedRunnable}
 			</div>
 		{/if}
