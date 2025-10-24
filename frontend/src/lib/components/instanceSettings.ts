@@ -233,8 +233,7 @@ export const settings: Record<string, Setting[]> = {
 			key: 'hub_api_secret',
 			fieldType: 'password',
 			storage: 'setting',
-			ee_only: '',
-			requiresReloadOnChange: true
+			ee_only: ''
 		},
 		{
 			label: 'App workspace prefix',
