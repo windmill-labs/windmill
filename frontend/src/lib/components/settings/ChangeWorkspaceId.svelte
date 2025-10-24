@@ -111,7 +111,7 @@
 
 		try {
 			const jobResult = await JobService.getCompletedJobResultMaybe({
-				workspace: newId,
+				workspace: $workspaceStore!,
 				id: jobMigrationJobId
 			})
 			if (jobResult.completed) {
@@ -139,11 +139,10 @@
 				workspace: $workspaceStore!,
 				path: hubPaths.workspaceMigrator,
 				requestBody: {
-					args: {
-						source_workspace_id: oldWorkspaceId,
-						target_workspace_id: newId
-					}
-				}
+					source_workspace_id: oldWorkspaceId,
+					target_workspace_id: newId
+				},
+				skipPreprocessor: true
 			})
 
 			startPolling()
@@ -158,7 +157,7 @@
 
 		try {
 			await JobService.cancelQueuedJob({
-				workspace: newId,
+				workspace: $workspaceStore!,
 				id: jobMigrationJobId,
 				requestBody: {
 					reason: 'User cancelled migration'
