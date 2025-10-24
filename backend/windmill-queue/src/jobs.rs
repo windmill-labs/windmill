@@ -3622,8 +3622,8 @@ pub async fn push<'c, 'd>(
         cache_ttl,
         dedicated_worker,
         _low_level_priority,
-        custom_debounce_key,
-        debounce_delay_s,
+        mut custom_debounce_key,
+        mut debounce_delay_s,
     ) = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -4391,13 +4391,13 @@ pub async fn push<'c, 'd>(
         ),
     };
 
-    if debounce_key.is_some() {
+    if custom_debounce_key.is_some() {
         tracing::warn!("debouncing has been disabled temporarily, ignoring debounce_key");
         custom_debounce_key = None;
     }
     if debounce_delay_s.is_some() {
         tracing::warn!("debouncing has been disabled temporarily, ignoring debounce_delay_s");
-        custom_debounce_delay_s = None;
+        debounce_delay_s = None;
     }
     // Enforce concurrency limit on all dependency jobs.
     // TODO: We can ignore this for scripts djobs. The main reason we need all djobs to be sequential is because we have
