@@ -1140,13 +1140,13 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         .unwrap_or(false);
 
                 if schedule_next_tick {
-                    if let Err(err) = handle_maybe_scheduled_job(
+                    if let Err(err) = Box::pin(handle_maybe_scheduled_job(
                         db,
                         queued_job,
                         &schedule,
                         &script_path,
                         &queued_job.workspace_id,
-                    )
+                    ))
                     .await
                     {
                         match err {
