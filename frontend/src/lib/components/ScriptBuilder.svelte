@@ -312,7 +312,7 @@
 		{
 			value: 'preprocessor',
 			title: 'Preprocessor',
-			desc: 'Transform incoming requests before they are passed to the flow.',
+			desc: 'Transform incoming requests before they are passed to the main entrypoint.',
 			documentationLink: 'https://www.windmill.dev/docs/core_concepts/preprocessors',
 			Icon: Shuffle
 		}
@@ -1144,7 +1144,9 @@
 															btnClasses={isPicked ? '' : 'm-[1px]'}
 															on:click={() => onScriptLanguageTrigger(lang)}
 															disabled={lockedLanguage ||
-																(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
+																(enterpriseLangs.includes(lang) && !$enterpriseLicense) ||
+																(script.kind == 'preprocessor' &&
+																	!canHavePreprocessorInScript(lang))}
 															startIcon={{
 																icon: LanguageIcon,
 																props: { lang }
@@ -1273,9 +1275,7 @@
 										{/snippet}
 										<div class="flex flex-col gap-4">
 											<Label label="Debounce Delay in seconds. (if not set - disabled)">
-												<SecondsInput
-													bind:seconds={script.debounce_delay_s}
-												/>
+												<SecondsInput bind:seconds={script.debounce_delay_s} />
 												<Button
 													size="sm"
 													color="light"
@@ -1291,9 +1291,9 @@
 													<Tooltip
 														documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing#custom-debounce-key"
 													>
-														Debounce Keys are global, you can have them be workspace specific
-														using the variable `$workspace`. You can also use an argument's value
-														using `$args[name_of_arg]`</Tooltip
+														Debounce Keys are global, you can have them be workspace specific using
+														the variable `$workspace`. You can also use an argument's value using
+														`$args[name_of_arg]`</Tooltip
 													>
 												{/snippet}
 												<input

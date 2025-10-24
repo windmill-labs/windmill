@@ -1506,12 +1506,14 @@ export function getResetCode(
 	}
 }
 
-export function canHavePreprocessorInScript(language: SupportedLanguage | undefined): boolean {
+export function canHavePreprocessorInScript(
+	language: SupportedLanguage | 'docker' | 'bunnative' | undefined
+): boolean {
 	if (!language) {
 		return false
 	}
 
-	return ['python3', 'deno', 'bun'].includes(language)
+	return ['python3', 'deno', 'bun', 'php'].includes(language)
 }
 
 export function canHavePreprocessorInFlow(language: SupportedLanguage | undefined): boolean {
