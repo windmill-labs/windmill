@@ -1003,7 +1003,7 @@ export const PHP_PREPROCESSOR_FLOW_INTRO = `<?php
 
 `
 
-export const PHP_PREPROCESSOR_MODULE_CODE = `function preprocessor($event) {
+export const PHP_PREPROCESSOR_MODULE_CODE = `function preprocessor(object $event) {
     // $event can be one of the following types:
     // 
     // Webhook event:
@@ -1048,7 +1048,6 @@ export const PHP_PREPROCESSOR_MODULE_CODE = `function preprocessor($event) {
     ];
 }
 `
-
 
 const DOCKER_INIT_CODE = `# shellcheck shell=bash
 # docker
@@ -1506,22 +1505,21 @@ export function getResetCode(
 	}
 }
 
-export function canHavePreprocessorInScript(
-	language: SupportedLanguage | 'docker' | 'bunnative' | undefined
-): boolean {
+export const PREPROCESSOR_SUPPORTED_LANGUAGES = [
+	'typescript',
+	'python',
+	'python3',
+	'deno',
+	'bun',
+	'php'
+] as const
+
+export function canHavePreprocessor(language: string | undefined): boolean {
 	if (!language) {
 		return false
 	}
 
-	return ['python3', 'deno', 'bun', 'php'].includes(language)
-}
-
-export function canHavePreprocessorInFlow(language: SupportedLanguage | undefined): boolean {
-	if (!language) {
-		return false
-	}
-
-	return ['python3', 'deno', 'bun', 'php'].includes(language)
+	return PREPROCESSOR_SUPPORTED_LANGUAGES.includes(language as any)
 }
 
 export function canHaveTrigger(language: SupportedLanguage | undefined): boolean {
@@ -1546,4 +1544,75 @@ export function canHaveFailure(language: SupportedLanguage | undefined): boolean
 	}
 
 	return ['python3', 'bun', 'deno', 'go'].includes(language)
+}
+
+export function getPreprocessorIntro(
+	language: SupportedLanguage | 'docker' | 'bunnative' | undefined,
+	isFlow: boolean = false
+): string {
+	if (!language || !PREPROCESSOR_SUPPORTED_LANGUAGES.includes(language as any)) {
+		return ''
+	}
+
+	switch (language) {
+		case 'python3':
+			return isFlow ? PYTHON_PREPROCESSOR_FLOW_INTRO : PYTHON_PREPROCESSOR_SCRIPT_INTRO
+		case 'deno':
+		case 'bun':
+			return isFlow ? TS_PREPROCESSOR_FLOW_INTRO : TS_PREPROCESSOR_SCRIPT_INTRO
+		case 'php':
+			return isFlow ? PHP_PREPROCESSOR_FLOW_INTRO : PHP_PREPROCESSOR_SCRIPT_INTRO
+		default:
+			return ''
+	}
+}
+
+export function getPreprocessorModuleCode(
+	language: SupportedLanguage | 'docker' | 'bunnative' | undefined
+): string {
+	if (!language || !PREPROCESSOR_SUPPORTED_LANGUAGES.includes(language as any)) {
+		return ''
+	}
+
+	switch (language) {
+		case 'python3':
+			return PYTHON_PREPROCESSOR_MODULE_CODE
+		case 'deno':
+		case 'bun':
+			return TS_PREPROCESSOR_MODULE_CODE
+		case 'php':
+			return PHP_PREPROCESSOR_MODULE_CODE
+		default:
+			return ''
+	}
+}
+
+export function getPreprocessorFullCode(
+	language: SupportedLanguage | 'docker' | 'bunnative' | undefined,
+	isFlow: boolean = false
+): string {
+	const intro = getPreprocessorIntro(language, isFlow)
+	const moduleCode = getPreprocessorModuleCode(language)
+	return intro + moduleCode
+}
+
+export function getMainFunctionPattern(
+	language: SupportedLanguage | 'docker' | 'bunnative' | undefined
+): string {
+	if (!language) {
+		return ''
+	}
+
+	switch (language) {
+		case 'python3':
+			return 'def main'
+		case 'deno':
+		case 'bun':
+		case 'nativets':
+			return 'export async function main'
+		case 'php':
+			return 'function main'
+		default:
+			return 'main'
+	}
 }

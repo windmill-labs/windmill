@@ -26,7 +26,12 @@
 	import GenAiQuick from './GenAiQuick.svelte'
 	import FlowToplevelNode from '../pickers/FlowToplevelNode.svelte'
 	import { copilotInfo } from '$lib/aiStore'
-	import { canHavePreprocessorInFlow, canHaveTrigger, canHaveApproval, canHaveFailure } from '$lib/script_helpers'
+	import {
+		canHavePreprocessor,
+		canHaveTrigger,
+		canHaveApproval,
+		canHaveFailure
+	} from '$lib/script_helpers'
 
 	const dispatch = createEventDispatcher()
 
@@ -101,7 +106,7 @@
 		} else if (kind == 'flow') {
 			return false
 		} else if (kind == 'preprocessor') {
-			return canHavePreprocessorInFlow(lang as SupportedLanguage)
+			return canHavePreprocessor(lang as SupportedLanguage)
 		} else if (kind == 'failure') {
 			return canHaveFailure(lang as SupportedLanguage)
 		}
@@ -173,10 +178,7 @@
 	]
 
 	let topLevelNodes: [string, string][] = $state([])
-	function computeToplevelNodeChoices(
-		funcDesc: string,
-		preFilter: 'all' | 'workspace' | 'hub'
-	) {
+	function computeToplevelNodeChoices(funcDesc: string, preFilter: 'all' | 'workspace' | 'hub') {
 		if (funcDesc.length > 0 && preFilter == 'all' && kind == 'script') {
 			topLevelNodes = allToplevelNodes.filter((node) =>
 				node[0].toLowerCase().startsWith(funcDesc.toLowerCase())

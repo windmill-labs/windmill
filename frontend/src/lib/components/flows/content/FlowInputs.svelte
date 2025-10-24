@@ -18,7 +18,7 @@
 	import type { SupportedLanguage } from '$lib/common'
 	import DefaultScripts from '$lib/components/DefaultScripts.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
-	import { canHavePreprocessorInFlow } from '$lib/script_helpers'
+	import { canHavePreprocessor } from '$lib/script_helpers'
 
 	interface Props {
 		failureModule: boolean
@@ -59,7 +59,7 @@
 
 	function displayLang(lang: SupportedLanguage | 'docker', kind: string) {
 		if (preprocessorModule) {
-			return canHavePreprocessorInFlow(lang as SupportedLanguage)
+			return canHavePreprocessor(lang as SupportedLanguage)
 		}
 
 		if (failureModule || kind === 'trigger') {

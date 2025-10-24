@@ -88,7 +88,7 @@
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { getDbSchemas } from './apps/components/display/dbtable/utils'
-	import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
+	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
 	import { copilotInfo } from '$lib/aiStore'
 	// import EditorTheme from './EditorTheme.svelte'
@@ -616,12 +616,18 @@
 	}
 
 	let preprocessorCompletor: IDisposable | undefined = undefined
-	function addPreprocessorCompletions(lang: 'typescript' | 'python') {
+	function addPreprocessorCompletions(lang: string) {
 		if (preprocessorCompletor) {
 			preprocessorCompletor.dispose()
 		}
-		const preprocessorCode =
-			lang === 'typescript' ? TS_PREPROCESSOR_MODULE_CODE : PYTHON_PREPROCESSOR_MODULE_CODE
+
+		const windmillLang = lang === 'typescript' ? 'deno' : lang === 'python' ? 'python3' : lang
+		const preprocessorCode = getPreprocessorModuleCode(windmillLang as ScriptLang)
+
+		if (!preprocessorCode) {
+			return
+		}
+
 		preprocessorCompletor = languages.registerCompletionItemProvider(lang, {
 			provideCompletionItems: function (model, position) {
 				const word = model.getWordUntilPosition(position)
@@ -1647,8 +1653,8 @@
 	})
 
 	$effect(() => {
-		initialized && (lang === 'typescript' || lang === 'python') && enablePreprocessorSnippet
-			? untrack(() => addPreprocessorCompletions(lang as 'typescript' | 'python'))
+		initialized && canHavePreprocessor(lang) && enablePreprocessorSnippet
+			? untrack(() => addPreprocessorCompletions(lang))
 			: preprocessorCompletor?.dispose()
 	})
 

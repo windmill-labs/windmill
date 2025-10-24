@@ -15,7 +15,12 @@
 		WorkerService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { initialCode, canHavePreprocessorInScript } from '$lib/script_helpers'
+	import {
+		initialCode,
+		canHavePreprocessor,
+		getPreprocessorFullCode,
+		getMainFunctionPattern
+	} from '$lib/script_helpers'
 	import AIFormSettings from './copilot/AIFormSettings.svelte'
 	import {
 		defaultScripts,
@@ -80,12 +85,6 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
-	import {
-		TS_PREPROCESSOR_MODULE_CODE,
-		TS_PREPROCESSOR_SCRIPT_INTRO,
-		PYTHON_PREPROCESSOR_MODULE_CODE,
-		PYTHON_PREPROCESSOR_SCRIPT_INTRO
-	} from '$lib/script_helpers'
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
@@ -850,13 +849,10 @@
 	function addPreprocessor() {
 		const code = editor?.getCode()
 		if (code) {
-			const preprocessorCode =
-				script.language === 'python3'
-					? PYTHON_PREPROCESSOR_SCRIPT_INTRO + PYTHON_PREPROCESSOR_MODULE_CODE
-					: TS_PREPROCESSOR_SCRIPT_INTRO + TS_PREPROCESSOR_MODULE_CODE
-			const mainIndex = code.indexOf(
-				script.language === 'python3' ? 'def main' : 'export async function main'
-			)
+			const preprocessorCode = getPreprocessorFullCode(script.language, false)
+			const mainPattern = getMainFunctionPattern(script.language)
+			const mainIndex = code.indexOf(mainPattern)
+
 			if (mainIndex === -1) {
 				editor?.setCode(code + preprocessorCode)
 			} else {
@@ -1145,8 +1141,7 @@
 															on:click={() => onScriptLanguageTrigger(lang)}
 															disabled={lockedLanguage ||
 																(enterpriseLangs.includes(lang) && !$enterpriseLicense) ||
-																(script.kind == 'preprocessor' &&
-																	!canHavePreprocessorInScript(lang))}
+																(script.kind == 'preprocessor' && !canHavePreprocessor(lang))}
 															startIcon={{
 																icon: LanguageIcon,
 																props: { lang }
@@ -1673,7 +1668,7 @@
 									newItem={initialPath == ''}
 									isFlow={false}
 									{hasPreprocessor}
-									canHavePreprocessor={canHavePreprocessorInScript(script.language)}
+									canHavePreprocessor={canHavePreprocessor(script.language)}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
 									isDeployed={savedScript && !savedScript?.draft_only}
 									schema={script.schema}
