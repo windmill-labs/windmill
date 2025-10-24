@@ -305,16 +305,20 @@
 					{
 						displayName: 'Publish to Hub',
 						icon: Globe2,
-						action: () => {
+						action: async () => {
+							const scriptData = await ScriptService.getScriptByPath({
+								workspace: $workspaceStore!,
+								path: script.path
+							})
 							window.open(
 								scriptToHubUrl(
-									script.content,
-									script.summary,
-									script.description ?? '',
-									script.kind,
-									script.language,
-									script.schema,
-									script.lock ?? '',
+									scriptData.content,
+									scriptData.summary,
+									scriptData.description ?? '',
+									scriptData.kind,
+									scriptData.language,
+									scriptData.schema,
+									scriptData.lock ?? '',
 									$hubBaseUrlStore
 								).toString(),
 								'_blank'
