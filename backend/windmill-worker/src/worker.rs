@@ -1542,13 +1542,15 @@ pub async fn run_worker(
                 Ok(_) | Err(broadcast::error::TryRecvError::Closed) => true,
                 _ => false,
             } {
-                if !killed_but_draining_same_worker_jobs && job_completed_tx.is_sql() {
+                if !killed_but_draining_same_worker_jobs {
                     killed_but_draining_same_worker_jobs = true;
-                    tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received in worker main loop, sending killpill job");
-                    job_completed_tx
-                        .kill()
-                        .await
-                        .expect("send kill to job completed tx");
+                    if job_completed_tx.is_sql() {
+                        tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received in worker main loop, sending killpill job");
+                        job_completed_tx
+                            .kill()
+                            .await
+                            .expect("send kill to job completed tx");
+                    }
                 }
                 continue;
             } else if killed_but_draining_same_worker_jobs {
