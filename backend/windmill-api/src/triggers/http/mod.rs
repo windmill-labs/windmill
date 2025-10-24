@@ -192,8 +192,9 @@ impl<'de> Deserialize<'de> for HttpConfigRequest {
 
 // Regex patterns for route validation
 lazy_static::lazy_static! {
-    static ref ROUTE_PATH_KEY_RE: regex::Regex = regex::Regex::new(r"/?:[-\w]+").unwrap();
-    static ref VALID_ROUTE_PATH_RE: regex::Regex = regex::Regex::new(r"^:?[-\w]+(/:?[-\w]+)*$").unwrap();
+    // Matches named params like :id or wildcards like :* or *
+    static ref ROUTE_PATH_KEY_RE: regex::Regex = regex::Regex::new(r"(/)?(:|\*)[-\w]+").unwrap();
+    static ref VALID_ROUTE_PATH_RE: regex::Regex = regex::Regex::new(r"^(\*[-\w]+$|:?[-\w]+)(/(\*[-\w]+$|:?[-\w]+))*$").unwrap();
 }
 
 #[derive(Deserialize)]
