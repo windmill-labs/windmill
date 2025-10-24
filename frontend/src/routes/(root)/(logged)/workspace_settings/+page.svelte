@@ -1047,6 +1047,7 @@
 	getInitialAndModifiedValues={getAllUnsavedChanges}
 	onDiscardChanges={discardAllChanges}
 	triggerOnSearchParamsChange={true}
+	tabMode={true}
 />
 
 <style>
