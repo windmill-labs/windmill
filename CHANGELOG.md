@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.566.1](https://github.com/windmill-labs/windmill/compare/v1.566.0...v1.566.1) (2025-10-25)
+
+
+### Bug Fixes
+
+* fix dependency jobs on CE ([29b6feb](https://github.com/windmill-labs/windmill/commit/29b6febdd81cf16bd14a9ec4528e215e8221704a))
+
 ## [1.566.0](https://github.com/windmill-labs/windmill/compare/v1.565.0...v1.566.0) (2025-10-24)
 
 
