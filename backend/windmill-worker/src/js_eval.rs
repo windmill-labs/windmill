@@ -47,7 +47,7 @@ use windmill_common::utils::configure_client;
 #[cfg(feature = "deno_core")]
 use windmill_common::worker::{write_file, TMP_DIR};
 
-use windmill_common::flow_status::JobResult;
+use windmill_common::{flow_status::JobResult, worker::to_raw_value};
 use windmill_queue::CanceledBy;
 
 use crate::common::{OccupancyMetrics, StreamNotifier};
@@ -165,10 +165,16 @@ impl NetPermissions for PermissionsContainer {
 #[cfg(feature = "deno_core")]
 pub struct OptAuthedClient(Option<AuthedClient>);
 
+const FLOW_INPUT_PREFIX_SQUARE: &'static str = "flow_input[\"";
+const FLOW_INPUT_PREFIX: [&'static str; 2] = ["flow_input.", FLOW_INPUT_PREFIX_SQUARE];
+const ENV_KEY_PREFIX: &'static str = "env.";
+const ENV_KEY_PREFIX_LEN: usize = ENV_KEY_PREFIX.len();
+
 pub async fn eval_timeout(
     expr: String,
     transform_context: HashMap<String, Arc<Box<RawValue>>>,
     flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
+    flow_env: Option<&HashMap<String, String>>,
     authed_client: Option<&AuthedClient>,
     by_id: Option<&IdContext>,
     #[allow(unused_variables)] ctx: Option<Vec<(String, String)>>,
@@ -186,13 +192,36 @@ pub async fn eval_timeout(
         }
     }
 
-    if expr.starts_with("flow_input.") || expr.starts_with("flow_input[") {
-        if let Some(ref flow_input) = flow_input {
-            for (k, v) in flow_input.iter() {
-                if &format!("flow_input.{k}") == &expr || &format!("flow_input[\"{k}\"]") == &expr {
-                    // tracing::error!("FLOW_INPUT");
-                    return Ok(v.clone());
-                }
+    if let Some(flow_prefix) = FLOW_INPUT_PREFIX
+        .iter()
+        .find(|prefix| expr.starts_with(*prefix))
+    {
+        let flow_arg_name = if *flow_prefix == FLOW_INPUT_PREFIX_SQUARE {
+            let suffix = &expr[FLOW_INPUT_PREFIX_SQUARE.len()..];
+            let flow_arg_name = suffix
+                .ends_with("\"]")
+                .then(|| &expr[FLOW_INPUT_PREFIX_SQUARE.len()..expr.len() - 2])
+                .filter(|s| s.len() > 0);
+            flow_arg_name
+        } else {
+            Some(&expr[flow_prefix.len()..])
+        };
+
+        if let Some(key) = flow_arg_name {
+            if let Some(args_value) = flow_input
+                .as_ref()
+                .and_then(|flow_input| flow_input.get(key))
+            {
+                return Ok(args_value.clone());
+            }
+        }
+    }
+
+    if let Some(flow_env) = flow_env {
+        if expr.starts_with(ENV_KEY_PREFIX) {
+            let env_key = &expr[ENV_KEY_PREFIX_LEN..];
+            if let Some(env_value) = flow_env.get(env_key) {
+                return Ok(to_raw_value(&env_value));
             }
         }
     }
@@ -271,8 +300,8 @@ pub async fn eval_timeout(
                 if by_id.is_some() && authed_client.is_some() {
                     ops.push(op_get_result());
                     ops.push(op_get_id());
+                    ops.push(op_get_flow_env());
                 }
-
                 let ext = Extension { name: "js_eval", ops: ops.into(), ..Default::default() };
                 let exts = vec![ext];
                 // Use our snapshot to provision our new runtime
@@ -307,13 +336,15 @@ pub async fn eval_timeout(
                     let mut client = authed_client.clone();
                     if let Some(client) = client.as_mut() {
                         client.force_client = Some(
-                            configure_client(reqwest::ClientBuilder::new()
-                                .user_agent("windmill/beta")
-                                .danger_accept_invalid_certs(
-                                    std::env::var("ACCEPT_INVALID_CERTS").is_ok(),
-                                ))
-                                .build()
-                                .unwrap(),
+                            configure_client(
+                                reqwest::ClientBuilder::new()
+                                    .user_agent("windmill/beta")
+                                    .danger_accept_invalid_certs(
+                                        std::env::var("ACCEPT_INVALID_CERTS").is_ok(),
+                                    ),
+                            )
+                            .build()
+                            .unwrap(),
                         );
                     }
                     op_state.put(OptAuthedClient(client));
@@ -323,7 +354,7 @@ pub async fn eval_timeout(
                             .into_iter()
                             .filter(|(a, _)| context_keys.contains(a))
                             .collect(),
-                    })
+                    });
                 }
 
                 sender
@@ -453,6 +484,17 @@ const results = new Proxy({{}}, {{
     }}
 }});
 
+async function env_by_var_name(var_name) {{
+    let root_job_id = "{}";
+    return await Deno.core.ops.op_get_flow_env(root_job_id, var_name);
+}}
+
+const env = new Proxy({{}}, {{
+    get: function(target, name, receiver) {{
+        return env_by_var_name(name);
+    }}
+}});
+
 "#,
                 by_id
                     .steps_results
@@ -469,6 +511,7 @@ const results = new Proxy({{}}, {{
                     .join(","),
                 by_id.previous_id,
                 by_id.flow_job,
+                by_id.flow_job
             )
         } else {
             String::new()
@@ -633,6 +676,27 @@ async fn op_resource(
             .get_resource_value_interpolated::<Option<Box<RawValue>>>(&path, None)
             .await
             .map(|x| x.map(|x| x.get().to_string()))
+            .map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))
+    } else {
+        Err(deno_error::JsErrorBox::generic(
+            "No client found in op state",
+        ))
+    }
+}
+
+#[cfg(feature = "deno_core")]
+#[op2(async)]
+#[string]
+async fn op_get_flow_env(
+    op_state: Rc<RefCell<OpState>>,
+    #[string] root_job_id: String,
+    #[string] var_name: String,
+) -> Result<Option<String>, deno_error::JsErrorBox> {
+    let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
+    if let Some(client) = client {
+        client
+            .get_flow_env_by_flow_job_id(&root_job_id, &var_name)
+            .await
             .map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))
     } else {
         Err(deno_error::JsErrorBox::generic(
@@ -1318,7 +1382,7 @@ multiline template`";
             op_state.put(TransformContext { flow_input: None, envs: env.clone() })
         }
 
-        let res = eval_timeout(code.to_string(), env, None, None, None, None).await?;
+        let res = eval_timeout(code.to_string(), env, None, None, None, None, None).await?;
         assert_eq!(res.get(), "2");
         Ok(())
     }
