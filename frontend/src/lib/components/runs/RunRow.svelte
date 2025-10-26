@@ -181,9 +181,14 @@
 	<div class="overflow-hidden min-w-0">
 		<div class="flex flex-row items-center gap-1 text-secondary text-2xs">
 			{#if job}
-				{#if 'started_at' in job && job.started_at}
-					{isJobRecent ? 'Started' : ''}
-					<TimeAgo bind:isRecent={isJobRecent} agoOnlyIfRecent date={job.started_at ?? ''} />
+				{#if ('started_at' in job && job.started_at) || ('completed_at' in job && job.completed_at)}
+					{#if 'completed_at' in job && job.completed_at}
+						{isJobRecent ? 'Ended' : ''}
+						<TimeAgo bind:isRecent={isJobRecent} agoOnlyIfRecent date={job.completed_at ?? ''} />
+					{:else if 'started_at' in job && job.started_at}
+						{isJobRecent ? 'Started' : ''}
+						<TimeAgo bind:isRecent={isJobRecent} agoOnlyIfRecent date={job.started_at ?? ''} />
+					{/if}
 					{#if job && (job.self_wait_time_ms || job.aggregate_wait_time_ms)}
 						<WaitTimeWarning
 							self_wait_time_ms={job.self_wait_time_ms}

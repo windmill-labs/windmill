@@ -6,7 +6,10 @@
 		type CompletedJob,
 		type ExtendedJobs,
 		ConcurrencyGroupsService,
-		type ObscuredJob
+		type ObscuredJob,
+
+
+
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
@@ -138,9 +141,9 @@
 		if (jobs && jobs.length > 0) {
 			const lastJob = jobs[jobs.length - 1]
 			// const minCreated = lastJob?.created_at
-			const minCreated = new Date(new Date(lastJob.created_at!).getTime() - 1).toISOString()
+			const minCreated = new Date(new Date(lastJob.completed_at!).getTime() - 1).toISOString()
 
-			let olderJobs = await fetchJobs(undefined, minTs, undefined, minCreated)
+			let olderJobs = await fetchJobs(minCreated, minTs, undefined)
 			jobs = jobs.concat(olderJobs)
 			computeCompletedJobs()
 			return olderJobs?.length < 1000
@@ -149,10 +152,9 @@
 	}
 
 	async function fetchJobs(
-		startedBefore: string | undefined,
-		startedAfter: string | undefined,
-		startedAfterCompletedJobs: string | undefined,
-		createdBefore: string | undefined
+		completedBefore: string | undefined,
+		completedAfter: string | undefined,
+		createdAfterQueue: string | undefined
 	): Promise<Job[]> {
 		loadingFetch = true
 		try {
@@ -160,12 +162,11 @@
 			let scriptPathExact = path === null || path === '' ? undefined : path
 			return JobService.listJobs({
 				workspace: $workspaceStore!,
-				createdOrStartedBefore: startedBefore,
-				createdOrStartedAfter: startedAfter,
-				createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
+				completedBefore,
+				completedAfter,
+				createdAfterQueue,
 				schedulePath,
 				scriptPathExact,
-				createdBefore,
 				createdBy: user === null || user === '' ? undefined : user,
 				scriptPathStart: scriptPathStart,
 				jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
@@ -221,9 +222,9 @@
 				rowLimit: 1000,
 				concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined : concurrencyKey,
 				workspace: $workspaceStore!,
-				createdOrStartedBefore: startedBefore,
-				createdOrStartedAfter: startedAfter,
-				createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
+				// createdOrStartedBefore: startedBefore,
+				// createdOrStartedAfter: startedAfter,
+				// createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
 				schedulePath,
 				scriptPathExact: path === null || path === '' ? undefined : path,
 				createdBy: user === null || user === '' ? undefined : user,
@@ -294,7 +295,7 @@
 			// lookback won't be needed anymore (just filter ended_at > minTs instead
 			const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
 			if (concurrencyKey == null || concurrencyKey === '') {
-				let newJobs = await fetchJobs(maxTs, undefined, extendedMinTs, undefined)
+				let newJobs = await fetchJobs(maxTs, undefined, extendedMinTs)
 				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
 
 				// Filter on minTs here and not in the backend
@@ -379,36 +380,35 @@
 				if (success == 'running') {
 					loadJobsIntern(false)
 				} else {
-					let ts: string | undefined = undefined
-					let cursor = 0
+					let queueTs: string | undefined = undefined
+					let completedTs: string | undefined = undefined
 
-					while (cursor < jobs.length && minTs == undefined) {
-						let invCursor = jobs.length - 1 - cursor
-						let isQueuedJob = invCursor == 0 || jobs[invCursor].type == 'QueuedJob'
-						if (isQueuedJob) {
-							if (cursor > 0) {
-								let inc = invCursor == 0 && jobs[invCursor].type == 'CompletedJob' ? 0 : 1
-								const date = new Date(jobs[invCursor + inc]?.created_at!)
-								date.setMilliseconds(date.getMilliseconds() + 1)
-								ts = date.toISOString()
+					let cursor = 0
+					if (minTs == undefined) {
+						while (cursor < jobs.length && queueTs == undefined && completedTs == undefined) {
+							const cjob = jobs[cursor]
+							if (cjob.type == 'QueuedJob') {
+								queueTs = new Date(cjob.created_at!).toISOString()
+							} else if (cjob.type == 'CompletedJob') {
+								completedTs = new Date(cjob.completed_at!).toISOString()
 							}
-							break
+							cursor++
 						}
-						cursor++
 					}
+
 
 					loading = true
 					let newJobs: Job[]
 					if (concurrencyKey == null || concurrencyKey === '') {
-						newJobs = await fetchJobs(maxTs, minTs ?? ts, undefined, undefined)
+						newJobs = await fetchJobs(maxTs, minTs ?? completedTs, queueTs)
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
-						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined, minTs ?? ts)
+						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, undefined, minTs ?? completedTs)
 						externalJobs = computeExternalJobs(extendedJobs.obscured_jobs)
 
 						// Filter on minTs here and not in the backend
 						// to get enough data for the concurrency graph
-						newJobs = sortMinDate(minTs ?? ts, extendedJobs.jobs)
+						newJobs = sortMinDate(minTs ?? completedTs, extendedJobs.jobs)
 					}
 					if (newJobs && newJobs.length > 0 && jobs) {
 						jobs = updateWithNewJobs(jobs, newJobs)

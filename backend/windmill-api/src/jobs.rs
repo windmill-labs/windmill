@@ -778,7 +778,7 @@ macro_rules! get_job_query {
     ("v2_job_completed", $($opts:tt)*) => {
         get_job_query!(
             @impl "v2_job_completed", ($($opts)*),
-            "v2_job_completed.duration_ms, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, result->'wm_labels' as labels, \
+            "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, result->'wm_labels' as labels, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
             "",
         )
@@ -1820,8 +1820,8 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             created_by: lcq.created_by,
             started_before: lcq.started_before,
             started_after: lcq.started_after,
-            created_before: lcq.created_before,
-            created_after: lcq.created_after,
+            created_before: lcq.created_before_queue.or(lcq.created_before),
+            created_after: lcq.created_after_queue.or(lcq.created_after),
             created_or_started_before: lcq.created_or_started_before,
             created_or_started_after: lcq.created_or_started_after,
             worker: lcq.worker,
@@ -1855,11 +1855,11 @@ pub fn filter_list_queue_query(
     if join_outstanding_wait_times {
         sqlb.left()
             .join("outstanding_wait_time")
-            .on_eq("v2_job.id", "outstanding_wait_time.job_id");
+            .on_eq("v2_job_queue.id", "outstanding_wait_time.job_id");
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
-        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job_queue.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(w) = &lq.worker {
@@ -1920,20 +1920,20 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(dt) = &lq.created_before {
-        sqlb.and_where_le("v2_job.created_at", "?".bind(&dt.to_rfc3339()));
+        sqlb.and_where_le("v2_job_queue.created_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.created_after {
-        sqlb.and_where_ge("v2_job.created_at", "?".bind(&dt.to_rfc3339()));
+        sqlb.and_where_ge("v2_job_queue.created_at", "?".bind(&dt.to_rfc3339()));
     }
 
     if let Some(dt) = &lq.created_or_started_after {
         let ts = dt.timestamp_millis();
-        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at >= to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND v2_job.created_at >= to_timestamp({}  / 1000.0))", ts, ts));
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at >= to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND v2_job_queue.created_at >= to_timestamp({}  / 1000.0))", ts, ts));
     }
 
     if let Some(dt) = &lq.created_or_started_before {
         let ts = dt.timestamp_millis();
-        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at < to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND v2_job.created_at < to_timestamp({}  / 1000.0))", ts, ts));
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at < to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND v2_job_queue.created_at < to_timestamp({}  / 1000.0))", ts, ts));
     }
 
     if let Some(s) = &lq.suspended {
@@ -1960,8 +1960,7 @@ pub fn filter_list_queue_query(
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
-        sqlb.and_where("trigger_kind != 'schedule'")
-            .or_where("trigger_kind IS NULL");
+        sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
     }
 
     sqlb
@@ -1978,7 +1977,7 @@ pub fn list_queue_jobs_query(
     let (limit, offset) = paginate_without_limits(pagination);
     let mut sqlb = SqlBuilder::select_from("v2_job_queue")
         .fields(fields)
-        .order_by("v2_job.created_at", lq.order_desc.unwrap_or(true))
+        .order_by("v2_job_queue.created_at", lq.order_desc.unwrap_or(true))
         .limit(limit)
         .offset(offset)
         .clone();
@@ -2029,7 +2028,7 @@ async fn list_queue_jobs(
             "v2_job.id",
             "v2_job_queue.running",
             "v2_job.created_by",
-            "v2_job.created_at",
+            "v2_job_queue.created_at",
             "v2_job_queue.started_at",
             "v2_job_queue.scheduled_for",
             "v2_job.runnable_id as script_hash",
@@ -2418,6 +2417,7 @@ async fn list_jobs(
         }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
+    tracing::info!("sql: {}", sql);
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql)
@@ -3295,6 +3295,7 @@ pub struct UnifiedJob {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
     pub running: Option<bool>,
     pub script_hash: Option<ScriptHash>,
@@ -3327,13 +3328,14 @@ pub struct UnifiedJob {
 
 const CJ_FIELDS: &[&str] = &[
     "'CompletedJob' as typ",
-    "v2_job.id",
-    "v2_job.workspace_id",
+    "v2_job_completed.id",
+    "v2_job_completed.workspace_id",
     "v2_job.parent_job",
     "v2_job.created_by",
     "v2_job.created_at",
     "v2_job_completed.started_at",
     "null as scheduled_for",
+    "v2_job_completed.completed_at",
     "null as running",
     "v2_job.runnable_id as script_hash",
     "v2_job.runnable_path as script_path",
@@ -3366,13 +3368,14 @@ const CJ_FIELDS: &[&str] = &[
 
 const QJ_FIELDS: &[&str] = &[
     "'QueuedJob' as typ",
-    "v2_job.id",
-    "v2_job.workspace_id",
+    "v2_job_queue.id",
+    "v2_job_queue.workspace_id",
     "v2_job.parent_job",
     "v2_job.created_by",
-    "v2_job.created_at",
+    "v2_job_queue.created_at",
     "v2_job_queue.started_at",
     "v2_job_queue.scheduled_for",
+    "null as completed_at",
     "v2_job_queue.running",
     "v2_job.runnable_id as script_hash",
     "v2_job.runnable_path as script_path",
@@ -3425,6 +3428,7 @@ impl<'a> From<UnifiedJob> for Job {
                     created_by: uj.created_by,
                     created_at: uj.created_at,
                     started_at: uj.started_at,
+                    completed_at: uj.completed_at,
                     duration_ms: uj.duration_ms.unwrap(),
                     success: uj.success.unwrap(),
                     script_hash: uj.script_hash,
@@ -7507,7 +7511,7 @@ pub fn filter_list_completed_query(
     if join_outstanding_wait_times {
         sqlb.left()
             .join("outstanding_wait_time")
-            .on_eq("v2_job.id", "outstanding_wait_time.job_id");
+            .on_eq("v2_job_completed.id", "outstanding_wait_time.job_id");
     }
 
     if let Some(label) = &lq.label {
@@ -7535,7 +7539,7 @@ pub fn filter_list_completed_query(
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
-        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job_completed.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(p) = &lq.schedule_path {
@@ -7605,6 +7609,13 @@ pub fn filter_list_completed_query(
         sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
     }
 
+    if let Some(dt) = &lq.completed_after {
+        sqlb.and_where_ge("completed_at", "?".bind(&dt.to_rfc3339()));
+    }
+    if let Some(dt) = &lq.completed_before {
+        sqlb.and_where_le("completed_at", "?".bind(&dt.to_rfc3339()));
+    }
+
     if let Some(sk) = &lq.is_skipped {
         if *sk {
             sqlb.and_where_eq("status", "'skipped'");
@@ -7640,8 +7651,7 @@ pub fn filter_list_completed_query(
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
-        sqlb.and_where("trigger_kind != 'schedule'")
-            .or_where("trigger_kind IS NULL");
+        sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
     }
 
     sqlb
@@ -7658,7 +7668,10 @@ pub fn list_completed_jobs_query(
 ) -> SqlBuilder {
     let mut sqlb = SqlBuilder::select_from("v2_job_completed")
         .fields(fields)
-        .order_by("v2_job.created_at", lq.order_desc.unwrap_or(true))
+        .order_by(
+            "v2_job_completed.completed_at",
+            lq.order_desc.unwrap_or(true),
+        )
         .offset(offset)
         .clone();
     if let Some(per_page) = per_page {
@@ -7687,6 +7700,10 @@ pub struct ListCompletedQuery {
     pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_after_completed_jobs: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_before_queue: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_after_queue: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_before: Option<chrono::DateTime<chrono::Utc>>,
     pub success: Option<bool>,
     pub running: Option<bool>,
     pub parent_job: Option<String>,
@@ -7726,8 +7743,8 @@ async fn list_completed_jobs(
         offset,
         &lq,
         &[
-            "v2_job.id",
-            "v2_job.workspace_id",
+            "v2_job_completed.id",
+            "v2_job_completed.workspace_id",
             "v2_job.parent_job",
             "v2_job.created_by",
             "v2_job.created_at",
