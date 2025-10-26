@@ -28,6 +28,7 @@
 		selectedIds?: string[]
 		canSelect?: boolean
 		lastFetchWentToEnd?: boolean
+		totalRowsFetched: number
 		onPointClicked: (ids: string[]) => void
 		onLoadExtra: () => void
 		onZoom: (zoom: { min: Date; max: Date }) => void
@@ -41,6 +42,7 @@
 		selectedIds = $bindable([]),
 		canSelect = true,
 		lastFetchWentToEnd = false,
+		totalRowsFetched,
 		onPointClicked,
 		onLoadExtra,
 		onZoom
@@ -301,13 +303,14 @@
 <!-- {JSON.stringify(jobs?.map((x) => x.started_at))} -->
 <div class="relative max-h-40">
 	{#if !lastFetchWentToEnd}
-		<div class="absolute top-[-28px] left-[220px]"
-			><Button size="xs" color="transparent" variant="contained" on:click={() => onLoadExtra()}
-				>Load more <Tooltip2
-					>There are more jobs to load but only the first 1000 were fetched</Tooltip2
-				></Button
-			></div
-		>
+		<div class="absolute top-[-28px] left-[220px]">
+			<Button size="xs" color="transparent" variant="contained" on:click={() => onLoadExtra()}>
+				Load more
+				<Tooltip2>
+					There are more jobs to load but only the first {totalRowsFetched} were fetched
+				</Tooltip2>
+			</Button>
+		</div>
 	{/if}
 	<Scatter {data} options={scatterOptions} />
 </div>

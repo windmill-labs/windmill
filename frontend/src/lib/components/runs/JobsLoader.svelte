@@ -13,7 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 
 	import { tweened, type Tweened } from 'svelte/motion'
-	import { subtractDaysFromDateString } from '$lib/utils'
+	import { sendAlternativesToastOnTimeout, subtractDaysFromDateString } from '$lib/utils'
 
 	interface Props {
 		jobs: Job[] | undefined
@@ -49,7 +49,7 @@
 		allWorkspaces?: boolean
 		computeMinAndMax: (() => { minTs: string; maxTs: string | undefined } | undefined) | undefined
 		lookback?: number
-		perPage?: number | undefined
+		perPage?: number
 		allowWildcards?: boolean
 	}
 
@@ -87,7 +87,7 @@
 		allWorkspaces = false,
 		computeMinAndMax,
 		lookback = 0,
-		perPage = undefined,
+		perPage = 1000,
 		allowWildcards = false
 	}: Props = $props()
 	let intervalId: number | undefined = $state()
@@ -143,7 +143,7 @@
 			let olderJobs = await fetchJobs(undefined, minTs, undefined, minCreated)
 			jobs = jobs.concat(olderJobs)
 			computeCompletedJobs()
-			return olderJobs?.length < 1000
+			return olderJobs?.length < perPage
 		}
 		return false
 	}
@@ -158,7 +158,7 @@
 		try {
 			let scriptPathStart = folder === null || folder === '' ? undefined : `f/${folder}/`
 			let scriptPathExact = path === null || path === '' ? undefined : path
-			return JobService.listJobs({
+			let promise = JobService.listJobs({
 				workspace: $workspaceStore!,
 				createdOrStartedBefore: startedBefore,
 				createdOrStartedAfter: startedAfter,
@@ -200,6 +200,7 @@
 				perPage,
 				allowWildcards: allowWildcards ? true : undefined
 			})
+			return (await sendAlternativesToastOnTimeout(promise, [], { id: 'list-jobs' })).value ?? []
 		} catch (e) {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
 			console.error(e)
@@ -218,7 +219,7 @@
 		loadingFetch = true
 		try {
 			return ConcurrencyGroupsService.listExtendedJobs({
-				rowLimit: 1000,
+				rowLimit: perPage,
 				concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined : concurrencyKey,
 				workspace: $workspaceStore!,
 				createdOrStartedBefore: startedBefore,
