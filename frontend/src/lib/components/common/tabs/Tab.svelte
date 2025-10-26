@@ -21,6 +21,7 @@
 		exact?: boolean
 		otherValues?: string[]
 		disabled?: boolean
+		tooltip?: string
 		extra?: import('svelte').Snippet
 	}
 
@@ -39,6 +40,7 @@
 		exact = false,
 		otherValues = [],
 		disabled = false,
+		tooltip = undefined,
 		extra = undefined
 	}: Props = $props()
 	const { selected, update, hashNavigation } = getContext<TabsContext>('Tabs')
@@ -58,7 +60,11 @@
 	let isSelected = $derived(isSelectedFn($selected))
 </script>
 
-<button
+<div 
+title={tooltip}
+class="inline-block"
+>
+	<button
 	use:triggerableByAI={{
 		id: aiId,
 		description: aiDescription,
@@ -109,4 +115,5 @@
 		{/if}
 		{@render extra?.()}
 	</div>
-</button>
+	</button>
+</div>
