@@ -52,6 +52,137 @@ pub(crate) struct DeleteWorkspaceQuery {
     pub(crate) only_delete_forks: Option<bool>,
 }
 
+async fn delete_workspace_tables(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Result<()> {
+    sqlx::query!("DELETE FROM workspace_env WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query!("DELETE FROM v2_job_queue WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query!("DELETE FROM v2_job WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query!("DELETE FROM capture WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    // capture_config has on delete cascade
+
+    sqlx::query!("DELETE FROM draft WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query!("DELETE FROM script WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query!("DELETE FROM flow WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query!("DELETE FROM app WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query!("DELETE FROM raw_app WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query!("DELETE FROM input WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query!("DELETE FROM variable WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query!("DELETE FROM resource WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM schedule WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM v2_job_completed WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM job_stats WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!(
+        "DELETE FROM deployment_metadata WHERE workspace_id = $1",
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!("DELETE FROM usr WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM resource_type WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM workspace_invite WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM usr_to_group WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM group_ WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM folder WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM account WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM workspace_key WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!(
+        "DELETE FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!("DELETE FROM token WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM http_trigger WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    sqlx::query!(
+        "DELETE FROM websocket_trigger WHERE workspace_id = $1",
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!("DELETE FROM kafka_trigger WHERE workspace_id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    // NATS triggers have on delete cascade
+
+    sqlx::query!("DELETE FROM workspace WHERE id = $1", w_id)
+        .execute(&mut **tx)
+        .await?;
+
+    Ok(())
+}
+
 pub(crate) async fn delete_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
@@ -79,138 +210,7 @@ pub(crate) async fn delete_workspace(
         require_super_admin(&db, &authed.email).await?;
     }
 
-    sqlx::query!("DELETE FROM workspace_env WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM v2_job_queue WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM v2_job WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM capture WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // capture_config has on delete cascade
-
-    sqlx::query!("DELETE FROM draft WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM script WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM flow WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM app WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM raw_app WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM input WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM variable WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM resource WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query!("DELETE FROM schedule WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query!(
-        "DELETE FROM v2_job_completed WHERE workspace_id = $1",
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!("DELETE FROM job_stats WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query!(
-        "DELETE FROM deployment_metadata WHERE workspace_id = $1",
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!("DELETE FROM usr WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query!("DELETE FROM resource_type WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query!(
-        "DELETE FROM workspace_invite WHERE workspace_id = $1",
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!("DELETE FROM usr_to_group WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query!("DELETE FROM group_ WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query!("DELETE FROM folder WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query!("DELETE FROM account WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query!("DELETE FROM workspace_key WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query!(
-        "DELETE FROM workspace_settings WHERE workspace_id = $1",
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!("DELETE FROM token WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query!("DELETE FROM http_trigger WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query!(
-        "DELETE FROM websocket_trigger WHERE workspace_id = $1",
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!("DELETE FROM kafka_trigger WHERE workspace_id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
-
-    // NATS triggers have on delete cascade
-
-    sqlx::query!("DELETE FROM workspace WHERE id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
+    delete_workspace_tables(&mut tx, &w_id).await?;
 
     audit_log(
         &mut *tx,
@@ -509,6 +509,8 @@ pub async fn complete_workspace_migration(
     .execute(&mut *tx)
     .await?;
 
+    delete_workspace_tables(&mut tx, &req.source_workspace_id).await?;
+    
     audit_log(
         &mut *tx,
         &authed,

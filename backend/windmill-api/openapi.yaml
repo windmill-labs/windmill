@@ -836,7 +836,6 @@ paths:
 
   /workspaces/migrate/complete:
     post:
-      summary: complete workspace migration by migrating authentication tables
       operationId: completeWorkspaceMigration
       tags:
         - workspace
@@ -15470,10 +15469,6 @@ components:
           type: boolean
         on_behalf_of_email:
           type: string
-        debounce_key:
-          type: string
-        debounce_delay_s:
-          type: number
 
       required:
         - hash
