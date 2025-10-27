@@ -1646,6 +1646,16 @@ async fn create_user(
     crate::users_oss::create_user(authed, db, webhook, argon2, nu).await
 }
 
+#[cfg(feature = "cloud")]
+async fn submit_onboarding_data(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(data): Json<crate::users_ee::OnboardingData>,
+) -> Result<String> {
+    crate::users_ee::submit_onboarding_data(authed, Extension(db), Json(data)).await
+}
+
+#[cfg(not(feature = "cloud"))]
 async fn submit_onboarding_data(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
