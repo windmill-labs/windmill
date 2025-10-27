@@ -232,7 +232,7 @@
 			<Row>
 				<Cell first class="w-48 relative">
 					{#if ducklake.name === 'main'}
-						<Tooltip wrapperClass="absolute mt-3 right-4" placement="bottom-start">
+						<Tooltip wrapperClass="absolute mt-[0.6rem] right-4" placement="bottom-start">
 							The <i>main</i> ducklake can be accessed with the
 							<br />
 							<code class="px-1 py-0.5 border rounded-md">ATTACH 'ducklake' AS dl;</code> shorthand
@@ -244,7 +244,7 @@
 					<div class="flex gap-2">
 						<div class="relative">
 							{#if ducklake.catalog.resource_type === 'instance'}
-								<Tooltip wrapperClass="absolute mt-3 right-2 z-20" placement="bottom-start">
+								<Tooltip wrapperClass="absolute mt-[0.6rem] right-2 z-20" placement="bottom-start">
 									Use Windmill's PostgreSQL instance as a catalog
 								</Tooltip>
 							{/if}

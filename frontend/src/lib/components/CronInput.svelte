@@ -217,7 +217,7 @@
 					error={!validCRON}
 				/>
 				{#if !disabled}
-					<div class="flex flex-row gap-2">
+					<div class="flex flex-row gap-2 shrink-0">
 						{@render cronBuilder()}
 						<CronGen bind:schedule bind:cronVersion />
 					</div>

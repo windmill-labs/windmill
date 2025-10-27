@@ -194,7 +194,7 @@
 			const horizontalPadding = iconOnly
 				? ButtonType.UnifiedIconOnlySizingClasses[unifiedSize]
 				: ButtonType.UnifiedSizingClasses[unifiedSize]
-			const height = ButtonType.UnifiedHeightClasses[unifiedSize]
+			const height = ButtonType.UnifiedMinHeightClasses[unifiedSize]
 			return `${horizontalPadding} ${height}`
 		}
 
@@ -242,7 +242,7 @@
 			unifiedSize ? ButtonType.UnifiedFontSizes[unifiedSize] : '',
 			'focus-visible:ring-2',
 			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md' : 'rounded-md',
-			'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
+			'justify-center items-center text-center inline-flex gap-2',
 			'active:opacity-80 transition-[background-color,opacity] duration-150',
 			disabled
 				? ['default', 'subtle'].includes(variant)

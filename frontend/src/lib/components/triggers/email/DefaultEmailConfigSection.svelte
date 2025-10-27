@@ -58,7 +58,7 @@
 	<div class="flex flex-col gap-6">
 		{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 			<Label label="Token">
-				<div class="flex flex-row justify-between gap-2">
+				<div class="flex flex-row justify-between gap-2 whitespace-nowrap">
 					<TextInput
 						bind:value={token}
 						inputProps={{
