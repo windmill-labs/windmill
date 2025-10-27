@@ -427,7 +427,7 @@
 						{#if flowStore.val.value.concurrent_limit}
 							<div class="flex flex-col gap-6 mt-6" transition:slide={{ duration: 120 }}>
 								<Label label="Max number of executions within the time window">
-									<div class="flex flex-row gap-2 max-w-sm">
+									<div class="flex flex-row gap-2 max-w-sm whitespace-nowrap">
 										<input
 											disabled={!$enterpriseLicense}
 											bind:value={flowStore.val.value.concurrent_limit}
