@@ -7539,7 +7539,8 @@ pub fn filter_list_completed_query(
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
-        sqlb.and_where_eq("v2_job_completed.workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job_completed.workspace_id", "?".bind(&w_id))
+            .and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(p) = &lq.schedule_path {
@@ -7669,7 +7670,11 @@ pub fn list_completed_jobs_query(
     let mut sqlb = SqlBuilder::select_from("v2_job_completed")
         .fields(fields)
         .order_by(
-            "v2_job_completed.completed_at",
+            if lq.completed_before.is_some() || lq.completed_after.is_some() {
+                "v2_job_completed.completed_at"
+            } else {
+                "v2_job.created_at"
+            },
             lq.order_desc.unwrap_or(true),
         )
         .offset(offset)
