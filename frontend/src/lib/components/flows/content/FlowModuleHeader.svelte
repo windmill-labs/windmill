@@ -35,7 +35,7 @@
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 </script>
 
-<div class="flex flex-row space-x-1">
+<div class="flex flex-row space-x-1 whitespace-nowrap">
 	{#if module.value.type === 'script' || module.value.type === 'rawscript' || module.value.type == 'flow'}
 		{#if module.retry?.constant || module.retry?.exponential}
 			<Popover
