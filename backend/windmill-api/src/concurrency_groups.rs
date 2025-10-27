@@ -166,7 +166,7 @@ async fn get_concurrent_intervals(
         .clone();
     let mut sqlb_c = SqlBuilder::select_from("v2_job_completed")
         .fields(UnifiedJob::completed_job_fields())
-        .order_by("started_at", lq.order_desc.unwrap_or(true))
+        .order_by("completed_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)
         .clone();
     let mut sqlb_q_user = SqlBuilder::select_from("v2_job_queue")
@@ -176,7 +176,7 @@ async fn get_concurrent_intervals(
         .clone();
     let mut sqlb_c_user = SqlBuilder::select_from("v2_job_completed")
         .fields(&["id"])
-        .order_by("started_at", lq.order_desc.unwrap_or(true))
+        .order_by("completed_at", lq.order_desc.unwrap_or(true))
         .limit(row_limit)
         .clone();
 
@@ -300,6 +300,7 @@ async fn get_concurrent_intervals(
                 duration_ms: j.duration_ms,
             })
             .collect();
+
         let jobs = running_jobs_db
             .into_iter()
             .filter(|j| running_jobs_user.iter().any(|id| j.id == *id))
@@ -310,6 +311,7 @@ async fn get_concurrent_intervals(
             )
             .map(From::from)
             .collect();
+
         Ok(Json(ExtendedJobs {
             jobs,
             obscured_jobs,
