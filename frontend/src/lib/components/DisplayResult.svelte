@@ -255,6 +255,8 @@
 						return !largeObject || NO_SIZE_LIMIT_KINDS.includes(keys[0])
 							? (keys[0] as ResultKind)
 							: 'json'
+					} else if (keys.length === 2 && keys.includes('file') && keys.includes('filename')) {
+						return 'file'
 					} else if (
 						keys.includes('windmill_content_type') &&
 						result['windmill_content_type'].startsWith('text/')
