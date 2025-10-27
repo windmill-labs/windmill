@@ -31,6 +31,7 @@
 	let isSubmitting = $state(false)
 	let otherSourceText = $state('')
 	let otherPopoverOpen = $state(false)
+	let otherInputRef: HTMLInputElement | undefined = $state()
 
 	const sources = [
 		{ id: 'search_engine', label: 'Search engine', icon: Search },
@@ -44,6 +45,13 @@
 		{ id: 'event', label: 'Event', icon: Calendar },
 		{ id: 'other', label: 'Other', icon: HelpCircle }
 	]
+
+	// Focus the "Other" input when the popover opens
+	$effect(() => {
+		if (otherPopoverOpen && otherInputRef) {
+			otherInputRef.focus()
+		}
+	})
 
 	function selectSource(sourceId: string) {
 		selectedSource = sourceId
@@ -118,10 +126,10 @@
 								<div class="flex flex-col gap-3">
 									<input
 										type="text"
+										bind:this={otherInputRef}
 										bind:value={otherSourceText}
 										placeholder="Type your answer..."
 										class="input"
-										autofocus
 									/>
 									<Button
 										variant="accent"
