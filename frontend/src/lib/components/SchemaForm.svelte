@@ -278,8 +278,7 @@
 				class={twMerge(
 					typeof diff[argName] === 'object' &&
 						diff[argName].diff !== 'same' &&
-						'bg-red-300 dark:bg-red-800 rounded-md',
-					'relative'
+						'bg-red-300 dark:bg-red-800 rounded-md'
 				)}
 				innerClass="w-full"
 			>
