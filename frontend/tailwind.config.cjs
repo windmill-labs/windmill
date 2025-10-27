@@ -120,19 +120,8 @@ const config = {
 				600: `rgb(${primitives['red-600']})`,
 				700: `rgb(${primitives['red-700']})`,
 				800: `rgb(${primitives['red-800']})`,
-				900: `rgb(${primitives['red-900']})`
-			},
-			'luminance-blue': {
-				50: `rgb(${primitives['luminance-blue-50']})`,
-				100: `rgb(${primitives['luminance-blue-100']})`,
-				200: `rgb(${primitives['luminance-blue-200']})`,
-				300: `rgb(${primitives['luminance-blue-300']})`,
-				400: `rgb(${primitives['luminance-blue-400']})`,
-				500: `rgb(${primitives['luminance-blue-500']})`,
-				600: `rgb(${primitives['luminance-blue-600']})`,
-				700: `rgb(${primitives['luminance-blue-700']})`,
-				800: `rgb(${primitives['luminance-blue-800']})`,
-				900: `rgb(${primitives['luminance-blue-900']})`
+				900: `rgb(${primitives['red-900']})`,
+				950: `rgb(${primitives['red-950']})`
 			},
 			blue: {
 				50: `rgb(${primitives['blue-50']})`,
