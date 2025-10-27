@@ -4,17 +4,28 @@ import { deepEqual } from 'fast-equals'
 import type { AIModuleAction } from '../copilot/chat/flow/core'
 
 /**
+ * Represents the diff actions for a single module, potentially different for before/after views.
+ */
+export type ModuleDiffResult = {
+	before?: AIModuleAction
+	after?: AIModuleAction
+}
+
+/**
  * Computes the difference between two flow versions and returns a map of module IDs to their actions.
+ *
+ * When a module exists in both flows but has a different type, it's treated as removed + added
+ * rather than modified, since it's effectively a completely different module.
  *
  * @param beforeFlow - The original flow value
  * @param afterFlow - The modified flow value
- * @returns A record mapping module IDs to their action type ('added', 'removed', or 'modified')
+ * @returns A record mapping module IDs to their diff result with separate before/after actions
  */
 export function computeFlowModuleDiff(
 	beforeFlow: FlowValue,
 	afterFlow: FlowValue
-): Record<string, AIModuleAction> {
-	const result: Record<string, AIModuleAction> = {}
+): Record<string, ModuleDiffResult> {
+	const result: Record<string, ModuleDiffResult> = {}
 
 	// Get all modules from both flows using dfs
 	const beforeModules = getAllModulesMap(beforeFlow)
@@ -29,14 +40,20 @@ export function computeFlowModuleDiff(
 
 		if (!beforeModule && afterModule) {
 			// Module exists in after but not before -> added
-			result[moduleId] = 'added'
+			result[moduleId] = { after: 'added' }
 		} else if (beforeModule && !afterModule) {
 			// Module exists in before but not after -> removed
-			result[moduleId] = 'removed'
+			result[moduleId] = { before: 'removed' }
 		} else if (beforeModule && afterModule) {
-			// Module exists in both -> check if modified
-			if (!deepEqual(beforeModule, afterModule)) {
-				result[moduleId] = 'modified'
+			// Module exists in both -> check type and content
+			const typeChanged = beforeModule.value.type !== afterModule.value.type
+
+			if (typeChanged) {
+				// Type changed -> treat as removed + added
+				result[moduleId] = { before: 'removed', after: 'added' }
+			} else if (!deepEqual(beforeModule, afterModule)) {
+				// Same type but different content -> modified
+				result[moduleId] = { before: 'modified', after: 'modified' }
 			}
 			// If they're equal, don't add to result (no change)
 		}
@@ -74,25 +91,25 @@ function getAllModulesMap(flow: FlowValue): Map<string, FlowModule> {
 
 /**
  * Splits a module diff map into separate maps for before and after views.
- * - Before view: shows 'removed' and 'modified' modules
- * - After view: shows 'added' and 'modified' modules
+ * - Before view: shows modules with before actions (removed or modified)
+ * - After view: shows modules with after actions (added or modified)
  *
- * @param moduleDiff - The complete module diff
+ * @param moduleDiff - The complete module diff with separate before/after actions
  * @returns An object with beforeActions and afterActions maps
  */
-export function splitModuleDiffForViews(moduleDiff: Record<string, AIModuleAction>): {
+export function splitModuleDiffForViews(moduleDiff: Record<string, ModuleDiffResult>): {
 	beforeActions: Record<string, AIModuleAction>
 	afterActions: Record<string, AIModuleAction>
 } {
 	const beforeActions: Record<string, AIModuleAction> = {}
 	const afterActions: Record<string, AIModuleAction> = {}
 
-	for (const [moduleId, action] of Object.entries(moduleDiff)) {
-		if (action === 'removed' || action === 'modified') {
-			beforeActions[moduleId] = action
+	for (const [moduleId, diffResult] of Object.entries(moduleDiff)) {
+		if (diffResult.before) {
+			beforeActions[moduleId] = diffResult.before
 		}
-		if (action === 'added' || action === 'modified') {
-			afterActions[moduleId] = action
+		if (diffResult.after) {
+			afterActions[moduleId] = diffResult.after
 		}
 	}
 
