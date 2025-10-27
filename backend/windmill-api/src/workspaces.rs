@@ -2898,9 +2898,7 @@ async fn clone_workspace_dependencies(
     Ok(())
 }
 
-async fn deprecated_create_workspace_fork(
-    _authed: ApiAuthed,
-) -> Result<String> {
+async fn deprecated_create_workspace_fork(_authed: ApiAuthed) -> Result<String> {
     return Err(Error::BadRequest("This API endpoint has been relocated. Your Windmill CLI version is outdated and needs to be updated.".to_string()));
 }
 
@@ -2942,18 +2940,6 @@ async fn create_workspace_fork(
     .map(|v| v.as_bool())
     .flatten()
     .unwrap_or(false);
-
-    let username = if automate_username_creation {
-        if nw.username.is_some() && nw.username.unwrap().len() > 0 {
-            return Err(Error::BadRequest(
-                "username is not allowed when username creation is automated".to_string(),
-            ));
-        }
-        get_instance_username_or_create_pending(&mut tx, &authed.email).await?
-    } else {
-        nw.username
-            .ok_or(Error::BadRequest("username is required".to_string()))?
-    };
 
     sqlx::query!(
         "INSERT INTO workspace
