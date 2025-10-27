@@ -313,7 +313,7 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
 	/>
 
-	<div class="flex flex-row items-center gap-2 relative">
+	<div class="flex flex-row items-center gap-2 relative whitespace-nowrap">
 		<input placeholder="Filter members" bind:value={userFilter} class="input !pl-8" />
 		<Search class="absolute left-2" size={14} />
 

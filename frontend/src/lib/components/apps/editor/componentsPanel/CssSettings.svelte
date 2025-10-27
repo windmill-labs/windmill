@@ -83,7 +83,7 @@
 								/>
 							{:else}
 								<ThemeCodePreview theme={$app.theme}>
-									<div class="p-2 w-min">
+									<div class="p-2 w-min whitespace-nowrap">
 										<Button
 											size="xs"
 											color="dark"
