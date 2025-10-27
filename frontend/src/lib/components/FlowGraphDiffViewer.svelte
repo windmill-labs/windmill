@@ -3,8 +3,7 @@
 	import YAML from 'yaml'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { Alert } from './common'
-	import { computeFlowModuleDiff, splitModuleDiffForViews } from './flows/flowDiff'
-	import { mergeFlows } from './flows/flowMerge'
+	import { computeFlowModuleDiff, splitModuleDiffForViews, mergeFlowsSimple } from './flows/flowDiff'
 	import { dfs } from './flows/dfs'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import type { AIModuleAction } from './copilot/chat/flow/core'
@@ -18,22 +17,22 @@
 
 	let { beforeYaml, afterYaml }: Props = $props()
 
-	let beforeFlow = $state<FlowValue | undefined>(undefined)
-	let afterFlow = $state<FlowValue | undefined>(undefined)
 	let parseError = $state<string | undefined>(undefined)
 	let moduleDiffDrawer: DiffDrawer | undefined = $state(undefined)
 	let viewerWidth = $state(SIDE_BY_SIDE_MIN_WIDTH)
 
-	// Parse YAML into FlowValue objects
-	$effect(() => {
+	let beforeFlow = $derived.by(() => {
 		try {
-			parseError = undefined
-			beforeFlow = YAML.parse(beforeYaml).value as FlowValue
-			afterFlow = YAML.parse(afterYaml).value as FlowValue
+			return YAML.parse(beforeYaml).value as FlowValue
 		} catch (error) {
-			parseError = error instanceof Error ? error.message : 'Failed to parse YAML'
-			beforeFlow = undefined
-			afterFlow = undefined
+			return undefined
+		}
+	})
+	let afterFlow = $derived.by(() => {
+		try {
+			return YAML.parse(afterYaml).value as FlowValue
+		} catch (error) {
+			return undefined
 		}
 	})
 
@@ -48,7 +47,7 @@
 
 	// For unified view, merge both flows to show all modules (added, modified, and removed)
 	let mergedFlow = $derived(
-		beforeFlow && afterFlow ? mergeFlows(beforeFlow, afterFlow, moduleDiff) : undefined
+		beforeFlow && afterFlow ? mergeFlowsSimple(beforeFlow, afterFlow, moduleDiff) : undefined
 	)
 
 	// For unified view, combine all actions to show on the merged flow
