@@ -1312,7 +1312,9 @@
 								</div>
 							{/if}
 						</div>
-						<div class="bg-surface-secondary flex text-xs px-2 py-1 items-center justify-end gap-2">
+						<div
+							class="bg-surface-secondary border-t flex text-xs px-2 py-1 items-center justify-end gap-2"
+						>
 							Per page:
 							<Select
 								class="w-20"
