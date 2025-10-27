@@ -853,7 +853,7 @@
 	{argError}
 	{resultError}
 	{tag}
-	{perPage}
+	bind:perPage
 	bind:loading
 	bind:this={jobsLoader}
 	lookback={graphIsRunsChart ? 0 : lookback}

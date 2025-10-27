@@ -87,7 +87,7 @@
 		allWorkspaces = false,
 		computeMinAndMax,
 		lookback = 0,
-		perPage = 1000,
+		perPage = $bindable(1000),
 		allowWildcards = false
 	}: Props = $props()
 	let intervalId: number | undefined = $state()
