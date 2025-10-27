@@ -30,6 +30,7 @@
 	import { TriangleAlert } from 'lucide-svelte'
 	import { readFieldsRecursively } from '$lib/utils'
 	import Button from '../common/button/Button.svelte'
+	import ResizeTransitionWrapper from '../common/ResizeTransitionWrapper.svelte'
 
 	let {
 		selectedIds,
@@ -228,48 +229,50 @@
 						<div class="w-full h-full">
 							{#key [selected, displayedSchema]}
 								{#each Object.keys(displayedSchema.properties) as propertyName}
-									<InputTransformForm
-										class="items-start mb-4"
-										arg={options[selected.kind][selected.script_path]?.input_transforms?.[
-											propertyName
-										] ?? {
-											type: 'javascript',
-											expr: batchReRunDefaultPropertyExpr(propertyName, selected.schemas)
-										}}
-										on:change={(e) => {
-											if (!selected) return
-											const newArg = e.detail.arg as InputTransform
-											;((options[selected.kind][selected.script_path] ??= {}).input_transforms ??=
-												{})[propertyName] = newArg
-										}}
-										argName={propertyName}
-										schema={displayedSchema}
-										{extraLib}
-										previousModuleId={undefined}
-										pickableProperties={{
-											hasResume: false,
-											previousId: undefined,
-											priorIds: {},
-											flow_input: {}
-										}}
-										hideHelpButton
-										{...propertyAlwaysExists(propertyName, selected)
-											? {}
-											: {
-													headerTooltip:
-														'This property does not exist on all versions of the script. You can handle different cases in the code below',
-													HeaderTooltipIcon: TriangleAlert,
-													headerTooltipIconClass: 'text-orange-500'
-												}}
-										{...propertyAlwaysHasSameType(propertyName, selected)
-											? {}
-											: {
-													headerTooltip:
-														'This property does not always have the same type depending on the version of the script. You can handle different cases in the code below',
-													HeaderTooltipIcon: TriangleAlert,
-													headerTooltipIconClass: 'text-orange-500'
-												}}
-									/>
+									<ResizeTransitionWrapper vertical innerClass="w-full">
+										<InputTransformForm
+											class="items-start mb-6"
+											arg={options[selected.kind][selected.script_path]?.input_transforms?.[
+												propertyName
+											] ?? {
+												type: 'javascript',
+												expr: batchReRunDefaultPropertyExpr(propertyName, selected.schemas)
+											}}
+											on:change={(e) => {
+												if (!selected) return
+												const newArg = e.detail.arg as InputTransform
+												;((options[selected.kind][selected.script_path] ??= {}).input_transforms ??=
+													{})[propertyName] = newArg
+											}}
+											argName={propertyName}
+											schema={displayedSchema}
+											{extraLib}
+											previousModuleId={undefined}
+											pickableProperties={{
+												hasResume: false,
+												previousId: undefined,
+												priorIds: {},
+												flow_input: {}
+											}}
+											hideHelpButton
+											{...propertyAlwaysExists(propertyName, selected)
+												? {}
+												: {
+														headerTooltip:
+															'This property does not exist on all versions of the script. You can handle different cases in the code below',
+														HeaderTooltipIcon: TriangleAlert,
+														headerTooltipIconClass: 'text-orange-500'
+													}}
+											{...propertyAlwaysHasSameType(propertyName, selected)
+												? {}
+												: {
+														headerTooltip:
+															'This property does not always have the same type depending on the version of the script. You can handle different cases in the code below',
+														HeaderTooltipIcon: TriangleAlert,
+														headerTooltipIconClass: 'text-orange-500'
+													}}
+										/>
+									</ResizeTransitionWrapper>
 								{/each}
 							{/key}
 						</div>
