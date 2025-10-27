@@ -642,7 +642,7 @@
 
 <style lang="postcss">
 	.editor {
-		@apply rounded-lg p-0;
+		@apply rounded-md p-0;
 	}
 
 	.small-editor {

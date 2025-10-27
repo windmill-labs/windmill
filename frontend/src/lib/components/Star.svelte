@@ -42,14 +42,14 @@
 >
 	{#if starred}
 		{#if buttonHover}
-			<StarOff size={18} fill="currentcolor" />
+			<StarOff size={16} fill="currentcolor" />
 		{:else}
-			<Star size={18} fill="currentcolor" />
+			<Star size={16} fill="currentcolor" />
 		{/if}
 	{:else}
 		<Star
 			class={!buttonHover ? 'opacity-60' : ''}
-			size={18}
+			size={16}
 			fill={buttonHover ? 'currentcolor' : 'none'}
 		/>
 	{/if}

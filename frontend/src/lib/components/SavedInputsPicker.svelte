@@ -4,7 +4,7 @@
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { sendUserToast } from '$lib/utils.js'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
-	import { Edit, Trash2, Save } from 'lucide-svelte'
+	import { Trash2, Save, Pencil } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { Cell } from './table/index'
 	import SaveInputsButton from '$lib/components/SaveInputsButton.svelte'
@@ -307,9 +307,8 @@
 
 										<Button
 											loading={isEditing?.id === item.id && isEditing?.isSaving}
-											color="light"
-											size="xs"
-											variant="border"
+											unifiedSize="sm"
+											variant="subtle"
 											spacingSize="xs2"
 											btnClasses={hover || openStates[item.id] ? 'block -my-2 ' : 'hidden'}
 											on:click={(e) => {
@@ -321,28 +320,25 @@
 													setEditing(item)
 												}
 											}}
-										>
-											<Edit class="w-4 h-4" />
-										</Button>
+											startIcon={{ icon: Pencil }}
+										></Button>
 										<Button
-											color="light"
-											size="xs"
-											spacingSize="xs2"
-											variant="contained"
+											unifiedSize="sm"
+											variant="subtle"
 											btnClasses={twMerge(
 												isEditing?.id === item.id || hover || openStates[item.id]
 													? 'block -my-2'
-													: 'hidden',
-												'bg-transparent hover:text-white hover:bg-red-500 text-red-500'
+													: 'hidden'
 											)}
+											destructive
 											on:click={() => {
 												infiniteList?.deleteItem(item.id)
 											}}
-										>
-											<Trash2 class="w-4 h-4" />
-										</Button>
+											startIcon={{ icon: Trash2 }}
+											iconOnly
+										></Button>
 									{:else}
-										<span class="text-xs text-tertiary px-2 w-28 truncate" title={item.created_by}
+										<span class="text-xs text-primary px-2 w-28 truncate" title={item.created_by}
 											>{item.created_by}</span
 										>
 									{/if}
@@ -352,7 +348,7 @@
 					</Cell>
 				{/snippet}
 				{#snippet empty()}
-					<div class="text-center text-xs text-tertiary">No saved Inputs</div>
+					<div class="text-center text-xs text-primary mt-2">No saved Inputs</div>
 				{/snippet}
 			</InfiniteList>
 		{/if}

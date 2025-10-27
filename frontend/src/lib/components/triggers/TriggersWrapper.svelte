@@ -169,7 +169,7 @@
 {:else if selectedTrigger.type === 'poll'}
 	<ScheduledPollPanel />
 {:else if selectedTrigger.type === 'cli'}
-	<div class="py-1 flex flex-col gap-4">
+	<div class="py-1 flex flex-col gap-6">
 		<ClipboardPanel content={selectedTrigger.extra?.cliCommand ?? ''} />
 		<CliHelpBox />
 	</div>
@@ -180,7 +180,7 @@
 	<div class="flex flex-row gap-2 items-center grow min-w-0 pr-2">
 		<IconComponent
 			size={16}
-			class={twMerge(selectedTrigger.isDraft ? 'text-frost-400' : '', 'shrink-0')}
+			class={twMerge(selectedTrigger.isDraft ? 'text-hint' : '', 'shrink-0')}
 		/>
 		<TriggerLabel trigger={selectedTrigger} />
 	</div>

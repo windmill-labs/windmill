@@ -520,7 +520,7 @@ def main():
 }
 
 #[cfg(feature = "test_job_debouncing")]
-mod job_debouncing {
+mod dependency_job_debouncing {
     async fn trigger_djob_for(
         client: &windmill_api_client::Client,
         path: &str,
@@ -566,7 +566,7 @@ def main():
     /// p.s: "LF" stands for "Leaf", "L" - "Left", "R" - "Right"
     mod flows {
         use crate::common::{in_test_worker, init_client, listen_for_completed_jobs};
-        use crate::job_debouncing::trigger_djob_for;
+        use crate::dependency_job_debouncing::trigger_djob_for;
         use std::time::Duration;
         use tokio::time::sleep;
         use tokio_stream::StreamExt;
@@ -577,6 +577,12 @@ def main():
         async fn test_1(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             // This tests if debouncing and consolidation works.
             // Also makes sures that dependency job does not create new flow version
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
 
             let (client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
@@ -792,6 +798,12 @@ def main():
         async fn test_left(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             use crate::common::RunJob;
 
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
             // TODO: We don't care about timer. If there is no timer, it will be set automatically for djobs??
             let (_client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
@@ -876,7 +888,7 @@ def main():
                             dedicated_worker: None,
                         })
                         // .arg("dbg_djob_sleep", serde_json::json!(10))
-                        .run_until_complete(&db, port)
+                        .run_until_complete(&db, false, port)
                         .await;
 
                         RunJob::from(windmill_common::jobs::JobPayload::Dependencies {
@@ -887,7 +899,7 @@ def main():
                         })
                         // So set it to this long
                         .arg("dbg_djob_sleep", serde_json::json!(10))
-                        .run_until_complete(&db, port)
+                        .run_until_complete(&db, false, port)
                         .await;
 
                         completed.next().await; // leaf_right
@@ -928,6 +940,20 @@ def main():
         async fn test_2(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             let (_client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
+
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
+
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_IS_AT_LEAST_1_440
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
 
             // Function to create a dependency job
             let create_dependency_job =
@@ -1005,10 +1031,6 @@ def main():
             in_test_worker(
                 &db2,
                 async {
-                    windmill_common::worker::update_min_version(
-                        &windmill_common::worker::Connection::Sql(db2.clone()),
-                    )
-                    .await;
                     // Small delay to ensure the job is marked as running
                     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
@@ -1030,29 +1052,16 @@ def main():
                                 .unwrap(),
                             1
                         );
+
+                        dbg!(sqlx::query_scalar!("SELECT kind::text FROM v2_job")
+                            .fetch_one(&db)
+                            .await
+                            .unwrap()
+                            .unwrap());
                     }
 
-                    // Block all tests using this variable until we are done
-                    // let mut min_v = windmill_common::worker::MIN_VERSION_IS_AT_LEAST_1_440
-                    //     .write()
-                    //     .await;
-
-                    // // Save initial min_v value;
-                    // let initi_min_v = *min_v;
-
-                    // // Make it true for this test.
-                    // *min_v = true;
-
-                    // Now push a second dependency job while the first is being processed
-                    // This should trigger the race condition handling code
                     let job2 =
                         create_dependency_job(0, vec!["b", "c"], db.clone(), 1, Some(job1)).await;
-
-                    // Set it back to initial
-                    // *min_v = initi_min_v;
-
-                    // Unblock all other tests
-                    // drop(min_v);
 
                     // Process the first job completion, and the second job should also get debounced by this one
                     completed.next().await;
@@ -1117,8 +1126,13 @@ def main():
         // #[windmill::all_min_versions]
         async fn test_3(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             // This tests checks if concurrency limit works correcly and there is no race conditions.
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
 
-            use windmill_common::worker::Connection;
             let (_client, port, _s) = init_client(db.clone()).await;
             let mut completed = listen_for_completed_jobs(&db).await;
 
@@ -1296,6 +1310,138 @@ WHERE
             Ok(())
         }
 
+        #[cfg(feature = "python")]
+        #[sqlx::test(fixtures("base", "djob_debouncing"))]
+        async fn test_min_version_supports_debouncing(
+            db: sqlx::Pool<sqlx::Postgres>,
+        ) -> anyhow::Result<()> {
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
+
+            let (_client, port, _s) = init_client(db.clone()).await;
+            let db = &db;
+
+            crate::common::in_test_worker(
+                db,
+                async {
+                    let job_template = crate::common::RunJob::from(
+                        windmill_common::jobs::JobPayload::FlowDependencies {
+                            path: "f/dre/flow".to_owned(),
+                            dedicated_worker: None,
+                            version: 1443253234253454,
+                        },
+                    )
+                    .push_arg_scheduled_for_o(Some(chrono::Utc::now()))
+                    .arg("triggered_by_relative_import", serde_json::json!(()));
+
+                    // This will push to the top level worker
+                    let debounce_job_id = job_template.clone().push(db).await;
+
+                    // Will have space to run in parallel but in it's own worker
+                    job_template
+                        .push_arg_debounce_job_id_o(Some(debounce_job_id))
+                        .run_until_complete(db, false, port)
+                        .await;
+                },
+                port,
+            )
+            .await;
+
+            // Verify there is not jobs running
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                0
+            );
+
+            // And there is only supposed to be one job.
+            assert_eq!(
+                sqlx::query_scalar!(
+                    "SELECT COUNT(*) FROM v2_job_completed WHERE status = 'success'"
+                )
+                .fetch_one(db)
+                .await
+                .unwrap()
+                .unwrap(),
+                1
+            );
+
+            Ok(())
+        }
+        // NOTE: Don't run in parallel with other tests
+        #[cfg(feature = "python")]
+        #[sqlx::test(fixtures("base", "djob_debouncing"))]
+        #[ignore]
+        async fn test_min_version_does_not_support_debouncing(
+            db: sqlx::Pool<sqlx::Postgres>,
+        ) -> anyhow::Result<()> {
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = false;
+            }
+
+            let (_client, port, _s) = init_client(db.clone()).await;
+            let db = &db;
+
+            crate::common::in_test_worker(
+                db,
+                async {
+                    let job_template = crate::common::RunJob::from(
+                        windmill_common::jobs::JobPayload::FlowDependencies {
+                            path: "f/dre/flow".to_owned(),
+                            dedicated_worker: None,
+                            version: 1443253234253454,
+                        },
+                    )
+                    .push_arg_scheduled_for_o(Some(chrono::Utc::now()))
+                    .arg("triggered_by_relative_import", serde_json::json!(()));
+
+                    // This will push to the top level worker
+                    let debounce_job_id = job_template.clone().push(db).await;
+
+                    // Will have space to run in parallel but in it's own worker
+                    job_template
+                        .push_arg_debounce_job_id_o(Some(debounce_job_id))
+                        .run_until_complete(db, false, port)
+                        .await;
+                },
+                port,
+            )
+            .await;
+
+            // Verify there is not jobs running
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                0
+            );
+
+            // There are supposed to be two jobs, since debouncing is disabled.
+            assert_eq!(
+                sqlx::query_scalar!(
+                    "SELECT COUNT(*) FROM v2_job_completed WHERE status = 'success'"
+                )
+                .fetch_one(db)
+                .await
+                .unwrap()
+                .unwrap(),
+                2
+            );
+
+            Ok(())
+        }
         // TODO:
         // test that update or create flow that should bypass debouncing
     }
@@ -1304,7 +1450,7 @@ WHERE
     /// For apps we are going to do similar tests that we did for flows
     mod apps {
         use crate::common::{in_test_worker, init_client, listen_for_completed_jobs};
-        use crate::job_debouncing::trigger_djob_for;
+        use crate::dependency_job_debouncing::trigger_djob_for;
         use std::time::Duration;
         use tokio::time::sleep;
         use tokio_stream::StreamExt;
@@ -1313,6 +1459,12 @@ WHERE
         #[cfg(feature = "python")]
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_1(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
             // This tests if debouncing and consolidation works.
             // Also makes sures that dependency job does not create new flow version
 
@@ -1492,6 +1644,12 @@ WHERE
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_left(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             use crate::common::RunJob;
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
 
             // TODO: We don't care about timer. If there is no timer, it will be set automatically for djobs??
             let (_client, port, _s) = init_client(db.clone()).await;
@@ -1575,7 +1733,7 @@ WHERE
                         dedicated_worker: None,
                     })
                     // .arg("dbg_djob_sleep", serde_json::json!(10))
-                    .run_until_complete(&db, port)
+                    .run_until_complete(&db, false, port)
                     .await;
 
                     RunJob::from(windmill_common::jobs::JobPayload::Dependencies {
@@ -1586,7 +1744,7 @@ WHERE
                     })
                     // So set it to this long
                     .arg("dbg_djob_sleep", serde_json::json!(10))
-                    .run_until_complete(&db, port)
+                    .run_until_complete(&db, false, port)
                     .await;
 
                     completed.next().await; // leaf_right
@@ -1791,7 +1949,7 @@ WHERE
     /// ## Testing for Scripts
     mod scripts {
         use crate::common::{in_test_worker, init_client, listen_for_completed_jobs};
-        use crate::job_debouncing::trigger_djob_for;
+        use crate::dependency_job_debouncing::trigger_djob_for;
         use std::time::Duration;
         use tokio::time::sleep;
         use tokio_stream::StreamExt;
@@ -1801,6 +1959,12 @@ WHERE
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         // TODO: Same test_but script fails.
         async fn test_1(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
             // This tests if debouncing and consolidation works.
             // Also makes sures that dependency job does not create new flow version
             let (client, port, _s) = init_client(db.clone()).await;
@@ -2044,6 +2208,12 @@ WHERE
         #[sqlx::test(fixtures("base", "djob_debouncing"))]
         async fn test_left(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
             use crate::common::RunJob;
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
 
             // TODO: We don't care about timer. If there is no timer, it will be set automatically for djobs??
             let (_client, port, _s) = init_client(db.clone()).await;
@@ -2114,7 +2284,7 @@ WHERE
                             language: windmill_common::scripts::ScriptLang::Python3,
                             dedicated_worker: None,
                         })
-                        .run_until_complete(&db, port)
+                        .run_until_complete(&db, false, port)
                         .await;
 
                         // This one is supposed to be started after flow djob has debounced and started but haven't finished yet.
@@ -2126,7 +2296,7 @@ WHERE
                         })
                         // So set it to this long
                         .arg("dbg_djob_sleep", serde_json::json!(10))
-                        .run_until_complete(&db, port)
+                        .run_until_complete(&db, false, port)
                         .await;
 
                         completed.next().await; // leaf_right
@@ -2153,6 +2323,7 @@ WHERE
                 .await
                 .unwrap();
 
+            dbg!(&r);
             assert_eq!(r.len(), 4);
             assert!(r.contains(&Some(-221349019907577876)));
             assert!(r.contains(&Some(533400)));
@@ -2361,4 +2532,736 @@ WHERE
         //         }
     }
     // TODO: Test git sync
+}
+#[cfg(feature = "test_job_debouncing")]
+mod normal_job_debouncing {
+    mod scripts {
+        #[cfg(feature = "python")]
+        #[sqlx::test(fixtures("base", "job_debouncing"))]
+        async fn test_default_debounce_key(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+            use serde_json::json;
+            use windmill_common::scripts::ScriptHash;
+
+            use crate::common::{in_test_worker, init_client, listen_for_completed_jobs, RunJob};
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
+
+            let (_client, port, _s) = init_client(db.clone()).await;
+            let db = &db;
+
+            in_test_worker(
+                db,
+                async {
+                    // This job should execute and then try to start another job that will get debounced.
+                    RunJob::from(windmill_common::jobs::JobPayload::ScriptHash {
+                        hash: ScriptHash(533400),
+                        path: "f/scripts/script_1".into(),
+                        // Do not supply with custom debounce key.
+                        // We will test if the debounce_key is created correctly.
+                        custom_debounce_key: None,
+                        debounce_delay_s: Some(2),
+                        custom_concurrency_key: None,
+                        concurrent_limit: None,
+                        concurrency_time_window_s: None,
+                        cache_ttl: None,
+                        dedicated_worker: None,
+                        language: windmill_common::scripts::ScriptLang::Python3,
+                        priority: None,
+                        apply_preprocessor: false,
+                    })
+                    .arg("x", json!("ey"))
+                    .arg("b", json!("33"))
+                    // Start another worker, so we have two workers at the same time.
+                    // We don't know which will execute the job, but we do know that if the job is executed, this worker will exit.
+                    .run_until_complete_with(db, false, port, |id| async move {
+
+                        // Verify debounce_key
+                        assert_eq!(
+                            sqlx::query_scalar!(
+                                "SELECT key FROM debounce_key WHERE job_id = $1",
+                                id.clone()
+                            )
+                            .fetch_one(db)
+                            .await
+                            .unwrap(),
+                                "test-workspace/script/f/scripts/script_1#args:\"33\":\"ey\"".to_owned()
+                        );
+
+                        // Verify it is scheduled for future and not now.
+                        {
+                            assert!(
+                                dbg!(
+                                    sqlx::query_scalar!(
+                                        "SELECT (scheduled_for - created_at) FROM v2_job_queue WHERE running = false"
+                                    )
+                                    .fetch_one(db)
+                                    .await
+                                    .unwrap()
+                                    .unwrap()
+                                    .microseconds
+                                ) > 1_000_000 /* 1 second */
+                            );
+                        }
+
+                        // Start another job.
+                        RunJob::from(windmill_common::jobs::JobPayload::ScriptHash {
+                            hash: ScriptHash(533400),
+                            path: "f/scripts/script_1".into(),
+                            // Do not supply with custom debounce key.
+                            // We will test if the debounce_key is created correctly.
+                            custom_debounce_key: None,
+                            debounce_delay_s: Some(2),
+                            custom_concurrency_key: None,
+                            concurrent_limit: None,
+                            concurrency_time_window_s: None,
+                            cache_ttl: None,
+                            dedicated_worker: None,
+                            language: windmill_common::scripts::ScriptLang::Python3,
+                            priority: None,
+                            apply_preprocessor: false,
+                        })
+                        .arg("x", json!("ey"))
+                        .arg("b", json!("33"))
+                        // But we only push it, one of the jobs should be debounced.
+                        .push(db)
+                        .await;
+                    })
+                    .await;
+                },
+                port,
+            )
+            .await;
+
+            // Verify there is not jobs running
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                0
+            );
+
+            // And there is only supposed to be one job.
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                1
+            );
+
+            // Verify debounce key clean up
+            assert_eq!(
+                0,
+                sqlx::query_scalar!("SELECT COUNT(*) from debounce_key")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap()
+            );
+
+            Ok(())
+        }
+
+        #[cfg(all(feature = "python", feature = "agent_worker_server"))]
+        #[sqlx::test(fixtures("base", "job_debouncing"))]
+        async fn test_default_debounce_key_agent_wk(
+            db: sqlx::Pool<sqlx::Postgres>,
+        ) -> anyhow::Result<()> {
+            use serde_json::json;
+            use windmill_common::scripts::ScriptHash;
+
+            use crate::common::{init_client_agent_mode, RunJob};
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
+
+            let (_client, port, _s) = init_client_agent_mode(db.clone()).await;
+            let db = &db;
+            RunJob::from(windmill_common::jobs::JobPayload::ScriptHash {
+                hash: ScriptHash(533400),
+                path: "f/scripts/script_1".into(),
+                // Do not supply with custom debounce key.
+                // We will test if the debounce_key is created correctly.
+                custom_debounce_key: None,
+                debounce_delay_s: Some(2),
+                custom_concurrency_key: None,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+                cache_ttl: None,
+                dedicated_worker: None,
+                language: windmill_common::scripts::ScriptLang::Python3,
+                priority: None,
+                apply_preprocessor: false,
+            })
+            .arg("x", json!("ey"))
+            .arg("b", json!("33"))
+            .run_until_complete(db, true, port)
+            .await;
+
+            // Verify there is not jobs running
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                0
+            );
+
+            // And there is only supposed to be one job.
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                1
+            );
+
+            // And that job execute successfully
+            assert_eq!(
+                sqlx::query_scalar!("SELECT status::text FROM v2_job_completed")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                "success"
+            );
+
+            // Verify debounce key clean up
+            assert_eq!(
+                0,
+                sqlx::query_scalar!("SELECT COUNT(*) from debounce_key")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap()
+            );
+
+            Ok(())
+        }
+
+        #[cfg(feature = "python")]
+        #[sqlx::test(fixtures("base", "job_debouncing"))]
+        async fn test_custom_debounce_key(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+            use serde_json::json;
+            use windmill_common::scripts::ScriptHash;
+
+            use crate::common::{in_test_worker, init_client, listen_for_completed_jobs, RunJob};
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
+
+            let (_client, port, _s) = init_client(db.clone()).await;
+            let completed = listen_for_completed_jobs(&db).await;
+            let db = &db;
+
+            in_test_worker(
+                db,
+                async {
+                    // This job should execute and then try to start another job that will get debounced.
+                    RunJob::from(windmill_common::jobs::JobPayload::ScriptHash {
+                        hash: ScriptHash(533400),
+                        path: "f/scripts/script_1".into(),
+                        // Do not supply with custom debounce key.
+                        // We will test if the debounce_key is created correctly.
+                        custom_debounce_key: Some("$workspace:my-custom-debounce-key:$args[x]".to_owned()),
+                        debounce_delay_s: Some(2),
+                        custom_concurrency_key: None,
+                        concurrent_limit: None,
+                        concurrency_time_window_s: None,
+                        cache_ttl: None,
+                        dedicated_worker: None,
+                        language: windmill_common::scripts::ScriptLang::Python3,
+                        priority: None,
+                        apply_preprocessor: false,
+                    })
+                    .arg("x", json!("ey"))
+                    .arg("b", json!("1")) // 1
+                    // Start another worker, so we have two workers at the same time.
+                    // We don't know which will execute the job, but we do know that if the job is executed, this worker will exit.
+                    .run_until_complete_with(db, false, port, |id| async move {
+
+                        // Verify debounce_key
+                        assert_eq!(
+                            sqlx::query_scalar!(
+                                "SELECT key FROM debounce_key WHERE job_id = $1",
+                                id.clone()
+                            )
+                            .fetch_one(db)
+                            .await
+                            .unwrap(),
+                                "test-workspace:my-custom-debounce-key:ey".to_owned()
+                        );
+
+                        // Verify it is scheduled for future and not now.
+                        {
+                            assert!(
+                                dbg!(
+                                    sqlx::query_scalar!(
+                                        "SELECT (scheduled_for - created_at) FROM v2_job_queue WHERE running = false"
+                                    )
+                                    .fetch_one(db)
+                                    .await
+                                    .unwrap()
+                                    .unwrap()
+                                    .microseconds
+                                ) > 1_000_000 /* 1 second */
+                            );
+                        }
+
+                        // Start another job.
+                        RunJob::from(windmill_common::jobs::JobPayload::ScriptHash {
+                            hash: ScriptHash(533400),
+                            path: "f/scripts/script_1".into(),
+                            custom_debounce_key: Some("$workspace:my-custom-debounce-key:$args[x]".to_owned()),
+                            debounce_delay_s: Some(2),
+                            custom_concurrency_key: None,
+                            concurrent_limit: None,
+                            concurrency_time_window_s: None,
+                            cache_ttl: None,
+                            dedicated_worker: None,
+                            language: windmill_common::scripts::ScriptLang::Python3,
+                            priority: None,
+                            apply_preprocessor: false,
+                        })
+                        .arg("x", json!("ey"))
+                        // We will pass different argument. but it should still get debounced.
+                        .arg("b", json!("2")) // 2
+                        // But we only push it, one of the jobs should be debounced.
+                        .push(db)
+                        .await;
+                    })
+                    .await;
+                },
+                port,
+            )
+            .await;
+
+            // Verify there is not jobs running
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                0
+            );
+
+            // And there is only supposed to be one job.
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                1
+            );
+
+            // And that job execute successfully
+            assert_eq!(
+                sqlx::query_scalar!("SELECT status::text FROM v2_job_completed")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                "success"
+            );
+
+            // Verify debounce key clean up
+            assert_eq!(
+                0,
+                sqlx::query_scalar!("SELECT COUNT(*) from debounce_key")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap()
+            );
+
+            Ok(())
+        }
+
+        #[cfg(feature = "python")]
+        #[sqlx::test(fixtures("base", "job_debouncing"))]
+        async fn test_no_debounce(db: sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+            use serde_json::json;
+            use windmill_common::scripts::ScriptHash;
+
+            use crate::common::{in_test_worker, init_client, listen_for_completed_jobs, RunJob};
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
+
+            let (_client, port, _s) = init_client(db.clone()).await;
+            let completed = listen_for_completed_jobs(&db).await;
+            let db = &db;
+
+            // different args
+            in_test_worker(
+                db,
+                async {
+                    // This job should execute and then try to start another job that will get debounced.
+                    RunJob::from(windmill_common::jobs::JobPayload::ScriptHash {
+                        hash: ScriptHash(533400),
+                        path: "f/scripts/script_1".into(),
+                        // Do not supply with custom debounce key.
+                        // We will test if the debounce_key is created correctly.
+                        custom_debounce_key: None,
+                        debounce_delay_s: Some(2),
+                        custom_concurrency_key: None,
+                        concurrent_limit: None,
+                        concurrency_time_window_s: None,
+                        cache_ttl: None,
+                        dedicated_worker: None,
+                        language: windmill_common::scripts::ScriptLang::Python3,
+                        priority: None,
+                        apply_preprocessor: false,
+                    })
+                    .arg("x", json!("ey"))
+                    .arg("b", json!("33"))
+                    // Start another worker, so we have two workers at the same time.
+                    // We don't know which will execute the job, but we do know that if the job is executed, this worker will exit.
+                    .run_until_complete_with(db, false, port, |_id| async move {
+                        // Start another job.
+                        RunJob::from(windmill_common::jobs::JobPayload::ScriptHash {
+                            hash: ScriptHash(533400),
+                            path: "f/scripts/script_1".into(),
+                            // Do not supply with custom debounce key.
+                            // We will test if the debounce_key is created correctly.
+                            custom_debounce_key: None,
+                            debounce_delay_s: Some(2),
+                            custom_concurrency_key: None,
+                            concurrent_limit: None,
+                            concurrency_time_window_s: None,
+                            cache_ttl: None,
+                            dedicated_worker: None,
+                            language: windmill_common::scripts::ScriptLang::Python3,
+                            priority: None,
+                            apply_preprocessor: false,
+                        })
+                        // Different args.
+                        .arg("x", json!("ey"))
+                        .arg("b", json!("34")) // Different arg
+                        .push(db)
+                        .await;
+                    })
+                    .await;
+                },
+                port,
+            )
+            .await;
+
+            // no debounce delay on second
+            in_test_worker(
+                db,
+                async {
+                    // This job should execute and then try to start another job that will get debounced.
+                    RunJob::from(windmill_common::jobs::JobPayload::ScriptHash {
+                        hash: ScriptHash(533400),
+                        path: "f/scripts/script_1".into(),
+                        // Do not supply with custom debounce key.
+                        // We will test if the debounce_key is created correctly.
+                        custom_debounce_key: None,
+                        debounce_delay_s: Some(2),
+                        custom_concurrency_key: None,
+                        concurrent_limit: None,
+                        concurrency_time_window_s: None,
+                        cache_ttl: None,
+                        dedicated_worker: None,
+                        language: windmill_common::scripts::ScriptLang::Python3,
+                        priority: None,
+                        apply_preprocessor: false,
+                    })
+                    .arg("x", json!("ey"))
+                    .arg("b", json!("33"))
+                    // Start another worker, so we have two workers at the same time.
+                    // We don't know which will execute the job, but we do know that if the job is executed, this worker will exit.
+                    .run_until_complete_with(db, false, port, |_id| async move {
+                        // Start another job.
+                        RunJob::from(windmill_common::jobs::JobPayload::ScriptHash {
+                            hash: ScriptHash(533400),
+                            path: "f/scripts/script_1".into(),
+                            custom_debounce_key: None,
+                            debounce_delay_s: None, // Set to none to skip debouncing
+                            custom_concurrency_key: None,
+                            concurrent_limit: None,
+                            concurrency_time_window_s: None,
+                            cache_ttl: None,
+                            dedicated_worker: None,
+                            language: windmill_common::scripts::ScriptLang::Python3,
+                            priority: None,
+                            apply_preprocessor: false,
+                        })
+                        .arg("x", json!("ey"))
+                        .arg("b", json!("33"))
+                        .push(db)
+                        .await;
+                    })
+                    .await;
+                },
+                port,
+            )
+            .await;
+
+            // Verify there is not jobs running
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                0
+            );
+
+            // And there is supposed to be four jobs and no debouncing.
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                4
+            );
+
+            // Verify debounce key clean up
+            assert_eq!(
+                0,
+                sqlx::query_scalar!("SELECT COUNT(*) from debounce_key")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap()
+            );
+
+            Ok(())
+        }
+        #[cfg(feature = "python")]
+        #[sqlx::test(fixtures("base", "djob_debouncing"))]
+        #[ignore = "modifies global env variable that is used by other tests"]
+        async fn test_min_version_does_not_support_debouncing(
+            db: sqlx::Pool<sqlx::Postgres>,
+        ) -> anyhow::Result<()> {
+            use serde_json::json;
+            use windmill_common::scripts::ScriptHash;
+
+            use crate::common::{in_test_worker, init_client, listen_for_completed_jobs, RunJob};
+
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = false;
+            }
+
+            let (_client, port, _s) = init_client(db.clone()).await;
+            let db = &db;
+
+            crate::common::in_test_worker(
+                db,
+                async {
+                    let job_template =
+                        RunJob::from(windmill_common::jobs::JobPayload::ScriptHash {
+                            hash: ScriptHash(533400),
+                            path: "f/scripts/script_1".into(),
+                            custom_debounce_key: None,
+                            debounce_delay_s: None, // Set to none to skip debouncing
+                            custom_concurrency_key: None,
+                            concurrent_limit: None,
+                            concurrency_time_window_s: None,
+                            cache_ttl: None,
+                            dedicated_worker: None,
+                            language: windmill_common::scripts::ScriptLang::Python3,
+                            priority: None,
+                            apply_preprocessor: false,
+                        });
+
+                    // This will push to the top level worker
+                    job_template.clone().push(db).await;
+
+                    // Will have space to run in parallel but in it's own worker
+                    job_template.run_until_complete(db, false, port).await;
+                },
+                port,
+            )
+            .await;
+
+            // Verify there is not jobs running
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job_queue")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                0
+            );
+
+            // There are supposed to be two jobs, since debouncing is disabled.
+            assert_eq!(
+                sqlx::query_scalar!("SELECT COUNT(*) FROM v2_job")
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                2
+            );
+
+            Ok(())
+        }
+    }
+
+    mod flows {
+        #[cfg(feature = "python")]
+        #[sqlx::test(fixtures("base", "job_debouncing"))]
+        async fn test_different_kinds_top_level(
+            db: sqlx::Pool<sqlx::Postgres>,
+        ) -> anyhow::Result<()> {
+            use crate::common::{init_client, listen_for_completed_jobs, RunJob};
+            use serde_json::json;
+            {
+                let mut mvsd = windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING
+                    .write()
+                    .await;
+                *mvsd = true;
+            }
+
+            let (_client, port, _s) = init_client(db.clone()).await;
+            let db = &db;
+
+            // We want to run this for all tables related to flow be created.
+            RunJob::from(windmill_common::jobs::JobPayload::FlowDependencies {
+                path: "f/flows/flow".into(),
+                dedicated_worker: None,
+                version: 1443253234253454,
+            })
+            .run_until_complete(db, false, port)
+            .await;
+
+            dbg!(sqlx::query!("SELECT * FROM flow_node",)
+                .fetch_all(db)
+                .await
+                .unwrap());
+
+            let (j1, j2, j3) = tokio::join!(
+                RunJob::from(windmill_common::jobs::JobPayload::Flow {
+                    version: 1443253234253454,
+                    path: "f/flows/flow".into(),
+                    dedicated_worker: None,
+                    apply_preprocessor: false,
+                })
+                .push(db),
+                RunJob::from(windmill_common::jobs::JobPayload::SingleStepFlow {
+                    hash: None,
+                    path: "f/flows/flow".into(),
+                    custom_debounce_key: None,
+                    debounce_delay_s: Some(2),
+                    custom_concurrency_key: None,
+                    concurrent_limit: None,
+                    concurrency_time_window_s: None,
+                    flow_version: Some(1443253234253454),
+                    args: std::collections::HashMap::new(),
+                    retry: None,
+                    error_handler_path: None,
+                    error_handler_args: None,
+                    skip_handler: None,
+                    cache_ttl: None,
+                    priority: None,
+                    tag_override: None,
+                    trigger_path: None,
+                    apply_preprocessor: false,
+                })
+                .push(db),
+                RunJob::from(windmill_common::jobs::JobPayload::RawFlow {
+                    value: windmill_common::flows::FlowValue {
+                        debounce_delay_s: Some(2),
+                        modules: vec![windmill_common::flows::FlowModule {
+                            id: "a".into(),
+                            value: windmill_common::worker::to_raw_value(&json!({
+                                "lock": "# py: 3.11\n",
+                                "type": "rawscript",
+                                "assets": [],
+                                "content": "def main(x: str, y: str):\n    return x",
+                                "language": "python3",
+                                "debounce_delay_s": 15,
+                                "input_transforms": {
+                                    "x": {
+                                        "type": "static",
+                                        "value": ""
+                                    },
+                                    "y": {
+                                        "type": "static",
+                                        "value": ""
+                                    }
+                                }
+                            })),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    },
+                    path: Some("f/flows/flow".into()),
+                    restarted_from: None,
+                })
+                .push(db),
+                // RunJob::from(windmill_common::jobs::JobPayload::Code(
+                //     windmill_common::jobs::RawCode {
+                //         content: "
+                // def main(n: int):
+                //     pass
+                //                                     "
+                //         .into(),
+                //         path: Some("f/flows/flow".into()),
+                //         hash: None,
+                //         language: windmill_common::scripts::ScriptLang::Python3,
+                //         custom_debounce_key: None,
+                //         debounce_delay_s: Some(2),
+                //         ..Default::default()
+                //     },
+                // ))
+                // .push(db)
+            );
+
+            assert_eq!(j1, j2);
+            assert_eq!(j1, j3);
+            // assert_eq!(j1, j4);
+            Ok(())
+        }
+    }
+
+    // TODO(ALL):
+    // - Check if all jobs were sucessfull.
+    //
+    // TODO:
+    // - [x] FlowNode (Script)
+    // - [x] FlowNode (Flow) - has no debouncing nor concurrency limits
+    // - [x] RawCode (Flow as code)
+    // - [x] RawFlow
+    // - [x] Flow
+    // - [x] FlowScript
+    //
+    // TODO(imperatively):
+    // - [x] Creation of flow
+    //   - [x] Check entire flow
+    //   - [x] Check it's inline scripts
+    // - [x] Creation of script
+    //
+    // TODO: [x] Agent workers. (and tests)
+    // TODO: [x] Backwards compat (and tests)
+    // TODO: [x] Concurrency limit is disabled if preprocessor is enabled. Investigate.
+    // TODO: [x] Last resort - monitor.rs to clean up debounce_keys
+    // TODO: [x] Catch debounce values by server if debouncing is disabled. (and tests)
 }

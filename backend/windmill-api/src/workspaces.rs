@@ -439,7 +439,7 @@ async fn is_premium(
     require_admin(authed.is_admin, &authed.username)?;
     #[cfg(feature = "cloud")]
     let premium = windmill_common::workspaces::get_team_plan_status(&_db, &_w_id)
-        .await
+        .await?
         .premium;
     #[cfg(not(feature = "cloud"))]
     let premium = false;
@@ -2768,30 +2768,32 @@ async fn clone_apps(
         app_id_mapping.insert(app.id, new_app_id);
     }
 
-    // Clone app versions
-    let app_versions = sqlx::query!(
-        "SELECT app_id, value, created_by, created_at, raw_app
+    {
+        // Clone app versions
+        let app_versions = sqlx::query!(
+            "SELECT app_id, value, created_by, created_at, raw_app
          FROM app_version 
          WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)
          ORDER BY app_id, created_at",
-        source_workspace_id
-    )
-    .fetch_all(&mut **tx)
-    .await?;
+            source_workspace_id
+        )
+        .fetch_all(&mut **tx)
+        .await?;
 
-    for version in app_versions {
-        if let Some(&new_app_id) = app_id_mapping.get(&version.app_id) {
-            sqlx::query!(
-                "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
+        for version in app_versions {
+            if let Some(&new_app_id) = app_id_mapping.get(&version.app_id) {
+                sqlx::query!(
+                    "INSERT INTO app_version (app_id, value, created_by, created_at, raw_app)
                  VALUES ($1, $2, $3, $4, $5)",
-                new_app_id,
-                version.value,
-                version.created_by,
-                version.created_at,
-                version.raw_app,
-            )
-            .execute(&mut **tx)
-            .await?;
+                    new_app_id,
+                    version.value,
+                    version.created_by,
+                    version.created_at,
+                    version.raw_app,
+                )
+                .execute(&mut **tx)
+                .await?;
+            }
         }
     }
 
@@ -2830,7 +2832,7 @@ async fn clone_apps(
 
             sqlx::query!(
                 "INSERT INTO app_script (app, hash, lock, code, code_sha256)
-                 VALUES ($1, $2, $3, $4, $5)",
+                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
                 new_app_id,
                 new_hash,
                 app_script.lock,

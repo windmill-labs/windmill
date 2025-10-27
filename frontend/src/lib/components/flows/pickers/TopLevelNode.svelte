@@ -6,65 +6,70 @@
 		ChevronRight,
 		Code,
 		GitBranch,
+		Plug,
 		Repeat,
 		Square,
 		Zap
 	} from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import type { ComponentType } from 'svelte'
 
-	export let label: string
-	export let selected = false
-	export let returnIcon = false
-	const dispatch = createEventDispatcher()
+	interface Props {
+		label: string
+		selected?: boolean
+		returnIcon?: boolean
+		onSelect: () => void
+		class?: string
+	}
+
+	let { label, selected, returnIcon, onSelect, class: className }: Props = $props()
+
+	interface IconConfig {
+		icon: ComponentType
+		showChevron?: boolean
+		iconClass?: string
+	}
+
+	const iconMap: Record<string, IconConfig> = {
+		Action: { icon: Code, showChevron: true },
+		Trigger: { icon: Zap, showChevron: true },
+		'Approval/Prompt': { icon: CheckCircle2, showChevron: true },
+		Flow: { icon: BarsStaggered as unknown as ComponentType, showChevron: true },
+		'End Flow': { icon: Square },
+		'For loop': { icon: Repeat },
+		'While loop': { icon: Repeat },
+		'Branch to one': { icon: GitBranch },
+		'Branch to all': { icon: GitBranch },
+		'AI Agent': { icon: BotIcon, iconClass: 'text-ai' },
+		MCP: { icon: Plug, showChevron: true }
+	}
+
+	const config = $derived(iconMap[label])
 </script>
+
+{#snippet iconWithText(icon: ComponentType, showChevron = false, iconClass = '')}
+	{@const Icon = icon}
+	<Icon size={14} class={iconClass} />
+	{label}
+	{#if showChevron}
+		<ChevronRight size={12} class="ml-auto" color="#4c566a" />
+	{/if}
+{/snippet}
 
 <button
 	id={`flow-editor-flow-kind-${label.replaceAll(' ', '-').toLowerCase()}`}
 	class={twMerge(
 		'w-full text-left py-2 px-1.5 hover:bg-surface-hover text-xs font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
 		selected ? 'bg-surface-hover' : '',
-		$$props.class
+		className
 	)}
-	on:pointerdown={() => dispatch('select', label)}
+	onpointerdown={onSelect}
 	role="menuitem"
 	tabindex="-1"
 >
 	<span class="grow flex items-center gap-2">
-		{#if label === 'Action'}
-			<Code size={14} />
-			Action
-			<ChevronRight size={12} class="ml-auto" color="#4c566a" />
-		{:else if label === 'Trigger'}
-			<Zap size={14} />
-			Trigger
-			<ChevronRight size={12} class="ml-auto" color="#4c566a" />
-		{:else if label === 'Approval/Prompt'}
-			<CheckCircle2 size={14} />
-			Approval/Prompt
-			<ChevronRight size={12} class="ml-auto" color="#4c566a" />
-		{:else if label === 'Flow'}
-			<BarsStaggered size={14} />
-			Flow
-			<ChevronRight size={12} class="ml-auto" color="#4c566a" />
-		{:else if label === 'End Flow'}
-			<Square size={14} />
-			End Flow
-		{:else if label === 'For loop'}
-			<Repeat size={14} />
-			For Loop
-		{:else if label === 'While loop'}
-			<Repeat size={14} />
-			While Loop
-		{:else if label === 'Branch to one'}
-			<GitBranch size={14} />
-			Branch to one
-		{:else if label === 'Branch to all'}
-			<GitBranch size={14} />
-			Branch to all
-		{:else if label === 'AI Agent'}
-			<BotIcon size={14} class="text-violet-800 dark:text-violet-400" />
-			AI Agent
+		{#if config}
+			{@render iconWithText(config.icon, config.showChevron, config.iconClass ?? '')}
 		{/if}
 	</span>
 	{#if returnIcon && selected}

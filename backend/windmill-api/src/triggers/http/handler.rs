@@ -62,7 +62,9 @@ pub async fn increase_trigger_version(tx: &mut PgConnection) -> Result<()> {
 }
 
 pub fn generate_route_path_key(route_path: &str) -> String {
-    ROUTE_PATH_KEY_RE.replace_all(route_path, "/*").to_string()
+    ROUTE_PATH_KEY_RE
+        .replace_all(route_path, "${1}${2}key")
+        .to_string()
 }
 
 pub async fn route_path_key_exists(
@@ -322,7 +324,7 @@ async fn check_if_route_exist(
     workspace_id: &str,
     trigger_path: Option<&str>,
 ) -> Result<String> {
-    let route_path_key = ROUTE_PATH_KEY_RE.replace_all(&config.route_path, ":key");
+    let route_path_key = generate_route_path_key(&config.route_path);
 
     let exists = route_path_key_exists(
         &route_path_key,
@@ -340,7 +342,7 @@ async fn check_if_route_exist(
         ));
     }
 
-    Ok(route_path_key.into_owned())
+    Ok(route_path_key)
 }
 
 pub struct HttpTrigger;

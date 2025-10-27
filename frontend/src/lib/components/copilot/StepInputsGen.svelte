@@ -19,7 +19,7 @@
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import type { Flow } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
-	import { stepInputGenButtonClasses } from './StepInputGen.svelte'
+	import { flowAIBtnClasses } from './chat/flow/FlowAIButton.svelte'
 
 	let loading = $state(false)
 	interface Props {
@@ -170,6 +170,8 @@ input_name2: expression2
 
 	let out = $state(true) // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 	let openInputsModal = $state(false)
+
+	let disabled = $derived(argNames.length === 0)
 </script>
 
 <div class="flex flex-row justify-end">
@@ -183,10 +185,13 @@ input_name2: expression2
 		/>
 		<Button
 			size="xs"
-			color="light"
 			wrapperClasses="flex-1"
+			variant="default"
 			btnClasses={twMerge(
-				stepInputGenButtonClasses(!loading && Object.keys($generatedExprs || {}).length > 0)
+				!disabled &&
+					flowAIBtnClasses(
+						!loading && Object.keys($generatedExprs || {}).length > 0 ? 'green' : 'default'
+					)
 			)}
 			on:mouseenter={(ev) => {
 				if (out) {
@@ -208,7 +213,7 @@ input_name2: expression2
 				icon: loading ? Loader2 : Object.keys($generatedExprs || {}).length > 0 ? Check : Wand2,
 				classes: loading ? 'animate-spin' : ''
 			}}
-			disabled={argNames.length === 0}
+			{disabled}
 		>
 			{#if loading}
 				Loading
@@ -228,8 +233,8 @@ input_name2: expression2
 			{#snippet trigger()}
 				<Button
 					size="xs"
-					color="light"
-					btnClasses={stepInputGenButtonClasses(false)}
+					variant="default"
+					btnClasses={flowAIBtnClasses('default')}
 					nonCaptureEvent
 					startIcon={{
 						icon: Wand2

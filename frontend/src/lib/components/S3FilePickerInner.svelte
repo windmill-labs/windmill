@@ -13,7 +13,23 @@
 		MoveRight
 	} from 'lucide-svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { CancelablePromise, HelpersService, SettingService, type DatasetStorageTestConnectionData, type DatasetStorageTestConnectionResponse, type DeleteS3FileData, type DeleteS3FileResponse, type ListStoredFilesData, type ListStoredFilesResponse, type LoadFileMetadataData, type LoadFileMetadataResponse, type LoadFilePreviewData, type LoadFilePreviewResponse, type MoveS3FileData, type MoveS3FileResponse } from '$lib/gen'
+	import {
+		CancelablePromise,
+		HelpersService,
+		SettingService,
+		type DatasetStorageTestConnectionData,
+		type DatasetStorageTestConnectionResponse,
+		type DeleteS3FileData,
+		type DeleteS3FileResponse,
+		type ListStoredFilesData,
+		type ListStoredFilesResponse,
+		type LoadFileMetadataData,
+		type LoadFileMetadataResponse,
+		type LoadFilePreviewData,
+		type LoadFilePreviewResponse,
+		type MoveS3FileData,
+		type MoveS3FileResponse
+	} from '$lib/gen'
 	import { base } from '$lib/base'
 	import {
 		displayDate,
@@ -59,10 +75,14 @@
 		replaceUnauthorizedWarning?: Snippet
 		listStoredFilesRequest?: (d: ListStoredFilesData) => CancelablePromise<ListStoredFilesResponse>
 		loadFilePreviewRequest?: (d: LoadFilePreviewData) => CancelablePromise<LoadFilePreviewResponse>
-		loadFileMetadataRequest?: (d: LoadFileMetadataData) => CancelablePromise<LoadFileMetadataResponse>
+		loadFileMetadataRequest?: (
+			d: LoadFileMetadataData
+		) => CancelablePromise<LoadFileMetadataResponse>
 		deleteS3FileRequest?: (d: DeleteS3FileData) => CancelablePromise<DeleteS3FileResponse>
 		moveS3FileRequest?: (d: MoveS3FileData) => CancelablePromise<MoveS3FileResponse>
-		testConnectionRequest?: (d: DatasetStorageTestConnectionData) => CancelablePromise<DatasetStorageTestConnectionResponse>
+		testConnectionRequest?: (
+			d: DatasetStorageTestConnectionData
+		) => CancelablePromise<DatasetStorageTestConnectionResponse>
 	}
 
 	let {
@@ -73,14 +93,14 @@
 		folderOnly = false,
 		regexFilter = undefined,
 		hideS3SpecificDetails = false,
-		rootPath = "",
+		rootPath = '',
 		replaceUnauthorizedWarning,
 		listStoredFilesRequest = HelpersService.listStoredFiles,
 		loadFilePreviewRequest = HelpersService.loadFilePreview,
 		loadFileMetadataRequest = HelpersService.loadFileMetadata,
 		deleteS3FileRequest = HelpersService.deleteS3File,
 		moveS3FileRequest = HelpersService.moveS3File,
-		testConnectionRequest = HelpersService.datasetStorageTestConnection,
+		testConnectionRequest = HelpersService.datasetStorageTestConnection
 	}: Props = $props()
 
 	let rootPathNestingLevel = $derived(1 * (rootPath.split('/').length - 1))
@@ -540,12 +560,7 @@
 						href="{base}/workspace_settings?tab=windmill_lfs">configure it here</a
 					>.
 				</p>
-				<Button
-					variant="border"
-					color="light"
-					on:click={reloadContent}
-					startIcon={{ icon: RotateCw }}
-				/>
+				<Button variant="default" on:click={reloadContent} startIcon={{ icon: RotateCw }} />
 			</div>
 		</Alert>
 	{/if}
@@ -557,9 +572,9 @@
 			<div class="mb-2">
 				<Alert type="info" title="Access to S3 bucket restricted">
 					<p>
-						You don't have access to the S3 bucket resource and your administrator has restricted the
-						access to it. You are not authorized to browse the bucket content. If you think this is
-						incorrect, please contact your workspace administrator.
+						You don't have access to the S3 bucket resource and your administrator has restricted
+						the access to it. You are not authorized to browse the bucket content. If you think this
+						is incorrect, please contact your workspace administrator.
 					</p>
 					<p>
 						More info in <a
@@ -580,7 +595,7 @@
 					</div>
 				{/if}
 				{#if fileListLoading === false && displayedFileKeys.length === 0}
-					<div class="p-4 text-tertiary text-xs text-center italic">
+					<div class="p-4 text-primary text-xs text-center italic">
 						No files in the workspace S3 bucket at that prefix
 					</div>
 				{:else}
@@ -607,37 +622,37 @@
 										{@const nestingLevel = file_info.nestingLevel - 2 * rootPathNestingLevel}
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<div
+											onclick={() => selectItem(index)}
+											class={twMerge(
+												'flex flex-row h-full font-semibold text-xs items-center justify-start',
+												selectedFileKey !== undefined && selectedFileKey.s3 === file_info.full_key
+													? 'bg-surface-hover'
+													: ''
+											)}
+										>
 											<div
-												onclick={() => selectItem(index)}
-												class={twMerge(
-													'flex flex-row h-full font-semibold text-xs items-center justify-start',
-													selectedFileKey !== undefined && selectedFileKey.s3 === file_info.full_key
-														? 'bg-surface-hover'
-														: ''
-												)}
+												class={`flex flex-row w-full gap-2 h-full items-center`}
+												style={`margin-left: ${(2 + nestingLevel) * 0.25}rem;`}
 											>
-												<div
-													class={`flex flex-row w-full gap-2 h-full items-center`}
-													style={`margin-left: ${(2 + nestingLevel) * 0.25}rem;`}
-												>
-													{#if file_info.type === 'folder'}
-														{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
-																size={16}
-															/>{/if}
-														<div class="truncate text-ellipsis w-56">
-															{file_info.display_name} ({file_info.count}{count % 1000 === 0 &&
-															lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
-																? '+'
-																: ''} item{file_info.count === 1 ? '' : 's'})
-														</div>
-													{:else}
-														<FileIcon size={16} />
-														<div class="truncate text-ellipsis w-56">
-															{file_info.display_name}
-														</div>
-													{/if}
-												</div>
+												{#if file_info.type === 'folder'}
+													{#if file_info.collapsed}<FolderClosed size={16} />{:else}<FolderOpen
+															size={16}
+														/>{/if}
+													<div class="truncate text-ellipsis w-56">
+														{file_info.display_name} ({file_info.count}{count % 1000 === 0 &&
+														lastKeyFolders[file_info.nestingLevel / 2] === file_info.display_name
+															? '+'
+															: ''} item{file_info.count === 1 ? '' : 's'})
+													</div>
+												{:else}
+													<FileIcon size={16} />
+													<div class="truncate text-ellipsis w-56">
+														{file_info.display_name}
+													</div>
+												{/if}
 											</div>
+										</div>
 									{/if}
 								</div>
 							{/snippet}
@@ -658,8 +673,7 @@
 
 							{#if count % maxKeys === 0}
 								<Button
-									variant="border"
-									color="light"
+									variant="default"
 									size="xs2"
 									on:click={() => {
 										page += 1
@@ -687,18 +701,20 @@
 				</div>
 			{:else}
 				<div class="p-4 gap-2">
-					<Section label={((p) => p.startsWith(rootPath) ? p.slice(rootPath.length) : p)(fileMetadata.fileKey)} breakAll>
+					<Section
+						label={((p) => (p.startsWith(rootPath) ? p.slice(rootPath.length) : p))(
+							fileMetadata.fileKey
+						)}
+						breakAll
+					>
 						{#snippet action()}
 							<div class="flex gap-2">
 								{#if filePreview !== undefined}
 									{#if !hideS3SpecificDetails}
 										<Button
 											title="Download file from S3"
-											variant="border"
-											color="light"
-											href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(
-												fileMetadata?.fileKey ?? ''
-											)}${storage ? `&storage=${storage}` : ''}`}
+											variant="default"
+											href={`${base}/api/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(fileMetadata?.fileKey ?? '')}${storage ? `&storage=${storage}` : ''}`}
 											download={fileMetadata?.fileKey.split('/').pop() ?? 'unnamed_download.file'}
 											startIcon={{ icon: Download }}
 											iconOnly={true}
@@ -707,8 +723,7 @@
 									{#if !readOnlyMode}
 										<Button
 											title="Move file"
-											variant="border"
-											color="light"
+											variant="default"
 											on:click={() => {
 												moveDestKey = fileMetadata?.fileKey ?? ''
 												moveModalOpen = true
@@ -718,8 +733,7 @@
 										/>
 										<Button
 											title="Delete file from S3"
-											variant="border"
-											color="red"
+											variant="default"
 											on:click={() => {
 												deletionModalOpen = true
 											}}
@@ -765,11 +779,11 @@
 							{/await}
 						</div>
 					{:else if filePreviewLoading}
-						<div class="flex h-6 items-center text-tertiary mb-4">
+						<div class="flex h-6 items-center text-primary mb-4">
 							<Loader2 size={12} class="animate-spin mr-1" /> File preview loading
 						</div>
 					{:else if fileMetadata !== undefined && filePreview !== undefined}
-						<div class="flex items-center text-tertiary mb-4">
+						<div class="flex items-center text-primary mb-4">
 							{#if filePreview.contentType === 'Unknown'}
 								Type of file not supported for preview.
 							{:else if filePreview.contentType === 'Csv'}
@@ -823,7 +837,6 @@
 		</div>
 	</div>
 {/if}
-
 
 <ConfirmationModal
 	open={deletionModalOpen}

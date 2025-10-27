@@ -14,7 +14,7 @@
 		variant="divider"
 		size="xs2"
 		endIcon={{ icon: ChevronDown, classes: `rotate-0 duration-300 ${opened ? '!rotate-180' : ''}` }}
-		btnClasses="text-hint font-normal pt-1"
+		btnClasses="text-hint text-2xs font-normal pt-1"
 	>
 		Help
 	</Button>

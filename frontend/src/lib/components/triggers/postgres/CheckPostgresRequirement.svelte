@@ -30,7 +30,7 @@
 		} catch (error) {
 			sendUserToast(error.body, true)
 		}
-		
+
 		loadingConfiguration = false
 	}
 
@@ -59,9 +59,8 @@
 			loading={loadingConfiguration}
 			on:click={checkConnectionAndDatabaseConfiguration}
 			size="xs"
-			color="light"
 			spacingSize="sm"
-			variant="border"
+			variant="default"
 		>
 			{`Check database configuration ${checkConnection ? 'and connection' : ''}`}
 			<Tooltip

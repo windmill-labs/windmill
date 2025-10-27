@@ -103,10 +103,8 @@
 	</select>
 	<Button
 		title="View folder"
-		btnClasses="!p-1.5"
-		variant="border"
-		color="light"
-		size="xs"
+		variant="default"
+		unifiedSize="md"
 		disabled={!folderName || folderName == ''}
 		on:click={viewFolder.openDrawer}
 		iconOnly
@@ -114,10 +112,8 @@
 	/>
 	<Button
 		title="New folder"
-		btnClasses="!p-1.5"
-		variant="border"
-		color="light"
-		size="xs"
+		variant="default"
+		unifiedSize="md"
 		{disabled}
 		on:click={newFolder.openDrawer}
 		iconOnly

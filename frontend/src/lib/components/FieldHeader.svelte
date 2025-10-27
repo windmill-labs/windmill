@@ -23,9 +23,9 @@
 <div class="inline-flex flex-row items-baseline truncated">
 	<span
 		class={twMerge(
-			disabled ? 'text-tertiary' : '',
-			'font-semibold',
-			lightHeader ? 'text-secondary text-sm font-normal' : '',
+			disabled ? 'text-primary' : '',
+			'font-semibold text-xs',
+			lightHeader ? 'text-secondary font-normal' : 'text-emphasis',
 			labelClass
 		)}
 	>
@@ -40,7 +40,7 @@
 	{/if}
 
 	{#if displayType}
-		<span class="text-xs italic ml-2 text-hint">
+		<span class="text-2xs italic ml-2 text-hint">
 			{#if format && !format.startsWith('resource') && !format.startsWith('jsonschema-')}
 				{format}
 			{:else}

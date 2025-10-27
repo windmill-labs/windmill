@@ -14,6 +14,12 @@
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { validateToolName } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
+	import {
+		inputBaseClass,
+		inputBorderClass,
+		inputSizeClasses
+	} from '../text_input/TextInput.svelte'
+	import { flowAIBtnClasses } from './chat/flow/FlowAIButton.svelte'
 
 	type PromptConfig = {
 		system: string
@@ -256,17 +262,15 @@ Generate a tool name for the script below:
 	}}
 >
 	<div
-		class="absolute left-[0.5rem] {elementType === 'textarea'
+		class="absolute left-3 {elementType === 'textarea'
 			? 'top-[1.3rem]'
 			: 'top-[0.3rem]'}  flex flex-row gap-2 items-start pointer-events-none"
 	>
 		{#if active}
 			<span
 				class={twMerge(
-					'absolute text-xs bg-violet-100 text-violet-800 dark:bg-gray-700 dark:text-violet-400 px-1 py-0.5 rounded-md flex flex-row items-center justify-center gap-2 transition-all shrink-0',
-					!loading && generatedContent.length > 0
-						? 'bg-green-100 text-green-800 dark:text-green-400 dark:bg-green-700'
-						: ''
+					'rounded-md px-1',
+					flowAIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'selected')
 				)}
 			>
 				<span class="px-0.5 py-0.5 rounded-md text-2xs text-bold flex flex-row items-center gap-1">
@@ -287,7 +291,7 @@ Generate a tool name for the script below:
 			<div
 				bind:clientHeight={genHeight}
 				class={twMerge(
-					'text-sm leading-6 indent-[3.5rem] text-gray-500 dark:text-gray-400 pr-1',
+					'text-sm leading-6 indent-0 text-gray-500 dark:text-gray-400 pr-1',
 					elementType === 'input' ? 'text-ellipsis overflow-hidden whitespace-nowrap' : ''
 				)}
 				style={elementType === 'input' ? `max-width: calc(${width}px - 0.5rem)` : ''}
@@ -298,14 +302,14 @@ Generate a tool name for the script below:
 	</div>
 	{#if elementType === 'textarea'}
 		<div>
-			<div class="flex flex-row-reverse !text-3xs text-tertiary -mt-4">GH Markdown</div>
+			<div class="flex flex-row-reverse !text-3xs text-primary -mt-4">GH Markdown</div>
 			<textarea
 				bind:this={el}
 				bind:value={content}
 				use:autosize
 				{...elementProps}
 				placeholder={!active ? elementProps.placeholder : ''}
-				class={active ? '!indent-[3.5rem]' : ''}
+				class="{inputBaseClass} {inputSizeClasses.md} {inputBorderClass()} w-full"
 				on:focus={() => (focused = true)}
 				on:blur={() => (focused = false)}
 			></textarea>
@@ -316,10 +320,12 @@ Generate a tool name for the script below:
 			bind:value={content}
 			placeholder={!active ? elementProps.placeholder : ''}
 			class={twMerge(
-				active ? '!indent-[3.5rem]' : '',
-				promptConfigName === 'agentToolFunctionName' &&
-					!validateToolName(content ?? '') &&
-					'!border-red-400'
+				inputBaseClass,
+				inputSizeClasses.md,
+				inputBorderClass({
+					error: promptConfigName === 'agentToolFunctionName' && !validateToolName(content ?? '')
+				}),
+				'w-full'
 			)}
 			on:focus={() => (focused = true)}
 			on:blur={() => (focused = false)}
