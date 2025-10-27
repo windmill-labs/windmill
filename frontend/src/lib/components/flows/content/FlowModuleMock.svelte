@@ -92,7 +92,7 @@
 				<JsonEditor {code} on:changeValue={updateMockValue} />
 			{/key}
 		{:else}
-			<pre class="text-xs border rounded p-2 bg-surface-disabled/20"
+			<pre class="text-xs border rounded p-2 bg-surface-disabled"
 				>{flowModule.mock?.return_value
 					? JSON.stringify(flowModule.mock?.return_value, null, 2)
 					: ''}</pre
