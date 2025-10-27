@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.565.0
+  version: 1.566.1
   title: Windmill API
 
   contact:
@@ -15442,6 +15442,10 @@ components:
           type: integer
         concurrency_key:
           type: string
+        debounce_key:
+          type: string
+        debounce_delay_s:
+          type: integer
         cache_ttl:
           type: number
         dedicated_worker:

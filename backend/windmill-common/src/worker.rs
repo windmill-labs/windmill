@@ -409,6 +409,10 @@ fn format_pull_query(peek: String) -> String {
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
+        ), delete_debounce AS NOT MATERIALIZED (
+            DELETE FROM debounce_key
+            USING j
+            WHERE j.kind::text != 'flowdependencies' AND j.kind::text != 'appdependencies' AND j.kind::text != 'dependencies' AND debounce_key.job_id = j.id
         ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
             j.runnable_id, j.runnable_path, j.args, canceled_by,
             canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
@@ -426,7 +430,7 @@ fn format_pull_query(peek: String) -> String {
             ",
         peek
     );
-    tracing::debug!("pull query: {}", r);
+    // tracing::debug!("pull query: {}", r);
     r
 }
 

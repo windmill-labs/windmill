@@ -1140,13 +1140,13 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         .unwrap_or(false);
 
                 if schedule_next_tick {
-                    if let Err(err) = handle_maybe_scheduled_job(
+                    if let Err(err) = Box::pin(handle_maybe_scheduled_job(
                         db,
                         queued_job,
                         &schedule,
                         &script_path,
                         &queued_job.workspace_id,
-                    )
+                    ))
                     .await
                     {
                         match err {
@@ -2428,7 +2428,7 @@ pub async fn pull(
 
         #[cfg(not(feature = "enterprise"))]
         let has_concurent_limit = false
-            || (job.is_dependency() && cfg!(feature = "private") && !*WMDEBUG_NO_DJOB_DEBOUNCING);
+            || (job.is_dependency() && job.concurrent_limit.is_some() && cfg!(feature = "private") && !*WMDEBUG_NO_DJOB_DEBOUNCING);
         // if we don't have private flag, we don't have concurrency limit
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
@@ -3622,8 +3622,8 @@ pub async fn push<'c, 'd>(
         cache_ttl,
         dedicated_worker,
         _low_level_priority,
-        mut custom_debounce_key,
-        mut debounce_delay_s,
+        custom_debounce_key,
+        debounce_delay_s,
     ) = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -4391,14 +4391,6 @@ pub async fn push<'c, 'd>(
         ),
     };
 
-    if custom_debounce_key.is_some() {
-        tracing::warn!("debouncing has been disabled temporarily, ignoring debounce_key");
-        custom_debounce_key = None;
-    }
-    if debounce_delay_s.is_some() {
-        tracing::warn!("debouncing has been disabled temporarily, ignoring debounce_delay_s");
-        debounce_delay_s = None;
-    }
     // Enforce concurrency limit on all dependency jobs.
     // TODO: We can ignore this for scripts djobs. The main reason we need all djobs to be sequential is because we have
     // nodes_to_relock and we need all locks whose corresponding steps aren't in nodes_to_relock be already present.
