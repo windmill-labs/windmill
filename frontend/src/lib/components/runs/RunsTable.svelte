@@ -37,7 +37,7 @@
 	}: Props = $props()
 
 	function getTime(job: Job): string | undefined {
-		return job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
+		return job['completed_at'] ?? job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
 	}
 
 	function groupJobsByDay(jobs: Job[]): {
