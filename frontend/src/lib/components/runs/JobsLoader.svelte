@@ -139,9 +139,30 @@
 
 	export async function loadExtraJobs(): Promise<boolean> {
 		if (jobs && jobs.length > 0) {
-			const lastJob = jobs[jobs.length - 1]
+			let minQueueTs: string | undefined = undefined
+			let minCompletedTs: string | undefined = undefined
+
+			let cursor = 0 
+
+			while (jobs && cursor < jobs.length) {
+				cursor++
+				const job = jobs[jobs.length - 1 - cursor]
+				if (job.type == 'CompletedJob') {
+					minCompletedTs = job.completed_at
+					break
+				} else if  (job.type == 'QueuedJob' && minQueueTs == undefined) {
+					minQueueTs = job.created_at
+				}
+			}
+
+			const ts = minCompletedTs ?? minQueueTs
+
+			if (!ts) {
+				sendUserToast("No jobs to load from")
+				return false
+			}
 			// const minCreated = lastJob?.created_at
-			const minCreated = new Date(new Date(lastJob.completed_at!).getTime() - 1).toISOString()
+			const minCreated = new Date(new Date(ts).getTime() - 1).toISOString()
 
 			let olderJobs = await fetchJobs(minCreated, minTs, undefined)
 			jobs = jobs.concat(olderJobs)

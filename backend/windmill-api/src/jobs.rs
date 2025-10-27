@@ -2359,9 +2359,12 @@ async fn list_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<Job>> {
-    let limit = pagination.per_page.unwrap_or(1000);
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
+
+    if offset > 0 {
+        tracing::warn!("offset is not 0, but is ignored for list_jobs. Use created_before or completed_before instead.");
+    }
 
     if lq.success.is_some() && lq.running.is_some_and(|x| x) {
         return Err(error::Error::BadRequest(
@@ -2371,7 +2374,7 @@ async fn list_jobs(
     let sqlc = if lq.running.is_none() {
         Some(list_completed_jobs_query(
             &w_id,
-            Some(per_page + offset),
+            Some(per_page),
             0,
             &ListCompletedQuery { order_desc: Some(true), ..lqc },
             UnifiedJob::completed_job_fields(),
@@ -2391,19 +2394,13 @@ async fn list_jobs(
             &w_id,
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
             UnifiedJob::queued_job_fields(),
-            Pagination { per_page: Some(limit), page: None },
+            Pagination { per_page: None, page: None },
             true,
             get_scope_tags(&authed),
         );
 
         if let Some(sqlc) = sqlc {
-            format!(
-                "{} UNION ALL {} LIMIT {} OFFSET {};",
-                &sqlq.subquery()?,
-                &sqlc.subquery()?,
-                per_page,
-                offset
-            )
+            format!("{} UNION ALL {}", &sqlq.subquery()?, &sqlc.subquery()?,)
         } else {
             sqlq.limit(per_page).offset(offset).query()?
         }
@@ -2417,7 +2414,7 @@ async fn list_jobs(
         }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
-    // tracing::info!("sql: {}", sql);
+    tracing::info!("sql: {}", sql);
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql)
