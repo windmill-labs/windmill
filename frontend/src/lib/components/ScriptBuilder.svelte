@@ -1106,14 +1106,6 @@
 													}}
 												/>
 											</Label>
-											{#if script.schema && !disableAi && !customUi?.settingsPanel?.metadata?.disableAiFilling}
-												<div class="mt-3">
-													<AIFormSettings
-														bind:prompt={script.schema.prompt_for_ai as string | undefined}
-														type="script"
-													/>
-												</div>
-											{/if}
 										</div>
 									</Section>
 									{#if !customUi?.settingsPanel?.metadata?.languages || customUi?.settingsPanel?.metadata?.languages?.length > 1}
@@ -1204,6 +1196,15 @@
 												placeholder={customUi?.tagSelectPlaceholder}
 											/>
 										</Section>
+									{/if}
+
+									{#if script.schema && !disableAi && !customUi?.settingsPanel?.metadata?.disableAiFilling}
+										<div class="mt-3">
+											<AIFormSettings
+												bind:prompt={script.schema.prompt_for_ai as string | undefined}
+												type="script"
+											/>
+										</div>
 									{/if}
 								</div>
 							</TabContent>
