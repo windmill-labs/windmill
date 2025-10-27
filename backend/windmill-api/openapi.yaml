@@ -695,7 +695,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/create_fork:
+  /w/{workspace}/workspaces/create_fork:
     post:
       summary: create forked workspace
       operationId: createWorkspaceFork
