@@ -2414,7 +2414,7 @@ async fn list_jobs(
         }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
-    tracing::info!("sql: {}", sql);
+    // tracing::info!("sql: {}", sql);
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql)
