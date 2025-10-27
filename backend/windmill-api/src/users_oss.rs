@@ -10,8 +10,10 @@ use crate::db::ApiAuthed;
 
 #[cfg(not(feature = "private"))]
 use crate::users::{EditPassword, NewUser};
+
 #[cfg(not(feature = "private"))]
 use crate::{db::DB, webhook_util::WebhookShared};
+
 #[cfg(not(feature = "private"))]
 use argon2::Argon2;
 
