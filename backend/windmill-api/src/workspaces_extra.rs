@@ -284,7 +284,8 @@ pub async fn migrate_workspace(
     .execute(&mut *tx)
     .await?;
 
-    migrate_metadata_tables(&mut tx, &req.source_workspace_id, &req.target_workspace_id).await?;
+    migrate_workspace_data_tables(&mut tx, &req.source_workspace_id, &req.target_workspace_id)
+        .await?;
 
     audit_log(
         &mut *tx,
@@ -311,7 +312,7 @@ pub async fn migrate_workspace(
     ))
 }
 
-async fn migrate_metadata_tables(
+async fn migrate_workspace_data_tables(
     tx: &mut Transaction<'_, Postgres>,
     source: &str,
     target: &str,
@@ -342,7 +343,6 @@ async fn migrate_metadata_tables(
         "job_logs",
         "job_stats",
         "v2_job_queue",
-        "v2_job",
     ];
 
     for table in non_auth_tables {
@@ -510,7 +510,7 @@ pub async fn complete_workspace_migration(
     .await?;
 
     delete_workspace_tables(&mut tx, &req.source_workspace_id).await?;
-    
+
     audit_log(
         &mut *tx,
         &authed,
@@ -582,7 +582,7 @@ pub async fn revert_workspace_migration(
         }
     };
 
-    migrate_metadata_tables(&mut tx, &req.target_workspace_id, &source_workspace_id).await?;
+    migrate_workspace_data_tables(&mut tx, &req.target_workspace_id, &source_workspace_id).await?;
 
     sqlx::query!(
         r#"DELETE FROM workspace WHERE id = $1"#,
@@ -667,7 +667,13 @@ pub async fn get_migration_status(
         .ok_or_else(|| Error::BadRequest("source_workspace parameter required".to_string()))?;
 
     let source_jobs = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM v2_job_completed WHERE workspace_id = $1",
+        "SELECT 
+            COUNT(*) 
+        FROM (
+            SELECT id FROM v2_job WHERE workspace_id = $1
+            UNION ALL
+            SELECT id FROM v2_job_completed WHERE workspace_id = $1
+        ) as total_jobs",
         source_workspace
     )
     .fetch_one(&db)
@@ -687,43 +693,40 @@ pub async fn migrate_jobs(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let _ = sqlx::query_scalar!(
-        r#"
-        SELECT 
-            1 
-        FROM 
-            workspace 
-        WHERE 
-            id = $1
-        "#,
-        &req.target_workspace_id
-    )
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|_| {
-        Error::NotFound(format!(
-            "Workspace: {} does not exists",
-            req.target_workspace_id
-        ))
-    })?;
-
     let migrated_count = sqlx::query_scalar!(
-        "WITH batch AS (
+        "WITH 
+            batch_completed_jobs AS (
                 SELECT id FROM v2_job_completed
                 WHERE workspace_id = $1
                 LIMIT $2
+            ),
+            batch_jobs AS (
+                SELECT id FROM v2_job
+                WHERE workspace_id = $1
+                LIMIT $2
+            ),
+            updated_completed AS (
+                UPDATE v2_job_completed
+                SET workspace_id = $3
+                WHERE id IN (SELECT id FROM batch_completed_jobs)
+                RETURNING 1
+            ),
+            updated_jobs AS (
+                UPDATE v2_job
+                SET workspace_id = $3
+                WHERE id IN (SELECT id FROM batch_jobs)
+                RETURNING 1
             )
-            UPDATE v2_job_completed
-            SET workspace_id = $3
-            WHERE id IN (SELECT id FROM batch)
-            RETURNING 1",
+            SELECT 
+                (SELECT COUNT(*) FROM updated_completed) + 
+                (SELECT COUNT(*) FROM updated_jobs) as total_count",
         req.source_workspace_id,
         req.batch_size,
         req.target_workspace_id
     )
-    .fetch_all(&mut *tx)
+    .fetch_one(&mut *tx)
     .await?
-    .len() as i64;
+    .unwrap_or(0);
 
     tx.commit().await?;
 
