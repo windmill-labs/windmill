@@ -86,11 +86,7 @@
 				Switch theme
 			</MenuItem>
 
-			<MenuItem
-				onClick={() => logout()}
-				class={twMerge(itemClass, 'text-primary font-semibold')}
-				{item}
-			>
+			<MenuItem onClick={() => logout()} class={itemClass} {item}>
 				<LogOut size={16} />
 				Sign out
 			</MenuItem>
