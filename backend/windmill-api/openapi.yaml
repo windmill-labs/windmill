@@ -8285,6 +8285,7 @@ paths:
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
         - $ref: "#/components/parameters/AllowWildcards"
+        - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
           description: is the job skipped
           in: query
