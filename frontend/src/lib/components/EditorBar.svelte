@@ -1033,7 +1033,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		</div>
 	</div>
 
-	<div class="flex flex-row items-center gap-2">
+	<div class="flex flex-row items-center gap-2 whitespace-nowrap">
 		{@render right?.()}
 		{#if scriptPath && !noHistory}
 			<Button
