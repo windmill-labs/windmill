@@ -141,6 +141,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/leave", post(leave_workspace))
         .route("/get_workspace_name", get(get_workspace_name))
+        .route("/create_fork", post(create_workspace_fork))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_color", post(change_workspace_color))
         .route(
@@ -175,7 +176,6 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/create", post(create_workspace))
-        .route("/create_fork", post(create_workspace_fork))
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
@@ -343,7 +343,6 @@ struct CreateWorkspaceFork {
     name: String,
     username: Option<String>,
     color: Option<String>,
-    parent_workspace_id: String,
 }
 
 #[derive(Deserialize)]
@@ -2899,6 +2898,7 @@ async fn clone_workspace_dependencies(
 async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Path(parent_workspace_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
     // if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
@@ -2953,7 +2953,7 @@ async fn create_workspace_fork(
         forked_id,
         nw.name,
         authed.email,
-        nw.parent_workspace_id,
+        parent_workspace_id,
     )
     .execute(&mut *tx)
     .await?;
@@ -2970,12 +2970,13 @@ async fn create_workspace_fork(
 
     sqlx::query!(
         "INSERT INTO usr
-            (workspace_id, email, username, is_admin)
-            VALUES ($1, $2, $3, $4)",
+           (workspace_id, email, username, is_admin)
+           SELECT $1, email, username, is_admin FROM usr
+         WHERE workspace_id = $3 AND email = $2
+        ",
         forked_id,
         authed.email,
-        username,
-        authed.is_admin,
+        parent_workspace_id,
     )
     .execute(&mut *tx)
     .await?;
@@ -2989,7 +2990,7 @@ async fn create_workspace_fork(
            FROM usr
          WHERE workspace_id = $2",
         &forked_id,
-        &nw.parent_workspace_id
+        &parent_workspace_id
     )
     .execute(&mut *tx)
     .await?;
