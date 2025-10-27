@@ -36,13 +36,13 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 	} satisfies Record<any, FlowNodeColorClasses>
 	let orangeStyle = {
 		selected: {
-			bg: 'bg-orange-200 dark:bg-[#905036]',
+			bg: 'bg-orange-200 dark:bg-orange-700',
 			outline: 'outline-orange-500' + outlined,
 			text: 'text-orange-800 dark:text-orange-200',
 			badge: 'bg-orange-100 text-orange-700'
 		},
 		notSelected: {
-			bg: 'bg-orange-100 dark:bg-[#654338]',
+			bg: 'bg-orange-100 dark:bg-orange-800',
 			outline: '',
 			text: 'text-orange-700 dark:text-orange-300',
 			badge: 'bg-orange-200 text-orange-700'
@@ -60,7 +60,7 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 		_Skipped: {
 			selected: defaultStyle.selected,
 			notSelected: {
-				bg: 'bg-blue-100 dark:bg-[#2D3B63]',
+				bg: 'bg-blue-100 dark:bg-blue-950',
 				outline: '',
 				text: 'text-blue-600 dark:text-blue-200',
 				badge: 'bg-blue-200 outline-border-selected text-blue-800'
@@ -68,13 +68,13 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 		},
 		Success: {
 			selected: {
-				bg: 'bg-green-200 dark:bg-[#329E6A]',
+				bg: 'bg-green-200 dark:bg-green-600',
 				outline: 'outline-green-500 dark:outline-green-400' + outlined,
 				text: 'text-green-800 dark:text-green-100',
 				badge: 'bg-green-100 text-green-700'
 			},
 			notSelected: {
-				bg: 'bg-green-100 dark:bg-[#3B7B5B]',
+				bg: 'bg-green-100 dark:bg-green-700',
 				outline: '',
 				text: 'text-green-700 dark:text-green-100',
 				badge: 'bg-green-200 text-green-700'
@@ -82,13 +82,13 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 		},
 		Failure: {
 			selected: {
-				bg: 'bg-red-200 dark:bg-[#AA3E47]',
+				bg: 'bg-red-200 dark:bg-red-600',
 				outline: 'outline-red-500' + outlined,
 				text: 'text-red-800 dark:text-red-100',
 				badge: 'bg-red-100 text-red-700'
 			},
 			notSelected: {
-				bg: 'bg-red-100 dark:bg-[#81383F]',
+				bg: 'bg-red-100 dark:bg-red-700',
 				outline: '',
 				text: 'text-red-700 dark:text-red-200',
 				badge: 'bg-red-200 text-red-700'
@@ -98,13 +98,13 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 		WaitingForExecutor: orangeStyle,
 		WaitingForEvents: {
 			selected: {
-				bg: 'bg-purple-200 dark:bg-[#8243BB]',
+				bg: 'bg-purple-200 dark:bg-purple-600',
 				outline: 'outline-purple-500' + outlined,
 				text: 'text-purple-800 dark:text-purple-100',
 				badge: 'bg-purple-100 text-purple-700'
 			},
 			notSelected: {
-				bg: 'bg-purple-100 dark:bg-[#5F417E]',
+				bg: 'bg-purple-100 dark:bg-purple-700',
 				outline: '',
 				text: 'text-purple-700 dark:text-purple-200',
 				badge: 'bg-purple-200 text-purple-700'
