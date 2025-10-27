@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.565.0
+  version: 1.566.1
   title: Windmill API
 
   contact:
@@ -8058,11 +8058,12 @@ paths:
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/CreatedBefore"
         - $ref: "#/components/parameters/CreatedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/CompletedBefore"
+        - $ref: "#/components/parameters/CompletedAfter"
+        - $ref: "#/components/parameters/CreatedBeforeQueue"
+        - $ref: "#/components/parameters/CreatedAfterQueue"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
-        - $ref: "#/components/parameters/CreatedOrStartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/Suspended"
         - $ref: "#/components/parameters/ArgsFilter"
@@ -8272,18 +8273,18 @@ paths:
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/CreatedBefore"
         - $ref: "#/components/parameters/CreatedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/CompletedBefore"
+        - $ref: "#/components/parameters/CompletedAfter"
+        - $ref: "#/components/parameters/CreatedBeforeQueue"
+        - $ref: "#/components/parameters/CreatedAfterQueue"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
-        - $ref: "#/components/parameters/CreatedOrStartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/Suspended"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
         - $ref: "#/components/parameters/AllowWildcards"
-        - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
           description: is the job skipped
@@ -14245,11 +14246,12 @@ paths:
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedBefore"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
-        - $ref: "#/components/parameters/CreatedOrStartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
+        - $ref: "#/components/parameters/CompletedBefore"
+        - $ref: "#/components/parameters/CompletedAfter"
+        - $ref: "#/components/parameters/CreatedBeforeQueue"
+        - $ref: "#/components/parameters/CreatedAfterQueue"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
@@ -14838,33 +14840,40 @@ components:
       schema:
         type: string
         format: date-time
-    CreatedOrStartedAfter:
-      name: created_or_started_after
-      description:
-        filter on created_at for non non started job and started_at otherwise
-        after (exclusive) timestamp
+
+    CompletedBefore:
+      name: completed_before
+      description: filter on started before (inclusive) timestamp
       in: query
       schema:
         type: string
         format: date-time
-    CreatedOrStartedAfterCompletedJob:
-      name: created_or_started_after_completed_jobs
-      description:
-        filter on created_at for non non started job and started_at otherwise
-        after (exclusive) timestamp but only for the completed jobs
+    CompletedAfter:
+      name: completed_after
+      description: filter on started after (exclusive) timestamp
       in: query
       schema:
         type: string
         format: date-time
-    CreatedOrStartedBefore:
-      name: created_or_started_before
+
+    CreatedAfterQueue:
+      name: created_after_queue
       description:
-        filter on created_at for non non started job and started_at otherwise
-        before (inclusive) timestamp
+        filter on jobs created after X for jobs in the queue only
       in: query
       schema:
         type: string
         format: date-time
+
+    CreatedBeforeQueue:
+      name: created_before_queue
+      description:
+        filter on jobs created before X for jobs in the queue only
+      in: query
+      schema:
+        type: string
+        format: date-time
+
     Success:
       name: success
       description: filter on successful jobs
@@ -15317,6 +15326,10 @@ components:
           type: integer
         concurrency_key:
           type: string
+        debounce_key:
+          type: string
+        debounce_delay_s:
+          type: integer
         cache_ttl:
           type: number
         dedicated_worker:
@@ -15663,6 +15676,9 @@ components:
           type: string
           format: date-time
         started_at:
+          type: string
+          format: date-time
+        completed_at:
           type: string
           format: date-time
         duration_ms:
@@ -16298,30 +16314,30 @@ components:
     ScriptLang:
       type: string
       enum: [
-          python3,
-          deno,
-          go,
-          bash,
-          powershell,
-          postgresql,
-          mysql,
-          bigquery,
-          snowflake,
-          mssql,
-          oracledb,
-          graphql,
-          nativets,
-          bun,
-          php,
-          rust,
-          ansible,
-          csharp,
-          nu,
-          java,
-          ruby,
-          duckdb,
-          # for related places search: ADD_NEW_LANG
-        ]
+        python3,
+        deno,
+        go,
+        bash,
+        powershell,
+        postgresql,
+        mysql,
+        bigquery,
+        snowflake,
+        mssql,
+        oracledb,
+        graphql,
+        nativets,
+        bun,
+        php,
+        rust,
+        ansible,
+        csharp,
+        nu,
+        java,
+        ruby,
+        duckdb,
+        # for related places search: ADD_NEW_LANG
+      ]
 
     Preview:
       type: object

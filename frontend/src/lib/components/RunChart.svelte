@@ -139,10 +139,10 @@
 	}
 
 	function minJobTime(jobs: CompletedJob[]): Date {
-		let min: Date = new Date(jobs[0].started_at)
+		let min: Date = new Date(jobs[0].completed_at!)
 		for (const job of jobs) {
-			if (job.started_at != undefined) {
-				const date = new Date(job.started_at)
+			if (job.completed_at != undefined) {
+				const date = new Date(job.completed_at)
 				if (date < min) {
 					min = date
 				}
@@ -152,10 +152,10 @@
 	}
 
 	function maxJobTime(jobs: CompletedJob[]): Date {
-		let max: Date = new Date(jobs[0].started_at)
+		let max: Date = new Date(jobs[0].completed_at!)
 		for (const job of jobs) {
-			if (new Date(job.started_at) > max) {
-				max = new Date(job.started_at)
+			if (new Date(job.completed_at!) > max) {
+				max = new Date(job.completed_at!)
 			}
 		}
 		return max
