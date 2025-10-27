@@ -118,12 +118,12 @@ export function splitModuleDiffForViews(moduleDiff: Record<string, ModuleDiffRes
 
 /**
  * Merges two flow versions into a single flow structure for unified diff view.
- * This is a simple non-recursive approach that preserves the before flow structure
- * and appends top-level added modules.
+ * This is a simple non-recursive approach that preserves the after flow structure
+ * and appends top-level removed modules.
  *
  * Strategy:
- * - Use the before flow structure as-is (keeps removed modules in their positions)
- * - Append top-level added modules at the end
+ * - Use the after flow structure as-is (includes all added modules, even nested ones)
+ * - Append top-level removed modules at the end
  * - Don't merge nested structures - containers with nested changes will be marked as "modified" in the UI
  *
  * @param beforeFlow - The original flow
@@ -136,28 +136,30 @@ export function mergeFlows(
 	afterFlow: FlowValue,
 	moduleDiff: Record<string, ModuleDiffResult>
 ): FlowValue {
-	// Get top-level added modules from after flow
-	const addedModules = (afterFlow.modules ?? []).filter((m) => moduleDiff[m.id]?.after === 'added')
+	// Get top-level removed modules from before flow
+	const removedModules = (beforeFlow.modules ?? []).filter(
+		(m) => moduleDiff[m.id]?.before === 'removed'
+	)
 
-	// Start with before modules and append added ones
-	const mergedModules = [...(beforeFlow.modules ?? []), ...addedModules]
+	// Start with after modules and append removed ones
+	const mergedModules = [...(afterFlow.modules ?? []), ...removedModules]
 
-	// Handle special modules - use before version or add if new
+	// Handle special modules - use after version or add if removed
 	const mergedFailureModule =
-		beforeFlow.failure_module ??
-		(afterFlow.failure_module && moduleDiff[afterFlow.failure_module.id]?.after === 'added'
-			? afterFlow.failure_module
+		afterFlow.failure_module ??
+		(beforeFlow.failure_module && moduleDiff[beforeFlow.failure_module.id]?.before === 'removed'
+			? beforeFlow.failure_module
 			: undefined)
 
 	const mergedPreprocessorModule =
-		beforeFlow.preprocessor_module ??
-		(afterFlow.preprocessor_module &&
-		moduleDiff[afterFlow.preprocessor_module.id]?.after === 'added'
-			? afterFlow.preprocessor_module
+		afterFlow.preprocessor_module ??
+		(beforeFlow.preprocessor_module &&
+		moduleDiff[beforeFlow.preprocessor_module.id]?.before === 'removed'
+			? beforeFlow.preprocessor_module
 			: undefined)
 
 	return {
-		...beforeFlow,
+		...afterFlow,
 		modules: mergedModules,
 		failure_module: mergedFailureModule,
 		preprocessor_module: mergedPreprocessorModule
