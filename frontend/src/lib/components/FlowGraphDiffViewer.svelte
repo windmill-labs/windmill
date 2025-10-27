@@ -3,7 +3,7 @@
 	import YAML from 'yaml'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { Alert } from './common'
-	import { computeFlowModuleDiff, splitModuleDiffForViews, mergeFlowsSimple } from './flows/flowDiff'
+	import { computeFlowModuleDiff, splitModuleDiffForViews, mergeFlows } from './flows/flowDiff'
 	import { dfs } from './flows/dfs'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import type { AIModuleAction } from './copilot/chat/flow/core'
@@ -47,22 +47,24 @@
 
 	// For unified view, merge both flows to show all modules (added, modified, and removed)
 	let mergedFlow = $derived(
-		beforeFlow && afterFlow ? mergeFlowsSimple(beforeFlow, afterFlow, moduleDiff) : undefined
+		beforeFlow && afterFlow ? mergeFlows(beforeFlow, afterFlow, moduleDiff) : undefined
 	)
 
 	// For unified view, combine all actions to show on the merged flow
+	// Container modules are automatically marked as "modified" by deepEqual in computeFlowModuleDiff
 	let unifiedActions = $derived.by((): Record<string, AIModuleAction> => {
 		const unified: Record<string, AIModuleAction> = {}
-		// Include all actions from the diff
+
 		for (const [moduleId, diffResult] of Object.entries(moduleDiff)) {
 			if (diffResult.after) {
 				// Module exists in after (added or modified)
 				unified[moduleId] = diffResult.after
 			} else if (diffResult.before === 'removed') {
-				// Module was removed - now will appear in merged flow with red color
+				// Module was removed
 				unified[moduleId] = 'removed'
 			}
 		}
+
 		return unified
 	})
 
