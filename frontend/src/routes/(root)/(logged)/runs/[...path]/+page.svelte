@@ -48,6 +48,7 @@
 	import { createBubbler } from 'svelte/legacy'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -1157,7 +1158,7 @@
 
 		<div class="grow min-h-0">
 			<Splitpanes>
-				<Pane size={60} minSize={40}>
+				<Pane minSize={40}>
 					<div class="flex flex-col h-full">
 						<!-- Runs table top bar -->
 						<div
@@ -1296,7 +1297,7 @@
 						</div>
 					</div>
 				</Pane>
-				<Pane size={40} minSize={15} class="flex flex-col">
+				<AnimatedPane size={40} minSize={15} class="flex flex-col" opened={selectedIds.length > 0}>
 					{#if selectionMode === 're-run'}
 						<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
 					{:else if selectedIds.length === 1}
@@ -1314,10 +1315,8 @@
 						<div class="text-xs m-4"
 							>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
 						>
-					{:else}
-						<div class="text-xs m-4">No job selected</div>
 					{/if}
-				</Pane>
+				</AnimatedPane>
 			</Splitpanes>
 		</div>
 	</div>
