@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usr\n           (workspace_id, email, username, is_admin)\n           SELECT $1, email, username, is_admin FROM usr\n         WHERE workspace_id = $3 AND email = $2\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1a9f2ed5045016a3953db335957b26f41efc8a3cad7af7bc8fe97df6a5bf5078"
+}

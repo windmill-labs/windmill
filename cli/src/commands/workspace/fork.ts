@@ -1,9 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "../../types.ts";
-import { colors, Command, Input, log, setClient } from "../../../deps.ts";
-import { requireLogin } from "../../core/auth.ts";
-import { add, addWorkspace, allWorkspaces, getActiveWorkspace, list, removeWorkspace } from "./workspace.ts";
-import { loginInteractive, tryGetLoginInfo } from "../../core/login.ts";
+import { colors, Input, log, setClient } from "../../../deps.ts";
+import {  addWorkspace, allWorkspaces, list, removeWorkspace } from "./workspace.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { getCurrentGitBranch, getOriginalBranchForWorkspaceForks, isGitRepository } from "../../utils/git.ts";
 import { WM_FORK_PREFIX } from "../../main.ts";
@@ -107,12 +105,11 @@ async function createWorkspaceFork(
   try {
     // TODO: Update to createWorkspaceFork after regenerating client from new OpenAPI spec
     const result = await wmill.createWorkspaceFork({
+      workspace: workspace.workspaceId,
       requestBody: {
         id: trueWorkspaceId,
         name: opts.createWorkspaceName ?? trueWorkspaceId,
-        username: undefined, // Let the server handle username
         color: undefined,
-        parent_workspace_id: workspace.workspaceId,
       },
     });
 
