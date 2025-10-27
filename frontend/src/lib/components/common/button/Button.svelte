@@ -215,7 +215,7 @@
 		if (variant === 'default') {
 			return 'border border-border-light divide-x divide-border-light'
 		} else if (variant === 'accent') {
-			return 'divide-x divide-luminance-blue-100 dark:divide-luminance-blue-200'
+			return 'divide-x divide-blue-100 dark:divide-blue-200'
 		} else if (variant === 'accent-secondary') {
 			return 'divide-x divide-deep-blue-400 dark:divide-deep-blue-100'
 		} else if (variant === 'subtle') {

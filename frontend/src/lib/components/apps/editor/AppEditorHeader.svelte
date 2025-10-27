@@ -1296,7 +1296,7 @@
 			>
 				<div class="flex flex-row gap-1 items-center">
 					<div>Debug runs</div>
-					<div class="text-2xs text-primary"
+					<div class="text-2xs {hasErrors ? '' : 'text-primary'}"
 						>({$jobs?.length > 99 ? '99+' : ($jobs?.length ?? 0)})</div
 					>
 					{#if hasErrors}

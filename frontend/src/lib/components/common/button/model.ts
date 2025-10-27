@@ -114,10 +114,10 @@ export namespace ButtonType {
 
 		blue: {
 			border:
-				'border-luminance-blue-500 dark:border-luminance-blue-300 hover:border-luminance-blue-700 focus-visible:border-luminance-blue-700 bg-surface hover:bg-luminance-blue-100 dark:hover:bg-luminance-blue-900/40 focus-visible:bg-luminance-blue-100 focus-visible:dark:text-luminance-blue-100 dark:focus-visible:bg-luminance-blue-900 text-luminance-blue-500 dark:text-luminance-blue-300 dark:hover:text-luminance-blue-200 hover:text-luminance-blue-700 focus-visible:text-luminance-blue-700 focus-visible:ring-luminance-blue-300',
+				'border-blue-500 dark:border-blue-300 hover:border-blue-700 focus-visible:border-blue-700 bg-surface hover:bg-blue-100 dark:hover:bg-blue-900/40 focus-visible:bg-blue-100 focus-visible:dark:text-blue-100 dark:focus-visible:bg-blue-900 text-blue-500 dark:text-blue-300 dark:hover:text-blue-200 hover:text-blue-700 focus-visible:text-blue-700 focus-visible:ring-blue-300',
 			contained:
-				'bg-luminance-blue-300 hover:bg-luminance-blue-400 focus-visible:bg-luminance-blue-500 text-white focus-visible:ring-luminance-blue-300',
-			divider: 'divide-x divide-luminance-blue-600'
+				'bg-blue-300 hover:bg-blue-400 focus-visible:bg-blue-500 text-white focus-visible:ring-blue-300',
+			divider: 'divide-x divide-blue-600'
 		},
 		marine: {
 			border:
@@ -173,13 +173,13 @@ export namespace ButtonType {
 	export const VariantStyles: Record<'accent-secondary' | 'accent' | 'default' | 'subtle', string> =
 		{
 			'accent-secondary':
-				'bg-surface-accent-secondary hover:bg-surface-accent-secondary-hover focus-visible:bg-surface-accent-secondary-clicked text-white dark:text-deep-blue-900 focus-visible:ring-luminance-blue-300',
+				'bg-surface-accent-secondary hover:bg-surface-accent-secondary-hover focus-visible:bg-surface-accent-secondary-clicked text-white dark:text-deep-blue-900 focus-visible:ring-blue-300',
 			accent:
-				'bg-surface-accent-primary hover:bg-surface-accent-hover focus-visible:bg-surface-accent-clicked text-white focus-visible:ring-luminance-blue-300',
+				'bg-surface-accent-primary hover:bg-surface-accent-hover focus-visible:bg-surface-accent-clicked text-white focus-visible:ring-blue-300',
 			default:
-				'border border-border-light bg-transparent hover:bg-surface-hover text-primary focus-visible:bg-surface-hover focus-visible:ring-luminance-blue-300',
+				'border border-border-light bg-transparent hover:bg-surface-hover text-primary focus-visible:bg-surface-hover focus-visible:ring-blue-300',
 			subtle:
-				'bg-transparent hover:bg-surface-hover text-primary focus-visible:bg-surface-hover focus-visible:ring-luminance-blue-300'
+				'bg-transparent hover:bg-surface-hover text-primary focus-visible:bg-surface-hover focus-visible:ring-blue-300'
 		}
 
 	export const DestructiveVariantStyles: Record<
