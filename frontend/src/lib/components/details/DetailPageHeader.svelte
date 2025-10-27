@@ -112,7 +112,7 @@
 					<Button
 						{...btn.buttonProps}
 						startIcon={{ icon: btn.buttonProps.startIcon }}
-						btnClasses="hidden md:flex items-center gap-1"
+						btnClasses="hidden md:flex items-center gap-1 whitespace-nowrap"
 					>
 						{btn.label}
 					</Button>
@@ -120,7 +120,7 @@
 						{...btn.buttonProps}
 						startIcon={{ icon: btn.buttonProps.startIcon }}
 						iconOnly
-						btnClasses="flex md:hidden items-center gap-1"
+						btnClasses="flex md:hidden items-center gap-1 whitespace-nowrap"
 					>
 						{btn.label}
 					</Button>
