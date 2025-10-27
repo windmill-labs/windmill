@@ -2869,13 +2869,15 @@ def heavy_compute(n: int):
 def send_result(res: int, email: str):
     print(f"Sending result {res} to {email}")
     return "OK"
-
+    
 def main(n: int):
     l = []
     for i in range(n):
         l.append(heavy_compute(i))
     print(l)
     return [send_result(sum(l), "example@example.com"), n]
+
+
 "#;
 
 #[cfg(feature = "python")]

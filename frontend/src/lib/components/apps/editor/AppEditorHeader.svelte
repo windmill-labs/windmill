@@ -1273,7 +1273,7 @@
 		<Dropdown items={moreItems} />
 		<AppEditorTutorial bind:this={appEditorTutorial} />
 
-		<div class="hidden md:inline relative overflow-visible">
+		<div class="hidden md:inline relative overflow-visible shrink-0">
 			{#if hasErrors}
 				<span
 					class="animate-ping absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
@@ -1296,7 +1296,7 @@
 			>
 				<div class="flex flex-row gap-1 items-center">
 					<div>Debug runs</div>
-					<div class="text-2xs text-primary"
+					<div class="text-2xs {hasErrors ? '' : 'text-primary'}"
 						>({$jobs?.length > 99 ? '99+' : ($jobs?.length ?? 0)})</div
 					>
 					{#if hasErrors}

@@ -15,7 +15,10 @@ use windmill_common::{
 use windmill_queue::PushArgsOwned;
 
 use crate::{
-    args::{try_from_request_body, Body, RawWebhookArgs, WebhookArgs, WebhookArgsMetadata},
+    args::{
+        build_headers, build_query, try_from_request_body, Body, RawWebhookArgs, WebhookArgs,
+        WebhookArgsMetadata,
+    },
     db::ApiAuthed,
 };
 
@@ -102,8 +105,8 @@ struct HttpTriggerWmTrigger<'a> {
     route: &'a str,
     path: &'a str,
     params: &'a HashMap<String, String>,
-    query: &'a HashMap<String, Box<RawValue>>,
-    headers: &'a HashMap<String, Box<RawValue>>,
+    query: HashMap<String, Box<RawValue>>,
+    headers: HashMap<String, Box<RawValue>>,
     method: HttpMethod,
 }
 
@@ -142,14 +145,22 @@ impl HttpTriggerArgs {
         format: RunnableFormat,
         wrap_body: bool,
     ) -> Result<PushArgsOwned, Error> {
+        let headers = build_headers(&self.0.metadata.headers, None, true);
+        let query = build_query(self.0.metadata.query.as_deref(), None, true);
         match format {
             RunnableFormat { has_preprocessor: true, version: RunnableFormatVersion::V2 } => {
                 // we don't care about wrap_body in v2
-                self.to_v2_preprocessor_args(route_path, called_path, params)
+                self.to_v2_preprocessor_args(route_path, called_path, params, headers, query)
             }
-            RunnableFormat { has_preprocessor: true, version: RunnableFormatVersion::V1 } => {
-                self.to_v1_preprocessor_args(route_path, called_path, params, wrap_body)
-            }
+            RunnableFormat { has_preprocessor: true, version: RunnableFormatVersion::V1 } => self
+                .to_v1_preprocessor_args(
+                    route_path,
+                    called_path,
+                    params,
+                    wrap_body,
+                    headers,
+                    query,
+                ),
             RunnableFormat { has_preprocessor: false, .. } => self.to_main_args(wrap_body),
         }
     }
@@ -160,6 +171,8 @@ impl HttpTriggerArgs {
         called_path: &str,
         params: &HashMap<String, String>,
         wrap_body: bool,
+        headers: HashMap<String, Box<RawValue>>,
+        query: HashMap<String, Box<RawValue>>,
     ) -> Result<PushArgsOwned, Error> {
         let mut extra = HashMap::new();
         let mut wm_trigger = HashMap::new();
@@ -171,8 +184,8 @@ impl HttpTriggerArgs {
                 path: called_path,
                 method: (&self.0.metadata.method).try_into()?,
                 params,
-                query: &self.0.metadata.query,
-                headers: &self.0.metadata.headers,
+                query,
+                headers,
             }),
         );
         extra.insert("wm_trigger".to_string(), to_raw_value(&wm_trigger));
@@ -189,6 +202,8 @@ impl HttpTriggerArgs {
         route_path: &str,
         called_path: &str,
         params: &HashMap<String, String>,
+        headers: HashMap<String, Box<RawValue>>,
+        query: HashMap<String, Box<RawValue>>,
     ) -> Result<PushArgsOwned, Error> {
         let mut args = HashMap::new();
         args.insert(
@@ -197,8 +212,8 @@ impl HttpTriggerArgs {
                 kind: "http".to_string(),
                 body: to_raw_value(&self.0.body),
                 raw_string: self.0.metadata.raw_string,
-                headers: self.0.metadata.headers,
-                query: self.0.metadata.query,
+                headers,
+                query,
                 method: (&self.0.metadata.method).try_into()?,
                 route: route_path,
                 path: called_path,

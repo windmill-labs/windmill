@@ -110,17 +110,70 @@ const config = {
 				800: `rgb(${primitives['deep-blue-800']})`,
 				900: `rgb(${primitives['deep-blue-900']})`
 			},
-			'luminance-blue': {
-				50: `rgb(${primitives['luminance-blue-50']})`,
-				100: `rgb(${primitives['luminance-blue-100']})`,
-				200: `rgb(${primitives['luminance-blue-200']})`,
-				300: `rgb(${primitives['luminance-blue-300']})`,
-				400: `rgb(${primitives['luminance-blue-400']})`,
-				500: `rgb(${primitives['luminance-blue-500']})`,
-				600: `rgb(${primitives['luminance-blue-600']})`,
-				700: `rgb(${primitives['luminance-blue-700']})`,
-				800: `rgb(${primitives['luminance-blue-800']})`,
-				900: `rgb(${primitives['luminance-blue-900']})`
+			red: {
+				50: `rgb(${primitives['red-50']})`,
+				100: `rgb(${primitives['red-100']})`,
+				200: `rgb(${primitives['red-200']})`,
+				300: `rgb(${primitives['red-300']})`,
+				400: `rgb(${primitives['red-400']})`,
+				500: `rgb(${primitives['red-500']})`,
+				600: `rgb(${primitives['red-600']})`,
+				700: `rgb(${primitives['red-700']})`,
+				800: `rgb(${primitives['red-800']})`,
+				900: `rgb(${primitives['red-900']})`,
+				950: `rgb(${primitives['red-950']})`
+			},
+			blue: {
+				50: `rgb(${primitives['blue-50']})`,
+				100: `rgb(${primitives['blue-100']})`,
+				200: `rgb(${primitives['blue-200']})`,
+				300: `rgb(${primitives['blue-300']})`,
+				400: `rgb(${primitives['blue-400']})`,
+				500: `rgb(${primitives['blue-500']})`,
+				600: `rgb(${primitives['blue-600']})`,
+				700: `rgb(${primitives['blue-700']})`,
+				800: `rgb(${primitives['blue-800']})`,
+				900: `rgb(${primitives['blue-900']})`,
+				950: `rgb(${primitives['blue-950']})`
+			},
+			green: {
+				50: `rgb(${primitives['green-50']})`,
+				100: `rgb(${primitives['green-100']})`,
+				200: `rgb(${primitives['green-200']})`,
+				300: `rgb(${primitives['green-300']})`,
+				400: `rgb(${primitives['green-400']})`,
+				500: `rgb(${primitives['green-500']})`,
+				600: `rgb(${primitives['green-600']})`,
+				700: `rgb(${primitives['green-700']})`,
+				800: `rgb(${primitives['green-800']})`,
+				900: `rgb(${primitives['green-900']})`,
+				950: `rgb(${primitives['green-950']})`
+			},
+			orange: {
+				50: `rgb(${primitives['orange-50']})`,
+				100: `rgb(${primitives['orange-100']})`,
+				200: `rgb(${primitives['orange-200']})`,
+				300: `rgb(${primitives['orange-300']})`,
+				400: `rgb(${primitives['orange-400']})`,
+				500: `rgb(${primitives['orange-500']})`,
+				600: `rgb(${primitives['orange-600']})`,
+				700: `rgb(${primitives['orange-700']})`,
+				800: `rgb(${primitives['orange-800']})`,
+				900: `rgb(${primitives['orange-900']})`,
+				950: `rgb(${primitives['orange-950']})`
+			},
+			purple: {
+				50: `rgb(${primitives['purple-50']})`,
+				100: `rgb(${primitives['purple-100']})`,
+				200: `rgb(${primitives['purple-200']})`,
+				300: `rgb(${primitives['purple-300']})`,
+				400: `rgb(${primitives['purple-400']})`,
+				500: `rgb(${primitives['purple-500']})`,
+				600: `rgb(${primitives['purple-600']})`,
+				700: `rgb(${primitives['purple-700']})`,
+				800: `rgb(${primitives['purple-800']})`,
+				900: `rgb(${primitives['purple-900']})`,
+				950: `rgb(${primitives['purple-950']})`
 			},
 			slate: {
 				50: '#f8fafc',
@@ -169,18 +222,6 @@ const config = {
 				700: '#44403c',
 				800: '#292524',
 				900: '#1c1917'
-			},
-			orange: {
-				50: '#fff7ed',
-				100: '#ffedd5',
-				200: '#fed7aa',
-				300: '#fdba74',
-				400: '#fb923c',
-				500: '#f97316',
-				600: '#ea580c',
-				700: '#c2410c',
-				800: '#9a3412',
-				900: '#7c2d12'
 			},
 			amber: {
 				50: '#fffbeb',
@@ -266,18 +307,6 @@ const config = {
 				800: '#5b21b6',
 				900: '#4c1d95'
 			},
-			purple: {
-				50: '#faf5ff',
-				100: '#f3e8ff',
-				200: '#e9d5ff',
-				300: '#d8b4fe',
-				400: '#c084fc',
-				500: '#a855f7',
-				600: '#9333ea',
-				700: '#7e22ce',
-				800: '#6b21a8',
-				900: '#581c87'
-			},
 			fuchsia: {
 				50: '#fdf4ff',
 				100: '#fae8ff',
@@ -326,28 +355,6 @@ const config = {
 				800: '#1f2937',
 				900: '#111827'
 			},
-			red: {
-				50: '#fef2f2',
-				100: '#fee2e2',
-				200: '#fecaca',
-				300: '#fca5a5',
-				400: '#f87171',
-				500: '#ef4444',
-				600: '#dc2626',
-				700: '#b91c1c',
-				800: '#991b1b',
-				900: '#7f1d1d'
-			},
-			orange: {
-				100: '#ffedd5',
-				200: '#ffedd5',
-				300: '#FDC089',
-				400: '#fb923c',
-				500: '#f97316',
-				600: '#ea580c',
-				700: '#c2410c',
-				800: '#c2410c'
-			},
 			yellow: {
 				50: '#fefce8',
 				100: '#fef9c3',
@@ -360,31 +367,6 @@ const config = {
 				800: '#854d0e',
 				900: '#713f12'
 			},
-			green: {
-				50: '#f0fdf4',
-				100: '#dcfce7',
-				200: '#bbf7d0',
-				300: '#86efac',
-				400: '#4ade80',
-				500: '#22c55e',
-				600: '#16a34a',
-				700: '#15803d',
-				800: '#166534',
-				900: '#14532d'
-			},
-			blue: {
-				50: '#eff6ff',
-				100: '#dbeafe',
-				200: '#bfdbfe',
-				300: '#93c5fd',
-				400: '#60a5fa',
-				500: '#3b82f6',
-				600: '#2563eb',
-				700: '#1d4ed8',
-				800: '#1e40af',
-				900: '#1e3a8a'
-			},
-
 			indigo: {
 				50: '#eef2ff',
 				100: '#e0e7ff',
