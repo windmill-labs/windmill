@@ -327,7 +327,7 @@
 				loadingJobs: true
 			}
 		}
-		const previousJobId = await JobService.listJobs({
+		const previousJobId = await JobService.listCompletedJobs({
 			workspace: $workspaceStore!,
 			scriptPathExact: path,
 			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),

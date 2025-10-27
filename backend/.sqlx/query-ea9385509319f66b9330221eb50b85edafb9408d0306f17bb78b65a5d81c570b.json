@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DROP INDEX CONCURRENTLY IF EXISTS ix_v2_job_root_by_path",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "ea9385509319f66b9330221eb50b85edafb9408d0306f17bb78b65a5d81c570b"
+}

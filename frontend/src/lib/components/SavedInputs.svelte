@@ -1,4 +1,5 @@
 <script lang="ts">
+
 	import { Button } from '$lib/components/common'
 	import {
 		InputService,
@@ -10,7 +11,7 @@
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { base } from '$lib/base'
 	import { classNames, displayDateOnly, sendUserToast } from '$lib/utils.js'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import { ArrowLeftIcon, Edit, ExternalLink, X } from 'lucide-svelte'
@@ -21,37 +22,49 @@
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import SaveInputsButton from './SaveInputsButton.svelte'
 
-	export let scriptHash: string | null = null
-	export let scriptPath: string | null = null
-	export let flowPath: string | null = null
-	export let canSaveInputs: boolean = true
 
-	// Are the current Inputs valid and able to be saved?
-	export let isValid: boolean
-	export let args: object
+	
+	interface Props {
+		scriptHash?: string | null;
+		scriptPath?: string | null;
+		flowPath?: string | null;
+		canSaveInputs?: boolean;
+		// Are the current Inputs valid and able to be saved?
+		isValid: boolean;
+		args: object;
+	}
+
+	let {
+		scriptHash = null,
+		scriptPath = null,
+		flowPath = null,
+		canSaveInputs = true,
+		isValid,
+		args
+	}: Props = $props();
 
 	interface EditableInput extends Input {
 		isEditing?: boolean
 		isSaving?: boolean
 	}
 
-	let previousInputs: Input[] | undefined = undefined
-	let savedInputs: EditableInput[] | undefined = undefined
-	let selectedInput: Input | null
-	let jobs: Job[] = []
-	let loading: boolean = false
+	let previousInputs: Input[] | undefined = $state(undefined)
+	let savedInputs: EditableInput[] | undefined = $state(undefined)
+	let selectedInput = $state() as Input | null
+	let jobs: Job[] = $state([])
+	let loading: boolean = $state(false)
 	const dispatch = createEventDispatcher()
 
-	$: runnableId = scriptHash || scriptPath || flowPath || undefined
+	let runnableId = $derived(scriptHash || scriptPath || flowPath || undefined)
 
-	let runnableType: RunnableType | undefined = undefined
-	$: runnableType = scriptHash
-		? 'ScriptHash'
-		: scriptPath
-			? 'ScriptPath'
-			: flowPath
-				? 'FlowPath'
-				: undefined
+	let runnableType: RunnableType | undefined = $derived(scriptHash
+			? 'ScriptHash'
+			: scriptPath
+				? 'ScriptPath'
+				: flowPath
+					? 'FlowPath'
+					: undefined)
+
 
 	let hasAlreadyFailed = false
 	async function loadInputHistory() {
@@ -115,14 +128,16 @@
 		}
 	}
 
-	$: {
+	$effect(() => {
 		if ($workspaceStore && (scriptHash || scriptPath || flowPath)) {
+			untrack(() => {
 			loadInputHistory()
 			loadSavedInputs()
+			})
 		}
-	}
+	});
 
-	let previewArgs: any = undefined
+	let previewArgs: any = $state(undefined)
 
 	function selectArgs(selected_args: any) {
 		previewArgs = selected_args
@@ -197,7 +212,7 @@
 									`w-full flex items-center text-sm group justify-between gap-4 py-1.5 px-4 text-left border rounded-sm hover:bg-surface-hover transition-all`,
 									selectedInput === i ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : ''
 								)}
-								on:click={async () => {
+								onclick={async () => {
 									if (!i.isEditing) {
 										if (selectedInput === i) {
 											selectedInput = null
@@ -211,7 +226,7 @@
 								<div class="w-full h-full items-center justify-between flex gap-1 min-w-0">
 									{#if i.isEditing}
 										<form
-											on:submit={() => {
+											onsubmit={() => {
 												updateInput(i)
 												i.isEditing = false
 												i.isSaving = false
@@ -296,7 +311,7 @@
 									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`,
 									'border-orange-400'
 								)}
-								on:click={async () => {
+								onclick={async () => {
 									if (!$workspaceStore) {
 										return
 									}
@@ -364,7 +379,7 @@
 									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-surface-hover transition-a`,
 									selectedInput === i ? 'border-blue-500 bg-blue-50 dark:bg-blue-900' : ''
 								)}
-								on:click={async () => {
+								onclick={async () => {
 									if (selectedInput === i) {
 										selectedInput = null
 									} else {
