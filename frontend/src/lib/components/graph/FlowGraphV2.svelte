@@ -369,6 +369,8 @@
 
 	let height = $state(0)
 
+	$inspect('HERE modules', modules)
+
 	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
 		if (!modules || modules?.length !== 2) {
 			return false

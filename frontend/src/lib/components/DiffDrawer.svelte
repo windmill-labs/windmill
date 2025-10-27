@@ -20,6 +20,7 @@
 	}
 
 	let diffType: 'draft' | 'deployed' | 'custom' | undefined = $state(undefined)
+	let flowdiffMode: 'yaml' | 'graph' = $state('yaml')
 
 	let contentType = $derived.by(() => {
 		if (!data || !diffType) return undefined
@@ -30,14 +31,21 @@
 				? 'metadata'
 				: undefined
 	})
+
+	$inspect('HERE', contentType)
 	let diffViewer: Drawer | undefined = $state(undefined)
 
 	interface Props {
 		restoreDeployed?: () => Promise<void>
 		restoreDraft?: () => Promise<void>
+		isFlow?: boolean
 	}
 
-	let { restoreDeployed = async () => {}, restoreDraft = async () => {} }: Props = $props()
+	let {
+		restoreDeployed = async () => {},
+		restoreDraft = async () => {},
+		isFlow = false
+	}: Props = $props()
 
 	let data:
 		| {
@@ -228,19 +236,50 @@
 										/>
 									{/await}
 								{:else if contentType === 'metadata'}
-									{#await import('$lib/components/DiffEditor.svelte')}
-										<Loader2 class="animate-spin" />
-									{:then Module}
-										<Module.default
-											open={true}
-											automaticLayout
-											className="h-full"
-											defaultLang="yaml"
-											defaultOriginal={metadata}
-											defaultModified={data.current.metadata}
-											readOnly
-										/>
-									{/await}
+									{#if isFlow}
+										<Tabs bind:selected={flowdiffMode}>
+											<Tab value="yaml" label={`YAML`} />
+											<Tab value="graph" label={`Graph`} />
+										</Tabs>
+										{#if flowdiffMode === 'yaml'}
+											{#await import('$lib/components/DiffEditor.svelte')}
+												<Loader2 class="animate-spin" />
+											{:then Module}
+												<Module.default
+													open={true}
+													automaticLayout
+													className="h-full"
+													defaultLang="yaml"
+													defaultOriginal={metadata}
+													defaultModified={data.current.metadata}
+													readOnly
+												/>
+											{/await}
+										{:else if flowdiffMode === 'graph'}
+											{#await import('$lib/components/FlowGraphDiffViewer.svelte')}
+												<Loader2 class="animate-spin" />
+											{:then Module}
+												<Module.default
+													beforeYaml={metadata ?? ''}
+													afterYaml={data.current.metadata}
+												/>
+											{/await}
+										{/if}
+									{:else}
+										{#await import('$lib/components/DiffEditor.svelte')}
+											<Loader2 class="animate-spin" />
+										{:then Module}
+											<Module.default
+												open={true}
+												automaticLayout
+												className="h-full"
+												defaultLang="yaml"
+												defaultOriginal={metadata}
+												defaultModified={data.current.metadata}
+												readOnly
+											/>
+										{/await}
+									{/if}
 								{/if}
 							{/key}
 						</div>
