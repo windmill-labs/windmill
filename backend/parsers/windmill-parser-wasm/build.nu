@@ -112,7 +112,7 @@ def main [
     print $"Building in ($profile) mode ($env.OUT_DIR)"
     match $t.env {
       "default" => {
-        wasm-pack build ($profile) --target ($tar) --out-dir $env.OUT_DIR --features ($t.features) -Z build-std=panic_abort,std -Z build-std-features=panic_immediate_abort
+        wasm-pack build --weak-refs ($profile) --target ($tar) --out-dir $env.OUT_DIR --features ($t.features) -Z build-std=panic_abort,std
       },
       "tree-sitter" => {
         $env.CFLAGS_wasm32_unknown_unknown = $"-I(pwd)/wasm-sysroot -Wbad-function-cast -Wcast-function-type -fno-builtin"

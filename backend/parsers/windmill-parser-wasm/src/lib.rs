@@ -1,7 +1,7 @@
 #[cfg(feature = "ts-parser")]
 use serde_json::json;
 #[allow(unused_imports)]
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::prelude::wasm_bindgen;
 use windmill_parser::MainArgSignature;
 #[cfg(feature = "ts-parser")]
 use windmill_parser_ts::{parse_expr_for_ids, parse_expr_for_imports};
