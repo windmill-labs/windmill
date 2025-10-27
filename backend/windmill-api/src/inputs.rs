@@ -149,7 +149,7 @@ async fn get_input_history(
     let sql = &format!(
         "select id, v2_job.created_at, created_by, 'null'::jsonb as args, status = 'success' as success from v2_job JOIN v2_job_completed USING (id) \
         where v2_job.workspace_id = $3 and {} = $1 and kind = any($2) {args_query} AND v2_job_completed.status != 'skipped' {include_non_root} \
-        order by v2_job_completed.completed_at desc limit $4 offset $5",
+        order by v2_job.created_at desc limit $4 offset $5",
         r.runnable_type.column_name(),
 
     );

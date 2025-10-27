@@ -1920,20 +1920,20 @@ pub fn filter_list_queue_query(
     }
 
     if let Some(dt) = &lq.created_before {
-        sqlb.and_where_le("v2_job_queue.created_at", "?".bind(&dt.to_rfc3339()));
+        sqlb.and_where_le("v2_job.created_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.created_after {
-        sqlb.and_where_ge("v2_job_queue.created_at", "?".bind(&dt.to_rfc3339()));
+        sqlb.and_where_ge("v2_job.created_at", "?".bind(&dt.to_rfc3339()));
     }
 
     if let Some(dt) = &lq.created_or_started_after {
         let ts = dt.timestamp_millis();
-        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at >= to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND v2_job_queue.created_at >= to_timestamp({}  / 1000.0))", ts, ts));
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at >= to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND v2_job.created_at >= to_timestamp({}  / 1000.0))", ts, ts));
     }
 
     if let Some(dt) = &lq.created_or_started_before {
         let ts = dt.timestamp_millis();
-        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at < to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND v2_job_queue.created_at < to_timestamp({}  / 1000.0))", ts, ts));
+        sqlb.and_where(format!("(started_at IS NOT NULL AND started_at < to_timestamp({}  / 1000.0)) OR (started_at IS NULL AND v2_job.created_at < to_timestamp({}  / 1000.0))", ts, ts));
     }
 
     if let Some(s) = &lq.suspended {
@@ -1977,7 +1977,7 @@ pub fn list_queue_jobs_query(
     let (limit, offset) = paginate_without_limits(pagination);
     let mut sqlb = SqlBuilder::select_from("v2_job_queue")
         .fields(fields)
-        .order_by("v2_job_queue.created_at", lq.order_desc.unwrap_or(true))
+        .order_by("v2_job.created_at", lq.order_desc.unwrap_or(true))
         .limit(limit)
         .offset(offset)
         .clone();
@@ -2028,7 +2028,7 @@ async fn list_queue_jobs(
             "v2_job.id",
             "v2_job_queue.running",
             "v2_job.created_by",
-            "v2_job_queue.created_at",
+            "v2_job.created_at",
             "v2_job_queue.started_at",
             "v2_job_queue.scheduled_for",
             "v2_job.runnable_id as script_hash",
@@ -2417,7 +2417,7 @@ async fn list_jobs(
         }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
-    tracing::info!("sql: {}", sql);
+    // tracing::info!("sql: {}", sql);
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql)
