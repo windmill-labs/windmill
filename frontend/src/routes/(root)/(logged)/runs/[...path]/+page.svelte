@@ -48,6 +48,7 @@
 	import { createBubbler } from 'svelte/legacy'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -1296,28 +1297,26 @@
 						</div>
 					</div>
 				</Pane>
-				{#if selectedIds.length > 0}
-					<Pane size={40} minSize={15} class="flex flex-col">
-						{#if selectionMode === 're-run'}
-							<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
-						{:else if selectedIds.length === 1}
-							{#if selectedIds[0] === '-'}
-								<div class="p-4">There is no information available for this job</div>
-							{:else}
-								<JobRunsPreview
-									on:filterByConcurrencyKey={filterByConcurrencyKey}
-									on:filterByWorker={filterByWorker}
-									id={selectedIds[0]}
-									workspace={selectedWorkspace}
-								/>
-							{/if}
-						{:else if selectedIds.length > 1}
-							<div class="text-xs m-4"
-								>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
-							>
+				<AnimatedPane size={40} minSize={15} class="flex flex-col" opened={selectedIds.length > 0}>
+					{#if selectionMode === 're-run'}
+						<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
+					{:else if selectedIds.length === 1}
+						{#if selectedIds[0] === '-'}
+							<div class="p-4">There is no information available for this job</div>
+						{:else}
+							<JobRunsPreview
+								on:filterByConcurrencyKey={filterByConcurrencyKey}
+								on:filterByWorker={filterByWorker}
+								id={selectedIds[0]}
+								workspace={selectedWorkspace}
+							/>
 						{/if}
-					</Pane>
-				{/if}
+					{:else if selectedIds.length > 1}
+						<div class="text-xs m-4"
+							>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
+						>
+					{/if}
+				</AnimatedPane>
 			</Splitpanes>
 		</div>
 	</div>
