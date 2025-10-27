@@ -17,7 +17,8 @@
 		Play,
 		Loader2,
 		TriangleAlert,
-		Timer
+		Timer,
+		DiffIcon
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -49,6 +50,7 @@
 		selected?: boolean
 		deletable?: boolean
 		moduleAction?: 'added' | 'removed' | 'modified'
+		onShowModuleDiff?: (moduleId: string) => void
 		retry?: boolean
 		cache?: boolean
 		earlyStop?: boolean
@@ -90,6 +92,7 @@
 		selected = false,
 		deletable = false,
 		moduleAction = undefined,
+		onShowModuleDiff = undefined,
 		retry = false,
 		cache = false,
 		earlyStop = false,
@@ -277,6 +280,20 @@
 	>
 		{#if deletable}
 			<ModuleAcceptReject action={moduleAction ?? action} {id} />
+		{/if}
+		{#if moduleAction === 'modified' && onShowModuleDiff && id}
+			<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start z-50">
+				<button
+					class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
+					onclick={stopPropagation(
+						preventDefault(() => {
+							onShowModuleDiff?.(id)
+						})
+					)}
+				>
+					<DiffIcon size={14} /> Diff
+				</button>
+			</div>
 		{/if}
 		<div
 			class={classNames('absolute z-0 rounded-md outline-offset-0', colorClasses.outline)}

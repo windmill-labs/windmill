@@ -1,9 +1,11 @@
 <script lang="ts">
-	import type { FlowValue } from '$lib/gen'
+	import type { FlowModule, FlowValue } from '$lib/gen'
 	import YAML from 'yaml'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { Alert } from './common'
 	import { computeFlowModuleDiff, splitModuleDiffForViews } from './flows/flowDiff'
+	import { dfs } from './flows/dfs'
+	import DiffDrawer from './DiffDrawer.svelte'
 
 	interface Props {
 		beforeYaml: string
@@ -15,6 +17,7 @@
 	let beforeFlow = $state<FlowValue | undefined>(undefined)
 	let afterFlow = $state<FlowValue | undefined>(undefined)
 	let parseError = $state<string | undefined>(undefined)
+	let moduleDiffDrawer: DiffDrawer | undefined = $state(undefined)
 
 	// Parse YAML into FlowValue objects
 	$effect(() => {
@@ -34,6 +37,34 @@
 		beforeFlow && afterFlow ? computeFlowModuleDiff(beforeFlow, afterFlow) : {}
 	)
 	let { beforeActions, afterActions } = $derived(splitModuleDiffForViews(moduleDiff))
+
+	// Helper to find module by ID in a flow
+	function getModuleById(flow: FlowValue, moduleId: string): FlowModule | undefined {
+		const allModules = dfs(flow.modules ?? [], (m) => m)
+		return (
+			allModules.find((m) => m?.id === moduleId) ??
+			(flow.failure_module?.id === moduleId ? flow.failure_module : undefined) ??
+			(flow.preprocessor_module?.id === moduleId ? flow.preprocessor_module : undefined)
+		)
+	}
+
+	// Callback to show module diff
+	function handleShowModuleDiff(moduleId: string) {
+		if (!beforeFlow || !afterFlow) return
+
+		const beforeModule = getModuleById(beforeFlow, moduleId)
+		const afterModule = getModuleById(afterFlow, moduleId)
+
+		if (beforeModule && afterModule) {
+			moduleDiffDrawer?.openDrawer()
+			moduleDiffDrawer?.setDiff({
+				mode: 'simple',
+				title: `Module Diff: ${moduleId}`,
+				original: beforeModule,
+				current: afterModule
+			})
+		}
+	}
 </script>
 
 {#if parseError}
@@ -57,6 +88,7 @@
 					earlyStop={beforeFlow.skip_expr !== undefined}
 					cache={beforeFlow.cache_ttl !== undefined}
 					moduleActions={beforeActions}
+					onShowModuleDiff={handleShowModuleDiff}
 					notSelectable={true}
 					insertable={false}
 					editMode={false}
@@ -83,6 +115,7 @@
 					earlyStop={afterFlow.skip_expr !== undefined}
 					cache={afterFlow.cache_ttl !== undefined}
 					moduleActions={afterActions}
+					onShowModuleDiff={handleShowModuleDiff}
 					notSelectable={true}
 					insertable={false}
 					editMode={false}
@@ -94,6 +127,8 @@
 			</div>
 		</div>
 	</div>
+	<!-- Nested DiffDrawer for module-level diffs -->
+	<DiffDrawer bind:this={moduleDiffDrawer} />
 {:else}
 	<div class="flex items-center justify-center h-full">
 		<p class="text-gray-500">Loading graphs...</p>

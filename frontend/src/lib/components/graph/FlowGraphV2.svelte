@@ -131,6 +131,7 @@
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
+		onShowModuleDiff?: (moduleId: string) => void
 		flowHasChanged?: boolean
 	}
 
@@ -179,6 +180,7 @@
 		onCancelTestFlow = undefined,
 		onOpenPreview = undefined,
 		onHideJobStatus = undefined,
+		onShowModuleDiff = undefined,
 		individualStepTests = false,
 		flowJob = undefined,
 		showJobStatus = false,
@@ -490,6 +492,7 @@
 				suspendStatus,
 				flowHasChanged,
 				chatInputEnabled,
+				onShowModuleDiff: untrack(() => onShowModuleDiff),
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
 			untrack(() => failureModule),

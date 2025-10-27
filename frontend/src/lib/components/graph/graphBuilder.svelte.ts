@@ -147,6 +147,7 @@ export type ModuleN = {
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
 		moduleAction?: 'added' | 'removed' | 'modified'
+		onShowModuleDiff?: (moduleId: string) => void
 	}
 }
 
@@ -380,6 +381,7 @@ export function graphBuilder(
 		suspendStatus: Record<string, { job: Job; nb: number }>
 		flowHasChanged: boolean
 		chatInputEnabled: boolean
+		onShowModuleDiff?: (moduleId: string) => void
 		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
 	},
 	failureModule: FlowModule | undefined,
@@ -438,7 +440,8 @@ export function graphBuilder(
 					isOwner: extra.isOwner,
 					flowJob: extra.flowJob,
 					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
-					moduleAction: extra.moduleActions?.[module.id]
+					moduleAction: extra.moduleActions?.[module.id],
+					onShowModuleDiff: extra.onShowModuleDiff
 				},
 				type: 'module'
 			})
