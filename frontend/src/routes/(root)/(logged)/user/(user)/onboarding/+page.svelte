@@ -4,6 +4,7 @@
 	import { goto } from '$lib/navigation'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import {
 		Search,
 		Linkedin,
@@ -28,6 +29,8 @@
 	let useCaseText = $state('')
 	let selectedSource = $state<string | null>(null)
 	let isSubmitting = $state(false)
+	let otherSourceText = $state('')
+	let otherPopoverOpen = $state(false)
 
 	const sources = [
 		{ id: 'search_engine', label: 'Search engine', icon: Search },
@@ -44,6 +47,17 @@
 
 	function selectSource(sourceId: string) {
 		selectedSource = sourceId
+		// Auto-advance to next step
+		currentStep = STEP_USE_CASE
+	}
+
+	function validateOtherSource() {
+		if (otherSourceText.trim()) {
+			selectedSource = `other: ${otherSourceText.trim()}`
+		} else {
+			selectedSource = 'other'
+		}
+		otherPopoverOpen = false
 		// Auto-advance to next step
 		currentStep = STEP_USE_CASE
 	}
@@ -81,19 +95,56 @@
 {#if currentStep === STEP_SOURCE}
 	<CenteredModal title="Where did you hear about Windmill?">
 		<div class="w-full max-w-lg mx-auto">
-			<div class="grid grid-cols-1 gap-3 mt-6 mb-6">
+			<div class="grid grid-cols-1 gap-2 mt-6 mb-6">
 				{#each sources as source (source.id)}
-					{@const Icon = source.icon}
-					<button
-						onclick={() => selectSource(source.id)}
-						class="flex items-center gap-3 px-4 py-3 bg-surface-secondary rounded-lg border transition-all hover:bg-surface-hover {selectedSource ===
-						source.id
-							? 'border-blue-500 ring-2 ring-blue-500 ring-opacity-50'
-							: 'border-gray-200 dark:border-gray-700'}"
-					>
-						<Icon class="w-5 h-5 text-primary" />
-						<span class="text-sm font-medium text-primary">{source.label}</span>
-					</button>
+					{#if source.id === 'other'}
+						<Popover
+							bind:isOpen={otherPopoverOpen}
+							placement="bottom"
+							contentClasses="p-4 w-96"
+						>
+							{#snippet trigger()}
+								<Button
+									variant="default"
+									unifiedSize="md"
+									selected={selectedSource === 'other' || selectedSource?.startsWith('other:')}
+									startIcon={{ icon: source.icon }}
+									btnClasses="!justify-start w-full"
+								>
+									{source.label}
+								</Button>
+							{/snippet}
+							{#snippet content()}
+								<div class="flex flex-col gap-3">
+									<input
+										type="text"
+										bind:value={otherSourceText}
+										placeholder="Type your answer..."
+										class="input"
+										autofocus
+									/>
+									<Button
+										variant="accent"
+										unifiedSize="md"
+										on:click={validateOtherSource}
+									>
+										Validate
+									</Button>
+								</div>
+							{/snippet}
+						</Popover>
+					{:else}
+						<Button
+							variant="default"
+							unifiedSize="md"
+							selected={selectedSource === source.id}
+							startIcon={{ icon: source.icon }}
+							btnClasses="!justify-start"
+							on:click={() => selectSource(source.id)}
+						>
+							{source.label}
+						</Button>
+					{/if}
 				{/each}
 			</div>
 
