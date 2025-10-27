@@ -2,14 +2,13 @@
 	import { storeLocalSetting } from '$lib/utils'
 	import CustomAIPrompts from '../copilot/CustomAIPrompts.svelte'
 	import Button from '../common/button/Button.svelte'
-	import { ChevronDown, ChevronRight } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { getUserCustomPrompts } from '$lib/aiStore'
+	import Section from '../Section.svelte'
 
 	const USER_CUSTOM_PROMPTS_KEY = 'userCustomAIPrompts'
 
 	let customPrompts = $state<Record<string, string>>(getUserCustomPrompts())
-	let isExpanded = $state(false)
 
 	function save() {
 		storeLocalSetting(USER_CUSTOM_PROMPTS_KEY, JSON.stringify(customPrompts))
@@ -20,23 +19,10 @@
 </script>
 
 <div class="mt-4">
-	<button
-		type="button"
-		class="flex items-center border-b cursor-pointer hover:bg-surface-hover w-full transition-colors"
-		onclick={() => (isExpanded = !isExpanded)}
-	>
-		{#if isExpanded}
-			<ChevronDown size={16} />
-		{:else}
-			<ChevronRight size={16} />
-		{/if}
-		<h2>Custom system prompts</h2>
-		{#if hasPrompts}
-			<div class="w-2 h-2 bg-blue-500 rounded-full ml-2"></div>
-		{/if}
-	</button>
-
-	{#if isExpanded}
+	<Section label="Custom system prompts" collapsable animate>
+		{#snippet header()}
+			<div class="w-2 h-2 bg-blue-500 rounded-full ml-2 {hasPrompts ? '' : 'hidden'}"></div>
+		{/snippet}
 		<div>
 			<CustomAIPrompts
 				bind:customPrompts
@@ -46,5 +32,5 @@
 				<Button onclick={save}>Save</Button>
 			</div>
 		</div>
-	{/if}
+	</Section>
 </div>

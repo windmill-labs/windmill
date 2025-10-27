@@ -7,6 +7,7 @@
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import Toggle from '../Toggle.svelte'
 	import type { Writable } from 'svelte/store'
+	import UserAIPromptsSettings from './UserAIPromptsSettings.svelte'
 
 	$effect(() => {
 		loadSettings()
@@ -62,4 +63,6 @@
 			}}
 		/>
 	</div>
+
+	<UserAIPromptsSettings />
 </div>
