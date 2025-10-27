@@ -354,7 +354,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 																<div class="flex justify-start w-full">
 																	<Badge
 																		color="gray"
-																		class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
+																		class="center-center !bg-surface-secondary !text-primary !w-[70px] !h-[24px] rounded-r-none border"
 																	>
 																		Full path
 																	</Badge>
@@ -430,7 +430,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 																	<div class="flex justify-start w-full">
 																		<Badge
 																			color="gray"
-																			class="center-center !bg-surface-secondary !text-tertiary !w-[70px] !h-[24px] rounded-r-none border"
+																			class="center-center !bg-surface-secondary !text-primary !w-[70px] !h-[24px] rounded-r-none border"
 																		>
 																			Full path
 																		</Badge>
@@ -453,8 +453,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 								</div>
 
 								<Button
-									variant="border"
-									color="light"
+									variant="default"
 									size="xs"
 									btnClasses="bg-surface-secondary hover:bg-red-500 hover:text-white p-2 rounded-full"
 									aria-label="Clear"
@@ -476,10 +475,9 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 						<div class="w-1/2">
 							<Button
 								spacingSize="sm"
-								color="light"
 								btnClasses="h-10"
 								size="xs"
-								variant="border"
+								variant="default"
 								on:click={() => {
 									webhookAndHttpRouteFilter.push({
 										path: '*',
@@ -528,8 +526,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 							<Button
 								size="xs"
 								btnClasses="h-10"
-								color="light"
-								variant="border"
+								variant="default"
 								on:click={() => {
 									webhookAndHttpRouteFilter.push({
 										path_regex: '*',
@@ -587,9 +584,8 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 					<Button
 						{disabled}
 						spacingSize="sm"
-						color="light"
 						size="xs"
-						variant="border"
+						variant="default"
 						on:click={copyCommandToClipboard}
 						startIcon={{ icon: ClipboardCopy }}
 					>
@@ -630,8 +626,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 						<Button
 							disabled={emptyStringTrimmed(openapiDocument)}
 							spacingSize="sm"
-							color="light"
-							variant="border"
+							variant="default"
 							btnClasses="mb-2"
 							on:click={async () => {
 								await copyToClipboard(openapiDocument)
@@ -643,8 +638,7 @@ curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi
 						<Button
 							disabled={emptyStringTrimmed(openapiDocument)}
 							spacingSize="sm"
-							color="light"
-							variant="border"
+							variant="default"
 							btnClasses="mb-2"
 							on:click={() => {
 								download(

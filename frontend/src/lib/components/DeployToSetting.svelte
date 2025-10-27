@@ -87,8 +87,8 @@
 	}
 </script>
 
-<h3 class="mt-8">Workspace to link to</h3>
-<div class="flex min-w-0 mt-2">
+<h3 class="mt-6 text-xs font-semibold text-emphasis">Workspace to link to</h3>
+<div class="flex min-w-0 mt-1">
 	<select
 		bind:value={workspaceToDeployTo}
 		on:change={async (e) => {
@@ -113,11 +113,11 @@
 		{/each}
 	</select>
 </div>
-<h3 class="mt-6 mb-3">Deployable items</h3>
+<h3 class="mt-6 mb-3 text-sm font-semibold text-emphasis">Deployable items</h3>
 <div class="flex flex-wrap gap-20">
 	<div class="max-w-md w-full">
 		{#if Array.isArray(deployUiSettings?.include_path)}
-			<h4 class="flex gap-2 mb-4"
+			<h4 class="flex gap-2 mb-2 text-xs font-semibold text-emphasis"
 				>Filter on path<Tooltip>
 					Only scripts, flows and apps with their path matching one of those filters will be allowed
 					to be deployed in the deploy UI. The filters allow '*'' and '**' characters, with '*''
@@ -144,8 +144,7 @@
 		{/if}
 		<div class="flex mt-2">
 			<Button
-				variant="border"
-				color="light"
+				variant="default"
 				size="xs"
 				btnClasses="mt-1"
 				on:click={() => {
@@ -160,7 +159,7 @@
 	</div>
 
 	<div class="max-w-md w-full">
-		<h4 class="flex gap-2 mb-4"
+		<h4 class="flex gap-2 mb-2 text-xs font-semibold text-emphasis"
 			>Filter on type<Tooltip>
 				You can filter which types of item can be deployed to the production workspace. By default
 				everything is deployable.
@@ -201,7 +200,7 @@
 {#if $enterpriseLicense}
 	<div class="flex mt-5 mb-5 gap-1">
 		<Button
-			color="blue"
+			variant="accent"
 			disabled={workspaceToDeployTo == undefined}
 			on:click={() => {
 				editWindmillDeploymentUISettings()

@@ -26,10 +26,10 @@
 	}
 </script>
 
-<div>
-	<h2 class="border-b">AI user settings</h2>
+<div class="border border-border-light rounded-md p-4 h-full">
+	<h2 class="text-emphasis text-sm font-semibold mb-2">AI user settings</h2>
 
-	<div class="flex flex-col gap-4 mt-2">
+	<div class="flex flex-col gap-4">
 		<Toggle
 			on:change={(e) => {
 				updateSetting(codeCompletionSessionEnabled, e.detail, 'codeCompletionSessionEnabled')
@@ -40,6 +40,7 @@
 				rightTooltip: 'AI completion in the code editors'
 			}}
 		/>
+
 		<Toggle
 			on:change={(e) => {
 				updateSetting(metadataCompletionEnabled, e.detail, 'metadataCompletionEnabled')

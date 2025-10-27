@@ -98,7 +98,7 @@
 {:else}
 	<Drawer bind:this={drawer} size="800px">
 		<DrawerContent
-			title="Add a Resource"
+			title="Add a resource"
 			on:close={drawer.closeDrawer}
 			tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
 			documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"

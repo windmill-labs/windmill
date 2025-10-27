@@ -256,7 +256,7 @@
 
 	export function insertAtCurrentLine(code: string): void {
 		if (editor) {
-			insertAtLine(code, editor.getPosition()?.lineNumber ?? 0);
+			insertAtLine(code, editor.getPosition()?.lineNumber ?? 0)
 		}
 	}
 
@@ -492,12 +492,18 @@
 		if (typeof newSchemaRes === 'string') {
 			const resourcePath = newSchemaRes.replace('$res:', '')
 			dbSchema = $dbSchemas[resourcePath]
-			if (lang === 'graphql' && dbSchema === undefined) {
-				await getDbSchemas(lang, resourcePath, $workspaceStore, $dbSchemas, (e) => {
-					console.error('error getting graphql db schema', e)
-				})
-				dbSchema = $dbSchemas[resourcePath]
+			if (dbSchema === undefined) {
+				if (lang === 'graphql') {
+					await getDbSchemas('graphql', resourcePath, $workspaceStore, $dbSchemas, (e) => {
+						console.error('error getting graphql db schema', e)
+					})
+				} else if (lang === 'sql') {
+					await getDbSchemas(scriptLang ?? '', resourcePath, $workspaceStore, $dbSchemas, (e) => {
+						console.error(`error getting SQL (${scriptLang}) db schema`, e)
+					})
+				}
 			}
+			dbSchema = $dbSchemas[resourcePath]
 		} else {
 			dbSchema = undefined
 		}
@@ -1255,7 +1261,8 @@
 				lineNumbersMinChars,
 				// overflowWidgetsDomNode: widgets,
 				tabSize: lang == 'python' ? 4 : 2,
-				folding
+				folding,
+				padding: { bottom: 7, top: 7 }
 			})
 			if (key && editorPositionMap?.[key]) {
 				editor.setPosition(editorPositionMap[key])

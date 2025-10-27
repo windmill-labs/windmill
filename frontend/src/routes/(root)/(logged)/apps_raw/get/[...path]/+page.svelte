@@ -57,7 +57,7 @@
 			<Button
 				size="sm"
 				startIcon={{ icon: Pen }}
-				variant="border"
+				variant="default"
 				btnClasses="bg-white"
 				href="{base}/apps_raw/edit/{page.params.path}?nodraft=true">Edit</Button
 			>

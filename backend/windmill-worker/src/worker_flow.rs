@@ -104,7 +104,7 @@ pub async fn update_flow_status_after_job_completion(
     let mut unrecoverable = unrecoverable;
     loop {
         potentially_crash_for_testing();
-        let nrec = match update_flow_status_after_job_completion_internal(
+        let nrec = match Box::pin(update_flow_status_after_job_completion_internal(
             db,
             client,
             rec.flow,
@@ -122,13 +122,13 @@ pub async fn update_flow_status_after_job_completion(
             job_completed_tx.clone(),
             #[cfg(feature = "benchmark")]
             bench,
-        )
+        ))
         .await
         {
             Ok(j) => j,
             Err(e) => {
                 tracing::error!("Error while updating flow status of {} after  completion of {}, updating flow status again with error: {e:#}", rec.flow, &rec.job_id_for_status);
-                update_flow_status_after_job_completion_internal(
+                Box::pin(update_flow_status_after_job_completion_internal(
                     db,
                     client,
                     rec.flow,
@@ -148,7 +148,7 @@ pub async fn update_flow_status_after_job_completion(
                     job_completed_tx.clone(),
                     #[cfg(feature = "benchmark")]
                     bench,
-                )
+                ))
                 .await?
             }
         };
@@ -1508,7 +1508,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         true
     } else {
         tracing::debug!(id = %flow_job.id,  "start handle flow");
-        match handle_flow(
+        match Box::pin(handle_flow(
             flow_job.clone(),
             &flow_data,
             db,
@@ -1518,7 +1518,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             worker_dir,
             job_completed_tx,
             worker_name,
-        )
+        ))
         .warn_after_seconds(10)
         .await
         {
@@ -1963,7 +1963,7 @@ pub async fn handle_flow(
     let mut rec = PushNextFlowJobRec { flow_job: flow_job, status: status };
     loop {
         let PushNextFlowJobRec { flow_job, status } = rec;
-        let next = push_next_flow_job(
+        let next = Box::pin(push_next_flow_job(
             flow_job,
             status,
             flow,
@@ -1973,7 +1973,7 @@ pub async fn handle_flow(
             same_worker_tx,
             worker_dir,
             worker_name,
-        )
+        ))
         .warn_after_seconds(10)
         .await?;
         match next {
@@ -3178,7 +3178,9 @@ async fn push_next_flow_job(
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "pushed next flow job: {uuid}");
 
-        if value_with_parallel.type_ == "forloopflow" && value_with_parallel.parallel.unwrap_or(false) {
+        if value_with_parallel.type_ == "forloopflow"
+            && value_with_parallel.parallel.unwrap_or(false)
+        {
             if let Some(parallelism_transform) = &value_with_parallel.parallelism {
                 tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
 
@@ -4452,6 +4454,8 @@ pub fn raw_script_to_payload(
             concurrency_time_window_s,
             cache_ttl: module.cache_ttl.map(|x| x as i32),
             dedicated_worker: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
         }),
         tag,
         delete_after_use,
@@ -4516,6 +4520,8 @@ pub async fn script_to_payload(
             concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -4542,6 +4548,8 @@ pub async fn script_to_payload(
                 custom_concurrency_key: concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
+                custom_debounce_key: debounce_key,
+                debounce_delay_s,
                 cache_ttl: module.cache_ttl.map(|x| x as i32).ok_or(cache_ttl).ok(),
                 language,
                 dedicated_worker,
@@ -4572,7 +4580,7 @@ pub async fn script_to_payload(
     })
 }
 
-async fn get_transform_context(
+pub async fn get_transform_context(
     flow_job: &MiniPulledJob,
     previous_id: &str,
     status: &FlowStatus,
@@ -4639,7 +4647,7 @@ fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(Suspend, Uuid)
 }
 
 // returns the result of the previous step of a running flow (if the job was successful)
-async fn get_previous_job_result(
+pub async fn get_previous_job_result(
     db: &sqlx::Pool<sqlx::Postgres>,
     w_id: &str,
     flow_status: &FlowStatus,

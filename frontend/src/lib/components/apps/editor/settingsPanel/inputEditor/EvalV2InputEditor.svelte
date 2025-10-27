@@ -111,7 +111,7 @@
 						<div
 							class="p-1 !text-2xs absolute border border-l bg-surface w-full z-[5000] overflow-auto"
 						>
-							<pre class="text-tertiary"
+							<pre class="text-primary"
 								>{JSON.stringify($evalPreview[`${id}.${field}`] ?? null, null, 4) ?? 'null'}</pre
 							>
 						</div>
@@ -174,9 +174,9 @@
 					<div
 						class="p-1 !text-2xs absolute rounded-b border-b border-r border-l bg-surface w-full z-[5000] overflow-auto"
 					>
-						<!-- <div class="text-tertiary absolute top-0 right-0 !text-2xs">{id}.{field}</div> -->
-						<div class="float-right text-tertiary cursor-pointer"><X size={14} /></div>
-						<pre class="text-tertiary"
+						<!-- <div class="text-primary absolute top-0 right-0 !text-2xs">{id}.{field}</div> -->
+						<div class="float-right text-primary cursor-pointer"><X size={14} /></div>
+						<pre class="text-primary"
 							>{JSON.stringify($evalPreview[`${id}.${field}`] ?? null, null, 4) ?? 'null'}</pre
 						>
 					</div>
@@ -217,7 +217,7 @@
 					}}
 				/>
 			{/if}
-			<div class="text-2xs text-tertiary"
+			<div class="text-2xs text-primary"
 				>{componentInput.onDemandOnly ? 'NOT' : ''} Re-evaluated on changes to:</div
 			>
 			<div class="flex flex-wrap gap-1">

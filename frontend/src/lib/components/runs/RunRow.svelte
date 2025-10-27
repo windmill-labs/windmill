@@ -107,7 +107,7 @@
 <div
 	class={twMerge(
 		'hover:bg-surface-hover cursor-pointer',
-		selected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
+		selected ? 'bg-surface-accent-selected/30' : '',
 		'grid items-center h-full'
 	)}
 	class:grid-runs-table={!containsLabel && !selectionMode && showTag}
@@ -181,9 +181,14 @@
 	<div class="overflow-hidden min-w-0">
 		<div class="flex flex-row items-center gap-1 text-secondary text-2xs">
 			{#if job}
-				{#if 'started_at' in job && job.started_at}
-					{isJobRecent ? 'Started' : ''}
-					<TimeAgo bind:isRecent={isJobRecent} agoOnlyIfRecent date={job.started_at ?? ''} />
+				{#if ('started_at' in job && job.started_at) || ('completed_at' in job && job.completed_at)}
+					{#if 'completed_at' in job && job.completed_at}
+						{isJobRecent ? 'Ended' : ''}
+						<TimeAgo bind:isRecent={isJobRecent} agoOnlyIfRecent date={job.completed_at ?? ''} />
+					{:else if 'started_at' in job && job.started_at}
+						{isJobRecent ? 'Started' : ''}
+						<TimeAgo bind:isRecent={isJobRecent} agoOnlyIfRecent date={job.started_at ?? ''} />
+					{/if}
 					{#if job && (job.self_wait_time_ms || job.aggregate_wait_time_ms)}
 						<WaitTimeWarning
 							self_wait_time_ms={job.self_wait_time_ms}
@@ -200,19 +205,19 @@
 						Cancelling job... (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 					{/if}
 				{:else if `scheduled_for` in job && job.scheduled_for && forLater(job.scheduled_for)}
-					Waiting for executor (scheduled for <TimeAgo
+					Waiting executor (<TimeAgo
 						agoOnlyIfRecent
 						date={job.scheduled_for || ''}
 					/>)
 				{:else}
-					Waiting for executor (created <TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
+					Waiting executor (<TimeAgo agoOnlyIfRecent date={job.created_at || ''} />)
 				{/if}
 			{/if}
 		</div>
 	</div>
 
 	<!-- Job duration-->
-	<div class="text-2xs font-normal text-secondary pr-2">
+	<div class="text-2xs font-normal text-primary pr-2">
 		{#if job && 'duration_ms' in job && job.duration_ms != undefined}
 			{msToReadableTime(job.duration_ms, 2)}
 		{:else}
@@ -230,7 +235,7 @@
 				<Tooltip class="h-full">
 					<div class="relative">
 						{#if job && job.parent_job}
-							<span class="absolute -top-1 -right-1 text-xs text-blue-500">*</span>
+							<span class="absolute -top-1 -right-1 text-xs text-accent">*</span>
 						{/if}
 						<JobKindIcon size={14} />
 					</div>
@@ -254,7 +259,7 @@
 					{/snippet}
 				</Tooltip>
 
-				<div class="whitespace-nowrap text-xs text-secondary truncate">
+				<div class="whitespace-nowrap text-xs text-primary truncate">
 					{#if job.script_path}
 						<div class="flex flex-row gap-1 items-center">
 							{#if isExternal}
@@ -292,11 +297,7 @@
 									class="w-fit"
 								>
 									{#snippet buttonReplacement()}
-										<div
-											class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
-										>
-											<ListFilterPlus size={14} />
-										</div>
+										{@render filterButton()}
 									{/snippet}
 								</DropdownV2>
 							{/if}
@@ -326,7 +327,7 @@
 		</div>
 	{/if}
 	<!-- Author and schedule-->
-	<div class="flex justify-start pr-4 text-secondary">
+	<div class="flex justify-start pr-4 text-primary">
 		{#if job && job.schedule_path}
 			<div class="flex flex-row items-center gap-1 w-full -ml-2">
 				<Button
@@ -337,7 +338,11 @@
 				>
 					<Calendar size={14} />
 				</Button>
-				<div class="text-xs truncate text-ellipsis text-left" dir="rtl" title={job.schedule_path}>
+				<div
+					class="text-xs text-primary font-normal truncate text-ellipsis text-left"
+					dir="rtl"
+					title={job.schedule_path}
+				>
 					{job.schedule_path}
 				</div>
 				<DropdownV2
@@ -350,17 +355,17 @@
 					class="w-fit"
 				>
 					{#snippet buttonReplacement()}
-						<div
-							class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
-						>
-							<ListFilterPlus size={14} />
-						</div>
+						{@render filterButton()}
 					{/snippet}
 				</DropdownV2>
 			</div>
 		{:else}
 			<div class="flex flex-row gap-1 items-center w-full">
-				<div class="text-xs truncate text-ellipsis text-left" dir="rtl" title={job.created_by}>
+				<div
+					class="text-xs font-normal text-primary truncate text-ellipsis text-left"
+					dir="rtl"
+					title={job.created_by}
+				>
 					{job.created_by ?? ''}
 				</div>
 				{#if !isExternal}
@@ -375,11 +380,7 @@
 						class="w-fit"
 					>
 						{#snippet buttonReplacement()}
-							<div
-								class="p-1 hover:bg-surface cursor-pointer rounded-md text-gray-300 hover:text-primary"
-							>
-								<ListFilterPlus size={14} />
-							</div>
+							{@render filterButton()}
 						{/snippet}
 					</DropdownV2>
 				{/if}
@@ -391,7 +392,7 @@
 	{#if showTag}
 		<div class="flex justify-start gap-1">
 			{#if job.tag}
-				<span class="text-xs text-secondary truncate" title={job.tag}>{job.tag}</span>
+				<span class="text-xs text-primary font-normal truncate" title={job.tag}>{job.tag}</span>
 			{/if}
 		</div>
 	{/if}
@@ -404,9 +405,7 @@
 				href="{base}/run/{job.id}?workspace={job.workspace_id}"
 				class={twMerge(
 					'text-right float-right  px-2',
-					selected
-						? 'text-blue-500 hover:text-primary'
-						: 'text-gray-300 dark:text-gray-500 hover:text-primary dark:hover:text-primary'
+					selected ? 'text-accent' : 'text-secondary hover:text-accent'
 				)}
 				title="See run detail in a new tab"
 			>
@@ -415,3 +414,9 @@
 		</div>
 	{/if}
 </div>
+
+{#snippet filterButton()}
+	<div class="p-1 cursor-pointer rounded-md text-hint/50 hover:text-primary">
+		<ListFilterPlus size={14} />
+	</div>
+{/snippet}

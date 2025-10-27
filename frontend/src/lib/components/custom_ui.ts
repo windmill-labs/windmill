@@ -20,6 +20,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 		earlyReturn?: boolean
 		workerGroup?: boolean
 		concurrency?: boolean
+		debouncing?: boolean
 		cache?: boolean
 	}
 	triggers?: boolean

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script\n         WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)\n         ORDER BY created_at DESC LIMIT 1",
+  "query": "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by, path from script where hash = $1 AND workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -30,11 +30,21 @@
       },
       {
         "ordinal": 5,
+        "name": "debounce_key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "debounce_delay_s",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
         "name": "cache_ttl",
         "type_info": "Int4"
       },
       {
-        "ordinal": 6,
+        "ordinal": 8,
         "name": "language: ScriptLang",
         "type_info": {
           "Custom": {
@@ -70,36 +80,50 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 9,
         "name": "dedicated_worker",
         "type_info": "Bool"
       },
       {
-        "ordinal": 8,
+        "ordinal": 10,
         "name": "priority",
         "type_info": "Int2"
       },
       {
-        "ordinal": 9,
+        "ordinal": 11,
+        "name": "delete_after_use",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
         "name": "timeout",
         "type_info": "Int4"
       },
       {
-        "ordinal": 10,
+        "ordinal": 13,
+        "name": "has_preprocessor",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 14,
         "name": "on_behalf_of_email",
         "type_info": "Text"
       },
       {
-        "ordinal": 11,
+        "ordinal": 15,
         "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 16,
+        "name": "path",
         "type_info": "Varchar"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Text",
-        "Bool"
+        "Int8",
+        "Text"
       ]
     },
     "nullable": [
@@ -109,13 +133,18 @@
       true,
       true,
       true,
+      true,
+      true,
       false,
       true,
       true,
       true,
       true,
+      true,
+      true,
+      false,
       false
     ]
   },
-  "hash": "e64f7044c74e96c2338580562f6b087805dad2b6fb1aa194ac2a2026fa24ecd0"
+  "hash": "f06ab5e0369b35694fa02c3aac685bd547a1d271eb7401df57fe1774de3211bf"
 }

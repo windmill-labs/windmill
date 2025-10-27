@@ -263,6 +263,7 @@ pub struct CompletedJob {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub duration_ms: i64,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -323,17 +324,28 @@ impl CompletedJob {
 
 #[derive(Debug, Clone)]
 pub enum JobPayload {
+    /// Execute Hub Script
     ScriptHub {
         path: String,
         apply_preprocessor: bool,
     },
 
+    /// Execute script
     ScriptHash {
         hash: ScriptHash,
         path: String,
+        /// Override default concurrency key
         custom_concurrency_key: Option<String>,
+        /// How many jobs can run at the same time
         concurrent_limit: Option<i32>,
+        /// In seconds
         concurrency_time_window_s: Option<i32>,
+        /// If not set, will be inferred from the hash(path + step_id + inputs)
+        custom_debounce_key: Option<String>,
+        /// Debouncing delay will be determined by the first job with the key.
+        /// All subsequent jobs with Some will get debounced.
+        /// If the job has no delay, it will execute immediately, fully ignoring pending delays.
+        debounce_delay_s: Option<i32>,
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
         language: ScriptLang,
@@ -341,25 +353,25 @@ pub enum JobPayload {
         apply_preprocessor: bool,
     },
 
+    /// Execute flow step (can be subflow only).
+    FlowNode {
+        id: FlowNodeId, // flow_node(id).
+        path: String,   // flow node inner path (e.g. `outer/branchall-42`).
+    },
+
+    /// Execute flow step
     FlowScript {
         id: FlowNodeId, // flow_node(id).
         language: ScriptLang,
-        /// Override default concurrency key
         custom_concurrency_key: Option<String>,
-        /// How many jobs can run at the same time
         concurrent_limit: Option<i32>,
-        /// In seconds
         concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
         path: String,
     },
 
-    FlowNode {
-        id: FlowNodeId, // flow_node(id).
-        path: String,   // flow node inner path (e.g. `outer/branchall-42`).
-    },
-
+    /// Inline App Script
     AppScript {
         id: AppScriptId, // app_script(id).
         path: Option<String>,
@@ -367,6 +379,7 @@ pub enum JobPayload {
         cache_ttl: Option<i32>,
     },
 
+    /// Script/App/FlowAsCode Preview
     Code(RawCode),
 
     /// Script Dependency Job
@@ -411,11 +424,14 @@ pub enum JobPayload {
         apply_preprocessor: bool,
         version: i64,
     },
+
     RestartedFlow {
         completed_job_id: Uuid,
         step_id: String,
         branch_or_iteration_n: Option<usize>,
     },
+
+    /// Flow Preview
     RawFlow {
         value: FlowValue,
         path: Option<String>,
@@ -435,6 +451,8 @@ pub enum JobPayload {
         custom_concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
+        custom_debounce_key: Option<String>,
+        debounce_delay_s: Option<i32>,
         cache_ttl: Option<i32>,
         priority: Option<i16>,
         tag_override: Option<String>,
@@ -469,6 +487,8 @@ pub struct RawCode {
     pub custom_concurrency_key: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
+    pub custom_debounce_key: Option<String>,
+    pub debounce_delay_s: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub dedicated_worker: Option<bool>,
 }
@@ -540,6 +560,8 @@ pub async fn script_path_to_payload<'e>(
             concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -568,6 +590,8 @@ pub async fn script_path_to_payload<'e>(
                 custom_concurrency_key: concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
+                custom_debounce_key: debounce_key,
+                debounce_delay_s,
                 cache_ttl,
                 language,
                 dedicated_worker,
@@ -804,6 +828,11 @@ pub async fn lock_debounce_key<'c>(
     runnable_path: &str,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> error::Result<Option<Uuid>> {
+    if !*crate::worker::MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
+        tracing::warn!("Debouncing is not supported on this version of Windmill. Minimum version required for debouncing support.");
+        return Ok(None);
+    }
+
     let key = format!("{w_id}:{runnable_path}:dependency");
 
     tracing::debug!(
@@ -814,7 +843,7 @@ pub async fn lock_debounce_key<'c>(
     );
 
     sqlx::query_scalar!(
-        "SELECT job_id FROM debounce_key WHERE key = $1 FOR UPDATE",
+        "SELECT job_id FROM debounce_key WHERE key = $1 AND job_id IN (SELECT id FROM v2_job_queue) FOR UPDATE",
         &key
     )
     .fetch_optional(&mut **tx)

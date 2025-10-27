@@ -56,10 +56,10 @@
 	export let open = false
 </script>
 
-<div>
-	<p class="font-semibold text-sm">Workspace ID</p>
+<div class="flex flex-col gap-1">
+	<p class="font-medium text-xs text-emphasis">Workspace ID</p>
 	<div class="flex flex-row gap-0.5 items-center">
-		<p class="text-sm text-secondary">{$workspaceStore ?? ''}</p>
+		<p class="text-xs font-normal text-primary">{$workspaceStore ?? ''}</p>
 		{#if !isCloudHosted() || $superadmin}
 			<Button
 				on:click={() => {
@@ -75,7 +75,7 @@
 			/>
 		{/if}
 	</div>
-	<p class="italic text-xs">Slug to uniquely identify your workspace</p>
+	<p class="text-xs text-secondary font-normal">Slug to uniquely identify your workspace</p>
 </div>
 
 <Modal bind:open title="Change workspace ID">
