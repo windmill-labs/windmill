@@ -70,7 +70,6 @@
 					</div>
 					<div class="min-w-0">
 						<AIUserSettings />
-						<UserAIPromptsSettings />
 					</div>
 				</div>
 			{/if}
