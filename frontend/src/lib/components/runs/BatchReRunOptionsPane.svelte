@@ -29,6 +29,7 @@
 	import Toggle from '../Toggle.svelte'
 	import { TriangleAlert } from 'lucide-svelte'
 	import { readFieldsRecursively } from '$lib/utils'
+	import Button from '../common/button/Button.svelte'
 
 	let {
 		selectedIds,
@@ -158,7 +159,7 @@
 
 <div class="flex-1 flex flex-col">
 	<p class="ml-4 mt-4 text-xs font-semibold truncate">Batch re-run options</p>
-	<div class="border m-4 flex-1">
+	<div class="border overflow-auto rounded-md m-4 flex-1">
 		<Splitpanes>
 			<Pane size={32} class="bg-surface-secondary relative">
 				<PanelSection
@@ -169,16 +170,17 @@
 					<div class="w-full flex flex-col gap-1">
 						{#await jobGroupsPromise then jobGroup}
 							{#each jobGroup as group}
-								<button
-									class="border rounded-sm w-full text-left font-normal py-1.5 px-2 text-2xs flex justify-between {selected?.kind ===
-										group.kind && selected.script_path === group.script_path
-										? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-										: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
-									onclick={() => (selected = group)}
+								<Button
+									variant="default"
+									unifiedSize="sm"
+									selected={selected?.kind === group.kind &&
+										selected.script_path === group.script_path}
+									onClick={() => (selected = group)}
+									btnClasses="flex"
 								>
-									<span class="truncate"> {group.script_path}</span>
-									<span class="text-gray-400">({jobGroupTotalCount(group)})</span>
-								</button>
+									<span class="truncate flex-1 text-left"> {group.script_path}</span>
+									<span class="text-hint">({jobGroupTotalCount(group)})</span>
+								</Button>
 							{/each}
 						{/await}
 					</div>
