@@ -258,10 +258,11 @@
 					} else if (keys.length === 2 && keys.includes('file') && keys.includes('filename')) {
 						return 'file'
 					} else if (
+						!largeObject &&
 						keys.includes('windmill_content_type') &&
 						result['windmill_content_type'].startsWith('text/')
 					) {
-						return largeObject ? 'json' : 'plain'
+						return 'plain'
 					} else if (
 						keys.length === 3 &&
 						keys.includes('file') &&
@@ -277,17 +278,22 @@
 						}
 						return 'file'
 					} else if (
+						!largeObject &&
 						keys.includes('resume') &&
 						keys.includes('cancel') &&
 						keys.includes('approvalPage')
 					) {
-						return largeObject ? 'json' : 'approval'
-					} else if (checkIfS3(result, keys)) {
-						return largeObject ? 'json' : 's3object'
-					} else if (keys.length === 1 && (keys[0] === 'md' || keys[0] === 'markdown')) {
-						return largeObject ? 'json' : 'markdown'
-					} else if (isTableCol(result, keys)) {
-						return largeObject ? 'json' : 'table-col'
+						return 'approval'
+					} else if (!largeObject && checkIfS3(result, keys)) {
+						return 's3object'
+					} else if (
+						!largeObject &&
+						keys.length === 1 &&
+						(keys[0] === 'md' || keys[0] === 'markdown')
+					) {
+						return 'markdown'
+					} else if (!largeObject && isTableCol(result, keys)) {
+						return 'table-col'
 					} else if (keys.length < 1000 && keys.includes('wm_renderer')) {
 						const renderer = result['wm_renderer']
 						if (
