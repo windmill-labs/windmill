@@ -107,7 +107,7 @@
 <div
 	class={twMerge(
 		'hover:bg-surface-hover cursor-pointer',
-		selected ? 'bg-surface-accent-selected/30' : '',
+		selected ? 'bg-surface-accent-selected' : '',
 		'grid items-center h-full'
 	)}
 	class:grid-runs-table={!containsLabel && !selectionMode && showTag}
