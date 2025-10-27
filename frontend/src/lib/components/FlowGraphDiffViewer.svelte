@@ -3,6 +3,7 @@
 	import YAML from 'yaml'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { Alert } from './common'
+	import { computeFlowModuleDiff, splitModuleDiffForViews } from './flows/flowDiff'
 
 	interface Props {
 		beforeYaml: string
@@ -14,9 +15,6 @@
 	let beforeFlow = $state<FlowValue | undefined>(undefined)
 	let afterFlow = $state<FlowValue | undefined>(undefined)
 	let parseError = $state<string | undefined>(undefined)
-
-	$inspect('beforeYaml', beforeYaml)
-	$inspect('afterYaml', afterYaml)
 
 	// Parse YAML into FlowValue objects
 	$effect(() => {
@@ -30,6 +28,12 @@
 			afterFlow = undefined
 		}
 	})
+
+	// Compute module diff and split for before/after views
+	let moduleDiff = $derived(
+		beforeFlow && afterFlow ? computeFlowModuleDiff(beforeFlow, afterFlow) : {}
+	)
+	let { beforeActions, afterActions } = $derived(splitModuleDiffForViews(moduleDiff))
 </script>
 
 {#if parseError}
@@ -37,9 +41,14 @@
 		{parseError}
 	</Alert>
 {:else if beforeFlow && afterFlow}
-	<div class="grid grid-cols-2 h-full">
+	<div class="grid grid-cols-2 gap-4 h-full">
 		<!-- Before (Left) -->
 		<div class="flex flex-col h-full border-r border-gray-200 dark:border-gray-700">
+			<div
+				class="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700"
+			>
+				<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Before</h3>
+			</div>
 			<div class="flex-1 overflow-hidden">
 				<FlowGraphV2
 					modules={beforeFlow.modules}
@@ -47,6 +56,8 @@
 					preprocessorModule={beforeFlow.preprocessor_module}
 					earlyStop={beforeFlow.skip_expr !== undefined}
 					cache={beforeFlow.cache_ttl !== undefined}
+					moduleActions={beforeActions}
+					notSelectable={true}
 					insertable={false}
 					editMode={false}
 					download={false}
@@ -59,6 +70,11 @@
 
 		<!-- After (Right) -->
 		<div class="flex flex-col h-full">
+			<div
+				class="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700"
+			>
+				<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">After</h3>
+			</div>
 			<div class="flex-1 overflow-hidden">
 				<FlowGraphV2
 					modules={afterFlow.modules}
@@ -66,6 +82,7 @@
 					preprocessorModule={afterFlow.preprocessor_module}
 					earlyStop={afterFlow.skip_expr !== undefined}
 					cache={afterFlow.cache_ttl !== undefined}
+					moduleActions={afterActions}
 					notSelectable={true}
 					insertable={false}
 					editMode={false}

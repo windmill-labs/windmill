@@ -79,6 +79,7 @@
 		notSelectable?: boolean
 		flowModuleStates?: Record<string, GraphModuleState> | undefined
 		testModuleStates?: ModulesTestStates
+		moduleActions?: Record<string, 'added' | 'removed' | 'modified'>
 		selectedId?: Writable<string | undefined>
 		path?: string | undefined
 		newFlow?: boolean
@@ -153,6 +154,7 @@
 		notSelectable = false,
 		flowModuleStates = undefined,
 		testModuleStates = undefined,
+		moduleActions = undefined,
 		selectedId = writable<string | undefined>(undefined),
 		path = undefined,
 		newFlow = false,
@@ -369,8 +371,6 @@
 
 	let height = $state(0)
 
-	$inspect('HERE modules', modules)
-
 	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
 		if (!modules || modules?.length !== 2) {
 			return false
@@ -475,6 +475,7 @@
 				insertable,
 				flowModuleStates: untrack(() => flowModuleStates),
 				testModuleStates: untrack(() => testModuleStates),
+				moduleActions: untrack(() => moduleActions),
 				selectedId: untrack(() => $selectedId),
 				path,
 				newFlow,

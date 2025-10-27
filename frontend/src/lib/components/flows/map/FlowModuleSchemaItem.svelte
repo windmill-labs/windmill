@@ -48,6 +48,7 @@
 	interface Props {
 		selected?: boolean
 		deletable?: boolean
+		moduleAction?: 'added' | 'removed' | 'modified'
 		retry?: boolean
 		cache?: boolean
 		earlyStop?: boolean
@@ -88,6 +89,7 @@
 	let {
 		selected = false,
 		deletable = false,
+		moduleAction = undefined,
 		retry = false,
 		cache = false,
 		earlyStop = false,
@@ -265,7 +267,7 @@
 	<div
 		class={classNames(
 			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
-			deletable ? aiModuleActionToBgColor(action) : '',
+			deletable || moduleAction ? aiModuleActionToBgColor(moduleAction ?? action) : '',
 			colorClasses.bg
 		)}
 		style="width: 275px; height: 34px;"
@@ -274,7 +276,7 @@
 		onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
 	>
 		{#if deletable}
-			<ModuleAcceptReject {action} {id} />
+			<ModuleAcceptReject action={moduleAction ?? action} {id} />
 		{/if}
 		<div
 			class={classNames('absolute z-0 rounded-md outline-offset-0', colorClasses.outline)}

@@ -21,6 +21,7 @@
 		moduleId: string
 		mod: FlowModule
 		insertable: boolean
+		moduleAction?: 'added' | 'removed' | 'modified'
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
 		moving?: string | undefined
@@ -52,6 +53,7 @@
 		moduleId,
 		mod = $bindable(),
 		insertable,
+		moduleAction = undefined,
 		annotation = undefined,
 		nodeState,
 		moving = undefined,
@@ -146,6 +148,7 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
 					}  ${mod.value.parallel ? '(parallel)' : ''} ${
@@ -179,6 +182,7 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
 					on:changeId
 					on:delete
 					on:move
@@ -197,6 +201,7 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
 					on:changeId
 					on:delete
 					on:move
@@ -215,6 +220,7 @@
 				<FlowModuleSchemaItem
 					{retries}
 					{editMode}
+					{moduleAction}
 					on:changeId
 					on:pointerdown={() => onSelect(mod.id)}
 					on:delete

@@ -32,7 +32,6 @@
 				: undefined
 	})
 
-	$inspect('HERE', contentType)
 	let diffViewer: Drawer | undefined = $state(undefined)
 
 	interface Props {

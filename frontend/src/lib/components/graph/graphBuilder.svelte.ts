@@ -146,6 +146,7 @@ export type ModuleN = {
 		flowJob: Job | undefined
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
+		moduleAction?: 'added' | 'removed' | 'modified'
 	}
 }
 
@@ -364,6 +365,7 @@ export function graphBuilder(
 		insertable: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		testModuleStates: ModulesTestStates | undefined
+		moduleActions?: Record<string, 'added' | 'removed' | 'modified'>
 		selectedId: string | undefined
 		path: string | undefined
 		newFlow: boolean
@@ -435,7 +437,8 @@ export function graphBuilder(
 					editMode: extra.editMode,
 					isOwner: extra.isOwner,
 					flowJob: extra.flowJob,
-					assets: getFlowModuleAssets(module, extra.additionalAssetsMap)
+					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
+					moduleAction: extra.moduleActions?.[module.id]
 				},
 				type: 'module'
 			})
