@@ -42,9 +42,11 @@
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
+
+	const IMG_KINDS = ['png', 'svg', 'jpeg', 'gif']
+	const NO_SIZE_LIMIT_KINDS = [...IMG_KINDS, 'pdf', 'file', 'filename', 'html']
 
 	const dispatch = createEventDispatcher()
 
@@ -199,14 +201,6 @@
 				is_render_all =
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
-				// Check if the result is an image
-				if (['png', 'svg', 'jpeg', 'html', 'gif'].includes(keys[0]) && keys.length == 1) {
-					// Check if the image is too large (10mb)
-					largeObject = roughSizeOfObject(result) > IMG_MAX_SIZE
-
-					return keys[0] as 'png' | 'svg' | 'jpeg' | 'html' | 'gif'
-				}
-
 				let size = roughSizeOfObject(result)
 				console.debug('size of object', size)
 				// Otherwise, check if the result is too large (10kb) for json
@@ -253,26 +247,20 @@
 					return keys[0] as 'table-row' | 'table-row-object' | 'table-col'
 				}
 
-				if (largeObject) {
-					return 'json'
-				}
-
 				if (keys.length != 0) {
-					if (keys.length == 1 && keys[0] === 'html') {
-						return 'html'
-					} else if (keys.length == 1 && keys[0] === 'map') {
-						return 'map'
-					} else if (keys.length == 1 && keys[0] === 'pdf') {
-						return 'pdf'
-					} else if (keys.length == 1 && keys[0] === 'file') {
-						return 'file'
+					if (
+						keys.length == 1 &&
+						[...IMG_KINDS, 'html', 'map', 'pdf', 'file', 'error'].includes(keys[0])
+					) {
+						return !largeObject || NO_SIZE_LIMIT_KINDS.includes(keys[0])
+							? (keys[0] as ResultKind)
+							: 'json'
 					} else if (
+						!largeObject &&
 						keys.includes('windmill_content_type') &&
 						result['windmill_content_type'].startsWith('text/')
 					) {
 						return 'plain'
-					} else if (keys.length == 1 && keys[0] === 'error') {
-						return 'error'
 					} else if (keys.length === 2 && keys.includes('file') && keys.includes('filename')) {
 						return 'file'
 					} else if (
@@ -290,39 +278,44 @@
 						}
 						return 'file'
 					} else if (
+						!largeObject &&
 						keys.includes('resume') &&
 						keys.includes('cancel') &&
 						keys.includes('approvalPage')
 					) {
 						return 'approval'
-					} else if (checkIfS3(result, keys)) {
+					} else if (!largeObject && checkIfS3(result, keys)) {
 						return 's3object'
-					} else if (keys.length === 1 && (keys.includes('md') || keys.includes('markdown'))) {
+					} else if (
+						!largeObject &&
+						keys.length === 1 &&
+						(keys[0] === 'md' || keys[0] === 'markdown')
+					) {
 						return 'markdown'
-					} else if (isTableCol(result, keys)) {
+					} else if (!largeObject && isTableCol(result, keys)) {
 						return 'table-col'
 					} else if (keys.length < 1000 && keys.includes('wm_renderer')) {
 						const renderer = result['wm_renderer']
-						if (typeof renderer === 'string') {
-							if (
-								[
-									'json',
-									'html',
-									'png',
-									'file',
-									'jpeg',
-									'gif',
-									'svg',
-									'filename',
-									's3object',
-									'plain',
-									'markdown',
-									'map',
-									'pdf'
-								].includes(renderer)
-							) {
-								return renderer as ResultKind
-							}
+						if (
+							typeof renderer === 'string' &&
+							(!largeObject || NO_SIZE_LIMIT_KINDS.includes(renderer)) &&
+							[
+								'json',
+								'html',
+								'png',
+								'file',
+								'jpeg',
+								'gif',
+								'svg',
+								'filename',
+								's3object',
+								'plain',
+								'markdown',
+								'map',
+								'pdf'
+							].includes(renderer)
+						) {
+							return renderer as ResultKind
 						}
 					}
 				}
