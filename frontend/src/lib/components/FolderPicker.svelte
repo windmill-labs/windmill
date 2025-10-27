@@ -22,7 +22,7 @@
 		folderName = $bindable(''),
 		initialPath = $bindable(undefined),
 		disabled = $bindable(undefined),
-		disableEditing = $bindable(undefined)
+		disableEditing = $bindable(undefined),
 	}: Props = $props()
 
 	async function loadFolders(): Promise<void> {
@@ -59,6 +59,7 @@
 		})
 		folderCreated = newFolderName
 		$userStore?.folders?.push(newFolderName)
+		folderName = newFolderName
 		loadFolders()
 	}
 
