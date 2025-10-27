@@ -11,7 +11,6 @@
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { parseQueryParams } from '$lib/utils'
 	import { page } from '$app/state'
-	import { isCloudHosted } from '$lib/cloud'
 
 	let error = page.url.searchParams.get('error')
 	let clientName = page.params.client_name ?? ''
@@ -42,20 +41,6 @@
 				await logoutWithRedirect(rd ?? undefined)
 				sendUserToast(e.body ?? e.message, true)
 				return
-			}
-
-			// Check if this is a first-time user (individual user onboarding)
-			// Only show onboarding for cloud-hosted instances
-			if (isCloudHosted()) {
-				try {
-					const globalUserInfo = await UserService.globalWhoami()
-					if (globalUserInfo.first_time_user) {
-						goto('/user/onboarding')
-						return
-					}
-				} catch (err) {
-					console.error('Could not fetch global user info:', err)
-				}
 			}
 
 			if (rd?.startsWith('http')) {
