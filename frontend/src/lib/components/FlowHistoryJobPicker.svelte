@@ -7,10 +7,10 @@
 	import { JobService } from '$lib/gen'
 
 	interface Props {
-		path: string;
-		selected?: string | undefined;
-		selectInitial?: boolean;
-		loading?: boolean;
+		path: string
+		selected?: string | undefined
+		selectInitial?: boolean
+		loading?: boolean
 	}
 
 	let {
@@ -18,7 +18,7 @@
 		selected = undefined,
 		selectInitial = false,
 		loading = $bindable(false)
-	}: Props = $props();
+	}: Props = $props()
 	const dispatch = createEventDispatcher()
 
 	async function loadInitial() {
@@ -27,7 +27,6 @@
 			workspace: $workspaceStore!,
 			scriptPathExact: path,
 			jobKinds: ['flow', 'flowpreview'].join(','),
-			page: 1,
 			perPage: 1
 		})
 		if (jobs.length > 0) {
@@ -42,31 +41,27 @@
 
 	$effect(() => {
 		$workspaceStore && untrack(() => loadInitial())
-	});
+	})
 </script>
 
 <PopoverV2 closeButton={false}>
 	{#snippet trigger()}
-	
-			<HistoryIcon size={14} />
-		
+		<HistoryIcon size={14} />
 	{/snippet}
 	{#snippet content()}
-	
-			<div class="p-2 h-[400px] overflow-hidden w-80 border shadow-sm">
-				<HistoricInputs
-					on:select={(e) => {
-						if (e.detail) {
-							dispatch('select', { jobId: e.detail?.jobId, initial: false })
-						} else {
-							dispatch('unselect')
-						}
-					}}
-					{selected}
-					runnableId={path}
-					runnableType={'FlowPath'}
-				/>
-			</div>
-		
+		<div class="p-2 h-[400px] overflow-hidden w-80 border shadow-sm">
+			<HistoricInputs
+				on:select={(e) => {
+					if (e.detail) {
+						dispatch('select', { jobId: e.detail?.jobId, initial: false })
+					} else {
+						dispatch('unselect')
+					}
+				}}
+				{selected}
+				runnableId={path}
+				runnableType={'FlowPath'}
+			/>
+		</div>
 	{/snippet}
 </PopoverV2>
