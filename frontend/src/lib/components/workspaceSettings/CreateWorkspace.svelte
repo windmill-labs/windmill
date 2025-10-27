@@ -86,7 +86,6 @@
 						id: prefixed_id,
 						name,
 						color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-						username: automateUsernameCreation ? undefined : username,
 					}
 				})
 

@@ -18427,8 +18427,6 @@ components:
           type: string
         name:
           type: string
-        username:
-          type: string
         color:
           type: string
       required:

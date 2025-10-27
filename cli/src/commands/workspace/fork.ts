@@ -109,7 +109,6 @@ async function createWorkspaceFork(
       requestBody: {
         id: trueWorkspaceId,
         name: opts.createWorkspaceName ?? trueWorkspaceId,
-        username: undefined, // Let the server handle username
         color: undefined,
       },
     });
