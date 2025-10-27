@@ -62,7 +62,7 @@
 {#if currentResizeTransitionWrapper}
 	{@render children()}
 {:else}
-	<div bind:this={outerContainer} {...outerDivProps} class={className} {style}>
+	<div bind:this={outerContainer} {...outerDivProps} class={twMerge('relative', className)} {style}>
 		<div class={twMerge('absolute', innerClass)} bind:this={innerContainer}>
 			{@render children()}
 		</div>

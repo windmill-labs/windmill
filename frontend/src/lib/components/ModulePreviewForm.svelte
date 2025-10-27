@@ -118,7 +118,7 @@
 					<ResizeTransitionWrapper
 						vertical
 						class={twMerge(
-							'flex gap-2 relative',
+							'flex gap-2',
 							animateArg === argName && 'animate-pulse ring-2 ring-offset-2 ring-blue-500 rounded'
 						)}
 						innerClass="w-full"

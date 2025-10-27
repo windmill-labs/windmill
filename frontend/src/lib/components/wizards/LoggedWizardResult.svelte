@@ -91,7 +91,7 @@
 							/>
 						{/if}
 					</span>
-					<ResizeTransitionWrapper vertical class="relative text-xs text-secondary">
+					<ResizeTransitionWrapper vertical class="text-xs text-secondary">
 						{#if descriptionOpened}
 							<div
 								class="whitespace-pre-wrap cursor-default mt-1.5"
