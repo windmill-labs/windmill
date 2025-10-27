@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { type ComponentProps } from 'svelte'
 	import { Pane } from 'svelte-splitpanes'
-	import { cubicInOut } from 'svelte/easing'
+	import { cubicOut } from 'svelte/easing'
 
 	let {
 		duration = 300,
-		easing = cubicInOut,
+		easing = cubicOut,
 		size,
 		opened,
 		children,
@@ -21,7 +21,7 @@
 	let userChangedSize: number | undefined = $state(undefined)
 
 	let t = $state(opened ? 1 : 0)
-	let computedSize = $derived(easing(t) * (userChangedSize ?? size))
+	let computedSize = $derived((opened ? easing(t) : 1 - easing(1 - t)) * (userChangedSize ?? size))
 
 	let lastTValue = 0
 	let loopIsRunning = false
