@@ -1157,7 +1157,7 @@
 
 		<div class="grow min-h-0">
 			<Splitpanes>
-				<Pane size={60} minSize={40}>
+				<Pane minSize={40}>
 					<div class="flex flex-col h-full">
 						<!-- Runs table top bar -->
 						<div
@@ -1296,28 +1296,28 @@
 						</div>
 					</div>
 				</Pane>
-				<Pane size={40} minSize={15} class="flex flex-col">
-					{#if selectionMode === 're-run'}
-						<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
-					{:else if selectedIds.length === 1}
-						{#if selectedIds[0] === '-'}
-							<div class="p-4">There is no information available for this job</div>
-						{:else}
-							<JobRunsPreview
-								on:filterByConcurrencyKey={filterByConcurrencyKey}
-								on:filterByWorker={filterByWorker}
-								id={selectedIds[0]}
-								workspace={selectedWorkspace}
-							/>
+				{#if selectedIds.length > 0}
+					<Pane size={40} minSize={15} class="flex flex-col">
+						{#if selectionMode === 're-run'}
+							<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
+						{:else if selectedIds.length === 1}
+							{#if selectedIds[0] === '-'}
+								<div class="p-4">There is no information available for this job</div>
+							{:else}
+								<JobRunsPreview
+									on:filterByConcurrencyKey={filterByConcurrencyKey}
+									on:filterByWorker={filterByWorker}
+									id={selectedIds[0]}
+									workspace={selectedWorkspace}
+								/>
+							{/if}
+						{:else if selectedIds.length > 1}
+							<div class="text-xs m-4"
+								>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
+							>
 						{/if}
-					{:else if selectedIds.length > 1}
-						<div class="text-xs m-4"
-							>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
-						>
-					{:else}
-						<div class="text-xs m-4">No job selected</div>
-					{/if}
-				</Pane>
+					</Pane>
+				{/if}
 			</Splitpanes>
 		</div>
 	</div>
