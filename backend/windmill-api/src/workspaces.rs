@@ -342,7 +342,6 @@ struct CreateWorkspace {
 struct CreateWorkspaceFork {
     id: String,
     name: String,
-    username: Option<String>,
     color: Option<String>,
 }
 
@@ -2929,17 +2928,6 @@ async fn create_workspace_fork(
     }
 
     let forked_id = nw.id;
-
-    // Determine username early so we can use it in workspace creation
-    let automate_username_creation = sqlx::query_scalar!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        AUTOMATE_USERNAME_CREATION_SETTING,
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .map(|v| v.as_bool())
-    .flatten()
-    .unwrap_or(false);
 
     sqlx::query!(
         "INSERT INTO workspace
