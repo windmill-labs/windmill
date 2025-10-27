@@ -200,7 +200,17 @@
 				perPage,
 				allowWildcards: allowWildcards ? true : undefined
 			})
-			return (await sendAlternativesToastOnTimeout(promise, [], { id: 'list-jobs' })).value ?? []
+			return (
+				(
+					await sendAlternativesToastOnTimeout(
+						promise,
+						perPage == 25
+							? []
+							: [{ label: 'Reduce to 25 items per page', callback: () => (perPage = 25) }],
+						{ id: 'list-jobs' }
+					)
+				).value ?? []
+			)
 		} catch (e) {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
 			console.error(e)
