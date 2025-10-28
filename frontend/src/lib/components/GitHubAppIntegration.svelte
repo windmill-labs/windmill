@@ -226,6 +226,7 @@
 													accountId={githubState.selectedGHAppAccountId}
 													initialRepositories={selectedInstallation.repositories}
 													totalCount={selectedInstallation.total_count}
+													perPage={selectedInstallation.per_page}
 												/>
 											</div>
 										{/if}

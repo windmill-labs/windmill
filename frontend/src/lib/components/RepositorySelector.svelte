@@ -14,6 +14,7 @@
 		accountId: string
 		initialRepositories: Repository[]
 		totalCount: number
+		perPage: number
 		containerClass?: string
 		minWidth?: string
 		onError?: (error: Error) => void
@@ -25,18 +26,28 @@
 		accountId,
 		initialRepositories,
 		totalCount,
+		perPage,
 		containerClass = 'flex-1',
 		minWidth = '160px',
 		onError
 	}: Props = $props()
 
 	let isFetching = $state(false)
-	let searchResults = $state<Repository[]>(initialRepositories)
 	let selectFilterText = $state('')
 	let lastSearchQuery = $state('')
 
-	// Only enable search mode if total count exceeds threshold
-	const searchMode = $derived(totalCount > 5)
+	// Use a derived value that always reflects current repos
+	let availableRepos = $derived(() => {
+		// If we have search results from backend, use those
+		// Otherwise use initial repositories
+		return searchResults.length > 0 ? searchResults : initialRepositories
+	})
+
+	// Track search results from backend
+	let searchResults = $state<Repository[]>([])
+
+	// Only enable search mode if total count exceeds per_page limit
+	const searchMode = $derived(totalCount > perPage)
 
 	// Debounced search function
 	const debouncedSearch = debounce(async (query: string) => {
@@ -53,14 +64,14 @@
 				}
 			} else if (selectFilterText.length === 0) {
 				lastSearchQuery = ''
-				searchResults = initialRepositories
+				searchResults = []
 			}
 		}
 	})
 
 	async function searchRepositories(query: string) {
 		if (!query) {
-			searchResults = initialRepositories
+			searchResults = []
 			lastSearchQuery = ''
 			return
 		}
@@ -86,7 +97,7 @@
 			isFetching = false
 			onError?.(error)
 			console.error('Error searching repositories:', error)
-			searchResults = initialRepositories
+			searchResults = []
 			lastSearchQuery = ''
 			return []
 		}
@@ -98,7 +109,7 @@
 		<div class="flex flex-col gap-1">
 			<Select
 				containerStyle={'min-width: ' + minWidth}
-				items={searchResults.map((repo) => ({
+				items={availableRepos().map((repo) => ({
 					label: repo.name,
 					value: repo.url
 				}))}
@@ -117,7 +128,7 @@
 	{:else}
 		<select bind:value={selectedRepository} {disabled} class="w-full">
 			<option value="" disabled selected>Select repository</option>
-			{#each searchResults as repository (repository.url)}
+			{#each initialRepositories as repository (repository.url)}
 				<option value={repository.url}>{repository.name}</option>
 			{/each}
 		</select>
