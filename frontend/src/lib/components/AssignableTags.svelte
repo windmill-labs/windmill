@@ -10,15 +10,9 @@
 		placement?: 'bottom-end' | 'top-end'
 		variant?: 'default' | 'accent'
 		disabled?: boolean
-		showWorkspaceRestriction?: boolean
 	}
 
-	let {
-		placement = 'bottom-end',
-		variant = 'default',
-		disabled = false,
-		showWorkspaceRestriction = false
-	}: Props = $props()
+	let { placement = 'bottom-end', variant = 'default', disabled = false }: Props = $props()
 </script>
 
 <Popover
@@ -40,6 +34,6 @@
 		</Button>
 	{/snippet}
 	{#snippet content()}
-		<AssignableTagsInner {showWorkspaceRestriction} on:refresh />
+		<AssignableTagsInner on:refresh />
 	{/snippet}
 </Popover>
