@@ -21,6 +21,7 @@ import {
 } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
+import openFlowSchema from './openFlow.json'
 
 export type AIModuleAction = 'added' | 'modified' | 'removed' | 'shadowed' | undefined
 
@@ -344,6 +345,20 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	}
 ]
 
+/**
+ * Formats the OpenFlow schema for inclusion in the AI system prompt.
+ * Extracts only the component schemas and formats them as JSON for the AI to reference.
+ */
+function formatOpenFlowSchemaForPrompt(): string {
+	const schemas = openFlowSchema.components?.schemas
+	if (!schemas) {
+		return 'Schema not available'
+	}
+
+	// Create a simplified schema reference that's easier for the AI to parse
+	return JSON.stringify(schemas, null, 2)
+}
+
 export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
 	let content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You're provided with a bunch of tools to help you edit the flow.
 Follow the user instructions carefully.
@@ -472,6 +487,21 @@ To reference a specific resource in input_transforms, use: \`"$res:path/to/resou
 - Module IDs must be unique and valid identifiers (alphanumeric, underscore, hyphen)
 - Steps execute in the order they appear in the modules array
 - After applying, all modules are marked for review and displayed in a diff view
+
+### OpenFlow Schema Reference
+Below is the complete OpenAPI schema for OpenFlow, which defines all available fields and their types. Use this as the authoritative reference when generating flow YAML:
+
+\`\`\`json
+${formatOpenFlowSchemaForPrompt()}
+\`\`\`
+
+When creating or modifying flows, ensure all fields match the types and structures defined in this schema. Key schemas to reference:
+- **OpenFlow**: The top-level flow structure
+- **FlowValue**: Contains modules array and optional preprocessor/failure modules
+- **FlowModule**: Individual flow steps with id, summary, and value
+- **FlowModuleValue**: Different module types (RawScript, PathScript, ForloopFlow, BranchOne, etc.)
+- **InputTransform**: Static values or JavaScript expressions for step inputs
+- **Retry, StopAfterIf, Suspend**: Configuration options for module behavior
 
 ### Contexts
 
