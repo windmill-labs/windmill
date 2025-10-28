@@ -179,13 +179,13 @@
 						({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)
 					</span>
 					{#if edit && variable.is_secret}
-						<div class="ml-2"></div>
+						<div class="ml-3"></div>
 						{#if $userStore?.operator}
 							<div class="p-2 border">Operators cannot load secret value</div>
 						{:else}
-							<Button size="xs" variant="subtle" on:click={() => loadVariable(initialPath)}
-								>Load secret value<Tooltip>Will generate an audit log</Tooltip></Button
-							>
+							<Button size="xs" variant="default" on:click={() => loadVariable(initialPath)}>
+								Load secret value<Tooltip>Will generate an audit log</Tooltip>
+							</Button>
 						{/if}
 					{/if}
 				</label>

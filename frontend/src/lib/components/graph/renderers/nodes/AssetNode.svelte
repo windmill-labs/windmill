@@ -305,9 +305,7 @@
 					href={undefined}
 					class={twMerge(
 						'text-xs',
-						data.asset.kind === 'resource'
-							? 'text-blue-400 cursor-pointer'
-							: 'dark:text-primary text-primary-inverse'
+						data.asset.kind === 'resource' ? 'text-accent cursor-pointer' : 'text-hint'
 					)}
 					onclick={() => {
 						if (data.asset.kind === 'resource')
@@ -316,8 +314,8 @@
 				>
 					{data.asset.path}
 				</a><br />
-				<span class="dark:text-primary text-primary-inverse text-xs"
-					>{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
+				<span class="text-hint text-xs">
+					{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
 				>
 			</svelte:fragment>
 		</Tooltip>
