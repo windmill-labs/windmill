@@ -1,25 +1,9 @@
 <script module lang="ts">
 	import type { AIModuleAction } from './core'
 
-	/**
-	 * Check if debug diff mode is enabled via localStorage
-	 * Usage: localStorage.setItem('windmill_debug_diff_mode', 'true')
-	 */
-	function isDebugDiffModeEnabled(): boolean {
-		if (typeof window === 'undefined') return false
-		return localStorage.getItem('windmill_debug_diff_mode') === 'true'
-	}
-
 	export const getAiModuleAction = (id: string | undefined): AIModuleAction | undefined => {
 		if (!id) return undefined
-		const realAction = aiChatManager.flowAiChatHelpers?.getModuleAction(id)
-
-		// In debug mode, show all modules as modified if they don't have a real action
-		if (isDebugDiffModeEnabled() && !realAction) {
-			return 'modified'
-		}
-
-		return realAction
+		return aiChatManager.flowAiChatHelpers?.getModuleAction(id)
 	}
 </script>
 
