@@ -522,18 +522,21 @@
 				}}
 			>
 				<Tab
+					small
 					value="users"
 					aiId="workspace-settings-users"
 					aiDescription="Users workspace settings"
 					label="Users"
 				/>
 				<Tab
+					small
 					value="git_sync"
 					aiId="workspace-settings-git-sync"
 					aiDescription="Git sync workspace settings"
 					label="Git Sync"
 				/>
 				<Tab
+					small
 					value="deploy_to"
 					aiId="workspace-settings-deploy-to"
 					aiDescription="Deployment UI workspace settings"
@@ -542,6 +545,7 @@
 
 				{#if WORKSPACE_SHOW_SLACK_CMD}
 					<Tab
+						small
 						value="slack"
 						aiId="workspace-settings-slack"
 						aiDescription="Slack / Teams workspace settings"
@@ -550,6 +554,7 @@
 				{/if}
 				{#if isCloudHosted()}
 					<Tab
+						small
 						value="premium"
 						aiId="workspace-settings-premium"
 						aiDescription="Premium plans workspace settings"
@@ -558,6 +563,7 @@
 				{/if}
 				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
 					<Tab
+						small
 						value="webhook"
 						aiId="workspace-settings-webhook"
 						aiDescription="Webhook workspace settings"
@@ -565,24 +571,28 @@
 					/>
 				{/if}
 				<Tab
+					small
 					value="error_handler"
 					aiId="workspace-settings-error-handler"
 					aiDescription="Error handler workspace settings"
 					label="Error Handler"
 				/>
 				<Tab
+					small
 					value="ai"
 					aiId="workspace-settings-ai"
 					aiDescription="Windmill AI workspace settings"
 					label="Windmill AI"
 				/>
 				<Tab
+					small
 					value="windmill_lfs"
 					aiId="workspace-settings-windmill-lfs"
 					aiDescription="Object Storage (S3) workspace settings"
 					label="Object Storage (S3)"
 				/>
 				<Tab
+					small
 					value="default_app"
 					aiId="workspace-settings-default-app"
 					aiDescription="Default app workspace settings"
@@ -590,6 +600,7 @@
 				/>
 
 				<Tab
+					small
 					value="encryption"
 					aiId="workspace-settings-encryption"
 					aiDescription="Encryption workspace settings"
@@ -597,6 +608,7 @@
 				/>
 
 				<Tab
+					small
 					value="general"
 					aiId="workspace-settings-general"
 					aiDescription="General workspace settings"
