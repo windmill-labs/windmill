@@ -209,7 +209,7 @@
 					</a>
 				</div>
 			{/if}
-			{#if !strictWorkspaceSelect}
+			{#if !strictWorkspaceSelect && !isCloudHosted()}
 				<div class="py-1" role="none">
 					<a
 						href="{base}/user/fork_workspace"

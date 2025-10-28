@@ -22,7 +22,7 @@ export function getNodeColorClasses(state: FlowNodeState, selected: boolean): Fl
 
 	let defaultStyle = {
 		selected: {
-			bg: 'bg-surface-accent-selected/30',
+			bg: 'bg-surface-accent-selected',
 			outline: 'outline-border-selected' + outlined,
 			text: 'text-accent',
 			badge: 'bg-blue-100 outline-border-selected text-blue-800'

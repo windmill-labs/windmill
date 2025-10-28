@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.566.1
+  version: 1.567.2
   title: Windmill API
 
   contact:
@@ -702,12 +702,14 @@ paths:
               schema:
                 type: string
 
-  /workspaces/create_fork:
+  /w/{workspace}/workspaces/create_fork:
     post:
       summary: create forked workspace
       operationId: createWorkspaceFork
       tags:
         - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
         description: new forked workspace
         required: true
@@ -18432,11 +18434,7 @@ components:
           type: string
         name:
           type: string
-        username:
-          type: string
         color:
-          type: string
-        parent_workspace_id:
           type: string
       required:
         - id

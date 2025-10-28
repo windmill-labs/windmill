@@ -141,6 +141,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/leave", post(leave_workspace))
         .route("/get_workspace_name", get(get_workspace_name))
+        .route("/create_fork", post(create_workspace_fork))
         .route("/change_workspace_name", post(change_workspace_name))
         .route("/change_workspace_color", post(change_workspace_color))
         .route(
@@ -175,7 +176,7 @@ pub fn global_service() -> Router {
         .route("/list", get(list_workspaces))
         .route("/users", get(user_workspaces))
         .route("/create", post(create_workspace))
-        .route("/create_fork", post(create_workspace_fork))
+        .route("/create_fork", post(deprecated_create_workspace_fork))
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
@@ -341,9 +342,7 @@ struct CreateWorkspace {
 struct CreateWorkspaceFork {
     id: String,
     name: String,
-    username: Option<String>,
     color: Option<String>,
-    parent_workspace_id: String,
 }
 
 #[derive(Deserialize)]
@@ -2898,9 +2897,14 @@ async fn clone_workspace_dependencies(
     Ok(())
 }
 
+async fn deprecated_create_workspace_fork(_authed: ApiAuthed) -> Result<String> {
+    return Err(Error::BadRequest("This API endpoint has been relocated. Your Windmill CLI version is outdated and needs to be updated.".to_string()));
+}
+
 async fn create_workspace_fork(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Path(parent_workspace_id): Path<String>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
     // if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
@@ -2925,29 +2929,6 @@ async fn create_workspace_fork(
 
     let forked_id = nw.id;
 
-    // Determine username early so we can use it in workspace creation
-    let automate_username_creation = sqlx::query_scalar!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        AUTOMATE_USERNAME_CREATION_SETTING,
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .map(|v| v.as_bool())
-    .flatten()
-    .unwrap_or(false);
-
-    let username = if automate_username_creation {
-        if nw.username.is_some() && nw.username.unwrap().len() > 0 {
-            return Err(Error::BadRequest(
-                "username is not allowed when username creation is automated".to_string(),
-            ));
-        }
-        get_instance_username_or_create_pending(&mut tx, &authed.email).await?
-    } else {
-        nw.username
-            .ok_or(Error::BadRequest("username is required".to_string()))?
-    };
-
     sqlx::query!(
         "INSERT INTO workspace
             (id, name, owner, parent_workspace_id)
@@ -2955,7 +2936,7 @@ async fn create_workspace_fork(
         forked_id,
         nw.name,
         authed.email,
-        nw.parent_workspace_id,
+        parent_workspace_id,
     )
     .execute(&mut *tx)
     .await?;
@@ -2972,18 +2953,19 @@ async fn create_workspace_fork(
 
     sqlx::query!(
         "INSERT INTO usr
-            (workspace_id, email, username, is_admin)
-            VALUES ($1, $2, $3, $4)",
+           (workspace_id, email, username, is_admin)
+           SELECT $1, email, username, is_admin FROM usr
+         WHERE workspace_id = $3 AND email = $2
+        ",
         forked_id,
         authed.email,
-        username,
-        authed.is_admin,
+        parent_workspace_id,
     )
     .execute(&mut *tx)
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    clone_workspace_data(&mut tx, &nw.parent_workspace_id, &forked_id).await?;
+    clone_workspace_data(&mut tx, &parent_workspace_id, &forked_id).await?;
 
     sqlx::query!(
         "INSERT INTO workspace_invite (workspace_id, email, is_admin, operator)
@@ -2991,7 +2973,7 @@ async fn create_workspace_fork(
            FROM usr
          WHERE workspace_id = $2",
         &forked_id,
-        &nw.parent_workspace_id
+        &parent_workspace_id
     )
     .execute(&mut *tx)
     .await?;
