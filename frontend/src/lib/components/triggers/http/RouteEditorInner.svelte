@@ -100,6 +100,7 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let enabled: boolean = $state(false)
 	// Component references
 	let s3FilePicker = $state<S3FilePicker | undefined>(undefined)
 	let s3Editor = $state<SimpleEditor | undefined>(undefined)
@@ -235,6 +236,7 @@
 			s3FileUploadRawMode = defaultValues?.s3FileUploadRawMode ?? false
 			path = defaultValues?.path ?? ''
 			initialPath = ''
+			enabled = defaultValues?.enabled ?? false
 			dirtyPath = false
 			is_static_website = defaultValues?.is_static_website ?? false
 			workspaced_route = defaultValues?.workspaced_route ?? false
@@ -269,6 +271,7 @@
 		raw_string = cfg?.raw_string ?? false
 		summary = cfg?.summary ?? ''
 		routeDescription = cfg?.description ?? ''
+		enabled = cfg?.enabled ?? false
 		authentication_resource_path = cfg?.authentication_resource_path ?? ''
 		if (cfg?.authentication_method === 'custom_script') {
 			authentication_method = 'signature'
@@ -344,6 +347,7 @@
 			http_method,
 			request_type,
 			workspaced_route,
+			enabled,
 			wrap_body,
 			raw_string,
 			authentication_resource_path,
@@ -359,6 +363,18 @@
 		}
 
 		return nCfg
+	}
+
+	async function handleToggleEnabled(newEnabled: boolean) {
+		enabled = newEnabled
+		if (!trigger?.draftConfig) {
+			await HttpTriggerService.setHttpTriggerEnabled({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { enabled: newEnabled }
+			})
+			sendUserToast(`${newEnabled ? 'enabled' : 'disabled'} HTTP trigger ${initialPath}`)
+		}
 	}
 
 	// Update config for captures
@@ -829,9 +845,10 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
 			{saveDisabled}
-			enabled={undefined}
+			{enabled}
 			{allowDraft}
 			{edit}
+			onToggleEnabled={handleToggleEnabled}
 			isLoading={deploymentLoading}
 			onUpdate={triggerScript}
 			{onReset}

@@ -48,6 +48,7 @@ pub struct BaseTrigger {
     pub path: String,
     pub script_path: String,
     pub is_flow: bool,
+    pub enabled: Option<bool>,
     pub edited_by: String,
     pub email: String,
     pub edited_at: DateTime<Utc>,
@@ -56,7 +57,6 @@ pub struct BaseTrigger {
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
 pub struct ServerState {
-    pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -146,8 +146,12 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "extra_perms",
         ];
 
+        if Self::SUPPORTS_ENABLED {
+            fields.push("enabled");
+        }
+
         if Self::SUPPORTS_SERVER_STATE {
-            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
+            fields.extend_from_slice(&["server_id", "last_server_ping", "error"]);
         }
 
         fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
@@ -165,7 +169,6 @@ pub trait TriggerCrud: Send + Sync + 'static {
             fields.join(", "),
             Self::TABLE_NAME
         );
-
         sqlx::query_as(&sql)
             .bind(workspace_id)
             .bind(path)
@@ -214,38 +217,57 @@ pub trait TriggerCrud: Send + Sync + 'static {
         path: &str,
         enabled: bool,
     ) -> Result<bool> {
-        if !Self::SUPPORTS_SERVER_STATE {
-            return Err(anyhow::anyhow!(
-                "Enable/disable not supported for this trigger type".to_string(),
-            )
-            .into());
-        }
-
-        let updated = sqlx::query(&format!(
-            r#"
-            UPDATE 
-                {} 
-            SET 
-                enabled = $1,
-                email = $2,
-                edited_by = $3,
-                edited_at = now(),
-                server_id = NULL,
-                error = NULL
-            WHERE 
-                workspace_id = $4 AND 
-                path = $5
-            "#,
-            Self::TABLE_NAME
-        ))
-        .bind(enabled)
-        .bind(&authed.email)
-        .bind(&authed.username)
-        .bind(workspace_id)
-        .bind(path)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
+        let updated = if Self::SUPPORTS_SERVER_STATE {
+            sqlx::query(&format!(
+                r#"
+                UPDATE 
+                    {} 
+                SET 
+                    enabled = $1,
+                    email = $2,
+                    edited_by = $3,
+                    edited_at = now(),
+                    server_id = NULL,
+                    error = NULL
+                WHERE 
+                    workspace_id = $4 AND 
+                    path = $5
+                "#,
+                Self::TABLE_NAME
+            ))
+            .bind(enabled)
+            .bind(&authed.email)
+            .bind(&authed.username)
+            .bind(workspace_id)
+            .bind(path)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+        } else {
+            sqlx::query(&format!(
+                r#"
+                UPDATE 
+                    {} 
+                SET 
+                    enabled = $1,
+                    email = $2,
+                    edited_by = $3,
+                    edited_at = now()
+                WHERE 
+                    workspace_id = $4 AND 
+                    path = $5
+                "#,
+                Self::TABLE_NAME
+            ))
+            .bind(enabled)
+            .bind(&authed.email)
+            .bind(&authed.username)
+            .bind(workspace_id)
+            .bind(path)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+        };
 
         Ok(updated > 0)
     }
@@ -298,8 +320,12 @@ pub trait TriggerCrud: Send + Sync + 'static {
             "extra_perms",
         ];
 
+        if Self::SUPPORTS_ENABLED {
+            fields.push("enabled");
+        }
+
         if Self::SUPPORTS_SERVER_STATE {
-            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
+            fields.extend_from_slice(&["server_id", "last_server_ping", "error"]);
         }
 
         fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
