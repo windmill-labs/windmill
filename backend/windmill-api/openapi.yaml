@@ -9779,6 +9779,34 @@ paths:
               schema:
                 type: boolean
 
+  /w/{workspace}/http_triggers/setenabled/{path}:
+    post:
+      summary: enable/disalbe http trigger
+      operationId: setHttpTriggerEnabled
+      tags:
+        - http_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        "200":
+          description: http trigger enable/disable
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/websocket_triggers/create:
     post:
       summary: create websocket trigger
@@ -16815,6 +16843,8 @@ components:
           type: string
           format: date-time
         is_flow:
+          type: boolean
+        enabled:
           type: boolean
       required:
         - path
