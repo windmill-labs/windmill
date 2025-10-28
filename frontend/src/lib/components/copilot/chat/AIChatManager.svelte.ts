@@ -214,7 +214,7 @@ class AIChatManager {
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			const context = this.contextManager.getSelectedContext()
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
-			this.tools = [this.changeModeTool, ...prepareScriptTools(currentModel, lang, context)]
+			this.tools = [...prepareScriptTools(currentModel, lang, context)]
 			this.helpers = {
 				getScriptOptions: () => {
 					return {
@@ -238,7 +238,7 @@ class AIChatManager {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
-			this.tools = [this.changeModeTool, ...flowTools]
+			this.tools = [...flowTools]
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
 			const customPrompt = getCombinedCustomPrompt(mode)

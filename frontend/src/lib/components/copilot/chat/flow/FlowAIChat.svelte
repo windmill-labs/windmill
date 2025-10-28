@@ -620,6 +620,11 @@
 					flowStore.val.value.failure_module = parsed.failure_module || undefined
 				}
 
+				// Update schema if provided
+				if (parsed.schema !== undefined) {
+					flowStore.val.schema = parsed.schema
+				}
+
 				// Mark all modules as modified
 				const newModuleIds = dfsApply(flowStore.val.value.modules, (m) => m.id)
 				for (const id of newModuleIds) {
@@ -641,6 +646,9 @@
 				}
 				if (parsed.failure_module !== undefined) {
 					setModuleStatus('failure', 'modified')
+				}
+				if (parsed.schema !== undefined) {
+					setModuleStatus('Input', 'modified')
 				}
 
 				// Refresh the state store to update UI

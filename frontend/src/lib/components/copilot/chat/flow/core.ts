@@ -62,14 +62,14 @@ const setFlowYamlSchema = z.object({
 	yaml: z
 		.string()
 		.describe(
-			'Complete flow YAML including modules array, and optionally preprocessor_module and failure_module'
+			'Complete flow YAML including modules array, and optionally schema (for flow inputs), preprocessor_module and failure_module'
 		)
 })
 
 const setFlowYamlToolDef = createToolDef(
 	setFlowYamlSchema,
 	'set_flow_yaml',
-	'Set the entire flow structure using YAML. Use this for changes to the flow structure. The YAML should include the complete modules array, and optionally preprocessor_module and failure_module. All existing modules will be replaced.'
+	'Set the entire flow structure using YAML. Use this for changes to the flow structure and/or input schema. The YAML should include the complete modules array, and optionally schema (for flow inputs), preprocessor_module and failure_module. All existing modules will be replaced.'
 )
 
 class WorkspaceScriptsSearch {
@@ -377,6 +377,18 @@ When the user requests modifications to the flow structure (adding steps, removi
 ### YAML Structure
 The YAML must include the complete flow definition:
 \`\`\`yaml
+schema:  # optional - flow input schema
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties:
+    user_id:
+      type: string
+      description: "The user to process"
+    count:
+      type: number
+      default: 10
+  required: ["user_id"]
+  order: ["user_id", "count"]
 modules:
   - id: step_a
     summary: "First step"
@@ -475,9 +487,11 @@ When creating new steps:
 4. Set appropriate \`input_transforms\` to pass data between steps
 
 ### Flow Input Schema
-The flow's input schema is defined separately in the flow object (not in YAML). When using \`flow_input\` properties, ensure they exist in the schema. For resource inputs, use:
+The flow's input schema can be included in the YAML at the top level using the \`schema\` key. It follows JSON Schema format. When using \`flow_input\` properties in modules, ensure they exist in the schema. For resource inputs, use:
 - Type: "object"
 - Format: "resource-<type>" (e.g., "resource-stripe")
+
+If you need to add, modify, or remove flow input parameters, include the complete \`schema\` object at the top level of the YAML.
 
 ### Static Resource References
 To reference a specific resource in input_transforms, use: \`"$res:path/to/resource"\`
