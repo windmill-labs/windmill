@@ -164,6 +164,10 @@ export function mergeFlows(
 		.map((m, index) => ({ module: m, index }))
 		.filter(({ module }) => moduleDiff[module.id]?.before === 'removed')
 
+	// Create a set of ALL after module IDs (including nested) for conflict detection
+	const afterModules = getAllModulesMap(afterFlow)
+	const afterModuleIds = new Set(afterModules.keys())
+
 	// Create items for after modules with their current index
 	const afterModulesWithIndex = (afterFlow.modules ?? []).map((m, index) => ({
 		module: m,
@@ -172,16 +176,37 @@ export function mergeFlows(
 	}))
 
 	// Create items for removed modules with their original index
+	// Handle ID conflicts by prefixing with __removed__
 	const removedModulesItems = removedModulesWithIndex
 		.filter(({ module }) => {
 			const originalIndex = moduleDiff[module.id]?.originalIndex
 			return originalIndex !== undefined
 		})
-		.map(({ module }) => ({
-			module,
-			index: moduleDiff[module.id].originalIndex!,
-			isFromAfter: false
-		}))
+		.map(({ module }) => {
+			const hasConflict = afterModuleIds.has(module.id)
+
+			if (hasConflict) {
+				const renamedId = `__removed__${module.id}`
+
+				// Update diff map with renamed ID
+				moduleDiff[renamedId] = {
+					...moduleDiff[module.id],
+					originalIndex: moduleDiff[module.id].originalIndex
+				}
+
+				return {
+					module: { ...module, id: renamedId },
+					index: moduleDiff[module.id].originalIndex!,
+					isFromAfter: false
+				}
+			}
+
+			return {
+				module,
+				index: moduleDiff[module.id].originalIndex!,
+				isFromAfter: false
+			}
+		})
 
 	// Merge and sort by position
 	// Tie-breaker: removed modules (isFromAfter=false) come before after modules at the same index
