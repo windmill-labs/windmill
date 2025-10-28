@@ -10,7 +10,8 @@
 		usersWorkspaceStore,
 		userWorkspaces,
 		workspaceStore,
-		userStore
+		userStore,
+		getWorkspaceFromStorage
 	} from '$lib/stores'
 	import { Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -58,7 +59,7 @@
 		}
 		if ($usersWorkspaceStore) {
 			if (!$workspaceStore) {
-				const local = localStorage.getItem('workspace')?.toString()
+				const local = getWorkspaceFromStorage()?.toString()
 				switchWorkspace(local)
 			}
 		} else {
