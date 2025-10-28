@@ -36,11 +36,11 @@ export interface UserWorkspace {
 	disabled: boolean
 }
 
-const persistedWorkspace = BROWSER && getWorkspace()
+const persistedWorkspace = BROWSER && getWorkspaceFromStorage()
 
-function getWorkspace(): string | undefined {
+export function getWorkspaceFromStorage(): string | undefined {
 	try {
-		return localStorage.getItem('workspace') ?? undefined
+		return sessionStorage.getItem('workspace') ?? localStorage.getItem('workspace') ?? undefined
 	} catch (e) {
 		console.error('error interacting with local storage', e)
 	}
@@ -115,7 +115,6 @@ export const relativeLineNumbers = writable<boolean>(
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
 )
-
 
 export const usedTriggerKinds = writable<string[]>([])
 

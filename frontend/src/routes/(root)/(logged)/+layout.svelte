@@ -97,6 +97,7 @@
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
 			try {
+				sessionStorage.setItem('workspace', String(workspace))
 				localStorage.setItem('workspace', String(workspace))
 			} catch (e) {
 				console.error('Could not persist workspace to local storage', e)
