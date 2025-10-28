@@ -11,19 +11,16 @@
 	import { base } from '$lib/base'
 	import { createEventDispatcher } from 'svelte'
 
-	interface Props {
-		showWorkspaceRestriction?: boolean
-	}
-
-	let { showWorkspaceRestriction = false }: Props = $props()
 	let newTag: string = $state('')
 	let customTags: string[] | undefined = $state(undefined)
+
+	let tagEditor = $derived(Boolean($superadmin || $devopsRole))
 
 	async function loadCustomTags() {
 		try {
 			customTags =
 				(await WorkerService.getCustomTags({
-					showWorkspaceRestriction
+					showWorkspaceRestriction: tagEditor
 				})) ?? []
 		} catch (err) {
 			sendUserToast(`Could not load global cache: ${err}`, true)
@@ -71,23 +68,26 @@
 			{#each customTags as customTag}
 				<div class="flex gap-0.5 items-center"
 					><div class="text-2xs p-1 rounded border text-primary">{customTag}</div>
-					<button
-						class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
-						aria-label="Remove item"
-						onclick={stopPropagation(
-							preventDefault(async () => {
-								await SettingService.setGlobal({
-									key: CUSTOM_TAGS_SETTING,
-									requestBody: { value: customTags?.filter((x) => x != customTag) }
+					{#if tagEditor}
+						<button
+							class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
+							aria-label="Remove item"
+							onclick={stopPropagation(
+								preventDefault(async () => {
+									await SettingService.setGlobal({
+										key: CUSTOM_TAGS_SETTING,
+										requestBody: { value: customTags?.filter((x) => x != customTag) }
+									})
+									dispatch('refresh')
+									loadCustomTags()
+									sendUserToast('Tag removed')
 								})
-								dispatch('refresh')
-								loadCustomTags()
-								sendUserToast('Tag removed')
-							})
-						)}
-					>
-						<X size={12} />
-					</button><NoWorkerWithTagWarning tag={customTag} />
+							)}
+						>
+							<X size={12} />
+						</button>
+					{/if}
+					<NoWorkerWithTagWarning tag={customTag} />
 				</div>
 			{/each}
 		</div>
@@ -154,9 +154,9 @@
 				loadCustomTags()
 				sendUserToast('Tag added')
 			}}
-			disabled={newTag.trim() == '' || !($superadmin || $devopsRole)}
+			disabled={newTag.trim() == '' || !tagEditor}
 		>
-			Add {#if !($superadmin || $devopsRole)}
+			Add {#if !tagEditor}
 				<span class="text-2xs text-primary">superadmin or devops only</span>
 			{/if}
 		</Button>
