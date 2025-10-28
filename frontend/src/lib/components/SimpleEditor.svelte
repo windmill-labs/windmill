@@ -93,7 +93,8 @@
 		key,
 		disabled = false,
 		minHeight = 1000,
-		renderLineHighlight = 'none'
+		renderLineHighlight = 'none',
+		suggestion
 	}: {
 		lang: string
 		code?: string
@@ -121,6 +122,7 @@
 		disabled?: boolean
 		minHeight?: number
 		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
+		suggestion?: string
 	} = $props()
 
 	let yPadding = MONACO_Y_PADDING
@@ -584,9 +586,9 @@
 </script>
 
 <EditorTheme />
-{#if !editor}
+{#if !editor || suggestion}
 	<FakeMonacoPlaceHolder
-		{code}
+		code={suggestion || code}
 		autoheight
 		lineNumbersWidth={hideLineNumbers ? 0 : (23 * fontSize) / 14}
 		lineNumbersOffset={fontSize == 14 ? -8 : -11}
@@ -599,6 +601,7 @@
 	class={twMerge(
 		'relative editor simple-editor',
 		className,
+		suggestion ? 'absolute opacity-0 pointer-events-none' : '',
 		!editor ? 'hidden' : '',
 		disabled ? 'disabled' : '',
 		!allowVim ? 'nonmain-editor' : ''

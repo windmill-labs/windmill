@@ -65,7 +65,7 @@
 <div
 	bind:clientWidth
 	bind:clientHeight
-	class="h-full w-full relative editor {className}"
+	class="h-full w-full relative editor bg-surface-input rounded-md {className}"
 	style="--vscode-editorCodeLens-lineHeight: 18px; --vscode-editorCodeLens-fontSize: 12px; --vscode-editorCodeLens-fontFeatureSettings: 'liga' off, 'calt' off; --code-editorInlayHintsFontFamily: {fontFamily};"
 >
 	<div

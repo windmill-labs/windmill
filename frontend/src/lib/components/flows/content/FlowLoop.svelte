@@ -123,6 +123,8 @@
 	$effect(() => {
 		editor && currentEditor.set({ type: 'iterator', editor, stepId: mod.id })
 	})
+
+	let suggestion: string | undefined = $state(undefined)
 </script>
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">
@@ -354,9 +356,7 @@
 							bind:this={iteratorGen}
 							focused={iteratorFieldFocused}
 							arg={mod.value.iterator}
-							on:showExpr={(e) => {
-								editor?.setSuggestion(e.detail)
-							}}
+							on:showExpr={(e) => (suggestion = e.detail || undefined)}
 							on:setExpr={(e) => {
 								setExpr(e.detail)
 							}}
@@ -386,21 +386,25 @@
 							}}
 							noPadding
 						>
-							<SimpleEditor
-								bind:this={editor}
-								on:focus={() => {
-									iteratorFieldFocused = true
-								}}
-								on:blur={() => {
-									iteratorFieldFocused = false
-								}}
-								autofocus
-								lang="javascript"
-								bind:code={mod.value.iterator.expr}
-								class="h-full"
-								shouldBindKey={false}
-								extraLib={stepPropPicker.extraLib}
-							/>
+							<div class="relative w-full h-full overflow-clip">
+								<SimpleEditor
+									small
+									bind:this={editor}
+									on:focus={() => {
+										iteratorFieldFocused = true
+									}}
+									on:blur={() => {
+										iteratorFieldFocused = false
+									}}
+									autofocus
+									lang="javascript"
+									bind:code={mod.value.iterator.expr}
+									class="h-full"
+									shouldBindKey={false}
+									extraLib={stepPropPicker.extraLib}
+									{suggestion}
+								/>
+							</div>
 						</PropPickerWrapper>
 					</div>
 				{:else}
