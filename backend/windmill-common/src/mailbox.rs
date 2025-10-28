@@ -60,13 +60,11 @@ impl Mailbox {
             MailboxMsg,
             r#"
                 DELETE FROM mailbox 
-                WHERE message_id = (
-                    SELECT message_id 
-                    FROM mailbox 
-                    WHERE type = $1 AND mailbox_id = $2 AND workspace_id = $3
-                    ORDER BY message_id ASC
-                    LIMIT 1
-                )
+                WHERE message_id = (                                                                                                                       SELECT message_id                                                                                                  ║
+                    FROM mailbox                                                                                                       
+                    WHERE type = $1 AND mailbox_id = $2 AND workspace_id = $3                                                          
+                    LIMIT 1                                                                                                            
+                )                                                                                                                      
                 RETURNING payload, created_at, message_id as id;
             "#,
             self.mailbox_type as MailboxType,
@@ -86,12 +84,7 @@ impl Mailbox {
             MailboxMsg,
             r#"
                 DELETE FROM mailbox 
-                WHERE message_id = (
-                    SELECT message_id 
-                    FROM mailbox 
-                    WHERE type = $1 AND mailbox_id = $2 AND workspace_id = $3
-                    ORDER BY message_id ASC
-                )
+                WHERE type = $1 AND mailbox_id IS NOT DISTINCT FROM $2 AND workspace_id = $3
                 RETURNING payload, created_at, message_id as id;
             "#,
             self.mailbox_type as MailboxType,
@@ -114,7 +107,7 @@ impl Mailbox {
                 WHERE message_id = $1
                     AND workspace_id = $2
                     AND type = $3
-                    AND mailbox_id = $4
+                    AND mailbox_id IS NOT DISTINCT FROM $4 
             "#,
             message_id,
             &self.workspace_id,
@@ -137,7 +130,7 @@ impl Mailbox {
                 WHERE message_id = ANY($1)
                     AND workspace_id = $2
                     AND type = $3
-                    AND mailbox_id = $4
+                    AND mailbox_id IS NOT DISTINCT FROM $4 
             "#,
             &message_ids,
             &self.workspace_id,
@@ -157,10 +150,8 @@ impl Mailbox {
             MailboxMsg,
             r#"
                 SELECT payload, created_at, message_id as id
-                FROM mailbox 
-                WHERE type = $1 AND mailbox_id = $2 AND workspace_id = $3 
-                ORDER BY message_id ASC
-                LIMIT 1
+                    FROM mailbox 
+                    WHERE type = $1 AND mailbox_id IS NOT DISTINCT FROM $2 AND workspace_id = $3 
             "#,
             self.mailbox_type as MailboxType,
             self.mailbox_id.as_ref(),
@@ -180,8 +171,7 @@ impl Mailbox {
             r#"
                 SELECT payload, created_at, message_id as id
                 FROM mailbox 
-                WHERE type = $1 AND mailbox_id = $2 AND workspace_id = $3
-                ORDER BY message_id ASC
+                WHERE type = $1 AND mailbox_id IS NOT DISTINCT FROM $2 AND workspace_id = $3
             "#,
             self.mailbox_type as MailboxType,
             self.mailbox_id.as_ref(),
@@ -250,55 +240,61 @@ mod mailbox_tests {
                 assert_read_all(mbox.clone()).await;
                 assert_pull(mbox.clone()).await;
             },
-            // // Same as above, but different workspace_id
-            // async {
-            //     let mbox = Mailbox::open(
-            //         Some("mymailbox"),
-            //         crate::mailbox::MailboxType::Trigger,
-            //         "another-workspace_id",
-            //     );
-            //     push(mbox.clone()).await;
-            //     assert_read(mbox.clone()).await;
-            //     assert_read_all(mbox.clone()).await;
-            //     assert_pull(mbox.clone()).await;
-            // },
-            // // Different id
-            // async {
-            //     let mbox = Mailbox::open(
-            //         Some("another id"),
-            //         crate::mailbox::MailboxType::Trigger,
-            //         "test-workspace_id",
-            //     );
-            //     push(mbox.clone()).await;
-            //     assert_read(mbox.clone()).await;
-            //     assert_read_all(mbox.clone()).await;
-            //     assert_pull(mbox.clone()).await;
-            // },
-            // // Different kind
-            // async {
-            //     let mbox = Mailbox::open(
-            //         Some("mymailbox"),
-            //         crate::mailbox::MailboxType::DebouncingStaleData,
-            //         "test-workspace_id",
-            //     );
-            //     push(mbox.clone()).await;
-            //     assert_read(mbox.clone()).await;
-            //     assert_read_all(mbox.clone()).await;
-            //     assert_pull(mbox.clone()).await;
-            // },
-            // // Global mailboix
-            // async {
-            //     let mbox = Mailbox::open(
-            //         None,
-            //         crate::mailbox::MailboxType::Trigger,
-            //         "test-workspace_id",
-            //     );
-            //     push(mbox.clone()).await;
-            //     assert_read(mbox.clone()).await;
-            //     assert_read_all(mbox.clone()).await;
-            //     // Also test pull_all
-            //     assert_pull_all(mbox.clone()).await;
-            // },
+            // Same as above, but different workspace_id
+            async {
+                let mbox = Mailbox::open(
+                    Some("mymailbox"),
+                    crate::mailbox::MailboxType::Trigger,
+                    "another-workspace_id",
+                );
+                push(mbox.clone()).await;
+                assert_read(mbox.clone()).await;
+                assert_read_all(mbox.clone()).await;
+                assert_pull(mbox.clone()).await;
+            },
+            // Different id
+            async {
+                let mbox = Mailbox::open(
+                    Some("another id"),
+                    crate::mailbox::MailboxType::Trigger,
+                    "test-workspace_id",
+                );
+                push(mbox.clone()).await;
+                assert_read(mbox.clone()).await;
+                assert_read_all(mbox.clone()).await;
+                assert_pull(mbox.clone()).await;
+            },
+            // Different kind
+            async {
+                let mbox = Mailbox::open(
+                    Some("mymailbox"),
+                    crate::mailbox::MailboxType::DebouncingStaleData,
+                    "test-workspace_id",
+                );
+                push(mbox.clone()).await;
+                assert_read(mbox.clone()).await;
+                assert_read_all(mbox.clone()).await;
+                assert_pull(mbox.clone()).await;
+            },
+            // Global mailboix
+            async {
+                let mbox = Mailbox::open(
+                    None,
+                    crate::mailbox::MailboxType::Trigger,
+                    "test-workspace_id",
+                );
+                push(mbox.clone()).await;
+                dbg!(
+                    sqlx::query!("SELECT mailbox_id, payload, workspace_id FROM mailbox")
+                        .fetch_all(db)
+                        .await
+                        .unwrap()
+                );
+                assert_read(mbox.clone()).await;
+                assert_read_all(mbox.clone()).await;
+                // Also test pull_all
+                assert_pull_all(mbox.clone()).await;
+            },
         );
 
         Ok(())

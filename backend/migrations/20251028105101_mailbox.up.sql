@@ -16,4 +16,4 @@ CREATE TABLE mailbox(
 );
  
 CREATE INDEX idx_mailbox_type_mailbox_id_message_id 
-ON mailbox(type, mailbox_id, message_id);
+ON mailbox(type, mailbox_id, message_id ASC);
