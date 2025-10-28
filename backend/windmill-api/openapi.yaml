@@ -603,6 +603,13 @@ paths:
       operationId: getGlobalConnectedRepositories
       tags:
         - Git Sync
+      parameters:
+        - name: search
+          in: query
+          description: Search repositories by name
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: connected repositories
@@ -19537,10 +19544,18 @@ components:
               required:
                 - name
                 - url
+          total_count:
+            type: number
+            description: Total number of repositories available for this installation
+          per_page:
+            type: number
+            description: Number of repositories loaded per page
         required:
           - installation_id
           - account_id
           - repositories
+          - total_count
+          - per_page
 
     WorkspaceGithubInstallation:
       type: object
