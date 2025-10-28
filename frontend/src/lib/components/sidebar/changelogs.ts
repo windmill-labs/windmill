@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'UI Redesign',
+		href: 'https://www.windmill.dev/changelog/ui-redesign',
+		date: '2025-10-22'
+	},
+
+	{
 		label: 'Dynamic select for flows',
 		href: 'https://www.windmill.dev/changelog/dynamic-select-flows',
 		date: '2025-08-08'
