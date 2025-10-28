@@ -93,7 +93,7 @@
 		</div>
 		<input type="text" bind:value={newTag} />
 		{#if extractedCustomTag}
-			<div class="text-2xs text-primary p-2 bg-gray-50 rounded border">
+			<div class="text-2xs text-primary p-2 bg-surface-secondary rounded border">
 				<div class="font-medium mb-1">Workspace specific tag</div>
 				<div>
 					<b>Tag:</b>
@@ -110,7 +110,7 @@
 			</div>
 		{:else if newTag.trim()}
 			{#if newTag.includes('(') || newTag.includes(')') || newTag.includes('+') || newTag.includes('^') || ((newTag.includes('.') || newTag.includes('$args[')) && !dynamicTag)}
-				<div class="text-2xs text-primary p-2 bg-gray-50 rounded border">
+				<div class="text-2xs text-primary p-2 bg-surface-secondary rounded border">
 					<div class="font-medium mb-1 text-red-500">Invalid tag</div>
 					<div>
 						<b>Tag:</b>
@@ -118,7 +118,7 @@
 					</div>
 				</div>
 			{:else}
-				<div class="text-2xs text-primary p-2 bg-gray-50 rounded border">
+				<div class="text-2xs text-primary p-2 bg-surface-secondary rounded border">
 					<div class="font-medium mb-1">
 						{#if newTag.includes('$workspace') || newTag.includes('$args')}
 							Dynamic tag
