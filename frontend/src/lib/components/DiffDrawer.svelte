@@ -40,11 +40,7 @@
 		isFlow?: boolean
 	}
 
-	let {
-		restoreDeployed = async () => {},
-		restoreDraft = async () => {},
-		isFlow = false
-	}: Props = $props()
+	let { restoreDeployed = undefined, restoreDraft = undefined, isFlow = false }: Props = $props()
 
 	let data:
 		| {
@@ -165,7 +161,7 @@
 						unifiedSize="md"
 						variant="default"
 						wrapperClasses="self-start"
-						on:click={restoreDraft}
+						onClick={restoreDraft}
 						disabled={orderedJsonStringify(data.draft) === orderedJsonStringify(data.current)}
 						>Restore to latest saved draft</Button
 					>
@@ -174,7 +170,7 @@
 						unifiedSize="md"
 						variant="default"
 						wrapperClasses="self-start"
-						on:click={restoreDeployed}
+						onClick={restoreDeployed}
 						disabled={!data.draft &&
 							orderedJsonStringify(data.deployed) === orderedJsonStringify(data.current)}
 					>

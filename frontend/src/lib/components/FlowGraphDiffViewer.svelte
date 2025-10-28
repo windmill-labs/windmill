@@ -25,6 +25,7 @@
 		try {
 			return YAML.parse(beforeYaml).value as FlowValue
 		} catch (error) {
+			parseError = `Error parsing before flow: ${error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error'}`
 			return undefined
 		}
 	})
@@ -32,6 +33,7 @@
 		try {
 			return YAML.parse(afterYaml).value as FlowValue
 		} catch (error) {
+			parseError = `Error parsing after flow: ${error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error'}`
 			return undefined
 		}
 	})
