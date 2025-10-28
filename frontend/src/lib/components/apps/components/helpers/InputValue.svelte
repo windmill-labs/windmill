@@ -18,7 +18,7 @@
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
 	import { deepEqual } from 'fast-equals'
-	import { deepMergeWithPriority, isCodeInjection } from '$lib/utils'
+	import { deepMergeWithPriority, isCodeInjection, readFieldsRecursively } from '$lib/utils'
 	import sum from 'hash-sum'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
@@ -356,7 +356,7 @@
 	// 	console.log('handleConnection4', input)
 	// })
 	$effect(() => {
-		input?.type == 'static' && input.value
+		readFieldsRecursively(input)
 		input && $worldStore && untrack(() => debounce(handleConnection))
 	})
 	$effect.pre(() => {
