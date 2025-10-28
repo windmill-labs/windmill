@@ -7,12 +7,13 @@ CREATE TYPE mailbox_type AS ENUM (
 );
 
 CREATE TABLE mailbox(
-    message_id BIGINT DEFAULT nextval('mailbox_id_seq'),
-    mailbox_id TEXT, 
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), -- Indicates position in stack
-    type mailbox_type NOT NULL, -- Type of mailbox
-    payload JSONB NOT NULL, -- Payload of specific message
-    PRIMARY KEY (message_id)
+    message_id   BIGINT DEFAULT nextval('mailbox_id_seq') PRIMARY KEY, -- Also indicates position in stack
+    mailbox_id   TEXT, -- Can be NULL 
+    workspace_id character varying(50) NOT NULL,
+    type         mailbox_type NOT NULL, -- Type of mailbox
+    created_at   TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), 
+    payload      JSONB NOT NULL -- Payload of specific message
 );
  
-
+CREATE INDEX idx_mailbox_type_mailbox_id_message_id 
+ON mailbox(type, mailbox_id, message_id);
