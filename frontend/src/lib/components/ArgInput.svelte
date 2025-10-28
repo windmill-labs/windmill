@@ -46,7 +46,11 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
-	import TextInput, { inputBaseClass, inputBorderClass } from './text_input/TextInput.svelte'
+	import TextInput, {
+		inputBaseClass,
+		inputBorderClass,
+		inputSizeClasses
+	} from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
 
 	interface Props {
@@ -1401,7 +1405,12 @@
 								use:autosize
 								onkeydown={onKeyDown}
 								{disabled}
-								class={twMerge('w-full', inputBaseClass, inputBorderClass({ error: !!error }))}
+								class={twMerge(
+									'w-full',
+									inputBaseClass,
+									inputSizeClasses.md,
+									inputBorderClass({ error: !!error })
+								)}
 								placeholder={placeholder ?? defaultValue ?? ''}
 								bind:value
 							></textarea>

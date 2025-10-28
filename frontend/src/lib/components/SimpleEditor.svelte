@@ -31,7 +31,11 @@
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
-	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from './vscode'
+	import {
+		initializeVscode,
+		keepModelAroundToAvoidDisposalOfWorkers,
+		MONACO_Y_PADDING
+	} from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import { vimMode, relativeLineNumbers } from '$lib/stores'
 	import { initVim } from './monaco_keybindings'
@@ -49,6 +53,7 @@
 		type IPosition
 	} from 'monaco-editor'
 	import { setMonacoJavascriptOptions, setMonacoJsonOptions } from './monacoLanguagesOptions'
+	import { twMerge } from 'tailwind-merge'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -59,7 +64,6 @@
 	let statusDiv = $state<Element | null>(null)
 	let width = $state(0)
 	let initialized = $state(false)
-	let suggestion = $state('')
 	let placeholderVisible = $state(false)
 	let mounted = $state(false)
 
@@ -85,13 +89,12 @@
 		allowVim = false,
 		tailwindClasses = [],
 		class: className = '',
-		fakeMonacoPlaceholderClass = '',
 		loadAsync = false,
 		key,
 		disabled = false,
 		minHeight = 1000,
 		renderLineHighlight = 'none',
-		yPadding
+		suggestion
 	}: {
 		lang: string
 		code?: string
@@ -113,15 +116,16 @@
 		allowVim?: boolean
 		tailwindClasses?: string[]
 		class?: string
-		fakeMonacoPlaceholderClass?: string
 		loadAsync?: boolean
 		initialCursorPos?: IPosition
 		key?: string
 		disabled?: boolean
 		minHeight?: number
 		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
-		yPadding?: number
+		suggestion?: string
 	} = $props()
+
+	let yPadding = MONACO_Y_PADDING
 
 	const dispatch = createEventDispatcher()
 
@@ -214,17 +218,6 @@
 	export function hide(): void {
 		divEl?.classList.add('hidden')
 	}
-
-	export function setSuggestion(value: string): void {
-		suggestion = value
-	}
-
-	let disableTabCond: meditor.IContextKey<boolean> | undefined
-
-	$effect(() => {
-		disableTabCond?.set(!code && !!suggestion)
-	})
-
 	let vimDisposable: IDisposable | undefined = undefined
 
 	$effect(() => {
@@ -340,7 +333,7 @@
 				model,
 				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {}),
 				renderLineHighlight,
-				lineDecorationsWidth: 6,
+				lineDecorationsWidth: 0,
 				lineNumbersMinChars: 2,
 				fontSize: fontSize,
 				quickSuggestions: disableSuggestions
@@ -369,7 +362,6 @@
 
 		let timeoutModel: number | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
-			suggestion = ''
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				updateCode()
@@ -388,9 +380,6 @@
 				updateCode()
 				shouldBindKey && format && format()
 			})
-
-			disableTabCond = editor.createContextKey('disableTabCond', !code)
-			editor.addCommand(KeyCode.Tab, function () {}, 'disableTabCond')
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
 				// CMD + slash (toggle comment) on some EU keyboards
@@ -597,38 +586,32 @@
 </script>
 
 <EditorTheme />
-{#if editor && suggestion && code?.length === 0}
-	<div
-		class="absolute top-[0.05rem] left-[2.05rem] z-10 text-sm text-[#0007] italic font-mono dark:text-[#ffffff56] text-ellipsis overflow-hidden whitespace-nowrap"
-		style={`max-width: calc(${width}px - 2.05rem)`}
-	>
-		{suggestion}
-	</div>
-{/if}
-
-{#if !editor}
+{#if !editor || suggestion}
 	<FakeMonacoPlaceHolder
-		{code}
+		code={suggestion || code}
 		autoheight
 		lineNumbersWidth={hideLineNumbers ? 0 : (23 * fontSize) / 14}
 		lineNumbersOffset={fontSize == 14 ? -8 : -11}
 		{fontSize}
 		showNumbers={!hideLineNumbers}
-		class={fakeMonacoPlaceholderClass}
 	/>
 {/if}
-
 <div
 	bind:this={divEl}
-	class="relative {className} {!editor ? 'hidden' : ''} editor {disabled
-		? 'disabled'
-		: ''} simple-editor {!allowVim ? 'nonmain-editor' : ''}"
+	class={twMerge(
+		'relative editor simple-editor',
+		className,
+		suggestion ? 'absolute opacity-0 pointer-events-none' : '',
+		!editor ? 'hidden' : '',
+		disabled ? 'disabled' : '',
+		!allowVim ? 'nonmain-editor' : ''
+	)}
 	bind:clientWidth={width}
 >
 	{#if placeholder}
 		<div
 			id="placeholder"
-			class="absolute left-[24px] text-gray-500 text-sm pointer-events-none font-mono z-10 {placeholderVisible
+			class="absolute text-gray-500 text-sm pointer-events-none font-mono z-10 {placeholderVisible
 				? ''
 				: 'hidden'}"
 		>
@@ -636,6 +619,7 @@
 		</div>
 	{/if}
 </div>
+
 {#if allowVim && vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}
