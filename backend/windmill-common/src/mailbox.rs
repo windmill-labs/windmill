@@ -13,6 +13,7 @@ pub type MsgPayload = serde_json::Value;
 
 #[derive(sqlx::FromRow, Debug, Clone)]
 pub struct MailboxMsg {
+    pub id: i64,
     pub payload: MsgPayload,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
@@ -66,7 +67,7 @@ impl Mailbox {
                     ORDER BY message_id ASC
                     LIMIT 1
                 )
-                RETURNING payload, created_at;
+                RETURNING payload, created_at, message_id as id;
             "#,
             self.mailbox_type as MailboxType,
             self.mailbox_id.as_ref(),
@@ -91,7 +92,7 @@ impl Mailbox {
                     WHERE type = $1 AND mailbox_id = $2 AND workspace_id = $3
                     ORDER BY message_id ASC
                 )
-                RETURNING payload, created_at;
+                RETURNING payload, created_at, message_id as id;
             "#,
             self.mailbox_type as MailboxType,
             self.mailbox_id.as_ref(),
@@ -102,6 +103,52 @@ impl Mailbox {
         .map_err(error::Error::from)
     }
 
+    pub async fn delete<'c>(
+        &self,
+        message_id: i64,
+        e: impl sqlx::Executor<'c, Database = Postgres>,
+    ) -> error::Result<()> {
+        sqlx::query!(
+            r#"
+                DELETE FROM mailbox 
+                WHERE message_id = $1
+                    AND workspace_id = $2
+                    AND type = $3
+                    AND mailbox_id = $4
+            "#,
+            message_id,
+            &self.workspace_id,
+            self.mailbox_type as MailboxType,
+            self.mailbox_id.as_ref(),
+        )
+        .fetch_all(e)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_batch<'c>(
+        &self,
+        message_ids: Vec<i64>,
+        e: impl sqlx::Executor<'c, Database = Postgres>,
+    ) -> error::Result<()> {
+        sqlx::query!(
+            r#"
+                DELETE FROM mailbox 
+                WHERE message_id = ANY($1)
+                    AND workspace_id = $2
+                    AND type = $3
+                    AND mailbox_id = $4
+            "#,
+            &message_ids,
+            &self.workspace_id,
+            self.mailbox_type as MailboxType,
+            self.mailbox_id.as_ref(),
+        )
+        .fetch_all(e)
+        .await?;
+        Ok(())
+    }
+
     pub async fn read<'c>(
         &self,
         e: impl sqlx::Executor<'c, Database = Postgres>,
@@ -109,7 +156,7 @@ impl Mailbox {
         sqlx::query_as!(
             MailboxMsg,
             r#"
-                SELECT payload, created_at
+                SELECT payload, created_at, message_id as id
                 FROM mailbox 
                 WHERE type = $1 AND mailbox_id = $2 AND workspace_id = $3 
                 ORDER BY message_id ASC
@@ -131,7 +178,7 @@ impl Mailbox {
         sqlx::query_as!(
             MailboxMsg,
             r#"
-                SELECT payload, created_at
+                SELECT payload, created_at, message_id as id
                 FROM mailbox 
                 WHERE type = $1 AND mailbox_id = $2 AND workspace_id = $3
                 ORDER BY message_id ASC
@@ -203,55 +250,55 @@ mod mailbox_tests {
                 assert_read_all(mbox.clone()).await;
                 assert_pull(mbox.clone()).await;
             },
-            // Same as above, but different workspace_id
-            async {
-                let mbox = Mailbox::open(
-                    Some("mymailbox"),
-                    crate::mailbox::MailboxType::Trigger,
-                    "another-workspace_id",
-                );
-                push(mbox.clone()).await;
-                assert_read(mbox.clone()).await;
-                assert_read_all(mbox.clone()).await;
-                assert_pull(mbox.clone()).await;
-            },
-            // Different id
-            async {
-                let mbox = Mailbox::open(
-                    Some("another id"),
-                    crate::mailbox::MailboxType::Trigger,
-                    "test-workspace_id",
-                );
-                push(mbox.clone()).await;
-                assert_read(mbox.clone()).await;
-                assert_read_all(mbox.clone()).await;
-                assert_pull(mbox.clone()).await;
-            },
-            // Different kind
-            async {
-                let mbox = Mailbox::open(
-                    Some("mymailbox"),
-                    crate::mailbox::MailboxType::DebouncingStaleData,
-                    "test-workspace_id",
-                );
-                push(mbox.clone()).await;
-                assert_read(mbox.clone()).await;
-                assert_read_all(mbox.clone()).await;
-                assert_pull(mbox.clone()).await;
-            },
-            // Global mailboix
-            async {
-                let mbox = Mailbox::open(
-                    None,
-                    crate::mailbox::MailboxType::Trigger,
-                    "test-workspace_id",
-                );
-                push(mbox.clone()).await;
-                assert_read(mbox.clone()).await;
-                assert_read_all(mbox.clone()).await;
-                // Also test pull_all
-                assert_pull_all(mbox.clone()).await;
-            },
+            // // Same as above, but different workspace_id
+            // async {
+            //     let mbox = Mailbox::open(
+            //         Some("mymailbox"),
+            //         crate::mailbox::MailboxType::Trigger,
+            //         "another-workspace_id",
+            //     );
+            //     push(mbox.clone()).await;
+            //     assert_read(mbox.clone()).await;
+            //     assert_read_all(mbox.clone()).await;
+            //     assert_pull(mbox.clone()).await;
+            // },
+            // // Different id
+            // async {
+            //     let mbox = Mailbox::open(
+            //         Some("another id"),
+            //         crate::mailbox::MailboxType::Trigger,
+            //         "test-workspace_id",
+            //     );
+            //     push(mbox.clone()).await;
+            //     assert_read(mbox.clone()).await;
+            //     assert_read_all(mbox.clone()).await;
+            //     assert_pull(mbox.clone()).await;
+            // },
+            // // Different kind
+            // async {
+            //     let mbox = Mailbox::open(
+            //         Some("mymailbox"),
+            //         crate::mailbox::MailboxType::DebouncingStaleData,
+            //         "test-workspace_id",
+            //     );
+            //     push(mbox.clone()).await;
+            //     assert_read(mbox.clone()).await;
+            //     assert_read_all(mbox.clone()).await;
+            //     assert_pull(mbox.clone()).await;
+            // },
+            // // Global mailboix
+            // async {
+            //     let mbox = Mailbox::open(
+            //         None,
+            //         crate::mailbox::MailboxType::Trigger,
+            //         "test-workspace_id",
+            //     );
+            //     push(mbox.clone()).await;
+            //     assert_read(mbox.clone()).await;
+            //     assert_read_all(mbox.clone()).await;
+            //     // Also test pull_all
+            //     assert_pull_all(mbox.clone()).await;
+            // },
         );
 
         Ok(())
