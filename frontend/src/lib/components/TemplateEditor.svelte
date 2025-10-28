@@ -666,14 +666,7 @@
 	)}
 >
 	{#if !editor}
-		<FakeMonacoPlaceHolder
-			autoheight
-			showNumbers={false}
-			{code}
-			lineNumbersWidth={0}
-			{fontSize}
-			{yPadding}
-		/>
+		<FakeMonacoPlaceHolder autoheight showNumbers={false} {code} {fontSize} />
 	{/if}
 	<div
 		bind:this={divEl}

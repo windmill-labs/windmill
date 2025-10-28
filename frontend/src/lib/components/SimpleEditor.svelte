@@ -60,7 +60,6 @@
 	let statusDiv = $state<Element | null>(null)
 	let width = $state(0)
 	let initialized = $state(false)
-	let suggestion = $state('')
 	let placeholderVisible = $state(false)
 	let mounted = $state(false)
 
@@ -213,17 +212,6 @@
 	export function hide(): void {
 		divEl?.classList.add('hidden')
 	}
-
-	export function setSuggestion(value: string): void {
-		suggestion = value
-	}
-
-	let disableTabCond: meditor.IContextKey<boolean> | undefined
-
-	$effect(() => {
-		disableTabCond?.set(!code && !!suggestion)
-	})
-
 	let vimDisposable: IDisposable | undefined = undefined
 
 	$effect(() => {
@@ -368,7 +356,6 @@
 
 		let timeoutModel: number | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
-			suggestion = ''
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				updateCode()
@@ -387,9 +374,6 @@
 				updateCode()
 				shouldBindKey && format && format()
 			})
-
-			disableTabCond = editor.createContextKey('disableTabCond', !code)
-			editor.addCommand(KeyCode.Tab, function () {}, 'disableTabCond')
 
 			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {
 				// CMD + slash (toggle comment) on some EU keyboards
@@ -593,20 +577,17 @@
 	}
 
 	updatePlaceholderVisibility(code ?? '')
-
-	let showSuggestion = $derived(suggestion && !code)
 </script>
 
 <EditorTheme />
-{#if !editor || showSuggestion}
+{#if !editor}
 	<FakeMonacoPlaceHolder
-		code={suggestion || code}
+		{code}
 		autoheight
 		lineNumbersWidth={hideLineNumbers ? 0 : (23 * fontSize) / 14}
 		lineNumbersOffset={fontSize == 14 ? -8 : -11}
 		{fontSize}
 		showNumbers={!hideLineNumbers}
-		{yPadding}
 	/>
 {/if}
 <div
@@ -615,7 +596,6 @@
 		'relative editor simple-editor',
 		className,
 		!editor ? 'hidden' : '',
-		showSuggestion ? 'opacity-0 pointer-events-none absolute' : '',
 		disabled ? 'disabled' : '',
 		!allowVim ? 'nonmain-editor' : ''
 	)}

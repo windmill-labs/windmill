@@ -1723,7 +1723,7 @@
 <EditorTheme />
 {#if !editor}
 	<div class="inset-0 absolute overflow-clip">
-		<FakeMonacoPlaceHolder {code} {yPadding} />
+		<FakeMonacoPlaceHolder {code} lineNumbersWidth={51} />
 	</div>
 {/if}
 <div bind:this={divEl} class="{clazz} editor {disabled ? 'disabled' : ''}"></div>
