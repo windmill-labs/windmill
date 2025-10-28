@@ -68,7 +68,7 @@ const setFlowYamlSchema = z.object({
 const setFlowYamlToolDef = createToolDef(
 	setFlowYamlSchema,
 	'set_flow_yaml',
-	'Set the entire flow structure using YAML. Use this for complex multi-step changes where multiple modules need to be added, removed, or reorganized. The YAML should include the complete modules array, and optionally preprocessor_module and failure_module. All existing modules will be replaced.'
+	'Set the entire flow structure using YAML. Use this for changes to the flow structure. The YAML should include the complete modules array, and optionally preprocessor_module and failure_module. All existing modules will be replaced.'
 )
 
 class WorkspaceScriptsSearch {
@@ -472,7 +472,6 @@ To reference a specific resource in input_transforms, use: \`"$res:path/to/resou
 - Module IDs must be unique and valid identifiers (alphanumeric, underscore, hyphen)
 - Steps execute in the order they appear in the modules array
 - After applying, all modules are marked for review and displayed in a diff view
-- This tool requires user confirmation before execution
 
 ### Contexts
 
