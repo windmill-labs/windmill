@@ -9,7 +9,6 @@
 		loadGithubInstallations,
 		startInstallationCheck,
 		stopInstallationCheck,
-		getRepositories,
 		addInstallationToWorkspace,
 		deleteInstallation,
 		exportInstallation,
@@ -18,6 +17,7 @@
 		handleInstallClick,
 		type GitHubAppState
 	} from '$lib/githubApp'
+	import RepositorySelector from './RepositorySelector.svelte'
 
 	interface Props {
 		resourceType: string
@@ -215,17 +215,20 @@
 										</select>
 									</div>
 									{#if githubState.selectedGHAppAccountId}
-										<div class="flex flex-col gap-1 flex-1">
-											<p class="text-sm font-semibold text-secondary">Repository</p>
-											<div class="flex flex-row gap-2">
-												<select bind:value={githubState.selectedGHAppRepository}>
-													<option value="" disabled selected>Select Repository</option>
-													{#each getRepositories(githubState, githubState.selectedGHAppAccountId) as repository (repository.url)}
-														<option value={repository.url}>{repository.name}</option>
-													{/each}
-												</select>
+										{@const selectedInstallation = githubState.workspaceGithubInstallations.find(
+											(inst) => inst.account_id === githubState.selectedGHAppAccountId
+										)}
+										{#if selectedInstallation}
+											<div class="flex flex-col gap-1 flex-1">
+												<p class="text-sm font-semibold text-secondary">Repository</p>
+												<RepositorySelector
+													bind:selectedRepository={githubState.selectedGHAppRepository}
+													accountId={githubState.selectedGHAppAccountId}
+													initialRepositories={selectedInstallation.repositories}
+													totalCount={selectedInstallation.total_count}
+												/>
 											</div>
-										</div>
+										{/if}
 									{/if}
 									<div class="pt-[26px]">
 										<Button
