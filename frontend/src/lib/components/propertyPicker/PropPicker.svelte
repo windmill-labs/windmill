@@ -18,11 +18,13 @@
 	export let error: boolean = false
 	export let allowCopy = false
 	export let previousId: string | undefined = undefined
+	export let env: Record<string, string> | undefined = undefined
 
 	let variables: Record<string, string> = {}
 	let resources: Record<string, any> = {}
 	let displayVariable = false
 	let displayResources = false
+	let displayEnv = false
 
 	let allResultsCollapsed = true
 	let collapsableInitialState:
@@ -30,6 +32,7 @@
 				allResultsCollapsed: boolean
 				displayVariable: boolean
 				displayResources: boolean
+				displayEnv: boolean
 		  }
 		| undefined
 
@@ -143,7 +146,7 @@
 		}
 
 		if (!collapsableInitialState) {
-			collapsableInitialState = { allResultsCollapsed, displayVariable, displayResources }
+			collapsableInitialState = { allResultsCollapsed, displayVariable, displayResources, displayEnv }
 		}
 
 		if ($inputMatches[0].word === 'variable') {
@@ -156,6 +159,10 @@
 			displayResources = true
 			return
 		}
+		if ($inputMatches[0].word === 'env') {
+			displayEnv = true
+			return
+		}
 		if ($inputMatches[0].word === 'results') {
 			allResultsCollapsed = false
 			return
@@ -166,7 +173,7 @@
 		if (!collapsableInitialState) {
 			return
 		}
-		;({ allResultsCollapsed, displayVariable, displayResources } = collapsableInitialState)
+		;({ allResultsCollapsed, displayVariable, displayResources, displayEnv } = collapsableInitialState)
 		collapsableInitialState = undefined
 	}
 
@@ -391,6 +398,45 @@
 							on:click={async () => {
 								await loadResources()
 								displayResources = true
+							}}
+							wrapperClasses="inline-flex whitespace-nowrap w-fit"
+							btnClasses="font-normal text-2xs rounded-[0.275rem] h-4 px-1"
+						>
+							{'{...}'}
+						</Button>
+					{/if}
+				</div>
+			{/if}
+			{#if env && Object.keys(env).length > 0 && (!filterActive || $inputMatches?.some((match) => match.word === 'env'))}
+				<div class="overflow-y-auto pb-2">
+					<span class="font-normal text-xs text-secondary">Flow Variables:</span>
+
+					{#if displayEnv}
+						<Button
+							color="light"
+							size="xs2"
+							variant="border"
+							on:click={() => {
+								displayEnv = false
+							}}
+							wrapperClasses="inline-flex whitespace-nowrap w-fit"
+							btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]">-</Button
+						>
+						<ObjectViewer
+							{allowCopy}
+							pureViewer={!$propPickerConfig}
+							rawKey={false}
+							json={env}
+							prefix="env"
+							on:select
+						/>
+					{:else}
+						<Button
+							color="light"
+							size="xs2"
+							variant="border"
+							on:click={() => {
+								displayEnv = true
 							}}
 							wrapperClasses="inline-flex whitespace-nowrap w-fit"
 							btnClasses="font-normal text-2xs rounded-[0.275rem] h-4 px-1"
