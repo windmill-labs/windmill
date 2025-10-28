@@ -1974,6 +1974,10 @@ paths:
                     type: string
                   slack_command_script:
                     type: string
+                  slack_oauth_client_id:
+                    type: string
+                  slack_oauth_client_secret:
+                    type: string
                   teams_team_id:
                     type: string
                   teams_command_script:
@@ -2208,6 +2212,73 @@ paths:
                 slack_command_script:
                   type: string
 
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/slack_oauth_config:
+    get:
+      summary: get workspace slack oauth config
+      operationId: getWorkspaceSlackOauthConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: slack oauth config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slack_oauth_client_id:
+                    type: string
+                    nullable: true
+                  slack_oauth_client_secret:
+                    type: string
+                    nullable: true
+                    description: Masked with *** if set
+    post:
+      summary: set workspace slack oauth config
+      operationId: setWorkspaceSlackOauthConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Slack OAuth Configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - slack_oauth_client_id
+                - slack_oauth_client_secret
+              properties:
+                slack_oauth_client_id:
+                  type: string
+                slack_oauth_client_secret:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+    delete:
+      summary: delete workspace slack oauth config
+      operationId: deleteWorkspaceSlackOauthConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
           description: status
