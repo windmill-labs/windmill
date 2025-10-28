@@ -328,7 +328,7 @@
 		group: groupStore ? $groupStore : undefined
 	})
 
-	$effect.pre(() => {
+	$effect(() => {
 		input?.type == 'evalv2' &&
 			!onDemandOnly &&
 			(fullContext.iter != undefined ||
@@ -339,7 +339,7 @@
 			) &&
 			untrack(() => debounceEval())
 	})
-	$effect.pre(() => {
+	$effect(() => {
 		input &&
 			input.type == 'templatev2' &&
 			isCodeInjection(input.eval) &&
@@ -359,15 +359,12 @@
 		readFieldsRecursively(input)
 		input && $worldStore && untrack(() => debounce(handleConnection))
 	})
-	$effect.pre(() => {
+	$effect(() => {
 		input &&
 			input.type == 'template' &&
 			isCodeInjection(input.eval) &&
 			$stateStore &&
 			untrack(() => debounce(debounceTemplate))
-	})
-	$effect.pre(() => {
-		input && input.type == 'eval' && $stateStore && untrack(() => debounce2(debounceEval))
 	})
 
 	if (input?.type == 'eval') {
@@ -382,10 +379,14 @@
 		})
 	}
 
-	$effect.pre(() => {
+	$effect(() => {
+		input && input.type == 'eval' && $stateStore && untrack(() => debounce2(debounceEval))
+	})
+
+	$effect(() => {
 		input?.type == 'evalv2' && input.expr && untrack(() => debounceEval('exprChanged'))
 	})
-	$effect.pre(() => {
+	$effect(() => {
 		input?.type == 'templatev2' && input.eval && untrack(() => debounceTemplate())
 	})
 </script>
