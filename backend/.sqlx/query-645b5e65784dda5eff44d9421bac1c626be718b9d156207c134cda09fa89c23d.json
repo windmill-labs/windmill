@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                DELETE FROM mailbox \n                WHERE message_id = ANY($1)\n                    AND workspace_id = $2\n                    AND type = $3\n                    AND mailbox_id IS NOT DISTINCT FROM $4 \n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Text",
+        {
+          "Custom": {
+            "name": "mailbox_type",
+            "kind": {
+              "Enum": [
+                "trigger",
+                "debouncing_stale_data"
+              ]
+            }
+          }
+        },
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "645b5e65784dda5eff44d9421bac1c626be718b9d156207c134cda09fa89c23d"
+}

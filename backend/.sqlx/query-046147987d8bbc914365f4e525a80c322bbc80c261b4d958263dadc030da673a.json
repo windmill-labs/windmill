@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                DELETE FROM mailbox \n                WHERE message_id = (                                                                                                                       SELECT message_id                                                                                                  ║\n                    FROM mailbox                                                                                                       \n                    WHERE type = $1 AND mailbox_id = $2 AND workspace_id = $3                                                          \n                    LIMIT 1                                                                                                            \n                )                                                                                                                      \n                RETURNING payload, created_at, message_id as id;\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "payload",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "mailbox_type",
+            "kind": {
+              "Enum": [
+                "trigger",
+                "debouncing_stale_data"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "046147987d8bbc914365f4e525a80c322bbc80c261b4d958263dadc030da673a"
+}
