@@ -15335,6 +15335,7 @@ name = "windmill-audit"
 version = "1.567.3"
 dependencies = [
  "chrono",
+ "lazy_static",
  "serde",
  "serde_json",
  "sql-builder",
