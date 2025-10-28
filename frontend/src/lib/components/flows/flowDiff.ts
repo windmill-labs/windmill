@@ -9,6 +9,8 @@ import type { AIModuleAction } from '../copilot/chat/flow/core'
 export type ModuleDiffResult = {
 	before?: AIModuleAction
 	after?: AIModuleAction
+	/** Original index in beforeFlow.modules for removed top-level modules */
+	originalIndex?: number
 }
 
 /**
@@ -31,6 +33,9 @@ export function computeFlowModuleDiff(
 	const beforeModules = getAllModulesMap(beforeFlow)
 	const afterModules = getAllModulesMap(afterFlow)
 
+	// Get top-level indices for removed modules
+	const beforeIndices = getTopLevelModuleIndices(beforeFlow)
+
 	// Find all module IDs
 	const allModuleIds = new Set([...beforeModules.keys(), ...afterModules.keys()])
 
@@ -43,14 +48,16 @@ export function computeFlowModuleDiff(
 			result[moduleId] = { after: 'added' }
 		} else if (beforeModule && !afterModule) {
 			// Module exists in before but not after -> removed
-			result[moduleId] = { before: 'removed' }
+			const originalIndex = beforeIndices.get(moduleId)
+			result[moduleId] = { before: 'removed', originalIndex }
 		} else if (beforeModule && afterModule) {
 			// Module exists in both -> check type and content
 			const typeChanged = beforeModule.value.type !== afterModule.value.type
 
 			if (typeChanged) {
 				// Type changed -> treat as removed + added
-				result[moduleId] = { before: 'removed', after: 'added' }
+				const originalIndex = beforeIndices.get(moduleId)
+				result[moduleId] = { before: 'removed', after: 'added', originalIndex }
 			} else if (!deepEqual(beforeModule, afterModule)) {
 				// Same type but different content -> modified
 				result[moduleId] = { before: 'modified', after: 'modified' }
@@ -90,6 +97,22 @@ function getAllModulesMap(flow: FlowValue): Map<string, FlowModule> {
 }
 
 /**
+ * Helper function to get the indices of top-level modules
+ */
+function getTopLevelModuleIndices(flow: FlowValue): Map<string, number> {
+	const indexMap = new Map<string, number>()
+
+	// Only track top-level modules
+	;(flow.modules ?? []).forEach((module, index) => {
+		if (module?.id) {
+			indexMap.set(module.id, index)
+		}
+	})
+
+	return indexMap
+}
+
+/**
  * Splits a module diff map into separate maps for before and after views.
  * - Before view: shows modules with before actions (removed or modified)
  * - After view: shows modules with after actions (added or modified)
@@ -118,31 +141,59 @@ export function splitModuleDiffForViews(moduleDiff: Record<string, ModuleDiffRes
 
 /**
  * Merges two flow versions into a single flow structure for unified diff view.
- * This is a simple non-recursive approach that preserves the after flow structure
- * and appends top-level removed modules.
+ * This is a non-recursive approach that preserves the after flow structure
+ * and inserts top-level removed modules at their original positions.
  *
  * Strategy:
  * - Use the after flow structure as-is (includes all added modules, even nested ones)
- * - Append top-level removed modules at the end
+ * - Insert top-level removed modules at their original positions
  * - Don't merge nested structures - containers with nested changes will be marked as "modified" in the UI
  *
  * @param beforeFlow - The original flow
  * @param afterFlow - The modified flow
  * @param moduleDiff - The computed diff result with before/after actions per module
- * @returns A merged flow containing all top-level modules
+ * @returns A merged flow containing all top-level modules positioned appropriately
  */
 export function mergeFlows(
 	beforeFlow: FlowValue,
 	afterFlow: FlowValue,
 	moduleDiff: Record<string, ModuleDiffResult>
 ): FlowValue {
-	// Get top-level removed modules from before flow
-	const removedModules = (beforeFlow.modules ?? []).filter(
-		(m) => moduleDiff[m.id]?.before === 'removed'
-	)
+	// Get top-level removed modules from before flow with their original indices
+	const removedModulesWithIndex = (beforeFlow.modules ?? [])
+		.map((m, index) => ({ module: m, index }))
+		.filter(({ module }) => moduleDiff[module.id]?.before === 'removed')
 
-	// Start with after modules and append removed ones
-	const mergedModules = [...(afterFlow.modules ?? []), ...removedModules]
+	// Create items for after modules with their current index
+	const afterModulesWithIndex = (afterFlow.modules ?? []).map((m, index) => ({
+		module: m,
+		index,
+		isFromAfter: true
+	}))
+
+	// Create items for removed modules with their original index
+	const removedModulesItems = removedModulesWithIndex
+		.filter(({ module }) => {
+			const originalIndex = moduleDiff[module.id]?.originalIndex
+			return originalIndex !== undefined
+		})
+		.map(({ module }) => ({
+			module,
+			index: moduleDiff[module.id].originalIndex!,
+			isFromAfter: false
+		}))
+
+	// Merge and sort by position
+	// Tie-breaker: removed modules (isFromAfter=false) come before after modules at the same index
+	const allModules = [...afterModulesWithIndex, ...removedModulesItems].sort((a, b) => {
+		if (a.index !== b.index) {
+			return a.index - b.index
+		}
+		// At same index: removed modules first (show what was there before)
+		return a.isFromAfter === b.isFromAfter ? 0 : a.isFromAfter ? 1 : -1
+	})
+
+	const mergedModules = allModules.map((item) => item.module)
 
 	// Handle special modules - use after version or add if removed
 	const mergedFailureModule =
