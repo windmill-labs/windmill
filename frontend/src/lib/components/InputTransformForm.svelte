@@ -460,6 +460,15 @@
 	)
 
 	let suggestion: string | undefined = $state()
+
+	// Svelte bug ...
+	// Somehow the value is updated in the UI of the parent, but not in the children
+	// when passed as a prop. setTimeout is a workaround to force the update
+	let visiblePropertyType = $state(untrack(() => (suggestion ? 'javascript' : propertyType)))
+	$effect(() => {
+		let value = suggestion ? 'javascript' : propertyType
+		setTimeout(() => (visiblePropertyType = value), 1)
+	})
 </script>
 
 {#if arg != undefined && !hidden}
@@ -545,7 +554,7 @@
 
 					<div class="{ButtonType.UnifiedHeightClasses.sm} relative">
 						<ToggleButtonGroup
-							selected={suggestion ? 'javascript' : propertyType}
+							selected={visiblePropertyType}
 							class="h-full"
 							on:selected={(e) => {
 								if (e.detail == propertyType || suggestion) return
