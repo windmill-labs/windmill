@@ -177,7 +177,6 @@
 						>
 							<SimpleEditor
 								bind:this={editor}
-								yPadding={7}
 								lang="javascript"
 								bind:code={flowModule.stop_after_if.expr}
 								class="h-full"
@@ -317,7 +316,6 @@
 								lang="javascript"
 								bind:code={flowModule.stop_after_all_iters_if.expr}
 								class="h-full"
-								yPadding={7}
 								extraLib={`declare const result = ${JSON.stringify(result)};` +
 									`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};`}
 							/>

@@ -82,7 +82,6 @@
 							bind:this={editor}
 							lang="javascript"
 							bind:code={flowModule.skip_if.expr}
-							yPadding={7}
 							class="h-full"
 							extraLib={stepPropPicker.extraLib}
 						/>

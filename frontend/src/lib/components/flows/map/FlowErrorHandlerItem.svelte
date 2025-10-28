@@ -63,7 +63,7 @@
 	<Button
 		variant="default"
 		unifiedSize="sm"
-		wrapperClasses={twMerge('min-w-36 h-7', small ? 'max-w-52' : 'max-w-64')}
+		wrapperClasses={twMerge('min-w-36', small ? 'max-w-52' : 'max-w-64')}
 		btnClasses={twMerge(
 			aiModuleActionToBgColor(action),
 			aiModuleActionToBorderColor(action),
@@ -118,7 +118,7 @@
 		{#snippet trigger({ toggleOpen })}
 			<Button
 				unifiedSize="sm"
-				wrapperClasses="min-w-36 h-7"
+				wrapperClasses="min-w-36"
 				title={`Add failure module`}
 				variant="default"
 				id={`flow-editor-add-step-error-handler-button`}

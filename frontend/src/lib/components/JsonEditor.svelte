@@ -87,7 +87,6 @@
 				{disabled}
 				{fixedOverflowWidgets}
 				renderLineHighlight="none"
-				yPadding={7}
 			/>
 		</div>
 		{#if error != ''}

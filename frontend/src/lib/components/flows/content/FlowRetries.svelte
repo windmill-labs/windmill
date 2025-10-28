@@ -185,7 +185,6 @@
 									bind:this={editor}
 									lang="javascript"
 									bind:code={flowModuleRetry.retry_if.expr}
-									yPadding={7}
 									class="h-full"
 									extraLib={`declare const result = ${JSON.stringify(result)};` +
 										`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input || {})};`}

@@ -6,7 +6,6 @@
 	import { getNonStreamingCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import type { Flow, InputTransform } from '$lib/gen'
-	import ManualPopover from '../ManualPopover.svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
@@ -30,7 +29,6 @@
 		schemaProperty: SchemaProperty
 		pickableProperties?: PickableProperties | undefined
 		argName: string
-		showPopup: boolean
 		btnClass?: string
 	}
 
@@ -40,7 +38,6 @@
 		schemaProperty,
 		pickableProperties = undefined,
 		argName,
-		showPopup,
 		btnClass = ''
 	}: Props = $props()
 
@@ -231,65 +228,54 @@ Only return the expression without any wrapper.`
 		bind:open={openInputsModal}
 		inputs={[newFlowInput]}
 	/>
-	<ManualPopover
-		showTooltip={showPopup && (generatedContent.length > 0 || !!$generatedExprs?.[argName])}
-		placement="bottom"
-		class="p-2"
+	<Button
+		size="xs"
+		variant="default"
+		btnClasses={twMerge(
+			flowAIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'default'),
+			btnClass
+		)}
+		on:click={() => {
+			if (!loading && generatedContent.length > 0) {
+				dispatch('setExpr', generatedContent)
+				if (newFlowInput) {
+					openInputsModal = true
+				}
+				generatedContent = ''
+			}
+		}}
+		on:mouseenter={(ev) => {
+			if (out) {
+				out = false
+				generateStepInput()
+			}
+		}}
+		on:mouseleave={() => {
+			out = true
+			cancel()
+		}}
+		endIcon={{
+			icon:
+				loading || ($stepInputsLoading && empty)
+					? Loader2
+					: generatedContent.length > 0
+						? Check
+						: Wand2,
+			classes: loading || ($stepInputsLoading && empty) ? 'animate-spin' : ''
+		}}
+		on:focus={() => {
+			btnFocused = true
+		}}
+		on:blur={() => {
+			btnFocused = false
+		}}
 	>
-		<Button
-			size="xs"
-			variant="default"
-			btnClasses={twMerge(
-				flowAIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'default'),
-				btnClass
-			)}
-			on:click={() => {
-				if (!loading && generatedContent.length > 0) {
-					dispatch('setExpr', generatedContent)
-					if (newFlowInput) {
-						openInputsModal = true
-					}
-					generatedContent = ''
-				}
-			}}
-			on:mouseenter={(ev) => {
-				if (out) {
-					out = false
-					generateStepInput()
-				}
-			}}
-			on:mouseleave={() => {
-				out = true
-				cancel()
-			}}
-			endIcon={{
-				icon:
-					loading || ($stepInputsLoading && empty)
-						? Loader2
-						: generatedContent.length > 0
-							? Check
-							: Wand2,
-				classes: loading || ($stepInputsLoading && empty) ? 'animate-spin' : ''
-			}}
-			on:focus={() => {
-				btnFocused = true
-			}}
-			on:blur={() => {
-				btnFocused = false
-			}}
-		>
-			{#if focused}
-				{#if loading}
-					ESC
-				{:else if generatedContent.length > 0}
-					TAB
-				{/if}
+		{#if focused}
+			{#if loading}
+				ESC
+			{:else if generatedContent.length > 0}
+				TAB
 			{/if}
-		</Button>
-		{#snippet content()}
-			<div class="text-sm text-primary">
-				{generatedContent || $generatedExprs?.[argName]}
-			</div>
-		{/snippet}
-	</ManualPopover>
+		{/if}
+	</Button>
 {/if}
