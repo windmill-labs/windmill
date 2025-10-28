@@ -188,7 +188,7 @@
 		{#snippet children()}
 			<DrawerContent title="UI Customisation" on:close={() => schemaFormDrawer?.closeDrawer()}>
 				<EditableSchemaForm
-					schemaFormClassName="h-full"
+					schemaFormClassName="min-h-full"
 					bind:this={editableSchemaForm}
 					bind:schema
 					isAppInput
