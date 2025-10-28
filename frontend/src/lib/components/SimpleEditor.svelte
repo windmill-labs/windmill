@@ -49,6 +49,7 @@
 		type IPosition
 	} from 'monaco-editor'
 	import { setMonacoJavascriptOptions, setMonacoJsonOptions } from './monacoLanguagesOptions'
+	import { twMerge } from 'tailwind-merge'
 	// import { createConfiguredEditor } from 'vscode/monaco'
 	// import type { IStandaloneCodeEditor } from 'vscode/vscode/vs/editor/standalone/browser/standaloneCodeEditor'
 
@@ -85,13 +86,11 @@
 		allowVim = false,
 		tailwindClasses = [],
 		class: className = '',
-		fakeMonacoPlaceholderClass = '',
 		loadAsync = false,
 		key,
 		disabled = false,
 		minHeight = 1000,
-		renderLineHighlight = 'none',
-		yPadding
+		renderLineHighlight = 'none'
 	}: {
 		lang: string
 		code?: string
@@ -113,15 +112,15 @@
 		allowVim?: boolean
 		tailwindClasses?: string[]
 		class?: string
-		fakeMonacoPlaceholderClass?: string
 		loadAsync?: boolean
 		initialCursorPos?: IPosition
 		key?: string
 		disabled?: boolean
 		minHeight?: number
 		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
-		yPadding?: number
 	} = $props()
+
+	let yPadding = 7
 
 	const dispatch = createEventDispatcher()
 
@@ -594,35 +593,32 @@
 	}
 
 	updatePlaceholderVisibility(code ?? '')
+
+	let showSuggestion = $derived(suggestion && !code)
 </script>
 
 <EditorTheme />
-{#if editor && suggestion && code?.length === 0}
-	<div
-		class="absolute top-[0.05rem] left-[2.05rem] z-10 text-sm text-[#0007] italic font-mono dark:text-[#ffffff56] text-ellipsis overflow-hidden whitespace-nowrap"
-		style={`max-width: calc(${width}px - 2.05rem)`}
-	>
-		{suggestion}
-	</div>
-{/if}
-
-{#if !editor}
+{#if !editor || showSuggestion}
 	<FakeMonacoPlaceHolder
-		{code}
+		code={suggestion || code}
 		autoheight
 		lineNumbersWidth={hideLineNumbers ? 0 : (23 * fontSize) / 14}
 		lineNumbersOffset={fontSize == 14 ? -8 : -11}
 		{fontSize}
 		showNumbers={!hideLineNumbers}
-		class={fakeMonacoPlaceholderClass}
+		{yPadding}
 	/>
 {/if}
-
 <div
 	bind:this={divEl}
-	class="relative {className} {!editor ? 'hidden' : ''} editor {disabled
-		? 'disabled'
-		: ''} simple-editor {!allowVim ? 'nonmain-editor' : ''}"
+	class={twMerge(
+		'relative editor simple-editor',
+		className,
+		!editor ? 'hidden' : '',
+		showSuggestion ? 'opacity-0 pointer-events-none absolute' : '',
+		disabled ? 'disabled' : '',
+		!allowVim ? 'nonmain-editor' : ''
+	)}
 	bind:clientWidth={width}
 >
 	{#if placeholder}
@@ -636,6 +632,7 @@
 		</div>
 	{/if}
 </div>
+
 {#if allowVim && vimMode}
 	<div class="fixed bottom-0 z-30" bind:this={statusDiv}></div>
 {/if}

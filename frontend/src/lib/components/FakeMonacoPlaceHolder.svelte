@@ -11,6 +11,7 @@
 		showNumbers?: boolean
 		class?: string
 		fontSize?: number
+		yPadding: number
 	}
 
 	let {
@@ -20,7 +21,8 @@
 		lineNumbersOffset = 0,
 		class: className = '',
 		showNumbers = true,
-		fontSize = 14
+		fontSize = 14,
+		yPadding
 	}: Props = $props()
 
 	// https://github.com/microsoft/vscode/blob/baa2dad3cdacd97ac02eff0604984faf1167ff1e/src/vs/editor/common/config/editorOptions.ts#L5421
@@ -42,7 +44,7 @@
 
 	const charWidth = 9 // try to match as closely as possible to monaco editor
 
-	const lineHeight = fontSize * GOLDEN_LINE_HEIGHT_RATIO
+	const lineHeight = fontSize * GOLDEN_LINE_HEIGHT_RATIO + yPadding * 2
 
 	let [clientWidth, clientHeight] = $state([0, 0])
 	let showHorizontalScrollbar = $derived(

@@ -719,7 +719,6 @@
 
 							{#if arg}
 								<TemplateEditor
-									yPadding={7}
 									bind:this={monacoTemplate}
 									{extraLib}
 									on:focus={onFocus}
@@ -794,19 +793,17 @@
 						</ArgInput>
 					{:else if arg.expr != undefined}
 						<div
-							class={`bg-surface-input rounded-md flex flex-col pl-3 ${inputBorderClass({ forceFocus: focused })}`}
+							class={`bg-surface-input rounded-md flex flex-col pl-3 overflow-auto ${inputBorderClass({ forceFocus: focused })}`}
 						>
 							<SimpleEditor
 								small
 								bind:this={monaco}
 								bind:code={arg.expr}
-								yPadding={7}
 								{extraLib}
 								lang="javascript"
 								shouldBindKey={false}
 								renderLineHighlight="none"
 								hideLineNumbers
-								fakeMonacoPlaceholderClass="mt-2"
 								on:focus={() => (focused = true)}
 								on:blur={() => (focused = false)}
 								on:change={() => {

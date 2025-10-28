@@ -381,8 +381,9 @@
 	export let autoHeight = true
 	export let fixedOverflowWidgets = true
 	export let fontSize = 12
-	export let yPadding: number | undefined = undefined
 	export let loadAsync = false
+
+	let yPadding = 7
 
 	if (typeof code != 'string') {
 		code = ''
@@ -664,6 +665,7 @@
 		lineNumbersWidth={14}
 		lineNumbersOffset={-20}
 		{fontSize}
+		{yPadding}
 		class="template nonmain-editor bg-surface-input rounded-md !py-[8px] overflow-clip"
 	/>
 {/if}

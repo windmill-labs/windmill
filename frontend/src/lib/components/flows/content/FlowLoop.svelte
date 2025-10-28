@@ -314,7 +314,6 @@
 									}
 								}
 								class="h-full"
-								yPadding={7}
 								shouldBindKey={false}
 								extraLib={stepPropPicker.extraLib}
 							/>
@@ -399,7 +398,6 @@
 								lang="javascript"
 								bind:code={mod.value.iterator.expr}
 								class="h-full"
-								yPadding={7}
 								shouldBindKey={false}
 								extraLib={stepPropPicker.extraLib}
 							/>

@@ -262,7 +262,6 @@
 									<SimpleEditor
 										lang="javascript"
 										small
-										yPadding={7}
 										bind:code={flowStore.val.value.skip_expr}
 										class="small-editor"
 										extraLib={`declare const flow_input = ${JSON.stringify(
