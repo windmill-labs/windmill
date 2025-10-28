@@ -269,7 +269,7 @@
 		{/if}
 		{#key css}
 			<div
-				class="inline-flex"
+				class={twMerge('inline-flex', resolvedConfig.fillContainer ? 'w-full h-full' : '')}
 				title={resolvedConfig.tooltip && String(resolvedConfig.tooltip).length > 0
 					? String(resolvedConfig.tooltip)
 					: undefined}
