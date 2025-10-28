@@ -21,6 +21,9 @@
 		exact?: boolean
 		otherValues?: string[]
 		disabled?: boolean
+		/**
+		 * @deprecated TODO : Re-organize workspace settings so we don't have so many tabs
+		 */
 		small?: boolean
 		extra?: import('svelte').Snippet
 	}
