@@ -87,8 +87,11 @@
 	$positioning = floatingConfig ?? {
 		placement,
 		strategy: 'absolute',
-		x: undefined,
-		y: undefined
+		gutter: 8,
+		overflowPadding: 16,
+		flip: true,
+		fitViewport: true,
+		overlap: false
 	}
 
 	export let isOpen = false
