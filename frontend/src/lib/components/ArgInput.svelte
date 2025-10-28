@@ -1285,6 +1285,10 @@
 		{:else if inputCat == 'enum'}
 			<div class="flex flex-row w-full gap-1">
 				<ArgEnum
+					onClear={() => {
+						lastValue = undefined
+						value = undefined
+					}}
 					create={extra['disableCreate'] != true}
 					{defaultValue}
 					valid={valid ?? true}
