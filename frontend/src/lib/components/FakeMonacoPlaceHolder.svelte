@@ -44,7 +44,7 @@
 
 	const charWidth = 9 // try to match as closely as possible to monaco editor
 
-	const lineHeight = fontSize * GOLDEN_LINE_HEIGHT_RATIO + yPadding * 2
+	const lineHeight = fontSize * GOLDEN_LINE_HEIGHT_RATIO
 
 	let [clientWidth, clientHeight] = $state([0, 0])
 	let showHorizontalScrollbar = $derived(
@@ -53,7 +53,9 @@
 
 	let [editorWidth, editorHeight] = $derived([
 		clientWidth,
-		autoheight ? lines.length * lineHeight + (showHorizontalScrollbar ? 12 : 0) : clientHeight
+		autoheight
+			? lines.length * lineHeight + (showHorizontalScrollbar ? 12 : 0) + yPadding * 2
+			: clientHeight
 	])
 </script>
 
@@ -85,7 +87,7 @@
 						: 'block'};"
 				>
 					{#each lines as _, i}
-						<div style="top:{lineHeight * i}px;height:{lineHeight}px;">
+						<div style="top:{lineHeight * i + yPadding}px;height:{lineHeight}px;">
 							<div class="line-numbers" style="left:{lineNumbersOffset}px;width:25px;">{i + 1}</div>
 						</div>
 					{/each}
@@ -101,11 +103,11 @@
 				>
 					<div
 						class="view-lines monaco-mouse-cursor-text text-primary/60"
-						style="line-height: {lineHeight}px; position: absolute; font-family: {fontFamily}; font-weight: normal; font-size: {fontSize}px; font-feature-settings: 'liga' 0, 'calt' 0; font-variation-settings: normal; line-height: {lineHeight}px; letter-spacing: 0px; width: 1143px; height: 789px;"
+						style="padding-top: {yPadding}px; line-height: {lineHeight}px; position: absolute; font-family: {fontFamily}; font-weight: normal; font-size: {fontSize}px; font-feature-settings: 'liga' 0, 'calt' 0; font-variation-settings: normal; line-height: {lineHeight}px; letter-spacing: 0px; width: 1143px; height: 789px;"
 					>
 						{#each lines as line, i}
 							<div
-								style="height: {lineHeight}px; top: {i * lineHeight}px;"
+								style="height: {lineHeight}px; top: {lineHeight * i}px;"
 								class="text-nowrap whitespace-pre"
 							>
 								{line}
