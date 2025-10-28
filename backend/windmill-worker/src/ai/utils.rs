@@ -8,7 +8,6 @@ use std::{
 };
 use uuid::Uuid;
 use windmill_common::{
-    ai_providers::AIProvider,
     db::DB,
     error::Error,
     flow_conversations::{add_message_to_conversation_tx, MessageType},
@@ -311,12 +310,9 @@ pub fn get_step_name_from_flow(
     )
 }
 
-/// Check if the provider is Anthropic (either direct or through OpenRouter)
-pub fn is_anthropic_provider(provider: &ProviderWithResource) -> bool {
-    let provider_is_anthropic = provider.kind.is_anthropic();
-    let is_openrouter_anthropic =
-        provider.kind == AIProvider::OpenRouter && provider.model.starts_with("anthropic/");
-    provider_is_anthropic || is_openrouter_anthropic
+/// Claude models starts with claude if provider is anthropic, or anthropic for openrouter and other providers
+pub fn is_claude_model(model: &str) -> bool {
+    model.starts_with("claude") || model.starts_with("anthropic")
 }
 
 /// Cleanup MCP clients by gracefully shutting down connections
