@@ -285,11 +285,9 @@
 			<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start z-50">
 				<button
 					class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
-					onclick={stopPropagation(
-						preventDefault(() => {
-							onShowModuleDiff?.(id)
-						})
-					)}
+					onclick={() => {
+						onShowModuleDiff?.(id)
+					}}
 				>
 					<DiffIcon size={14} /> Diff
 				</button>
