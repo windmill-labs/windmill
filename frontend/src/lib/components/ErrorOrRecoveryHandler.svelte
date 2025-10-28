@@ -345,7 +345,7 @@
 
 		{#if !handlerPath}
 			<Button
-				btnClasses="ml-4"
+				btnClasses="ml-4 whitespace-nowrap"
 				variant="default"
 				size="xs"
 				href={customScriptTemplate}

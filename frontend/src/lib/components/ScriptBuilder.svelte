@@ -1106,14 +1106,6 @@
 													}}
 												/>
 											</Label>
-											{#if script.schema && !disableAi && !customUi?.settingsPanel?.metadata?.disableAiFilling}
-												<div class="mt-3">
-													<AIFormSettings
-														bind:prompt={script.schema.prompt_for_ai as string | undefined}
-														type="script"
-													/>
-												</div>
-											{/if}
 										</div>
 									</Section>
 									{#if !customUi?.settingsPanel?.metadata?.languages || customUi?.settingsPanel?.metadata?.languages?.length > 1}
@@ -1205,6 +1197,15 @@
 											/>
 										</Section>
 									{/if}
+
+									{#if script.schema && !disableAi && !customUi?.settingsPanel?.metadata?.disableAiFilling}
+										<div class="mt-3">
+											<AIFormSettings
+												bind:prompt={script.schema.prompt_for_ai as string | undefined}
+												type="script"
+											/>
+										</div>
+									{/if}
 								</div>
 							</TabContent>
 							<TabContent value="runtime">
@@ -1219,7 +1220,7 @@
 										{/snippet}
 										<div class="flex flex-col gap-4">
 											<Label label="Max number of executions within the time window">
-												<div class="flex flex-row gap-2 max-w-sm">
+												<div class="flex flex-row gap-2 max-w-sm whitespace-nowrap">
 													<input
 														disabled={!$enterpriseLicense}
 														bind:value={script.concurrent_limit}
@@ -1273,9 +1274,7 @@
 										{/snippet}
 										<div class="flex flex-col gap-4">
 											<Label label="Debounce Delay in seconds. (if not set - disabled)">
-												<SecondsInput
-													bind:seconds={script.debounce_delay_s}
-												/>
+												<SecondsInput bind:seconds={script.debounce_delay_s} />
 												<Button
 													size="sm"
 													color="light"
@@ -1291,9 +1290,9 @@
 													<Tooltip
 														documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing#custom-debounce-key"
 													>
-														Debounce Keys are global, you can have them be workspace specific
-														using the variable `$workspace`. You can also use an argument's value
-														using `$args[name_of_arg]`</Tooltip
+														Debounce Keys are global, you can have them be workspace specific using
+														the variable `$workspace`. You can also use an argument's value using
+														`$args[name_of_arg]`</Tooltip
 													>
 												{/snippet}
 												<input

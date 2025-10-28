@@ -62,6 +62,9 @@
 		list-style-type: '- ';
 		padding-left: 3rem;
 	}
+	.prose a {
+		@apply text-accent no-underline;
+	}
 
 	.autocomplete-list-item-create {
 		@apply !text-primary-inverse !bg-surface-inverse;

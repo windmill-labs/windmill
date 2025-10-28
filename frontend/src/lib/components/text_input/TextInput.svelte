@@ -18,14 +18,23 @@
 	}
 
 	export const inputBaseClass =
-		'rounded-md focus:ring-0 no-default-style text-xs text-primary font-normal !bg-surface-input disabled:!bg-surface-disabled/20 disabled:!border-transparent disabled:!text-disabled disabled:cursor-not-allowed shadow-none !placeholder-hint'
+		'rounded-md focus:ring-0 no-default-style text-xs text-primary font-normal !bg-surface-input disabled:!bg-surface-disabled disabled:!border-transparent disabled:!text-disabled disabled:cursor-not-allowed shadow-none !placeholder-hint'
 
 	import { ButtonType } from '$lib/components/common/button/model'
 
 	export const inputSizeClasses = {
-		sm: `${ButtonType.UnifiedSizingClasses.sm} ${ButtonType.UnifiedMinHeightClasses.sm} !py-0.5`,
-		md: `${ButtonType.UnifiedSizingClasses.md} ${ButtonType.UnifiedMinHeightClasses.md}`,
-		lg: `${ButtonType.UnifiedSizingClasses.lg} ${ButtonType.UnifiedMinHeightClasses.lg}`
+		sm: twMerge(
+			`${ButtonType.UnifiedSizingClasses.sm} ${ButtonType.UnifiedMinHeightClasses.sm} !py-0.5`,
+			'px-2'
+		),
+		md: twMerge(
+			`${ButtonType.UnifiedSizingClasses.md} ${ButtonType.UnifiedMinHeightClasses.md}`,
+			'px-2'
+		),
+		lg: twMerge(
+			`${ButtonType.UnifiedSizingClasses.lg} ${ButtonType.UnifiedMinHeightClasses.lg}`,
+			'px-2'
+		)
 	}
 </script>
 

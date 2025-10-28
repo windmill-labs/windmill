@@ -77,7 +77,7 @@
 			right: 'Add a custom timeout for this step'
 		}}
 	/>
-	<Label label="Timeout duration">
+	<Label label="Timeout duration" class="mt-2">
 		{#if flowModule.timeout && schema.properties['timeout']}
 			<div class="border">
 				<PropPickerWrapper
