@@ -42,7 +42,11 @@
 	import { workspaceStore } from '$lib/stores'
 	import { type Preview, ResourceService, type ScriptLang, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
-	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from '$lib/components/vscode'
+	import {
+		initializeVscode,
+		keepModelAroundToAvoidDisposalOfWorkers,
+		MONACO_Y_PADDING
+	} from '$lib/components/vscode'
 
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
@@ -1077,7 +1081,7 @@
 
 	let pathTimeout: number | undefined = undefined
 
-	let yPadding = 7
+	let yPadding = MONACO_Y_PADDING
 
 	function getHostname() {
 		return BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'

@@ -22,7 +22,7 @@
 
 	// import '@codingame/monaco-vscode-standalone-typescript-language-features'
 
-	import { initializeVscode } from './vscode'
+	import { initializeVscode, MONACO_Y_PADDING } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { setMonacoJsonOptions } from './monacoLanguagesOptions'
@@ -384,7 +384,7 @@
 	export let fontSize = 12
 	export let loadAsync = false
 
-	let yPadding = 7
+	let yPadding = MONACO_Y_PADDING
 
 	if (typeof code != 'string') {
 		code = ''

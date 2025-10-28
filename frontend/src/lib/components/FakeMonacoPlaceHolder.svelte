@@ -2,6 +2,7 @@
 
 <script lang="ts">
 	import { getOS } from '$lib/utils'
+	import { MONACO_Y_PADDING } from './vscode'
 
 	type Props = {
 		code?: string
@@ -23,7 +24,7 @@
 		fontSize = 14
 	}: Props = $props()
 
-	let yPadding = 7
+	let yPadding = MONACO_Y_PADDING
 
 	// https://github.com/microsoft/vscode/blob/baa2dad3cdacd97ac02eff0604984faf1167ff1e/src/vs/editor/common/config/editorOptions.ts#L5421
 	const DEFAULT_WINDOWS_FONT_FAMILY = "Consolas, 'Courier New', monospace"

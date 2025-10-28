@@ -31,7 +31,11 @@
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import domContent from '$lib/dom.d.ts.txt?raw'
-	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from './vscode'
+	import {
+		initializeVscode,
+		keepModelAroundToAvoidDisposalOfWorkers,
+		MONACO_Y_PADDING
+	} from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import { vimMode, relativeLineNumbers } from '$lib/stores'
 	import { initVim } from './monaco_keybindings'
@@ -119,7 +123,7 @@
 		renderLineHighlight?: 'all' | 'line' | 'gutter' | 'none'
 	} = $props()
 
-	let yPadding = 7
+	let yPadding = MONACO_Y_PADDING
 
 	const dispatch = createEventDispatcher()
 
