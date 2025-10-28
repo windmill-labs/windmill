@@ -339,7 +339,7 @@
 				model,
 				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {}),
 				renderLineHighlight,
-				lineDecorationsWidth: 6,
+				lineDecorationsWidth: 0,
 				lineNumbersMinChars: 2,
 				fontSize: fontSize,
 				quickSuggestions: disableSuggestions
@@ -624,7 +624,7 @@
 	{#if placeholder}
 		<div
 			id="placeholder"
-			class="absolute left-[24px] text-gray-500 text-sm pointer-events-none font-mono z-10 {placeholderVisible
+			class="absolute text-gray-500 text-sm pointer-events-none font-mono z-10 {placeholderVisible
 				? ''
 				: 'hidden'}"
 		>

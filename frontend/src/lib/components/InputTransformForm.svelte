@@ -793,7 +793,7 @@
 						</ArgInput>
 					{:else if arg.expr != undefined}
 						<div
-							class={`bg-surface-input rounded-md flex flex-col pl-3 overflow-auto ${inputBorderClass({ forceFocus: focused })}`}
+							class={`bg-surface-input rounded-md flex flex-col pl-2	 overflow-auto ${inputBorderClass({ forceFocus: focused })}`}
 						>
 							<SimpleEditor
 								small
