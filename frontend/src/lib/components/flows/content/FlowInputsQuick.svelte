@@ -307,8 +307,7 @@
 								unifiedSize="sm"
 								btnClasses="justify-start"
 								startIcon={{
-									icon: owner.startsWith('f/') ? Folder : User,
-									props: { width: 14, height: 14 }
+									icon: owner.startsWith('f/') ? Folder : User
 								}}
 								onClick={() => {
 									selected = selected?.name == owner ? undefined : { kind: 'owner', name: owner }
