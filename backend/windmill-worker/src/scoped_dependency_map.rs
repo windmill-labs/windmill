@@ -239,7 +239,7 @@ SELECT importer_node_id, imported_path
 
     /// Selectively clean dependency_map for object
     /// If `importer_node_id` is None will clear all nodes.
-    pub(crate) async fn clear_map_for_item<'c>(
+    pub async fn clear_map_for_item<'c>(
         item_path: &str,
         w_id: &str,
         importer_kind: &str,
