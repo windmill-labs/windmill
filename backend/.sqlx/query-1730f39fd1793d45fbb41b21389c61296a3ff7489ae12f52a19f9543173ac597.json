@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM workspace_settings WHERE slack_team_id = $1 AND slack_command_script IS NOT NULL",
+  "query": "SELECT * FROM workspace_settings WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
@@ -210,5 +210,5 @@
       true
     ]
   },
-  "hash": "55cb03040bc2a8c53dd7fbb42bbdcc40f463cbc52d94ed9315cf9a547d4c89f2"
+  "hash": "1730f39fd1793d45fbb41b21389c61296a3ff7489ae12f52a19f9543173ac597"
 }
