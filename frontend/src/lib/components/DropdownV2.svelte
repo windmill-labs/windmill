@@ -125,7 +125,7 @@
 		description: aiDescription,
 		callback: () => buttonEl?.click()
 	}}
-	class={twMerge('w-full flex items-center justify-end', fixedHeight && 'h-8', classNames)}
+	class={twMerge('flex items-center justify-end', fixedHeight && 'h-8', classNames)}
 	use:melt={$trigger}
 	{disabled}
 	onclick={(e) => e.stopPropagation()}

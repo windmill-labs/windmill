@@ -262,7 +262,6 @@
 									<SimpleEditor
 										lang="javascript"
 										small
-										yPadding={7}
 										bind:code={flowStore.val.value.skip_expr}
 										class="small-editor"
 										extraLib={`declare const flow_input = ${JSON.stringify(
@@ -427,7 +426,7 @@
 						{#if flowStore.val.value.concurrent_limit}
 							<div class="flex flex-col gap-6 mt-6" transition:slide={{ duration: 120 }}>
 								<Label label="Max number of executions within the time window">
-									<div class="flex flex-row gap-2 max-w-sm">
+									<div class="flex flex-row gap-2 max-w-sm whitespace-nowrap">
 										<input
 											disabled={!$enterpriseLicense}
 											bind:value={flowStore.val.value.concurrent_limit}
@@ -492,7 +491,8 @@
 								}}
 								options={{
 									right: 'Debounce limits',
-									rightTooltip: 'Consolidate multiple flow executions into a single run within a time window',
+									rightTooltip:
+										'Consolidate multiple flow executions into a single run within a time window',
 									rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/debouncing'
 								}}
 								class="py-1"

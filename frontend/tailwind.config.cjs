@@ -10,6 +10,19 @@ const { darkModeName, lightModeName } = require('./src/lib/assets/tokens/colorTo
 const tokens = { dark: figmaTokens.tokens[darkModeName], light: figmaTokens.tokens[lightModeName] }
 const primitives = figmaTokens.primitives.light
 
+// Helper function to create color definition based on whether the value contains alpha
+function createColorDefinition(colorName) {
+	// Check a sample value to see if it contains alpha (using light theme as reference)
+	const sampleValue = tokens.light[colorName]
+	if (sampleValue && sampleValue.includes('/')) {
+		// Alpha is already included, use as-is without allowing override
+		return `rgb(var(--color-${colorName}))`
+	} else {
+		// No alpha, allow Tailwind's alpha-value placeholder
+		return `rgb(var(--color-${colorName}) / <alpha-value>)`
+	}
+}
+
 /** @type {import('tailwindcss').Config} */
 const config = {
 	//to generatd tailwind full, only include ./src/lib/components/apps/editor/componentsPanel/tailwindUtils.ts and run:
@@ -41,60 +54,58 @@ const config = {
 			black: '#000000',
 
 			// Surface colors (semantic)
-			surface: 'rgb(var(--color-surface-primary) / <alpha-value>)',
-			'surface-secondary': 'rgb(var(--color-surface-secondary) / <alpha-value>)',
-			'surface-sunken': 'rgb(var(--color-surface-sunken) / <alpha-value>)',
-			'surface-tertiary': 'rgb(var(--color-surface-tertiary) / <alpha-value>)',
-			'surface-hover': 'rgb(var(--color-surface-hover) / <alpha-value>)',
-			'surface-disabled': 'rgb(var(--color-surface-disabled) / <alpha-value>)',
-			'surface-selected': 'rgb(var(--color-surface-selected) / <alpha-value>)',
-			'surface-accent-primary': 'rgb(var(--color-surface-accent-primary) / <alpha-value>)',
-			'surface-accent-hover': 'rgb(var(--color-surface-accent-hover) / <alpha-value>)',
-			'surface-accent-clicked': 'rgb(var(--color-surface-accent-clicked) / <alpha-value>)',
-			'surface-accent-secondary': 'rgb(var(--color-surface-accent-secondary) / <alpha-value>)',
-			'surface-accent-secondary-hover':
-				'rgb(var(--color-surface-accent-secondary-hover) / <alpha-value>)',
-			'surface-accent-secondary-clicked':
-				'rgb(var(--color-surface-accent-secondary-clicked) / <alpha-value>)',
-			'surface-accent-selected': 'rgb(var(--color-surface-accent-selected))',
-			'surface-input': 'rgb(var(--color-surface-input))',
+			surface: createColorDefinition('surface-primary'),
+			'surface-secondary': createColorDefinition('surface-secondary'),
+			'surface-sunken': createColorDefinition('surface-sunken'),
+			'surface-tertiary': createColorDefinition('surface-tertiary'),
+			'surface-hover': createColorDefinition('surface-hover'),
+			'surface-disabled': createColorDefinition('surface-disabled'),
+			'surface-selected': createColorDefinition('surface-selected'),
+			'surface-accent-primary': createColorDefinition('surface-accent-primary'),
+			'surface-accent-hover': createColorDefinition('surface-accent-hover'),
+			'surface-accent-clicked': createColorDefinition('surface-accent-clicked'),
+			'surface-accent-secondary': createColorDefinition('surface-accent-secondary'),
+			'surface-accent-secondary-hover': createColorDefinition('surface-accent-secondary-hover'),
+			'surface-accent-secondary-clicked': createColorDefinition('surface-accent-secondary-clicked'),
+			'surface-accent-selected': createColorDefinition('surface-accent-selected'),
+			'surface-input': createColorDefinition('surface-input'),
 
 			// Text colors (semantic)
-			primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
-			secondary: 'rgb(var(--color-text-secondary) / <alpha-value>)',
-			tertiary: 'rgb(var(--color-text-tertiary) / <alpha-value>)',
-			hint: 'rgb(var(--color-text-hint) / <alpha-value>)',
-			disabled: 'rgb(var(--color-text-disabled) / <alpha-value>)',
-			emphasis: 'rgb(var(--color-text-emphasis) / <alpha-value>)',
-			accent: 'rgb(var(--color-text-accent) / <alpha-value>)',
+			primary: createColorDefinition('text-primary'),
+			secondary: createColorDefinition('text-secondary'),
+			tertiary: createColorDefinition('text-tertiary'),
+			hint: createColorDefinition('text-hint'),
+			disabled: createColorDefinition('text-disabled'),
+			emphasis: createColorDefinition('text-emphasis'),
+			accent: createColorDefinition('text-accent'),
 
 			// Inverse colors (computed from opposite theme)
-			'primary-inverse': 'rgb(var(--color-text-primary-inverse) / <alpha-value>)',
-			'secondary-inverse': 'rgb(var(--color-text-secondary-inverse) / <alpha-value>)',
-			'tertiary-inverse': 'rgb(var(--color-text-tertiary-inverse) / <alpha-value>)',
-			'emphasis-inverse': 'rgb(var(--color-text-emphasis-inverse) / <alpha-value>)',
-			'hint-inverse': 'rgb(var(--color-text-hint-inverse) / <alpha-value>)',
-			'disabled-inverse': 'rgb(var(--color-text-disabled-inverse) / <alpha-value>)',
+			'primary-inverse': createColorDefinition('text-primary-inverse'),
+			'secondary-inverse': createColorDefinition('text-secondary-inverse'),
+			'tertiary-inverse': createColorDefinition('text-tertiary-inverse'),
+			'emphasis-inverse': createColorDefinition('text-emphasis-inverse'),
+			'hint-inverse': createColorDefinition('text-hint-inverse'),
+			'disabled-inverse': createColorDefinition('text-disabled-inverse'),
 
 			// Border colors (semantic)
-			'border-light': 'rgb(var(--color-border-light) / <alpha-value>)',
-			'border-normal': 'rgb(var(--color-border-normal) / <alpha-value>)',
-			'border-accent': 'rgb(var(--color-border-accent) / <alpha-value>)',
-			'border-selected': 'rgb(var(--color-border-selected) / <alpha-value>)',
+			'border-light': createColorDefinition('border-light'),
+			'border-normal': createColorDefinition('border-normal'),
+			'border-accent': createColorDefinition('border-accent'),
+			'border-selected': createColorDefinition('border-selected'),
 
 			// Reserved colors (semantic)
-			ai: 'rgb(var(--color-reserved-ai) / <alpha-value>)',
-			'ai-inverse': 'rgb(var(--color-reserved-ai-inverse) / <alpha-value>)',
+			ai: createColorDefinition('reserved-ai'),
+			'ai-inverse': createColorDefinition('reserved-ai-inverse'),
 
 			// Surface inverse colors (computed from opposite theme)
-			'surface-inverse': 'rgb(var(--color-surface-primary-inverse) / <alpha-value>)',
-			'surface-secondary-inverse': 'rgb(var(--color-surface-secondary-inverse) / <alpha-value>)',
-			'surface-hover-inverse': 'rgb(var(--color-surface-hover-inverse) / <alpha-value>)',
-			'surface-disabled-inverse': 'rgb(var(--color-surface-disabled-inverse) / <alpha-value>)',
-			'surface-selected-inverse': 'rgb(var(--color-surface-selected-inverse) / <alpha-value>)',
+			'surface-inverse': createColorDefinition('surface-primary-inverse'),
+			'surface-secondary-inverse': createColorDefinition('surface-secondary-inverse'),
+			'surface-hover-inverse': createColorDefinition('surface-hover-inverse'),
+			'surface-disabled-inverse': createColorDefinition('surface-disabled-inverse'),
+			'surface-selected-inverse': createColorDefinition('surface-selected-inverse'),
 
 			// Component colors
-			'component-virtual-node': 'rgb(var(--color-component-virtual-node) / <alpha-value>)',
+			'component-virtual-node': createColorDefinition('component-virtual-node'),
 
 			// Design token colors
 			'light-blue': `rgb(${primitives['light-blue']})`,
@@ -110,17 +121,70 @@ const config = {
 				800: `rgb(${primitives['deep-blue-800']})`,
 				900: `rgb(${primitives['deep-blue-900']})`
 			},
-			'luminance-blue': {
-				50: `rgb(${primitives['luminance-blue-50']})`,
-				100: `rgb(${primitives['luminance-blue-100']})`,
-				200: `rgb(${primitives['luminance-blue-200']})`,
-				300: `rgb(${primitives['luminance-blue-300']})`,
-				400: `rgb(${primitives['luminance-blue-400']})`,
-				500: `rgb(${primitives['luminance-blue-500']})`,
-				600: `rgb(${primitives['luminance-blue-600']})`,
-				700: `rgb(${primitives['luminance-blue-700']})`,
-				800: `rgb(${primitives['luminance-blue-800']})`,
-				900: `rgb(${primitives['luminance-blue-900']})`
+			red: {
+				50: `rgb(${primitives['red-50']})`,
+				100: `rgb(${primitives['red-100']})`,
+				200: `rgb(${primitives['red-200']})`,
+				300: `rgb(${primitives['red-300']})`,
+				400: `rgb(${primitives['red-400']})`,
+				500: `rgb(${primitives['red-500']})`,
+				600: `rgb(${primitives['red-600']})`,
+				700: `rgb(${primitives['red-700']})`,
+				800: `rgb(${primitives['red-800']})`,
+				900: `rgb(${primitives['red-900']})`,
+				950: `rgb(${primitives['red-950']})`
+			},
+			blue: {
+				50: `rgb(${primitives['blue-50']})`,
+				100: `rgb(${primitives['blue-100']})`,
+				200: `rgb(${primitives['blue-200']})`,
+				300: `rgb(${primitives['blue-300']})`,
+				400: `rgb(${primitives['blue-400']})`,
+				500: `rgb(${primitives['blue-500']})`,
+				600: `rgb(${primitives['blue-600']})`,
+				700: `rgb(${primitives['blue-700']})`,
+				800: `rgb(${primitives['blue-800']})`,
+				900: `rgb(${primitives['blue-900']})`,
+				950: `rgb(${primitives['blue-950']})`
+			},
+			green: {
+				50: `rgb(${primitives['green-50']})`,
+				100: `rgb(${primitives['green-100']})`,
+				200: `rgb(${primitives['green-200']})`,
+				300: `rgb(${primitives['green-300']})`,
+				400: `rgb(${primitives['green-400']})`,
+				500: `rgb(${primitives['green-500']})`,
+				600: `rgb(${primitives['green-600']})`,
+				700: `rgb(${primitives['green-700']})`,
+				800: `rgb(${primitives['green-800']})`,
+				900: `rgb(${primitives['green-900']})`,
+				950: `rgb(${primitives['green-950']})`
+			},
+			orange: {
+				50: `rgb(${primitives['orange-50']})`,
+				100: `rgb(${primitives['orange-100']})`,
+				200: `rgb(${primitives['orange-200']})`,
+				300: `rgb(${primitives['orange-300']})`,
+				400: `rgb(${primitives['orange-400']})`,
+				500: `rgb(${primitives['orange-500']})`,
+				600: `rgb(${primitives['orange-600']})`,
+				700: `rgb(${primitives['orange-700']})`,
+				800: `rgb(${primitives['orange-800']})`,
+				900: `rgb(${primitives['orange-900']})`,
+				950: `rgb(${primitives['orange-950']})`
+			},
+			purple: {
+				50: `rgb(${primitives['purple-50']})`,
+				100: `rgb(${primitives['purple-100']})`,
+				200: `rgb(${primitives['purple-200']})`,
+				300: `rgb(${primitives['purple-300']})`,
+				400: `rgb(${primitives['purple-400']})`,
+				500: `rgb(${primitives['purple-500']})`,
+				600: `rgb(${primitives['purple-600']})`,
+				700: `rgb(${primitives['purple-700']})`,
+				800: `rgb(${primitives['purple-800']})`,
+				900: `rgb(${primitives['purple-900']})`,
+				950: `rgb(${primitives['purple-950']})`
 			},
 			slate: {
 				50: '#f8fafc',
@@ -169,18 +233,6 @@ const config = {
 				700: '#44403c',
 				800: '#292524',
 				900: '#1c1917'
-			},
-			orange: {
-				50: '#fff7ed',
-				100: '#ffedd5',
-				200: '#fed7aa',
-				300: '#fdba74',
-				400: '#fb923c',
-				500: '#f97316',
-				600: '#ea580c',
-				700: '#c2410c',
-				800: '#9a3412',
-				900: '#7c2d12'
 			},
 			amber: {
 				50: '#fffbeb',
@@ -266,18 +318,6 @@ const config = {
 				800: '#5b21b6',
 				900: '#4c1d95'
 			},
-			purple: {
-				50: '#faf5ff',
-				100: '#f3e8ff',
-				200: '#e9d5ff',
-				300: '#d8b4fe',
-				400: '#c084fc',
-				500: '#a855f7',
-				600: '#9333ea',
-				700: '#7e22ce',
-				800: '#6b21a8',
-				900: '#581c87'
-			},
 			fuchsia: {
 				50: '#fdf4ff',
 				100: '#fae8ff',
@@ -326,28 +366,6 @@ const config = {
 				800: '#1f2937',
 				900: '#111827'
 			},
-			red: {
-				50: '#fef2f2',
-				100: '#fee2e2',
-				200: '#fecaca',
-				300: '#fca5a5',
-				400: '#f87171',
-				500: '#ef4444',
-				600: '#dc2626',
-				700: '#b91c1c',
-				800: '#991b1b',
-				900: '#7f1d1d'
-			},
-			orange: {
-				100: '#ffedd5',
-				200: '#ffedd5',
-				300: '#FDC089',
-				400: '#fb923c',
-				500: '#f97316',
-				600: '#ea580c',
-				700: '#c2410c',
-				800: '#c2410c'
-			},
 			yellow: {
 				50: '#fefce8',
 				100: '#fef9c3',
@@ -360,31 +378,6 @@ const config = {
 				800: '#854d0e',
 				900: '#713f12'
 			},
-			green: {
-				50: '#f0fdf4',
-				100: '#dcfce7',
-				200: '#bbf7d0',
-				300: '#86efac',
-				400: '#4ade80',
-				500: '#22c55e',
-				600: '#16a34a',
-				700: '#15803d',
-				800: '#166534',
-				900: '#14532d'
-			},
-			blue: {
-				50: '#eff6ff',
-				100: '#dbeafe',
-				200: '#bfdbfe',
-				300: '#93c5fd',
-				400: '#60a5fa',
-				500: '#3b82f6',
-				600: '#2563eb',
-				700: '#1d4ed8',
-				800: '#1e40af',
-				900: '#1e3a8a'
-			},
-
 			indigo: {
 				50: '#eef2ff',
 				100: '#e0e7ff',
@@ -937,6 +930,13 @@ function hexToRgb(hex) {
 	const g = parseInt(hex.substring(2, 4), 16)
 	const b = parseInt(hex.substring(4, 6), 16)
 
-	// Return the RGB string format
+	// Check if hex has alpha channel (8 characters)
+	if (hex.length === 8) {
+		const a = parseInt(hex.substring(6, 8), 16) / 255
+		// Return RGB with alpha as decimal value for CSS
+		return `${r} ${g} ${b} / ${a.toFixed(3)}`
+	}
+
+	// Return the RGB string format without alpha
 	return `${r} ${g} ${b}`
 }

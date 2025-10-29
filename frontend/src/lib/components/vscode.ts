@@ -290,3 +290,5 @@ export function keepModelAroundToAvoidDisposalOfWorkers() {
 		meditor.createModel('', 'typescript', keepEditorUri)
 	}
 }
+
+export let MONACO_Y_PADDING = 7

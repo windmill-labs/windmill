@@ -69,7 +69,7 @@
 			Icon: RefreshCcw,
 			color: 'dark',
 			classes: {
-				icon: 'text-blue-500 dark:text-blue-400',
+				icon: 'text-blue-700 dark:text-blue-300',
 				iconWrapper: 'bg-blue-100 dark:bg-blue-800/50'
 			}
 		}
