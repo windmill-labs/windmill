@@ -38,7 +38,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_worker::process_relative_imports;
+use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDependencyMap};
 
 use windmill_common::{
     assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
@@ -1781,7 +1781,11 @@ async fn archive_script_by_path(
         Some([("workspace", w_id.as_str())].into()),
     )
     .await?;
-    tx.commit().await?;
+
+    ScopedDependencyMap::clear_map_for_item(path, &w_id, "script", tx, &None)
+        .await
+        .commit()
+        .await?;
 
     handle_deployment_metadata(
         &authed.email,
