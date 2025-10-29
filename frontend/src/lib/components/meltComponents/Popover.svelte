@@ -43,6 +43,9 @@
 	let fullScreen = false
 	const dispatch = createEventDispatcher()
 
+	// Dynamic portal: use 'body' when fullscreen, otherwise use the provided portal
+	$: dynamicPortal = fullScreen ? 'body' : portal
+
 	function clearTimers() {
 		clearDebounceClose()
 	}
@@ -54,11 +57,11 @@
 	const {
 		elements: { trigger, content, arrow, close: closeElement, overlay },
 		states,
-		options: { closeOnOutsideClick: closeOnOutsideClickOption, positioning },
+		options: { closeOnOutsideClick: closeOnOutsideClickOption, positioning, portal: portalOption },
 		ids: { content: popoverId }
 	} = createPopover({
 		forceVisible: true,
-		portal,
+		portal: dynamicPortal,
 		disableFocusTrap,
 		escapeBehavior,
 		onOpenChange: ({ curr, next }) => {
@@ -92,6 +95,11 @@
 		flip: true,
 		fitViewport: true,
 		overlap: false
+	}
+
+	// Update portal reactively when fullscreen state changes
+	$: if (portalOption) {
+		$portalOption = dynamicPortal
 	}
 
 	export let isOpen = false
@@ -192,11 +200,11 @@
 			<div class="absolute top-0 right-0 z-10">
 				<Button
 					on:click={() => (fullScreen = !fullScreen)}
-					color="light"
-					size="xs2"
+					variant="subtle"
+					unifiedSize="sm"
+					btnClasses="text-secondary"
 					iconOnly
 					startIcon={fullScreen ? { icon: Minimize2 } : { icon: Maximize2 }}
-					btnClasses="text-gray-400"
 				/>
 			</div>
 		{/if}
