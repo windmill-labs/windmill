@@ -31,7 +31,7 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString } from '$lib/utils'
-	import { RotateCw, Save } from 'lucide-svelte'
+	import { RotateCw, Trash2, Slack, Save } from 'lucide-svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -58,6 +58,7 @@
 	import { AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import CollapseLink from '$lib/components/CollapseLink.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -342,13 +343,13 @@
 			useCustomSlackApp = !!config.slack_oauth_client_id
 			slackOAuthClientId = config.slack_oauth_client_id || ''
 			slackOAuthClientSecret = config.slack_oauth_client_secret || ''
-			slackOAuthConfigLoaded = true
+			slackOAuthConfigLoaded = !!config.slack_oauth_client_id
 		} catch (e) {
 			console.error('Failed to load Slack OAuth config:', e)
 		}
 	}
 
-	async function saveSlackOAuthConfig(): Promise<void> {
+	async function saveAndConnectSlack(): Promise<void> {
 		if (!$workspaceStore) return
 
 		if (!slackOAuthClientId || !slackOAuthClientSecret) {
@@ -357,6 +358,11 @@
 		}
 
 		try {
+			// Disconnect existing Slack connection (if any) before saving workspace-specific config
+			if (slack_team_name) {
+				await OauthService.disconnectSlack({ workspace: $workspaceStore })
+			}
+
 			await WorkspaceService.setWorkspaceSlackOauthConfig({
 				workspace: $workspaceStore,
 				requestBody: {
@@ -364,10 +370,9 @@
 					slack_oauth_client_secret: slackOAuthClientSecret
 				}
 			})
-			sendUserToast('Slack OAuth configuration saved')
-			slackOAuthConfigLoaded = true
-			// Clear the secret field after saving
-			slackOAuthClientSecret = ''
+
+			// Redirect to OAuth flow
+			window.location.href = `${base}/api/oauth/connect_slack?workspace=${$workspaceStore}`
 		} catch (e) {
 			sendUserToast('Failed to save Slack OAuth configuration', true)
 			console.error(e)
@@ -378,62 +383,25 @@
 		if (!$workspaceStore) return
 
 		try {
+			// Delete workspace OAuth config
 			await WorkspaceService.deleteWorkspaceSlackOauthConfig({ workspace: $workspaceStore })
+
+			// Also disconnect any existing Slack connection
+			if (slack_team_name) {
+				await OauthService.disconnectSlack({ workspace: $workspaceStore })
+			}
+
 			useCustomSlackApp = false
 			slackOAuthClientId = ''
 			slackOAuthClientSecret = ''
 			slackOAuthConfigLoaded = false
-			sendUserToast('Slack OAuth configuration deleted')
+			await loadSettings()
+			sendUserToast('Workspace Slack app deleted')
 		} catch (e) {
 			sendUserToast('Failed to delete Slack OAuth configuration', true)
 			console.error(e)
 		}
 	}
-
-	// Handle workspace Slack toggle changes
-	let previousUseCustomSlackApp: boolean = $state(false)
-
-	$effect(() => {
-		// When toggling ON workspace Slack (false -> true)
-		if (useCustomSlackApp && !previousUseCustomSlackApp) {
-			// If workspace has instance-level Slack connection, disconnect it
-			if (slack_team_name) {
-				untrack(async () => {
-					try {
-						await OauthService.disconnectSlack({ workspace: $workspaceStore ?? '' })
-						await loadSettings()
-						sendUserToast('Disconnected from instance Slack to enable workspace Slack app')
-					} catch (e) {
-						console.error('Failed to disconnect instance Slack:', e)
-						sendUserToast('Failed to disconnect instance Slack', true)
-					}
-				})
-			}
-		}
-
-		// When toggling OFF workspace Slack (true -> false)
-		if (!useCustomSlackApp && previousUseCustomSlackApp) {
-			// Delete workspace OAuth config so backend uses instance OAuth
-			if (slackOAuthConfigLoaded) {
-				untrack(async () => {
-					try {
-						await WorkspaceService.deleteWorkspaceSlackOauthConfig({
-							workspace: $workspaceStore!
-						})
-						slackOAuthClientId = ''
-						slackOAuthClientSecret = ''
-						slackOAuthConfigLoaded = false
-						sendUserToast('Switched to instance Slack app')
-					} catch (e) {
-						console.error('Failed to delete workspace OAuth config:', e)
-						sendUserToast('Failed to switch to instance Slack app', true)
-					}
-				})
-			}
-		}
-
-		previousUseCustomSlackApp = useCustomSlackApp
-	})
 
 	let deployUiSettings:
 		| {
@@ -759,94 +727,6 @@
 				</Tabs>
 
 				{#if slack_tabs === 'slack_commands'}
-					<!-- Slack OAuth Configuration Section -->
-					<div class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded-md p-4">
-						<div class="flex flex-col gap-3">
-							<div class="flex items-center justify-between">
-								<div class="text-sm font-semibold text-primary">Slack app configuration</div>
-								{#if useCustomSlackApp && slackOAuthConfigLoaded}
-									<span
-										class="text-xs px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-md"
-									>
-										Using workspace Slack app
-									</span>
-								{:else if !useCustomSlackApp}
-									<span
-										class="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-md"
-									>
-										Using instance Slack app
-									</span>
-								{/if}
-							</div>
-
-							<div class="flex items-center gap-2">
-								<Toggle bind:checked={useCustomSlackApp} size="sm" />
-								<span class="text-sm text-secondary">Use custom Slack app for this workspace</span>
-							</div>
-
-							{#if useCustomSlackApp}
-								<div class="mt-2 space-y-3">
-									<div>
-										<div class="text-xs font-medium text-secondary mb-1">
-											Slack app client ID
-										</div>
-										<TextInput
-											inputProps={{
-												placeholder: "1234567890.1234567890"
-											}}
-											bind:value={slackOAuthClientId}
-										/>
-									</div>
-
-									<div>
-										<div class="text-xs font-medium text-secondary mb-1">
-											Slack app client secret
-										</div>
-										<input
-											type="password"
-											class="windmill-input"
-											bind:value={slackOAuthClientSecret}
-											placeholder="Enter client secret"
-										/>
-									</div>
-
-									<div class="text-xs text-tertiary bg-surface p-2 rounded border border-gray-200 dark:border-gray-700">
-										<a
-											href="https://api.slack.com/apps"
-											target="_blank"
-											rel="noopener noreferrer"
-											class="text-blue-600 dark:text-blue-400 hover:underline"
-										>
-											Create a Slack app
-										</a>
-										and configure the redirect URL:
-										<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-xs ml-1">
-											{window.location.origin}{base}/oauth/callback_slack
-										</code>
-									</div>
-
-									<div class="flex gap-2">
-										<Button
-											size="xs"
-											color="dark"
-											on:click={saveSlackOAuthConfig}
-											disabled={!slackOAuthClientId || !slackOAuthClientSecret}
-										>
-											<Save size={14} class="mr-1" />
-											Save configuration
-										</Button>
-
-										{#if slackOAuthConfigLoaded}
-											<Button size="xs" color="red" btnClasses="text-red-600" on:click={deleteSlackOAuthConfig}>
-												Delete configuration
-											</Button>
-										{/if}
-									</div>
-								</div>
-							{/if}
-						</div>
-					</div>
-
 					<ConnectionSection
 						platform="slack"
 						teamName={slack_team_name}
@@ -865,8 +745,97 @@
 						documentationLink="https://www.windmill.dev/docs/integrations/slack"
 						onLoadSettings={loadSettings}
 						display_name={slack_team_name}
-					/>
-				{:else if slack_tabs === 'teams_commands'}
+						hideConnectButton={useCustomSlackApp && !slackOAuthConfigLoaded}
+					>
+						{#snippet workspaceConfig()}
+							<!-- Workspace OAuth Configuration Section -->
+					<div class="flex flex-col">
+						{#if slackOAuthConfigLoaded}
+							<!-- Show saved config with delete button -->
+							<div class="flex flex-col gap-1 w-fit">
+								<div class="text-sm text-primary font-medium">Workspace specific Slack app</div>
+								<div class="p-2 rounded-md border border-gray-200 dark:border-gray-700 bg-surface-secondary">
+									<div class="flex items-center gap-3">
+										<div class="flex items-center gap-2">
+											<span class="text-sm text-primary">Client ID:</span>
+											<span class="text-xs text-secondary font-mono pt-1">{slackOAuthClientId}</span>
+										</div>
+										<Button
+											size="xs"
+											onclick={deleteSlackOAuthConfig}
+											btnClasses="w-fit"
+										>
+											<Trash2 size={14} class="mr-1" />
+											Delete
+										</Button>
+									</div>
+								</div>
+							</div>
+						{:else}
+							<!-- Show toggle and form to create config -->
+							<label class="text-sm flex gap-2 items-center font-medium text-primary">
+								<Toggle bind:checked={useCustomSlackApp} size="sm" />
+								<span class="text-xs text-secondary">Use workspace specific Slack app</span>
+							</label>
+
+							{#if useCustomSlackApp}
+								<div class="p-2 rounded border border-gray-200 dark:border-gray-700">
+									<label class="block pb-2">
+										<span class="text-primary font-semibold text-sm">Client ID</span>
+										<input
+											class="windmill-input"
+											type="text"
+											placeholder="1234567890.1234567890"
+											bind:value={slackOAuthClientId}
+										/>
+									</label>
+
+									<label class="block pb-2">
+										<span class="text-primary font-semibold text-sm">Client secret</span>
+										<input
+											class="windmill-input"
+											type="password"
+											placeholder="Enter client secret"
+											bind:value={slackOAuthClientSecret}
+										/>
+									</label>
+
+									<CollapseLink text="Instructions">
+										<div class="text-xs text-secondary p-2">
+											Create a Slack app at{' '}
+											<a
+												href="https://api.slack.com/apps"
+												target="_blank"
+												rel="noopener noreferrer"
+												class="text-blue-600 dark:text-blue-400 hover:underline"
+											>
+												Slack API
+											</a>. Set the redirect URI to:{' '}
+											<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
+												{window.location.origin}{base}/oauth/callback_slack
+											</code>
+										</div>
+									</CollapseLink>
+
+									<div class="pt-2">
+										<Button
+											size="xs"
+											variant="accent"
+											onclick={saveAndConnectSlack}
+											disabled={!slackOAuthClientId || !slackOAuthClientSecret}
+											startIcon={{ icon: Slack }}
+											btnClasses="w-fit"
+										>
+											Connect to Slack
+										</Button>
+									</div>
+								</div>
+							{/if}
+						{/if}
+					</div>
+					{/snippet}
+				</ConnectionSection>
+			{:else if slack_tabs === 'teams_commands'}
 					{#if !$enterpriseLicense}
 						<div class="pt-4"></div>
 						<Alert type="warning" title="Workspace Teams commands is an EE feature">
