@@ -16,6 +16,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { LayoutGrid, List } from 'lucide-svelte'
+	import type { Viewport } from '@xyflow/svelte'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
@@ -31,6 +32,9 @@
 	let viewerWidth = $state(SIDE_BY_SIDE_MIN_WIDTH)
 	let beforePaneSize = $state(50)
 	let viewMode = $state<'sidebyside' | 'unified'>('sidebyside')
+
+	// Shared viewport for synchronizing both graphs in side-by-side mode
+	let sharedViewport = $state<Viewport>({ x: 0, y: 0, zoom: 1 })
 
 	let beforeFlow: OpenFlow | undefined = $derived.by(() => {
 		try {
@@ -102,6 +106,13 @@
 			(flow.failure_module?.id === moduleId ? flow.failure_module : undefined) ??
 			(flow.preprocessor_module?.id === moduleId ? flow.preprocessor_module : undefined)
 		)
+	}
+
+	// Handler for viewport changes - updates shared state for synchronization
+	function handleViewportChange(viewport: Viewport, isUserInitiated: boolean) {
+		if (isUserInitiated) {
+			sharedViewport = viewport
+		}
 	}
 
 	// Callback to show module diff
@@ -191,6 +202,8 @@
 									scroll={false}
 									minHeight={400}
 									triggerNode={false}
+									{sharedViewport}
+									onViewportChange={handleViewportChange}
 								/>
 							</div>
 						</div>
@@ -222,6 +235,8 @@
 										scroll={false}
 										minHeight={400}
 										triggerNode={false}
+										{sharedViewport}
+										onViewportChange={handleViewportChange}
 									/>
 								{/if}
 							</div>

@@ -12,7 +12,8 @@
 		ConnectionLineType,
 		Controls,
 		ControlButton,
-		SvelteFlowProvider
+		SvelteFlowProvider,
+		type Viewport
 	} from '@xyflow/svelte'
 	import {
 		graphBuilder,
@@ -50,6 +51,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import ViewportResizer from './ViewportResizer.svelte'
+	import ViewportSynchronizer from './ViewportSynchronizer.svelte'
 	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
@@ -135,6 +137,9 @@
 		onHideJobStatus?: () => void
 		onShowModuleDiff?: (moduleId: string) => void
 		flowHasChanged?: boolean
+		// Viewport synchronization props (for diff viewer)
+		sharedViewport?: Viewport
+		onViewportChange?: (viewport: Viewport, isUserInitiated: boolean) => void
 	}
 
 	let {
@@ -189,7 +194,9 @@
 		showJobStatus = false,
 		suspendStatus = {},
 		flowHasChanged = false,
-		chatInputEnabled = false
+		chatInputEnabled = false,
+		sharedViewport = undefined,
+		onViewportChange = undefined
 	}: Props = $props()
 
 	setContext<{
@@ -547,6 +554,8 @@
 	})
 
 	let viewportResizer: ViewportResizer | undefined = $state(undefined)
+	let viewportSynchronizer: ViewportSynchronizer | undefined = $state(undefined)
+
 	export function isNodeVisible(nodeId: string): boolean {
 		return viewportResizer?.isNodeVisible(nodeId) ?? false
 	}
@@ -576,9 +585,19 @@
 	{:else}
 		<SvelteFlowProvider>
 			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
+			{#if sharedViewport && onViewportChange}
+				<ViewportSynchronizer
+					{sharedViewport}
+					onLocalChange={onViewportChange}
+					bind:this={viewportSynchronizer}
+				/>
+			{/if}
 			<SvelteFlow
 				onpaneclick={(e) => {
 					document.dispatchEvent(new Event('focus'))
+				}}
+				onmove={(event, viewport) => {
+					viewportSynchronizer?.handleLocalViewportChange(event, viewport)
 				}}
 				{nodes}
 				{edges}
