@@ -246,29 +246,22 @@ export async function generateScriptMetadataInternal(
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
+
+  const metadataWithType = await parseMetadataFile(
+    remotePath,
+    undefined,
+  );
+
+  // read script content
+  const scriptContent = await Deno.readTextFile(scriptPath);
+  const metadataContent = await Deno.readTextFile(metadataWithType.path);
+  
   const rrLang = languagesWithRawReqsSupport.find(
     (l) => language == l.language
   );
 
   const rawReqs = findClosestRawReqs(rrLang, scriptPath, globalDeps);
 
-  if (rawReqs && rrLang) {
-    log.info(
-      (await blueColor())(
-        `Found raw requirements (${rrLang.rrFilename}) for ${scriptPath}, using it`
-      )
-    );
-  }
-  const metadataWithType = await parseMetadataFile(
-    remotePath,
-    undefined,
-    globalDeps,
-    codebases
-  );
-
-  // read script content
-  const scriptContent = await Deno.readTextFile(scriptPath);
-  const metadataContent = await Deno.readTextFile(metadataWithType.path);
 
   let hash = await generateScriptHash(rawReqs, scriptContent, metadataContent);
 
@@ -384,6 +377,10 @@ async function updateScriptLock(
     )
   ) {
     return;
+  }
+
+  if (rawDeps) {
+    log.info(`Generating script lock for ${remotePath} with raw deps`);
   }
   // generate the script lock running a dependency job in Windmill and update it inplace
   // TODO: update this once the client is released
@@ -766,10 +763,11 @@ export async function parseMetadataFile(
         path: string;
         workspaceRemote: Workspace;
         schemaOnly?: boolean;
+        globalDeps: GlobalDeps;
+        codebases: SyncCodebase[]
       })
     | undefined,
-  globalDeps: GlobalDeps,
-  codebases: SyncCodebase[]
+
 ): Promise<{ isJson: boolean; payload: any; path: string }> {
   let metadataFilePath = scriptPath + ".script.json";
   try {
@@ -800,11 +798,17 @@ export async function parseMetadataFile(
       );
       metadataFilePath = scriptPath + ".script.yaml";
       let scriptInitialMetadata = defaultScriptMetadata();
+      const lockPath = scriptPath + ".script.lock";
+      scriptInitialMetadata.lock = "!inline " + lockPath;
       const scriptInitialMetadataYaml = yamlStringify(
         scriptInitialMetadata as Record<string, any>,
         yamlOptions
       );
+
       await Deno.writeTextFile(metadataFilePath, scriptInitialMetadataYaml, {
+        createNew: true,
+      });
+      await Deno.writeTextFile(lockPath, "", {
         createNew: true,
       });
 
@@ -821,8 +825,8 @@ export async function parseMetadataFile(
             generateMetadataIfMissing,
             false,
             false,
-            globalDeps,
-            codebases,
+            generateMetadataIfMissing.globalDeps,
+            generateMetadataIfMissing.codebases,
             false
           );
           scriptInitialMetadata = (await yamlParseFile(
