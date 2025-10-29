@@ -188,6 +188,17 @@ lazy_static::lazy_static! {
         "other".to_string()
     ];
 
+    pub static ref NATIVE_TAGS: Vec<String> = vec![
+        "nativets".to_string(),
+        "postgresql".to_string(),
+        "mysql".to_string(),
+        "graphql".to_string(),
+        "snowflake".to_string(),
+        "mssql".to_string(),
+        "bigquery".to_string(),
+        "duckdb".to_string(),
+    ];
+
     pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
     pub static ref DEFAULT_TAGS_WORKSPACES: Arc<RwLock<Option<Vec<String>>>> = Arc::new(RwLock::new(None));
 
