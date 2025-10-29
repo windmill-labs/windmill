@@ -2120,13 +2120,9 @@ export async function push(
               const target = change.path.replaceAll(SEP, "/");
               switch (typ) {
                 case "script": {
-                  const script = await wmill.getScriptByPath({
+                  await wmill.archiveScriptByPath({
                     workspace: workspaceId,
                     path: removeExtensionToPath(target),
-                  });
-                  await wmill.archiveScriptByHash({
-                    workspace: workspaceId,
-                    hash: script.hash,
                   });
                   break;
                 }
