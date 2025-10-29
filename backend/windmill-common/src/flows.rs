@@ -182,7 +182,7 @@ impl FlowValue {
                 | FlowScript { .. }
                 | Identity) => cb(&s, &module.id)?,
                 ForloopFlow { modules, .. } | WhileloopFlow { modules, .. } => {
-                    Self::traverse_leafs(&modules, cb)?
+                    Self::traverse_leafs(modules.iter().collect(), cb)?
                 }
                 AIAgent { tools, .. } => {
                     for tool in tools {
