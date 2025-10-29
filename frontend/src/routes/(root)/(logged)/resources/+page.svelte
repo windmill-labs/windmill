@@ -383,32 +383,41 @@
 			? currentResources
 			: currentResources?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
 	)
-	let preFilteredType = $derived(
-		typeFilter == undefined
-			? preFilteredItemsOwners?.filter((x) => {
-					return tab === 'workspace'
-						? x.resource_type !== 'app_theme' &&
-								x.resource_type !== 'state' &&
-								x.resource_type !== 'cache'
-						: tab === 'states'
-							? x.resource_type === 'state'
-							: tab === 'cache'
-								? x.resource_type === 'cache'
-								: tab === 'theme'
-									? x.resource_type === 'app_theme'
-									: true
-				})
-			: preFilteredItemsOwners?.filter((x) => {
-					return (
-						x.resource_type === typeFilter &&
-						(tab === 'workspace'
+	let preFilteredType = $derived.by(() => {
+		let l =
+			typeFilter == undefined
+				? preFilteredItemsOwners?.filter((x) => {
+						return tab === 'workspace'
 							? x.resource_type !== 'app_theme' &&
-								x.resource_type !== 'state' &&
-								x.resource_type !== 'cache'
-							: true)
-					)
-				})
-	)
+									x.resource_type !== 'state' &&
+									x.resource_type !== 'cache'
+							: tab === 'states'
+								? x.resource_type === 'state'
+								: tab === 'cache'
+									? x.resource_type === 'cache'
+									: tab === 'theme'
+										? x.resource_type === 'app_theme'
+										: true
+					})
+				: preFilteredItemsOwners?.filter((x) => {
+						return (
+							x.resource_type === typeFilter &&
+							(tab === 'workspace'
+								? x.resource_type !== 'app_theme' &&
+									x.resource_type !== 'state' &&
+									x.resource_type !== 'cache'
+								: true)
+						)
+					})
+		if (filterUserFolders) {
+			l = l?.filter((item) => {
+				if (filterUserFoldersType === 'only f/*') return item.path.startsWith('f/')
+				if (filterUserFoldersType === 'u/username and f/*')
+					return item.path.startsWith('f/') || item.path.startsWith(`u/${$userStore?.username}/`)
+			})
+		}
+		return l
+	})
 	$effect(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
@@ -428,6 +437,15 @@
 	})
 
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+
+	let filterUserFolders = $state(false)
+	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
+		$userStore?.is_super_admin && $userStore.username.includes('@')
+			? 'only f/*'
+			: $userStore?.is_admin || $userStore?.is_super_admin
+				? 'u/username and f/*'
+				: undefined
+	)
 </script>
 
 <ConfirmationModal
@@ -755,7 +773,18 @@
 				<div class="h-4"></div>
 			{/if}
 
-			<div class="overflow-x-auto pb-40 mt-4">
+			<div class="overflow-x-auto pb-40 mt-4"
+				><div class="flex flex-row items-center justify-end gap-4 pb-2">
+					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
+						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
+					{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+						<Toggle
+							size="xs"
+							bind:checked={filterUserFolders}
+							options={{ right: `Only u/${$userStore.username} and f/*` }}
+						/>
+					{/if}
+				</div>
 				{#if loading.resources}
 					<Skeleton layout={[0.5, [2], 1]} />
 					{#each new Array(6) as _}

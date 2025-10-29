@@ -1011,7 +1011,7 @@
 					/>
 				</div>
 
-				<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
+				<div class="gap-4 flex-row hidden md:flex w-full whitespace-nowrap max-w-md">
 					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
 						{@const primaryScheduleIndex = triggersState.triggers.findIndex((t) => t.isPrimary)}
 						{@const scheduleIndex = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
@@ -1035,7 +1035,7 @@
 					{/if}
 
 					{#if customUi?.topBar?.path != false}
-						<div class="flex justify-start w-full">
+						<div class="flex justify-start items-center w-full">
 							<button
 								onclick={async () => {
 									select('settings-metadata')

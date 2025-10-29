@@ -282,10 +282,10 @@ export async function handleFile(
               path,
               workspaceRemote: workspace,
               schemaOnly: codebase ? true : undefined,
+              globalDeps,
+              codebases
             }
             : undefined,
-          globalDeps,
-          codebases
         )
       )?.payload;
 
