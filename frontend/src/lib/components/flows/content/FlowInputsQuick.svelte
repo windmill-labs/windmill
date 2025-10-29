@@ -18,7 +18,6 @@
 	import type { FlowEditorContext } from '../../flows/types'
 	import { fade } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
-	import Scrollable from '$lib/components/Scrollable.svelte'
 	import { Button } from '$lib/components/common'
 	import { SettingsIcon } from 'lucide-svelte'
 	import DefaultScriptsInner from '$lib/components/DefaultScriptsInner.svelte'
@@ -188,7 +187,7 @@
 		selectedByKeyboard = 0
 	}
 
-	let scrollable: Scrollable | undefined = $state()
+	let scrollable: HTMLElement | undefined = $state()
 	function onKeyDown(e: KeyboardEvent) {
 		let length =
 			topLevelNodes?.length +
@@ -198,11 +197,11 @@
 			hubCompletions.length
 		if (e.key === 'ArrowDown') {
 			selectedByKeyboard = (selectedByKeyboard + 1) % length
-			scrollable?.scrollIntoView(selectedByKeyboard * 32)
+			scrollable?.scrollTo({ top: selectedByKeyboard * 32, behavior: 'smooth' })
 			e.preventDefault()
 		} else if (e.key === 'ArrowUp') {
 			selectedByKeyboard = (selectedByKeyboard - 1 + length) % length
-			scrollable?.scrollIntoView(selectedByKeyboard * 32)
+			scrollable?.scrollTo({ top: selectedByKeyboard * 32, behavior: 'smooth' })
 			e.preventDefault()
 		}
 	}
@@ -324,6 +323,7 @@
 		</div>
 	{/if}
 	<div
+		bind:this={scrollable}
 		id="flow-editor-flow-atoms"
 		class="h-full overflow-auto grow min-w-0 p-2 gap-1 flex flex-col"
 	>
@@ -347,7 +347,7 @@
 				{#if $userStore?.is_admin || $userStore?.is_super_admin}
 					{#if !openScriptSettings}
 						<Button
-							on:click={() => (openScriptSettings = true)}
+							onClick={() => (openScriptSettings = true)}
 							startIcon={{ icon: SettingsIcon }}
 							unifiedSize="sm"
 							variant="subtle"
@@ -355,7 +355,7 @@
 						/>
 					{:else}
 						<Button
-							on:click={() => (openScriptSettings = false)}
+							onClick={() => (openScriptSettings = false)}
 							startIcon={{ icon: X }}
 							variant="accent"
 							unifiedSize="sm"
