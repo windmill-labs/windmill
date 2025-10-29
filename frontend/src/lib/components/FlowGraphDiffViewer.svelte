@@ -15,7 +15,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { LayoutGrid, List } from 'lucide-svelte'
+	import { DiffIcon, SquareSplitHorizontal } from 'lucide-svelte'
 	import type { Viewport } from '@xyflow/svelte'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
@@ -165,8 +165,13 @@
 			<div>
 				<ToggleButtonGroup bind:selected={viewMode}>
 					{#snippet children({ item })}
-						<ToggleButton {item} value="unified" label="Unified" icon={List} />
-						<ToggleButton {item} value="sidebyside" label="Side by Side" icon={LayoutGrid} />
+						<ToggleButton {item} value="unified" label="Unified" icon={DiffIcon} />
+						<ToggleButton
+							{item}
+							value="sidebyside"
+							label="Side by Side"
+							icon={SquareSplitHorizontal}
+						/>
 					{/snippet}
 				</ToggleButtonGroup>
 			</div>
