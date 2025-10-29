@@ -60,6 +60,7 @@ use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 
 lazy_static::lazy_static! {
     pub static ref SLOW_LOGS: bool = std::env::var("SLOW_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
+    pub static ref OTEL_JOB_LOGS: bool = std::env::var("OTEL_JOB_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
 }
 
 //  - kill windows process along with all child processes
@@ -344,6 +345,8 @@ pub async fn handle_child(
     }
 }
 
+pub const OTEL_PREFIX: &str = "OTEL: ";
+
 pub async fn write_lines(
     output: impl stream::Stream<Item = io::Result<String>> + Send,
     job_id: &Uuid,
@@ -421,6 +424,11 @@ pub async fn write_lines(
                 Ok(line) => {
                     if line.is_empty() {
                         continue;
+                    }
+                    if *OTEL_JOB_LOGS {
+                        if let Some(otel_suffix) = line.strip_prefix(OTEL_PREFIX) {
+                            tracing::event!(tracing::Level::INFO, otel_suffix);
+                        }
                     }
                     if let Some(stream) = extract_stream_from_logs(&line) {
                         let len = stream.len();
