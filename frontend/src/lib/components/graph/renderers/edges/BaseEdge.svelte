@@ -129,13 +129,10 @@
 						flow: e.detail
 					})
 				}}
+				gutter={0}
 			>
-				{#snippet trigger({ toggleOpen })}
-					<InsertModuleButton
-						onPress={toggleOpen}
-						title={`Add step`}
-						id={`flow-editor-add-step-${data.index ?? 0}`}
-					/>
+				{#snippet trigger()}
+					<InsertModuleButton title={`Add step`} id={`flow-editor-add-step-${data.index ?? 0}`} />
 				{/snippet}
 			</InsertModulePopover>
 		</div>
