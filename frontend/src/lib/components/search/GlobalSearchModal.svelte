@@ -620,7 +620,7 @@
 							id="quickSearchInput"
 							bind:this={textInput}
 							type="text"
-							class="quick-search-input !bg-surface"
+							class="no-default-style !bg-transparent !border-none w-full !ring-0 !text-sm"
 							bind:value={searchTerm}
 							autocomplete="off"
 						/>
@@ -774,15 +774,3 @@
 		</div>
 	</Portal>
 {/if}
-
-<style>
-	.quick-search-input {
-		outline: none;
-		border: none !important;
-		box-shadow: none !important;
-	}
-
-	.quick-search-input:focus-visible {
-		outline: none !important;
-	}
-</style>
