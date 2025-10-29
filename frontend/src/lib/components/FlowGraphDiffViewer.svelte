@@ -6,7 +6,7 @@
 	import {
 		computeFlowModuleDiff,
 		splitModuleDiffForViews,
-		mergeFlows,
+		buildFlowTimeline,
 		hasInputSchemaChanged
 	} from './flows/flowDiff'
 	import { dfs } from './flows/dfs'
@@ -58,24 +58,31 @@
 	// Determine if we should render side-by-side or unified
 	let isSideBySide = $derived(viewerWidth >= SIDE_BY_SIDE_MIN_WIDTH)
 
-	// For unified view, merge both flows to show all modules (added, modified, and removed)
+	// Build timeline using history-based approach
 	// In side-by-side view, mark removed modules as 'shadowed' in the After graph
 	// In unified view, mark removed modules as 'removed' to show them in red
-	let mergedState = $derived.by(() => {
+	let timeline = $derived.by(() => {
 		if (!beforeFlow || !afterFlow) return undefined
-		return mergeFlows(beforeFlow.value, afterFlow.value, moduleDiff, isSideBySide)
+		return buildFlowTimeline(beforeFlow.value, afterFlow.value, moduleDiff, {
+			markRemovedAsShadowed: isSideBySide
+		})
 	})
 
-	// Convert ModuleDiffResult to AIModuleAction map for the merged flow
-	// The mergeFlows() function already sets the correct 'before' action ('shadowed' or 'removed')
+	// Extract merged flow and actions from timeline
+	let mergedState = $derived.by(() => {
+		if (!timeline) return undefined
+		return {
+			diff: timeline.diff,
+			mergedFlow: timeline.mergedFlow
+		}
+	})
+
+	// Convert timeline items to AIModuleAction map for the graph
 	let unifiedActions = $derived.by((): Record<string, AIModuleAction> => {
 		const actions: Record<string, AIModuleAction> = {}
 
-		for (const [moduleId, diffResult] of Object.entries(mergedState?.diff ?? {})) {
-			const action = diffResult.after ?? diffResult.before
-			if (action) {
-				actions[moduleId] = action
-			}
+		for (const item of timeline?.items ?? []) {
+			actions[item.module.id] = item.operation
 		}
 
 		return actions
