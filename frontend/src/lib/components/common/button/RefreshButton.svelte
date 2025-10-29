@@ -8,9 +8,10 @@
 		loading: boolean
 		size?: ButtonType.UnifiedSize
 		light?: boolean
+		onClick?: () => void
 	}
 
-	let { loading, size }: Props = $props()
+	let { loading, size = 'md', onClick }: Props = $props()
 
 	let buttonHover = $state(false)
 </script>
@@ -22,9 +23,8 @@
 		color="light"
 		unifiedSize={size}
 		variant="subtle"
-		on:click
-		startIcon={{ icon: RefreshCw }}
-		iconOnly
+		{onClick}
+		startIcon={{ icon: RefreshCw, props: { class: loading ? 'animate-spin' : '' } }}
 	></Button>
 	{#snippet text()}
 		{#if loading}

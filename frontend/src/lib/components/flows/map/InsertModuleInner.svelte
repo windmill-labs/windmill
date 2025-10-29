@@ -67,7 +67,14 @@
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		{/if}
-		<RefreshButton size="sm" light {loading} on:click={() => (refreshCount.val += 1)} />
+		<RefreshButton
+			size="sm"
+			light
+			{loading}
+			onClick={() => {
+				refreshCount.val += 1
+			}}
+		/>
 	</div>
 
 	<div class="flex flex-row grow min-h-0 gap-2">
