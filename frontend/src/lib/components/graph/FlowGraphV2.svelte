@@ -59,6 +59,7 @@
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
+	import type { AIModuleAction } from '../copilot/chat/flow/core'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 
@@ -79,7 +80,7 @@
 		notSelectable?: boolean
 		flowModuleStates?: Record<string, GraphModuleState> | undefined
 		testModuleStates?: ModulesTestStates
-		moduleActions?: Record<string, 'added' | 'removed' | 'modified' | 'shadowed'>
+		moduleActions?: Record<string, AIModuleAction>
 		inputSchemaModified?: boolean
 		selectedId?: Writable<string | undefined>
 		path?: string | undefined

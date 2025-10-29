@@ -28,7 +28,7 @@ import {
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
-export type AIModuleAction = 'added' | 'modified' | 'removed' | 'shadowed'
+export type AIModuleAction = 'added' | 'modified' | 'removed' | 'shadowed' | undefined
 
 export interface FlowAIChatHelpers {
 	// flow context

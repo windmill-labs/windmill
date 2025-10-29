@@ -7,6 +7,7 @@ import type { GraphModuleState } from './model'
 import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 import type { ModulesTestStates, ModuleTestState } from '../modulesTest.svelte'
+import type { AIModuleAction } from '../copilot/chat/flow/core'
 
 export type InsertKind =
 	| 'script'
@@ -368,7 +369,7 @@ export function graphBuilder(
 		insertable: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		testModuleStates: ModulesTestStates | undefined
-		moduleActions?: Record<string, 'added' | 'removed' | 'modified' | 'shadowed'>
+		moduleActions?: Record<string, AIModuleAction>
 		inputSchemaModified?: boolean
 		selectedId: string | undefined
 		path: string | undefined
