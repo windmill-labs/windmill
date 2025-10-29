@@ -206,7 +206,7 @@
 			newAssetEdges: allAssetEdges,
 			newNodePositions: Object.fromEntries(sortedNewNodes.map((n) => [n.id, n.position]))
 		}
-		computeAssetNodesCache = [nodes, ret]
+		computeAssetNodesCache = [clone(nodes), ret]
 		return ret
 	}
 </script>
@@ -226,7 +226,7 @@
 	import { getContext } from 'svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from '../../../ExploreAssetButton.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import { pluralize } from '$lib/utils'
+	import { clone, pluralize } from '$lib/utils'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
 
