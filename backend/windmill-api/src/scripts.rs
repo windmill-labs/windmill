@@ -1846,7 +1846,11 @@ async fn archive_script_by_hash(
         Some([("workspace", w_id.as_str())].into()),
     )
     .await?;
-    tx.commit().await?;
+
+    ScopedDependencyMap::clear_map_for_item(&script.path, &w_id, "script", tx, &None)
+        .await
+        .commit()
+        .await?;
 
     webhook.send_message(
         w_id.clone(),
