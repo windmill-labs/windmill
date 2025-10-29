@@ -162,7 +162,7 @@
 <div class="flex flex-col gap-2">
 	<div class="flex gap-2 flex-wrap sticky top-0 left-0 right-0 bg-surface">
 		<div class="p-2">
-			<ToggleButtonGroup bind:selected={searchKind} class="h-10 ">
+			<ToggleButtonGroup bind:selected={searchKind}>
 				{#snippet children({ item })}
 					<ToggleButton small value="all" label={'All' + counts.all} {item} />
 					<ToggleButton
@@ -251,12 +251,8 @@
 							{#snippet actions()}
 								<Button
 									href={`/scripts/get/${item.path}`}
-									color="light"
-									size="xs"
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => {
-										dispatch('close')
-									}}
+									on:click={() => dispatch('close')}
 								>
 									Open
 								</Button>
@@ -264,8 +260,6 @@
 								<Button
 									href={`/scripts/edit/${item.path}?no_draft=true`}
 									target="_blank"
-									color="light"
-									size="xs"
 									startIcon={{ icon: Edit }}
 								>
 									Edit
@@ -279,13 +273,8 @@
 					{#if filteredScriptItems.length > showNbScripts}
 						<Button
 							color="light"
-							size="xs"
-							on:click={() => {
-								showNbScripts += 30
-							}}
-							startIcon={{
-								icon: ArrowDown
-							}}
+							on:click={() => (showNbScripts += 30)}
+							startIcon={{ icon: ArrowDown }}
 						>
 							Show more scripts ({showNbScripts} of {filteredScriptItems.length})
 						</Button>
@@ -299,13 +288,7 @@
 							on:close
 						>
 							{#snippet actions()}
-								<Button
-									href={`/resources#${item.path}`}
-									color="light"
-									target="_blank"
-									size="xs"
-									startIcon={{ icon: Edit }}
-								>
+								<Button href={`/resources#${item.path}`} target="_blank" startIcon={{ icon: Edit }}>
 									Edit
 								</Button>
 							{/snippet}
@@ -318,12 +301,8 @@
 						<Button
 							color="light"
 							size="xs"
-							on:click={() => {
-								showNbResources += 30
-							}}
-							startIcon={{
-								icon: ArrowDown
-							}}
+							on:click={() => (showNbResources += 30)}
+							startIcon={{ icon: ArrowDown }}
 						>
 							Show more resources ({showNbResources} of {filteredResourceItems.length})
 						</Button>
@@ -339,20 +318,14 @@
 							{#snippet actions()}
 								<Button
 									href={`/flows/get/${item.path}`}
-									color="light"
-									size="xs"
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => {
-										dispatch('close')
-									}}
+									on:click={() => dispatch('close')}
 								>
 									Open
 								</Button>
 								<Button
 									href={`/flows/edit/${item.path}?no_draft=true`}
-									color="light"
 									target="_blank"
-									size="xs"
 									startIcon={{ icon: Edit }}
 								>
 									Edit
@@ -368,12 +341,8 @@
 						<Button
 							color="light"
 							size="xs"
-							on:click={() => {
-								showNbFlows += 30
-							}}
-							startIcon={{
-								icon: ArrowDown
-							}}
+							on:click={() => (showNbFlows += 30)}
+							startIcon={{ icon: ArrowDown }}
 						>
 							Show more flows ({showNbFlows} of {filteredFlowItems.length})
 						</Button>
@@ -389,20 +358,14 @@
 							{#snippet actions()}
 								<Button
 									href={`/apps/get/${item.path}`}
-									color="light"
-									size="xs"
 									startIcon={{ icon: ExternalLink }}
-									on:click={() => {
-										dispatch('close')
-									}}
+									on:click={() => dispatch('close')}
 								>
 									Open
 								</Button>
 								<Button
 									href={`/apps/edit/${item.path}?no_draft=true`}
-									color="light"
 									target="_blank"
-									size="xs"
 									startIcon={{ icon: Edit }}
 								>
 									Edit
@@ -418,12 +381,8 @@
 						<Button
 							color="light"
 							size="xs"
-							on:click={() => {
-								showNbApps += 30
-							}}
-							startIcon={{
-								icon: ArrowDown
-							}}
+							on:click={() => (showNbApps += 30)}
+							startIcon={{ icon: ArrowDown }}
 						>
 							Show more apps ({showNbApps} of {filteredAppItems.length})
 						</Button>
