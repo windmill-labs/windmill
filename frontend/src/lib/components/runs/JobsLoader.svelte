@@ -6,14 +6,16 @@
 		type CompletedJob,
 		type ExtendedJobs,
 		ConcurrencyGroupsService,
-		type ObscuredJob
+		type ObscuredJob,
+		CancelablePromise
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 
 	import { tweened, type Tweened } from 'svelte/motion'
-	import { subtractDaysFromDateString } from '$lib/utils'
+	import { sendAlternativesToastOnTimeout, subtractDaysFromDateString } from '$lib/utils'
+	import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
 
 	interface Props {
 		jobs: Job[] | undefined
@@ -169,11 +171,11 @@
 		return false
 	}
 
-	async function fetchJobs(
+	function fetchJobs(
 		completedBefore: string | undefined,
 		completedAfter: string | undefined,
 		createdAfterQueue: string | undefined
-	): Promise<Job[]> {
+	): CancelablePromise<Job[]> {
 		loadingFetch = true
 		try {
 			let scriptPathStart = folder === null || folder === '' ? undefined : `f/${folder}/`
@@ -219,82 +221,69 @@
 				perPage,
 				allowWildcards: allowWildcards ? true : undefined
 			})
-			let t = setTimeout(() => {
-				sendUserToast('Loading jobs is taking longer than expected...', true, [
-					{
-						label: 'Reduce to 25 items per page',
-						callback: () => (listJobPromise?.cancel(), (perPage = 25))
-					}
-				])
-			}, 4500)
-
-			let result: Job[]
-			try {
-				result = await listJobPromise
-			} finally {
-				clearTimeout(t)
-			}
-			return result
+			listJobPromise = sendAlternativesToastOnTimeout(listJobPromise, [
+				{
+					label: 'Reduce to 25 items per page',
+					callback: () => (perPage = 25)
+				}
+			])
+			return listJobPromise
 		} catch (e) {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
 			console.error(e)
-			return []
+			return new CancelablePromise((resolve) => resolve([]))
 		} finally {
 			loadingFetch = false
 		}
 	}
 
-	async function fetchExtendedJobs(
+	function fetchExtendedJobs(
 		concurrencyKey: string | null,
 		createdBeforeQueue: string | undefined,
 		completedAfter: string | undefined
-	): Promise<ExtendedJobs> {
+	): CancelablePromise<ExtendedJobs> {
 		loadingFetch = true
-		try {
-			return ConcurrencyGroupsService.listExtendedJobs({
-				rowLimit: perPage,
-				concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined : concurrencyKey,
-				workspace: $workspaceStore!,
-				completedAfter,
-				createdBeforeQueue: createdBeforeQueue,
-				// createdOrStartedBefore: startedBefore,
-				// createdOrStartedAfter: startedAfter,
-				// createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
-				schedulePath,
-				scriptPathExact: path === null || path === '' ? undefined : path,
-				createdBy: user === null || user === '' ? undefined : user,
-				scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
-				jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
-				success: success == 'success' ? true : success == 'failure' ? false : undefined,
-				running: success == 'running' ? true : undefined,
-				isSkipped: isSkipped ? true : undefined,
-				isFlowStep: jobKindsCat != 'all' ? false : undefined,
-				label: label === null || label === '' ? undefined : label,
-				tag: tag === null || tag === '' ? undefined : tag,
-				isNotSchedule: showSchedules == false ? true : undefined,
-				scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
-				args:
-					argFilter && argFilter != '{}' && argFilter != '' && argError == ''
-						? argFilter
-						: undefined,
-				result:
-					resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
-						? resultFilter
-						: undefined,
-				allWorkspaces: allWorkspaces ? true : undefined,
-				perPage,
-				allowWildcards
-			})
-		} catch (e) {
+		let promise = ConcurrencyGroupsService.listExtendedJobs({
+			rowLimit: perPage,
+			concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined : concurrencyKey,
+			workspace: $workspaceStore!,
+			completedAfter,
+			createdBeforeQueue: createdBeforeQueue,
+			// createdOrStartedBefore: startedBefore,
+			// createdOrStartedAfter: startedAfter,
+			// createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
+			schedulePath,
+			scriptPathExact: path === null || path === '' ? undefined : path,
+			createdBy: user === null || user === '' ? undefined : user,
+			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+			jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
+			success: success == 'success' ? true : success == 'failure' ? false : undefined,
+			running: success == 'running' ? true : undefined,
+			isSkipped: isSkipped ? true : undefined,
+			isFlowStep: jobKindsCat != 'all' ? false : undefined,
+			label: label === null || label === '' ? undefined : label,
+			tag: tag === null || tag === '' ? undefined : tag,
+			isNotSchedule: showSchedules == false ? true : undefined,
+			scheduledForBeforeNow: showFutureJobs == false ? true : undefined,
+			args:
+				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
+			result:
+				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
+					? resultFilter
+					: undefined,
+			allWorkspaces: allWorkspaces ? true : undefined,
+			perPage,
+			allowWildcards
+		})
+		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
 			console.error(e)
-			return {
-				jobs: [],
-				obscured_jobs: []
-			}
-		} finally {
+			return CancelablePromiseUtils.pure({ jobs: [], obscured_jobs: [] } as ExtendedJobs)
+		})
+		promise = CancelablePromiseUtils.finallyDo(promise, () => {
 			loadingFetch = false
-		}
+		})
+		return promise
 	}
 
 	export async function loadJobs(
@@ -319,54 +308,56 @@
 		intervalId && clearInterval(intervalId)
 		intervalId = setInterval(syncer, refreshRate)
 	}
-	async function loadJobsIntern(shouldGetCount?: boolean): Promise<void> {
+	function loadJobsIntern(shouldGetCount?: boolean): CancelablePromise<void> {
 		if (shouldGetCount) {
 			getCount()
 		}
 		loading = true
-		try {
-			// Extend MinTs to fetch jobs mefore minTs and show a correct concurrency graph
-			// TODO: when an ended_at column is created on the completed_job table,
-			// lookback won't be needed anymore (just filter ended_at > minTs instead
-			const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
-			if (concurrencyKey == null || concurrencyKey === '') {
-				let newJobs = await fetchJobs(maxTs, undefined, extendedMinTs)
+		// Extend MinTs to fetch jobs mefore minTs and show a correct concurrency graph
+		// TODO: when an ended_at column is created on the completed_job table,
+		// lookback won't be needed anymore (just filter ended_at > minTs instead
+		const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
+
+		if (concurrencyKey == null || concurrencyKey === '') {
+			return CancelablePromiseUtils.map(fetchJobs(maxTs, undefined, extendedMinTs), (newJobs) => {
 				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
 
 				// Filter on minTs here and not in the backend
 				// to get enough data for the concurrency graph
 				jobs = sortMinDate(minTs, newJobs)
 				externalJobs = []
-			} else {
-				extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, extendedMinTs)
-				const newJobs = extendedJobs.jobs
-				const newExternalJobs = extendedJobs.obscured_jobs
+				loading = false
+			})
+		} else {
+			return CancelablePromiseUtils.map(
+				fetchExtendedJobs(concurrencyKey, maxTs, extendedMinTs),
+				(extendedJobs) => {
+					const newJobs = extendedJobs.jobs
+					const newExternalJobs = extendedJobs.obscured_jobs
 
-				// Filter on minTs here and not in the backend
-				// to get enough data for the concurrency graph
-				if (minTs != undefined) {
-					const minDate = new Date(minTs)
-					jobs = newJobs.filter((x) =>
-						x.started_at
-							? new Date(x.started_at) > minDate
-							: x.created_at
-								? new Date(x.created_at) > minDate
-								: false
-					)
-					externalJobs = computeExternalJobs(
-						newExternalJobs.filter((x) => x.started_at && new Date(x.started_at) > minDate)
-					)
-				} else {
-					jobs = newJobs
-					externalJobs = computeExternalJobs(newExternalJobs)
+					// Filter on minTs here and not in the backend
+					// to get enough data for the concurrency graph
+					if (minTs != undefined) {
+						const minDate = new Date(minTs)
+						jobs = newJobs.filter((x) =>
+							x.started_at
+								? new Date(x.started_at) > minDate
+								: x.created_at
+									? new Date(x.created_at) > minDate
+									: false
+						)
+						externalJobs = computeExternalJobs(
+							newExternalJobs.filter((x) => x.started_at && new Date(x.started_at) > minDate)
+						)
+					} else {
+						jobs = newJobs
+						externalJobs = computeExternalJobs(newExternalJobs)
+					}
+					computeCompletedJobs()
+					loading = false
 				}
-			}
-			computeCompletedJobs()
-		} catch (err) {
-			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
-			console.error(JSON.stringify(err))
+			)
 		}
-		loading = false
 	}
 
 	async function getCount() {

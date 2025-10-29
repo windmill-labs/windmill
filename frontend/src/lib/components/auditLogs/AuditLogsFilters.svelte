@@ -26,7 +26,8 @@
 		UserService,
 		ScriptService,
 		FlowService,
-		AppService
+		AppService,
+		CancelError
 	} from '$lib/gen'
 
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -120,28 +121,33 @@
 			resource = undefined
 		}
 
-		logs =
-			(
-				await sendAlternativesToastOnTimeout(
-					AuditService.listAuditLogs({
-						workspace: scope === 'instance' ? 'global' : $workspaceStore!,
-						page,
-						perPage,
-						before,
-						after,
-						username,
-						operation,
-						resource,
-						actionKind,
-						allWorkspaces: scope === 'all_workspaces'
-					}),
-					perPage == 25
-						? []
-						: [{ label: 'Reduce to 25 items per page', callback: () => updatePerPage(25) }],
-					{ id: 'list-audit-logs' }
-				)
-			).value ?? []
-		hasMore = logs.length > 0 && logs.length === perPage
+		try {
+			logs = await sendAlternativesToastOnTimeout(
+				AuditService.listAuditLogs({
+					workspace: scope === 'instance' ? 'global' : $workspaceStore!,
+					page,
+					perPage,
+					before,
+					after,
+					username,
+					operation,
+					resource,
+					actionKind,
+					allWorkspaces: scope === 'all_workspaces'
+				}),
+				perPage == 25
+					? []
+					: [{ label: 'Reduce to 25 items per page', callback: () => updatePerPage(25) }],
+				{ id: 'list-audit-logs' }
+			)
+		} catch (e) {
+			if (e instanceof CancelError) {
+				console.error('Loading audit logs cancelled')
+			} else {
+				throw e
+			}
+		}
+		hasMore = !logs || (logs.length > 0 && logs.length === perPage)
 
 		loading = false
 	}

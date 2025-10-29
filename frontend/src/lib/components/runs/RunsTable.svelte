@@ -342,11 +342,13 @@
 				<div
 					>{#if !lastFetchWentToEnd && jobs && jobs.length >= perPage}
 						<button
-							class="text-xs text-blue-600 text-center w-full pb-2"
+							class="text-xs text-accent text-center w-full pb-2"
 							onclick={() => {
 								dispatch('loadExtra')
-							}}>Load next {perPage} jobs</button
+							}}
 						>
+							Load next {perPage} jobs
+						</button>
 					{/if}</div
 				>
 			{/snippet}
