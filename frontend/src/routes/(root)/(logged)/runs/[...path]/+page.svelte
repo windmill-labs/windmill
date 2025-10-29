@@ -51,7 +51,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 
-	let DEFAULT_PER_PAGE = 100
+	let DEFAULT_PER_PAGE = 1000
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -1266,6 +1266,7 @@
 										bind:selectedManualDate
 										{loading}
 										bind:this={manualDatePicker}
+										numberOfLastJobsToFetch={perPage}
 									/>
 									<Toggle
 										size="sm"
@@ -1326,6 +1327,7 @@
 										if (newPerPage > (jobs?.length ?? 1000)) loadExtra()
 									}
 								}
+								onCreateItem={(v) => (perPage = parseInt(v))}
 								items={[
 									{ value: 25, label: '25' },
 									{ value: 100, label: '100' },

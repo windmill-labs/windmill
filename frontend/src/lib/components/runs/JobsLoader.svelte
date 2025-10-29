@@ -6,17 +6,14 @@
 		type CompletedJob,
 		type ExtendedJobs,
 		ConcurrencyGroupsService,
-		type ObscuredJob,
-
-
-
+		type ObscuredJob
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 
 	import { tweened, type Tweened } from 'svelte/motion'
-	import { sendAlternativesToastOnTimeout, subtractDaysFromDateString } from '$lib/utils'
+	import { subtractDaysFromDateString } from '$lib/utils'
 
 	interface Props {
 		jobs: Job[] | undefined
@@ -142,7 +139,7 @@
 			let minQueueTs: string | undefined = undefined
 			let minCompletedTs: string | undefined = undefined
 
-			let cursor = 0 
+			let cursor = 0
 
 			while (jobs && cursor < jobs?.length) {
 				cursor++
@@ -150,7 +147,7 @@
 				if (job.type == 'CompletedJob') {
 					minCompletedTs = job.completed_at
 					break
-				} else if  (job.type == 'QueuedJob' && minQueueTs == undefined) {
+				} else if (job.type == 'QueuedJob' && minQueueTs == undefined) {
 					minQueueTs = job.created_at
 				}
 			}
@@ -158,7 +155,7 @@
 			const ts = minCompletedTs ?? minQueueTs
 
 			if (!ts) {
-				sendUserToast("No jobs to load from")
+				sendUserToast('No jobs to load from')
 				return false
 			}
 			// const minCreated = lastJob?.created_at
@@ -181,7 +178,7 @@
 		try {
 			let scriptPathStart = folder === null || folder === '' ? undefined : `f/${folder}/`
 			let scriptPathExact = path === null || path === '' ? undefined : path
-			let promise = JobService.listJobs({
+			let listJobPromise = JobService.listJobs({
 				workspace: $workspaceStore!,
 				completedBefore,
 				completedAfter,
@@ -222,17 +219,22 @@
 				perPage,
 				allowWildcards: allowWildcards ? true : undefined
 			})
-			return (
-				(
-					await sendAlternativesToastOnTimeout(
-						promise,
-						perPage == 25
-							? []
-							: [{ label: 'Reduce to 25 items per page', callback: () => (perPage = 25) }],
-						{ id: 'list-jobs' }
-					)
-				).value ?? []
-			)
+			let t = setTimeout(() => {
+				sendUserToast('Loading jobs is taking longer than expected...', true, [
+					{
+						label: 'Reduce to 25 items per page',
+						callback: () => (listJobPromise?.cancel(), (perPage = 25))
+					}
+				])
+			}, 4500)
+
+			let result: Job[]
+			try {
+				result = await listJobPromise
+			} finally {
+				clearTimeout(t)
+			}
+			return result
 		} catch (e) {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
 			console.error(e)
@@ -336,7 +338,7 @@
 				jobs = sortMinDate(minTs, newJobs)
 				externalJobs = []
 			} else {
-				extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs,  extendedMinTs)
+				extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, extendedMinTs)
 				const newJobs = extendedJobs.jobs
 				const newExternalJobs = extendedJobs.obscured_jobs
 
@@ -440,14 +442,13 @@
 						queueTs = lastQueueTs
 					}
 
-
 					loading = true
 					let newJobs: Job[]
 					if (concurrencyKey == null || concurrencyKey === '') {
 						newJobs = await fetchJobs(maxTs, minTs ?? completedTs, queueTs)
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
-						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs,  minTs ?? completedTs)
+						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, minTs ?? completedTs)
 						externalJobs = computeExternalJobs(extendedJobs.obscured_jobs)
 
 						// Filter on minTs here and not in the backend
@@ -572,9 +573,9 @@
 			showSchedules,
 			allWorkspaces,
 			argFilter,
-			resultFilter
+			resultFilter,
+			perPage
 		]
-
 		untrack(() => onParamChanges())
 	})
 	$effect(() => {
