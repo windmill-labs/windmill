@@ -133,6 +133,14 @@
 			})
 		}
 	}
+
+	$effect(() => {
+		if (viewerWidth < SIDE_BY_SIDE_MIN_WIDTH) {
+			viewMode = 'unified'
+		} else {
+			viewMode = 'sidebyside'
+		}
+	})
 </script>
 
 {#if parseError}
