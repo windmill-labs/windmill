@@ -45,11 +45,9 @@
 
 <div
 	id="flow-editor-insert-module"
-	class="flex flex-col h-[400px] {small
-		? 'w-[450px]'
-		: 'w-[650px]'} pt-1 pr-1 pl-1 gap-1.5 resize overflow-auto {small
+	class="flex flex-col h-full {small ? 'w-[450px]' : 'w-[650px]'} gap-2 {small
 		? 'min-w-[450px]'
-		: 'min-w-[650px]'} min-h-[400px]"
+		: 'min-w-[650px]'}"
 	onwheel={(e) => {
 		e.stopPropagation()
 	}}
@@ -69,12 +67,12 @@
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			<ToggleHubWorkspaceQuick bind:selected={preFilter} />
 		{/if}
-		<RefreshButton size="md" light {loading} on:click={() => (refreshCount.val += 1)} />
+		<RefreshButton size="sm" light {loading} on:click={() => (refreshCount.val += 1)} />
 	</div>
 
-	<div class="flex flex-row grow min-h-0">
+	<div class="flex flex-row grow min-h-0 gap-2">
 		{#if kind === 'script'}
-			<div class="flex-none flex flex-col text-xs text-primary">
+			<div class="flex-none flex flex-col text-xs text-primary overflow-auto gap-1">
 				<TopLevelNode
 					label="Action"
 					selected={selectedKind === 'script'}
@@ -182,7 +180,6 @@
 			on:pickScript
 			on:pickFlow
 			{preFilter}
-			{small}
 			{displayPath}
 			refreshCount={refreshCount.val}
 		/>

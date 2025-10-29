@@ -58,12 +58,8 @@
 						})
 					}}
 				>
-					{#snippet trigger({ toggleOpen })}
-						<InsertModuleButton
-							onPress={toggleOpen}
-							title={`Add preprocessor step`}
-							id={`flow-editor-add-step-0`}
-						/>
+					{#snippet trigger()}
+						<InsertModuleButton title={`Add preprocessor step`} id={`flow-editor-add-step-0`} />
 					{/snippet}
 				</InsertModulePopover>
 			</div>
