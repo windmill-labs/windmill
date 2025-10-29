@@ -152,13 +152,20 @@ export function splitModuleDiffForViews(moduleDiff: Record<string, ModuleDiffRes
  * @param beforeFlow - The original flow
  * @param afterFlow - The modified flow
  * @param moduleDiff - The computed diff result with before/after actions per module
+ * @param markRemovedAsShadowed - If true, mark removed modules as 'shadowed' instead of 'removed' (for after graph view)
  * @returns A merged flow containing all top-level modules positioned appropriately
  */
 export function mergeFlows(
 	beforeFlow: FlowValue,
 	afterFlow: FlowValue,
-	moduleDiff: Record<string, ModuleDiffResult>
-): FlowValue {
+	moduleDiff: Record<string, ModuleDiffResult>,
+	markRemovedAsShadowed: boolean = false
+): {
+	diff: Record<string, ModuleDiffResult>
+	mergedFlow: FlowValue
+} {
+	let diff: Record<string, ModuleDiffResult> = { ...moduleDiff }
+
 	// Get top-level removed modules from before flow with their original indices
 	const removedModulesWithIndex = (beforeFlow.modules ?? [])
 		.map((m, index) => ({ module: m, index }))
@@ -177,67 +184,126 @@ export function mergeFlows(
 
 	// Create items for removed modules with their original index
 	// Handle ID conflicts by prefixing with __removed__
+	// Preserve array position to maintain correct ordering for consecutive removed modules
 	const removedModulesItems = removedModulesWithIndex
 		.filter(({ module }) => {
 			const originalIndex = moduleDiff[module.id]?.originalIndex
 			return originalIndex !== undefined
 		})
-		.map(({ module }) => {
+		.map(({ module, index: arrayPosition }) => {
 			const hasConflict = afterModuleIds.has(module.id)
 
 			if (hasConflict) {
 				const renamedId = `__removed__${module.id}`
 
 				// Update diff map with renamed ID
-				moduleDiff[renamedId] = {
-					...moduleDiff[module.id],
-					originalIndex: moduleDiff[module.id].originalIndex
+				// Mark as 'shadowed' if requested, otherwise keep as 'removed'
+				diff[renamedId] = {
+					...diff[module.id],
+					originalIndex: diff[module.id].originalIndex,
+					before: markRemovedAsShadowed ? 'shadowed' : diff[module.id].before
 				}
 
 				return {
 					module: { ...module, id: renamedId },
-					index: moduleDiff[module.id].originalIndex!,
+					index: diff[module.id].originalIndex!,
+					arrayPosition,
 					isFromAfter: false
+				}
+			}
+
+			// Mark as 'shadowed' if requested, otherwise keep as 'removed'
+			if (markRemovedAsShadowed && diff[module.id]) {
+				diff[module.id] = {
+					...diff[module.id],
+					before: 'shadowed'
 				}
 			}
 
 			return {
 				module,
-				index: moduleDiff[module.id].originalIndex!,
+				index: diff[module.id].originalIndex!,
+				arrayPosition,
 				isFromAfter: false
 			}
 		})
 
 	// Merge and sort by position
 	// Tie-breaker: removed modules (isFromAfter=false) come before after modules at the same index
+	// Secondary tie-breaker: for consecutive removed modules, use array position to maintain order
 	const allModules = [...afterModulesWithIndex, ...removedModulesItems].sort((a, b) => {
 		if (a.index !== b.index) {
 			return a.index - b.index
 		}
 		// At same index: removed modules first (show what was there before)
-		return a.isFromAfter === b.isFromAfter ? 0 : a.isFromAfter ? 1 : -1
+		if (a.isFromAfter !== b.isFromAfter) {
+			return a.isFromAfter ? 1 : -1
+		}
+		// Both are removed modules: use array position to maintain original order
+		const aPos = (a as any).arrayPosition ?? 0
+		const bPos = (b as any).arrayPosition ?? 0
+		return aPos - bPos
 	})
 
 	const mergedModules = allModules.map((item) => item.module)
 
 	// Handle special modules - use after version or add if removed
-	const mergedFailureModule =
+	// Also mark them as shadowed if requested
+	let mergedFailureModule =
 		afterFlow.failure_module ??
 		(beforeFlow.failure_module && moduleDiff[beforeFlow.failure_module.id]?.before === 'removed'
 			? beforeFlow.failure_module
 			: undefined)
 
-	const mergedPreprocessorModule =
+	let mergedPreprocessorModule =
 		afterFlow.preprocessor_module ??
 		(beforeFlow.preprocessor_module &&
 		moduleDiff[beforeFlow.preprocessor_module.id]?.before === 'removed'
 			? beforeFlow.preprocessor_module
 			: undefined)
 
-	return {
-		...afterFlow,
-		modules: mergedModules,
-		failure_module: mergedFailureModule,
-		preprocessor_module: mergedPreprocessorModule
+	// Mark special modules as shadowed if requested
+	if (markRemovedAsShadowed) {
+		if (mergedFailureModule && moduleDiff[mergedFailureModule.id]?.before === 'removed') {
+			moduleDiff[mergedFailureModule.id] = {
+				...moduleDiff[mergedFailureModule.id],
+				before: 'shadowed'
+			}
+		}
+		if (mergedPreprocessorModule && moduleDiff[mergedPreprocessorModule.id]?.before === 'removed') {
+			moduleDiff[mergedPreprocessorModule.id] = {
+				...moduleDiff[mergedPreprocessorModule.id],
+				before: 'shadowed'
+			}
+		}
 	}
+
+	return {
+		diff,
+		mergedFlow: {
+			...afterFlow,
+			modules: mergedModules,
+			failure_module: mergedFailureModule,
+			preprocessor_module: mergedPreprocessorModule
+		}
+	}
+}
+
+/**
+ * Checks if the input schema has changed between two flow versions.
+ * The input schema always exists (even if empty), so we only check for modifications.
+ *
+ * @param beforeFlow - The original flow (can be OpenFlow or just have schema property)
+ * @param afterFlow - The modified flow (can be OpenFlow or just have schema property)
+ * @returns true if the schemas are different, false if identical
+ */
+export function hasInputSchemaChanged(
+	beforeFlow: { schema?: { [key: string]: unknown } } | undefined,
+	afterFlow: { schema?: { [key: string]: unknown } } | undefined
+): boolean {
+	if (!beforeFlow || !afterFlow) {
+		return false
+	}
+
+	return !deepEqual(beforeFlow.schema, afterFlow.schema)
 }

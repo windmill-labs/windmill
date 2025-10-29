@@ -79,7 +79,8 @@
 		notSelectable?: boolean
 		flowModuleStates?: Record<string, GraphModuleState> | undefined
 		testModuleStates?: ModulesTestStates
-		moduleActions?: Record<string, 'added' | 'removed' | 'modified'>
+		moduleActions?: Record<string, 'added' | 'removed' | 'modified' | 'shadowed'>
+		inputSchemaModified?: boolean
 		selectedId?: Writable<string | undefined>
 		path?: string | undefined
 		newFlow?: boolean
@@ -156,6 +157,7 @@
 		flowModuleStates = undefined,
 		testModuleStates = undefined,
 		moduleActions = undefined,
+		inputSchemaModified = undefined,
 		selectedId = writable<string | undefined>(undefined),
 		path = undefined,
 		newFlow = false,
@@ -478,6 +480,7 @@
 				flowModuleStates: untrack(() => flowModuleStates),
 				testModuleStates: untrack(() => testModuleStates),
 				moduleActions: untrack(() => moduleActions),
+				inputSchemaModified: untrack(() => inputSchemaModified),
 				selectedId: untrack(() => $selectedId),
 				path,
 				newFlow,

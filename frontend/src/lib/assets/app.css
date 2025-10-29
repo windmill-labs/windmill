@@ -202,6 +202,26 @@ svelte-virtual-list-contents > * + * {
 	);
 }
 
+.bg-shadowed-stripe {
+	background-image: repeating-linear-gradient(
+		-45deg,
+		rgba(156, 163, 175, 0.15) 0px,
+		rgba(156, 163, 175, 0.15) 8px,
+		rgba(209, 213, 219, 0.15) 8px,
+		rgba(209, 213, 219, 0.15) 16px
+	);
+}
+
+.dark .bg-shadowed-stripe {
+	background-image: repeating-linear-gradient(
+		-45deg,
+		rgba(75, 85, 99, 0.3) 0px,
+		rgba(75, 85, 99, 0.3) 8px,
+		rgba(107, 114, 128, 0.3) 8px,
+		rgba(107, 114, 128, 0.3) 16px
+	);
+}
+
 /* Prevent clock icon in input[type="time"] making the input taller */
 
 /* Chrome, Safari, Edge, Opera */

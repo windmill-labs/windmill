@@ -126,6 +126,8 @@ export type InputN = {
 		showJobStatus: boolean
 		flowHasChanged: boolean
 		chatInputEnabled: boolean
+		inputSchemaModified?: boolean
+		onShowModuleDiff?: (moduleId: string) => void
 		assets?: AssetWithAltAccessType[] | undefined
 	}
 }
@@ -146,7 +148,7 @@ export type ModuleN = {
 		flowJob: Job | undefined
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
-		moduleAction?: 'added' | 'removed' | 'modified'
+		moduleAction?: 'added' | 'removed' | 'modified' | 'shadowed'
 		onShowModuleDiff?: (moduleId: string) => void
 	}
 }
@@ -366,7 +368,8 @@ export function graphBuilder(
 		insertable: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		testModuleStates: ModulesTestStates | undefined
-		moduleActions?: Record<string, 'added' | 'removed' | 'modified'>
+		moduleActions?: Record<string, 'added' | 'removed' | 'modified' | 'shadowed'>
+		inputSchemaModified?: boolean
 		selectedId: string | undefined
 		path: string | undefined
 		newFlow: boolean
@@ -559,6 +562,8 @@ export function graphBuilder(
 				showJobStatus: extra.showJobStatus,
 				flowHasChanged: extra.flowHasChanged,
 				chatInputEnabled: extra.chatInputEnabled,
+				inputSchemaModified: extra.inputSchemaModified,
+				onShowModuleDiff: extra.onShowModuleDiff,
 				...(inputAssets ? { assets: inputAssets } : {})
 			}
 		}
