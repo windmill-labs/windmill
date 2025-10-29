@@ -6,7 +6,7 @@
 	let {
 		duration = 300,
 		easing = cubicOut,
-		size,
+		size = $bindable(),
 		opened,
 		children,
 		...props
@@ -18,10 +18,8 @@
 		size: number
 	} = $props()
 
-	let userChangedSize: number | undefined = $state(undefined)
-
 	let t = $state(opened ? 1 : 0)
-	let computedSize = $derived((opened ? easing(t) : 1 - easing(1 - t)) * (userChangedSize ?? size))
+	let computedSize = $derived((opened ? easing(t) : 1 - easing(1 - t)) * size)
 
 	let lastTValue = 0
 	let loopIsRunning = false
@@ -52,6 +50,8 @@
 	})
 </script>
 
-<Pane {...props} bind:size={() => computedSize, (v) => (userChangedSize = v)}>
-	{@render children()}
-</Pane>
+{#if computedSize > 1}
+	<Pane {...props} bind:size={() => computedSize, (v) => (size = v)}>
+		{@render children()}
+	</Pane>
+{/if}

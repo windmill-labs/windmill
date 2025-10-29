@@ -307,6 +307,7 @@
 <div
 	class={twMerge(
 		dropdownItems && dropdownItems.length > 0 ? dividerClass : '',
+		'shrink-0',
 		wrapperClasses,
 		'flex flex-row rounded-md',
 		disabled ? 'divide-text-disabled cursor-not-allowed' : ''
