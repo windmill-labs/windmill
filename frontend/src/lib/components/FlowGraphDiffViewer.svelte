@@ -13,6 +13,9 @@
 	import DiffDrawer from './DiffDrawer.svelte'
 	import type { AIModuleAction } from './copilot/chat/flow/core'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
+	import { LayoutGrid, List } from 'lucide-svelte'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
@@ -27,6 +30,7 @@
 	let moduleDiffDrawer: DiffDrawer | undefined = $state(undefined)
 	let viewerWidth = $state(SIDE_BY_SIDE_MIN_WIDTH)
 	let beforePaneSize = $state(50)
+	let viewMode = $state<'sidebyside' | 'unified'>('sidebyside')
 
 	let beforeFlow: OpenFlow | undefined = $derived.by(() => {
 		try {
@@ -57,8 +61,8 @@
 	// Detect if input schema has changed
 	let inputSchemaModified = $derived(hasInputSchemaChanged(beforeFlow, afterFlow))
 
-	// Determine if we should render side-by-side or unified
-	let isSideBySide = $derived(viewerWidth >= SIDE_BY_SIDE_MIN_WIDTH)
+	// Determine if we should render side-by-side or unified (user controlled via toggle)
+	let isSideBySide = $derived(viewMode === 'sidebyside')
 
 	// Build timeline using history-based approach
 	// In side-by-side view, mark removed modules as 'shadowed' in the After graph
@@ -136,57 +140,40 @@
 		{parseError}
 	</Alert>
 {:else if beforeFlow && afterFlow}
-	<div class="h-full" bind:clientWidth={viewerWidth}>
-		{#if isSideBySide}
-			<!-- Side-by-side view for wide screens -->
-			<Splitpanes class="!overflow-visible h-full">
-				<!-- Before (Left) -->
-				<Pane bind:size={beforePaneSize} minSize={30}>
-					<div class="flex flex-col h-full border-r border-gray-200 dark:border-gray-700">
-						<div
-							class="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700"
-						>
-							<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Before</h3>
-						</div>
-						<div class="flex-1 overflow-hidden">
-							<FlowGraphV2
-								modules={beforeFlow.value.modules}
-								failureModule={beforeFlow.value.failure_module}
-								preprocessorModule={beforeFlow.value.preprocessor_module}
-								earlyStop={beforeFlow.value.skip_expr !== undefined}
-								cache={beforeFlow.value.cache_ttl !== undefined}
-								moduleActions={beforeActions}
-								{inputSchemaModified}
-								onShowModuleDiff={handleShowModuleDiff}
-								notSelectable={true}
-								insertable={false}
-								editMode={false}
-								download={false}
-								scroll={false}
-								minHeight={400}
-								triggerNode={false}
-							/>
-						</div>
-					</div>
-				</Pane>
+	<div class="h-full flex flex-col" bind:clientWidth={viewerWidth}>
+		<!-- Header with view toggle -->
+		<div class="flex flex-row items-center justify-end m-2">
+			<div>
+				<ToggleButtonGroup bind:selected={viewMode}>
+					{#snippet children({ item })}
+						<ToggleButton {item} value="unified" label="Unified" icon={List} />
+						<ToggleButton {item} value="sidebyside" label="Side by Side" icon={LayoutGrid} />
+					{/snippet}
+				</ToggleButtonGroup>
+			</div>
+		</div>
 
-				<!-- After (Right) - Show merged flow with shadowed removed modules -->
-				<Pane minSize={30} class="flex flex-col h-full">
-					<div class="flex flex-col h-full">
-						<div
-							class="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700"
-						>
-							<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">After</h3>
-						</div>
-						<div class="flex-1 overflow-hidden">
-							{#if mergedState}
+		<!-- Main content area -->
+		<div class="flex-1 overflow-hidden">
+			{#if isSideBySide}
+				<!-- Side-by-side view for wide screens -->
+				<Splitpanes class="!overflow-visible h-full">
+					<!-- Before (Left) -->
+					<Pane bind:size={beforePaneSize} minSize={30}>
+						<div class="flex flex-col h-full border-r border-gray-200 dark:border-gray-700">
+							<div
+								class="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700"
+							>
+								<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Before</h3>
+							</div>
+							<div class="flex-1 overflow-hidden">
 								<FlowGraphV2
-									modules={mergedState.mergedFlow.modules}
-									failureModule={mergedState.mergedFlow.failure_module}
-									preprocessorModule={mergedState.mergedFlow.preprocessor_module}
-									earlyStop={mergedState.mergedFlow.skip_expr !== undefined}
-									cache={mergedState.mergedFlow.cache_ttl !== undefined}
-									moduleActions={unifiedActions}
+									modules={beforeFlow.value.modules}
+									failureModule={beforeFlow.value.failure_module}
+									preprocessorModule={beforeFlow.value.preprocessor_module}
+									earlyStop={beforeFlow.value.skip_expr !== undefined}
+									cache={beforeFlow.value.cache_ttl !== undefined}
+									moduleActions={beforeActions}
 									{inputSchemaModified}
 									onShowModuleDiff={handleShowModuleDiff}
 									notSelectable={true}
@@ -197,38 +184,70 @@
 									minHeight={400}
 									triggerNode={false}
 								/>
-							{/if}
+							</div>
 						</div>
+					</Pane>
+
+					<!-- After (Right) - Show merged flow with shadowed removed modules -->
+					<Pane minSize={30} class="flex flex-col h-full">
+						<div class="flex flex-col h-full">
+							<div
+								class="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700"
+							>
+								<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">After</h3>
+							</div>
+							<div class="flex-1 overflow-hidden">
+								{#if mergedState}
+									<FlowGraphV2
+										modules={mergedState.mergedFlow.modules}
+										failureModule={mergedState.mergedFlow.failure_module}
+										preprocessorModule={mergedState.mergedFlow.preprocessor_module}
+										earlyStop={mergedState.mergedFlow.skip_expr !== undefined}
+										cache={mergedState.mergedFlow.cache_ttl !== undefined}
+										moduleActions={unifiedActions}
+										{inputSchemaModified}
+										onShowModuleDiff={handleShowModuleDiff}
+										notSelectable={true}
+										insertable={false}
+										editMode={false}
+										download={false}
+										scroll={false}
+										minHeight={400}
+										triggerNode={false}
+									/>
+								{/if}
+							</div>
+						</div>
+					</Pane>
+				</Splitpanes>
+			{:else}
+				<!-- Unified view for narrow screens - show merged flow with all diff colors -->
+				{#if mergedState}
+					<div class="h-full overflow-hidden">
+						<FlowGraphV2
+							modules={mergedState.mergedFlow.modules}
+							failureModule={mergedState.mergedFlow.failure_module}
+							preprocessorModule={mergedState.mergedFlow.preprocessor_module}
+							earlyStop={mergedState.mergedFlow.skip_expr !== undefined}
+							cache={mergedState.mergedFlow.cache_ttl !== undefined}
+							moduleActions={unifiedActions}
+							{inputSchemaModified}
+							onShowModuleDiff={handleShowModuleDiff}
+							notSelectable={true}
+							insertable={false}
+							editMode={false}
+							download={false}
+							scroll={false}
+							minHeight={400}
+							triggerNode={false}
+						/>
 					</div>
-				</Pane>
-			</Splitpanes>
-		{:else}
-			<!-- Unified view for narrow screens - show merged flow with all diff colors -->
-			{#if mergedState}
-				<div class="h-full overflow-hidden">
-					<FlowGraphV2
-						modules={mergedState.mergedFlow.modules}
-						failureModule={mergedState.mergedFlow.failure_module}
-						preprocessorModule={mergedState.mergedFlow.preprocessor_module}
-						earlyStop={mergedState.mergedFlow.skip_expr !== undefined}
-						cache={mergedState.mergedFlow.cache_ttl !== undefined}
-						moduleActions={unifiedActions}
-						{inputSchemaModified}
-						onShowModuleDiff={handleShowModuleDiff}
-						notSelectable={true}
-						insertable={false}
-						editMode={false}
-						download={false}
-						scroll={false}
-						minHeight={400}
-						triggerNode={false}
-					/>
-				</div>
+				{/if}
 			{/if}
-		{/if}
+		</div>
+		<!-- Nested DiffDrawer for module-level diffs -->
+		<DiffDrawer bind:this={moduleDiffDrawer} />
 	</div>
-	<!-- Nested DiffDrawer for module-level diffs -->
-	<DiffDrawer bind:this={moduleDiffDrawer} />
 {:else}
 	<div class="flex items-center justify-center h-full">
 		<p class="text-gray-500">Loading graphs...</p>
