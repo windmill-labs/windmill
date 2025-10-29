@@ -337,6 +337,27 @@ class Windmill:
 
             time.sleep(0.5)
 
+    def cancel_job(self, job_id: str, reason: str = None) -> str:
+        """Cancel a specific job by ID.
+
+        Args:
+            job_id: UUID of the job to cancel
+            reason: Optional reason for cancellation
+
+        Returns:
+            Response message from the cancel endpoint
+        """
+        logger.info(f"cancelling job: {job_id}")
+
+        payload = {"reason": reason or "cancelled via cancel_job method"}
+
+        response = self.post(
+            f"/w/{self.workspace}/jobs_u/queue/cancel/{job_id}",
+            json=payload,
+        )
+
+        return response.text
+
     def cancel_running(self) -> dict:
         """Cancel currently running executions of the same script."""
         logger.info("canceling running executions of this script")
@@ -1361,6 +1382,20 @@ def send_teams_message(
     conversation_id: str, text: str, success: bool, card_block: dict = None
 ):
     return _client.send_teams_message(conversation_id, text, success, card_block)
+
+
+@init_global_client
+def cancel_job(job_id: str, reason: str = None) -> str:
+    """Cancel a specific job by ID.
+
+    Args:
+        job_id: UUID of the job to cancel
+        reason: Optional reason for cancellation
+
+    Returns:
+        Response message from the cancel endpoint
+    """
+    return _client.cancel_job(job_id, reason)
 
 
 @init_global_client
