@@ -6,6 +6,8 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { chatState } from './sharedChatState.svelte'
 	import { loadCopilot } from '$lib/aiStore'
+	import { aiChatManager } from './AIChatManager.svelte'
+	import { onDestroy } from 'svelte'
 
 	interface Props {
 		noPadding?: boolean
@@ -32,6 +34,14 @@
 		if ($workspaceStore && !disableAi) {
 			loadCopilot($workspaceStore)
 		}
+	})
+
+	const historyManager = aiChatManager.historyManager
+	historyManager.init()
+
+	onDestroy(() => {
+		aiChatManager.cancel()
+		historyManager.close()
 	})
 </script>
 
