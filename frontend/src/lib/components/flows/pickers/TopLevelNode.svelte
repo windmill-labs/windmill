@@ -11,18 +11,17 @@
 		Square,
 		Zap
 	} from 'lucide-svelte'
-	import { twMerge } from 'tailwind-merge'
 	import type { ComponentType } from 'svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	interface Props {
 		label: string
 		selected?: boolean
 		returnIcon?: boolean
 		onSelect: () => void
-		class?: string
 	}
 
-	let { label, selected, returnIcon, onSelect, class: className }: Props = $props()
+	let { label, selected, returnIcon, onSelect }: Props = $props()
 
 	interface IconConfig {
 		icon: ComponentType
@@ -48,24 +47,19 @@
 </script>
 
 {#snippet iconWithText(icon: ComponentType, showChevron = false, iconClass = '')}
-	{@const Icon = icon}
-	<Icon size={14} class={iconClass} />
 	{label}
 	{#if showChevron}
-		<ChevronRight size={12} class="ml-auto" color="#4c566a" />
+		<ChevronRight size={12} class="ml-auto text-secondary" />
 	{/if}
 {/snippet}
 
-<button
+<Button
 	id={`flow-editor-flow-kind-${label.replaceAll(' ', '-').toLowerCase()}`}
-	class={twMerge(
-		'w-full text-left py-2 px-1.5 hover:bg-surface-hover text-xs font-medium transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
-		selected ? 'bg-surface-hover' : '',
-		className
-	)}
-	onpointerdown={onSelect}
-	role="menuitem"
-	tabindex="-1"
+	{selected}
+	onClick={onSelect}
+	variant="subtle"
+	unifiedSize="sm"
+	startIcon={{ icon: config?.icon }}
 >
 	<span class="grow flex items-center gap-2">
 		{#if config}
@@ -75,4 +69,4 @@
 	{#if returnIcon && selected}
 		<kbd class="!text-xs text-right">&crarr;</kbd>
 	{/if}
-</button>
+</Button>

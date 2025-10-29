@@ -46,6 +46,7 @@
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { userStore } from '$lib/stores'
 	import { get } from 'svelte/store'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	let hubNotAvailable = $state(false)
 
@@ -161,7 +162,7 @@
 
 <svelte:window onkeydown={onKeyDown} />
 {#if hubNotAvailable}
-	<div class="text-2xs text-red-400 ftext-2xs font-light text-center py-2 px-3 items-center">
+	<div class="text-2xs text-red-400 font-normal text-center py-2 px-3 items-center">
 		Hub not available
 	</div>
 {:else if loading}
@@ -169,7 +170,7 @@
 		<Skeleton layout={[0.1, [1.5]]} />
 	{/each}
 {:else if items.length > 0 && apps.length > 0}
-	<ul>
+	<ul class="gap-1 flex flex-col">
 		{#each items as item, index (item.path)}
 			<li class="w-full">
 				<Popover class="w-full" placement="right" forceOpen={index === selected}>
@@ -183,33 +184,30 @@
 							</div>
 						</div>
 					{/snippet}
-					<button
-						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
-						selected
-							? 'bg-surface-hover'
-							: ''}"
-						onclick={() => dispatch('pickScript', item)}
+					<Button
+						selected={selected === index}
+						variant="subtle"
+						unifiedSize="sm"
+						btnClasses="justify-start"
+						onClick={() => dispatch('pickScript', item)}
 					>
 						<div class={classNames('flex justify-center items-center')}>
 							{#if item['app'] in APP_TO_ICON_COMPONENT}
 								{@const SvelteComponent = APP_TO_ICON_COMPONENT[item['app']]}
-								<SvelteComponent height={14} width={14} />
+								<SvelteComponent height={13} width={13} />
 							{:else}
-								<div
-									class="w-[14px] h-[14px] text-gray-400 flex flex-row items-center justify-center"
-								>
-									<Circle size="12" />
+								<div class="text-gray-400 flex flex-row items-center justify-center">
+									<Circle size="13" />
 								</div>
 							{/if}
 						</div>
 
 						<div class="flex flex-col grow min-w-0">
-							<div
-								class="grow truncate text-left text-2xs text-primary font-normal leading-tight py-0.5"
+							<div class="grow truncate text-left font-normal leading-tight py-0.5"
 								>{item.summary ?? ''}</div
 							>
 							{#if displayPath && item.path}
-								<div class="grow truncate text-left text-2xs text-secondary font-[220]">
+								<div class="grow truncate text-left text-2xs font-thin">
 									{item.path}
 								</div>
 							{/if}
@@ -217,7 +215,7 @@
 						{#if index === selected}
 							<kbd class="!text-xs">&crarr;</kbd>
 						{/if}
-					</button>
+					</Button>
 				</Popover>
 			</li>
 		{/each}

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import type { SupportedLanguage } from '$lib/common'
+	import Button from '$lib/components/common/button/Button.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher } from 'svelte'
-	import { twMerge } from 'tailwind-merge'
 
 	export let label: string
 	export let lang: SupportedLanguage | 'docker' | 'javascript' | undefined = undefined
@@ -32,26 +32,22 @@
 
 <svelte:window on:keydown={handleKeydown} />
 
-<button
+<Button
 	id={`flow-editor-new-${lang}`}
-	class={twMerge(
-		'px-3 py-2 gap-2 w-full text-left hover:bg-surface-hover flex flex-row items-center transition-all rounded-md',
-		selected ? 'bg-surface-hover' : ''
-	)}
-	on:click={click}
+	{selected}
+	onClick={click}
 	role="menuitem"
+	variant="subtle"
+	unifiedSize="sm"
+	btnClasses="justify-start"
 >
 	{#if lang}
-		<LanguageIcon {lang} width={14} height={14} />
+		<LanguageIcon {lang} width={13} height={13} />
 	{/if}
-	<span
-		class="grow truncate text-left text-2xs font-normal {eeRestricted
-			? 'text-secondary'
-			: 'text-primary'}"
-	>
+	<span class="grow truncate text-left {eeRestricted ? 'text-disabled' : ''}">
 		{label}{#if eeRestricted}&nbsp;(EE){/if}
 	</span>
 	{#if selected}
 		<kbd class="!text-xs">&crarr;</kbd>
 	{/if}
-</button>
+</Button>

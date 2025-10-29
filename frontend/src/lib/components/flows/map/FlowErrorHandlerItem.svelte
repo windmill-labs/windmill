@@ -106,7 +106,7 @@
 	<!-- Index 0 is used by the tutorial to identify the first "Add step" -->
 	<InsertModulePopover
 		{disableAi}
-		placement={'bottom-center'}
+		placement={'bottom'}
 		on:new={(e) => {
 			insertFailureModule(e.detail.inlineScript)
 		}}
@@ -115,19 +115,17 @@
 		}}
 		kind="failure"
 	>
-		{#snippet trigger({ toggleOpen })}
+		{#snippet trigger()}
 			<Button
 				unifiedSize="sm"
 				wrapperClasses="min-w-36"
 				title={`Add failure module`}
 				variant="default"
 				id={`flow-editor-add-step-error-handler-button`}
-				onClick={() => toggleOpen()}
+				nonCaptureEvent
+				startIcon={{ icon: Bug }}
 			>
-				<div class="flex items-center gap-1">
-					<Bug size={14} />
-					<span class="text-xs w-20">Error Handler</span>
-				</div>
+				Error Handler
 			</Button>
 		{/snippet}
 	</InsertModulePopover>

@@ -179,10 +179,8 @@
 		<Popover
 			documentationLink="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 			bind:this={githubAppPopover}
-			floatingConfig={{
-				placement: 'bottom'
-			}}
 			disabled={!$enterpriseLicense || githubState.loadingGithubInstallations}
+			contentClasses="overflow-auto"
 		>
 			{#snippet trigger()}
 				<Button

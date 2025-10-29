@@ -3,16 +3,15 @@
 	import { Plus } from 'lucide-svelte'
 
 	type Props = {
-		onPress: () => void
 		Icon?: IconType
 		title?: string
 		id?: string
 	}
 
-	let { onPress, Icon = Plus, title, id }: Props = $props()
+	let { Icon = Plus, title, id }: Props = $props()
 </script>
 
-<button class="center-center p-2 group" onpointerdown={onPress}>
+<button class="center-center p-2 group">
 	<div
 		{title}
 		{id}

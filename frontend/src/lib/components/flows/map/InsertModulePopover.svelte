@@ -1,15 +1,8 @@
 <script lang="ts">
 	import InsertModuleInner from './InsertModuleInner.svelte'
-	import type { ComputeConfig } from 'svelte-floating-ui'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
 
-	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
-	import { flip, offset } from 'svelte-floating-ui/dom'
-
-	// import type { Writable } from 'svelte/store'
-
-	type Alignment = 'start' | 'end' | 'center'
-	type Side = 'top' | 'bottom'
-	type Placement = `${Side}-${Alignment}`
+	import type { Placement } from '@floating-ui/core'
 
 	interface Props {
 		allowTrigger?: boolean
@@ -17,38 +10,46 @@
 		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
 		placement?: Placement
 		disableAi?: boolean
-		trigger: import('svelte').Snippet<[{ toggleOpen: () => void }]>
+		trigger: import('svelte').Snippet
+		gutter?: number
 	}
 
 	let {
 		funcDesc = $bindable(''),
 		kind = 'script',
-		placement = 'bottom-center',
 		disableAi = false,
-		trigger,
-		allowTrigger = false
+		trigger: triggerSnippet,
+		allowTrigger = false,
+		gutter = 0
 	}: Props = $props()
 
-	let floatingConfig: ComputeConfig = {
-		strategy: 'fixed',
-		// @ts-ignore
-		placement,
-		middleware: [offset(8), flip()],
-		autoUpdate: true
-	}
-
-	let open = $state(false)
+	let popover: Popover
 
 	$effect(() => {
-		!open && (funcDesc = '')
+		!popover?.isOpened() && (funcDesc = '')
 	})
 </script>
 
-<PopupV2 {floatingConfig} bind:open target="#flow-editor">
-	{#snippet button()}
-		{@render trigger?.({ toggleOpen: () => (open = !open) })}
+<Popover
+	bind:this={popover}
+	portal="#flow-editor"
+	contentClasses="p-2 max-w-lg h-[400px] !resize bg-surface"
+	class="inline-block"
+	usePointerDownOutside
+	floatingConfig={{
+		placement: 'bottom',
+		strategy: 'absolute',
+		gutter,
+		overflowPadding: 16,
+		flip: true,
+		fitViewport: true,
+		overlap: false
+	}}
+>
+	{#snippet trigger()}
+		{@render triggerSnippet?.()}
 	{/snippet}
-	{#snippet children({ close })}
+	{#snippet content({ close })}
 		<InsertModuleInner
 			on:close={() => close()}
 			on:insert
@@ -60,4 +61,4 @@
 			{disableAi}
 		/>
 	{/snippet}
-</PopupV2>
+</Popover>

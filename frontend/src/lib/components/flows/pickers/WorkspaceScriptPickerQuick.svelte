@@ -43,6 +43,7 @@
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { get } from 'svelte/store'
 	import { userStore } from '$lib/stores'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	type Item = {
 		path: string
@@ -151,7 +152,7 @@
 			{kind == 'flow' ? 'No flows found.' : 'No scripts found.'}
 		</div>
 	{/if}
-	<ul>
+	<ul class="gap-1 flex flex-col">
 		{#each filteredWithOwner ?? [] as { path, hash, summary, marked }, index}
 			<li class="w-full">
 				<Popover class="w-full " placement="right" forceOpen={index === selected}>
@@ -163,26 +164,24 @@
 							</div>
 						</div>
 					{/snippet}
-					<button
-						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover transition-all items-center rounded-md {index ===
-						selected
-							? 'bg-surface-hover'
-							: ''}"
-						onclick={() => {
+					<Button
+						selected={selected === index}
+						variant="subtle"
+						unifiedSize="sm"
+						btnClasses="justify-start transition-all"
+						onClick={() => {
 							if (kind == 'flow') {
 								dispatch('pickFlow', { path: path })
 							} else {
 								dispatch('pickScript', { path: path, hash: lockHash ? hash : undefined, kind })
 							}
 						}}
+						startIcon={{
+							icon: kind == 'flow' ? BarsStaggered : Code2
+						}}
 					>
-						{#if kind == 'flow'}
-							<BarsStaggered size={14} class="shrink-0" />
-						{:else}
-							<Code2 size={14} />
-						{/if}
 						<div class="flex flex-col grow min-w-0">
-							<div class="grow min-w-0 truncate text-left text-2xs text-primary font-normal">
+							<div class="grow min-w-0 truncate text-left">
 								{#if marked}
 									{@html marked}
 								{:else}
@@ -190,7 +189,7 @@
 								{/if}
 							</div>
 							{#if displayPath && path}
-								<div class="grow min-w-0 truncate text-left text-2xs text-secondary font-[220]">
+								<div class="grow min-w-0 truncate text-left text-2xs font-thin">
 									{path}
 								</div>
 							{/if}
@@ -198,7 +197,7 @@
 						{#if index === selected}
 							<kbd class="!text-xs">&crarr;</kbd>
 						{/if}
-					</button>
+					</Button>
 				</Popover>
 			</li>
 		{/each}
