@@ -24,17 +24,12 @@
 
 	export const inputSizeClasses = {
 		sm: twMerge(
-			`${ButtonType.UnifiedSizingClasses.sm} ${ButtonType.UnifiedMinHeightClasses.sm} !py-0.5`,
-			'px-2'
+			ButtonType.UnifiedSizingClasses.sm,
+			ButtonType.UnifiedMinHeightClasses.sm,
+			'px-2 !py-0.5'
 		),
-		md: twMerge(
-			`${ButtonType.UnifiedSizingClasses.md} ${ButtonType.UnifiedMinHeightClasses.md}`,
-			'px-2'
-		),
-		lg: twMerge(
-			`${ButtonType.UnifiedSizingClasses.lg} ${ButtonType.UnifiedMinHeightClasses.lg}`,
-			'px-2'
-		)
+		md: twMerge(ButtonType.UnifiedSizingClasses.md, ButtonType.UnifiedMinHeightClasses.md, 'px-2'),
+		lg: twMerge(ButtonType.UnifiedSizingClasses.lg, ButtonType.UnifiedMinHeightClasses.lg, 'px-2')
 	}
 </script>
 

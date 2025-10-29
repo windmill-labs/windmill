@@ -97,13 +97,10 @@ async function dev(opts: GlobalOptions & SyncOptions) {
         const splitted = cpath.split(".");
         const wmPath = splitted[0];
         const lang = inferContentTypeFromFilePath(cpath, conf.defaultTs);
-        const globalDeps = await findGlobalDeps();
         const typed =
           (await parseMetadataFile(
             removeExtensionToPath(cpath),
             undefined,
-            globalDeps,
-            []
           )
           )?.payload
 

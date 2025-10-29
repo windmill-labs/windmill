@@ -42,7 +42,11 @@
 	import { workspaceStore } from '$lib/stores'
 	import { type Preview, ResourceService, type ScriptLang, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
-	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from '$lib/components/vscode'
+	import {
+		initializeVscode,
+		keepModelAroundToAvoidDisposalOfWorkers,
+		MONACO_Y_PADDING
+	} from '$lib/components/vscode'
 
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
@@ -1077,6 +1081,8 @@
 
 	let pathTimeout: number | undefined = undefined
 
+	let yPadding = MONACO_Y_PADDING
+
 	function getHostname() {
 		return BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
 	}
@@ -1262,7 +1268,7 @@
 				// overflowWidgetsDomNode: widgets,
 				tabSize: lang == 'python' ? 4 : 2,
 				folding,
-				padding: { bottom: 7, top: 7 }
+				padding: { bottom: yPadding, top: yPadding }
 			})
 			if (key && editorPositionMap?.[key]) {
 				editor.setPosition(editorPositionMap[key])
@@ -1721,7 +1727,7 @@
 <EditorTheme />
 {#if !editor}
 	<div class="inset-0 absolute overflow-clip">
-		<FakeMonacoPlaceHolder {code} />
+		<FakeMonacoPlaceHolder {code} lineNumbersWidth={51} />
 	</div>
 {/if}
 <div bind:this={divEl} class="{clazz} editor {disabled ? 'disabled' : ''}"></div>
