@@ -24,8 +24,8 @@ export type TimelineItem = {
 	/** Sequential position in the final timeline (0, 1, 2, ...) */
 	position: number
 
-	/** The operation that occurred to this module */
-	operation: AIModuleAction
+	/** The operation that occurred to this module (undefined for unchanged modules) */
+	operation: AIModuleAction | undefined
 
 	/** Position in beforeFlow.modules (undefined if didn't exist) */
 	beforeIndex?: number
@@ -221,8 +221,8 @@ export function buildFlowTimeline(
 		const afterModule = afterModules.get(moduleId)
 		const afterIndex = afterIndices.get(moduleId)
 
-		// Determine operation
-		let operation: AIModuleAction = moduleDiff[moduleId]?.after ?? moduleDiff[moduleId]?.before ?? 'modified'
+		// Determine operation - undefined means unchanged module
+		let operation: AIModuleAction | undefined = moduleDiff[moduleId]?.after ?? moduleDiff[moduleId]?.before
 		if (!afterModule) {
 			operation = options.markRemovedAsShadowed ? 'shadowed' : 'removed'
 		}
@@ -303,7 +303,7 @@ export function buildFlowTimeline(
 		removed: items.filter((i) => i.operation === 'removed').length,
 		shadowed: items.filter((i) => i.operation === 'shadowed').length,
 		modified: items.filter((i) => i.operation === 'modified').length,
-		kept: 0
+		kept: items.filter((i) => i.operation === undefined).length
 	}
 
 	return { items, itemMap, diff, stats, mergedFlow }
