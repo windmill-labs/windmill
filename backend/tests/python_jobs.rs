@@ -181,11 +181,13 @@ def main():
         custom_concurrency_key: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
         cache_ttl: None,
         dedicated_worker: None,
     });
 
-    let result = run_job_in_new_worker_until_complete(&db, job, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
         .await
         .json_result()
         .unwrap();
@@ -230,11 +232,13 @@ def main():
             custom_concurrency_key: None,
             concurrent_limit: None,
             concurrency_time_window_s: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
             cache_ttl: None,
             dedicated_worker: None,
         });
 
-        let result = run_job_in_new_worker_until_complete(&db, job, port)
+        let result = run_job_in_new_worker_until_complete(&db, false, job, port)
             .await
             .json_result()
             .unwrap();
@@ -264,11 +268,13 @@ def main():
             custom_concurrency_key: None,
             concurrent_limit: None,
             concurrency_time_window_s: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
             cache_ttl: None,
             dedicated_worker: None,
         });
 
-        let result = run_job_in_new_worker_until_complete(&db, job, port)
+        let result = run_job_in_new_worker_until_complete(&db, false, job, port)
             .await
             .json_result()
             .unwrap();
@@ -303,11 +309,13 @@ def main():
         custom_concurrency_key: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
         cache_ttl: None,
         dedicated_worker: None,
     });
 
-    let result = run_job_in_new_worker_until_complete(&db, job, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
         .await
         .json_result()
         .unwrap();
@@ -340,11 +348,13 @@ def main():
         custom_concurrency_key: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
         cache_ttl: None,
         dedicated_worker: None,
     });
 
-    let result = run_job_in_new_worker_until_complete(&db, job, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
         .await
         .json_result()
         .unwrap();

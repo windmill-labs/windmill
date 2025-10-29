@@ -1,0 +1,46 @@
+summary: AI Agent with Mixed Tools
+description: An AI agent using both FlowModule and MCP tools
+schema:
+  type: object
+  properties:
+    user_query:
+      type: string
+value:
+  modules:
+    - id: mixed_agent
+      value:
+        type: aiagent
+        input_transforms:
+          query:
+            type: javascript
+            expr: "flow_input.user_query"
+        tools:
+          - id: custom_script
+            value:
+              tool_type: flowmodule
+              type: rawscript
+              input_transforms:
+                input:
+                  type: static
+                  value: "test"
+              content: |
+                export async function main(input: string) {
+                  return { processed: input };
+                }
+              language: python3
+          - id: mcp_tool
+            value:
+              tool_type: mcp
+              resource_path: f/resources/mcp_integration
+              include_tools:
+                - api_call
+          - id: flow_tool
+            summary: Nested flow
+            value:
+              tool_type: flowmodule
+              type: flow
+              path: f/flows/data_processor
+              input_transforms:
+                data:
+                  type: javascript
+                  expr: "previous_result.output"

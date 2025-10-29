@@ -108,7 +108,7 @@
 <div class="h-full flex flex-col gap-4">
 	<ToggleButtonGroup
 		bind:selected={delayType}
-		class={`h-10 ${disabled ? 'disabled' : ''}`}
+		class={`${disabled ? 'disabled' : ''}`}
 		on:selected={(e) => {
 			flowModuleRetry = undefined
 			if (e.detail === 'constant') {
@@ -121,9 +121,9 @@
 		}}
 	>
 		{#snippet children({ item })}
-			<ToggleButton light value="disabled" label="Disabled" {item} />
-			<ToggleButton light value="constant" label="Constant" {item} />
-			<ToggleButton light value="exponential" label="Exponential" {item} />
+			<ToggleButton value="disabled" label="Disabled" {item} />
+			<ToggleButton value="constant" label="Constant" {item} />
+			<ToggleButton value="exponential" label="Exponential" {item} />
 		{/snippet}
 	</ToggleButtonGroup>
 
@@ -160,18 +160,19 @@
 			/>
 
 			<div
-				class="w-full border p-2 mt-2 flex flex-col {flowModuleRetry?.retry_if
+				class="w-full border rounded-md p-2 mt-2 flex flex-col {flowModuleRetry?.retry_if
 					? ''
 					: 'bg-surface-secondary'}"
 			>
 				{#if flowModuleRetry?.retry_if}
 					<span class="mt-2 text-xs font-bold">Retry condition expression</span>
-					<span class="text-xs text-tertiary mb-2"
+					<span class="text-xs text-primary mb-2"
 						>Expression should return true to retry, false to skip retry</span
 					>
-					<div class="border w-full">
+					<div class="border rounded-md overflow-auto w-full">
 						{#if stepPropPicker}
 							<PropPickerWrapper
+								noPadding
 								notSelectable
 								pickableProperties={stepPropPicker.pickableProperties}
 								{result}
@@ -184,7 +185,7 @@
 									bind:this={editor}
 									lang="javascript"
 									bind:code={flowModuleRetry.retry_if.expr}
-									class="few-lines-editor"
+									class="h-full"
 									extraLib={`declare const result = ${JSON.stringify(result)};` +
 										`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input || {})};`}
 								/>
@@ -201,7 +202,7 @@
 					</div>
 				{:else}
 					<span class="mt-2 text-xs font-bold">Retry condition expression</span>
-					<span class="text-xs text-tertiary mb-2"
+					<span class="text-xs text-primary mb-2"
 						>Expression should return true to retry, false to skip retry</span
 					>
 					<textarea disabled rows="3" class="min-h-[80px]"></textarea>
@@ -244,7 +245,7 @@
 						>
 					</div>
 					<div class="text-xs font-bold !mt-2">Multiplier</div>
-					<span class="text-xs text-tertiary">delay = multiplier * base ^ (number of attempt)</span>
+					<span class="text-xs text-primary">delay = multiplier * base ^ (number of attempt)</span>
 					<input bind:value={flowModuleRetry.exponential.multiplier} type="number" />
 					<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
 					<input bind:value={flowModuleRetry.exponential.seconds} type="number" step="1" />

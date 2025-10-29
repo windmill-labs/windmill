@@ -477,7 +477,7 @@ pub trait TriggerJobArgs {
 }
 
 #[allow(dead_code)]
-async fn trigger_runnable_inner(
+pub async fn trigger_runnable_inner(
     db: &DB,
     user_db: Option<UserDB>,
     authed: ApiAuthed,
@@ -804,6 +804,8 @@ async fn trigger_script_with_retry_and_error_handler(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            custom_debounce_key,
+            debounce_delay_s,
             cache_ttl,
             priority,
             apply_preprocessor,
@@ -825,6 +827,8 @@ async fn trigger_script_with_retry_and_error_handler(
             tag_override: tag.clone(),
             apply_preprocessor,
             trigger_path: Some(trigger_path),
+            custom_debounce_key,
+            debounce_delay_s,
         },
         _ => {
             return Err(windmill_common::error::Error::internal_err(format!(
@@ -860,6 +864,7 @@ async fn trigger_script_with_retry_and_error_handler(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
     )
     .await?;

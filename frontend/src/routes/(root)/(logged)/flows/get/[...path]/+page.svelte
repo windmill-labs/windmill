@@ -238,7 +238,7 @@
 				label: 'Fork',
 				buttonProps: {
 					href: `${base}/flows/add?template=${flow.path}`,
-					color: 'light',
+					variant: 'subtle',
 					size: 'xs',
 					startIcon: GitFork
 				}
@@ -254,7 +254,7 @@
 			buttonProps: {
 				href: `${base}/runs/${flow.path}`,
 				size: 'xs',
-				color: 'light',
+				variant: 'subtle',
 				startIcon: Play
 			}
 		})
@@ -262,12 +262,9 @@
 		buttons.push({
 			label: `History`,
 			buttonProps: {
-				onClick: () => {
-					flowHistory?.open()
-				},
-
+				onClick: () => flowHistory?.open(),
 				size: 'xs',
-				color: 'light',
+				variant: 'subtle',
 				startIcon: History
 			}
 		})
@@ -285,9 +282,8 @@
 						$importStore = JSON.parse(JSON.stringify(app))
 						await goto('/apps/add?nodraft=true')
 					},
-
 					size: 'xs',
-					color: 'light',
+					variant: 'accent',
 					startIcon: Columns
 				}
 			})
@@ -296,9 +292,8 @@
 				label: 'Edit',
 				buttonProps: {
 					href: `${base}/flows/edit/${path}?nodraft=true`,
-					variant: 'contained',
+					variant: 'accent-secondary',
 					size: 'xs',
-					color: 'dark',
 					disabled: !can_write,
 					startIcon: Pen
 				}
@@ -619,28 +614,24 @@
 						<div
 							class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1"
 						>
-							<div class="flex-shrink-0">
-								<FlowConversationsSidebar
-									bind:this={flowConversationsSidebar}
-									flowPath={flow?.path ?? ''}
-									{selectedConversationId}
-									onNewConversation={handleNewConversation}
-									onSelectConversation={handleSelectConversation}
-									onDeleteConversation={handleDeleteConversation}
-								/>
-							</div>
-							<div class="flex-1">
-								<FlowChatInterface
-									bind:this={flowChatInterface}
-									onRunFlow={runFlowForChat}
-									useStreaming={shouldUseStreaming}
-									{refreshConversations}
-									conversationId={selectedConversationId}
-									{deploymentInProgress}
-									createConversation={handleNewConversation}
-									{path}
-								/>
-							</div>
+							<FlowConversationsSidebar
+								bind:this={flowConversationsSidebar}
+								flowPath={flow?.path ?? ''}
+								{selectedConversationId}
+								onNewConversation={handleNewConversation}
+								onSelectConversation={handleSelectConversation}
+								onDeleteConversation={handleDeleteConversation}
+							/>
+							<FlowChatInterface
+								bind:this={flowChatInterface}
+								onRunFlow={runFlowForChat}
+								useStreaming={shouldUseStreaming}
+								{refreshConversations}
+								conversationId={selectedConversationId}
+								{deploymentInProgress}
+								createConversation={handleNewConversation}
+								{path}
+							/>
 						</div>
 					{:else}
 						<!-- Normal Mode: Form Layout -->
@@ -654,7 +645,6 @@
 								/>
 								<Toggle
 									bind:checked={jsonView}
-									label="JSON View"
 									size="xs"
 									options={{
 										right: 'JSON',
@@ -697,15 +687,13 @@
 						<div class="py-10"></div>
 
 						{#if !emptyString(flow.summary)}
-							<div class="mb-2">
-								<span class="!text-tertiary">{flow.path}</span>
+							<div>
+								<span class="text-primary text-xs">{flow.path}</span>
 							</div>
 						{/if}
-						<div class="flex flex-row gap-x-2 flex-wrap items-center">
-							<span class="text-sm text-tertiary">
-								Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
-							</span>
-						</div>
+						<span class="text-2xs text-secondary">
+							Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
+						</span>
 					{/if}
 				</div>
 				{#if !chatInputEnabled}

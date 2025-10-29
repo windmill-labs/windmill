@@ -117,8 +117,7 @@
 			<div class="flex items-center gap-2 flex-row">
 				<Button
 					size="xs2"
-					variant="border"
-					color="light"
+					variant="default"
 					on:click={() => {
 						isPreviousLoading = true
 						$table.previousPage()
@@ -133,8 +132,7 @@
 
 				<Button
 					size="xs2"
-					variant="border"
-					color="light"
+					variant="default"
 					on:click={() => {
 						isNextLoading = true
 						$table.nextPage()

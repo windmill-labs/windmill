@@ -31,7 +31,6 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 
 	let drawer: Drawer | undefined = $state(undefined)
-	let is_flow: boolean = $state(false)
 	let initialPath = $state('')
 	let edit = $state(true)
 	let delivery_type: DeliveryType = $state('pull')
@@ -132,7 +131,6 @@
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
-			is_flow = nis_flow
 			itemKind = nis_flow ? 'flow' : 'script'
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
@@ -184,7 +182,6 @@
 		subscription_id = cfg?.subscription_id
 		delivery_config = cfg?.delivery_config
 		subscription_mode = cfg?.subscription_mode
-		is_flow = cfg?.is_flow
 		path = cfg?.path
 		enabled = cfg?.enabled
 		topic_id = cfg?.topic_id ?? ''
@@ -229,7 +226,7 @@
 			path,
 			script_path,
 			enabled,
-			is_flow,
+			is_flow: itemKind === 'flow',
 			error_handler_path,
 			error_handler_args,
 			retry,
@@ -367,7 +364,7 @@
 
 			{#if !hideTarget}
 				<Section label="Runnable">
-					<p class="text-xs mb-1 text-tertiary">
+					<p class="text-xs mb-1 text-primary">
 						Pick a script or flow to be triggered <Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
@@ -384,9 +381,9 @@
 						/>
 						{#if emptyString(script_path)}
 							<Button
-								btnClasses="ml-4 mt-2"
-								color="dark"
-								size="xs"
+								btnClasses="ml-4"
+								variant="default"
+								unifiedSize="md"
 								disabled={!can_write}
 								href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F19796'}
 								target="_blank">Create from template</Button
@@ -418,9 +415,9 @@
 				<div class="flex flex-col gap-4">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
-							<Tab value="settings">Settings</Tab>
-							<Tab value="error_handler">Error Handler</Tab>
-							<Tab value="retries">Retries</Tab>
+							<Tab value="settings" label="Settings" />
+							<Tab value="error_handler" label="Error Handler" />
+							<Tab value="retries" label="Retries" />
 						</Tabs>
 						<div class="mt-4">
 							{#if optionTabSelected === 'settings'}

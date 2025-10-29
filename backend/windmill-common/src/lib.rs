@@ -54,8 +54,12 @@ pub mod job_s3_helpers_ee;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_oss;
 
+#[cfg(feature = "private")]
+pub mod git_sync_ee;
+pub mod git_sync_oss;
 pub mod jobs;
 pub mod jwt;
+pub mod mcp_client;
 pub mod more_serde;
 pub mod oauth2;
 #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
@@ -203,18 +207,17 @@ pub async fn shutdown_signal(
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         tokio::select! {
             _ = terminate() => {
-                tracing::info!("2nd shutdown monitor received terminate");
+                tracing::error!("2nd shutdown monitor received terminate");
             },
             _ = tokio::signal::ctrl_c() => {
-                tracing::info!("2nd shutdown monitor received ctrl-c");
+                tracing::error!("2nd shutdown monitor received ctrl-c");
             },
         }
 
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {},
-            _ = rx.recv() => {
-                tracing::info!("2nd shutdown monitor received killpill");
+            _ = tokio::signal::ctrl_c() => {
+                tracing::error!("2nd shutdown monitor received ctrl-c")
             },
         }
 
@@ -496,7 +499,7 @@ pub struct ExpiringLatestVersionId {
     expires_at: std::time::Instant,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ScriptHashInfo {
     pub path: String,
     pub hash: i64,
@@ -504,6 +507,8 @@ pub struct ScriptHashInfo {
     pub concurrency_key: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
+    pub debounce_key: Option<String>,
+    pub debounce_delay_s: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub language: ScriptLang,
     pub dedicated_worker: Option<bool>,
@@ -650,7 +655,7 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
 ) -> error::Result<Option<ScriptHashInfo>> {
     let r = sqlx::query_as!(
         ScriptHashInfo,
-        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by, path from script where hash = $1 AND workspace_id = $2",
+        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, delete_after_use, timeout, has_preprocessor, on_behalf_of_email, created_by, path from script where hash = $1 AND workspace_id = $2",
         hash,
         w_id
     )
@@ -850,6 +855,8 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<String>,
     Option<i32>,
     Option<i32>,
+    Option<String>,
+    Option<i32>,
     Option<i32>,
     ScriptLang,
     Option<bool>,
@@ -859,15 +866,15 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     String,
 )> {
     let r_o = sqlx::query!(
-        "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script
-         WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
-         ORDER BY created_at DESC LIMIT 1",
-        script_path,
-        w_id,
-        require_locked
-    )
-    .fetch_optional(db)
-    .await?;
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of_email, created_by FROM script
+             WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
+             ORDER BY created_at DESC LIMIT 1",
+            script_path,
+            w_id,
+            require_locked
+        )
+        .fetch_optional(db)
+        .await?;
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;
 
@@ -877,6 +884,8 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         script.concurrency_key,
         script.concurrent_limit,
         script.concurrency_time_window_s,
+        script.debounce_key,
+        script.debounce_delay_s,
         script.cache_ttl,
         script.language,
         script.dedicated_worker,

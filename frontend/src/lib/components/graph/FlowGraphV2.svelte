@@ -545,7 +545,6 @@
 {#if insertable}
 	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 {/if}
-
 <div
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}
 	class="overflow-clip"
@@ -620,10 +619,7 @@
 				>
 					{#if showDataflow}
 						<Toggle
-							value={$useDataflow}
-							on:change={() => {
-								$useDataflow = !$useDataflow
-							}}
+							bind:checked={$useDataflow}
 							size="xs"
 							options={{
 								right: 'Dataflow'

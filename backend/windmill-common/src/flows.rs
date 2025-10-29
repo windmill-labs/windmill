@@ -123,9 +123,16 @@ pub struct FlowValue {
     pub same_worker: bool,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrent_limit: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub concurrency_time_window_s: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debounce_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debounce_delay_s: Option<i32>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip_expr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -136,16 +143,7 @@ pub struct FlowValue {
     // Priority at the flow level
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub chat_input_enabled: Option<bool>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct FlowNodeFlow {
-    pub value: FlowValue,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
 }
 
 impl FlowValue {
@@ -183,10 +181,18 @@ impl FlowValue {
                 | Flow { .. }
                 | FlowScript { .. }
                 | Identity) => cb(&s, &module.id)?,
-                ForloopFlow { modules, .. }
-                | WhileloopFlow { modules, .. }
-                | AIAgent { tools: modules, .. } => {
-                    Self::traverse_leafs(modules.iter().collect(), cb)?
+                ForloopFlow { modules, .. } | WhileloopFlow { modules, .. } => {
+                    Self::traverse_leafs(&modules, cb)?
+                }
+                AIAgent { tools, .. } => {
+                    for tool in tools {
+                        match &tool.value {
+                            ToolValue::FlowModule(module_value) => cb(module_value, &tool.id)?,
+                            ToolValue::Mcp(_) => {
+                                // MCP tools don't have a FlowModuleValue to traverse
+                            }
+                        }
+                    }
                 }
                 BranchOne { branches, .. } | BranchAll { branches, .. } => {
                     for branch in branches {
@@ -610,6 +616,96 @@ pub struct Branch {
     pub parallel: bool,
 }
 
+// Tool types for AI Agent
+#[derive(Serialize, Debug, Clone, Deserialize)]
+pub struct AgentTool {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub value: ToolValue,
+}
+
+// Convert FlowModule -> AgentTool
+impl From<FlowModule> for AgentTool {
+    fn from(flow_module: FlowModule) -> Self {
+        let module_value = serde_json::from_str::<FlowModuleValue>(flow_module.value.get())
+            .unwrap_or(FlowModuleValue::Identity);
+
+        AgentTool {
+            id: flow_module.id,
+            summary: flow_module.summary,
+            value: ToolValue::FlowModule(module_value),
+        }
+    }
+}
+
+// Convert AgentTool -> FlowModule (only for FlowModule type tools)
+impl From<&AgentTool> for Option<FlowModule> {
+    fn from(tool: &AgentTool) -> Self {
+        match &tool.value {
+            ToolValue::FlowModule(module_value) => Some(FlowModule {
+                id: tool.id.clone(),
+                value: to_raw_value(module_value),
+                summary: tool.summary.clone(),
+                ..Default::default()
+            }),
+            ToolValue::Mcp(_) => None, // MCP tools can't be converted to FlowModule
+        }
+    }
+}
+
+#[derive(Serialize, Debug, Clone)]
+#[serde(tag = "tool_type", rename_all = "lowercase")]
+pub enum ToolValue {
+    FlowModule(FlowModuleValue),
+    Mcp(McpToolValue),
+}
+
+// Custom deserializer for backward compatibility with old flows
+impl<'de> Deserialize<'de> for ToolValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let content = serde_json::Value::deserialize(deserializer)?;
+
+        // First, try to deserialize as the new tagged format (with tool_type field)
+        #[derive(Deserialize)]
+        #[serde(tag = "tool_type", rename_all = "lowercase")]
+        enum TaggedToolValue {
+            FlowModule(FlowModuleValue),
+            Mcp(McpToolValue),
+        }
+
+        if let Ok(tagged) = TaggedToolValue::deserialize(&content) {
+            return Ok(match tagged {
+                TaggedToolValue::FlowModule(v) => ToolValue::FlowModule(v),
+                TaggedToolValue::Mcp(v) => ToolValue::Mcp(v),
+            });
+        }
+
+        // Fall back to legacy format (direct FlowModuleValue without tool_type)
+        FlowModuleValue::deserialize(&content)
+            .map(ToolValue::FlowModule)
+            .map_err(|_| {
+                D::Error::custom(
+                    "expected ToolValue with tool_type field or legacy FlowModuleValue",
+                )
+            })
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct McpToolValue {
+    pub resource_path: String,
+    #[serde(default)]
+    pub include_tools: Vec<String>,
+    #[serde(default)]
+    pub exclude_tools: Vec<String>,
+}
+
 #[derive(Serialize, Debug, Clone)]
 #[serde(
     tag = "type",
@@ -734,9 +830,7 @@ pub enum FlowModuleValue {
     // AI agent node
     AIAgent {
         input_transforms: HashMap<String, InputTransform>,
-        tools: Vec<FlowModule>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        modules_node: Option<FlowNodeId>,
+        tools: Vec<AgentTool>,
     },
 }
 
@@ -773,7 +867,7 @@ struct UntaggedFlowModuleValue {
     default_node: Option<FlowNodeId>,
     modules_node: Option<FlowNodeId>,
     assets: Option<Vec<AssetWithAltAccessType>>,
-    tools: Option<Vec<FlowModule>>,
+    tools: Option<Vec<AgentTool>>,
     pass_flow_input_directly: Option<bool>,
 }
 
@@ -874,7 +968,6 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 tools: untagged
                     .tools
                     .ok_or_else(|| serde::de::Error::missing_field("tools"))?,
-                modules_node: untagged.modules_node,
             }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
@@ -1065,9 +1158,6 @@ pub async fn resolve_module(
                 )
                 .await?;
             }
-        }
-        AIAgent { tools, modules_node, .. } => {
-            resolve_modules(db, workspace_id, tools, modules_node.take(), with_code).await?;
         }
         _ => {}
     }

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
 	import { Folder, User } from 'lucide-svelte'
 	import { Badge } from '../common'
 	import { APP_TO_ICON_COMPONENT } from '../icons'
@@ -77,11 +76,8 @@
 		{#each filtersAndSelected as filter (filter)}
 			<div>
 				<Badge
-					class={classNames(
-						'cursor-pointer inline-flex items-center gap-1 align-middle',
-						filter === selectedFilter ? 'hover:bg-blue-200' : 'hover:bg-gray-200'
-					)}
-					on:click={() => {
+					class="inline-flex items-center gap-1 align-middle"
+					onclick={() => {
 						selectedFilter = selectedFilter == filter ? undefined : filter
 						if (selectedFilter) {
 							setQuery(new URL(window.location.href), queryName, selectedFilter)
@@ -89,8 +85,9 @@
 							setQuery(new URL(window.location.href), queryName, undefined)
 						}
 					}}
-					color={filter === selectedFilter ? 'blue' : 'gray'}
-					baseClass={filter === selectedFilter ? 'border border-blue-500' : 'border'}
+					color={'transparent'}
+					clickable
+					selected={filter === selectedFilter}
 				>
 					<span style="height: 12px" class="-mt-0.5">
 						{#if resourceType}

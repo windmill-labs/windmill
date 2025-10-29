@@ -174,8 +174,8 @@
 		{/await}
 		<Button
 			wrapperClasses="absolute z-10 bottom-2 right-6"
-			color={isRunning ? 'red' : undefined}
-			variant="border"
+			variant="accent"
+			destructive={isRunning}
 			shortCut={{ Icon: CornerDownLeft }}
 			on:click={() => run()}
 		>

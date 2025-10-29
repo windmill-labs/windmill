@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.559.0
+  version: 1.567.3
   title: Windmill API
 
   contact:
@@ -603,6 +603,13 @@ paths:
       operationId: getGlobalConnectedRepositories
       tags:
         - Git Sync
+      parameters:
+        - name: search
+          in: query
+          description: Search repositories by name
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: connected repositories
@@ -695,12 +702,14 @@ paths:
               schema:
                 type: string
 
-  /workspaces/create_fork:
+  /w/{workspace}/workspaces/create_fork:
     post:
       summary: create forked workspace
       operationId: createWorkspaceFork
       tags:
         - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
         description: new forked workspace
         required: true
@@ -4192,6 +4201,33 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/resources/git_commit_hash/{path}:
+    get:
+      summary: get git repository latest commit hash
+      operationId: getGitCommitHash
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: git_ssh_identity
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: git commit hash
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  commit_hash:
+                    type: string
+                    description: Latest commit hash from git ls-remote
+                required:
+                  - commit_hash
+
   /w/{workspace}/resources/exists/{path}:
     get:
       summary: does resource exists
@@ -4269,6 +4305,35 @@ paths:
                   required:
                     - path
                     - value
+
+  /w/{workspace}/resources/mcp_tools/{path}:
+    get:
+      summary: get MCP tools from resource
+      operationId: getMcpTools
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: list of MCP tools
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+                    parameters:
+                      type: object
+                  required:
+                    - name
+                    - parameters
 
   /w/{workspace}/resources/list_names/{name}:
     get:
@@ -8002,11 +8067,12 @@ paths:
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/CreatedBefore"
         - $ref: "#/components/parameters/CreatedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/CompletedBefore"
+        - $ref: "#/components/parameters/CompletedAfter"
+        - $ref: "#/components/parameters/CreatedBeforeQueue"
+        - $ref: "#/components/parameters/CreatedAfterQueue"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
-        - $ref: "#/components/parameters/CreatedOrStartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/Suspended"
         - $ref: "#/components/parameters/ArgsFilter"
@@ -8216,18 +8282,18 @@ paths:
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/CreatedBefore"
         - $ref: "#/components/parameters/CreatedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/CompletedBefore"
+        - $ref: "#/components/parameters/CompletedAfter"
+        - $ref: "#/components/parameters/CreatedBeforeQueue"
+        - $ref: "#/components/parameters/CreatedAfterQueue"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
-        - $ref: "#/components/parameters/CreatedOrStartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/Suspended"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
         - $ref: "#/components/parameters/AllowWildcards"
-        - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
           description: is the job skipped
@@ -13441,6 +13507,160 @@ paths:
               schema:
                 $ref: "#/components/schemas/WindmillFilePreview"
 
+  /w/{workspace}/job_helpers/list_git_repo_files:
+    get:
+      summary: List the file keys available in instance object storage with resource-based access control
+      operationId: listGitRepoFiles
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: max_keys
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: marker
+          in: query
+          schema:
+            type: string
+        - name: prefix
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of file keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  next_marker:
+                    type: string
+                  windmill_large_files:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WindmillLargeFile"
+                  restricted_access:
+                    type: boolean
+                required:
+                  - windmill_large_files
+
+  /w/{workspace}/job_helpers/load_git_repo_file_preview:
+    get:
+      summary: Load a preview of a file from instance storage with resource-based access control
+      operationId: loadGitRepoFilePreview
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: file_size_in_bytes
+          in: query
+          schema:
+            type: integer
+        - name: file_mime_type
+          in: query
+          schema:
+            type: string
+        - name: csv_separator
+          in: query
+          schema:
+            type: string
+        - name: csv_has_header
+          in: query
+          schema:
+            type: boolean
+        - name: read_bytes_from
+          in: query
+          schema:
+            type: integer
+        - name: read_bytes_length
+          in: query
+          schema:
+            type: integer
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FilePreview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFilePreview"
+
+  /w/{workspace}/job_helpers/load_git_repo_file_metadata:
+    get:
+      summary: Load file metadata from instance storage with resource-based access control
+      operationId: loadGitRepoFileMetadata
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FileMetadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFileMetadata"
+
+  /w/{workspace}/job_helpers/check_s3_folder_exists:
+    get:
+      summary: Check if S3 path exists and is a folder
+      operationId: checkS3FolderExists
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          description: S3 file key to check (e.g., gitrepos/{workspace_id}/u/user/resource/{commit_hash})
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: S3 folder existence check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exists:
+                    type: boolean
+                    description: Whether the path exists
+                  is_folder:
+                    type: boolean
+                    description: Whether the path is a folder (true) or file (false)
+                required:
+                  - exists
+                  - is_folder
+
   /w/{workspace}/job_helpers/load_parquet_preview/{path}:
     get:
       summary: Load a preview of a parquet file
@@ -13620,6 +13840,67 @@ paths:
     post:
       summary: Upload file to S3 bucket
       operationId: fileUpload
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: file_extension
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - name: content_type
+          in: query
+          schema:
+            type: string
+        - name: content_disposition
+          in: query
+          schema:
+            type: string
+      requestBody:
+        description: File content
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: File upload status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_key:
+                    type: string
+                required:
+                  - file_key
+
+  /w/{workspace}/job_helpers/upload_git_repo_file_to_instance_storage:
+    post:
+      summary: Upload a file to the instance storage gitrepos section for viewing
+      operationId: gitRepoViewerFileUpload
       tags:
         - helpers
       parameters:
@@ -13974,11 +14255,12 @@ paths:
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedBefore"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
-        - $ref: "#/components/parameters/CreatedOrStartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
+        - $ref: "#/components/parameters/CompletedBefore"
+        - $ref: "#/components/parameters/CompletedAfter"
+        - $ref: "#/components/parameters/CreatedBeforeQueue"
+        - $ref: "#/components/parameters/CreatedAfterQueue"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
@@ -14567,33 +14849,40 @@ components:
       schema:
         type: string
         format: date-time
-    CreatedOrStartedAfter:
-      name: created_or_started_after
-      description:
-        filter on created_at for non non started job and started_at otherwise
-        after (exclusive) timestamp
+
+    CompletedBefore:
+      name: completed_before
+      description: filter on started before (inclusive) timestamp
       in: query
       schema:
         type: string
         format: date-time
-    CreatedOrStartedAfterCompletedJob:
-      name: created_or_started_after_completed_jobs
-      description:
-        filter on created_at for non non started job and started_at otherwise
-        after (exclusive) timestamp but only for the completed jobs
+    CompletedAfter:
+      name: completed_after
+      description: filter on started after (exclusive) timestamp
       in: query
       schema:
         type: string
         format: date-time
-    CreatedOrStartedBefore:
-      name: created_or_started_before
+
+    CreatedAfterQueue:
+      name: created_after_queue
       description:
-        filter on created_at for non non started job and started_at otherwise
-        before (inclusive) timestamp
+        filter on jobs created after X for jobs in the queue only
       in: query
       schema:
         type: string
         format: date-time
+
+    CreatedBeforeQueue:
+      name: created_before_queue
+      description:
+        filter on jobs created before X for jobs in the queue only
+      in: query
+      schema:
+        type: string
+        format: date-time
+
     Success:
       name: success
       description: filter on successful jobs
@@ -15046,6 +15335,10 @@ components:
           type: integer
         concurrency_key:
           type: string
+        debounce_key:
+          type: string
+        debounce_delay_s:
+          type: integer
         cache_ttl:
           type: number
         dedicated_worker:
@@ -15143,6 +15436,10 @@ components:
           type: string
         concurrency_key:
           type: string
+        debounce_key:
+          type: string
+        debounce_delay_s:
+          type: integer
         visible_to_runner_only:
           type: boolean
         no_main_func:
@@ -15388,6 +15685,9 @@ components:
           type: string
           format: date-time
         started_at:
+          type: string
+          format: date-time
+        completed_at:
           type: string
           format: date-time
         duration_ms:
@@ -16023,30 +16323,30 @@ components:
     ScriptLang:
       type: string
       enum: [
-          python3,
-          deno,
-          go,
-          bash,
-          powershell,
-          postgresql,
-          mysql,
-          bigquery,
-          snowflake,
-          mssql,
-          oracledb,
-          graphql,
-          nativets,
-          bun,
-          php,
-          rust,
-          ansible,
-          csharp,
-          nu,
-          java,
-          ruby,
-          duckdb,
-          # for related places search: ADD_NEW_LANG
-        ]
+        python3,
+        deno,
+        go,
+        bash,
+        powershell,
+        postgresql,
+        mysql,
+        bigquery,
+        snowflake,
+        mssql,
+        oracledb,
+        graphql,
+        nativets,
+        bun,
+        php,
+        rust,
+        ansible,
+        csharp,
+        nu,
+        java,
+        ruby,
+        duckdb,
+        # for related places search: ADD_NEW_LANG
+      ]
 
     Preview:
       type: object
@@ -16652,6 +16952,13 @@ components:
         - delete
         - patch
 
+    HttpRequestType:
+      type: string
+      enum:
+        - sync
+        - async
+        - sync_sse
+
     HttpTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -16678,8 +16985,8 @@ components:
           type: string
         description:
           type: string
-        is_async:
-          type: boolean
+        request_type:
+          $ref: "#/components/schemas/HttpRequestType"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
@@ -16699,7 +17006,7 @@ components:
 
       required:
         - route_path
-        - is_async
+        - request_type
         - authentication_method
         - http_method
         - is_static_website
@@ -16741,6 +17048,9 @@ components:
           type: string
         is_async:
           type: boolean
+          description: Deprecated, use request_type instead
+        request_type:
+          $ref: "#/components/schemas/HttpRequestType"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
@@ -16761,7 +17071,6 @@ components:
         - script_path
         - route_path
         - is_flow
-        - is_async
         - authentication_method
         - http_method
         - is_static_website
@@ -16800,6 +17109,9 @@ components:
           $ref: "#/components/schemas/HttpMethod"
         is_async:
           type: boolean
+          description: Deprecated, use request_type instead
+        request_type:
+          $ref: "#/components/schemas/HttpRequestType"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
@@ -16819,7 +17131,6 @@ components:
         - script_path
         - is_flow
         - kind
-        - is_async
         - authentication_method
         - http_method
         - is_static_website
@@ -18123,11 +18434,7 @@ components:
           type: string
         name:
           type: string
-        username:
-          type: string
         color:
-          type: string
-        parent_workspace_id:
           type: string
       required:
         - id
@@ -19237,10 +19544,18 @@ components:
               required:
                 - name
                 - url
+          total_count:
+            type: number
+            description: Total number of repositories available for this installation
+          per_page:
+            type: number
+            description: Number of repositories loaded per page
         required:
           - installation_id
           - account_id
           - repositories
+          - total_count
+          - per_page
 
     WorkspaceGithubInstallation:
       type: object

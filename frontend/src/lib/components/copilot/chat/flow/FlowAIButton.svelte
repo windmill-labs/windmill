@@ -1,38 +1,35 @@
+<script module lang="ts">
+	export function flowAIBtnClasses(state: 'default' | 'selected' | 'green' = 'default') {
+		return twMerge(
+			['selected', 'default'].includes(state) ? 'text-ai !border-ai/20 hover:bg-ai/15' : '',
+			{
+				default: '',
+				selected: 'bg-ai/10',
+				green:
+					'bg-green-50 hover:bg-green-50 dark:bg-green-400/15 dark:hover:bg-green-400/15 text-green-800 border-green-200 dark:border-green-300/60 dark:text-green-400'
+			}[state]
+		)
+	}
+</script>
+
 <script lang="ts">
 	import { base } from '$lib/base'
 	import { copilotInfo } from '$lib/aiStore'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DarkPopover from '$lib/components/Popover.svelte'
-	import { ExternalLink } from 'lucide-svelte'
-	import { Button } from '$lib/components/common'
+	import { ExternalLink, WandSparkles } from 'lucide-svelte'
 	import { getModifierKey } from '$lib/utils'
-	import { WandSparkles } from 'lucide-svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	let {
 		togglePanel,
-		opened,
-		class: className
-	}: { togglePanel: () => void; opened?: boolean; class?: string } = $props()
+		selected = false
+	}: {
+		togglePanel: () => void
+		selected?: boolean
+	} = $props()
 </script>
-
-{#snippet button(onClick: () => void)}
-	<Button
-		color="light"
-		variant="border"
-		size="xs2"
-		on:click={onClick}
-		startIcon={{ icon: WandSparkles }}
-		iconOnly
-		btnClasses={twMerge(
-			'!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface h-[28px] w-[32px] rounded-md py-1 px-1',
-			opened ? 'bg-surface-selected' : '',
-			className
-		)}
-	>
-		AI Panel
-	</Button>
-{/snippet}
 
 {#if $copilotInfo.enabled}
 	<DarkPopover>
@@ -45,14 +42,12 @@
 				</div>
 			</div>
 		{/snippet}
-		{@render button(togglePanel)}
+		{@render button({ onPress: () => togglePanel() })}
 	</DarkPopover>
 {:else}
-	<Popover placement="bottom">
+	<Popover placement="bottom" class="h-full">
 		{#snippet trigger()}
-			{@render button(() => {
-				togglePanel()
-			})}
+			{@render button({ onPress: () => togglePanel() })}
 		{/snippet}
 		{#snippet content()}
 			<div class="block text-primary p-4">
@@ -68,3 +63,17 @@
 		{/snippet}
 	</Popover>
 {/if}
+
+{#snippet button({ onPress }: { onPress: () => void })}
+	<Button
+		unifiedSize="sm"
+		color="light"
+		variant="default"
+		onClick={onPress}
+		startIcon={{ icon: WandSparkles }}
+		iconOnly
+		btnClasses={flowAIBtnClasses(selected ? 'selected' : 'default')}
+	>
+		AI Panel
+	</Button>
+{/snippet}

@@ -41,6 +41,7 @@
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
+	import { type AgentTool, flowModuleToAgentTool, createMcpTool } from '../agentToolUtils'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -111,13 +112,14 @@
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 
 	export async function insertNewModuleAtIndex(
-		modules: FlowModule[],
+		modules: FlowModule[] | AgentTool[],
 		index: number,
 		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
-		inlineScript?: InlineScript
-	): Promise<FlowModule[]> {
+		inlineScript?: InlineScript,
+		toolKind?: 'mcpTool' | 'flowmoduleTool'
+	): Promise<FlowModule[] | AgentTool[]> {
 		push(history, flowStore.val)
 		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
 		let state = emptyFlowModuleState()
@@ -167,8 +169,35 @@
 		}
 
 		if (!modules) return [module]
-		modules.splice(index, 0, module)
-		return modules
+
+		if (toolKind === 'mcpTool') {
+			// Create MCP AgentTool
+			const mcpTool = createMcpTool(module.id)
+			;(modules as AgentTool[]).splice(index, 0, mcpTool)
+			return modules as AgentTool[]
+		} else if (toolKind === 'flowmoduleTool') {
+			// Create AgentTool from FlowModule
+			const agentTool = flowModuleToAgentTool(module)
+			;(modules as AgentTool[]).splice(index, 0, agentTool)
+			return modules as AgentTool[]
+		} else {
+			// Standard FlowModule insertion (existing behavior)
+			modules.splice(index, 0, module)
+			return modules
+		}
+	}
+
+	/**
+	 * Helper function to remove an AgentTool by id from the tools array
+	 * Tools are always leaf nodes, so we just need to delete their state directly
+	 */
+	function removeAgentToolById(tools: AgentTool[], id: string): AgentTool[] {
+		const index = tools.findIndex((tool) => tool.id == id)
+		if (index != -1) {
+			const [removed] = tools.splice(index, 1)
+			deleteFlowStateById(removed.id, flowStateStore)
+		}
+		return tools
 	}
 
 	export function removeAtId(modules: FlowModule[], id: string): FlowModule[] {
@@ -194,7 +223,7 @@
 				})
 				mod.value.default = removeAtId(mod.value.default, id)
 			} else if (mod.value.type == 'aiagent') {
-				mod.value.tools = removeAtId(mod.value.tools, id)
+				mod.value.tools = removeAgentToolById(mod.value.tools, id)
 			}
 			return mod
 		})
@@ -298,7 +327,7 @@
 				loadingJobs: true
 			}
 		}
-		const previousJobId = await JobService.listJobs({
+		const previousJobId = await JobService.listCompletedJobs({
 			workspace: $workspaceStore!,
 			scriptPathExact: path,
 			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
@@ -489,6 +518,11 @@
 								}
 							} else {
 								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
+								const toolKind = detail.agentId
+									? detail.kind === 'mcpTool'
+										? 'mcpTool'
+										: 'flowmoduleTool'
+									: undefined
 
 								await insertNewModuleAtIndex(
 									targetModules,
@@ -496,7 +530,8 @@
 									detail.kind,
 									detail.script,
 									detail.flow,
-									detail.inlineScript
+									detail.inlineScript,
+									toolKind
 								)
 								const id = targetModules[index].id
 								$selectedId = id

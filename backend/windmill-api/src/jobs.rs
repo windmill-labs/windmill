@@ -778,7 +778,7 @@ macro_rules! get_job_query {
     ("v2_job_completed", $($opts:tt)*) => {
         get_job_query!(
             @impl "v2_job_completed", ($($opts)*),
-            "v2_job_completed.duration_ms, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, result->'wm_labels' as labels, \
+            "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, result->'wm_labels' as labels, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
             "",
         )
@@ -1820,8 +1820,8 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             created_by: lcq.created_by,
             started_before: lcq.started_before,
             started_after: lcq.started_after,
-            created_before: lcq.created_before,
-            created_after: lcq.created_after,
+            created_before: lcq.created_before_queue.or(lcq.created_before),
+            created_after: lcq.created_after_queue.or(lcq.created_after),
             created_or_started_before: lcq.created_or_started_before,
             created_or_started_after: lcq.created_or_started_after,
             worker: lcq.worker,
@@ -1855,11 +1855,11 @@ pub fn filter_list_queue_query(
     if join_outstanding_wait_times {
         sqlb.left()
             .join("outstanding_wait_time")
-            .on_eq("v2_job.id", "outstanding_wait_time.job_id");
+            .on_eq("v2_job_queue.id", "outstanding_wait_time.job_id");
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
-        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job_queue.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(w) = &lq.worker {
@@ -1960,8 +1960,7 @@ pub fn filter_list_queue_query(
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
-        sqlb.and_where("trigger_kind != 'schedule'")
-            .or_where("trigger_kind IS NULL");
+        sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
     }
 
     sqlb
@@ -2360,9 +2359,12 @@ async fn list_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<Job>> {
-    let limit = pagination.per_page.unwrap_or(1000);
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
+
+    if offset > 0 {
+        tracing::warn!("offset is not 0, but is ignored for list_jobs. Use created_before or completed_before instead.");
+    }
 
     if lq.success.is_some() && lq.running.is_some_and(|x| x) {
         return Err(error::Error::BadRequest(
@@ -2372,7 +2374,7 @@ async fn list_jobs(
     let sqlc = if lq.running.is_none() {
         Some(list_completed_jobs_query(
             &w_id,
-            Some(per_page + offset),
+            Some(per_page),
             0,
             &ListCompletedQuery { order_desc: Some(true), ..lqc },
             UnifiedJob::completed_job_fields(),
@@ -2385,26 +2387,22 @@ async fn list_jobs(
 
     let sql = if lq.success.is_none()
         && lq.label.is_none()
-        && lq.created_or_started_before.is_none()
+        && lq.created_before.is_none()
         && lq.started_before.is_none()
+        && lq.created_or_started_before.is_none()
+        && lq.completed_before.is_none()
     {
         let mut sqlq = list_queue_jobs_query(
             &w_id,
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
             UnifiedJob::queued_job_fields(),
-            Pagination { per_page: Some(limit), page: None },
+            Pagination { per_page: None, page: None },
             true,
             get_scope_tags(&authed),
         );
 
         if let Some(sqlc) = sqlc {
-            format!(
-                "{} UNION ALL {} LIMIT {} OFFSET {};",
-                &sqlq.subquery()?,
-                &sqlc.subquery()?,
-                per_page,
-                offset
-            )
+            format!("{} UNION ALL {}", &sqlq.subquery()?, &sqlc.subquery()?,)
         } else {
             sqlq.limit(per_page).offset(offset).query()?
         }
@@ -2418,6 +2416,7 @@ async fn list_jobs(
         }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
+    // tracing::info!("sql: {}", sql);
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql)
@@ -3295,6 +3294,7 @@ pub struct UnifiedJob {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
     pub running: Option<bool>,
     pub script_hash: Option<ScriptHash>,
@@ -3327,13 +3327,14 @@ pub struct UnifiedJob {
 
 const CJ_FIELDS: &[&str] = &[
     "'CompletedJob' as typ",
-    "v2_job.id",
-    "v2_job.workspace_id",
+    "v2_job_completed.id",
+    "v2_job_completed.workspace_id",
     "v2_job.parent_job",
     "v2_job.created_by",
     "v2_job.created_at",
     "v2_job_completed.started_at",
     "null as scheduled_for",
+    "v2_job_completed.completed_at",
     "null as running",
     "v2_job.runnable_id as script_hash",
     "v2_job.runnable_path as script_path",
@@ -3366,13 +3367,14 @@ const CJ_FIELDS: &[&str] = &[
 
 const QJ_FIELDS: &[&str] = &[
     "'QueuedJob' as typ",
-    "v2_job.id",
-    "v2_job.workspace_id",
+    "v2_job_queue.id",
+    "v2_job_queue.workspace_id",
     "v2_job.parent_job",
     "v2_job.created_by",
-    "v2_job.created_at",
+    "v2_job_queue.created_at",
     "v2_job_queue.started_at",
     "v2_job_queue.scheduled_for",
+    "null as completed_at",
     "v2_job_queue.running",
     "v2_job.runnable_id as script_hash",
     "v2_job.runnable_path as script_path",
@@ -3425,6 +3427,7 @@ impl<'a> From<UnifiedJob> for Job {
                     created_by: uj.created_by,
                     created_at: uj.created_at,
                     started_at: uj.started_at,
+                    completed_at: uj.completed_at,
                     duration_ms: uj.duration_ms.unwrap(),
                     success: uj.success.unwrap(),
                     script_hash: uj.script_hash,
@@ -3873,7 +3876,7 @@ async fn batch_rerun_handle_job(
                 user_db.clone(),
                 w_id.clone(),
                 StripPath(job.script_path.clone()),
-                RunJobQuery { ..Default::default() },
+                RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                 PushArgsOwned { extra: None, args },
             )
             .await;
@@ -3889,7 +3892,7 @@ async fn batch_rerun_handle_job(
                     user_db.clone(),
                     w_id.clone(),
                     StripPath(job.script_path.clone()),
-                    RunJobQuery { ..Default::default() },
+                    RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
                 )
                 .await
@@ -3900,7 +3903,7 @@ async fn batch_rerun_handle_job(
                     user_db.clone(),
                     w_id.clone(),
                     job.script_hash,
-                    RunJobQuery { ..Default::default() },
+                    RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
                 )
                 .await
@@ -4101,6 +4104,7 @@ pub async fn run_flow_by_path_inner(
         push_authed.as_ref(),
         false,
         None,
+        None,
     )
     .await?;
 
@@ -4217,6 +4221,7 @@ pub async fn restart_flow(
         Some(&authed.clone().into()),
         false,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4320,6 +4325,7 @@ pub async fn run_script_by_path_inner(
         push_authed.as_ref(),
         false,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4385,6 +4391,9 @@ pub async fn run_workflow_as_code(
                 concurrency_time_window_s: job.concurrency_time_window_s,
                 cache_ttl: job.cache_ttl,
                 dedicated_worker: None,
+                // TODO(debouncing): enable for this mode
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             }),
             Some(job.tag.clone()),
             None,
@@ -4472,6 +4481,7 @@ pub async fn run_workflow_as_code(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
     )
     .await?;
@@ -5017,6 +5027,7 @@ pub async fn run_wait_result_job_by_path_get(
         push_authed.as_ref(),
         false,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5170,6 +5181,7 @@ pub async fn run_wait_result_script_by_path_internal(
         push_authed.as_ref(),
         false,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5212,6 +5224,8 @@ pub async fn run_wait_result_script_by_hash(
         concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
+        debounce_key,
+        debounce_delay_s,
         mut cache_ttl,
         language,
         dedicated_worker,
@@ -5258,6 +5272,8 @@ pub async fn run_wait_result_script_by_hash(
             custom_concurrency_key: concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
+            custom_debounce_key: debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -5286,6 +5302,7 @@ pub async fn run_wait_result_script_by_hash(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
     )
     .await?;
@@ -5599,6 +5616,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         push_authed.as_ref(),
         false,
         None,
+        None,
     )
     .await?;
 
@@ -5664,6 +5682,8 @@ async fn run_preview_script(
                 custom_concurrency_key: None,
                 concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
                 concurrency_time_window_s: None, // TODO(gbouv): same as above
+                custom_debounce_key: None, // TODO(pyra): same as for concurrency limits.
+                debounce_delay_s: None,
                 cache_ttl: None,
                 dedicated_worker: preview.dedicated_worker,
             }),
@@ -5689,6 +5709,7 @@ async fn run_preview_script(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
     )
     .await?;
@@ -5784,6 +5805,8 @@ async fn run_bundle_preview_script(
                     cache_ttl: None,
                     dedicated_worker: preview.dedicated_worker,
                     custom_concurrency_key: None,
+                    custom_debounce_key: None,
+                    debounce_delay_s: None,
                 }),
                 PushArgs::from(&args),
                 authed.display_username(),
@@ -5806,6 +5829,7 @@ async fn run_bundle_preview_script(
                 None,
                 Some(&authed.clone().into()),
                 false,
+                None,
                 None,
             )
             .await?;
@@ -5945,6 +5969,7 @@ async fn run_dependencies_job(
         Some(&authed.clone().into()),
         false,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6012,6 +6037,7 @@ async fn run_flow_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
     )
     .await?;
@@ -6357,6 +6383,7 @@ async fn run_preview_flow_job(
         Some(&authed.clone().into()),
         false,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6508,6 +6535,8 @@ async fn run_dynamic_select(
             concurrency_time_window_s: None,
             cache_ttl: None,
             dedicated_worker: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
         }),
         PushArgs::from(&request.args.unwrap_or_default()),
         authed.display_username(),
@@ -6530,6 +6559,7 @@ async fn run_dynamic_select(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
     )
     .await?;
@@ -6582,6 +6612,8 @@ pub async fn run_job_by_hash_inner(
         concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
+        debounce_delay_s,
+        debounce_key,
         mut cache_ttl,
         language,
         dedicated_worker,
@@ -6630,6 +6662,8 @@ pub async fn run_job_by_hash_inner(
             custom_concurrency_key: concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
+            custom_debounce_key: debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -6658,6 +6692,7 @@ pub async fn run_job_by_hash_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
         None,
     )
     .await?;
@@ -6881,7 +6916,7 @@ async fn get_job_update_sse(
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
-enum JobUpdateSSEStream {
+pub enum JobUpdateSSEStream {
     Update(JobUpdate),
     Error { error: String },
     NotFound,
@@ -6889,7 +6924,12 @@ enum JobUpdateSSEStream {
     Ping,
 }
 
-fn start_job_update_sse_stream(
+lazy_static::lazy_static! {
+    pub static ref TIMEOUT_SSE_STREAM: u64 =
+        std::env::var("TIMEOUT_SSE_STREAM").unwrap_or("60".to_string()).parse::<u64>().unwrap_or(60);
+}
+
+pub fn start_job_update_sse_stream(
     opt_authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
     db: DB,
@@ -7021,7 +7061,7 @@ fn start_job_update_sse_stream(
                 last_ping = Instant::now();
             }
 
-            if start.elapsed().as_secs() > 30 {
+            if start.elapsed().as_secs() > *TIMEOUT_SSE_STREAM {
                 if tx.send(JobUpdateSSEStream::Timeout).await.is_err() {
                     tracing::warn!("Failed to send job timeout for job {job_id}");
                 }
@@ -7470,7 +7510,7 @@ pub fn filter_list_completed_query(
     if join_outstanding_wait_times {
         sqlb.left()
             .join("outstanding_wait_time")
-            .on_eq("v2_job.id", "outstanding_wait_time.job_id");
+            .on_eq("v2_job_completed.id", "outstanding_wait_time.job_id");
     }
 
     if let Some(label) = &lq.label {
@@ -7498,7 +7538,8 @@ pub fn filter_list_completed_query(
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
-        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job_completed.workspace_id", "?".bind(&w_id))
+            .and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(p) = &lq.schedule_path {
@@ -7568,6 +7609,13 @@ pub fn filter_list_completed_query(
         sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
     }
 
+    if let Some(dt) = &lq.completed_after {
+        sqlb.and_where_ge("completed_at", "?".bind(&dt.to_rfc3339()));
+    }
+    if let Some(dt) = &lq.completed_before {
+        sqlb.and_where_le("completed_at", "?".bind(&dt.to_rfc3339()));
+    }
+
     if let Some(sk) = &lq.is_skipped {
         if *sk {
             sqlb.and_where_eq("status", "'skipped'");
@@ -7603,8 +7651,7 @@ pub fn filter_list_completed_query(
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
-        sqlb.and_where("trigger_kind != 'schedule'")
-            .or_where("trigger_kind IS NULL");
+        sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
     }
 
     sqlb
@@ -7621,7 +7668,14 @@ pub fn list_completed_jobs_query(
 ) -> SqlBuilder {
     let mut sqlb = SqlBuilder::select_from("v2_job_completed")
         .fields(fields)
-        .order_by("v2_job.created_at", lq.order_desc.unwrap_or(true))
+        .order_by(
+            if lq.completed_before.is_some() || lq.completed_after.is_some() {
+                "v2_job_completed.completed_at"
+            } else {
+                "v2_job.created_at"
+            },
+            lq.order_desc.unwrap_or(true),
+        )
         .offset(offset)
         .clone();
     if let Some(per_page) = per_page {
@@ -7650,6 +7704,10 @@ pub struct ListCompletedQuery {
     pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_after_completed_jobs: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_before_queue: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_after_queue: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_before: Option<chrono::DateTime<chrono::Utc>>,
     pub success: Option<bool>,
     pub running: Option<bool>,
     pub parent_job: Option<String>,
@@ -7689,8 +7747,8 @@ async fn list_completed_jobs(
         offset,
         &lq,
         &[
-            "v2_job.id",
-            "v2_job.workspace_id",
+            "v2_job_completed.id",
+            "v2_job_completed.workspace_id",
             "v2_job.parent_job",
             "v2_job.created_by",
             "v2_job.created_at",

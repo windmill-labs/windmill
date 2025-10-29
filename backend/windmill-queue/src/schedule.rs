@@ -23,8 +23,8 @@ use windmill_common::jobs::check_tag_available_for_workspace_internal;
 use windmill_common::jobs::JobPayload;
 use windmill_common::schedule::schedule_to_user;
 use windmill_common::scripts::ScriptHash;
-use windmill_common::worker::to_raw_value;
 use windmill_common::utils::WarnAfterExt;
+use windmill_common::worker::to_raw_value;
 use windmill_common::FlowVersionInfo;
 use windmill_common::DB;
 use windmill_common::{
@@ -39,13 +39,13 @@ async fn get_schedule_metadata<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     schedule: &Schedule,
 ) -> Result<(
-    Option<String>,                    // tag
-    Option<i32>,                       // timeout
-    Option<String>,                    // on_behalf_of_email
-    String,                            // created_by
-    Option<ScriptHash>,                // hash (for scripts)
-    Option<i64>,                       // flow_version (for flows)
-    Option<Retry>,                     // retry
+    Option<String>,     // tag
+    Option<i32>,        // timeout
+    Option<String>,     // on_behalf_of_email
+    String,             // created_by
+    Option<ScriptHash>, // hash (for scripts)
+    Option<i64>,        // flow_version (for flows)
+    Option<Retry>,      // retry
 )> {
     let parsed_retry = schedule
         .retry
@@ -62,20 +62,24 @@ async fn get_schedule_metadata<'c>(
         )
         .await?;
 
-        let FlowVersionInfo {
+        let FlowVersionInfo { tag, on_behalf_of_email, edited_by, .. } =
+            get_latest_flow_version_info_for_path_from_version(
+                &mut **tx,
+                version,
+                &schedule.workspace_id,
+                &schedule.script_path,
+            )
+            .await?;
+
+        Ok((
             tag,
+            None,
             on_behalf_of_email,
             edited_by,
-            ..
-        } = get_latest_flow_version_info_for_path_from_version(
-            &mut **tx,
-            version,
-            &schedule.workspace_id,
-            &schedule.script_path,
-        )
-        .await?;
-
-        Ok((tag, None, on_behalf_of_email, edited_by, None, Some(version), parsed_retry))
+            None,
+            Some(version),
+            parsed_retry,
+        ))
     } else {
         let (
             hash,
@@ -83,6 +87,8 @@ async fn get_schedule_metadata<'c>(
             _custom_concurrency_key,
             _concurrent_limit,
             _concurrency_time_window_s,
+            _debounce_key,
+            _debounce_delay_s,
             _cache_ttl,
             _language,
             _dedicated_worker,
@@ -98,7 +104,15 @@ async fn get_schedule_metadata<'c>(
         )
         .await?;
 
-        Ok((tag, timeout, on_behalf_of_email, created_by, Some(hash), None, parsed_retry))
+        Ok((
+            tag,
+            timeout,
+            on_behalf_of_email,
+            created_by,
+            Some(hash),
+            None,
+            parsed_retry,
+        ))
     }
 }
 
@@ -208,7 +222,9 @@ pub async fn push_scheduled_job<'c>(
 
     // If schedule handler is defined, wrap the scheduled job in a synthetic flow
     // with the handler as the first step (with stop_after_if to skip if handler returns false)
-    let (payload, tag, timeout, on_behalf_of_email, created_by) = if let Some(handler_path) = &schedule.dynamic_skip {
+    let (payload, tag, timeout, on_behalf_of_email, created_by) = if let Some(handler_path) =
+        &schedule.dynamic_skip
+    {
         // Build skip handler args
         let mut skip_handler_args = HashMap::<String, Box<serde_json::value::RawValue>>::new();
         skip_handler_args.insert(
@@ -250,6 +266,8 @@ pub async fn push_scheduled_job<'c>(
                 tag_override: schedule.tag.clone(),
                 trigger_path: None,
                 apply_preprocessor: false,
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             },
             if schedule.tag.as_ref().is_some_and(|x| x != "") {
                 schedule.tag.clone()
@@ -304,6 +322,8 @@ pub async fn push_scheduled_job<'c>(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            custom_debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -346,11 +366,13 @@ pub async fn push_scheduled_job<'c>(
                     custom_concurrency_key: None,
                     concurrent_limit: None,
                     concurrency_time_window_s: None,
-                    cache_ttl: cache_ttl,
-                    priority: priority,
+                    cache_ttl,
+                    priority,
                     tag_override: schedule.tag.clone(),
                     trigger_path: None,
                     apply_preprocessor: false,
+                    custom_debounce_key: None,
+                    debounce_delay_s: None,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -367,13 +389,15 @@ pub async fn push_scheduled_job<'c>(
                     hash,
                     path: schedule.script_path.clone(),
                     custom_concurrency_key,
-                    concurrent_limit: concurrent_limit,
-                    concurrency_time_window_s: concurrency_time_window_s,
-                    cache_ttl: cache_ttl,
+                    concurrent_limit,
+                    concurrency_time_window_s,
+                    cache_ttl,
                     dedicated_worker,
                     language,
                     priority,
                     apply_preprocessor: false,
+                    custom_debounce_key,
+                    debounce_delay_s,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -471,6 +495,7 @@ pub async fn push_scheduled_job<'c>(
         None,
         push_authed,
         false,
+        None,
         None,
     )
     .warn_after_seconds_with_sql(1, "push in push_scheduled_job".to_string())

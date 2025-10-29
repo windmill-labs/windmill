@@ -48,6 +48,7 @@
 	import { createBubbler } from 'svelte/legacy'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -953,7 +954,7 @@
 						{#if minTs || maxTs}
 							<input
 								type="text"
-								class="!text-sm text-tertiary !bg-surface-secondary h-9 !border-none"
+								class="!text-sm text-primary !bg-surface-secondary h-9 !border-none"
 								value={minTs ? new Date(minTs).toLocaleString() : 'zoom x axis to set min'}
 								disabled
 								name="min-datetimes"
@@ -985,7 +986,7 @@
 						{#if maxTs || minTs}
 							<input
 								type="text"
-								class="!text-sm text-tertiary !bg-surface-secondary h-9 !border-none"
+								class="!text-sm text-primary !bg-surface-secondary h-9 !border-none"
 								value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
 								name="max-datetimes"
 								disabled
@@ -1015,15 +1016,13 @@
 
 					{#if minTs || maxTs}
 						<RunOption label="Reset" for="reset" noLabel>
-							<Button color="light" variant="border" size="xs" onClick={reset} btnClasses="h-9">
-								Reset
-							</Button>
+							<Button variant="default" size="xs" onClick={reset} btnClasses="h-9">Reset</Button>
 						</RunOption>
 					{/if}
 				</div>
 
 				<!-- Filters 1 -->
-				<div class="flex flex-row gap-4">
+				<div class="flex flex-row gap-2">
 					<RunsFilter
 						bind:allowWildcards
 						bind:isSkipped
@@ -1159,7 +1158,7 @@
 
 		<div class="grow min-h-0">
 			<Splitpanes>
-				<Pane size={60} minSize={40}>
+				<Pane minSize={40}>
 					<div class="flex flex-col h-full">
 						<!-- Runs table top bar -->
 						<div
@@ -1183,8 +1182,9 @@
 												onclick={selectAll}
 											/>
 										</div>
-										<label class="cursor-pointer whitespace-nowrap" for="select-all"
-											>Select all</label
+										<label
+											class="cursor-pointer whitespace-nowrap text-xs text-emphasis font-semibold"
+											for="select-all">Select all</label
 										>
 									</div>
 								{/if}
@@ -1206,7 +1206,6 @@
 								<div class="flex flex-row gap-1 items-center">
 									<Toggle
 										id="cron-schedules"
-										size="xs"
 										bind:checked={showSchedules}
 										on:change={() => {
 											localStorage.setItem(
@@ -1216,16 +1215,16 @@
 										}}
 										options={tableTopBarWidth < 800 || selectionMode
 											? {}
-											: { right: 'CRON Schedules' }}
+											: { right: 'Cron schedules' }}
 									/>
-									<span title="CRON Schedules">
-										<Calendar size="16" />
+									<span title="Cron schedules">
+										<Calendar size="14" />
 									</span>
 								</div>
 
 								<div class="flex flex-row gap-1 items-center">
 									<Toggle
-										size="xs"
+										size="sm"
 										bind:checked={showFutureJobs}
 										on:change={() => {
 											localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
@@ -1236,7 +1235,7 @@
 											: { right: 'Planned later' }}
 									/>
 									<span title="Planned later">
-										<Clock size={16} />
+										<Clock size={14} />
 									</span>
 								</div>
 								<div class="flex flex-row gap-2 items-center">
@@ -1252,7 +1251,7 @@
 										bind:this={manualDatePicker}
 									/>
 									<Toggle
-										size="xs"
+										size="sm"
 										bind:checked={autoRefresh}
 										on:change={() => {
 											localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
@@ -1298,7 +1297,7 @@
 						</div>
 					</div>
 				</Pane>
-				<Pane size={40} minSize={15} class="flex flex-col">
+				<AnimatedPane size={40} minSize={15} class="flex flex-col" opened={selectedIds.length > 0}>
 					{#if selectionMode === 're-run'}
 						<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
 					{:else if selectedIds.length === 1}
@@ -1316,10 +1315,8 @@
 						<div class="text-xs m-4"
 							>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
 						>
-					{:else}
-						<div class="text-xs m-4">No job selected</div>
 					{/if}
-				</Pane>
+				</AnimatedPane>
 			</Splitpanes>
 		</div>
 	</div>

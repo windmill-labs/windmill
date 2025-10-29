@@ -57,7 +57,7 @@
 			</span>
 			{#if showCopy && hasContent}
 				<button
-					class="p-1 rounded hover:bg-surface-secondary text-tertiary hover:text-secondary transition-colors"
+					class="p-1 rounded hover:bg-surface-secondary text-primary hover:text-secondary transition-colors"
 					onclick={copyToClipboard}
 					title="Copy {title.toLowerCase()}"
 				>
@@ -72,7 +72,7 @@
 
 		{#if loading}
 			<div
-				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 flex items-center gap-2 text-tertiary"
+				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 flex items-center gap-2 text-primary"
 			>
 				<Loader2 class="w-3 h-3 animate-spin" />
 				<span class="text-2xs">Executing...</span>
@@ -95,7 +95,7 @@
 			<div
 				class="bg-surface-secondary border border-gray-200 dark:border-gray-700 rounded p-3 text-center"
 			>
-				<span class="text-2xs text-tertiary">No {title.toLowerCase()} yet</span>
+				<span class="text-2xs text-primary">No {title.toLowerCase()} yet</span>
 			</div>
 		{/if}
 	</div>

@@ -32,8 +32,9 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_common::utils::query_elems_from_hub;
-use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
+use windmill_common::flows::FlowValue;
+use windmill_common::utils::{query_elems_from_hub, WarnAfterExt};
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -385,6 +386,7 @@ async fn create_flow(
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
+    guard_flow_from_debounce_data(&nf).await?;
     if *CLOUD_HOSTED {
         let nb_flows =
             sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
@@ -545,6 +547,7 @@ async fn create_flow(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
         None,
     )
     .await?;
@@ -722,7 +725,7 @@ async fn update_flow_history(
     }
 
     sqlx::query!(
-        "INSERT INTO deployment_metadata (workspace_id, path, flow_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL DO UPDATE SET deployment_msg = $4",
+        "INSERT INTO deployment_metadata (workspace_id, path, flow_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL DO UPDATE SET deployment_msg = EXCLUDED.deployment_msg",
         w_id,
         path_o.unwrap(),
         version,
@@ -744,6 +747,7 @@ async fn update_flow(
 ) -> Result<String> {
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
+    guard_flow_from_debounce_data(&nf).await?;
 
     #[cfg(not(feature = "enterprise"))]
     if nf
@@ -884,6 +888,15 @@ async fn update_flow(
         .await?;
     }
 
+    // Row lock debounce key for path. We need this to make all updates of runnables sequential and predictable.
+    tokio::time::timeout(
+        core::time::Duration::from_secs(60),
+        windmill_common::jobs::lock_debounce_key(&w_id, &nf.path, &mut tx),
+    )
+    .warn_after_seconds(10)
+    .await??;
+
+    // This will lock anyone who is trying to iterate on flow_versions with given path and parameters.
     let version = sqlx::query_scalar!(
         "INSERT INTO flow_version (workspace_id, path, value, schema, created_by) VALUES ($1, $2, $3, $4::text::json, $5) RETURNING id",
         w_id,
@@ -900,6 +913,7 @@ async fn update_flow(
         ))
     })?;
 
+    // TODO: This should happen only after we are done with dependency job.
     sqlx::query!(
         "UPDATE flow SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3",
         version, nf.path, w_id
@@ -1014,8 +1028,10 @@ async fn update_flow(
         Some(&authed.clone().into()),
         false,
         None,
+        None,
     )
     .await?;
+
     sqlx::query!(
         "UPDATE flow SET dependency_job = $1 WHERE path = $2 AND workspace_id = $3",
         dependency_job_uuid,
@@ -1346,6 +1362,22 @@ async fn archive_flow_by_path(
     Ok(format!("Flow {path} archived"))
 }
 
+/// Validates that flow debouncing configuration is supported by all workers
+/// Returns an error if debouncing is configured but workers are behind required version
+async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
+    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await && {
+        let flow_value: FlowValue = serde_json::from_value(nf.value.clone())?;
+        flow_value.debounce_key.is_some() || flow_value.debounce_delay_s.is_some()
+    } {
+        tracing::warn!(
+            "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
+        );
+        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Deserialize)]
 struct DeleteFlowQuery {
     keep_captures: Option<bool>,
@@ -1602,6 +1634,8 @@ mod tests {
             early_return: None,
             concurrency_key: None,
             chat_input_enabled: None,
+            debounce_key: None,
+            debounce_delay_s: None,
         };
         let expect = serde_json::json!({
           "modules": [

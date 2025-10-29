@@ -15,10 +15,36 @@ use windmill_common::{
     jobs::{JobKind, JobPayload, RawCode},
     jwt::JWT_SECRET,
     scripts::{ScriptHash, ScriptLang},
-    worker::WORKER_CONFIG,
+    worker::{Connection, WORKER_CONFIG},
     KillpillSender,
 };
 use windmill_queue::PushIsolationLevel;
+
+pub async fn init_client(db: Pool<Postgres>) -> (windmill_api_client::Client, u16, ApiServer) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db).await.unwrap();
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    (client, port, server)
+}
+
+pub async fn init_client_agent_mode(
+    db: Pool<Postgres>,
+) -> (windmill_api_client::Client, u16, ApiServer) {
+    initialize_tracing().await;
+    set_jwt_secret().await;
+
+    let server = ApiServer::start_agent_mode(db).await.unwrap();
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    (client, port, server)
+}
 
 /// it's important this is unique between tests as there is one prometheus registry and
 /// run_worker shouldn't register the same metric with the same worker name more than once.
@@ -55,6 +81,14 @@ pub struct ApiServer {
 
 impl ApiServer {
     pub async fn start(db: Pool<Postgres>) -> anyhow::Result<Self> {
+        Self::start_inner(db, false).await
+    }
+
+    pub async fn start_agent_mode(db: Pool<Postgres>) -> anyhow::Result<Self> {
+        Self::start_inner(db, true).await
+    }
+
+    async fn start_inner(db: Pool<Postgres>, agent_mode: bool) -> anyhow::Result<Self> {
         let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
 
         let sock = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -75,7 +109,7 @@ impl ApiServer {
             addr,
             rx,
             port_tx,
-            false,
+            agent_mode,
             false,
             format!("http://localhost:{}", addr.port()),
             Some(name.clone()),
@@ -105,14 +139,17 @@ impl ApiServer {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct RunJob {
     pub payload: JobPayload,
     pub args: serde_json::Map<String, serde_json::Value>,
+    pub debounce_job_id_o: Option<Uuid>,
+    pub scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl From<JobPayload> for RunJob {
     fn from(payload: JobPayload) -> Self {
-        Self { payload, args: Default::default() }
+        Self { payload, args: Default::default(), debounce_job_id_o: None, scheduled_for_o: None }
     }
 }
 
@@ -122,8 +159,21 @@ impl RunJob {
         self
     }
 
+    pub fn push_arg_debounce_job_id_o(mut self, job_id: Option<Uuid>) -> Self {
+        self.debounce_job_id_o = job_id;
+        self
+    }
+
+    pub fn push_arg_scheduled_for_o(
+        mut self,
+        scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Self {
+        self.scheduled_for_o = scheduled_for_o;
+        self
+    }
+
     pub async fn push(self, db: &Pool<Postgres>) -> Uuid {
-        let RunJob { payload, args } = self;
+        let RunJob { payload, args, debounce_job_id_o, scheduled_for_o } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -131,7 +181,7 @@ impl RunJob {
 
         let tx = PushIsolationLevel::IsolatedRoot(db.clone());
         let (uuid, tx) = windmill_queue::push(
-            &db,
+            db,
             tx,
             "test-workspace",
             payload,
@@ -140,7 +190,7 @@ impl RunJob {
             /* email  */ "test@windmill.dev",
             /* permissioned_as */ "u/test-user".to_string(),
             /* token_prefix */ None,
-            /* scheduled_for_o */ None,
+            scheduled_for_o,
             /* schedule_path */ None,
             /* parent_job */ None,
             /* root job  */ None,
@@ -157,6 +207,7 @@ impl RunJob {
             None,
             false,
             None,
+            debounce_job_id_o,
         )
         .await
         .expect("push has to succeed");
@@ -166,48 +217,81 @@ impl RunJob {
     }
 
     /// push the job, spawn a worker, wait until the job is in completed_job
-    pub async fn run_until_complete(self, db: &Pool<Postgres>, port: u16) -> CompletedJob {
+    pub async fn run_until_complete(
+        self,
+        db: &Pool<Postgres>,
+        agent_mode: bool,
+        port: u16,
+    ) -> CompletedJob {
         let uuid = self.push(db).await;
         let listener = listen_for_completed_jobs(db).await;
-        in_test_worker(db, listener.find(&uuid), port).await;
-        let r = completed_job(uuid, db).await;
-        r
+
+        let conn = match agent_mode {
+            false => Connection::Sql(db.clone()),
+            #[cfg(all(feature = "private", feature = "agent_worker_server"))]
+            true => testing_http_connection(port).await,
+            #[cfg(not(all(feature = "private", feature = "agent_worker_server")))]
+            true => {
+                panic!("to use agent worker test, you need to enable 'agent_worker_server' feature")
+            }
+        };
+
+        in_test_worker(conn, listener.find(&uuid), port).await;
+
+        completed_job(uuid, db).await
     }
 
     /// push the job, spawn a worker, wait until the job is in completed_job
     pub async fn run_until_complete_with<F: Future<Output = ()>>(
         self,
         db: &Pool<Postgres>,
+        agent_mode: bool,
         port: u16,
         test: impl Fn(Uuid) -> F,
     ) -> CompletedJob {
         let uuid = self.push(db).await;
         let listener = listen_for_completed_jobs(db).await;
         test(uuid).await;
-        in_test_worker(db, listener.find(&uuid), port).await;
-        let r = completed_job(uuid, db).await;
-        r
+
+        let conn = match agent_mode {
+            false => Connection::Sql(db.clone()),
+            #[cfg(all(feature = "private", feature = "agent_worker_server"))]
+            true => testing_http_connection(port).await,
+            #[cfg(not(all(feature = "private", feature = "agent_worker_server")))]
+            true => {
+                panic!("to use agent worker test, you need to enable 'agent_worker_server' feature")
+            }
+        };
+
+        in_test_worker(conn, listener.find(&uuid), port).await;
+
+        completed_job(uuid, db).await
     }
 }
 
 pub async fn run_job_in_new_worker_until_complete(
     db: &Pool<Postgres>,
+    agent_mode: bool,
     job: JobPayload,
     port: u16,
 ) -> CompletedJob {
-    RunJob::from(job).run_until_complete(db, port).await
+    RunJob::from(job)
+        .run_until_complete(db, agent_mode, port)
+        .await
 }
 
 /// Start a worker with a timeout and run a future, until the worker quits or we time out.
 ///
 /// Cleans up the worker before resolving.
 pub async fn in_test_worker<Fut: std::future::Future>(
-    db: &Pool<Postgres>,
+    // db: &Pool<Postgres>,
+    // If set to http, worker will be started in agent mode.
+    conn: impl Into<Connection>,
     inner: Fut,
     port: u16,
 ) -> <Fut as std::future::Future>::Output {
     set_jwt_secret().await;
-    let (quit, worker) = spawn_test_worker(db, port);
+    let (quit, worker) = spawn_test_worker(&conn.into(), port);
     let worker = tokio::time::timeout(std::time::Duration::from_secs(60), worker);
     tokio::pin!(worker);
 
@@ -232,7 +316,7 @@ pub async fn in_test_worker<Fut: std::future::Future>(
 }
 
 pub fn spawn_test_worker(
-    db: &Pool<Postgres>,
+    conn: &Connection,
     port: u16,
 ) -> (KillpillSender, tokio::task::JoinHandle<()>) {
     std::fs::DirBuilder::new()
@@ -241,26 +325,26 @@ pub fn spawn_test_worker(
         .expect("could not create initial worker dir");
 
     let (tx, rx) = KillpillSender::new(1);
-    let db = db.to_owned();
     let worker_instance: &str = "test worker instance";
     let worker_name: String = next_worker_name();
     let ip: &str = Default::default();
+    let conn = conn.to_owned();
 
     let tx2 = tx.clone();
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
         {
             let mut wc = WORKER_CONFIG.write().await;
-            (*wc).worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
-            (*wc).priority_tags_sorted = vec![windmill_common::worker::PriorityTags {
+            wc.worker_tags = windmill_common::worker::DEFAULT_TAGS.clone();
+            wc.priority_tags_sorted = vec![windmill_common::worker::PriorityTags {
                 priority: 0,
-                tags: (*wc).worker_tags.clone(),
+                tags: wc.worker_tags.clone(),
             }];
             windmill_common::worker::store_suspended_pull_query(&wc).await;
             windmill_common::worker::store_pull_query(&wc).await;
         }
         windmill_worker::run_worker(
-            &db.into(),
+            &conn,
             worker_instance,
             worker_name,
             1,
@@ -349,7 +433,7 @@ fn find_module_in_vec(modules: Vec<FlowStatusModule>, id: &str) -> Option<FlowSt
     modules.into_iter().find(|s| s.id() == id)
 }
 
-pub async fn set_jwt_secret() -> () {
+pub async fn set_jwt_secret() {
     let secret = "mytestsecret".to_string();
     let mut l = JWT_SECRET.write().await;
     *l = secret;
@@ -475,10 +559,10 @@ pub async fn assert_lockfile(
         .await
         .unwrap();
 
-    let mut completed = listen_for_completed_jobs(&db).await;
+    let mut completed = listen_for_completed_jobs(db).await;
     let db2 = db.clone();
     in_test_worker(
-        &db,
+        db,
         async move {
             completed.next().await; // deployed script
 
@@ -571,10 +655,10 @@ pub async fn run_deployed_relative_imports(
         .await
         .unwrap();
 
-    let mut completed = listen_for_completed_jobs(&db).await;
+    let mut completed = listen_for_completed_jobs(db).await;
     let db2 = db.clone();
     in_test_worker(
-        &db,
+        db,
         async move {
             completed.next().await; // deployed script
 
@@ -597,6 +681,8 @@ pub async fn run_deployed_relative_imports(
                 language,
                 priority: None,
                 apply_preprocessor: false,
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             })
             .push(&db2)
             .await;
@@ -631,10 +717,10 @@ pub async fn run_preview_relative_imports(
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
 
-    let mut completed = listen_for_completed_jobs(&db).await;
+    let mut completed = listen_for_completed_jobs(db).await;
     let db2 = db.clone();
     in_test_worker(
-        &db,
+        db.clone(),
         async move {
             let job = RunJob::from(JobPayload::Code(RawCode {
                 hash: None,
@@ -647,6 +733,8 @@ pub async fn run_preview_relative_imports(
                 concurrency_time_window_s: None,
                 cache_ttl: None,
                 dedicated_worker: None,
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             }))
             .push(&db2)
             .await;
@@ -670,4 +758,45 @@ pub async fn run_preview_relative_imports(
     .await;
 
     Ok(())
+}
+
+#[cfg(all(feature = "private", feature = "agent_worker_server"))]
+pub async fn testing_http_connection(port: u16) -> Connection {
+    let suffix = windmill_common::utils::create_default_worker_suffix("test-agent-worker");
+    Connection::Http(windmill_common::agent_workers::build_agent_http_client(
+        &suffix,
+        Some(format!(
+            "{}{}",
+            windmill_common::agent_workers::AGENT_JWT_PREFIX,
+            windmill_common::jwt::encode_with_internal_secret(
+                windmill_api::agent_workers_ee::AgentAuth {
+                    worker_group: "testing-agent".to_owned(),
+                    suffix: Some(suffix.clone()),
+                    tags: vec!["flow".into(), "python3".into(), "dependency".into()],
+                    exp: Some(usize::MAX),
+                }
+            )
+            .await
+            .expect("JWT token to be created")
+        )),
+        Some(format!("http://localhost:{port}")),
+    ))
+}
+
+/// IMPORTANT!:
+/// Do not run parallel in tests!
+///
+/// No tests can run this at the same time, will result into conflicts!!!
+pub async fn rebuild_dmap(client: &windmill_api_client::Client) -> bool {
+    client
+        .client()
+        .post(format!(
+            "{}/w/test-workspace/workspaces/rebuild_dependency_map",
+            client.baseurl()
+        ))
+        .send()
+        .await
+        .unwrap()
+        .status()
+        .is_success()
 }

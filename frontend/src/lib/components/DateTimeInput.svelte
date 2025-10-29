@@ -7,7 +7,7 @@
 	import { Clock, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-	import { inputBaseClass, inputBorderClass } from './text_input/TextInput.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 	// import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 
 	interface Props {
@@ -113,32 +113,24 @@
 </script>
 
 <div
-	class="flex flex-row gap-1 items-center w-full"
+	class="flex flex-row gap-1 items-center w-full relative"
 	id={randomId}
 	onpointerdown={bubble('pointerdown')}
 	onfocus={bubble('focus')}
 >
 	<!-- svelte-ignore a11y_autofocus -->
-	<input
-		type="date"
+	<TextInput
+		inputProps={{ type: 'date', autofocus, disabled, min: minDate, max: maxDate }}
 		bind:value={date}
-		{autofocus}
-		{disabled}
-		class={twMerge(inputBaseClass, inputBorderClass(), 'text-sm !w-3/4 ', inputClass)}
-		min={minDate}
-		max={maxDate}
+		class={twMerge('!w-3/4 ', inputClass)}
 	/>
-	<input
-		type="time"
+	<TextInput
+		inputProps={{ type: 'time', disabled }}
 		bind:value={time}
-		class={twMerge(inputBaseClass, inputBorderClass(), 'text-sm !w-1/4 min-w-[100px] ', inputClass)}
-		{disabled}
+		class={twMerge('!w-1/4 min-w-[100px] !max-h-full', inputClass)}
 	/>
 	<Button
-		variant="contained"
-		color="light"
-		wrapperClasses="h-full"
-		btnClasses="bg-surface-secondary"
+		variant="default"
 		startIcon={{
 			icon: Clock
 		}}
@@ -181,8 +173,8 @@
 	</Button>
 	{#if clearable}
 		<Button
-			variant="border"
-			color="light"
+			variant="default"
+			unifiedSize="md"
 			wrapperClasses="h-full"
 			{disabled}
 			on:click={() => {

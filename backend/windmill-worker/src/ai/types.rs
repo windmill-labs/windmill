@@ -1,15 +1,13 @@
+use crate::ai::providers::openai::OpenAIToolCall;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
+use windmill_common::mcp_client::McpToolSource;
 use windmill_common::{
     ai_providers::AIProvider, db::DB, error::Error, flow_status::AgentAction, flows::FlowModule,
     s3_helpers::S3Object,
 };
 use windmill_parser::Typ;
-
-use crate::ai::providers::openai::OpenAIToolCall;
-
-// Shared types used across multiple providers
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -88,9 +86,11 @@ pub struct ToolDef {
     pub function: ToolDefFunction,
 }
 
+#[derive(Serialize, Clone, Debug)]
 pub struct Tool {
-    pub module: FlowModule,
+    pub module: Option<FlowModule>,
     pub def: ToolDef,
+    pub mcp_source: Option<McpToolSource>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
@@ -385,4 +385,12 @@ impl OpenAPISchema {
         }
         self
     }
+}
+
+/// Wrapper for S3Object with type discriminator for conversation storage
+#[derive(Serialize)]
+pub struct S3ObjectWithType {
+    #[serde(flatten)]
+    pub s3_object: S3Object,
+    pub r#type: String,
 }

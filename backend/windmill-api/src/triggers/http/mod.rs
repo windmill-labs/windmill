@@ -35,7 +35,7 @@ pub struct TriggerRoute {
     is_flow: bool,
     route_path: String,
     workspace_id: String,
-    is_async: bool,
+    request_type: RequestType,
     authentication_method: AuthenticationMethod,
     edited_by: String,
     email: String,
@@ -64,6 +64,15 @@ pub enum HttpMethod {
     Put,
     Delete,
     Patch,
+}
+
+#[derive(Serialize, Deserialize, sqlx::Type, Debug, Clone, Copy, PartialEq)]
+#[sqlx(type_name = "REQUEST_TYPE", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum RequestType {
+    Sync,
+    Async,
+    SyncSse,
 }
 
 impl TryFrom<&http::Method> for HttpMethod {
@@ -96,7 +105,7 @@ pub enum AuthenticationMethod {
 pub struct HttpConfig {
     pub route_path: String,
     pub route_path_key: String,
-    pub is_async: bool,
+    pub request_type: RequestType,
     pub authentication_method: AuthenticationMethod,
     pub http_method: HttpMethod,
     pub summary: Option<String>,
@@ -109,11 +118,11 @@ pub struct HttpConfig {
     pub raw_string: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HttpConfigRequest {
     #[serde(default)]
     pub route_path: String,
-    pub is_async: bool,
+    pub request_type: RequestType,
     pub authentication_method: AuthenticationMethod,
     pub http_method: HttpMethod,
     pub summary: Option<String>,
@@ -126,10 +135,66 @@ pub struct HttpConfigRequest {
     pub raw_string: Option<bool>,
 }
 
+#[derive(Deserialize)]
+struct HttpConfigRequestHelper {
+    #[serde(default)]
+    route_path: String,
+    request_type: Option<RequestType>,
+    is_async: Option<bool>,
+    authentication_method: AuthenticationMethod,
+    http_method: HttpMethod,
+    summary: Option<String>,
+    description: Option<String>,
+    static_asset_config: Option<SqlxJson<S3Object>>,
+    is_static_website: bool,
+    authentication_resource_path: Option<String>,
+    workspaced_route: Option<bool>,
+    wrap_body: Option<bool>,
+    raw_string: Option<bool>,
+}
+
+impl<'de> Deserialize<'de> for HttpConfigRequest {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let helper = HttpConfigRequestHelper::deserialize(deserializer)?;
+
+        // Determine request_type with backward compatibility
+        let request_type = if let Some(mode) = helper.request_type {
+            mode
+        } else if let Some(is_async) = helper.is_async {
+            if is_async {
+                RequestType::Async
+            } else {
+                RequestType::Sync
+            }
+        } else {
+            RequestType::Sync
+        };
+
+        Ok(HttpConfigRequest {
+            route_path: helper.route_path,
+            request_type,
+            authentication_method: helper.authentication_method,
+            http_method: helper.http_method,
+            summary: helper.summary,
+            description: helper.description,
+            static_asset_config: helper.static_asset_config,
+            is_static_website: helper.is_static_website,
+            authentication_resource_path: helper.authentication_resource_path,
+            workspaced_route: helper.workspaced_route,
+            wrap_body: helper.wrap_body,
+            raw_string: helper.raw_string,
+        })
+    }
+}
+
 // Regex patterns for route validation
 lazy_static::lazy_static! {
-    static ref ROUTE_PATH_KEY_RE: regex::Regex = regex::Regex::new(r"/?:[-\w]+").unwrap();
-    static ref VALID_ROUTE_PATH_RE: regex::Regex = regex::Regex::new(r"^:?[-\w]+(/:?[-\w]+)*$").unwrap();
+    // Matches named params like :id or wildcards like :* or *
+    static ref ROUTE_PATH_KEY_RE: regex::Regex = regex::Regex::new(r"(/)?(:|\*)[-\w]+").unwrap();
+    static ref VALID_ROUTE_PATH_RE: regex::Regex = regex::Regex::new(r"^(\*[-\w]+$|:?[-\w]+)(/(\*[-\w]+$|:?[-\w]+))*$").unwrap();
 }
 
 #[derive(Deserialize)]
@@ -174,17 +239,17 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
             let triggers = sqlx::query_as!(
                 TriggerRoute,
                 r#"
-                    SELECT 
-                        path, 
-                        script_path, 
-                        is_flow, 
-                        route_path, 
+                    SELECT
+                        path,
+                        script_path,
+                        is_flow,
+                        route_path,
                         authentication_resource_path,
-                        workspace_id, 
-                        is_async, 
-                        authentication_method  AS "authentication_method: _", 
-                        edited_by, 
-                        email, 
+                        workspace_id,
+                        request_type AS "request_type: _",
+                        authentication_method  AS "authentication_method: _",
+                        edited_by,
+                        email,
                         static_asset_config AS "static_asset_config: _",
                         wrap_body,
                         raw_string,
@@ -193,9 +258,9 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
                         error_handler_path,
                         error_handler_args as "error_handler_args: _",
                         retry as "retry: _"
-                    FROM 
-                        http_trigger 
-                    WHERE 
+                    FROM
+                        http_trigger
+                    WHERE
                         http_method = $1
                     "#,
                 &http_method as &HttpMethod
@@ -276,4 +341,67 @@ pub async fn refresh_routers_loop(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_request_type_backward_compatibility() {
+        // Test with new request_type field
+        let json_new = r#"{
+            "route_path": "/test",
+            "request_type": "sync_sse",
+            "authentication_method": "none",
+            "http_method": "get",
+            "is_static_website": false
+        }"#;
+        let config: HttpConfigRequest = serde_json::from_str(json_new).unwrap();
+        assert_eq!(config.request_type, RequestType::SyncSse);
+
+        // Test with legacy is_async = true
+        let json_legacy_async = r#"{
+            "route_path": "/test",
+            "is_async": true,
+            "authentication_method": "none",
+            "http_method": "get",
+            "is_static_website": false
+        }"#;
+        let config: HttpConfigRequest = serde_json::from_str(json_legacy_async).unwrap();
+        assert_eq!(config.request_type, RequestType::Async);
+
+        // Test with legacy is_async = false
+        let json_legacy_sync = r#"{
+            "route_path": "/test",
+            "is_async": false,
+            "authentication_method": "none",
+            "http_method": "get",
+            "is_static_website": false
+        }"#;
+        let config: HttpConfigRequest = serde_json::from_str(json_legacy_sync).unwrap();
+        assert_eq!(config.request_type, RequestType::Sync);
+
+        // Test with neither field (default to sync)
+        let json_default = r#"{
+            "route_path": "/test",
+            "authentication_method": "none",
+            "http_method": "get",
+            "is_static_website": false
+        }"#;
+        let config: HttpConfigRequest = serde_json::from_str(json_default).unwrap();
+        assert_eq!(config.request_type, RequestType::Sync);
+
+        // Test that request_type takes precedence over is_async
+        let json_both = r#"{
+            "route_path": "/test",
+            "request_type": "sync_sse",
+            "is_async": true,
+            "authentication_method": "none",
+            "http_method": "get",
+            "is_static_website": false
+        }"#;
+        let config: HttpConfigRequest = serde_json::from_str(json_both).unwrap();
+        assert_eq!(config.request_type, RequestType::SyncSse);
+    }
 }

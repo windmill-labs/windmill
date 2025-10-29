@@ -1,5 +1,5 @@
 <script module lang="ts">
-	export const EDITOR_BAR_WIDTH_THRESHOLD = 1044
+	export const EDITOR_BAR_WIDTH_THRESHOLD = 1300
 </script>
 
 <script lang="ts">
@@ -31,6 +31,7 @@
 		DiffIcon,
 		DollarSign,
 		File,
+		GitBranch,
 		History,
 		Library,
 		Link,
@@ -54,6 +55,8 @@
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
 	import ScriptGen from './copilot/ScriptGen.svelte'
+	import GitRepoPopoverPicker from './GitRepoPopoverPicker.svelte'
+	import { insertDelegateToGitRepoInCode } from '$lib/ansibleUtils'
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -120,6 +123,7 @@
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let ducklakePicker: ItemPicker | undefined = $state()
 	let databasePicker: ItemPicker | undefined = $state()
+	let gitRepoPickerOpen = $state(false)
 
 	let showContextVarPicker = $derived(
 		[
@@ -194,16 +198,25 @@
 	)
 	let showDucklakePicker = $derived(['duckdb'].includes(lang ?? ''))
 	let showDatabasePicker = $derived(['duckdb'].includes(lang ?? ''))
+	let showGitRepoPicker = $derived(lang === 'ansible')
 
 	let showResourceTypePicker = $derived(
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
-		lang === 'python3' ||
-		lang === 'php' ||
-		lang === 'rust'
+			lang === 'python3' ||
+			lang === 'php' ||
+			lang === 'rust'
 	)
 
 	let codeViewer: Drawer | undefined = $state()
 	let codeObj: { language: SupportedLanguage; content: string } | undefined = $state(undefined)
+
+	function insertDelegateToGitRepo(resourcePath: string) {
+		if (!editor) return
+
+		const currentCode = editor.getCode()
+		const newCode = insertDelegateToGitRepoInCode(currentCode, resourcePath)
+		editor.setCode(newCode)
+	}
 
 	function addEditorActions() {
 		editor?.addAction('insert-variable', 'Windmill: Insert variable', () => {
@@ -316,9 +329,9 @@
 				name,
 				JSON.stringify(resourceType.schema),
 				{
-					"leading-comments": false,
-					"density": "dense",
-					"derive-debug": true
+					'leading-comments': false,
+					density: 'dense',
+					'derive-debug': true
 				}
 			)
 			editor.insertAtCurrentLine(lines.join('\n'))
@@ -574,9 +587,7 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 	{#snippet submission()}
 		<div class="flex flex-row">
 			<Button
-				variant="border"
-				color="blue"
-				size="sm"
+				variant="accent"
 				startIcon={{ icon: Plus }}
 				on:click={() => {
 					variableEditor?.initNew()
@@ -682,9 +693,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			<Button
 				startIcon={{ icon: Plus }}
 				target="_blank"
-				variant="border"
-				color="blue"
-				size="sm"
+				variant="accent"
 				href="{base}/resources?connect_app=undefined"
 			>
 				Add resource
@@ -774,22 +783,20 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 />
 
 <div class="flex justify-between items-center overflow-y-auto w-full p-0.5">
-	<div class="flex items-center">
+	<div class="flex gap-3 items-center">
 		<div
 			title={validCode ? 'Main function parsable' : 'Main function not parsable'}
 			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
 		></div>
-		<div class="flex items-center gap-0.5">
+		<div class="flex items-center gap-2">
 			{#if showContextVarPicker && customUi?.contextVar != false}
 				<Button
 					aiId="editor-bar-add-context-variable"
 					aiDescription="Add context variable"
 					title="Add context variable"
-					color="light"
+					variant="subtle"
 					on:click={contextualVariablePicker.openDrawer}
-					size="xs"
-					btnClasses="!font-medium text-tertiary"
-					spacingSize="md"
+					unifiedSize="sm"
 					startIcon={{ icon: DollarSign }}
 					{iconOnly}
 					>+Context var
@@ -800,11 +807,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-add-variable"
 					aiDescription="Add variable"
 					title="Add variable"
-					color="light"
-					btnClasses="!font-medium text-tertiary"
+					variant="subtle"
 					on:click={variablePicker.openDrawer}
-					size="xs"
-					spacingSize="md"
+					unifiedSize="sm"
 					startIcon={{ icon: DollarSign }}
 					{iconOnly}
 				>
@@ -817,11 +822,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-add-s3-object"
 					aiDescription="Add S3 Object"
 					title="Add S3 object"
-					color="light"
+					variant="subtle"
 					on:click={() => s3FilePicker?.open()}
-					size="xs"
-					btnClasses="!font-medium text-tertiary"
-					spacingSize="md"
+					unifiedSize="sm"
 					startIcon={{ icon: File }}
 					{iconOnly}
 					>+S3 Object
@@ -833,10 +836,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-add-resource"
 					aiDescription="Add resource"
 					title="Add resource"
-					btnClasses="!font-medium text-tertiary"
-					size="xs"
-					spacingSize="md"
-					color="light"
+					unifiedSize="sm"
+					variant="subtle"
 					on:click={resourcePicker.openDrawer}
 					{iconOnly}
 					startIcon={{ icon: Package }}
@@ -845,15 +846,33 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				</Button>
 			{/if}
 
+			{#if showGitRepoPicker && customUi?.resource != false}
+				<GitRepoPopoverPicker
+					bind:isOpen={gitRepoPickerOpen}
+					on:selected={(e) => insertDelegateToGitRepo(e.detail.resourcePath)}
+				>
+					<Button
+						aiId="editor-bar-add-git-repo"
+						aiDescription="Delegate to Git repository"
+						title="Delegate to Git repository"
+						unifiedSize="sm"
+						variant="subtle"
+						on:click={() => (gitRepoPickerOpen = true)}
+						{iconOnly}
+						startIcon={{ icon: GitBranch }}
+					>
+						+Git Repo
+					</Button>
+				</GitRepoPopoverPicker>
+			{/if}
+
 			{#if showResourceTypePicker && customUi?.type != false}
 				<Button
 					aiId="editor-bar-add-resource-type"
 					aiDescription="Add resource type"
 					title="Add resource type"
-					btnClasses="!font-medium text-tertiary"
-					size="xs"
-					spacingSize="md"
-					color="light"
+					variant="subtle"
+					unifiedSize="sm"
 					on:click={() => resourceTypePicker?.openDrawer()}
 					{iconOnly}
 					startIcon={{ icon: Package }}
@@ -867,11 +886,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-add-database"
 					aiDescription="Add database"
 					title="Add database"
-					color="light"
+					variant="subtle"
 					on:click={() => databasePicker?.openDrawer()}
-					size="xs"
-					btnClasses="!font-medium text-tertiary"
-					spacingSize="md"
+					unifiedSize="sm"
 					startIcon={{ icon: DatabaseIcon }}
 					{iconOnly}
 					>+Database
@@ -883,11 +900,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-use-ducklake"
 					aiDescription="Use Ducklake"
 					title="Use Ducklake"
-					color="light"
+					variant="subtle"
 					on:click={() => ducklakePicker?.openDrawer()}
-					size="xs"
-					btnClasses="!font-medium text-tertiary"
-					spacingSize="md"
+					unifiedSize="sm"
 					startIcon={{ icon: DucklakeIcon }}
 					{iconOnly}
 					>+Ducklake
@@ -899,10 +914,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-reset-content"
 					aiDescription="Reset content"
 					title="Reset Content"
-					btnClasses="!font-medium text-tertiary"
-					size="xs"
-					spacingSize="md"
-					color="light"
+					unifiedSize="sm"
+					variant="subtle"
 					on:click={clearContent}
 					{iconOnly}
 					startIcon={{ icon: RotateCw }}
@@ -916,10 +929,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					<Button
 						aiId="editor-bar-reload-assistants"
 						aiDescription="Reload assistants"
-						btnClasses="!font-medium text-tertiary"
-						size="xs"
-						spacingSize="md"
-						color="light"
+						unifiedSize="sm"
+						variant="subtle"
 						on:click={() => editor?.reloadWebsocket()}
 						startIcon={{
 							icon: RotateCw,
@@ -951,7 +962,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				<div class="flex items-center px-3">
 					<Toggle
 						options={{ right: '' }}
-						size="xs"
+						size="sm"
 						checked={diffMode}
 						disabled={!lastDeployedCode}
 						on:change={(e) => {
@@ -963,7 +974,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						{#snippet text()}
 							Toggle diff mode
 						{/snippet}
-						<DiffIcon class="ml-1 text-tertiary" size={14} />
+						<DiffIcon class="ml-1 text-primary" size={14} />
 					</Popover>
 				</div>
 			{/if}
@@ -980,7 +991,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						{#snippet text()}
 							Multiplayer
 						{/snippet}
-						<Users class="ml-1 text-tertiary" size={14} />
+						<Users class="ml-1 text-primary" size={14} />
 					</Popover>
 					{#if collabLive}
 						<button
@@ -994,7 +1005,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 									class="inline-flex h-6 w-6 items-center justify-center rounded-full ring-2 ring-white bg-gray-600"
 									title={user.name}
 								>
-									<span class="text-sm font-medium leading-none text-white"
+									<span class="text-sm font-semibold leading-none text-white"
 										>{user.name.substring(0, 2).toLocaleUpperCase()}</span
 									>
 								</span>
@@ -1006,24 +1017,28 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 			{#if customUi?.aiGen != false}
 				{#if openAiChat}
-					<FlowInlineScriptAiButton {moduleId} />
+					<FlowInlineScriptAiButton {moduleId} btnProps={{ variant: 'subtle' }} />
 				{:else}
-					<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+					<ScriptGen
+						{editor}
+						{diffEditor}
+						{lang}
+						btnProps={{ variant: 'subtle', iconOnly: true }}
+						{args}
+					/>
 				{/if}
 			{/if}
 
-			<EditorSettings {customUi} />
+			<EditorSettings {customUi} btnProps={{ variant: 'subtle', unifiedSize: 'md' }} />
 		</div>
 	</div>
 
-	<div class="flex flex-row items-center gap-2">
+	<div class="flex flex-row items-center gap-2 whitespace-nowrap">
 		{@render right?.()}
 		{#if scriptPath && !noHistory}
 			<Button
-				btnClasses="!font-medium text-tertiary"
-				size="xs"
-				spacingSize="md"
-				color="light"
+				unifiedSize="sm"
+				variant="subtle"
 				on:click={() => (showHistoryDrawer = true)}
 				{iconOnly}
 				startIcon={{ icon: History }}
@@ -1034,10 +1049,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		{/if}
 		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS && customUi?.library != false}
 			<Button
-				btnClasses="!font-medium text-tertiary"
-				size="xs"
-				spacingSize="md"
-				color="light"
+				unifiedSize="sm"
+				variant="subtle"
 				on:click={scriptPicker.openDrawer}
 				{iconOnly}
 				startIcon={{ icon: Library }}
@@ -1048,8 +1061,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		{/if}
 		{#if saveToWorkspace}
 			<Button
-				size="xs"
-				color="light"
+				unifiedSize="sm"
+				variant="subtle"
 				startIcon={{ icon: Save }}
 				on:click={() => dispatch('createScriptFromInlineScript')}
 				iconOnly={false}
