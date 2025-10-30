@@ -143,7 +143,12 @@
 		</div>
 	</div>
 	{#if logs?.length == 0}
-		<div class="text-xs text-secondary p-8"> No logs found for the selected filters. </div>
+		<div
+			class="text-xs text-secondary p-8 flex justify-center items-center"
+			style="height: {height}px;"
+		>
+			No logs found for the selected filters.
+		</div>
 	{:else if loading}
 		<div style="height: {height}px;" class="flex justify-center items-center">
 			<Loader2 class="animate-spin" />
