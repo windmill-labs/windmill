@@ -77,7 +77,7 @@
 			onClear={() => {
 				onClear?.()
 				cleared = true
-				value = undefined
+				value = undefinedz
 			}}
 			onFocus={() => dispatch('focus')}
 			onBlur={() => dispatch('blur')}

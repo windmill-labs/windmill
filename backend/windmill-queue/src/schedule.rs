@@ -142,7 +142,7 @@ pub async fn push_scheduled_job<'c>(
         Some(now_cutoff) if now_cutoff >= now => {
             tracing::error!(
                 "now_cutoff ({:?}) is after now ({:?}) for schedule {}. Using now_cutoff + 1s. This likely means the pg clock was shifted backwards.",
-                now_cutoff,
+                now_cutoff,fn push
                 now,
                 &schedule.path
             );
@@ -468,6 +468,12 @@ pub async fn push_scheduled_job<'c>(
         .await?;
     }
 
+    tracing::info!(
+        "Pushing next scheduled job for schedule {} at {} (schedule: {})",
+        &schedule.path,
+        next,
+        &schedule.schedule
+    );
     let tx = PushIsolationLevel::Transaction(tx);
     let (_, mut tx) = push(
         &db,
