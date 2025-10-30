@@ -99,7 +99,7 @@
 	function onParamChanges() {
 		resetJobs()
 		let promise = loadJobsIntern(true)
-		promise = CancelablePromiseUtils.onTimeout(promise, 1000, () => {
+		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
 			sendUserToast(
 				'Loading jobs is taking longer than expected...',
 				true,
@@ -240,7 +240,7 @@
 			console.error(e)
 			return CancelablePromiseUtils.pure([] as Job[])
 		})
-		promise = CancelablePromiseUtils.finallyDo(promise, () => {
+		CancelablePromiseUtils.pipe(promise, () => {
 			loadingFetch = false
 		})
 		return promise
@@ -289,7 +289,7 @@
 			console.error(e)
 			return CancelablePromiseUtils.pure({ jobs: [], obscured_jobs: [] } as ExtendedJobs)
 		})
-		promise = CancelablePromiseUtils.finallyDo(promise, () => {
+		promise = CancelablePromiseUtils.pipe(promise, () => {
 			loadingFetch = false
 		})
 		return promise

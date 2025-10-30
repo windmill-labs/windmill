@@ -1,13 +1,12 @@
 import { CancelablePromise } from './gen'
 
 export namespace CancelablePromiseUtils {
-	export function then<T, U>(
+	export function bind<T, U>(
 		promise: CancelablePromise<T>,
 		f: (value: T) => CancelablePromise<U>
 	): CancelablePromise<U> {
-		return new CancelablePromise<U>((resolve, reject, onCancel) => {
-			let promiseToBeCanceled: CancelablePromise<any> = promise
-			onCancel(() => promiseToBeCanceled.cancel())
+		let promiseToBeCanceled: CancelablePromise<any> = promise
+		let p = new CancelablePromise<U>((resolve, reject) => {
 			promise
 				.then((value1) => {
 					let promise2 = f(value1)
@@ -16,6 +15,8 @@ export namespace CancelablePromiseUtils {
 				})
 				.catch((err) => reject(err))
 		})
+		p.cancel = () => promiseToBeCanceled.cancel()
+		return p
 	}
 
 	export function pure<T>(value: T): CancelablePromise<T> {
@@ -30,24 +31,34 @@ export namespace CancelablePromiseUtils {
 		promise: CancelablePromise<T>,
 		f: (value: T) => U
 	): CancelablePromise<U> {
-		return then(promise, (value) => pure(f(value)))
+		return bind(promise, (value) => pure(f(value)))
+	}
+
+	export function pipe<T>(
+		promise: CancelablePromise<T>,
+		f: (value: T) => void
+	): CancelablePromise<T> {
+		promise.then(f)
+		return promise
 	}
 
 	export function catchErr<T, U>(
 		promise: CancelablePromise<T>,
 		f: (error: any) => CancelablePromise<U>
 	): CancelablePromise<T | U> {
-		return new CancelablePromise<T | U>((resolve, reject, onCancel) => {
-			let promiseToBeCanceled: CancelablePromise<any> = promise
-			onCancel(() => promiseToBeCanceled.cancel())
+		let promiseToBeCanceled: CancelablePromise<any> = promise
+		let p = new CancelablePromise<T | U>((resolve, reject) => {
 			promise
 				.then((value) => resolve(value))
 				.catch((err) => {
 					let promise2 = f(err)
 					promiseToBeCanceled = promise2
-					promise2.then((value2) => resolve(value2)).catch((err2) => reject(err2))
+					return promise2.then((value2) => resolve(value2)).catch((err2) => reject(err2))
 				})
+				.catch((err) => reject(err))
 		})
+		p.cancel = () => promiseToBeCanceled.cancel()
+		return p
 	}
 
 	export function finallyDo<T>(promise: CancelablePromise<T>, f: () => void): CancelablePromise<T> {

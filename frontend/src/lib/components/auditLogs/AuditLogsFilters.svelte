@@ -32,7 +32,7 @@
 
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { ChevronDown, Loader2, RefreshCcw } from 'lucide-svelte'
-	import { onDestroy, tick, untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import Select from '../select/Select.svelte'
@@ -43,7 +43,6 @@
 
 	let usernames: string[] | undefined = $state()
 	let resources = usePromise(() => loadResources($workspaceStore!), { loadInit: false })
-	let page: number | undefined = undefined
 
 	interface Props {
 		logs?: AuditLog[]
@@ -90,72 +89,44 @@
 		}
 	})
 
-	function updatePerPage(newPerPage: number) {
-		perPage = newPerPage
-	}
-
-	function loadLogs(
-		username: string | undefined,
-		page: number | undefined,
-		perPage: number | undefined,
-		before: string | undefined,
-		after: string | undefined,
-		operation: string | undefined,
-		resource: string | undefined,
-		actionKind: ActionKind | undefined | 'all',
-		scope: undefined | 'all_workspaces' | 'instance'
-	) {
+	function loadLogs() {
 		loading = true
 
-		if (username == 'all') {
-			username = undefined
-		}
-		if (operation == 'all' || operation == '') {
-			operation = undefined
-		}
-
-		// @ts-ignore
-		if (actionKind == 'all' || actionKind == '') {
-			actionKind = undefined
-		}
-
-		if (resource == 'all' || resource == '') {
-			resource = undefined
-		}
+		let username_ = username == 'all' ? undefined : username
+		let operation_ = operation == 'all' || operation == '' ? undefined : operation
+		let actionKind_ = actionKind == 'all' ? undefined : actionKind
+		let resource_ = resource == 'all' || resource == '' ? undefined : resource
 
 		let _promise = AuditService.listAuditLogs({
 			workspace: scope === 'instance' ? 'global' : $workspaceStore!,
-			page,
+			page: pageIndex,
 			perPage,
 			before,
 			after,
-			username,
-			operation,
-			resource,
-			actionKind,
+			username: username_,
+			operation: operation_,
+			resource: resource_,
+			actionKind: actionKind_,
 			allWorkspaces: scope === 'all_workspaces'
 		})
 		let promise = CancelablePromiseUtils.map(_promise, (value) => {
 			logs = value
 			hasMore = !logs || (logs.length > 0 && logs.length === perPage)
+			loading = false
 		})
-		promise = CancelablePromiseUtils.onTimeout(promise, 1000, () => {
-			sendUserToast('Loading audit logs is taking longer than expected...', true, [
-				{
-					label: 'Reduce to 25 items per page',
-					callback: () => {
-						_promise.cancel()
-						updatePerPage(25)
-					}
-				}
-			])
+		console.log('loadLogs:')
+		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
+			sendUserToast(
+				'Loading audit logs is taking longer than expected...',
+				true,
+				perPage > 25
+					? [{ label: 'Reduce to 25 items per page', callback: () => (perPage = 25) }]
+					: []
+			)
 		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.pure<void>(undefined)
 			return CancelablePromiseUtils.pureErr<void>(e)
-		})
-		promise = CancelablePromiseUtils.finallyDo(promise, () => {
-			loading = false
 		})
 		return promise
 	}
@@ -167,14 +138,7 @@
 				: [$userStore?.username ?? '']
 	}
 
-	let initialLoad = true
-	function refreshLogs() {
-		loadUsers()
-		resources.refresh()
-		return loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
-	}
-
-	function updateLogs() {
+	function updateQueryParams() {
 		const queryParams: string[] = []
 
 		function addQueryParam(key: string, value: string | number | undefined | null) {
@@ -184,7 +148,7 @@
 		}
 
 		addQueryParam('username', username)
-		addQueryParam('page', page)
+		addQueryParam('page', pageIndex)
 		addQueryParam('perPage', perPage)
 		addQueryParam('before', before)
 		addQueryParam('after', after)
@@ -197,24 +161,6 @@
 		}
 		const query = '?' + queryParams.join('&')
 		goto(query, { replaceState: true, keepFocus: true })
-
-		return loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
-	}
-
-	function updateQueryParams() {
-		if (initialLoad) return
-		page = 1
-		pageIndex = 1
-
-		return updateLogs()
-	}
-
-	function updatePageQueryParams(pageIndex?: number | undefined) {
-		if (initialLoad) {
-			return
-		}
-		page = pageIndex
-		updateLogs()
 	}
 
 	window.addEventListener('popstate', handlePopState)
@@ -331,22 +277,22 @@
 		WORKSPACES_DELETE: 'workspaces.delete'
 	}
 
-	let refresh = $state(1)
-	$effect(() => {
-		;[$workspaceStore, refresh]
-		let promise = untrack(() => refreshLogs())
-		tick().then(() => (initialLoad = false))
-		return () => promise.cancel()
-	})
+	let refresh = $state(0)
+	let lastRefresh = $state(-1)
+
 	// observe all the variables that should trigger an update
 	$effect(() => {
-		;[username, perPage, before, after, operation, resource, actionKind, scope]
-		let promise = updateQueryParams()
-		return () => promise?.cancel()
-	})
-	// observe the pageIndex variable that should trigger an update
-	$effect(() => {
-		updatePageQueryParams(pageIndex)
+		;[refresh, username, perPage, before, after, operation, resource, actionKind, scope, pageIndex]
+		return untrack(() => {
+			if (refresh !== lastRefresh) {
+				loadUsers()
+				resources.refresh()
+				lastRefresh = refresh
+			}
+			updateQueryParams()
+			let promise = loadLogs()
+			return () => promise?.cancel()
+		})
 	})
 </script>
 
