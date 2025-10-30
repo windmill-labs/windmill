@@ -170,7 +170,7 @@ impl FlowValue {
     // #[async_recursion::async_recursion(?Send)]
     // TODO: We may be want this async.
     pub fn traverse_leafs<C: FnMut(&FlowModuleValue, &String) -> crate::error::Result<()>>(
-        modules: &Vec<FlowModule>,
+        modules: Vec<&FlowModule>,
         cb: &mut C,
     ) -> crate::error::Result<()> {
         use FlowModuleValue::*;
@@ -182,7 +182,7 @@ impl FlowValue {
                 | FlowScript { .. }
                 | Identity) => cb(&s, &module.id)?,
                 ForloopFlow { modules, .. } | WhileloopFlow { modules, .. } => {
-                    Self::traverse_leafs(&modules, cb)?
+                    Self::traverse_leafs(modules.iter().collect(), cb)?
                 }
                 AIAgent { tools, .. } => {
                     for tool in tools {
@@ -196,7 +196,7 @@ impl FlowValue {
                 }
                 BranchOne { branches, .. } | BranchAll { branches, .. } => {
                     for branch in branches {
-                        Self::traverse_leafs(&branch.modules, cb)?;
+                        Self::traverse_leafs(branch.modules.iter().collect(), cb)?;
                     }
                 }
             }
