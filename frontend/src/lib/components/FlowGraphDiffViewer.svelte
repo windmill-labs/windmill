@@ -81,14 +81,8 @@
 		})
 	})
 
-	// Extract merged flow and actions from timeline
-	let mergedState = $derived.by(() => {
-		if (!timeline) return undefined
-		return {
-			diff: timeline.diff,
-			mergedFlow: timeline.mergedFlow
-		}
-	})
+	// Extract merged flow from timeline
+	let mergedFlow = $derived(timeline?.mergedFlow)
 
 	// Convert timeline items to AIModuleAction map for the graph
 	let unifiedActions = $derived.by((): Record<string, AIModuleAction> => {
@@ -250,14 +244,14 @@
 					<Pane minSize={30} class="flex flex-col h-full">
 						<div class="flex flex-col h-full">
 							<div class="flex-1 overflow-hidden">
-								{#if mergedState}
+								{#if mergedFlow}
 									<FlowGraphV2
 										bind:this={afterGraph}
-										modules={mergedState.mergedFlow.modules}
-										failureModule={mergedState.mergedFlow.failure_module}
-										preprocessorModule={mergedState.mergedFlow.preprocessor_module}
-										earlyStop={mergedState.mergedFlow.skip_expr !== undefined}
-										cache={mergedState.mergedFlow.cache_ttl !== undefined}
+										modules={mergedFlow.modules}
+										failureModule={mergedFlow.failure_module}
+										preprocessorModule={mergedFlow.preprocessor_module}
+										earlyStop={mergedFlow.skip_expr !== undefined}
+										cache={mergedFlow.cache_ttl !== undefined}
 										moduleActions={unifiedActions}
 										{inputSchemaModified}
 										onShowModuleDiff={handleShowModuleDiff}
@@ -283,14 +277,14 @@
 				</Splitpanes>
 			{:else}
 				<!-- Unified view for narrow screens - show merged flow with all diff colors -->
-				{#if mergedState}
+				{#if mergedFlow}
 					<div class="h-full overflow-hidden">
 						<FlowGraphV2
-							modules={mergedState.mergedFlow.modules}
-							failureModule={mergedState.mergedFlow.failure_module}
-							preprocessorModule={mergedState.mergedFlow.preprocessor_module}
-							earlyStop={mergedState.mergedFlow.skip_expr !== undefined}
-							cache={mergedState.mergedFlow.cache_ttl !== undefined}
+							modules={mergedFlow.modules}
+							failureModule={mergedFlow.failure_module}
+							preprocessorModule={mergedFlow.preprocessor_module}
+							earlyStop={mergedFlow.skip_expr !== undefined}
+							cache={mergedFlow.cache_ttl !== undefined}
 							moduleActions={unifiedActions}
 							{inputSchemaModified}
 							onShowModuleDiff={handleShowModuleDiff}

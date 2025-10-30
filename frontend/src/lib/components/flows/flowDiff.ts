@@ -50,9 +50,6 @@ export type FlowTimeline = {
 	/** Mapping from module ID to timeline item for quick lookup */
 	itemMap: Map<string, TimelineItem>
 
-	/** Original diff data for compatibility */
-	diff: Record<string, ModuleDiffResult>
-
 	/** Statistics about the diff */
 	stats: {
 		added: number
@@ -295,15 +292,11 @@ export function buildFlowTimeline(
 			(isRemoved(beforeFlow.preprocessor_module?.id) ? beforeFlow.preprocessor_module : undefined)
 	}
 
-	// Build itemMap and diff
+	// Build itemMap
 	const itemMap = new Map<string, TimelineItem>()
-	const diff: Record<string, ModuleDiffResult> = { ...moduleDiff }
 
 	for (const item of items) {
 		itemMap.set(item.module.id, item)
-		if (item.renamedFrom) {
-			diff[item.module.id] = { ...diff[item.renamedFrom], before: item.operation }
-		}
 	}
 
 	// Calculate statistics
@@ -315,7 +308,7 @@ export function buildFlowTimeline(
 		kept: items.filter((i) => i.operation === undefined).length
 	}
 
-	return { items, itemMap, diff, stats, mergedFlow }
+	return { items, itemMap, stats, mergedFlow }
 }
 
 /**
