@@ -64,6 +64,7 @@
 	import type { AIModuleAction } from '../copilot/chat/flow/core'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
+	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
 
@@ -206,7 +207,8 @@
 	setContext<{
 		selectedId: Writable<string | undefined>
 		useDataflow: Writable<boolean | undefined>
-	}>('FlowGraphContext', { selectedId, useDataflow })
+		showAssets: Writable<boolean | undefined>
+	}>('FlowGraphContext', { selectedId, useDataflow, showAssets })
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
@@ -414,24 +416,32 @@
 		)
 		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
 
-		let assetNodesResult = computeAssetNodes(
-			newNodes.map((n) => ({
-				data: { assets: n.data?.assets as AssetWithAltAccessType[] },
-				id: n.id,
-				position: n.position
+		let assetNodesResult = $showAssets
+			? computeAssetNodes(
+					newNodes.map((n) => ({
+						data: { assets: n.data?.assets as AssetWithAltAccessType[] },
+						id: n.id,
+						position: n.position
+					}))
+				)
+			: undefined
+		if (assetNodesResult) {
+			newNodes = newNodes.map((n) => ({
+				...n,
+				position: assetNodesResult.newNodePositions[n.id]
 			}))
-		)
-		newNodes = newNodes.map((n) => ({
-			...n,
-			position: assetNodesResult.newNodePositions[n.id]
-		}))
+		}
 		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
 		nodes = [
 			...newNodes.map((n) => ({ ...n, position: aiToolNodesResult.newNodePositions[n.id] })),
-			...assetNodesResult.newAssetNodes,
+			...(assetNodesResult?.newAssetNodes ?? []),
 			...aiToolNodesResult.toolNodes
 		]
-		edges = [...assetNodesResult.newAssetEdges, ...aiToolNodesResult.toolEdges, ...graph.edges]
+		edges = [
+			...(assetNodesResult?.newAssetEdges ?? []),
+			...aiToolNodesResult.toolEdges,
+			...graph.edges
+		]
 
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
@@ -524,7 +534,7 @@
 	})
 
 	$effect(() => {
-		;[graph, allowSimplifiedPoll]
+		;[graph, allowSimplifiedPoll, $showAssets]
 		untrack(() => updateStores())
 	})
 
@@ -659,21 +669,16 @@
 
 				<Controls
 					position="top-left"
-					orientation="horizontal"
+					orientation="vertical"
 					showLock={false}
 					showZoom={false}
 					showFitView={false}
-					class="!shadow-none"
+					class="!shadow-none gap-3"
 					style={leftHeader ? 'margin-top: 40px;' : ''}
 				>
+					<Toggle bind:checked={$showAssets} size="xs" options={{ right: 'Assets' }} />
 					{#if showDataflow}
-						<Toggle
-							bind:checked={$useDataflow}
-							size="xs"
-							options={{
-								right: 'Dataflow'
-							}}
-						/>
+						<Toggle bind:checked={$useDataflow} size="xs" options={{ right: 'Dataflow' }} />
 					{/if}
 				</Controls>
 			</SvelteFlow>

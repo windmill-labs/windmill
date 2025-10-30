@@ -47,6 +47,7 @@ use windmill_common::{
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel};
+use windmill_worker::scoped_dependency_map::ScopedDependencyMap;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -1329,7 +1330,11 @@ async fn archive_flow_by_path(
         Some([("workspace", w_id.as_str())].into()),
     )
     .await?;
-    tx.commit().await?;
+
+    ScopedDependencyMap::clear_map_for_item(path, &w_id, "flow", tx, &None)
+        .await
+        .commit()
+        .await?;
 
     handle_deployment_metadata(
         &authed.email,

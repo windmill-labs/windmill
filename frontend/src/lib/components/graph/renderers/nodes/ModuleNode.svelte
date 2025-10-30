@@ -1,8 +1,6 @@
 <script lang="ts">
-	import { preventDefault, stopPropagation } from 'svelte/legacy'
-
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
-	import { GitBranchPlus, Maximize2 } from 'lucide-svelte'
+	import { GitBranchPlus } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
@@ -41,21 +39,6 @@
 
 <NodeWrapper offset={data.offset}>
 	{#snippet children({ darkMode })}
-		{#if data.module.value.type == 'flow'}
-			<button
-				title="Expand subflow"
-				class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-0 hover:bg-surface-hover"
-				onclick={stopPropagation(
-					preventDefault(() => {
-						if (data.module.value.type == 'flow') {
-							data.eventHandlers.expandSubflow(data.id, data.module.value.path)
-						}
-					})
-				)}
-			>
-				<Maximize2 size={12} />
-			</button>
-		{/if}
 		<MapItem
 			moduleId={data.id}
 			mod={data.module}
@@ -102,6 +85,11 @@
 			onEditInput={data.eventHandlers.editInput}
 			flowJob={data.flowJob}
 			isOwner={data.isOwner}
+			maximizeSubflow={data.module.value.type == 'flow' && 'path' in data.module.value
+				? () => {
+						data.eventHandlers.expandSubflow(data.id, data.module.value['path'])
+					}
+				: undefined}
 		/>
 
 		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">

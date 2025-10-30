@@ -19,6 +19,7 @@
 		TriangleAlert,
 		Timer,
 		DiffIcon
+		Maximize2
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -87,6 +88,7 @@
 		flowJob?: Job | undefined
 		isOwner?: boolean
 		enableTestRun?: boolean
+		maximizeSubflow?: () => void
 	}
 
 	let {
@@ -121,7 +123,8 @@
 		onUpdateMock,
 		onEditInput,
 		flowJob,
-		enableTestRun = false
+		enableTestRun = false,
+		maximizeSubflow = undefined
 	}: Props = $props()
 
 	let colorClasses = $derived(getNodeColorClasses(nodeState, selected))
@@ -492,7 +495,7 @@
 				{#if id !== 'preprocessor'}
 					<button
 						class={twMerge(
-							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-blue-400 hover:text-white',
+							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white',
 							hover ? 'block' : '!hidden',
 							'shadow-md rounded-md',
 							'group-hover:block'
@@ -501,6 +504,25 @@
 						title="Move"
 					>
 						<Move size={12} />
+					</button>
+				{/if}
+				{#if maximizeSubflow !== undefined && (hover || selected)}
+					<button
+						title="Expand subflow"
+						class={twMerge(
+							'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white p-1',
+							selected || hover ? 'block' : '!hidden',
+							'group-hover:block',
+							'shadow-md rounded-md'
+						)}
+						onclick={(e) => {
+							e.stopPropagation()
+							e.preventDefault()
+
+							maximizeSubflow?.()
+						}}
+					>
+						<Maximize2 size={12} />
 					</button>
 				{/if}
 				<button

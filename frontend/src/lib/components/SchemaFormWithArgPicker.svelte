@@ -111,7 +111,7 @@
 						<FlowInputEditor title="History">
 							<svelete:fragment slot="action">
 								<div class="center-center">
-									<RefreshButton {loading} on:click={() => historicInputs?.refresh()} />
+									<RefreshButton {loading} onClick={() => historicInputs?.refresh()} />
 								</div>
 							</svelete:fragment>
 							<HistoricInputs

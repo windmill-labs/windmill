@@ -6,6 +6,8 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { chatState } from './sharedChatState.svelte'
 	import { loadCopilot } from '$lib/aiStore'
+	import { aiChatManager } from './AIChatManager.svelte'
+	import { onDestroy } from 'svelte'
 
 	interface Props {
 		noPadding?: boolean
@@ -33,11 +35,19 @@
 			loadCopilot($workspaceStore)
 		}
 	})
+
+	const historyManager = aiChatManager.historyManager
+	historyManager.init()
+
+	onDestroy(() => {
+		aiChatManager.cancel()
+		historyManager.close()
+	})
 </script>
 
 {#if !disableAi}
 	<Splitpanes horizontal={false} class="flex-1 min-h-0">
-		<Pane size={99.8 - chatState.size} minSize={50} class="flex flex-col min-h-0">
+		<Pane size={100 - chatState.size} minSize={50} class="flex flex-col min-h-0">
 			<div
 				id="content"
 				class={classNames(
@@ -86,13 +96,15 @@
 				</main>
 			</div>
 		</Pane>
-		<Pane
-			bind:size={chatState.size}
-			minSize={15}
-			class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
-		>
-			<AiChat />
-		</Pane>
+		{#if chatState.size > 1}
+			<Pane
+				bind:size={chatState.size}
+				minSize={15}
+				class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
+			>
+				<AiChat />
+			</Pane>
+		{/if}
 	</Splitpanes>
 {:else}
 	{@render children?.()}

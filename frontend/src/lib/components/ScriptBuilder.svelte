@@ -1106,14 +1106,6 @@
 													}}
 												/>
 											</Label>
-											{#if script.schema && !disableAi && !customUi?.settingsPanel?.metadata?.disableAiFilling}
-												<div class="mt-3">
-													<AIFormSettings
-														bind:prompt={script.schema.prompt_for_ai as string | undefined}
-														type="script"
-													/>
-												</div>
-											{/if}
 										</div>
 									</Section>
 									{#if !customUi?.settingsPanel?.metadata?.languages || customUi?.settingsPanel?.metadata?.languages?.length > 1}
@@ -1204,6 +1196,15 @@
 												placeholder={customUi?.tagSelectPlaceholder}
 											/>
 										</Section>
+									{/if}
+
+									{#if script.schema && !disableAi && !customUi?.settingsPanel?.metadata?.disableAiFilling}
+										<div class="mt-3">
+											<AIFormSettings
+												bind:prompt={script.schema.prompt_for_ai as string | undefined}
+												type="script"
+											/>
+										</div>
 									{/if}
 								</div>
 							</TabContent>
@@ -1713,7 +1714,7 @@
 				<!-- Separator -->
 				<div class="flex-1"></div>
 
-				<div class="gap-4 flex">
+				<div class="gap-4 flex whitespace-nowrap">
 					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
 						{@const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary)}
 						{@const schedule = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
@@ -1736,7 +1737,7 @@
 						</Button>
 					{/if}
 					{#if customUi?.topBar?.path != false}
-						<div class="flex justify-start w-full">
+						<div class="flex justify-start w-full items-center">
 							{#if customUi?.topBar?.editablePath != false}
 								<button
 									onclick={async () => {

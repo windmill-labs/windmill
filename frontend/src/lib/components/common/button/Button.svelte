@@ -247,11 +247,11 @@
 			disabled
 				? ['default', 'subtle'].includes(variant)
 					? '!text-disabled'
-					: '!bg-surface-disabled/20 !text-disabled'
+					: '!bg-surface-disabled !text-disabled'
 				: '',
 			loading ? 'cursor-wait' : '',
 			selected && ['default', 'subtle'].includes(variant)
-				? '!bg-surface-accent-selected/30 !text-accent !border-border-selected'
+				? '!bg-surface-accent-selected !text-accent !border-border-selected'
 				: '',
 			btnClasses
 		)
@@ -307,6 +307,7 @@
 <div
 	class={twMerge(
 		dropdownItems && dropdownItems.length > 0 ? dividerClass : '',
+		'shrink-0',
 		wrapperClasses,
 		'flex flex-row rounded-md',
 		disabled ? 'divide-text-disabled cursor-not-allowed' : ''

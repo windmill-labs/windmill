@@ -189,11 +189,11 @@ export namespace ButtonType {
 		'accent-secondary':
 			'bg-red-600 hover:bg-red-700 focus-visible:bg-red-700 text-white focus-visible:ring-red-300',
 		accent:
-			'bg-red-600 hover:bg-red-700 focus-visible:bg-red-700 text-white focus-visible:ring-red-300',
+			'bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 focus-visible:bg-red-700 text-white focus-visible:ring-red-300',
 		default:
-			'border border-border-light bg-transparent hover:bg-red-600 hover:text-white dark:hover:bg-red-900/20 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300',
+			'border border-border-light bg-transparent hover:bg-red-500 dark:hover:bg-red-600 hover:text-white dark:hover:bg-red-900/20 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300',
 		subtle:
-			'bg-transparent hover:bg-red-600 hover:text-white dark:hover:bg-red-900/20 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300'
+			'bg-transparent hover:bg-red-500 hover:text-white dark:hover:bg-red-600 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300'
 	}
 
 	export const VariantSpacingClasses: Record<ButtonType.Size, string> = {
@@ -230,19 +230,19 @@ export namespace ButtonType {
 	}
 
 	export const UnifiedMinHeightClasses: Record<ButtonType.UnifiedSize, string> = {
-		sm: 'min-h-6',
+		sm: 'min-h-7',
 		md: 'min-h-8',
 		lg: 'min-h-10'
 	}
 
 	export const UnifiedHeightClasses: Record<ButtonType.UnifiedSize, string> = {
-		sm: 'h-6',
+		sm: 'h-7',
 		md: 'h-8',
 		lg: 'h-10'
 	}
 
 	export const UnifiedIconSizes: Record<ButtonType.UnifiedSize, number> = {
-		sm: 14,
+		sm: 13,
 		md: 14,
 		lg: 18
 	}

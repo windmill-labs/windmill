@@ -1,5 +1,62 @@
 # Changelog
 
+## [1.568.0](https://github.com/windmill-labs/windmill/compare/v1.567.3...v1.568.0) (2025-10-30)
+
+
+### Features
+
+* Add AI_HTTP_HEADERS environment variable for custom AI request headers ([#6994](https://github.com/windmill-labs/windmill/issues/6994)) ([50a476b](https://github.com/windmill-labs/windmill/commit/50a476b529f5afc9a2a4d9721c9c489d3628563b))
+* add cancel_job to windmill python client ([#6995](https://github.com/windmill-labs/windmill/issues/6995)) ([b2a473f](https://github.com/windmill-labs/windmill/commit/b2a473f337826ec1161a6aa224d3dcf1e1b0f0fe))
+* support search for gh repo when pagination needed ([#6982](https://github.com/windmill-labs/windmill/issues/6982)) ([891bf75](https://github.com/windmill-labs/windmill/commit/891bf75519252e408f19a38a7da5fbd784290fca))
+
+
+### Bug Fixes
+
+* add missing button on s3FilePicker ([#6993](https://github.com/windmill-labs/windmill/issues/6993)) ([1cddfd1](https://github.com/windmill-labs/windmill/commit/1cddfd1e1aa9215c329b68812eb4c0981b354ce5))
+* auto-unarchived scripts ([#6998](https://github.com/windmill-labs/windmill/issues/6998)) ([83c0c82](https://github.com/windmill-labs/windmill/commit/83c0c8212410e305e5b01ba959dbf1d93bb43572))
+* **backend:** more efficient worker telemetry ([#6997](https://github.com/windmill-labs/windmill/issues/6997)) ([cdf8fdf](https://github.com/windmill-labs/windmill/commit/cdf8fdf4a4249efa22f1e81b3cad38d709656845))
+* improve app evalv2 setting behavior ([abf1b46](https://github.com/windmill-labs/windmill/commit/abf1b46583c7967eef11088acac29c564106cd39))
+* styling on quick search modal input ([#6996](https://github.com/windmill-labs/windmill/issues/6996)) ([8b83ddf](https://github.com/windmill-labs/windmill/commit/8b83ddfb3b9d7e2acd345b98db17c91d14e44e35))
+
+## [1.567.3](https://github.com/windmill-labs/windmill/compare/v1.567.2...v1.567.3) (2025-10-28)
+
+
+### Bug Fixes
+
+* **aiagent:** use tool-based structured output for all claude models ([#6979](https://github.com/windmill-labs/windmill/issues/6979)) ([32180d6](https://github.com/windmill-labs/windmill/commit/32180d636d04896680840cdae15ac8b46f0e53ea))
+* fetch name in saml if present ([91d83d1](https://github.com/windmill-labs/windmill/commit/91d83d1cedd78c5c0c9fcc0cff9cd65a6db22dbc))
+* fix worker tags assignment in edge-cases ([93a5252](https://github.com/windmill-labs/windmill/commit/93a52525adc58b2d9e697780298f91b2b858f940))
+
+## [1.567.2](https://github.com/windmill-labs/windmill/compare/v1.567.1...v1.567.2) (2025-10-28)
+
+
+### Bug Fixes
+
+* add grant all to concurrency_counter ([c78cb1f](https://github.com/windmill-labs/windmill/commit/c78cb1fb7a93a5ecbb4e7e70705fd1147059898a))
+
+## [1.567.1](https://github.com/windmill-labs/windmill/compare/v1.567.0...v1.567.1) (2025-10-27)
+
+
+### Bug Fixes
+
+* avoid listing queued jobs if an end bound is set ([a6a0af3](https://github.com/windmill-labs/windmill/commit/a6a0af3298049dcf93663c5ac659e5e2cabf3ffd))
+
+## [1.567.0](https://github.com/windmill-labs/windmill/compare/v1.566.1...v1.567.0) (2025-10-27)
+
+
+### Features
+
+* is_admin non propagation + change endpoint for forks ([#6958](https://github.com/windmill-labs/windmill/issues/6958)) ([663bc3b](https://github.com/windmill-labs/windmill/commit/663bc3b19ac23938c64b71a0ac10b19d9d6e6d62))
+
+
+### Bug Fixes
+
+* **cli:** fix generate-metadata wasm parsers ([a9b99e9](https://github.com/windmill-labs/windmill/commit/a9b99e9467a17f056f3cd325dc5dfee0a5ae9caa))
+* fix windows bun bundler main.ts path detection ([#6962](https://github.com/windmill-labs/windmill/issues/6962)) ([038986d](https://github.com/windmill-labs/windmill/commit/038986d0b593b5aa172f6c1d2d19337ff0239e4c))
+* **frontend:** add transparency to color palette ([#6947](https://github.com/windmill-labs/windmill/issues/6947)) ([a12c278](https://github.com/windmill-labs/windmill/commit/a12c2788ecc1273bb8d98f50520cb1a28e6de280))
+* **frontend:** larger object limit for pdfs and files ([#6961](https://github.com/windmill-labs/windmill/issues/6961)) ([4bf2329](https://github.com/windmill-labs/windmill/commit/4bf23294f8ff4998e75108d974447b3b3e147c45))
+* improve jobs runs page performance ([#6942](https://github.com/windmill-labs/windmill/issues/6942)) ([5b315bf](https://github.com/windmill-labs/windmill/commit/5b315bf2c8e3d992ca690f994cea2205541ab5ae))
+
 ## [1.566.1](https://github.com/windmill-labs/windmill/compare/v1.566.0...v1.566.1) (2025-10-25)
 
 
