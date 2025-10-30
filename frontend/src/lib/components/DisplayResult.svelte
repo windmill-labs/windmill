@@ -27,7 +27,7 @@
 	import Toggle from './Toggle.svelte'
 	import FileDownload from './common/fileDownload/FileDownload.svelte'
 
-	import ParqetTableRenderer from './ParqetCsvTableRenderer.svelte'
+	import ParqetTableRenderer from './ParquetCsvTableRenderer.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import MapResult from './MapResult.svelte'

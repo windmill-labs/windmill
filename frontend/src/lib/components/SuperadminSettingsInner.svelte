@@ -6,7 +6,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { base } from '$lib/base'
 	import SearchItems from './SearchItems.svelte'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { goto as gotoUrl } from '$app/navigation'
 	import Version from './Version.svelte'
 	import Uptodate from './Uptodate.svelte'
@@ -31,9 +31,9 @@
 	let { closeDrawer } = $props()
 
 	function removeHash() {
-		const index = $page.url.href.lastIndexOf('#')
+		const index = page.url.href.lastIndexOf('#')
 		if (index === -1) return
-		const hashRemoved = $page.url.href.slice(0, index)
+		const hashRemoved = page.url.href.slice(0, index)
 		gotoUrl(hashRemoved)
 	}
 
@@ -209,7 +209,8 @@
 						<div class="mt-2 overflow-auto">
 							<TableCustom>
 								<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-								<tr slot="header-row" class="sticky top-0 bg-surface border-b">
+								<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
+	<tr slot="header-row" class="sticky top-0 bg-surface border-b">
 									<th>email</th>
 									<th>auth</th>
 									<th>name</th>

@@ -11,10 +11,10 @@
 	import { sleep } from '$lib/utils'
 	import { onDestroy, onMount } from 'svelte'
 
-	let concurrencyGroups: ConcurrencyGroup[] | undefined = undefined
+	let concurrencyGroups: ConcurrencyGroup[] | undefined = $state(undefined)
 
 	let doLoadConcurrencyGroups = false
-	let concurrencyGroupsLoading = false
+	let concurrencyGroupsLoading = $state(false)
 
 	onMount(() => {
 		doLoadConcurrencyGroups = true
@@ -78,40 +78,43 @@
 	{#if concurrencyGroups && concurrencyGroups.length > 0}
 		<div class="relative mb-20 pt-8">
 			<TableCustom>
-				<tr slot="header-row">
+				<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
+	<tr slot="header-row">
 					<th>Concurrency key</th>
 					<th>Jobs running</th>
 					<th></th>
 				</tr>
-				<tbody slot="body">
-					{#each concurrencyGroups as { concurrency_key, total_running }}
-						<tr>
-							<td>
-								<a
-									href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrency_key}`}
-									>{concurrency_key}
-								</a>
-							</td>
-							<td>
-								{total_running}
-							</td>
-							<td>
-								<div class="flex justify-center">
-									<Button
-										size="md"
-										color="light"
-										btnClasses="justify-center w-12"
-										startIcon={{ icon: Trash, classes: 'text-red-500' }}
-										on:click={() => {
-											deleteConcurrencyGroup(concurrency_key)
-										}}
-										iconOnly={true}
-									/>
-								</div>
-							</td>
-						</tr>
-					{/each}
-				</tbody>
+				{#snippet body()}
+								<tbody >
+						{#each concurrencyGroups as { concurrency_key, total_running }}
+							<tr>
+								<td>
+									<a
+										href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrency_key}`}
+										>{concurrency_key}
+									</a>
+								</td>
+								<td>
+									{total_running}
+								</td>
+								<td>
+									<div class="flex justify-center">
+										<Button
+											size="md"
+											color="light"
+											btnClasses="justify-center w-12"
+											startIcon={{ icon: Trash, classes: 'text-red-500' }}
+											on:click={() => {
+												deleteConcurrencyGroup(concurrency_key)
+											}}
+											iconOnly={true}
+										/>
+									</div>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+							{/snippet}
 			</TableCustom>
 		</div>
 	{/if}

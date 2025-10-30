@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run, preventDefault } from 'svelte/legacy'
+
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { SettingService } from '$lib/gen'
 	import type { CriticalAlert } from '$lib/gen'
@@ -10,30 +12,34 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
 
-	export let updateHasUnacknowledgedCriticalAlerts
-	export let getCriticalAlerts
-	export let acknowledgeCriticalAlert
-	export let acknowledgeAllCriticalAlerts
-	export let numUnacknowledgedCriticalAlerts
+	let filteredAlerts: CriticalAlert[] = $state([])
 
-	let filteredAlerts: CriticalAlert[] = []
-
-	let isRefreshing = false
-	let hasCriticalAlertChannels = true
-
-	$: loading = isRefreshing
-
-	$: if (numUnacknowledgedCriticalAlerts) {
-		refreshAlerts()
-	}
+	let isRefreshing = $state(false)
+	let hasCriticalAlertChannels = $state(true)
 
 	// Pagination
-	let page = 1
+	let page = $state(1)
 	let pageSize = 10
-	let hasMore = true
+	let hasMore = $state(true)
 
-	let hideAcknowledged = false
-	export let workspaceContext = false
+	let hideAcknowledged = $state(false)
+	interface Props {
+		updateHasUnacknowledgedCriticalAlerts: any
+		getCriticalAlerts: any
+		acknowledgeCriticalAlert: any
+		acknowledgeAllCriticalAlerts: any
+		numUnacknowledgedCriticalAlerts: any
+		workspaceContext?: boolean
+	}
+
+	let {
+		updateHasUnacknowledgedCriticalAlerts,
+		getCriticalAlerts,
+		acknowledgeCriticalAlert,
+		acknowledgeAllCriticalAlerts,
+		numUnacknowledgedCriticalAlerts,
+		workspaceContext = $bindable(false)
+	}: Props = $props()
 
 	async function acknowledgeAll() {
 		await acknowledgeAllCriticalAlerts()
@@ -108,10 +114,18 @@
 		getAlerts(true)
 	}
 
+	let totalNumberOfAlerts = $state(0)
+	let loading = $derived(isRefreshing)
+	run(() => {
+		if (numUnacknowledgedCriticalAlerts) {
+			refreshAlerts()
+		}
+	})
 	// Update filter change handlers
-	$: (hideAcknowledged, workspaceContext, onFiltersChange())
-
-	let totalNumberOfAlerts = 0
+	run(() => {
+		;[hideAcknowledged, workspaceContext]
+		onFiltersChange()
+	})
 </script>
 
 <List gap="sm">
@@ -119,7 +133,7 @@
 		<div class="w-full">
 			<Alert title="No critical alert channels are set up" type="warning" size="xs">
 				Go to the
-				<a href="/#superadmin-settings" on:click|preventDefault={goToCoreTab}>Instance settings</a>
+				<a href="/#superadmin-settings" onclick={preventDefault(goToCoreTab)}>Instance settings</a>
 				page to configure critical alert channels.
 			</Alert>
 		</div>

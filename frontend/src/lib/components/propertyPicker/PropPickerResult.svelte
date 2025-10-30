@@ -1,10 +1,19 @@
 <script lang="ts">
 	import ObjectViewer from './ObjectViewer.svelte'
 
-	export let allowCopy = false
-	export let result: any
-	export let extraResults: any = undefined
-	export let flow_input: any = undefined
+	interface Props {
+		allowCopy?: boolean;
+		result: any;
+		extraResults?: any;
+		flow_input?: any;
+	}
+
+	let {
+		allowCopy = false,
+		result,
+		extraResults = undefined,
+		flow_input = undefined
+	}: Props = $props();
 </script>
 
 <div class="w-full px-2">

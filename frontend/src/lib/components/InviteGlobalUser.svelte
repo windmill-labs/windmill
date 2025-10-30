@@ -9,9 +9,9 @@
 
 	const dispatch = createEventDispatcher()
 
-	let is_super_admin = false
-	let password: string = generateRandomString(10)
-	let name: string | undefined
+	let is_super_admin = $state(false)
+	let password: string = $state(generateRandomString(10))
+	let name: string | undefined = $state()
 	let company: string | undefined
 
 	async function addUser() {

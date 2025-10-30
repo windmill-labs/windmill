@@ -5,9 +5,9 @@
 	import { clickButtonBySelector, triggerPointerDown } from './utils'
 	import { updateProgress } from '$lib/tutorialUtils'
 
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore } = $state(getContext<FlowEditorContext>('FlowEditorContext'))
 
-	let tutorial: Tutorial | undefined = undefined
+	let tutorial: Tutorial | undefined = $state(undefined)
 
 	export function runTutorial() {
 		tutorial?.runTutorial()

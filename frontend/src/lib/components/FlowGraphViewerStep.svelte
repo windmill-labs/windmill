@@ -18,16 +18,19 @@
 	import { Copy } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 
-	export let schema: any | undefined = undefined
+	interface Props {
+		schema?: any | undefined
+		stepDetail?: FlowModule | string | undefined
+	}
 
-	export let stepDetail: FlowModule | string | undefined = undefined
-	let codeViewer: Drawer
+	let { schema = undefined, stepDetail = undefined }: Props = $props()
+	let codeViewer: Drawer | undefined = $state()
 </script>
 
 <HighlightTheme />
 
 <Drawer bind:this={codeViewer} size="900px">
-	<DrawerContent title={'Expanded Code'} on:close={codeViewer.closeDrawer}>
+	<DrawerContent title={'Expanded Code'} on:close={() => codeViewer?.closeDrawer()}>
 		{#if stepDetail && typeof stepDetail != 'string'}
 			{#if stepDetail.value.type == 'script'}
 				<div class="mb-4">
@@ -170,7 +173,12 @@
 			<div>
 				<div class="mb-2 mt-4 flex justify-between items-center">
 					<h3 class="font-semibold">Code</h3>
-					<Button size="xs2" color="light" variant="contained" on:click={codeViewer.openDrawer}>
+					<Button
+						size="xs2"
+						color="light"
+						variant="contained"
+						on:click={() => codeViewer?.openDrawer()}
+					>
 						Expand
 					</Button>
 				</div>
@@ -205,7 +213,12 @@
 				<div class="flex flex-col grow">
 					<div class="mb-2 flex justify-between items-center">
 						<h3 class="font-semibold">Code</h3>
-						<Button size="xs2" color="light" variant="contained" on:click={codeViewer.openDrawer}>
+						<Button
+							size="xs2"
+							color="light"
+							variant="contained"
+							on:click={() => codeViewer?.openDrawer()}
+						>
 							Expand
 						</Button>
 					</div>

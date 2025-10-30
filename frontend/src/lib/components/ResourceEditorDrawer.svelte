@@ -1,26 +1,29 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { Button, Drawer } from './common'
 
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 
 	import { Loader2, Save } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 
-	let drawer: Drawer
-	let canSave = true
-	let resource_type: string | undefined = undefined
-	let defaultValues: Record<string, any> | undefined = undefined
+	let drawer: Drawer | undefined = $state()
+	let canSave = $state(true)
+	let resource_type: string | undefined = $state(undefined)
+	let defaultValues: Record<string, any> | undefined = $state(undefined)
 
 	let resourceEditor: { editResource: () => void; createResource: () => void } | undefined =
-		undefined
+		$state(undefined)
 
-	let path: string | undefined = undefined
+	let path: string | undefined = $state(undefined)
 
-	let newResource = false
+	let newResource = $state(false)
 	export async function initEdit(p: string): Promise<void> {
 		resource_type = undefined
 		newResource = false
 		path = p
-		drawer.openDrawer?.()
+		drawer?.openDrawer?.()
 	}
 
 	export async function initNew(
@@ -31,12 +34,14 @@
 		path = undefined
 		resource_type = resourceType
 		defaultValues = nDefaultValues
-		drawer.openDrawer?.()
+		drawer?.openDrawer?.()
 	}
 
-	let mode: 'edit' | 'new' = newResource ? 'new' : 'edit'
+	let mode: 'edit' | 'new' = $state(untrack(() => newResource) ? 'new' : 'edit')
 
-	$: path ? (mode = 'edit') : (mode = 'new')
+	run(() => {
+		path ? (mode = 'edit') : (mode = 'new')
+	})
 </script>
 
 <Drawer bind:this={drawer} size="800px">
@@ -68,7 +73,7 @@
 					} else {
 						resourceEditor?.createResource()
 					}
-					drawer.closeDrawer()
+					drawer?.closeDrawer()
 				}}
 				disabled={!canSave}
 			>

@@ -2,8 +2,12 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { Code2, LayoutDashboard } from 'lucide-svelte'
 
-	export let kind: 'script' | 'flow' | 'app' | 'raw_app'
-	export let href: string = '#'
+	interface Props {
+		kind: 'script' | 'flow' | 'app' | 'raw_app';
+		href?: string;
+	}
+
+	let { kind, href = '#' }: Props = $props();
 </script>
 
 <a {href} class="flex justify-center items-center">

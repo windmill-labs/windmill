@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { run, preventDefault, stopPropagation, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -10,10 +13,14 @@
 
 	import { tick } from 'svelte'
 
-	export let json = {}
-	export let prefix = ''
+	interface Props {
+		json?: any
+		prefix?: string
+	}
 
-	let isConnecting = false
+	let { json = {}, prefix = '' }: Props = $props()
+
+	let isConnecting = $state(false)
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 
@@ -22,15 +29,20 @@
 		isConnecting = $flowPropPickerConfig?.insertionMode === 'connect'
 	}
 
-	$: $flowPropPickerConfig, updateConnecting()
+	run(() => {
+		$flowPropPickerConfig
+		updateConnecting()
+	})
 </script>
 
 <button
-	on:click|preventDefault|stopPropagation={(e) => {
-		e.preventDefault()
-		e.stopPropagation()
-	}}
-	on:keydown|preventDefault|stopPropagation
+	onclick={stopPropagation(
+		preventDefault((e) => {
+			e.preventDefault()
+			e.stopPropagation()
+		})
+	)}
+	onkeydown={stopPropagation(preventDefault(bubble('keydown')))}
 	data-prop-picker
 	title=""
 >
@@ -44,9 +56,11 @@
 			floatingConfig={{ strategy: 'fixed', placement: 'bottom-start' }}
 			closeOnOtherPopoverOpen={true}
 		>
-			<svelte:fragment slot="trigger" let:isOpen>
+			{#snippet trigger({ isOpen })}
 				<Tooltip disablePopup={isOpen}>
-					<svelte:fragment slot="text">node outputs</svelte:fragment>
+					{#snippet text()}
+						node outputs
+					{/snippet}
 					<button
 						class={twMerge(
 							'rounded-full center-center h-[18px] w-[18px]',
@@ -58,8 +72,8 @@
 						<Plug size={12} strokeWidth={2} />
 					</button>
 				</Tooltip>
-			</svelte:fragment>
-			<svelte:fragment slot="content">
+			{/snippet}
+			{#snippet content()}
 				<div class="p-4 max-h-[50vh] overflow-y-auto" data-prop-picker>
 					<ObjectViewer
 						{json}
@@ -74,7 +88,7 @@
 						allowCopy={!$flowPropPickerConfig}
 					/>
 				</div>
-			</svelte:fragment>
+			{/snippet}
 		</Popover>
 	</AnimatedButton>
 </button>

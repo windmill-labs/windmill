@@ -13,7 +13,7 @@
 	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
@@ -37,7 +37,7 @@
 
 	let { isFork = false }: Props = $props()
 
-	const rd = $page.url.searchParams.get('rd')
+	const rd = page.url.searchParams.get('rd')
 
 	let id = $state('')
 	let name = $state('')
@@ -85,7 +85,7 @@
 					requestBody: {
 						id: prefixed_id,
 						name,
-						color: colorEnabled && workspaceColor ? workspaceColor : undefined,
+						color: colorEnabled && workspaceColor ? workspaceColor : undefined
 					}
 				})
 
@@ -191,7 +191,7 @@
 			} catch {}
 		}
 		if (!$usersWorkspaceStore) {
-			const url = $page.url
+			const url = page.url
 			console.log('logout 2')
 			await logoutWithRedirect(url.href.replace(url.origin, ''))
 		}

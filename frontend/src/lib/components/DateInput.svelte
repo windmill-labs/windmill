@@ -1,19 +1,33 @@
 <script lang="ts">
+	import { createBubbler } from 'svelte/legacy';
+
+	const bubble = createBubbler();
 	import { createEventDispatcher } from 'svelte'
 	import { format, isValid, parse } from 'date-fns'
 	import { sendUserToast } from '$lib/toast'
 
-	export let value: string | undefined = undefined
-	export let autofocus: boolean | null = false
-	export let minDate: string | undefined = undefined
-	export let maxDate: string | undefined = undefined
-	export let dateFormat: string | undefined = 'dd-MM-yyyy'
-	export let disabled: boolean = false
+	interface Props {
+		value?: string | undefined;
+		autofocus?: boolean | null;
+		minDate?: string | undefined;
+		maxDate?: string | undefined;
+		dateFormat?: string | undefined;
+		disabled?: boolean;
+	}
+
+	let {
+		value = $bindable(undefined),
+		autofocus = false,
+		minDate = undefined,
+		maxDate = undefined,
+		dateFormat = $bindable('dd-MM-yyyy'),
+		disabled = false
+	}: Props = $props();
 
 	const defaultDateFormat = 'dd-MM-yyyy'
 	const defaultHtmlDateFormat = 'yyyy-MM-dd'
 
-	let date: string | undefined = computeDate(value)
+	let date: string | undefined = $state(computeDate(value))
 
 	const dispatch = createEventDispatcher()
 
@@ -70,8 +84,8 @@
 	let randomId = 'datetarget-' + Math.random().toString(36).substring(7)
 </script>
 
-<div class="flex flex-row gap-1 items-center w-full" id={randomId} on:pointerdown on:focus>
-	<!-- svelte-ignore a11y-autofocus -->
+<div class="flex flex-row gap-1 items-center w-full" id={randomId} onpointerdown={bubble('pointerdown')} onfocus={bubble('focus')}>
+	<!-- svelte-ignore a11y_autofocus -->
 	<input
 		{disabled}
 		type="date"
@@ -80,7 +94,7 @@
 		class="!w-full app-editor-input"
 		min={minDate}
 		max={maxDate}
-		on:change={() => {
+		onchange={() => {
 			if (date) {
 				updateValue(date)
 			}

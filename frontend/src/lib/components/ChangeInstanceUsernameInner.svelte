@@ -5,12 +5,21 @@
 	import Alert from './common/alert/Alert.svelte'
 	import { createEventDispatcher } from 'svelte'
 
-	export let email: string
-	export let username: string
-	export let isConflict = false
-	export let noPadding = false
+	interface Props {
+		email: string;
+		username: string;
+		isConflict?: boolean;
+		noPadding?: boolean;
+	}
 
-	let loading = false
+	let {
+		email,
+		username = $bindable(),
+		isConflict = false,
+		noPadding = false
+	}: Props = $props();
+
+	let loading = $state(false)
 
 	let usernameInfo:
 		| {
@@ -20,7 +29,7 @@
 					username: string
 				}[]
 		  }
-		| undefined = undefined
+		| undefined = $state(undefined)
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key
@@ -83,7 +92,7 @@
 	<input
 		type="text"
 		class="mb-4"
-		on:keyup={handleKeyUp}
+		onkeyup={handleKeyUp}
 		bind:value={username}
 		disabled={isConflict}
 	/>

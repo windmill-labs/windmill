@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { Tab, TabContent } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
 	import { getContext } from 'svelte'
@@ -20,28 +22,28 @@
 
 	const { app, cssEditorOpen, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
-	let component: AppComponent | undefined
-	$: {
+	let component: AppComponent | undefined = $state()
+	run(() => {
 		const newComponent = findComponentSettings($app, $selectedComponent?.[0])?.item?.data
 		if (component != newComponent) {
 			component = newComponent
 		}
-	}
+	});
 
-	let tab: 'local' | 'global' = 'local'
-	let overrideGlobalCSS: (() => void) | undefined = undefined
-	let overrideLocalCSS: (() => void) | undefined = undefined
-	$: type = component?.type
-	let migrationModal: CssMigrationModal | undefined = undefined
+	let tab: 'local' | 'global' = $state('local')
+	let overrideGlobalCSS: (() => void) | undefined = $state(undefined)
+	let overrideLocalCSS: (() => void) | undefined = $state(undefined)
+	let type = $derived(component?.type)
+	let migrationModal: CssMigrationModal | undefined = $state(undefined)
 
-	$: customCssByComponentType =
-		component?.type && $app.css
+	let customCssByComponentType =
+		$derived(component?.type && $app.css
 			? Object.entries($app.css[component.type] || {}).map(([id, v]) => ({
 					id,
 					forceStyle: v?.style != undefined,
 					forceClass: v?.['class'] != undefined
 				}))
-			: undefined
+			: undefined)
 
 	function copyLocalToGlobal(name: string, value: ComponentCssProperty | undefined) {
 		if (!value) {

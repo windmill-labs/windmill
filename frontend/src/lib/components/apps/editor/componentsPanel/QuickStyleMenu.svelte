@@ -211,11 +211,13 @@
 				{isOpen[prefix] ? '!bg-surface-secondary hover:!bg-surface-hover' : ''}"
 			>
 				<!-- @migration-task: migrate this slot by hand, `title` would shadow a prop on the parent component -->
-				<svelte:fragment slot="titleSlot">
-					<span class="font-normal text-xs">
-						{group}
-					</span>
-				</svelte:fragment>
+				{#snippet titleSlot()}
+							
+						<span class="font-normal text-xs">
+							{group}
+						</span>
+					
+							{/snippet}
 				<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1 pt-3">
 					{#each property[group] as p}
 						{@const {

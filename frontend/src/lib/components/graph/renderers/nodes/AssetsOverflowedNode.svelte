@@ -49,18 +49,22 @@
 			)}
 			placement="top"
 		>
-			<svelte:fragment slot="trigger">
-				+{data.overflowedAssets.length}
-			</svelte:fragment>
-			<svelte:fragment slot="content">
-				<ul>
-					{#each data.overflowedAssets as asset}
-						<li class="w-48">
-							<AssetNode data={{ asset }} />
-						</li>
-					{/each}
-				</ul>
-			</svelte:fragment>
+			{#snippet trigger()}
+					
+					+{data.overflowedAssets.length}
+				
+					{/snippet}
+			{#snippet content()}
+					
+					<ul>
+						{#each data.overflowedAssets as asset}
+							<li class="w-48">
+								<AssetNode data={{ asset }} />
+							</li>
+						{/each}
+					</ul>
+				
+					{/snippet}
 		</Popover>
 	{/snippet}
 </NodeWrapper>

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { Database, Loader2 } from 'lucide-svelte'
 	import Toggle from './Toggle.svelte'
 	import { Button, Tab, Tabs } from './common'
@@ -42,13 +44,18 @@
 		serviceAccountKey: Record<string, string>
 	}
 
-	export let bucket_config: S3Config | AzureConfig | AwsOidcConfig | GcsConfig | undefined =
-		undefined
+	interface Props {
+		bucket_config?: S3Config | AzureConfig | AwsOidcConfig | GcsConfig | undefined;
+	}
 
-	$: bucket_config?.type == 'S3' &&
-		bucket_config.allow_http == undefined &&
-		(bucket_config.allow_http = true)
-	let loading = false
+	let { bucket_config = $bindable(undefined) }: Props = $props();
+
+	run(() => {
+		bucket_config?.type == 'S3' &&
+			bucket_config.allow_http == undefined &&
+			(bucket_config.allow_http = true)
+	});
+	let loading = $state(false)
 
 	async function testConnection() {
 		loading = true

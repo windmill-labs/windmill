@@ -92,106 +92,116 @@
 	bind:isOpen
 	escapeBehavior="ignore"
 >
-	<svelte:fragment slot="trigger">
-		<div
-			class={twMerge(
-				size === '3xs' ? 'h-[1.6rem]' : 'py-1.5',
-				'text-xs flex items-center gap-1.5 px-2 rounded-md relative',
-				'border border-tertiary/30',
-				'bg-surface hover:bg-surface-hover active:bg-surface',
-				'transition-all hover:text-primary cursor-pointer'
-			)}
-		>
+	{#snippet trigger()}
+	
 			<div
-				bind:this={blueBgDiv}
-				class="absolute pointer-events-none bg-slate-300 dark:bg-[#576278] inset-0 rounded-md opacity-0"
-			></div>
-			<Pyramid size={size === '3xs' ? 13 : 16} class="z-10" />
-			<span
-				class={twMerge('z-10 font-normal', size === '3xs' ? 'text-3xs mt-[0.08rem]' : 'text-xs')}
+				class={twMerge(
+					size === '3xs' ? 'h-[1.6rem]' : 'py-1.5',
+					'text-xs flex items-center gap-1.5 px-2 rounded-md relative',
+					'border border-tertiary/30',
+					'bg-surface hover:bg-surface-hover active:bg-surface',
+					'transition-all hover:text-primary cursor-pointer'
+				)}
 			>
-				{noBtnText ? assets.length : pluralize(assets.length, 'asset')}
-			</span>
-		</div>
-	</svelte:fragment>
-	<svelte:fragment slot="content">
-		<ul class="divide-y rounded-md">
-			{#each assets as asset}
-				<li
-					class="text-sm px-3 h-12 flex gap-3 items-center hover:bg-surface-hover/25"
-					onmouseenter={() => onHoverLi?.(asset, 'enter')}
-					onmouseleave={() => onHoverLi?.(asset, 'leave')}
+				<div
+					bind:this={blueBgDiv}
+					class="absolute pointer-events-none bg-slate-300 dark:bg-[#576278] inset-0 rounded-md opacity-0"
+				></div>
+				<Pyramid size={size === '3xs' ? 13 : 16} class="z-10" />
+				<span
+					class={twMerge('z-10 font-normal', size === '3xs' ? 'text-3xs mt-[0.08rem]' : 'text-xs')}
 				>
-					<Popover
-						contentClasses="py-2 px-4 flex flex-col gap-2"
-						disablePopup={!!asset.access_type}
+					{noBtnText ? assets.length : pluralize(assets.length, 'asset')}
+				</span>
+			</div>
+		
+	{/snippet}
+	{#snippet content()}
+	
+			<ul class="divide-y rounded-md">
+				{#each assets as asset}
+					<li
+						class="text-sm px-3 h-12 flex gap-3 items-center hover:bg-surface-hover/25"
+						onmouseenter={() => onHoverLi?.(asset, 'enter')}
+						onmouseleave={() => onHoverLi?.(asset, 'leave')}
 					>
-						<svelte:fragment slot="trigger">
-							<div
-								class={twMerge(
-									'text-xs font-normal border text-primary w-10 p-1 text-center rounded-md',
-									!asset.access_type && !asset.alt_access_type
-										? 'text-orange-500 !border-orange-500'
-										: '',
-									!asset.access_type ? 'hover:bg-surface active:opacity-80' : ''
-								)}
-							>
-								{formatAssetAccessType(getAccessType(asset))}
-							</div>
-						</svelte:fragment>
-						<svelte:fragment slot="content">
-							{#if !asset.access_type}
-								<span class="text-sm text-primary leading-4">
-									Could not infer automatically <br />
-									<span class="text-xs">Please select manually </span>
-								</span>
-								<div class="flex items-center gap-2">
-									<ToggleButtonGroup bind:selected={asset.alt_access_type} class="max-w-fit">
-										{#snippet children({ item })}
-											<ToggleButton value="r" label="Read" {item} />
-											<ToggleButton value="w" label="Write" {item} />
-											<ToggleButton value="rw" label="Read/Write" {item} />
-										{/snippet}
-									</ToggleButtonGroup>
+						<Popover
+							contentClasses="py-2 px-4 flex flex-col gap-2"
+							disablePopup={!!asset.access_type}
+						>
+							{#snippet trigger()}
+											
+									<div
+										class={twMerge(
+											'text-xs font-normal border text-primary w-10 p-1 text-center rounded-md',
+											!asset.access_type && !asset.alt_access_type
+												? 'text-orange-500 !border-orange-500'
+												: '',
+											!asset.access_type ? 'hover:bg-surface active:opacity-80' : ''
+										)}
+									>
+										{formatAssetAccessType(getAccessType(asset))}
+									</div>
+								
+											{/snippet}
+							{#snippet content()}
+											
+									{#if !asset.access_type}
+										<span class="text-sm text-primary leading-4">
+											Could not infer automatically <br />
+											<span class="text-xs">Please select manually </span>
+										</span>
+										<div class="flex items-center gap-2">
+											<ToggleButtonGroup bind:selected={asset.alt_access_type} class="max-w-fit">
+												{#snippet children({ item })}
+													<ToggleButton value="r" label="Read" {item} />
+													<ToggleButton value="w" label="Write" {item} />
+													<ToggleButton value="rw" label="Read/Write" {item} />
+												{/snippet}
+											</ToggleButtonGroup>
 
-									<Tooltip2>
-										This is used to determine if the asset should be displayed as an input or an
-										output node in the flow editor
-									</Tooltip2>
-								</div>
-							{/if}
-						</svelte:fragment>
-					</Popover>
-					<div class="flex flex-col flex-1">
-						<Tooltip class="select-none w-48 truncate" disablePopup={disableLiTooltip}>
-							{asset.path}
-							<svelte:fragment slot="text">
+											<Tooltip2>
+												This is used to determine if the asset should be displayed as an input or an
+												output node in the flow editor
+											</Tooltip2>
+										</div>
+									{/if}
+								
+											{/snippet}
+						</Popover>
+						<div class="flex flex-col flex-1">
+							<Tooltip class="select-none w-48 truncate" disablePopup={disableLiTooltip}>
 								{asset.path}
-							</svelte:fragment>
-						</Tooltip>
-						<span class="text-xs text-primary select-none">
-							{liSubtitle?.(asset) ??
-								formatAssetKind({
-									...asset,
-									...(asset.kind === 'resource'
-										? { metadata: { resource_type: resourceDataCache[asset.path] } }
-										: {})
-								})}
-						</span>
-					</div>
+								{#snippet text()}
+													
+										{asset.path}
+									
+													{/snippet}
+							</Tooltip>
+							<span class="text-xs text-primary select-none">
+								{liSubtitle?.(asset) ??
+									formatAssetKind({
+										...asset,
+										...(asset.kind === 'resource'
+											? { metadata: { resource_type: resourceDataCache[asset.path] } }
+											: {})
+									})}
+							</span>
+						</div>
 
-					<AssetButtons
-						onClick={() => (isOpen = false)}
-						{asset}
-						{resourceDataCache}
-						{dbManagerDrawer}
-						{resourceEditorDrawer}
-						{s3FilePicker}
-					/>
-				</li>
-			{/each}
-		</ul>
-	</svelte:fragment>
+						<AssetButtons
+							onClick={() => (isOpen = false)}
+							{asset}
+							{resourceDataCache}
+							{dbManagerDrawer}
+							{resourceEditorDrawer}
+							{s3FilePicker}
+						/>
+					</li>
+				{/each}
+			</ul>
+		
+	{/snippet}
 </Popover>
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
 <DbManagerDrawer bind:this={dbManagerDrawer} />

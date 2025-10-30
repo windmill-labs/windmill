@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { preventDefault, stopPropagation } from 'svelte/legacy';
+
 	import NodeWrapper from './NodeWrapper.svelte'
 	import TriggersWrapper from '../triggers/TriggersWrapper.svelte'
 	import type { FlowModule, TriggersCount } from '$lib/gen'
@@ -12,7 +14,8 @@
 	import { tick } from 'svelte'
 	import type { GraphEventHandlers, SimplifiableFlow } from '../../graphBuilder.svelte'
 
-	export let data: {
+	interface Props {
+		data: {
 		path: string
 		isEditor: boolean
 		newFlow: boolean
@@ -22,13 +25,16 @@
 		index: number
 		disableAi: boolean
 		simplifiableFlow: SimplifiableFlow
+	};
 	}
+
+	let { data }: Props = $props();
 
 	const { selectedId } = getContext<{
 		selectedId: Writable<string | undefined>
 	}>('FlowGraphContext')
 
-	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
+	const { triggersCount, triggersState } = $state(getContext<TriggerContext>('TriggerContext'))
 
 	function getScheduleCfg(primary: Trigger | undefined, triggersCount: TriggersCount | undefined) {
 		return primary?.draftConfig
@@ -44,7 +50,7 @@
 					}
 	}
 
-	$: colorClasses = getNodeColorClasses('_VirtualItem', $selectedId == 'triggers')
+	let colorClasses = $derived(getNodeColorClasses('_VirtualItem', $selectedId == 'triggers'))
 </script>
 
 <NodeWrapper>
@@ -116,7 +122,7 @@
 				{:else}
 					<button
 						class="px-2 py-1 hover:bg-surface-inverse w-full hover:text-primary-inverse"
-						on:click={() => {
+						onclick={() => {
 							setScheduledPollSchedule(triggersState, triggersCount)
 						}}
 					>
@@ -129,8 +135,8 @@
 			<button
 				class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-nord-950 hover:text-white"
-				on:click|preventDefault|stopPropagation={() =>
-					data?.eventHandlers?.simplifyFlow(!data.simplifiableFlow?.simplifiedFlow)}
+				onclick={stopPropagation(preventDefault(() =>
+					data?.eventHandlers?.simplifyFlow(!data.simplifiableFlow?.simplifiedFlow)))}
 				title={data.simplifiableFlow?.simplifiedFlow
 					? 'Expand to full flow view'
 					: 'Simplify flow view for scheduled poll'}

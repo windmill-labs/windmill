@@ -4,7 +4,7 @@
 	import InstanceSettings from '$lib/components/InstanceSettings.svelte'
 	import { Button } from '$lib/components/common'
 
-	let saved = false
+	let saved = $state(false)
 </script>
 
 <CenteredModal large title="Instance settings">

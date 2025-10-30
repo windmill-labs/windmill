@@ -3,7 +3,7 @@
 
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
 	import { AppService, type Policy } from '$lib/gen'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { decodeState } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
@@ -15,10 +15,10 @@
 	import { DEFAULT_THEME } from '$lib/components/apps/editor/componentsPanel/themeUtils'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 
-	let nodraft = $page.url.searchParams.get('nodraft')
-	const hubId = $page.url.searchParams.get('hub')
-	const templatePath = $page.url.searchParams.get('template')
-	const templateId = $page.url.searchParams.get('template_id')
+	let nodraft = page.url.searchParams.get('nodraft')
+	const hubId = page.url.searchParams.get('hub')
+	const templatePath = page.url.searchParams.get('template')
+	const templateId = page.url.searchParams.get('template_id')
 
 	const importRaw = $importStore
 	if ($importStore) {
@@ -40,9 +40,9 @@
 	})
 	afterNavigate(() => {
 		if (nodraft) {
-			let url = new URL($page.url.href)
+			let url = new URL(page.url.href)
 			url.search = ''
-			replaceState(url.toString(), $page.state)
+			replaceState(url.toString(), page.state)
 		}
 	})
 	let policy: Policy = $state({
@@ -127,7 +127,7 @@
 				{policy}
 				fromHub={hubId != null}
 				newApp={true}
-				replaceStateFn={(path) => replaceState(path, $page.state)}
+				replaceStateFn={(path) => replaceState(path, page.state)}
 				gotoFn={(path, opt) => goto(path, opt)}
 			>
 				{#snippet unsavedConfirmationModal({

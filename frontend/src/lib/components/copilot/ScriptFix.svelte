@@ -28,38 +28,42 @@
 		}}
 		displayArrow={true}
 	>
-		<svelte:fragment slot="trigger">
-			<div class="flex flex-row">
-				<Button
-					title="Fix code"
-					size="xs"
-					color="light"
-					spacingSize="xs2"
-					startIcon={{ icon: WandSparkles }}
-					on:click={() => {
-						if ($copilotInfo.enabled) {
-							aiChatManager.fix()
-						}
-					}}
-					btnClasses="text-ai bg-violet-100 dark:bg-gray-700 min-w-[84px]"
-					propagateEvent={!$copilotInfo.enabled}
-				>
-					AI Fix
-				</Button>
-			</div>
-		</svelte:fragment>
-		<svelte:fragment slot="content">
-			<div class="p-4">
-				<div class="w-80">
-					<p class="text-sm"
-						>Enable Windmill AI in the <a
-							class="inline-flex flex-row items-center gap-1"
-							href="{base}/workspace_settings?tab=ai"
-							target="_blank">workspace settings</a
-						></p
-					></div
-				>
-			</div>
-		</svelte:fragment>
+		{#snippet trigger()}
+			
+				<div class="flex flex-row">
+					<Button
+						title="Fix code"
+						size="xs"
+						color="light"
+						spacingSize="xs2"
+						startIcon={{ icon: WandSparkles }}
+						on:click={() => {
+							if ($copilotInfo.enabled) {
+								aiChatManager.fix()
+							}
+						}}
+						btnClasses="text-ai bg-violet-100 dark:bg-gray-700 min-w-[84px]"
+						propagateEvent={!$copilotInfo.enabled}
+					>
+						AI Fix
+					</Button>
+				</div>
+			
+			{/snippet}
+		{#snippet content()}
+			
+				<div class="p-4">
+					<div class="w-80">
+						<p class="text-sm"
+							>Enable Windmill AI in the <a
+								class="inline-flex flex-row items-center gap-1"
+								href="{base}/workspace_settings?tab=ai"
+								target="_blank">workspace settings</a
+							></p
+						></div
+					>
+				</div>
+			
+			{/snippet}
 	</Popover>
 {/if}

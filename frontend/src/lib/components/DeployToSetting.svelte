@@ -9,9 +9,9 @@
 	import Toggle from './Toggle.svelte'
 	import { emptyString } from '$lib/utils'
 
-	$: deployableWorkspaces = $usersWorkspaceStore?.workspaces
-		.map((w) => w.id)
-		.filter((w) => w != $workspaceStore)
+	let deployableWorkspaces = $derived(
+		$usersWorkspaceStore?.workspaces.map((w) => w.id).filter((w) => w != $workspaceStore)
+	)
 
 	type DeployUITypeMap = {
 		scripts: boolean
@@ -34,14 +34,21 @@
 		triggers: true
 	}
 
-	export let workspaceToDeployTo: string | undefined
-	export let deployUiSettings: {
-		include_path: string[]
-		include_type: DeployUITypeMap
-	} = {
-		include_path: [],
-		include_type: all_ok
+	interface Props {
+		workspaceToDeployTo: string | undefined
+		deployUiSettings?: {
+			include_path: string[]
+			include_type: DeployUITypeMap
+		}
 	}
+
+	let {
+		workspaceToDeployTo = $bindable(),
+		deployUiSettings = $bindable({
+			include_path: [],
+			include_type: all_ok
+		})
+	}: Props = $props()
 	function deployUITypeMapToArray(
 		typesMap: DeployUITypeMap,
 		expectedValue: boolean
@@ -91,7 +98,7 @@
 <div class="flex min-w-0 mt-1">
 	<select
 		bind:value={workspaceToDeployTo}
-		on:change={async (e) => {
+		onchange={async (e) => {
 			await WorkspaceService.editDeployTo({
 				workspace: $workspaceStore ?? '',
 				requestBody: { deploy_to: workspaceToDeployTo == '' ? undefined : workspaceToDeployTo }
@@ -125,14 +132,14 @@
 					anything including slashes.
 				</Tooltip></h4
 			>
-			{#each deployUiSettings.include_path ?? [] as regexpPath, idx}
+			{#each deployUiSettings.include_path ?? [] as _, idx}
 				<div class="flex mt-1 items-center">
-					<input type="text" bind:value={regexpPath} id="arg-input-array" />
+					<input type="text" bind:value={deployUiSettings.include_path[idx]} id="arg-input-array" />
 					<button
 						transition:fade|local={{ duration: 100 }}
 						class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
 						aria-label="Clear"
-						on:click={() => {
+						onclick={() => {
 							deployUiSettings.include_path.splice(idx, 1)
 							deployUiSettings.include_path = [...deployUiSettings.include_path]
 						}}

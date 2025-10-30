@@ -1,3 +1,4 @@
+<!-- @migration-task Error while migrating Svelte code: This migration would change the name of a slot (selected-title to selected_title) making the component unusable -->
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 	import { FileUp, Trash } from 'lucide-svelte'

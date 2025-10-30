@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { workspaceStore, superadmin } from '$lib/stores'
 	import Alert from '../common/alert/Alert.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -8,14 +10,12 @@
 	import { Pen } from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
-	let newName = ''
-	let newId = ''
-	let checking = false
-	let errorId = ''
+	let newName = $state('')
+	let newId = $state('')
+	let checking = $state(false)
+	let errorId = $state('')
 
-	$: newId = newName.toLowerCase().replace(/\s/gi, '-')
 
-	$: validateName(newId)
 
 	async function validateName(id: string): Promise<void> {
 		checking = true
@@ -30,7 +30,7 @@
 		checking = false
 	}
 
-	let loading = false
+	let loading = $state(false)
 	async function renameWorkspace() {
 		try {
 			loading = true
@@ -53,7 +53,17 @@
 		}
 	}
 
-	export let open = false
+	interface Props {
+		open?: boolean;
+	}
+
+	let { open = $bindable(false) }: Props = $props();
+	run(() => {
+		newId = newName.toLowerCase().replace(/\s/gi, '-')
+	});
+	run(() => {
+		validateName(newId)
+	});
 </script>
 
 <div class="flex flex-col gap-1">
@@ -100,16 +110,18 @@
 		</label>
 	</div>
 
-	<svelte:fragment slot="actions">
-		<Button
-			size="sm"
-			disabled={checking || errorId.length > 0 || !newName || !newId}
-			{loading}
-			on:click={() => {
-				renameWorkspace()
-			}}
-		>
-			Save
-		</Button>
-	</svelte:fragment>
+	{#snippet actions()}
+	
+			<Button
+				size="sm"
+				disabled={checking || errorId.length > 0 || !newName || !newId}
+				{loading}
+				on:click={() => {
+					renameWorkspace()
+				}}
+			>
+				Save
+			</Button>
+		
+	{/snippet}
 </Modal>

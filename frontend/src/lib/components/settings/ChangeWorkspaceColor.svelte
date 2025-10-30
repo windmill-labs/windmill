@@ -100,14 +100,16 @@
 		</label>
 	</div>
 
-	<svelte:fragment slot="actions">
-		<Button
-			size="sm"
-			on:click={() => {
-				changeWorkspaceColor()
-			}}
-		>
-			Save
-		</Button>
-	</svelte:fragment>
+	{#snippet actions()}
+	
+			<Button
+				size="sm"
+				on:click={() => {
+					changeWorkspaceColor()
+				}}
+			>
+				Save
+			</Button>
+		
+	{/snippet}
 </Modal>

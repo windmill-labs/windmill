@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { createEventDispatcher } from 'svelte'
 	import { Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -6,24 +8,26 @@
 	import AppConnectInner from './AppConnectInner.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 
-	export let expressOAuthSetup = false
-
-	let drawer: Drawer
-	let resourceType = ''
-	let step = 1
-	let disabled = false
-	let isGoogleSignin = false
-	let manual = true
-
-	let appConnectInner: AppConnectInner | undefined = undefined
-
-	let rtToLoad: string | undefined = ''
-	export async function open(rt?: string) {
-		rtToLoad = rt
-		drawer.openDrawer?.()
+	interface Props {
+		expressOAuthSetup?: boolean
 	}
 
-	$: appConnectInner && onRtToLoadChange(rtToLoad)
+	let { expressOAuthSetup = false }: Props = $props()
+
+	let drawer: Drawer | undefined = $state()
+	let resourceType = $state('')
+	let step = $state(1)
+	let disabled = $state(false)
+	let isGoogleSignin = $state(false)
+	let manual = $state(true)
+
+	let appConnectInner: AppConnectInner | undefined = $state(undefined)
+
+	let rtToLoad: string | undefined = $state('')
+	export async function open(rt?: string) {
+		rtToLoad = rt
+		drawer?.openDrawer?.()
+	}
 
 	function onRtToLoadChange(rtToLoad: string | undefined) {
 		appConnectInner?.open(rtToLoad)
@@ -31,7 +35,10 @@
 
 	const dispatch = createEventDispatcher()
 
-	let darkMode: boolean = false
+	let darkMode: boolean = $state(false)
+	run(() => {
+		appConnectInner && onRtToLoadChange(rtToLoad)
+	})
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -46,7 +53,7 @@
 >
 	<DrawerContent
 		title="Add a resource"
-		on:close={drawer.closeDrawer}
+		on:close={() => drawer?.closeDrawer()}
 		tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
 		documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
 	>
@@ -57,7 +64,7 @@
 			bind:isGoogleSignin
 			bind:disabled
 			bind:manual
-			on:close={drawer?.closeDrawer}
+			on:close={() => drawer?.closeDrawer()}
 			on:refresh
 			express={expressOAuthSetup}
 		/>
@@ -67,7 +74,7 @@
 					<Button variant="default" on:click={appConnectInner?.back ?? (() => {})}>Back</Button>
 				{/if}
 				{#if isGoogleSignin}
-					<button {disabled} on:click={appConnectInner?.next}>
+					<button {disabled} onclick={appConnectInner?.next}>
 						<img
 							class="h-10 w-auto object-contain"
 							src={darkMode ? '/google_signin_dark.png' : '/google_signin_light.png'}

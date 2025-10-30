@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type NewScript, ScriptService, type Script } from '$lib/gen'
 
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { defaultScripts, initialArgsStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
@@ -17,16 +17,16 @@
 	// Default
 	let schema: Schema = emptySchema()
 
-	const templatePath = $page.url.searchParams.get('template')
-	const hubPath = $page.url.searchParams.get('hub')
-	const showMeta = /true|1/i.test($page.url.searchParams.get('show_meta') ?? '0')
+	const templatePath = page.url.searchParams.get('template')
+	const hubPath = page.url.searchParams.get('hub')
+	const showMeta = /true|1/i.test(page.url.searchParams.get('show_meta') ?? '0')
 
 	let initialArgs = get(initialArgsStore) ?? {}
 	if (get(initialArgsStore)) $initialArgsStore = undefined
 
-	const path = $page.url.searchParams.get('path')
+	const path = page.url.searchParams.get('path')
 
-	const initialState = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
+	const initialState = page.url.hash != '' ? page.url.hash.slice(1) : undefined
 
 	let scriptBuilder: ScriptBuilder | undefined = $state(undefined)
 
@@ -110,10 +110,10 @@
 	onSaveInitial={(e) => {
 		goto(`/scripts/edit/${e.path}`)
 	}}
-	searchParams={$page.url.searchParams}
+	searchParams={page.url.searchParams}
 	bind:script
 	{showMeta}
-	replaceStateFn={(path) => replaceState(path, $page.state)}
+	replaceStateFn={(path) => replaceState(path, page.state)}
 >
 	<UnsavedConfirmationModal
 		getInitialAndModifiedValues={scriptBuilder?.getInitialAndModifiedValues}

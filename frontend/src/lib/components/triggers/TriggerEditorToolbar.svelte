@@ -113,15 +113,17 @@
 				>
 					{trigger?.isDraft ? 'Deploy' : 'Update'}
 				</Button>
-				<span slot="text">
-					{#if !isDeployed}
-						Deploy the runnable to enable trigger creation
-					{:else if cloudDisabled}
-						This trigger is disabled in the multi-tenant cloud
-					{:else}
-						Enter a valid config to {trigger?.isDraft ? 'deploy' : 'update'} the trigger
-					{/if}
-				</span>
+				{#snippet text()}
+								<span >
+						{#if !isDeployed}
+							Deploy the runnable to enable trigger creation
+						{:else if cloudDisabled}
+							This trigger is disabled in the multi-tenant cloud
+						{:else}
+							Enter a valid config to {trigger?.isDraft ? 'deploy' : 'update'} the trigger
+						{/if}
+					</span>
+							{/snippet}
 			</Tooltip>
 		{/if}
 	</div>

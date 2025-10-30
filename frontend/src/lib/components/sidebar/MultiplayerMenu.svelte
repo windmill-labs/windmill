@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { enterpriseLicense, userStore, workspaceStore, awarenessStore } from '$lib/stores'
 	import { BROWSER } from 'esm-env'
 
@@ -10,10 +12,10 @@
 
 	const wsProtocol = BROWSER && window.location.protocol == 'https:' ? 'wss' : 'ws'
 
-	let awareness: Awareness | undefined = undefined
+	let awareness: Awareness | undefined = $state(undefined)
 	let wsProvider: WebsocketProvider | undefined = undefined
 
-	let connected = false
+	let connected = $state(false)
 	function connectWorkspace(workspace: string) {
 		const ydoc = new Y.Doc()
 		wsProvider = new WebsocketProvider(
@@ -45,11 +47,15 @@
 			setPeers()
 		})
 	}
-	$: awareness?.setLocalState({
-		name: $userStore?.username,
-		url: $page.url.pathname
-	})
-	$: $enterpriseLicense && $workspaceStore && connectWorkspace($workspaceStore)
+	run(() => {
+		awareness?.setLocalState({
+			name: $userStore?.username,
+			url: $page.url.pathname
+		})
+	});
+	run(() => {
+		$enterpriseLicense && $workspaceStore && connectWorkspace($workspaceStore)
+	});
 
 	function showActivity(url: string) {
 		if (url.startsWith('/scripts/add')) {

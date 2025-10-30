@@ -214,9 +214,11 @@
 					{args}
 				>
 					<!-- @migration-task: migrate this slot by hand, `editor_bar_right` is an invalid identifier -->
-					<div slot="editor_bar_right">
-						<WorkerTagSelect bind:tag={script.tag} />
-					</div>
+					{#snippet editor_bar_right()}
+						<div>
+							<WorkerTagSelect bind:tag={script!.tag} />
+						</div>
+					{/snippet}
 				</ScriptEditor>
 			{/key}
 		{:else}

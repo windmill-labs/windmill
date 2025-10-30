@@ -300,24 +300,28 @@
 									closeOnOutsideClick
 									bind:this={instanceCatalogPopover}
 								>
-									<svelte:fragment slot="trigger">
-										<Button spacingSize="xs2" variant="default" btnClasses="h-6">
-											{#if !status}
-												<span class="text-yellow-600 dark:text-yellow-400">
-													Setup <ArrowRight class="inline" size={14} />
-												</span>
-											{:else if !status.success}
-												<span class="text-red-400 flex gap-1">
-													Error <TriangleAlert class="inline" size={16} />
-												</span>
-											{:else}
-												<div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
-											{/if}
-										</Button>
-									</svelte:fragment>
-									<svelte:fragment slot="content">
-										{@render instanceCatalogWizard(status, ducklake.catalog.resource_path ?? '')}
-									</svelte:fragment>
+									{#snippet trigger()}
+																	
+											<Button spacingSize="xs2" variant="default" btnClasses="h-6">
+												{#if !status}
+													<span class="text-yellow-600 dark:text-yellow-400">
+														Setup <ArrowRight class="inline" size={14} />
+													</span>
+												{:else if !status.success}
+													<span class="text-red-400 flex gap-1">
+														Error <TriangleAlert class="inline" size={16} />
+													</span>
+												{:else}
+													<div class="w-1.5 h-1.5 rounded-full bg-green-400"></div>
+												{/if}
+											</Button>
+										
+																	{/snippet}
+									{#snippet content()}
+																	
+											{@render instanceCatalogWizard(status, ducklake.catalog.resource_path ?? '')}
+										
+																	{/snippet}
 								</Popover>
 							{/if}
 						</div>
@@ -354,15 +358,19 @@
 							contentClasses="p-2 text-sm text-secondary italic"
 							class="cursor-not-allowed"
 						>
-							<svelte:fragment slot="trigger">
-								<ExploreAssetButton
-									class="h-9"
-									asset={{ kind: 'ducklake', path: ducklake.name }}
-									{dbManagerDrawer}
-									disabled
-								/>
-							</svelte:fragment>
-							<svelte:fragment slot="content">Please save settings first</svelte:fragment>
+							{#snippet trigger()}
+													
+									<ExploreAssetButton
+										class="h-9"
+										asset={{ kind: 'ducklake', path: ducklake.name }}
+										{dbManagerDrawer}
+										disabled
+									/>
+								
+													{/snippet}
+							{#snippet content()}
+														Please save settings first
+													{/snippet}
 						</Popover>
 					{:else}
 						<ExploreAssetButton

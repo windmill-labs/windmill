@@ -2,9 +2,19 @@
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 
-	export let items: string[]
-	export let selectedIndex: number
-	export let disabled: boolean = false
+	interface Props {
+		items: string[];
+		selectedIndex: number;
+		disabled?: boolean;
+		separator?: import('svelte').Snippet;
+	}
+
+	let {
+		items,
+		selectedIndex,
+		disabled = false,
+		separator
+	}: Props = $props();
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -12,7 +22,7 @@
 <div class="flex items-center justify-center">
 	{#each items as item, index}
 		{#if index > 0}
-			<slot name="separator" />
+			{@render separator?.()}
 		{/if}
 		<Button
 			size="sm"

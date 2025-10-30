@@ -13,25 +13,25 @@
 
 	const dispatch = createEventDispatcher()
 
-	let edit: boolean = false
-	let name: string = ''
-	let value: string = ''
+	let edit: boolean = $state(false)
+	let name: string = $state('')
+	let value: string = $state('')
 
 	export function initNew(): void {
 		edit = false
 		name = ''
 		value = ''
-		drawer.openDrawer()
+		drawer?.openDrawer()
 	}
 
 	export function editVariable(editName: string, editValue: string): void {
 		edit = true
 		name = editName
 		value = editValue
-		drawer.openDrawer()
+		drawer?.openDrawer()
 	}
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined = $state()
 
 	async function updateVariable(): Promise<void> {
 		await WorkspaceService.setEnvironmentVariable({
@@ -48,7 +48,7 @@
 		)
 		dispatch('update')
 
-		drawer.closeDrawer()
+		drawer?.closeDrawer()
 		setTimeout(() => {
 			dispatch('update')
 		}, 5000)
@@ -58,7 +58,7 @@
 <Drawer bind:this={drawer} size="900px">
 	<DrawerContent
 		title={edit ? `Update contextual variable ${name}` : 'Create a contextual variable'}
-		on:close={drawer.closeDrawer}
+		on:close={drawer?.closeDrawer}
 	>
 		<div class="flex flex-col gap-8">
 			{#if !edit}

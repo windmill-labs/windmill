@@ -5,5 +5,7 @@
 
 <Tooltip>
 	<FlaskConical size={14} class="text-primary inline-block" />
-	<span slot="text">Config used for creating a testing endpoint</span>
+	{#snippet text()}
+		<span >Config used for creating a testing endpoint</span>
+	{/snippet}
 </Tooltip>

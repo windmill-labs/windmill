@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ResourceService, VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { getContext, onDestroy } from 'svelte'
+	import { getContext, onDestroy, untrack } from 'svelte'
 	import { Badge, Button } from '../common'
 	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
 
@@ -13,18 +13,28 @@
 	import type { PropPickerContext } from '../prop_picker'
 	import Scrollable from '../Scrollable.svelte'
 
-	export let pickableProperties: PickableProperties
-	export let displayContext = true
-	export let error: boolean = false
-	export let allowCopy = false
-	export let previousId: string | undefined = undefined
+	interface Props {
+		pickableProperties: PickableProperties
+		displayContext?: boolean
+		error?: boolean
+		allowCopy?: boolean
+		previousId?: string | undefined
+	}
 
-	let variables: Record<string, string> = {}
-	let resources: Record<string, any> = {}
-	let displayVariable = false
-	let displayResources = false
+	let {
+		pickableProperties,
+		displayContext = true,
+		error = false,
+		allowCopy = false,
+		previousId = undefined
+	}: Props = $props()
 
-	let allResultsCollapsed = true
+	let variables: Record<string, string> = $state({})
+	let resources: Record<string, any> = $state({})
+	let displayVariable = $state(false)
+	let displayResources = $state(false)
+
+	let allResultsCollapsed = $state(true)
 	let collapsableInitialState:
 		| {
 				allResultsCollapsed: boolean
@@ -33,19 +43,21 @@
 		  }
 		| undefined
 
-	let filterActive = false
+	let filterActive = $state(false)
 
 	const EMPTY_STRING = ''
-	let search = ''
+	let search = $state('')
 
 	const { propPickerConfig, inputMatches } =
 		getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	const { pickablePropertiesFiltered } = getContext<PropPickerContext>('PropPickerContext')
-	$: $pickablePropertiesFiltered = pickableProperties
+	$effect(() => {
+		$pickablePropertiesFiltered = pickableProperties
+	})
 
-	let flowInputsFiltered: any = pickableProperties.flow_input
-	let resultByIdFiltered: any = pickableProperties.priorIds
+	let flowInputsFiltered: any = $state(pickableProperties.flow_input)
+	let resultByIdFiltered: any = $state(pickableProperties.priorIds)
 
 	let timeout: number | undefined
 	function onSearch(search: string) {
@@ -66,11 +78,14 @@
 		}, 50)
 	}
 
-	$: suggestedPropsFiltered =
+	let suggestedPropsFiltered = $derived(
 		$propPickerConfig && $propPickerConfig.propName
 			? keepByKey(pickableProperties.priorIds, $propPickerConfig.propName ?? '')
 			: undefined
-	$: search != undefined && onSearch(search)
+	)
+	$effect(() => {
+		search != undefined && onSearch(search)
+	})
 
 	async function loadVariables() {
 		variables = Object.fromEntries(
@@ -92,7 +107,7 @@
 		)
 	}
 
-	let filteringFlowInputsOrResult = ''
+	let filteringFlowInputsOrResult = $state('')
 	async function filterPickableProperties() {
 		if (!$propPickerConfig || !filterActive) {
 			if (search === EMPTY_STRING) {
@@ -192,7 +207,10 @@
 		await updateCollapsable()
 	}
 
-	$: (search, $inputMatches, $propPickerConfig, pickableProperties, updateState())
+	$effect(() => {
+		;[search, $inputMatches, $propPickerConfig, pickableProperties]
+		untrack(() => updateState())
+	})
 
 	onDestroy(() => {
 		clearTimeout(timeout)

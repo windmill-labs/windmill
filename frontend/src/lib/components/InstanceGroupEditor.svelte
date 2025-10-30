@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { GroupService, type InstanceGroup } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import autosize from '$lib/autosize'
@@ -8,17 +10,18 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Loader2 } from 'lucide-svelte'
 
-	export let name: string
+	interface Props {
+		name: string;
+	}
 
-	let email = ''
-	let instance_group: InstanceGroup | undefined
-	let members: { member_email: string }[] | undefined = undefined
+	let { name }: Props = $props();
+
+	let email = $state('')
+	let instance_group: InstanceGroup | undefined = $state()
+	let members: { member_email: string }[] | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
-	$: {
-		load()
-	}
 
 	async function load() {
 		return Promise.all([loadInstanceGroup()])
@@ -32,6 +35,9 @@
 				})
 			: []
 	}
+	run(() => {
+		load()
+	});
 </script>
 
 <div class="flex flex-col gap-6">
@@ -85,17 +91,19 @@
 		</div>
 		{#if members}
 			<TableCustom>
-				<tr slot="header-row">
+				<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
+	<tr slot="header-row">
 					<th>user</th>
 					<th></th>
 				</tr>
-				<tbody slot="body">
-					{#each members as { member_email }}<tr>
-							<td>{member_email}</td>
-							<td>
-								<button
-									class="ml-2 text-red-500"
-									on:click={async () => {
+				{#snippet body()}
+								<tbody >
+						{#each members as { member_email }}<tr>
+								<td>{member_email}</td>
+								<td>
+									<button
+										class="ml-2 text-red-500"
+										onclick={async () => {
 										await GroupService.removeUserFromInstanceGroup({
 											name,
 											requestBody: { email: member_email }
@@ -104,10 +112,11 @@
 										sendUserToast('User removed')
 										loadInstanceGroup()
 									}}>remove</button
-								>
-							</td>
-						</tr>{/each}
-				</tbody>
+									>
+								</td>
+							</tr>{/each}
+					</tbody>
+							{/snippet}
 			</TableCustom>
 		{:else}
 			<div class="flex flex-col">

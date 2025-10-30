@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import Label from '$lib/components/Label.svelte'
-	// import { page } from '$app/stores'
+	// import { page } from '$app/state'
 	import type { CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureSection from '../CaptureSection.svelte'
 	import { fade } from 'svelte/transition'

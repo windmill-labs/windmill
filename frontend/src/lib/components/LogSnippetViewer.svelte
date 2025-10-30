@@ -1,8 +1,15 @@
 <script lang="ts">
-	import { AnsiUp } from 'ansi_up'
+	import { createBubbler } from 'svelte/legacy'
 
-	export let content: string
-	export let highlighted: any[]
+	const bubble = createBubbler()
+	import { AnsiUp } from 'ansi_up'
+	interface Props {
+		content: string
+		highlighted: any[]
+		onClick?: () => void
+	}
+
+	let { content, highlighted, onClick }: Props = $props()
 
 	const ansi_up = new AnsiUp()
 	ansi_up.use_classes = true
@@ -30,7 +37,13 @@
 	let html = highlightSnippet(content)
 </script>
 
-<button on:click class="font-light !m-0 !p-0">
+<button
+	onclick={() => {
+		onClick?.()
+		bubble('click')
+	}}
+	class="font-light !m-0 !p-0"
+>
 	<pre
 		class="bg-surface-secondary hover:bg-surface px-2 py-1 text-secondary text-xs w-[100%] whitespace-pre border min-w-full text-start">
 {@html html}

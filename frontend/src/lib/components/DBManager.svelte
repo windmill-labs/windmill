@@ -144,12 +144,14 @@
 								}))}
 							class="w-fit"
 						>
-							<svelte:fragment slot="buttonReplacement">
-								<MoreVertical
-									size={8}
-									class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
-								/>
-							</svelte:fragment>
+							{#snippet buttonReplacement()}
+													
+									<MoreVertical
+										size={8}
+										class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
+									/>
+								
+													{/snippet}
 						</DropdownV2>
 					{/if}
 				</button>

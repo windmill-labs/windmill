@@ -1,21 +1,32 @@
 <script lang="ts">
+	import { run, createBubbler } from 'svelte/legacy';
+
+	const bubble = createBubbler();
 	type TimeUnit = number | undefined
 
 	const ONE_DAY_IN_SECONDS = 86400 as const
 	const ONE_HOUR_IN_SECONDS = 3600 as const
 	const ONE_MINUTE_IN_SECONDS = 60 as const
 
-	export let seconds = 0
-	export let hideDisplay = false
-	export let disabled = false
-	export let max: number | undefined = undefined
+	interface Props {
+		seconds?: number;
+		hideDisplay?: boolean;
+		disabled?: boolean;
+		max?: number | undefined;
+	}
 
-	let day: TimeUnit = undefined
-	let hour: TimeUnit = undefined
-	let min: TimeUnit = undefined
-	let sec: TimeUnit = undefined
+	let {
+		seconds = $bindable(0),
+		hideDisplay = false,
+		disabled = false,
+		max = undefined
+	}: Props = $props();
 
-	$: convertSecondsToTime(seconds)
+	let day: TimeUnit = $state(undefined)
+	let hour: TimeUnit = $state(undefined)
+	let min: TimeUnit = $state(undefined)
+	let sec: TimeUnit = $state(undefined)
+
 
 	function convertSecondsToTime(seconds) {
 		day = Math.floor(seconds / ONE_DAY_IN_SECONDS)
@@ -44,6 +55,9 @@
 			seconds = max
 		}
 	}
+	run(() => {
+		convertSecondsToTime(seconds)
+	});
 </script>
 
 <div class="flex flex-wrap gap-x-4">
@@ -69,8 +83,8 @@
 					class="!w-14"
 					{disabled}
 					bind:value={sec}
-					on:change={convertUnitsToSeconds}
-					on:focus
+					onchange={convertUnitsToSeconds}
+					onfocus={bubble('focus')}
 				/>
 			</label>
 			<label>
@@ -80,8 +94,8 @@
 					class="!w-14"
 					{disabled}
 					bind:value={min}
-					on:change={convertUnitsToSeconds}
-					on:focus
+					onchange={convertUnitsToSeconds}
+					onfocus={bubble('focus')}
 				/>
 			</label>
 		</div>
@@ -93,8 +107,8 @@
 					class="!w-14"
 					{disabled}
 					bind:value={hour}
-					on:change={convertUnitsToSeconds}
-					on:focus
+					onchange={convertUnitsToSeconds}
+					onfocus={bubble('focus')}
 				/>
 			</label>
 			<label>
@@ -104,8 +118,8 @@
 					class="!w-14"
 					{disabled}
 					bind:value={day}
-					on:change={convertUnitsToSeconds}
-					on:focus
+					onchange={convertUnitsToSeconds}
+					onfocus={bubble('focus')}
 				/>
 			</label>
 		</div>

@@ -14,7 +14,7 @@
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
 	import { enterpriseLicense } from '$lib/stores'
@@ -53,12 +53,12 @@
 			'/flows/get/',
 			'/apps/get/'
 		]
-		const isOnEditPage = editPages.some((editPage) => $page.route.id?.includes(editPage) ?? false)
+		const isOnEditPage = editPages.some((editPage) => page.route.id?.includes(editPage) ?? false)
 
 		if (!isOnEditPage) {
 			switchWorkspace(id)
-			if ($page.url.searchParams.get('workspace')) {
-				$page.url.searchParams.set('workspace', id)
+			if (page.url.searchParams.get('workspace')) {
+				page.url.searchParams.set('workspace', id)
 			}
 		} else {
 			switchWorkspace(id)

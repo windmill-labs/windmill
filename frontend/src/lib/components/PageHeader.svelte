@@ -1,10 +1,21 @@
 <script lang="ts">
 	import Tooltip from './Tooltip.svelte'
 
-	export let title: string
-	export let tooltip: string = ''
-	export let documentationLink: string | undefined = undefined
-	export let primary: boolean = true
+	interface Props {
+		title: string;
+		tooltip?: string;
+		documentationLink?: string | undefined;
+		primary?: boolean;
+		children?: import('svelte').Snippet;
+	}
+
+	let {
+		title,
+		tooltip = '',
+		documentationLink = undefined,
+		primary = true,
+		children
+	}: Props = $props();
 </script>
 
 <div class="flex flex-row flex-wrap justify-between pb-2 my-4 mr-2">
@@ -30,9 +41,9 @@
 		</span>
 	{/if}
 
-	{#if $$slots.default}
+	{#if children}
 		<div class="my-2">
-			<slot />
+			{@render children?.()}
 		</div>
 	{/if}
 </div>

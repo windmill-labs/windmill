@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { goto } from '$lib/navigation'
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
@@ -28,21 +30,24 @@
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
 	import type { UserWorkspace } from '$lib/stores'
+	import { untrack } from 'svelte'
 
-	let invites: WorkspaceInvite[] = []
-	let list_all_as_super_admin: boolean = false
-	let workspaces: UserWorkspace[] | undefined = undefined
-	let showAllForks: boolean = false
+	let invites: WorkspaceInvite[] = $state([])
+	let list_all_as_super_admin: boolean = $state(false)
+	let workspaces: UserWorkspace[] | undefined = $state(undefined)
+	let showAllForks: boolean = $state(false)
 
-	let userSettings: UserSettings
-	let superadminSettings: SuperadminSettings
+	let userSettings: UserSettings | undefined = $state()
+	let superadminSettings: SuperadminSettings | undefined = $state()
 
-	$: rd = $page.url.searchParams.get('rd')
+	let rd = $derived($page.url.searchParams.get('rd'))
 
-	$: if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
-		const mcpMode = $page.url.hash.includes('-mcp')
-		userSettings.openDrawer(mcpMode)
-	}
+	run(() => {
+		if (userSettings && $page.url.hash.startsWith(USER_SETTINGS_HASH)) {
+			const mcpMode = $page.url.hash.includes('-mcp')
+			userSettings.openDrawer(mcpMode)
+		}
+	})
 
 	async function loadInvites() {
 		try {
@@ -82,22 +87,24 @@
 			workspaces = $userWorkspaces
 		}
 	}
-	$: list_all_as_super_admin != undefined && $userWorkspaces && handleListWorkspaces()
+	run(() => {
+		list_all_as_super_admin != undefined && $userWorkspaces && handleListWorkspaces()
+	})
 
-	$: adminsInstance = workspaces?.find((x) => x.id == 'admins') || $superadmin
+	let adminsInstance = $derived.by(() => workspaces?.find((x) => x.id == 'admins') || $superadmin)
 
 	// Complete workspace hierarchy with all forks
-	$: forkedWorkspacesHierarchy = (() => {
+	let forkedWorkspacesHierarchy = $derived.by(() => {
 		if (!workspaces) return []
 
 		// Filter out admin workspace
 		const nonAdminWorkspaces = workspaces.filter((x) => x.id !== 'admins')
 
 		return buildWorkspaceHierarchy(nonAdminWorkspaces)
-	})()
+	})
 
-	$: groupedNonAdminWorkspaces = forkedWorkspacesHierarchy
-	$: noWorkspaces = $superadmin && groupedNonAdminWorkspaces.length == 0
+	let groupedNonAdminWorkspaces = $derived(forkedWorkspacesHierarchy)
+	let noWorkspaces = $derived($superadmin && groupedNonAdminWorkspaces.length == 0)
 
 	async function getCreateWorkspaceRequireSuperadmin() {
 		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
@@ -105,21 +112,27 @@
 		createWorkspace = t != 'true'
 	}
 
-	let createWorkspace = $superadmin || isCloudHosted()
+	let createWorkspace = $state($superadmin || isCloudHosted())
 
-	$: if ($superadmin) {
-		createWorkspace = true
-	}
+	run(() => {
+		if ($superadmin) {
+			createWorkspace = true
+		}
+	})
 
-	if (!createWorkspace) {
-		getCreateWorkspaceRequireSuperadmin()
-	}
+	$effect.pre(() => {
+		untrack(() => {
+			if (!createWorkspace) {
+				getCreateWorkspaceRequireSuperadmin()
+			}
+		})
+	})
 
 	refreshSuperadmin()
 	loadInvites()
 	loadWorkspaces()
 
-	let loading = false
+	let loading = $state(false)
 
 	async function speakFriendAndEnterWorkspace(workspaceId: string) {
 		loading = true
@@ -372,7 +385,7 @@
 
 					<button
 						class="text-red-700 font-semibold text-xs p-1"
-						on:click={async () => {
+						onclick={async () => {
 							await UserService.declineInvite({
 								requestBody: { workspace_id: invite.workspace_id }
 							})
@@ -392,7 +405,7 @@
 			<Button
 				variant="default"
 				size="sm"
-				on:click={superadminSettings.openDrawer}
+				on:click={() => superadminSettings?.openDrawer()}
 				startIcon={{ icon: Crown }}
 			>
 				Superadmin settings
@@ -401,7 +414,7 @@
 		<Button
 			variant="default"
 			size="sm"
-			on:click={() => userSettings.openDrawer()}
+			on:click={() => userSettings?.openDrawer()}
 			startIcon={{ icon: Settings }}
 		>
 			User settings

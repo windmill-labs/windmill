@@ -4,8 +4,12 @@
 
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 
-	export let darkMode: boolean = document.documentElement.classList.contains('dark')
-	export let forcedDarkMode: boolean = true
+	interface Props {
+		darkMode?: boolean;
+		forcedDarkMode?: boolean;
+	}
+
+	let { darkMode = $bindable(document.documentElement.classList.contains('dark')), forcedDarkMode = true }: Props = $props();
 
 	export function toggle() {
 		if (!document.documentElement.classList.contains('dark')) {
@@ -23,7 +27,7 @@
 		'text-2xs text-white m-1 p-2 rounded-lg flex flex-row gap-2 justify-center hover:bg-gray-600',
 		forcedDarkMode ? 'text-white hover:bg-gray-600' : 'text-primary hover:bg-surface-hover'
 	)}
-	on:click={toggle}
+	onclick={toggle}
 >
 	{#if darkMode}
 		<Sun class="w-4 h-4" />

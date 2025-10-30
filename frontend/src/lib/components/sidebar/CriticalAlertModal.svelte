@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { onMount, onDestroy } from 'svelte'
 	import CriticalAlertModalInner from './CriticalAlertModalInner.svelte'
 	import { SettingService, type CriticalAlert } from '$lib/gen'
@@ -19,15 +21,19 @@
 	import { base } from '$lib/base'
 	import Notification from '$lib/components/common/alert/Notification.svelte'
 
-	export let open: boolean = false
-	export let numUnacknowledgedCriticalAlerts: number = 0
-	export let muteSettings
-	let workspaceContext = false
-	let childRef
-
-	$: {
-		setupApiFunctions(workspaceContext)
+	interface Props {
+		open?: boolean
+		numUnacknowledgedCriticalAlerts?: number
+		muteSettings: any
 	}
+
+	let {
+		open = $bindable(false),
+		numUnacknowledgedCriticalAlerts = $bindable(0),
+		muteSettings = $bindable()
+	}: Props = $props()
+	let workspaceContext = $state(false)
+	let childRef: any = $state() // TODO type
 
 	function setupApiFunctions(_ctx?) {
 		getCriticalAlerts = withSuperadminLogic(
@@ -46,9 +52,6 @@
 		)
 	}
 
-	$: isCriticalAlertsUIOpen.set(open)
-	$: if ($isCriticalAlertsUIOpen) open = $isCriticalAlertsUIOpen
-
 	let checkForNewAlertsInterval: ReturnType<typeof setInterval>
 	let checkingForNewAlerts = false
 
@@ -65,9 +68,9 @@
 		}
 	}
 
-	let getCriticalAlerts
-	let acknowledgeCriticalAlert
-	let acknowledgeAllCriticalAlerts
+	let getCriticalAlerts = $state()
+	let acknowledgeCriticalAlert: any = $state() // TODO type
+	let acknowledgeAllCriticalAlerts = $state()
 
 	setupApiFunctions()
 
@@ -169,12 +172,23 @@
 		await acknowledgeCriticalAlert({ id })
 		updateHasUnacknowledgedCriticalAlerts()
 	}
+	run(() => {
+		setupApiFunctions(workspaceContext)
+	})
+	run(() => {
+		if ($isCriticalAlertsUIOpen) open = $isCriticalAlertsUIOpen
+	})
+	run(() => {
+		isCriticalAlertsUIOpen.set(open)
+	})
 </script>
 
 <Modal2 bind:isOpen={open} title="Critical Alerts" target="#content" fixedSize="lg">
+	<!-- @migration-task: migrate this slot by hand, `header-left` is an invalid identifier -->
 	<svelte:fragment slot="header-left">
 		<Notification notificationCount={numUnacknowledgedCriticalAlerts} notificationLimit={9999} />
 	</svelte:fragment>
+	<!-- @migration-task: migrate this slot by hand, `header-right` is an invalid identifier -->
 	<svelte:fragment slot="header-right">
 		<List horizontal>
 			{#if $superadmin || $userStore?.is_admin}
@@ -183,7 +197,7 @@
 					portal="#mute-settings-button"
 					contentClasses="p-4"
 				>
-					<svelte:fragment slot="trigger">
+					{#snippet trigger()}
 						<div id="mute-settings-button">
 							<Button variant="default" nonCaptureEvent>
 								{#if muteSettings.global || muteSettings.workspace}
@@ -193,8 +207,8 @@
 								{/if}
 							</Button>
 						</div>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
+					{/snippet}
+					{#snippet content()}
 						<List justify="start">
 							<div class="w-full">
 								{#if $superadmin}
@@ -220,7 +234,7 @@
 								/>
 							</div>
 						</List>
-					</svelte:fragment>
+					{/snippet}
 				</Popover>
 			{/if}
 
@@ -230,14 +244,14 @@
 					portal="#settings-button"
 					contentClasses="p-4"
 				>
-					<svelte:fragment slot="trigger">
+					{#snippet trigger()}
 						<div id="settings-button">
 							<Button variant="default" nonCaptureEvent>
 								<Settings size="16" />
 							</Button>
 						</div>
-					</svelte:fragment>
-					<svelte:fragment slot="content">
+					{/snippet}
+					{#snippet content()}
 						<List justify="start" gap="none">
 							<div class="w-full">
 								<Button
@@ -265,7 +279,7 @@
 								</Button>
 							</div>
 						</List>
-					</svelte:fragment>
+					{/snippet}
 				</Popover>
 			{:else}
 				<Button

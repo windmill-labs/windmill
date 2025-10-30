@@ -3,8 +3,12 @@
 	import { cleanExpr } from '$lib/utils'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 
-	export let inputTransforms: Record<string, InputTransform>
-	$: entries = Object.entries(inputTransforms)
+	interface Props {
+		inputTransforms: Record<string, InputTransform>;
+	}
+
+	let { inputTransforms }: Props = $props();
+	let entries = $derived(Object.entries(inputTransforms))
 </script>
 
 {#if entries.length}

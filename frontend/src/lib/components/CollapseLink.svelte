@@ -4,12 +4,24 @@
 	import { twMerge } from 'tailwind-merge'
 	import { ChevronDown } from 'lucide-svelte'
 
-	export let open = false
-	export let text: string
-	export let small = false
+	interface Props {
+		open?: boolean
+		text: string
+		small?: boolean
+		children?: import('svelte').Snippet
+		class?: string
+	}
+
+	let {
+		open = $bindable(false),
+		text,
+		small = false,
+		children,
+		class: className = ''
+	}: Props = $props()
 </script>
 
-<div class={twMerge('flex', $$props.class)}>
+<div class={twMerge('flex', className)}>
 	<Button
 		variant="default"
 		btnClasses="text-primary {small ? 'text-xs' : ''} "
@@ -20,5 +32,5 @@
 	</Button>
 </div>
 {#if open}
-	<div transition:slide|local={{ duration: 100 }}><slot /></div>
+	<div transition:slide|local={{ duration: 100 }}>{@render children?.()}</div>
 {/if}

@@ -10,10 +10,10 @@
 
 	import YAML from 'yaml'
 
-	let drawer: Drawer | undefined = undefined
-	let pendingRaw: string = ''
+	let drawer: Drawer | undefined = $state(undefined)
+	let pendingRaw: string = $state('')
 
-	let importType: 'yaml' | 'json' = 'yaml'
+	let importType: 'yaml' | 'json' = $state('yaml')
 
 	async function importRaw() {
 		$importStore = importType === 'yaml' ? YAML.parse(pendingRaw) : JSON.parse(pendingRaw)

@@ -13,10 +13,10 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { wait } from '$lib/utils'
 
-	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore } = $state(getContext<FlowEditorContext>('FlowEditorContext'))
 	const dispatch = createEventDispatcher()
 
-	let tutorial: Tutorial | undefined = undefined
+	let tutorial: Tutorial | undefined = $state(undefined)
 
 	export function runTutorial() {
 		tutorial?.runTutorial()

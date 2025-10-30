@@ -8,7 +8,9 @@
 	import { WorkerService } from '$lib/gen'
 	import DateTimeInput from './DateTimeInput.svelte'
 
-	export let runnable:
+
+	interface Props {
+		runnable: 
 		| {
 				summary?: string
 				description?: string
@@ -21,11 +23,18 @@
 				created_by?: string
 				extra_perms?: Record<string, boolean>
 		  }
-		| undefined
+		| undefined;
+		scheduledForStr: string | undefined;
+		invisible_to_owner: boolean | undefined;
+		overrideTag: string | undefined;
+	}
 
-	export let scheduledForStr: string | undefined
-	export let invisible_to_owner: boolean | undefined
-	export let overrideTag: string | undefined
+	let {
+		runnable,
+		scheduledForStr = $bindable(),
+		invisible_to_owner = $bindable(),
+		overrideTag = $bindable()
+	}: Props = $props();
 	loadWorkerGroups()
 
 	async function loadWorkerGroups() {

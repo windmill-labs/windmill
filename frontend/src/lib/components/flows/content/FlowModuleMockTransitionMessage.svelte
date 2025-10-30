@@ -4,7 +4,7 @@
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { Info } from 'lucide-svelte'
 
-	let darkMode = true
+	let darkMode = $state(true)
 
 	function openFullscreen(event: MouseEvent) {
 		const img = event.target as HTMLImageElement
@@ -59,13 +59,13 @@
 					<div
 						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-sm group-hover:shadow transition-shadow"
 					>
-						<!--svelte-ignore a11y-click-events-have-key-events-->
-						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+						<!--svelte-ignore a11y_click_events_have_key_events-->
+						<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 						<img
 							class="w-full h-full object-contain opacity-70 hover:opacity-100 cursor-pointer"
 							src={darkMode ? `${base}/pin-history-dark.png` : `${base}/pin-history.png`}
 							alt="History picker"
-							on:click={openFullscreen}
+							onclick={openFullscreen}
 						/>
 					</div>
 				</div>
@@ -82,13 +82,13 @@
 					<div
 						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-sm group-hover:shadow transition-shadow"
 					>
-						<!--svelte-ignore a11y-click-events-have-key-events-->
-						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+						<!--svelte-ignore a11y_click_events_have_key_events-->
+						<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 						<img
 							class="w-full h-full object-contain opacity-70 hover:opacity-100 cursor-pointer"
 							src={darkMode ? `${base}/pin-pin-dark.png` : `${base}/pin-pin.png`}
 							alt="Pin action"
-							on:click={openFullscreen}
+							onclick={openFullscreen}
 						/>
 					</div>
 				</div>
@@ -105,13 +105,13 @@
 					<div
 						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-sm group-hover:shadow transition-shadow"
 					>
-						<!--svelte-ignore a11y-click-events-have-key-events-->
-						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+						<!--svelte-ignore a11y_click_events_have_key_events-->
+						<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 						<img
 							class="w-full h-full object-contain opacity-70 hover:opacity-100 cursor-pointer"
 							src={darkMode ? `${base}/pin-restore-dark.png` : `${base}/pin-restore.png`}
 							alt="Recover pins"
-							on:click={openFullscreen}
+							onclick={openFullscreen}
 						/>
 					</div>
 				</div>
@@ -129,13 +129,13 @@
 					<div
 						class="border rounded-md p-1 bg-white dark:bg-slate-800 h-56 overflow-hidden shadow-sm group-hover:shadow transition-shadow"
 					>
-						<!--svelte-ignore a11y-click-events-have-key-events-->
-						<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+						<!--svelte-ignore a11y_click_events_have_key_events-->
+						<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 						<img
 							class="w-full h-full object-contain opacity-70 hover:opacity-100 cursor-pointer"
 							src={darkMode ? `${base}/pin-flow-view-dark.png` : `${base}/pin-flow-view.png`}
 							alt="Flow view pinning"
-							on:click={openFullscreen}
+							onclick={openFullscreen}
 						/>
 					</div>
 				</div>

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { SettingsService } from '$lib/gen'
 
-	let version = ''
+	let version = $state('')
 
 	loadVersion()
 

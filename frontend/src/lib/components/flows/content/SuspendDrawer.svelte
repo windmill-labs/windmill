@@ -6,18 +6,24 @@
 	import DrawerContent from '../../common/drawer/DrawerContent.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined = $state()
 
-	export let text: string = 'Approval Help'
+	interface Props {
+		text?: string
+	}
+
+	let { text = 'Approval Help' }: Props = $props()
 </script>
 
 <Button
 	size="xs"
 	variant="default"
 	on:click={() => {
-		drawer.openDrawer()
+		drawer?.openDrawer()
 	}}
-	>{text} <HelpCircle size={12} />
+>
+	{text}
+	<HelpCircle size={12} />
 </Button>
 
 <Drawer bind:this={drawer}>

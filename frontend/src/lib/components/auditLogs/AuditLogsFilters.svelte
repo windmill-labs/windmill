@@ -1,3 +1,5 @@
+<!-- @migration-task Error while migrating Svelte code: `$bindable()` can only be used inside a `$props()` declaration
+https://svelte.dev/e/bindable_invalid_location -->
 <script lang="ts" module>
 	async function loadResources(workspace: string): Promise<string[]> {
 		const r = await ResourceService.listResource({ workspace })

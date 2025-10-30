@@ -15,21 +15,39 @@
 		team_name: string
 	}
 
-	export let platform: 'slack' | 'teams'
-	export let teamName: string | undefined
-	export let display_name: string | undefined
-	export let scriptPath: string
-	export let initialPath: string
-	export let onDisconnect: () => Promise<void>
-	export let onSelect: () => Promise<void>
-	export let connectHref: string | undefined
-	export let createScriptHref: string
-	export let createFlowHref: string
-	export let documentationLink: string
-	export let onLoadSettings: () => void
-	export let itemKind: 'flow' | 'script' = 'script'
+	interface Props {
+		platform: 'slack' | 'teams';
+		teamName: string | undefined;
+		display_name: string | undefined;
+		scriptPath: string;
+		initialPath: string;
+		onDisconnect: () => Promise<void>;
+		onSelect: () => Promise<void>;
+		connectHref: string | undefined;
+		createScriptHref: string;
+		createFlowHref: string;
+		documentationLink: string;
+		onLoadSettings: () => void;
+		itemKind?: 'flow' | 'script';
+	}
 
-	let selectedTeam: TeamItem | undefined = undefined
+	let {
+		platform,
+		teamName,
+		display_name,
+		scriptPath = $bindable(),
+		initialPath,
+		onDisconnect,
+		onSelect,
+		connectHref,
+		createScriptHref,
+		createFlowHref,
+		documentationLink,
+		onLoadSettings,
+		itemKind = $bindable('script')
+	}: Props = $props();
+
+	let selectedTeam: TeamItem | undefined = $state(undefined)
 
 	async function connectTeams() {
 		if (!selectedTeam) return

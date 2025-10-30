@@ -11,14 +11,14 @@
 
 	type Kind = 'script' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app' | 'raw_app'
 
-	let kind: Kind
-	let initialPath: string = ''
-	let path: string | undefined = undefined
-	let summary: undefined | string = undefined
+	let kind: Kind = $state('script')
+	let initialPath: string = $state('')
+	let path: string | undefined = $state(undefined)
+	let summary: undefined | string = $state(undefined)
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined = $state()
 
-	let own = false
+	let own = $state(false)
 	export async function openDrawer(
 		initialPath_l: string,
 		summary_l: string | undefined,
@@ -29,7 +29,7 @@
 		initialPath = initialPath_l
 		summary = summary_l
 		loadOwner()
-		drawer.openDrawer()
+		drawer?.openDrawer()
 	}
 
 	function loadOwner() {
@@ -94,7 +94,7 @@
 			})
 		}
 		dispatch('update', path)
-		drawer.closeDrawer()
+		drawer?.closeDrawer()
 	}
 </script>
 

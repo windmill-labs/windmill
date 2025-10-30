@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { X } from 'lucide-svelte'
 	import CollapseLink from './CollapseLink.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
@@ -6,15 +8,22 @@
 	import { onMount } from 'svelte'
 	import { enterpriseLicense } from '$lib/stores'
 
-	export let name: string
-	export let value: any
-	export let login = true
-	export let eeOnly = false
+	interface Props {
+		name: string;
+		value: any;
+		login?: boolean;
+		eeOnly?: boolean;
+	}
 
-	$: enabled = value != undefined && !(eeOnly && !$enterpriseLicense)
+	let {
+		name,
+		value = $bindable(),
+		login = true,
+		eeOnly = false
+	}: Props = $props();
 
-	let tenant: string = ''
-	$: (name == 'microsoft' || name == 'teams') && changeTenantId(tenant)
+
+	let tenant: string = $state('')
 
 	onMount(() => {
 		try {
@@ -60,10 +69,14 @@
 			}
 		}
 	}
+	let enabled = $derived(value != undefined && !(eeOnly && !$enterpriseLicense))
+	run(() => {
+		(name == 'microsoft' || name == 'teams') && changeTenantId(tenant)
+	});
 </script>
 
 <div class="flex flex-col">
-	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label
 		class="text-sm flex gap-4 items-center font-medium text-primary {enabled ? 'rounded py-2' : ''}"
 		><div class="w-[120px]"><IconedResourceType {name} after={true} /></div><Toggle
@@ -116,7 +129,7 @@
 									class="max-w-96 w-full"
 									type="text"
 									bind:value={value['allowed_domains'][idx]}
-									on:keyup={(e) => {
+									onkeyup={(e) => {
 										if (domain == '') {
 											value['allowed_domains'] = value['allowed_domains']?.filter(
 												(d) => d != domain
@@ -126,7 +139,7 @@
 								/>
 								<button
 									class="text-primary text-xs rounded hover:bg-surface-hover"
-									on:click={() => {
+									onclick={() => {
 										value['allowed_domains'] = value['allowed_domains']?.filter((d) => d != domain)
 										if (value['allowed_domains'].length == 0) {
 											value['allowed_domains'] = undefined
@@ -140,7 +153,7 @@
 						<div class="flex gap-2">
 							<button
 								class="text-primary text-sm border rounded p-1"
-								on:click={() => {
+								onclick={() => {
 									value['allowed_domains'] = [...(value['allowed_domains'] ?? []), 'mydomain.com']
 								}}>+ Add domain</button
 							>

@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { clearUser } from '$lib/logout'
 	import { onMount } from 'svelte'
 
-	const rd = $page.url.searchParams.get('rd')
+	const rd = page.url.searchParams.get('rd')
 
 	onMount(async () => {
 		try {
@@ -14,7 +14,7 @@
 		} catch (err) {
 			console.error(err)
 		}
-		if ($page.url.pathname != '/user/logout' && $page.url.pathname != '/user/login') {
+		if (page.url.pathname != '/user/logout' && page.url.pathname != '/user/login') {
 			return
 		}
 

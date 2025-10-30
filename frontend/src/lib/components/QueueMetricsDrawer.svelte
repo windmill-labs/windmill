@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { run, createBubbler, preventDefault } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { onMount } from 'svelte'
 	import { Drawer, DrawerContent, Button } from './common'
 	import QueueMetricsDrawerInner from './QueueMetricsDrawerInner.svelte'
@@ -21,24 +24,26 @@
 		}
 	}
 
-	let drawer: Drawer
+	let drawer: Drawer | undefined = $state()
 	export function openDrawer() {
 		drawer?.openDrawer()
 	}
 
-	let alerts: Alert[] = []
+	let alerts: Alert[] = $state([])
 
 	let configName = 'alert__job_queue_waiting'
 	let originalAlerts: Alert[] = []
-	let newTag = ''
-	let editingIndex = -1
-	let changesMade = false
-	let removedAlerts: Alert[] = []
+	let newTag = $state('')
+	let editingIndex = $state(-1)
+	let changesMade = $state(false)
+	let removedAlerts: Alert[] = $state([])
 	let stagedNewAlert = false
-	let workerTags: string[] = []
-	let filteredTags: string[] = []
+	let workerTags: string[] = $state([])
+	let filteredTags: string[] = $state([])
 
-	$: removedAlerts
+	run(() => {
+		removedAlerts
+	})
 
 	onMount(async () => {
 		await fetchConfig()
@@ -234,7 +239,7 @@
 
 				{#if alerts.length > 0}
 					<div>
-						<form on:submit|preventDefault>
+						<form onsubmit={preventDefault(bubble('submit'))}>
 							<table class="w-full border-collapse mb-2 text-xs table-auto">
 								<thead class="bg-gray-200 dark:bg-slate-600 text-left text-xs">
 									<tr>
@@ -263,7 +268,7 @@
 										<th class="p-2 min-w-[100px]"> Actions </th>
 									</tr>
 								</thead>
-								<tbody on:input={handleInput}>
+								<tbody oninput={handleInput}>
 									{#each alerts as alert, index}
 										<tr
 											class={removedAlerts.includes(alert)
@@ -279,7 +284,7 @@
 															>
 																{tag}
 																<button
-																	on:click={() => removeTag(index, tag)}
+																	onclick={() => removeTag(index, tag)}
 																	aria-label="Remove tag"
 																	class="ml-1 text-xs">x</button
 																>
@@ -293,17 +298,17 @@
 															placeholder={workerTags.length === alert.tags_to_monitor.length
 																? 'All tags already added'
 																: 'Add tag from dropdown'}
-															on:input={(e) => filterTags(e)}
+															oninput={(e) => filterTags(e)}
 															disabled={workerTags.length === alert.tags_to_monitor.length}
 															class="p-1 flex-grow mr-1"
 														/>
-														<button on:click={() => addTag(index, newTag)} aria-label="Add tag">
+														<button onclick={() => addTag(index, newTag)} aria-label="Add tag">
 															<PlusCircle size={16} />
 														</button>
 													</div>
 													<!-- Add the new "Add All Tags" button here -->
 													<button
-														on:click={() => addAllTags(index)}
+														onclick={() => addAllTags(index)}
 														class="text-xs hover:bg-gray-200 dark:hover:bg-gray-700 rounded px-2 py-1 mt-1"
 														disabled={workerTags.length === alert.tags_to_monitor.length}
 													>
@@ -319,7 +324,7 @@
 																		<button
 																			type="button"
 																			class="w-full text-left p-2 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700"
-																			on:click={() => addTag(index, tag)}
+																			onclick={() => addTag(index, tag)}
 																		>
 																			{tag}
 																		</button>
@@ -375,14 +380,14 @@
 											<td class="border p-2">
 												<div class="flex gap-3 justify-center items-center">
 													{#if editingIndex === index}
-														<button on:click={() => saveAlert(index)} aria-label="Save">
+														<button onclick={() => saveAlert(index)} aria-label="Save">
 															<Check size={16} />
 														</button>
 													{:else}
-														<button on:click={() => startEditing(index)} aria-label="Edit">
+														<button onclick={() => startEditing(index)} aria-label="Edit">
 															<Pencil size={16} />
 														</button>
-														<button on:click={() => stageDeleteAlert(index)} aria-label="Delete">
+														<button onclick={() => stageDeleteAlert(index)} aria-label="Delete">
 															<Trash size={16} />
 														</button>
 													{/if}

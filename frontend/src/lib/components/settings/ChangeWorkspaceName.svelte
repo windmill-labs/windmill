@@ -71,15 +71,17 @@
 		</label>
 	</div>
 
-	<svelte:fragment slot="actions">
-		<Button
-			size="sm"
-			disabled={!newName}
-			on:click={() => {
-				renameWorkspace()
-			}}
-		>
-			Save
-		</Button>
-	</svelte:fragment>
+	{#snippet actions()}
+	
+			<Button
+				size="sm"
+				disabled={!newName}
+				on:click={() => {
+					renameWorkspace()
+				}}
+			>
+				Save
+			</Button>
+		
+	{/snippet}
 </Modal>

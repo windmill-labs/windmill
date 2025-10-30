@@ -32,30 +32,31 @@
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
 	import { setQuery } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { goto, replaceState } from '$app/navigation'
 
 	type Tab = 'hub' | 'workspace'
 
-	let tab: Tab =
+	let tab: Tab = $state(
 		window.location.hash == '#workspace' || window.location.hash == '#hub'
 			? (window.location.hash?.replace('#', '') as Tab)
 			: 'workspace'
+	)
 
-	let subtab: 'flow' | 'script' | 'app' = 'script'
+	let subtab: 'flow' | 'script' | 'app' = $state('script')
 
-	let filter: string = ''
+	let filter: string = $state('')
 
-	let flowViewer: Drawer
-	let flowViewerFlow: { flow?: OpenFlow & { id?: number } } | undefined
+	let flowViewer: Drawer | undefined = $state()
+	let flowViewerFlow: { flow?: OpenFlow & { id?: number } } | undefined = $state()
 
-	let appViewer: Drawer
-	let appViewerApp: { app?: any & { id?: number } } | undefined
+	let appViewer: Drawer | undefined = $state()
+	let appViewerApp: { app?: any & { id?: number } } | undefined = $state()
 
-	let codeViewer: Drawer
-	let codeViewerContent: string = ''
-	let codeViewerLanguage: Script['language'] = 'deno'
-	let codeViewerObj: HubItem | undefined = undefined
+	let codeViewer: Drawer | undefined = $state()
+	let codeViewerContent: string = $state('')
+	let codeViewerLanguage: Script['language'] = $state('deno')
+	let codeViewerObj: HubItem | undefined = $state(undefined)
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
@@ -68,7 +69,7 @@
 			codeViewerObj = obj
 		})
 
-		codeViewer.openDrawer?.()
+		codeViewer?.openDrawer?.()
 	}
 
 	async function viewFlow(obj: { flow_id: number }): Promise<void> {
@@ -77,7 +78,7 @@
 			delete hub['comments']
 			flowViewerFlow = hub
 		})
-		flowViewer.openDrawer?.()
+		flowViewer?.openDrawer?.()
 	}
 
 	async function viewApp(obj: { app_id: number }): Promise<void> {
@@ -86,7 +87,7 @@
 			delete hub['comments']
 			appViewerApp = hub
 		})
-		appViewer.openDrawer?.()
+		appViewer?.openDrawer?.()
 	}
 </script>
 
@@ -215,7 +216,7 @@
 						}}
 						summary={appViewerApp?.app.summary ?? ''}
 						noBackend
-						replaceStateFn={(path) => replaceState(path, $page.state)}
+						replaceStateFn={(path) => replaceState(path, page.state)}
 						gotoFn={(path, opt) => goto(path, opt)}
 					/>
 				{/await}
@@ -261,7 +262,7 @@
 					<ToggleButtonGroup
 						bind:selected={subtab}
 						onSelected={(v) => {
-							setQuery($page.url, 'kind', v, window.location.hash)
+							setQuery(page.url, 'kind', v, window.location.hash)
 						}}
 						noWFull
 					>

@@ -1,15 +1,18 @@
 <script lang="ts">
 	import { UserService } from '$lib/gen'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { base } from '$lib/base'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import { workspaceStore } from '$lib/stores'
 
-	let port = Number($page.url.searchParams.get('port'))
-	let host: string = $page.url.searchParams.get('host') || 'localhost'
-	let scheme: string = $page.url.searchParams.get('scheme') || 'http'
-	port = port == 0 || Number.isNaN(port) ? 80 : port
+	function initPort() {
+		let port = Number(page.url.searchParams.get('port'))
+		return port == 0 || Number.isNaN(port) ? 80 : port
+	}
+	let port = $state(initPort())
+	let host: string = page.url.searchParams.get('host') || 'localhost'
+	let scheme: string = page.url.searchParams.get('scheme') || 'http'
 
 	async function authorizeToken(): Promise<void> {
 		const newToken = await UserService.createToken({

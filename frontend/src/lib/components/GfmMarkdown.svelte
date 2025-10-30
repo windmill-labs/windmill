@@ -3,7 +3,11 @@
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import rehypeRaw from 'rehype-raw'
 	import { rehypeGithubAlerts } from 'rehype-github-alerts'
-	export let md: string
+	interface Props {
+		md: string;
+	}
+
+	let { md }: Props = $props();
 	const plugins: Plugin[] = [
 		gfmPlugin(),
 		{ rehypePlugin: [rehypeRaw] },

@@ -40,7 +40,8 @@
 						<div class="flex flex-row">
 							<TableCustom>
 								<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-								<tr slot="header-row" class="underline">
+								<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
+	<tr slot="header-row" class="underline">
 									<th>name</th>
 									<th>type</th>
 									<th>description</th>

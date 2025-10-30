@@ -1,22 +1,20 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
 
-	export let value: any
+	interface Props {
+		value: any;
+	}
+
+	let { value = $bindable() }: Props = $props();
 
 	const AUTH_URL_SUFFIX = '/ui/oauth2'
 
-	$: enabled = value != undefined
 
-	// If `baseUrl` is not already set in the form, try to parse it from the `auth_url` value
-	//
-	// The binding dance here allows us to avoid rendering the string 'undefined' in the input, and
-	// also allow lazy/async binding of the `value` prop.
-	$: derivedBaseUrl = value?.connect_config?.auth_url?.replace(AUTH_URL_SUFFIX, '')
-	let proxyUrlValue = undefined
-	$: baseUrl = proxyUrlValue ?? derivedBaseUrl ?? ''
+	let proxyUrlValue = $state(undefined)
 
-	$: changeValues({ baseUrl, id: value?.id ?? '' })
 
 	function changeValues({ baseUrl, id }) {
 		if (value) {
@@ -38,10 +36,20 @@
 			proxyUrlValue = baseUrl
 		}
 	}
+	let enabled = $derived(value != undefined)
+	// If `baseUrl` is not already set in the form, try to parse it from the `auth_url` value
+	//
+	// The binding dance here allows us to avoid rendering the string 'undefined' in the input, and
+	// also allow lazy/async binding of the `value` prop.
+	let derivedBaseUrl = $derived(value?.connect_config?.auth_url?.replace(AUTH_URL_SUFFIX, ''))
+	let baseUrl = $derived(proxyUrlValue ?? derivedBaseUrl ?? '')
+	run(() => {
+		changeValues({ baseUrl, id: value?.id ?? '' })
+	});
 </script>
 
 <div class="flex flex-col gap-1">
-	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label class="text-sm font-medium text-primary flex gap-4 items-center"
 		><div class="w-[120px]"><IconedResourceType name={'kanidm'} after={true} /></div><Toggle
 			checked={enabled}

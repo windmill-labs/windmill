@@ -281,7 +281,9 @@
 				{#if data.asset.kind === 'resource' && cachedResourceMetadata === undefined}
 					<Tooltip class={'pr-1 flex items-center justify-center'}>
 						<AlertTriangle size={16} class="text-orange-500" />
-						<svelte:fragment slot="text">Could not find resource</svelte:fragment>
+						{#snippet text()}
+												Could not find resource
+											{/snippet}
 					</Tooltip>
 				{:else if isSelected && assetCanBeExplored(data.asset, cachedResourceMetadata) && !$userStore?.operator}
 					<div transition:slide={{ axis: 'x', duration: 100 }}>
@@ -297,27 +299,29 @@
 					</div>
 				{/if}
 			</div>
-			<svelte:fragment slot="text">
-				{#if usageCount !== undefined}
-					Used in {pluralize(usageCount, 'step')}<br />
-				{/if}
-				<a
-					href={undefined}
-					class={twMerge(
-						'text-xs',
-						data.asset.kind === 'resource' ? 'text-accent cursor-pointer' : 'text-hint'
-					)}
-					onclick={() => {
-						if (data.asset.kind === 'resource')
-							flowGraphAssetsCtx?.val.resourceEditorDrawer?.initEdit(data.asset.path)
-					}}
-				>
-					{data.asset.path}
-				</a><br />
-				<span class="text-hint text-xs">
-					{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
-				>
-			</svelte:fragment>
+			{#snippet text()}
+					
+					{#if usageCount !== undefined}
+						Used in {pluralize(usageCount, 'step')}<br />
+					{/if}
+					<a
+						href={undefined}
+						class={twMerge(
+							'text-xs',
+							data.asset.kind === 'resource' ? 'text-accent cursor-pointer' : 'text-hint'
+						)}
+						onclick={() => {
+							if (data.asset.kind === 'resource')
+								flowGraphAssetsCtx?.val.resourceEditorDrawer?.initEdit(data.asset.path)
+						}}
+					>
+						{data.asset.path}
+					</a><br />
+					<span class="text-hint text-xs">
+						{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
+					>
+				
+					{/snippet}
 		</Tooltip>
 	{/snippet}
 </NodeWrapper>

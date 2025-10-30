@@ -149,7 +149,8 @@
 		{#if members}
 			<TableCustom>
 				<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-				<tr slot="header-row">
+				<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
+	<tr slot="header-row">
 					<th>user</th>
 					<th></th>
 					<th></th>
@@ -291,7 +292,8 @@
 				<h2 class="mt-6 text-emphasis text-xs font-semibold">Members from the instance group</h2>
 				<TableCustom>
 					<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-					<tr slot="header-row">
+					<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
+	<tr slot="header-row">
 						<th>user</th>
 					</tr>
 					{#snippet body()}

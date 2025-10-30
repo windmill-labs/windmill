@@ -5,10 +5,21 @@
 	import Tooltip from './Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let text: string
-	export let tooltip: string | undefined = undefined
-	export let view = false
-	export let size: 'xs' | 'sm' | 'md' | 'lg' = 'md'
+	interface Props {
+		text: string;
+		tooltip?: string | undefined;
+		view?: boolean;
+		size?: 'xs' | 'sm' | 'md' | 'lg';
+		children?: import('svelte').Snippet;
+	}
+
+	let {
+		text,
+		tooltip = undefined,
+		view = $bindable(false),
+		size = 'md',
+		children
+	}: Props = $props();
 </script>
 
 <Button
@@ -26,5 +37,5 @@
 	{/if}
 </Button>
 {#if view}
-	<div class="my-4 px-2" transition:slide|local><slot /></div>
+	<div class="my-4 px-2" transition:slide|local>{@render children?.()}</div>
 {/if}

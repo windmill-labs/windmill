@@ -2,8 +2,13 @@
 	import Markdown from 'svelte-exmarkdown'
 	import { ExternalLink } from 'lucide-svelte'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	export let documentationLink: string | undefined = undefined
-	export let markdownTooltip: string | undefined = undefined
+	interface Props {
+		documentationLink?: string | undefined;
+		markdownTooltip?: string | undefined;
+		children?: import('svelte').Snippet;
+	}
+
+	let { documentationLink = undefined, markdownTooltip = undefined, children }: Props = $props();
 	const plugins = [gfmPlugin()]
 </script>
 
@@ -15,7 +20,7 @@
 			<Markdown md={markdownTooltip} {plugins} />
 		</div>
 	{:else}
-		<slot />
+		{@render children?.()}
 	{/if}
 
 	{#if documentationLink}

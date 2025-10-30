@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { Badge, Skeleton } from '$lib/components/common'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -9,25 +11,35 @@
 	import { createEventDispatcher } from 'svelte'
 	import { flip } from 'svelte/animate'
 	import { fade } from 'svelte/transition'
+	interface Props {
+		children?: import('svelte').Snippet
+	}
+
+	let { children }: Props = $props()
 
 	// export let failureModule: boolean
 	const dispatch = createEventDispatcher()
 
-	let items: Flow[] | undefined = undefined
-	let filteredItems: (Flow & { marked?: string })[] | undefined = undefined
-	let filter = ''
-	$: $workspaceStore && loadFlows()
+	let items: Flow[] | undefined = $state(undefined)
+	let filteredItems: (Flow & { marked?: string })[] | undefined = $state(undefined)
+	let filter = $state('')
 
-	let ownerFilter: string | undefined = undefined
-	$: prefilteredItems = ownerFilter ? items?.filter((x) => x.path.startsWith(ownerFilter!)) : items
-
-	$: owners = Array.from(
-		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-	).sort()
+	let ownerFilter: string | undefined = $state(undefined)
 
 	async function loadFlows() {
 		items = await FlowService.listFlows({ workspace: $workspaceStore! })
 	}
+	run(() => {
+		$workspaceStore && loadFlows()
+	})
+	let prefilteredItems = $derived.by(() =>
+		ownerFilter ? items?.filter((x) => x.path.startsWith(ownerFilter!)) : items
+	)
+	let owners = $derived.by(() =>
+		Array.from(
+			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+		).sort()
+	)
 </script>
 
 <SearchItems
@@ -39,7 +51,7 @@
 <div class="flex flex-col min-h-0 p-4">
 	<h3 class="mb-4">Pick a Workspace Flow</h3>
 	<div class="w-full flex mt-1 items-center gap-2 mb-3">
-		<slot />
+		{@render children?.()}
 
 		<input
 			type="text"
@@ -78,7 +90,7 @@
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-1 flex flex-row grow hover:bg-surface-hover bg-surface transition-all text-primary"
-						on:click={() => {
+						onclick={() => {
 							dispatch('pick', { path })
 						}}
 					>

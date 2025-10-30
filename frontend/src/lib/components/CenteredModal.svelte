@@ -4,10 +4,21 @@
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import LoginPageHeader from './LoginPageHeader.svelte'
 
-	export let subtitle: string | undefined = undefined
-	export let title = 'Windmill'
-	export let disableLogo = false
-	export let large = false
+	interface Props {
+		subtitle?: string | undefined;
+		title?: string;
+		disableLogo?: boolean;
+		large?: boolean;
+		children?: import('svelte').Snippet;
+	}
+
+	let {
+		subtitle = undefined,
+		title = 'Windmill',
+		disableLogo = false,
+		large = false,
+		children
+	}: Props = $props();
 
 	setLicense()
 </script>
@@ -38,7 +49,7 @@
 					</p>
 				{/if}
 			</div>
-			<slot />
+			{@render children?.()}
 		</div>
 	</div>
 

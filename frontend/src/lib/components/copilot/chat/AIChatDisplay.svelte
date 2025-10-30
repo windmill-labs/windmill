@@ -99,55 +99,59 @@
 		</div>
 		<div class="flex flex-row items-center gap-2">
 			<Popover>
-				<svelte:fragment slot="trigger">
-					<Button
-						on:click={() => {}}
-						title="History"
-						size="md"
-						btnClasses="!p-1"
-						startIcon={{ icon: HistoryIcon }}
-						iconOnly
-						variant="border"
-						color="light"
-						propagateEvent
-					/>
-				</svelte:fragment>
-				<svelte:fragment slot="content" let:close>
-					<div class="p-1 overflow-y-auto max-h-[300px]">
-						{#if pastChats.length === 0}
-							<div class="text-center text-primary text-xs">No history</div>
-						{:else}
-							<div class="flex flex-col">
-								{#each pastChats as chat}
-									<button
-										class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1"
-										onclick={() => {
-											loadPastChat(chat.id)
-											close()
-										}}
-									>
-										<div
-											class="text-xs font-medium w-48 text-ellipsis overflow-hidden whitespace-nowrap flex-1"
-											title={chat.title}
-										>
-											{chat.title}
-										</div>
-										<Button
-											iconOnly
-											size="xs2"
-											btnClasses="!p-1"
-											variant="default"
-											startIcon={{ icon: X }}
-											on:click={() => {
-												deletePastChat(chat.id)
+				{#snippet trigger()}
+							
+						<Button
+							on:click={() => {}}
+							title="History"
+							size="md"
+							btnClasses="!p-1"
+							startIcon={{ icon: HistoryIcon }}
+							iconOnly
+							variant="border"
+							color="light"
+							propagateEvent
+						/>
+					
+							{/snippet}
+				{#snippet content({ close })}
+							
+						<div class="p-1 overflow-y-auto max-h-[300px]">
+							{#if pastChats.length === 0}
+								<div class="text-center text-primary text-xs">No history</div>
+							{:else}
+								<div class="flex flex-col">
+									{#each pastChats as chat}
+										<button
+											class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1"
+											onclick={() => {
+												loadPastChat(chat.id)
+												close()
 											}}
-										/>
-									</button>
-								{/each}
-							</div>
-						{/if}
-					</div>
-				</svelte:fragment>
+										>
+											<div
+												class="text-xs font-medium w-48 text-ellipsis overflow-hidden whitespace-nowrap flex-1"
+												title={chat.title}
+											>
+												{chat.title}
+											</div>
+											<Button
+												iconOnly
+												size="xs2"
+												btnClasses="!p-1"
+												variant="default"
+												startIcon={{ icon: X }}
+												on:click={() => {
+													deletePastChat(chat.id)
+												}}
+											/>
+										</button>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					
+							{/snippet}
 			</Popover>
 			<Button
 				title="New chat"

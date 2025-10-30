@@ -4,12 +4,12 @@
 	import DeployWorkspace from './DeployWorkspace.svelte'
 	import { type AdditionalInformation, type Kind } from '$lib/utils_deployable'
 
-	let initialPath: string | undefined = undefined
-	let kind: Kind | undefined = undefined
-	let drawer: Drawer | undefined = undefined
-	let workspaceToDeployTo: string | undefined = undefined
-	let deployWorkspace: DeployWorkspace | undefined = undefined
-	let additionalInformation: AdditionalInformation | undefined = undefined
+	let initialPath: string | undefined = $state(undefined)
+	let kind: Kind | undefined = $state(undefined)
+	let drawer: Drawer | undefined = $state(undefined)
+	let workspaceToDeployTo: string | undefined = $state(undefined)
+	let deployWorkspace: DeployWorkspace | undefined = $state(undefined)
+	let additionalInformation: AdditionalInformation | undefined = $state(undefined)
 
 	export async function openDrawer(
 		initialPath_l: string,

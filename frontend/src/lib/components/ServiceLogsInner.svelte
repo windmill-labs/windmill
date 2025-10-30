@@ -19,7 +19,7 @@
 	import SplitPanesOrColumnOnMobile from './splitPanes/SplitPanesOrColumnOnMobile.svelte'
 	import Select from './select/Select.svelte'
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 
 	interface Props {
 		searchTerm: string
@@ -32,8 +32,8 @@
 	let minTs: undefined | string = $state(undefined)
 	let maxTs: undefined | string = $state(undefined)
 
-	let minTsManual: undefined | string = $state($page.url.searchParams.get('minTs') ?? undefined)
-	let maxTsManual: undefined | string = $state($page.url.searchParams.get('maxTs') ?? undefined)
+	let minTsManual: undefined | string = $state(page.url.searchParams.get('minTs') ?? undefined)
+	let maxTsManual: undefined | string = $state(page.url.searchParams.get('maxTs') ?? undefined)
 
 	let max_lines: undefined | number = $state(undefined)
 
@@ -171,13 +171,13 @@
 
 	type Selected = { mode: string; workerGroup: string; hostname: string }
 	let initialSelected =
-		$page.url.searchParams.get('mode') &&
-		$page.url.searchParams.get('workerGroup') &&
-		$page.url.searchParams.get('hostname')
+		page.url.searchParams.get('mode') &&
+		page.url.searchParams.get('workerGroup') &&
+		page.url.searchParams.get('hostname')
 			? {
-					mode: $page.url.searchParams.get('mode')!,
-					workerGroup: $page.url.searchParams.get('workerGroup')!,
-					hostname: $page.url.searchParams.get('hostname')!
+					mode: page.url.searchParams.get('mode')!,
+					workerGroup: page.url.searchParams.get('workerGroup')!,
+					hostname: page.url.searchParams.get('hostname')!
 				}
 			: undefined
 	let selected: Selected | undefined = $state(initialSelected)
@@ -710,7 +710,7 @@
 								<LogSnippetViewer
 									content={snippet_fragment || document.logs[0]}
 									highlighted={snippet_highlighted}
-									on:click={() => {
+									onClick={() => {
 										let logLineNumber = document.line_number[0]
 										let logFile = document.file_name[0]
 										let host = document.host[0]

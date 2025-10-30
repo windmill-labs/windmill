@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { Alert } from '$lib/components/common'
 	import Popover from '$lib/components/Popover.svelte'
 	import ServiceLogsInner from '$lib/components/ServiceLogsInner.svelte'
@@ -7,7 +7,7 @@
 	import { devopsRole } from '$lib/stores'
 	import { Search, AlertTriangle } from 'lucide-svelte'
 
-	let searchTerm = $state($page.url.searchParams.get('query') ?? '')
+	let searchTerm = $state(page.url.searchParams.get('query') ?? '')
 	let queryParseErrors: string[] | undefined = $state(undefined)
 </script>
 

@@ -1,3 +1,4 @@
+<!-- @migration-task Error while migrating Svelte code: $$props is used together with named props in a way that cannot be automatically migrated. -->
 <script module>
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 </script>

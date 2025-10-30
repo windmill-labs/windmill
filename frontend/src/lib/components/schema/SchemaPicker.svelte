@@ -5,13 +5,25 @@
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let payloadData: Record<string, any>
-	export let date: string | undefined
-	export let selected = false
+	interface Props {
+		payloadData: Record<string, any>;
+		date: string | undefined;
+		selected?: boolean;
+		start?: import('svelte').Snippet;
+		extra?: import('svelte').Snippet;
+	}
+
+	let {
+		payloadData,
+		date,
+		selected = false,
+		start,
+		extra
+	}: Props = $props();
 
 	const dispatch = createEventDispatcher()
 
-	let hovering = false
+	let hovering = $state(false)
 	function formatDate(dateString: string | undefined): string {
 		if (!dateString) return ''
 		const date = new Date(dateString)
@@ -31,18 +43,18 @@
 		hovering ? 'bg-surface-hover' : '',
 		selected ? 'bg-surface-selected' : ''
 	)}
-	on:click={() => {
+	onclick={() => {
 		dispatch('select')
 	}}
-	on:mouseenter={() => {
+	onmouseenter={() => {
 		hovering = true
 	}}
-	on:mouseleave={() => {
+	onmouseleave={() => {
 		hovering = false
 	}}
 >
 	<div class="flex flex-row gap-2">
-		<slot name="start" />
+		{@render start?.()}
 
 		<div
 			class="text-2xs font-normal text-left p-2 rounded-md overflow-auto grow-0 text-ellipsis whitespace-nowrap scrollbar-none"
@@ -52,34 +64,36 @@
 		</div>
 
 		<CustomPopover class="grow min-w-12 ">
-			<!-- svelte-ignore a11y-click-events-have-key-events -->
-			<!-- svelte-ignore a11y-no-static-element-interactions -->
+			<!-- svelte-ignore a11y_click_events_have_key_events -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class={twMerge(
 					'text-xs border font-normal text-left p-1 rounded-md overflow-auto grow whitespace-nowrap scrollbar-none',
 					hovering && 'border-surface'
 				)}
-				on:click={() => {
+				onclick={() => {
 					if (selected) {
 						copyToClipboard(JSON.stringify(payloadData))
 					}
 				}}
-				on:mouseenter={() => {
+				onmouseenter={() => {
 					hovering = true
 				}}
-				on:mouseleave={() => {
+				onmouseleave={() => {
 					hovering = false
 				}}
 			>
 				{JSON.stringify(payloadData)}
 			</div>
-			<svelte:fragment slot="overlay">
-				<ObjectViewer json={payloadData} />
-			</svelte:fragment>
+			{#snippet overlay()}
+					
+					<ObjectViewer json={payloadData} />
+				
+					{/snippet}
 		</CustomPopover>
 
 		{#if hovering}
-			<slot name="extra" />
+			{@render extra?.()}
 		{/if}
 	</div>
 </button>

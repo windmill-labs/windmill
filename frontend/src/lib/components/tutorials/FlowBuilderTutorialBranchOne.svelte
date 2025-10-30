@@ -9,7 +9,7 @@
 	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
-	let tutorial: Tutorial | undefined = undefined
+	let tutorial: Tutorial | undefined = $state(undefined)
 
 	export function runTutorial(indexToInsertAt?: number | undefined) {
 		tutorial?.runTutorial({ indexToInsertAt })

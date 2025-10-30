@@ -2,10 +2,19 @@
 	import { Button } from '$lib/components/common'
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 
-	export let isLoading
-	export let hideShortcut = false
-	export let onRun: () => Promise<void>
-	export let onCancel: () => Promise<void>
+	interface Props {
+		isLoading: any;
+		hideShortcut?: boolean;
+		onRun: () => Promise<void>;
+		onCancel: () => Promise<void>;
+	}
+
+	let {
+		isLoading,
+		hideShortcut = false,
+		onRun,
+		onCancel
+	}: Props = $props();
 </script>
 
 {#if !isLoading}

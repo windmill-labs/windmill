@@ -1,3 +1,5 @@
+<!-- @migration-task Error while migrating Svelte code: Identifier 'onSelectedIteration' has already been declared
+https://svelte.dev/e/js_parse_error -->
 <script lang="ts">
 	import { FlowService, type FlowModule, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'

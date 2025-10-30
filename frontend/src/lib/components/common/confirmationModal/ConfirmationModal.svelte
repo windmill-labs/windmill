@@ -77,7 +77,7 @@
 	const Icon = $derived(theme[type].Icon ?? AlertTriangle)
 </script>
 
-<svelte:window on:keydown|capture={onKeyDown} />
+<svelte:window onkeydowncapture={onKeyDown} />
 
 {#if open}
 	<div

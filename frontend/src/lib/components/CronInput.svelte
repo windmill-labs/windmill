@@ -219,7 +219,7 @@
 				{#if !disabled}
 					<div class="flex flex-row gap-2 shrink-0">
 						{@render cronBuilder()}
-						<CronGen bind:schedule bind:cronVersion />
+						<CronGen bind:schedule {cronVersion} />
 					</div>
 				{/if}
 			</div>

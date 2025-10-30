@@ -9,21 +9,34 @@
 	import { dfs } from './flows/dfs'
 	import { workspaceStore } from '$lib/stores'
 
-	export let flow: {
+
+	interface Props {
+		flow: {
 		summary: string
 		description?: string
 		value: FlowValue
 		schema?: any
 		path?: string
+	};
+		overflowAuto?: boolean;
+		noSide?: boolean;
+		download?: boolean;
+		noGraph?: boolean;
+		triggerNode?: boolean;
+		stepDetail?: FlowModule | string | undefined;
+		workspace?: string | undefined;
 	}
 
-	export let overflowAuto = false
-	export let noSide = false
-	export let download = false
-	export let noGraph = false
-	export let triggerNode = false
-	export let stepDetail: FlowModule | string | undefined = undefined
-	export let workspace: string | undefined = $workspaceStore
+	let {
+		flow,
+		overflowAuto = false,
+		noSide = false,
+		download = false,
+		noGraph = false,
+		triggerNode = false,
+		stepDetail = $bindable(undefined),
+		workspace = $workspaceStore
+	}: Props = $props();
 
 	const dispatch = createEventDispatcher()
 </script>

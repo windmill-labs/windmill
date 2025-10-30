@@ -15,7 +15,7 @@
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
 	import { copyToClipboard, isObject, readFieldsRecursively } from '$lib/utils'
-	// import { page } from '$app/stores'
+	// import { page } from '$app/state'
 	import { base } from '$lib/base'
 	import TriggerTokens from '../TriggerTokens.svelte'
 	import { workspaceStore, userStore } from '$lib/stores'

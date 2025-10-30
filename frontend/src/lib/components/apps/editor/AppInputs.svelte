@@ -9,7 +9,7 @@
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
-	let resourceOnly: boolean = true
+	let resourceOnly: boolean = $state(true)
 </script>
 
 <Alert type="info" title="Configurations">

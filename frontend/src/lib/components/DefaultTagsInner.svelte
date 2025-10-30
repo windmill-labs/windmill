@@ -10,12 +10,16 @@
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 
-	let defaultTags: string[] | undefined = undefined
-	export let defaultTagPerWorkspace: boolean | undefined = undefined
-	export let defaultTagWorkspaces: string[] = []
-	let limitToWorkspaces = false
+	let defaultTags: string[] | undefined = $state(undefined)
+	interface Props {
+		defaultTagPerWorkspace?: boolean | undefined;
+		defaultTagWorkspaces?: string[];
+	}
 
-	let workspaces: string[] = []
+	let { defaultTagPerWorkspace = $bindable(undefined), defaultTagWorkspaces = $bindable([]) }: Props = $props();
+	let limitToWorkspaces = $state(false)
+
+	let workspaces: string[] = $state([])
 	async function loadWorkspaces() {
 		workspaces = (await WorkspaceService.listWorkspacesAsSuperAdmin()).map((m) => m.id)
 	}

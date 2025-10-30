@@ -136,22 +136,26 @@
 		{#if showContext}
 			<div class="flex flex-row gap-1 mb-1 overflow-scroll pt-2 no-scrollbar">
 				<Popover>
-					<svelte:fragment slot="trigger">
-						<div
-							class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
-							>@</div
-						>
-					</svelte:fragment>
-					<svelte:fragment slot="content" let:close>
-						<AvailableContextList
-							{availableContext}
-							{selectedContext}
-							onSelect={(element) => {
-								addContextToSelection(element)
-								close()
-							}}
-						/>
-					</svelte:fragment>
+					{#snippet trigger()}
+									
+							<div
+								class="border rounded-md px-1 py-0.5 font-normal text-primary text-xs hover:bg-surface-hover bg-surface"
+								>@</div
+							>
+						
+									{/snippet}
+					{#snippet content({ close })}
+									
+							<AvailableContextList
+								{availableContext}
+								{selectedContext}
+								onSelect={(element) => {
+									addContextToSelection(element)
+									close()
+								}}
+							/>
+						
+									{/snippet}
 				</Popover>
 				{#each selectedContext as element}
 					<ContextElementBadge

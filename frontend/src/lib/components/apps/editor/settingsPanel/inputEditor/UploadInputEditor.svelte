@@ -75,7 +75,8 @@
 		}}
 	>
 		<!-- @migration-task: migrate this slot by hand, `selected-title` is an invalid identifier -->
-		<svelte:fragment slot="selected-title">
+		<!-- @migration-task: migrate this slot by hand, `selected-title` is an invalid identifier -->
+	<svelte:fragment slot="selected-title">
 			<!-- Removing the title when there is a selected file -->
 			<span></span>
 		</svelte:fragment>

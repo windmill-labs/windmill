@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import {
@@ -20,13 +20,13 @@
 	import Login from '$lib/components/Login.svelte'
 	import { onMount } from 'svelte'
 
-	const email = $page.url.searchParams.get('email') ?? ''
-	const password = $page.url.searchParams.get('password') ?? ''
-	const error = $page.url.searchParams.get('error') ?? undefined
-	const rd = $page.url.searchParams.get('rd') ?? undefined
+	const email = page.url.searchParams.get('email') ?? ''
+	const password = page.url.searchParams.get('password') ?? ''
+	const error = page.url.searchParams.get('error') ?? undefined
+	const rd = page.url.searchParams.get('rd') ?? undefined
 
 	let showPassword = false
-	let firstTime = false
+	let firstTime = $state(false)
 
 	function clearWindmillCloudCookies() {
 		const domain = window.location.hostname

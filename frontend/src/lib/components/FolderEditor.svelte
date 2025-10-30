@@ -267,7 +267,8 @@
 			{#if perms}
 				<TableCustom>
 					<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-					<tr slot="header-row">
+					<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
+	<tr slot="header-row">
 						<th>user/group</th>
 						<th></th>
 						<th></th>

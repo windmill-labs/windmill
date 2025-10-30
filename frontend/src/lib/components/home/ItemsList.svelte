@@ -32,7 +32,7 @@
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
 	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { setQuery } from '$lib/navigation'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
@@ -73,7 +73,7 @@
 	let filteredItems: (TableScript | TableFlow | TableApp | TableRawApp)[] = $state([])
 
 	let itemKind = $state(
-		($page.url.searchParams.get('kind') as 'script' | 'flow' | 'app' | 'all') ?? 'all'
+		(page.url.searchParams.get('kind') as 'script' | 'flow' | 'app' | 'all') ?? 'all'
 	)
 
 	let loading = $state(true)
@@ -375,7 +375,7 @@
 					if (itemKind != 'all') {
 						subtab = v
 					}
-					setQuery($page.url, 'kind', v)
+					setQuery(page.url, 'kind', v)
 				}}
 			>
 				{#snippet children({ item })}

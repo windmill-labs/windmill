@@ -9,13 +9,22 @@
 	import { Cell, Row } from '$lib/components/table'
 	import { twMerge } from 'tailwind-merge'
 
-	export let job: any
-	export let selected = false
-	export let payloadData: any | undefined = undefined
 	const dispatch = createEventDispatcher()
-	export let hovering = false
+	interface Props {
+		job: any;
+		selected?: boolean;
+		payloadData?: any | undefined;
+		hovering?: boolean;
+	}
 
-	let loadingArgs = true
+	let {
+		job,
+		selected = false,
+		payloadData = $bindable(undefined),
+		hovering = $bindable(false)
+	}: Props = $props();
+
+	let loadingArgs = $state(true)
 	loadArgsFromRunningJob(job.id)
 
 	async function loadArgsFromRunningJob(id: string | undefined) {
@@ -48,29 +57,33 @@
 		on:hover={(e) => (hovering = e.detail ? true : false)}
 	>
 		<SchemaPickerRow {payloadData} date={job.created_at} {hovering}>
-			<svelte:fragment slot="start">
-				<div class="center-center">
-					<div
-						class={twMerge(
-							'rounded-full w-2 h-2 animate-pulse',
-							job.suspend ? 'bg-violet-400' : 'bg-orange-400'
-						)}
-						title="Running"
-					></div>
-				</div>
-			</svelte:fragment>
-			<svelte:fragment slot="extra">
-				<div class="center-center {hovering ? '' : '!hidden'}">
-					<a
-						target="_blank"
-						href="{base}/run/{job.id}?workspace={$workspaceStore}"
-						class="text-right float-right text-secondary"
-						title="See run detail in a new tab"
-					>
-						<ExternalLink size={16} />
-					</a>
-				</div>
-			</svelte:fragment>
+			{#snippet start()}
+					
+					<div class="center-center">
+						<div
+							class={twMerge(
+								'rounded-full w-2 h-2 animate-pulse',
+								job.suspend ? 'bg-violet-400' : 'bg-orange-400'
+							)}
+							title="Running"
+						></div>
+					</div>
+				
+					{/snippet}
+			{#snippet extra()}
+					
+					<div class="center-center {hovering ? '' : '!hidden'}">
+						<a
+							target="_blank"
+							href="{base}/run/{job.id}?workspace={$workspaceStore}"
+							class="text-right float-right text-secondary"
+							title="See run detail in a new tab"
+						>
+							<ExternalLink size={16} />
+						</a>
+					</div>
+				
+					{/snippet}
 		</SchemaPickerRow>
 	</Row>
 {/if}

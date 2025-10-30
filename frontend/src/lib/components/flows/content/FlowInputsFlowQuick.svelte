@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { Skeleton } from '$lib/components/common'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
@@ -10,22 +12,32 @@
 	// export let failureModule: boolean
 	const dispatch = createEventDispatcher()
 
-	let items: Flow[] | undefined = undefined
-	let filteredItems: (Flow & { marked?: string })[] | undefined = undefined
-	export let filter = ''
-	$: $workspaceStore && loadFlows()
+	let items: Flow[] | undefined = $state(undefined)
+	let filteredItems: (Flow & { marked?: string })[] | undefined = $state(undefined)
 
 	let ownerFilter: string | undefined = undefined
-	$: prefilteredItems = ownerFilter ? items?.filter((x) => x.path.startsWith(ownerFilter!)) : items
 
-	export let owners: string[] = []
-	$: owners = Array.from(
-		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-	).sort()
+	interface Props {
+		filter?: string
+		owners?: string[]
+	}
+
+	let { filter = '', owners = $bindable([]) }: Props = $props()
 
 	async function loadFlows() {
 		items = await FlowService.listFlows({ workspace: $workspaceStore! })
 	}
+	run(() => {
+		$workspaceStore && loadFlows()
+	})
+	let prefilteredItems = $derived.by(() =>
+		ownerFilter ? items?.filter((x) => x.path.startsWith(ownerFilter!)) : items
+	)
+	run(() => {
+		owners = Array.from(
+			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+		).sort()
+	})
 </script>
 
 <SearchItems
@@ -46,7 +58,7 @@
 				<li class="flex flex-row w-full">
 					<button
 						class="px-3 py-2 gap-2 flex flex-row w-full hover:bg-surface-hover bg-surface transition-all items-center rounded-md text-left text-2xs text-primary font-normal"
-						on:click={async () => {
+						onclick={async () => {
 							dispatch('pickFlow', {
 								path,
 								summary

@@ -1,8 +1,10 @@
+<!-- @migration-task Error while migrating Svelte code: can't migrate `let summary = ''` to `$state` because there's a variable named state.
+     Rename the variable and try again or migrate by hand. -->
 <script lang="ts">
 	import { importStore } from '$lib/components/apps/store'
 
 	import { AppService, type Policy } from '$lib/gen'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 	import { decodeState } from '$lib/utils'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { afterNavigate, replaceState } from '$app/navigation'
@@ -15,9 +17,9 @@
 	import FileEditorIcon from '$lib/components/raw_apps/FileEditorIcon.svelte'
 	import { react18Template, react19Template, svelte5Template, vueTemplate } from './templates'
 
-	let nodraft = $page.url.searchParams.get('nodraft')
-	const templatePath = $page.url.searchParams.get('template')
-	const templateId = $page.url.searchParams.get('template_id')
+	let nodraft = page.url.searchParams.get('nodraft')
+	const templatePath = page.url.searchParams.get('template')
+	const templateId = page.url.searchParams.get('template_id')
 
 	const importRaw = $importStore
 	if ($importStore) {
@@ -30,9 +32,9 @@
 	let files: Record<string, string> = react19Template
 	afterNavigate(() => {
 		if (nodraft) {
-			let url = new URL($page.url.href)
+			let url = new URL(page.url.href)
 			url.search = ''
-			replaceState(url.toString(), $page.state)
+			replaceState(url.toString(), page.state)
 		}
 	})
 	let policy: Policy = {

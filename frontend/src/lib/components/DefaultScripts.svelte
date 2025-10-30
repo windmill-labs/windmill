@@ -6,11 +6,15 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import DefaultScriptsInner from './DefaultScriptsInner.svelte'
 
-	let drawer: Drawer
-	export let placement: 'left' | 'right' = 'left'
+	let drawer: Drawer | undefined = $state()
 
-	export let size: 'xs3' | 'xs2' = 'xs2'
-	export let noText = false
+	interface Props {
+		placement?: 'left' | 'right'
+		size?: 'xs3' | 'xs2'
+		noText?: boolean
+	}
+
+	let { placement = 'left', size = 'xs2', noText = false }: Props = $props()
 </script>
 
 {#if $userStore?.is_admin || $userStore?.is_super_admin}

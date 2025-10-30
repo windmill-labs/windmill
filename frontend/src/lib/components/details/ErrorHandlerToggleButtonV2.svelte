@@ -5,13 +5,23 @@
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 
-	export let kind: 'script' | 'flow'
-	export let scriptOrFlowPath: string
-	export let errorHandlerMuted: boolean | undefined
-	export let textDisabled = false
-	let toggleState = errorHandlerMuted
+	interface Props {
+		kind: 'script' | 'flow'
+		scriptOrFlowPath: string
+		errorHandlerMuted: boolean | undefined
+		textDisabled?: boolean
+		color?: 'nord' | 'red' | 'blue' | undefined
+	}
 
-	export let color: 'nord' | 'red' | 'blue' | undefined = undefined
+	let {
+		kind,
+		scriptOrFlowPath,
+		errorHandlerMuted = $bindable(),
+		textDisabled = false,
+		color = undefined
+	}: Props = $props()
+
+	let toggleState = $state(errorHandlerMuted)
 
 	async function toggleErrorHandler(): Promise<void> {
 		toggleState = !toggleState

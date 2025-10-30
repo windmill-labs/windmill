@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
 	import { afterNavigate, replaceState } from '$app/navigation'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
@@ -14,19 +14,19 @@
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import type { Trigger } from '$lib/components/triggers/utils'
 
-	let nodraft = $page.url.searchParams.get('nodraft')
+	let nodraft = page.url.searchParams.get('nodraft')
 
 	afterNavigate(() => {
 		if (nodraft) {
-			let url = new URL($page.url.href)
+			let url = new URL(page.url.href)
 			url.search = ''
-			replaceState(url.toString(), $page.state)
+			replaceState(url.toString(), page.state)
 		}
 	})
 
-	const hubId = $page.url.searchParams.get('hub')
-	const templatePath = $page.url.searchParams.get('template')
-	const templateId = $page.url.searchParams.get('template_id')
+	const hubId = page.url.searchParams.get('hub')
+	const templatePath = page.url.searchParams.get('template')
+	const templateId = page.url.searchParams.get('template_id')
 	const initialState = hubId || templatePath || nodraft ? undefined : localStorage.getItem('flow')
 
 	let selectedId: string = $state('settings-metadata')
@@ -72,7 +72,7 @@
 		}
 
 		let state = initialState ? decodeState(initialState) : undefined
-		const initialStateQuery = $page.url.hash != '' ? $page.url.hash.slice(1) : undefined
+		const initialStateQuery = page.url.hash != '' ? page.url.hash.slice(1) : undefined
 
 		if (initialStateQuery) {
 			state = decodeState(initialStateQuery)

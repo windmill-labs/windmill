@@ -11,21 +11,26 @@
 	import { createEventDispatcher } from 'svelte'
 	import { ArrowBigUp } from 'lucide-svelte'
 
-	export let item
-	export let depth: number = 0
-
 	const dispatch = createEventDispatcher()
 
-	let deleteConfirmedCallback: (() => void) | undefined = undefined
-	let shareModal: ShareModal
-	let moveDrawer: MoveDrawer
-	let deploymentDrawer: DeployWorkspaceDrawer
+	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let shareModal: ShareModal | undefined = $state()
+	let moveDrawer: MoveDrawer | undefined = $state()
+	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 
-	let menuOpen: boolean = false
-	export let showCode: (path: string, summary: string) => void
+	let menuOpen: boolean = $state(false)
+	interface Props {
+		item: any
+		depth?: number
+		showCode: (path: string, summary: string) => void
+	}
+
+	let { item, depth = 0, showCode }: Props = $props()
 </script>
 
-{#if item.type == 'script'}
+{#if !shareModal || !moveDrawer || !deploymentDrawer}
+	<!-- For type safety -->
+{:else if item.type == 'script'}
 	<ScriptRow
 		bind:deleteConfirmedCallback
 		starred={item.starred ?? false}

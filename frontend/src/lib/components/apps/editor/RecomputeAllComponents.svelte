@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { getContext, onMount } from 'svelte'
 	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { allItems, BG_PREFIX } from '../utils'
@@ -10,12 +12,9 @@
 
 	let timeout: number | undefined = undefined
 	let shouldRefresh = false
-	let firstLoad = false
+	let firstLoad = $state(false)
 	let progressTimer: number | undefined = undefined
 
-	$: !firstLoad &&
-		canInitializeAll($initialized?.initializedComponents, $app) &&
-		refresh('all initialized')
 
 	// $: console.log('canInitializeAll', firstLoad, $initialized?.initializedComponents)
 	function canInitializeAll(initialized: string[] | undefined, app: App) {
@@ -53,8 +52,6 @@
 		}
 	}
 
-	$: $recomputeAllContext.componentNumber =
-		Object.values($runnableComponents).filter((x) => x.autoRefresh).length ?? 0
 
 	onMount(() => {
 		if (appEditorContext) {
@@ -112,7 +109,7 @@
 		onRefresh(!inter, 'setInter ' + source)
 	}
 
-	let refreshing: string[] = []
+	let refreshing: string[] = $state([])
 	function refresh(reason: string, excludeId: string | undefined = undefined) {
 		let isFirstLoad = false
 		if (!firstLoad && reason == 'all initialized') {
@@ -182,6 +179,15 @@
 			setInter: (n) => setInter(n, 'all context')
 		}
 	})
+	run(() => {
+		!firstLoad &&
+			canInitializeAll($initialized?.initializedComponents, $app) &&
+			refresh('all initialized')
+	});
+	run(() => {
+		$recomputeAllContext.componentNumber =
+			Object.values($runnableComponents).filter((x) => x.autoRefresh).length ?? 0
+	});
 </script>
 
 <RecomputeAllButton

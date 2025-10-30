@@ -1,27 +1,41 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
-	export let marginWidth = '2px'
-	export let animationDuration = '2s'
-	export let baseRadius = '4px'
-	export let animate = true
-	export let wrapperClasses = ''
-	export let ringColor = 'transparent'
-	export let darkMode = false
+	interface Props {
+		marginWidth?: string;
+		animationDuration?: string;
+		baseRadius?: string;
+		animate?: boolean;
+		wrapperClasses?: string;
+		ringColor?: string;
+		darkMode?: boolean;
+		children?: import('svelte').Snippet;
+	}
+
+	let {
+		marginWidth = '2px',
+		animationDuration = '2s',
+		baseRadius = '4px',
+		animate = true,
+		wrapperClasses = '',
+		ringColor = 'transparent',
+		darkMode = $bindable(false),
+		children
+	}: Props = $props();
 
 	const gradientColors = {
 		light: ['#d6e5ff', '#0073ff', '#5aa2fa', '#0272fa', '#d6e5ff'],
 		dark: ['#0469db', '#15498a', '#031ea3', '#0073ff', '#0469db']
 	}
 
-	let clientWidth = 0
-	let clientHeight = 0
+	let clientWidth = $state(0)
+	let clientHeight = $state(0)
 
-	$: circleRadius = Math.ceil(
+	let circleRadius = $derived(Math.ceil(
 		Math.sqrt(clientWidth * clientWidth + clientHeight * clientHeight) / 2
-	)
+	))
 
-	$: gradientString = `from 0deg, ${gradientColors[darkMode ? 'dark' : 'light'].join(', ')}`
+	let gradientString = $derived(`from 0deg, ${gradientColors[darkMode ? 'dark' : 'light'].join(', ')}`)
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -33,7 +47,7 @@
 	bind:clientWidth
 	bind:clientHeight
 >
-	<slot />
+	{@render children?.()}
 </div>
 
 <style>

@@ -30,7 +30,7 @@
 	}
 </script>
 
-<!-- svelte-ignore missing-declaration -->
+<!-- svelte-ignore missing_declaration -->
 <CenteredModal title="Subscription upgrade {success ? 'succeeded' : 'failed'}">
 	{#if !success}
 		<div class="my-2">

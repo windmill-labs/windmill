@@ -2,9 +2,13 @@
 	import { Button } from './common'
 	import { Minus, Plus } from 'lucide-svelte'
 
-	export let extra_params: Record<string, string> = {}
+	interface Props {
+		extra_params?: Record<string, string>;
+	}
 
-	let extra_params_vec: [string, string][] = Object.entries(extra_params)
+	let { extra_params = $bindable({}) }: Props = $props();
+
+	let extra_params_vec: [string, string][] = $state(Object.entries(extra_params))
 
 	function sync() {
 		extra_params = Object.fromEntries(extra_params_vec)
@@ -13,8 +17,8 @@
 
 {#each extra_params_vec as o}
 	<div class="flex flex-row max-w-md mb-2">
-		<input type="text" on:keyup={sync} bind:value={o[0]} />
-		<input type="text" on:keyup={sync} bind:value={o[1]} />
+		<input type="text" onkeyup={sync} bind:value={o[0]} />
+		<input type="text" onkeyup={sync} bind:value={o[1]} />
 		<Button
 			variant="default"
 			destructive

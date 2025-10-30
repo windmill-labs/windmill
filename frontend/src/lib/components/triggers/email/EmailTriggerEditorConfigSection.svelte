@@ -3,7 +3,7 @@
 	import Required from '$lib/components/Required.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	// import { page } from '$app/stores'
+	// import { page } from '$app/state'
 	import { getEmailAddress, getEmailDomain } from './utils'
 	import { isCloudHosted } from '$lib/cloud'
 	import Toggle from '$lib/components/Toggle.svelte'

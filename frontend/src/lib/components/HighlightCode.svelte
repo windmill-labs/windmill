@@ -132,8 +132,10 @@
 			{#if !lines}
 				<Highlight class="nowrap {className}" language={lang} {code} />
 			{:else}
-				<Highlight class="nowrap {className}" language={lang} {code} let:highlighted>
-					<LineNumbers {highlighted} />
+				<Highlight class="nowrap {className}" language={lang} {code}>
+					{#snippet children({ highlighted })}
+						<LineNumbers {highlighted} />
+					{/snippet}
 				</Highlight>
 			{/if}
 		{:else}

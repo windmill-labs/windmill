@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import type { TriggerContext } from '$lib/components/triggers'
@@ -8,10 +10,14 @@
 	import { setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 
-	export let path: string
-	export let noSide = false
+	interface Props {
+		path: string;
+		noSide?: boolean;
+	}
 
-	let flow: Flow | undefined = undefined
+	let { path, noSide = false }: Props = $props();
+
+	let flow: Flow | undefined = $state(undefined)
 
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
@@ -28,7 +34,9 @@
 		)
 	}
 
-	$: path && loadFlow(path)
+	run(() => {
+		path && loadFlow(path)
+	});
 </script>
 
 <div class="flex flex-col flex-1 h-full overflow-auto">

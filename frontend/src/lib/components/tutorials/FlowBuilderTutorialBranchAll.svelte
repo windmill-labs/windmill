@@ -7,7 +7,7 @@
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let tutorial: Tutorial | undefined = undefined
+	let tutorial: Tutorial | undefined = $state(undefined)
 
 	export function runTutorial(indexToInsertAt?: number | undefined) {
 		tutorial?.runTutorial({ indexToInsertAt })

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { mergeSchema } from '$lib/common'
 	import { type Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -9,23 +11,30 @@
 	import { Button } from './common'
 	import SchemaForm from './SchemaForm.svelte'
 
-	export let isOwner: boolean
-	export let workspaceId: string | undefined
-	export let job: Job
-	export let light: boolean = false
+	interface Props {
+		isOwner: boolean;
+		workspaceId: string | undefined;
+		job: Job;
+		light?: boolean;
+	}
 
-	let default_payload: object = {}
-	let resumeUrl: string | undefined = undefined
-	let cancelUrl: string | undefined = undefined
-	let description: any = undefined
-	let hide_cancel = false
+	let {
+		isOwner,
+		workspaceId,
+		job,
+		light = false
+	}: Props = $props();
 
-	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
+	let default_payload: object = $state({})
+	let resumeUrl: string | undefined = $state(undefined)
+	let cancelUrl: string | undefined = $state(undefined)
+	let description: any = $state(undefined)
+	let hide_cancel = $state(false)
 
-	let defaultValues = {}
-	$: job && getDefaultArgs()
 
-	let schema = {}
+	let defaultValues = $state({})
+
+	let schema = $state({})
 	let lastJobId: string | undefined = undefined
 	async function getDefaultArgs() {
 		let jobId = job?.flow_status?.modules?.[approvalStep]?.job
@@ -113,6 +122,10 @@
 			}
 		}
 	}
+	let approvalStep = $derived((job?.flow_status?.step ?? 1) - 1)
+	run(() => {
+		job && getDefaultArgs()
+	});
 </script>
 
 <div class="w-full h-full mt-2 text-xs text-primary">

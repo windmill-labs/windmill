@@ -1,14 +1,18 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
 
-	export let value: any
+	interface Props {
+		value: any;
+	}
 
-	$: enabled = value != undefined
+	let { value = $bindable() }: Props = $props();
 
-	let org = ''
 
-	$: changeOrg(org)
+	let org = $state('')
+
 
 	function changeOrg(org) {
 		if (value) {
@@ -28,10 +32,14 @@
 			}
 		}
 	}
+	let enabled = $derived(value != undefined)
+	run(() => {
+		changeOrg(org)
+	});
 </script>
 
 <div class="flex flex-col gap-1">
-	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label class="text-sm font-medium text-primary flex gap-4 items-center"
 		><div class="w-[120px]"><IconedResourceType name={'authelia'} after={true} /></div><Toggle
 			checked={enabled}

@@ -653,7 +653,7 @@
 						platform="slack"
 						teamName={slack_team_name}
 						bind:scriptPath={slackScriptPath}
-						bind:initialPath={slackInitialPath}
+						initialPath={slackInitialPath}
 						bind:itemKind
 						onDisconnect={async () => {
 							await OauthService.disconnectSlack({ workspace: $workspaceStore ?? '' })
@@ -681,7 +681,7 @@
 						platform="teams"
 						teamName={teams_team_id}
 						bind:scriptPath={teamsScriptPath}
-						bind:initialPath={teamsInitialPath}
+						initialPath={teamsInitialPath}
 						bind:itemKind
 						onDisconnect={async () => {
 							await OauthService.disconnectTeams({ workspace: $workspaceStore ?? '' })

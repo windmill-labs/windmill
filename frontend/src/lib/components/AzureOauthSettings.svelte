@@ -1,38 +1,48 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { ExternalLink } from 'lucide-svelte'
 	import OauthScopes from './OauthScopes.svelte'
 
-	export let connect_config: {
+	interface Props {
+		connect_config?: {
 		scopes: string[]
 		auth_url: string
 		token_url: string
 		req_body_auth: boolean
 		extra_params: { tenant_id: string }
 		extra_params_callback: Record<string, any>
-	} = {
+	};
+	}
+
+	let { connect_config = $bindable({
 		scopes: ['offline_access'],
 		auth_url: '',
 		token_url: '',
 		req_body_auth: true,
 		extra_params: { tenant_id: '' },
 		extra_params_callback: {}
-	}
+	}) }: Props = $props();
 
-	$: if (!connect_config) {
-		connect_config = {
-			scopes: ['offline_access'],
-			auth_url: '',
-			token_url: '',
-			req_body_auth: true,
-			extra_params: { tenant_id: '' },
-			extra_params_callback: {}
+	run(() => {
+		if (!connect_config) {
+			connect_config = {
+				scopes: ['offline_access'],
+				auth_url: '',
+				token_url: '',
+				req_body_auth: true,
+				extra_params: { tenant_id: '' },
+				extra_params_callback: {}
+			}
 		}
-	}
+	});
 
-	$: if (connect_config.extra_params.tenant_id) {
-		connect_config.auth_url = `https://login.microsoftonline.com/${connect_config.extra_params.tenant_id}/oauth2/v2.0/authorize`
-		connect_config.token_url = `https://login.microsoftonline.com/${connect_config.extra_params.tenant_id}/oauth2/v2.0/token`
-	}
+	run(() => {
+		if (connect_config.extra_params.tenant_id) {
+			connect_config.auth_url = `https://login.microsoftonline.com/${connect_config.extra_params.tenant_id}/oauth2/v2.0/authorize`
+			connect_config.token_url = `https://login.microsoftonline.com/${connect_config.extra_params.tenant_id}/oauth2/v2.0/token`
+		}
+	});
 </script>
 
 <label class="block pb-2" for="tenant-id">

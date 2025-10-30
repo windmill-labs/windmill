@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import 'chartjs-adapter-date-fns'
 	import { Line } from '$lib/components/chartjs-wrappers/chartJs'
 
@@ -21,7 +23,7 @@
 	import DarkModeObserver from './DarkModeObserver.svelte'
 	import Alert from './common/alert/Alert.svelte'
 
-	let loading: boolean = true
+	let loading: boolean = $state(true)
 
 	const colorTuples = [
 		['#7EB26D', 'rgba(126, 178, 109, 0.2)'],
@@ -63,12 +65,12 @@
 		LogarithmicScale
 	)
 
-	let countData: ChartData<'line', Point[], undefined> | undefined = undefined
-	let delayData: ChartData<'line', Point[], undefined> | undefined = undefined
+	let countData: ChartData<'line', Point[], undefined> | undefined = $state(undefined)
+	let delayData: ChartData<'line', Point[], undefined> | undefined = $state(undefined)
 
-	let minDate = new Date()
+	let minDate = $state(new Date())
 
-	let noMetrics = false
+	let noMetrics = $state(false)
 
 	function fillData(
 		data: {
@@ -178,10 +180,14 @@
 
 	loadMetrics()
 
-	let darkMode = false
+	let darkMode = $state(false)
 
-	$: ChartJS.defaults.color = darkMode ? '#ccc' : '#666'
-	$: ChartJS.defaults.borderColor = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+	run(() => {
+		ChartJS.defaults.color = darkMode ? '#ccc' : '#666'
+	});
+	run(() => {
+		ChartJS.defaults.borderColor = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+	});
 </script>
 
 <DarkModeObserver bind:darkMode />

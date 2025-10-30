@@ -3,8 +3,13 @@
 	import { Check, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
-	export let confirmation: string = 'Are you sure?'
-	let firstClick = false
+	interface Props {
+		confirmation?: string;
+		children?: import('svelte').Snippet;
+	}
+
+	let { confirmation = 'Are you sure?', children }: Props = $props();
+	let firstClick = $state(false)
 	const dispatch = createEventDispatcher()
 </script>
 
@@ -13,7 +18,7 @@
 	<Button
 		on:click={() => {
 			firstClick = true
-		}}><slot /></Button
+		}}>{@render children?.()}</Button
 	>
 {:else}
 		{confirmation}

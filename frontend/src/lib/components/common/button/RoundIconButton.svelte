@@ -1,13 +1,18 @@
 <script lang="ts">
-	export let color: 'light' | 'dark' | undefined = 'light'
-	export let border: boolean = false
+	interface Props {
+		color?: 'light' | 'dark' | undefined;
+		border?: boolean;
+		children?: import('svelte').Snippet;
+	}
 
-	$: colorClasses = {
+	let { color = 'light', border = false, children }: Props = $props();
+
+	let colorClasses = $derived({
 		light: 'text-primary bg-surface hover:bg-surface-hover text-primary',
 		dark: 'text-primary hover:bg-surface-hover-dark text-primary'
-	}[color ?? 'light']
+	}[color ?? 'light'])
 </script>
 
 <div class="rounded-full p-1 {colorClasses} {border ? 'border border-tertiary' : ''}">
-	<slot />
+	{@render children?.()}
 </div>

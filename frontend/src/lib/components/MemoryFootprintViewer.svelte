@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { type MetricDataPoint, MetricsService } from '$lib/gen'
 	import { displayTime } from '$lib/utils'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
@@ -17,16 +19,20 @@
 
 	ChartJS.register(Title, Tooltip, Legend, LineElement, LinearScale, PointElement, CategoryScale)
 
-	export let jobId: string
-	export let jobUpdateLastFetch: Date | undefined
+	interface Props {
+		jobId: string;
+		jobUpdateLastFetch: Date | undefined;
+	}
+
+	let { jobId, jobUpdateLastFetch }: Props = $props();
 
 	let jobMetricsLastFetch: Date | undefined = undefined
-	let jobMemoryStats: MetricDataPoint[] | undefined = undefined
+	let jobMemoryStats: MetricDataPoint[] | undefined = $state(undefined)
 
 	let data: {
 		x: number
 		y: number
-	}[] = []
+	}[] = $state([])
 	let labels: string[] = []
 
 	async function loadMetricsData() {
@@ -66,7 +72,9 @@
 		data = [...data]
 	}
 
-	$: jobUpdateLastFetch && loadMetricsData()
+	run(() => {
+		jobUpdateLastFetch && loadMetricsData()
+	});
 </script>
 
 <div class="relative max-h-100">
