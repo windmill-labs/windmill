@@ -1005,9 +1005,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 									class="inline-flex h-6 w-6 items-center justify-center rounded-full ring-2 ring-white bg-gray-600"
 									title={user.name}
 								>
-									<span class="text-sm font-semibold leading-none text-white"
-										>{user.name.substring(0, 2).toLocaleUpperCase()}</span
-									>
+									<span class="text-sm font-semibold leading-none text-white">
+										{user.name.substring(0, 2).toLocaleUpperCase()}
+									</span>
 								</span>
 							{/each}
 						</div>
