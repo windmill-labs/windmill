@@ -39,10 +39,10 @@
 		flow: Flow & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 		marked: string | undefined
 		starred: boolean
-		shareModal: ShareModal
-		moveDrawer: MoveDrawer
+		shareModal?: ShareModal
+		moveDrawer?: MoveDrawer
 		deleteConfirmedCallback: (() => void) | undefined
-		deploymentDrawer: DeployWorkspaceDrawer
+		deploymentDrawer?: DeployWorkspaceDrawer
 		errorHandlerMuted: boolean
 		depth?: number
 		menuOpen?: boolean
@@ -204,7 +204,7 @@
 						displayName: 'Move/Rename',
 						icon: FolderOpen,
 						action: () => {
-							moveDrawer.openDrawer(path, flow.summary, 'flow')
+							moveDrawer?.openDrawer(path, flow.summary, 'flow')
 						},
 						disabled: !owner || archived,
 						hide: $userStore?.operator
@@ -222,7 +222,7 @@
 									displayName: 'Deploy to staging/prod',
 									icon: ChevronUpSquare,
 									action: () => {
-										deploymentDrawer.openDrawer(path, 'flow')
+										deploymentDrawer?.openDrawer(path, 'flow')
 									},
 									disabled: archived,
 									hide: $userStore?.operator
@@ -250,7 +250,7 @@
 						displayName: owner ? 'Share' : 'See Permissions',
 						icon: Share,
 						action: () => {
-							shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
+							shareModal?.openDrawer && shareModal?.openDrawer(path, 'flow')
 						},
 						hide: $userStore?.operator
 					},

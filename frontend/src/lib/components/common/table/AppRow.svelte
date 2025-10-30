@@ -37,9 +37,9 @@
 		app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 		marked: string | undefined
 		starred: boolean
-		shareModal: ShareModal
-		moveDrawer: MoveDrawer
-		deploymentDrawer: DeployWorkspaceDrawer
+		shareModal?: ShareModal
+		moveDrawer?: MoveDrawer
+		deploymentDrawer?: DeployWorkspaceDrawer
 		deleteConfirmedCallback: (() => void) | undefined
 		depth?: number
 		menuOpen?: boolean
@@ -178,7 +178,7 @@
 						displayName: 'Move/Rename',
 						icon: FolderOpen,
 						action: () => {
-							moveDrawer.openDrawer(path, summary, 'app')
+							moveDrawer?.openDrawer(path, summary, 'app')
 						},
 						disabled: !canWrite,
 						hide: $userStore?.operator
@@ -189,7 +189,7 @@
 									displayName: 'Deploy to staging/prod',
 									icon: ChevronUpSquare,
 									action: () => {
-										deploymentDrawer.openDrawer(path, 'app')
+										deploymentDrawer?.openDrawer(path, 'app')
 									},
 									hide: $userStore?.operator
 								}
@@ -212,7 +212,7 @@
 						displayName: canWrite ? 'Share' : 'See Permissions',
 						icon: Share,
 						action: () => {
-							shareModal.openDrawer && shareModal.openDrawer(path, 'app')
+							shareModal?.openDrawer && shareModal?.openDrawer(path, 'app')
 						},
 						hide: $userStore?.operator
 					},

@@ -48,9 +48,9 @@
 		script: Script & { canWrite: boolean; use_codebase: boolean }
 		marked: string | undefined
 		starred: boolean
-		shareModal: ShareModal
-		moveDrawer: MoveDrawer
-		deploymentDrawer: DeployWorkspaceDrawer
+		shareModal?: ShareModal
+		moveDrawer?: MoveDrawer
+		deploymentDrawer?: DeployWorkspaceDrawer
 		deleteConfirmedCallback: (() => void) | undefined
 		errorHandlerMuted: boolean
 		showCode: (path: string, summary: string) => void
@@ -241,7 +241,7 @@
 						displayName: 'Move/Rename',
 						icon: FolderOpen,
 						action: () => {
-							moveDrawer.openDrawer(script.path, script.summary, 'script')
+							moveDrawer?.openDrawer(script.path, script.summary, 'script')
 						},
 						disabled: !owner || script.archived,
 						hide: $userStore?.operator
@@ -252,7 +252,7 @@
 									displayName: 'Deploy to staging/prod',
 									icon: ChevronUpSquare,
 									action: () => {
-										deploymentDrawer.openDrawer(script.path, 'script')
+										deploymentDrawer?.openDrawer(script.path, 'script')
 									},
 									disabled: script.archived,
 									hide: $userStore?.operator
@@ -290,7 +290,7 @@
 						displayName: owner ? 'Share' : 'See Permissions',
 						icon: Share,
 						action: () => {
-							shareModal.openDrawer && shareModal.openDrawer(script.path, 'script')
+							shareModal?.openDrawer && shareModal?.openDrawer(script.path, 'script')
 						},
 						disabled: script.archived,
 						hide: $userStore?.operator

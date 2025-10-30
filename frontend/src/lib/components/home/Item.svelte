@@ -28,9 +28,7 @@
 	let { item, depth = 0, showCode }: Props = $props()
 </script>
 
-{#if !shareModal || !moveDrawer || !deploymentDrawer}
-	<!-- For type safety -->
-{:else if item.type == 'script'}
+{#if item.type == 'script'}
 	<ScriptRow
 		bind:deleteConfirmedCallback
 		starred={item.starred ?? false}
