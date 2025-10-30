@@ -65,7 +65,9 @@
 <div class="flex flex-col">
 	<!-- svelte-ignore a11y-label-has-associated-control -->
 	<label
-		class="text-sm flex gap-4 items-center font-medium text-primary {enabled ? 'rounded py-2' : ''}"
+		class="text-xs flex gap-4 items-center font-semibold text-emphasis {enabled
+			? 'rounded py-2'
+			: ''}"
 		><div class="w-[120px]"><IconedResourceType {name} after={true} /></div><Toggle
 			checked={enabled}
 			disabled={eeOnly && !$enterpriseLicense}

@@ -46,7 +46,7 @@
 
 <div class="flex flex-col gap-1">
 	<!-- svelte-ignore a11y_label_has_associated_control -->
-	<label class="text-sm font-medium text-primary flex gap-4 items-center"
+	<label class="text-xs font-semibold text-emphasis flex gap-4 items-center"
 		><div class="w-[120px]"><IconedResourceType name="nextcloud" after={true} /></div><Toggle
 			checked={enabled}
 			on:change={(e) => {
@@ -70,9 +70,7 @@
 			</label>
 			<label class="block pb-2">
 				<span class="text-primary font-semibold text-sm"
-					>Client Id <Tooltip
-						>Client ID from your Nextcloud OAuth2 app configuration</Tooltip
-					></span
+					>Client Id <Tooltip>Client ID from your Nextcloud OAuth2 app configuration</Tooltip></span
 				>
 				<input type="text" placeholder="Client Id" bind:value={value['id']} />
 			</label>
@@ -87,9 +85,11 @@
 			<CollapseLink text="Instructions">
 				<div class="text-sm text-secondary border p-2">
 					1. Go to your Nextcloud instance as an administrator<br />
-					2. Navigate to <strong>Administration settings → Security → OAuth 2.0 clients</strong><br />
+					2. Navigate to <strong>Administration settings → Security → OAuth 2.0 clients</strong><br
+					/>
 					3. Click "Add client" to create a new OAuth2 application<br />
-					4. Set the redirect URI to your Windmill instance's <code>{baseUrl || 'BASE_URL'}/user/login_callback/nextcloud</code><br />
+					4. Set the redirect URI to your Windmill instance's
+					<code>{baseUrl || 'BASE_URL'}/user/login_callback/nextcloud</code><br />
 					5. Copy the Client ID and Client Secret to the fields above<br />
 				</div>
 			</CollapseLink>
