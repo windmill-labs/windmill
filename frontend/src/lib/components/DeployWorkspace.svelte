@@ -60,7 +60,7 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let notSet: boolean | undefined = $state(undefined)
-	let isFlow = $derived(false)
+	let isFlow: boolean | undefined = $state(undefined)
 
 	async function reload(path: string) {
 		try {
