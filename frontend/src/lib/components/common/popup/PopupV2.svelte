@@ -10,6 +10,7 @@
 		target?: string | undefined
 		button?: import('svelte').Snippet
 		children?: import('svelte').Snippet<[{ close: () => void }]>
+		class?: string
 	}
 
 	let {
@@ -21,7 +22,8 @@
 		open = $bindable(false),
 		target = undefined,
 		button,
-		children
+		children,
+		class: classNames = undefined
 	}: Props = $props()
 
 	// export let containerClasses: string = 'rounded-lg shadow-md border p-4 bg-surface'
@@ -40,7 +42,7 @@
 <Portal name="popup-v2" {target}>
 	{#if open}
 		<div
-			class="dark:border rounded-lg shadow-lg bg-surface z5000"
+			class="dark:border rounded-lg shadow-lg bg-surface z5000 {classNames ?? ''}"
 			style="position:absolute"
 			use:floatingContent
 			transition:fly={{ duration: 100, y: -16 }}
