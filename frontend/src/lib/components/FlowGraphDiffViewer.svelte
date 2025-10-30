@@ -3,12 +3,7 @@
 	import YAML from 'yaml'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { Alert, Button } from './common'
-	import {
-		computeFlowModuleDiff,
-		splitModuleDiffForViews,
-		buildFlowTimeline,
-		hasInputSchemaChanged
-	} from './flows/flowDiff'
+	import { buildFlowTimeline, hasInputSchemaChanged } from './flows/flowDiff'
 	import { dfs } from './flows/dfs'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import type { AIModuleAction } from './copilot/chat/flow/core'
@@ -59,12 +54,6 @@
 		}
 	})
 
-	// Compute module diff and split for before/after views
-	let moduleDiff = $derived(
-		beforeFlow && afterFlow ? computeFlowModuleDiff(beforeFlow.value, afterFlow.value) : {}
-	)
-	let { beforeActions } = $derived(splitModuleDiffForViews(moduleDiff))
-
 	// Detect if input schema has changed
 	let inputSchemaModified = $derived(hasInputSchemaChanged(beforeFlow, afterFlow))
 
@@ -76,7 +65,7 @@
 	// In unified view, mark removed modules as 'removed' to show them in red
 	let timeline = $derived.by(() => {
 		if (!beforeFlow || !afterFlow) return undefined
-		return buildFlowTimeline(beforeFlow.value, afterFlow.value, moduleDiff, {
+		return buildFlowTimeline(beforeFlow.value, afterFlow.value, {
 			markRemovedAsShadowed: isSideBySide
 		})
 	})
@@ -218,7 +207,7 @@
 									preprocessorModule={beforeFlow.value.preprocessor_module}
 									earlyStop={beforeFlow.value.skip_expr !== undefined}
 									cache={beforeFlow.value.cache_ttl !== undefined}
-									moduleActions={beforeActions}
+									moduleActions={timeline?.beforeActions}
 									{inputSchemaModified}
 									onShowModuleDiff={handleShowModuleDiff}
 									notSelectable={true}

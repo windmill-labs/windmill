@@ -7,7 +7,7 @@ import type { GraphModuleState } from './model'
 import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 import type { ModulesTestStates, ModuleTestState } from '../modulesTest.svelte'
-import type { AIModuleAction } from '../copilot/chat/flow/core'
+import { type AIModuleAction } from '../copilot/chat/flow/core'
 
 export type InsertKind =
 	| 'script'
@@ -149,7 +149,7 @@ export type ModuleN = {
 		flowJob: Job | undefined
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
-		moduleAction?: 'added' | 'removed' | 'modified' | 'shadowed'
+		moduleAction?: AIModuleAction
 		onShowModuleDiff?: (moduleId: string) => void
 	}
 }

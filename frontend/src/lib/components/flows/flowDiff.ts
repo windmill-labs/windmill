@@ -4,16 +4,6 @@ import { deepEqual } from 'fast-equals'
 import type { AIModuleAction } from '../copilot/chat/flow/core'
 
 /**
- * Represents the diff actions for a single module, potentially different for before/after views.
- */
-export type ModuleDiffResult = {
-	before?: AIModuleAction
-	after?: AIModuleAction
-	/** Original index in beforeFlow.modules for removed top-level modules */
-	originalIndex?: number
-}
-
-/**
  * Represents a single item in the merged timeline for visualization.
  * Each item has complete context about its history and operation type.
  */
@@ -47,8 +37,8 @@ export type FlowTimeline = {
 	/** Ordered list of all modules in rendering order */
 	items: TimelineItem[]
 
-	/** Mapping from module ID to timeline item for quick lookup */
-	itemMap: Map<string, TimelineItem>
+	/** The before actions */
+	beforeActions: Record<string, AIModuleAction>
 
 	/** The merged flow for compatibility with existing code */
 	mergedFlow: FlowValue
@@ -67,15 +57,13 @@ export type FlowTimeline = {
 export function computeFlowModuleDiff(
 	beforeFlow: FlowValue,
 	afterFlow: FlowValue
-): Record<string, ModuleDiffResult> {
-	const result: Record<string, ModuleDiffResult> = {}
+): { beforeActions: Record<string, AIModuleAction>; afterActions: Record<string, AIModuleAction> } {
+	const beforeActions: Record<string, AIModuleAction> = {}
+	const afterActions: Record<string, AIModuleAction> = {}
 
 	// Get all modules from both flows using dfs
 	const beforeModules = getAllModulesMap(beforeFlow)
 	const afterModules = getAllModulesMap(afterFlow)
-
-	// Get top-level indices for removed modules
-	const beforeIndices = getTopLevelModuleIndices(beforeFlow)
 
 	// Find all module IDs
 	const allModuleIds = new Set([...beforeModules.keys(), ...afterModules.keys()])
@@ -86,28 +74,27 @@ export function computeFlowModuleDiff(
 
 		if (!beforeModule && afterModule) {
 			// Module exists in after but not before -> added
-			result[moduleId] = { after: 'added' }
+			afterActions[moduleId] = 'added'
 		} else if (beforeModule && !afterModule) {
 			// Module exists in before but not after -> removed
-			const originalIndex = beforeIndices.get(moduleId)
-			result[moduleId] = { before: 'removed', originalIndex }
+			beforeActions[moduleId] = 'removed'
+			afterActions[moduleId] = 'shadowed'
 		} else if (beforeModule && afterModule) {
 			// Module exists in both -> check type and content
 			const typeChanged = beforeModule.value.type !== afterModule.value.type
-
 			if (typeChanged) {
 				// Type changed -> treat as removed + added
-				const originalIndex = beforeIndices.get(moduleId)
-				result[moduleId] = { before: 'removed', after: 'added', originalIndex }
+				beforeActions[moduleId] = 'removed'
+				afterActions[moduleId] = 'added'
 			} else if (!deepEqual(beforeModule, afterModule)) {
 				// Same type but different content -> modified
-				result[moduleId] = { before: 'modified', after: 'modified' }
+				beforeActions[moduleId] = 'modified'
+				afterActions[moduleId] = 'modified'
 			}
-			// If they're equal, don't add to result (no change)
 		}
 	}
 
-	return result
+	return { beforeActions, afterActions }
 }
 
 /**
@@ -154,40 +141,12 @@ function getTopLevelModuleIndices(flow: FlowValue): Map<string, number> {
 }
 
 /**
- * Splits a module diff map into separate maps for before and after views.
- * - Before view: shows modules with before actions (removed or modified)
- * - After view: shows modules with after actions (added or modified)
- *
- * @param moduleDiff - The complete module diff with separate before/after actions
- * @returns An object with beforeActions and afterActions maps
- */
-export function splitModuleDiffForViews(moduleDiff: Record<string, ModuleDiffResult>): {
-	beforeActions: Record<string, AIModuleAction>
-	afterActions: Record<string, AIModuleAction>
-} {
-	const beforeActions: Record<string, AIModuleAction> = {}
-	const afterActions: Record<string, AIModuleAction> = {}
-
-	for (const [moduleId, diffResult] of Object.entries(moduleDiff)) {
-		if (diffResult.before) {
-			beforeActions[moduleId] = diffResult.before
-		}
-		if (diffResult.after) {
-			afterActions[moduleId] = diffResult.after
-		}
-	}
-
-	return { beforeActions, afterActions }
-}
-
-/**
  * Builds a sequential timeline of flow modules for diff visualization.
  * Uses beforeFlow positions as baseline and inserts added modules using anchor-based strategy.
  */
 export function buildFlowTimeline(
 	beforeFlow: FlowValue,
 	afterFlow: FlowValue,
-	moduleDiff: Record<string, ModuleDiffResult>,
 	options: { markRemovedAsShadowed: boolean } = { markRemovedAsShadowed: false }
 ): FlowTimeline {
 	const beforeModules = getAllModulesMap(beforeFlow)
@@ -195,6 +154,8 @@ export function buildFlowTimeline(
 	const afterIndices = getTopLevelModuleIndices(afterFlow)
 	const allModuleIds = new Set([...beforeModules.keys(), ...afterModules.keys()])
 	const afterModuleIds = new Set(afterModules.keys())
+
+	const { beforeActions, afterActions } = computeFlowModuleDiff(beforeFlow, afterFlow)
 
 	// Build timeline items starting with beforeFlow order
 	const timelineItems: TimelineItem[] = []
@@ -210,13 +171,11 @@ export function buildFlowTimeline(
 		const afterIndex = afterIndices.get(moduleId)
 
 		// Determine operation - undefined means unchanged module
-		let operation: AIModuleAction | undefined =
-			moduleDiff[moduleId]?.after ?? moduleDiff[moduleId]?.before
+		let operation: AIModuleAction | undefined = afterActions[moduleId]
 		if (!afterModule) {
 			operation = options.markRemovedAsShadowed ? 'shadowed' : 'removed'
 		}
 
-		// Handle ID conflict (module removed but same ID exists in after with different content)
 		let actualModule =
 			afterModule && operation !== 'removed' && operation !== 'shadowed'
 				? afterModule
@@ -269,8 +228,7 @@ export function buildFlowTimeline(
 	// Build merged flow
 	const mergedModules = items.map((item) => item.module)
 	const isRemoved = (id: string | undefined) =>
-		id !== undefined &&
-		(moduleDiff[id]?.before === 'removed' || moduleDiff[id]?.before === 'shadowed')
+		id !== undefined && (beforeActions[id] === 'removed' || beforeActions[id] === 'shadowed')
 
 	const mergedFlow: FlowValue = {
 		...afterFlow,
@@ -283,14 +241,7 @@ export function buildFlowTimeline(
 			(isRemoved(beforeFlow.preprocessor_module?.id) ? beforeFlow.preprocessor_module : undefined)
 	}
 
-	// Build itemMap
-	const itemMap = new Map<string, TimelineItem>()
-
-	for (const item of items) {
-		itemMap.set(item.module.id, item)
-	}
-
-	return { items, itemMap, mergedFlow }
+	return { items, beforeActions, mergedFlow }
 }
 
 /**
