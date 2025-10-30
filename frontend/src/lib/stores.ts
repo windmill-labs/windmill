@@ -46,6 +46,11 @@ export function getWorkspaceFromStorage(): string | undefined {
 	}
 	return undefined
 }
+export function clearWorkspaceFromStorage() {
+	localStorage.removeItem('workspace')
+	sessionStorage.removeItem('workspace')
+}
+
 export const tutorialsToDo = writable<number[]>([])
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)

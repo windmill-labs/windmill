@@ -16,7 +16,13 @@
 	import { base } from '$lib/base'
 
 	import MultiplayerMenu from './MultiplayerMenu.svelte'
-	import { enterpriseLicense, superadmin, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		clearWorkspaceFromStorage,
+		enterpriseLicense,
+		superadmin,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import { USER_SETTINGS_HASH } from './settings'
 	import { logout } from '$lib/logout'
@@ -255,9 +261,7 @@
 						</MenuItem>
 						<MenuItem
 							href="{base}/user/workspaces"
-							onClick={() => {
-								localStorage.removeItem('workspace')
-							}}
+							onClick={() => clearWorkspaceFromStorage()}
 							lightMode
 							class={twMerge('flex gap-3.5 px-2 py-2', sidebarClasses.hoverBg, sidebarClasses.text)}
 							{item}
