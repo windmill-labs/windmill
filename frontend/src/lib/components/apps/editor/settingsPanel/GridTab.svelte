@@ -14,13 +14,16 @@
 	import { GripVertical, Plus } from 'lucide-svelte'
 	import GridTabDisabled from './GridTabDisabled.svelte'
 	import GridTabHidden from './GridTabHidden.svelte'
+	import GridTabTooltip from './GridTabTooltip.svelte'
 
 	interface Props {
 		tabs?: string[]
 		disabledTabs?: RichConfiguration[]
 		hiddenTabs?: RichConfiguration[]
+		tooltipTabs?: RichConfiguration[]
 		canDisableTabs?: boolean
 		canHideTabs?: boolean
+		canTooltipTabs?: boolean
 		word?: string
 		component: AppComponent
 	}
@@ -29,8 +32,10 @@
 		tabs = $bindable(undefined),
 		disabledTabs = $bindable(undefined),
 		hiddenTabs = $bindable(undefined),
+		tooltipTabs = $bindable(undefined),
 		canDisableTabs = false,
 		canHideTabs = false,
+		canTooltipTabs = false,
 		word = 'Tab',
 		component = $bindable()
 	}: Props = $props()
@@ -49,6 +54,12 @@
 			hiddenTabs = [
 				{ type: 'static', value: false, fieldType: 'boolean' },
 				{ type: 'static', value: false, fieldType: 'boolean' }
+			]
+		}
+		if (tooltipTabs == undefined) {
+			tooltipTabs = [
+				{ type: 'static', value: '', fieldType: 'text' },
+				{ type: 'static', value: '', fieldType: 'text' }
 			]
 		}
 	})
@@ -89,6 +100,7 @@
 
 		disabledTabs = [...(disabledTabs ?? []), { type: 'static', value: false, fieldType: 'boolean' }]
 		hiddenTabs = [...(hiddenTabs ?? []), { type: 'static', value: false, fieldType: 'boolean' }]
+		tooltipTabs = [...(tooltipTabs ?? []), { type: 'static', value: '', fieldType: 'text' }]
 	}
 
 	function deleteSubgrid(index: number) {
@@ -114,6 +126,8 @@
 		// Delete the item in the hiddenTabs array
 		hiddenTabs = (hiddenTabs ?? []).filter((_, i) => i !== index)
 
+		// Delete the item in the tooltipTabs array
+		tooltipTabs = (tooltipTabs ?? []).filter((_, i) => i !== index)
 		component.numberOfSubgrids = items.length
 		// Update the originalIndex of the remaining items
 		items.forEach((item, i) => {
@@ -152,13 +166,15 @@
 
 			const newDisabledTabs: RichConfiguration[] = []
 			const newHiddenTabs: RichConfiguration[] = []
+			const newTooltipTabs: RichConfiguration[] = []
 			for (let i = 0; i < items.length; i++) {
 				disabledTabs && newDisabledTabs.push(disabledTabs[items[i].originalIndex])
 				hiddenTabs && newHiddenTabs.push(hiddenTabs[items[i].originalIndex])
+				tooltipTabs && newTooltipTabs.push(tooltipTabs[items[i].originalIndex])
 			}
 			disabledTabs = newDisabledTabs
 			hiddenTabs = newHiddenTabs
-
+			tooltipTabs = newTooltipTabs
 			// update originalIndex
 			items.forEach((item, i) => {
 				item.originalIndex = i
@@ -224,6 +240,11 @@
 					{#if canHideTabs && hiddenTabs}
 						<div class="mt-2">
 							<GridTabHidden {index} bind:field={hiddenTabs[index]} id={component.id} />
+						</div>
+					{/if}
+					{#if canTooltipTabs && tooltipTabs}
+						<div class="mt-2">
+							<GridTabTooltip {index} bind:field={tooltipTabs[index]} id={component.id} />
 						</div>
 					{/if}
 				</div>
