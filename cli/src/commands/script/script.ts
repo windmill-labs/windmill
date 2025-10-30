@@ -282,10 +282,10 @@ export async function handleFile(
               path,
               workspaceRemote: workspace,
               schemaOnly: codebase ? true : undefined,
+              globalDeps,
+              codebases
             }
             : undefined,
-          globalDeps,
-          codebases
         )
       )?.payload;
 
@@ -938,7 +938,7 @@ async function generateMetadata(
   scriptPath: string | undefined
 ) {
   log.info(
-    "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate - locks`"
+    "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate-locks`"
   );
   if (scriptPath == "") {
     scriptPath = undefined;

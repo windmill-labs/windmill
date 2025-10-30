@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.566.1
+  version: 1.568.0
   title: Windmill API
 
   contact:
@@ -631,6 +631,13 @@ paths:
       operationId: getGlobalConnectedRepositories
       tags:
         - Git Sync
+      parameters:
+        - name: search
+          in: query
+          description: Search repositories by name
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: connected repositories
@@ -723,12 +730,14 @@ paths:
               schema:
                 type: string
 
-  /workspaces/create_fork:
+  /w/{workspace}/workspaces/create_fork:
     post:
       summary: create forked workspace
       operationId: createWorkspaceFork
       tags:
         - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
         description: new forked workspace
         required: true
@@ -8313,6 +8322,7 @@ paths:
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
         - $ref: "#/components/parameters/AllowWildcards"
+        - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
           description: is the job skipped
           in: query
@@ -18452,11 +18462,7 @@ components:
           type: string
         name:
           type: string
-        username:
-          type: string
         color:
-          type: string
-        parent_workspace_id:
           type: string
       required:
         - id
@@ -19569,10 +19575,18 @@ components:
               required:
                 - name
                 - url
+          total_count:
+            type: number
+            description: Total number of repositories available for this installation
+          per_page:
+            type: number
+            description: Number of repositories loaded per page
         required:
           - installation_id
           - account_id
           - repositories
+          - total_count
+          - per_page
 
     WorkspaceGithubInstallation:
       type: object

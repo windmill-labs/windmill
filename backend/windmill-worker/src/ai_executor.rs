@@ -2,8 +2,8 @@ use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
     filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
-    get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, is_anthropic_provider,
-    load_mcp_tools, parse_raw_script_schema, update_flow_status_module_with_actions,
+    get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, is_claude_model, load_mcp_tools,
+    parse_raw_script_schema, update_flow_status_module_with_actions,
     update_flow_status_module_with_actions_success,
 };
 use crate::memory_oss::{read_from_memory, write_to_memory};
@@ -46,6 +46,33 @@ use crate::{
 
 lazy_static::lazy_static! {
     static ref TOOL_NAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
+
+    /// Parse AI_HTTP_HEADERS environment variable into a vector of (header_name, header_value) tuples
+    /// Format: "header1: value1, header2: value2"
+    static ref AI_HTTP_HEADERS: Vec<(String, String)> = {
+        std::env::var("AI_HTTP_HEADERS")
+            .ok()
+            .map(|headers_str| {
+                headers_str
+                    .split(',')
+                    .filter_map(|header| {
+                        let parts: Vec<&str> = header.splitn(2, ':').collect();
+                        if parts.len() == 2 {
+                            let name = parts[0].trim().to_string();
+                            let value = parts[1].trim().to_string();
+                            if !name.is_empty() && !value.is_empty() {
+                                Some((name, value))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
 }
 
 const MAX_AGENT_ITERATIONS: usize = 10;
@@ -471,14 +498,14 @@ pub async fn run_agent(
         .map(|props| !props.is_empty())
         .unwrap_or(false);
 
-    let is_anthropic = is_anthropic_provider(&args.provider);
+    let is_claude_model = is_claude_model(&args.provider.model);
     let mut used_structured_output_tool = false;
     let mut structured_output_tool_name: Option<String> = None;
 
     // For text output with schema, handle structured output
     if has_output_properties && output_type == &OutputType::Text {
         let schema = args.output_schema.as_ref().unwrap();
-        if is_anthropic {
+        if is_claude_model {
             // Anthropic uses a tool for structured output
             let unique_tool_name = find_unique_tool_name("structured_output", tool_defs.as_deref());
             structured_output_tool_name = Some(unique_tool_name.clone());
@@ -558,6 +585,11 @@ pub async fn run_agent(
         // Apply authentication headers
         for (header_name, header_value) in &auth_headers {
             request = request.header(*header_name, header_value.clone());
+        }
+
+        // Apply custom headers from AI_HTTP_HEADERS environment variable
+        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+            request = request.header(header_name.as_str(), header_value.as_str());
         }
 
         if args.provider.kind.is_azure_openai(&base_url) {

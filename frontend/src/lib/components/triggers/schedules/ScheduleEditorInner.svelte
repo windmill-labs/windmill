@@ -645,7 +645,7 @@
 		>
 			{#snippet extra()}
 				{#if !drawerLoading && edit}
-					<div class="mr-8 flex flex-row gap-3">
+					<div class="mr-12 flex flex-row gap-3">
 						<Button
 							size="sm"
 							variant="default"
@@ -1221,7 +1221,7 @@
 								/>
 								{#if !dynamicSkipPath}
 									<Button
-										btnClasses="ml-4 mt-2"
+										btnClasses="ml-4 mt-2 whitespace-nowrap"
 										variant="default"
 										size="xs"
 										href="/scripts/add?hub=hub%2F19822%2Fwindmill%2Fdynamic_skip_template"

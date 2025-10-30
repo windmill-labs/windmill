@@ -125,7 +125,7 @@
 		description: aiDescription,
 		callback: () => buttonEl?.click()
 	}}
-	class={twMerge('w-full flex items-center justify-end', fixedHeight && 'h-8', classNames)}
+	class={twMerge('flex items-center justify-end', fixedHeight && 'h-8', classNames)}
 	use:melt={$trigger}
 	{disabled}
 	onclick={(e) => e.stopPropagation()}
@@ -169,7 +169,7 @@
 			{@render menu?.()}
 		{:else}
 			<div
-				class="bg-surface-tertiary dark:border-gray-700 w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
+				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
 				style={customWidth ? `width: ${customWidth}px` : ''}
 			>
 				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} />

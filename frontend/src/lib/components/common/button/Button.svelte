@@ -194,7 +194,7 @@
 			const horizontalPadding = iconOnly
 				? ButtonType.UnifiedIconOnlySizingClasses[unifiedSize]
 				: ButtonType.UnifiedSizingClasses[unifiedSize]
-			const height = ButtonType.UnifiedHeightClasses[unifiedSize]
+			const height = ButtonType.UnifiedMinHeightClasses[unifiedSize]
 			return `${horizontalPadding} ${height}`
 		}
 
@@ -215,7 +215,7 @@
 		if (variant === 'default') {
 			return 'border border-border-light divide-x divide-border-light'
 		} else if (variant === 'accent') {
-			return 'divide-x divide-luminance-blue-100 dark:divide-luminance-blue-200'
+			return 'divide-x divide-blue-100 dark:divide-blue-200'
 		} else if (variant === 'accent-secondary') {
 			return 'divide-x divide-deep-blue-400 dark:divide-deep-blue-100'
 		} else if (variant === 'subtle') {
@@ -242,16 +242,16 @@
 			unifiedSize ? ButtonType.UnifiedFontSizes[unifiedSize] : '',
 			'focus-visible:ring-2',
 			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md' : 'rounded-md',
-			'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
+			'justify-center items-center text-center inline-flex gap-2',
 			'active:opacity-80 transition-[background-color,opacity] duration-150',
 			disabled
 				? ['default', 'subtle'].includes(variant)
 					? '!text-disabled'
-					: '!bg-surface-disabled/20 !text-disabled'
+					: '!bg-surface-disabled !text-disabled'
 				: '',
 			loading ? 'cursor-wait' : '',
 			selected && ['default', 'subtle'].includes(variant)
-				? '!bg-surface-accent-selected/30 !text-accent !border-border-selected'
+				? '!bg-surface-accent-selected !text-accent !border-border-selected'
 				: '',
 			btnClasses
 		)
@@ -307,6 +307,7 @@
 <div
 	class={twMerge(
 		dropdownItems && dropdownItems.length > 0 ? dividerClass : '',
+		'shrink-0',
 		wrapperClasses,
 		'flex flex-row rounded-md',
 		disabled ? 'divide-text-disabled cursor-not-allowed' : ''

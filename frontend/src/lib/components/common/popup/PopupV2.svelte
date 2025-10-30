@@ -40,7 +40,7 @@
 <Portal name="popup-v2" {target}>
 	{#if open}
 		<div
-			class="border rounded-lg shadow-lg bg-surface z5000"
+			class="dark:border rounded-lg shadow-lg bg-surface z5000"
 			style="position:absolute"
 			use:floatingContent
 			transition:fly={{ duration: 100, y: -16 }}

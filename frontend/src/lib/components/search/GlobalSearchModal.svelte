@@ -615,20 +615,21 @@
 			>
 				<div class="px-4 py-2 flex flex-row gap-1 items-center border-b">
 					<Search size="16" />
-					<div class="relative inline-block w-full">
+					<div class="relative inline-block flex-1">
 						<input
 							id="quickSearchInput"
 							bind:this={textInput}
 							type="text"
-							class="quick-search-input !bg-surface"
+							class="no-default-style !bg-transparent !border-none w-full !ring-0 !text-sm"
 							bind:value={searchTerm}
 							autocomplete="off"
 						/>
 						<label
 							for="quickSearchInput"
-							class="absolute top-1/2 left-2 transform -translate-y-1/2 pointer-events-none text-gray-400 transition-all duration-200 whitespace-pre"
-							>{placeholderFromPrefix(searchTerm)}</label
+							class="absolute top-1/2 left-2 transform -translate-y-1/2 pointer-events-none text-gray-400 transition-all duration-200 whitespace-pre text-xs"
 						>
+							{placeholderFromPrefix(searchTerm)}
+						</label>
 					</div>
 					{#if (itemMap[tab] ?? []).length === 0 && searchTerm.length > 0}
 						<AskAiButton
@@ -773,15 +774,3 @@
 		</div>
 	</Portal>
 {/if}
-
-<style>
-	.quick-search-input {
-		outline: none;
-		border: none !important;
-		box-shadow: none !important;
-	}
-
-	.quick-search-input:focus-visible {
-		outline: none !important;
-	}
-</style>
