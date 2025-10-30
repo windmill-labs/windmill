@@ -142,7 +142,7 @@ pub async fn push_scheduled_job<'c>(
         Some(now_cutoff) if now_cutoff >= now => {
             tracing::error!(
                 "now_cutoff ({:?}) is after now ({:?}) for schedule {}. Using now_cutoff + 1s. This likely means the pg clock was shifted backwards.",
-                now_cutoff,fn push
+                now_cutoff,
                 now,
                 &schedule.path
             );
