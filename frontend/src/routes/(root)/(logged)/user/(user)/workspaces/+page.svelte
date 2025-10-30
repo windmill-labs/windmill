@@ -176,7 +176,7 @@
 
 	{#if adminsInstance}
 		<Button
-			btnClasses="w-full mt-2 mb-4 truncate bg-surface-tertiary"
+			btnClasses="w-full mt-2 mb-4 truncate bg-surface-tertiary hover:bg-surface-secondary"
 			size="sm"
 			on:click={async () => {
 				workspaceStore.set('admins')
@@ -205,7 +205,7 @@
 			<label class="block pb-2" style:padding-left={`${depth * 24}px`}>
 				<Button
 					variant="default"
-					btnClasses="bg-surface-tertiary"
+					btnClasses="bg-surface-tertiary hover:bg-surface-secondary"
 					disabled={workspace.disabled}
 					on:click={async () => {
 						if (!workspace.disabled) {
