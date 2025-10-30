@@ -112,7 +112,7 @@
 </script>
 
 {#if currentStep === STEP_SOURCE}
-	<CenteredModal title="Where did you hear about Windmill?">
+	<CenteredModal title="How did you hear about Windmill?">
 		<div class="w-full max-w-lg mx-auto">
 			<div class="grid grid-cols-1 gap-2 mt-6 mb-6">
 				{#each sources as source (source.id)}
@@ -174,11 +174,8 @@
 		</div>
 	</CenteredModal>
 {:else if currentStep === STEP_USE_CASE}
-	<CenteredModal title="What do you want to use Windmill for?">
+	<CenteredModal title="What is your primary use case for Windmill?">
 		<div class="w-full max-w-lg mx-auto">
-			<p class="text-sm text-secondary mb-6">
-				This will help us provide tailored support for your specific needs.
-			</p>
 			<div class="mb-6">
 				<textarea
 					bind:value={useCaseText}
