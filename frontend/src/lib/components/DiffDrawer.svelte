@@ -298,7 +298,7 @@
 			{#if data?.button}
 				<Button
 					variant="subtle"
-					on:click={() => {
+					onClick={() => {
 						if (data?.button) {
 							data.button.onClick()
 							diffViewer?.closeDrawer()

@@ -36,7 +36,7 @@ export type TimelineItem = {
 	/** If the module ID had a conflict and was renamed */
 	renamedFrom?: string
 
-	/** For debugging: helps track insertion logic */
+	/** Helps track insertion logic */
 	insertionStrategy?: 'original_position' | 'anchor_based' | 'end_of_flow'
 }
 
@@ -222,13 +222,17 @@ export function buildFlowTimeline(
 		const afterIndex = afterIndices.get(moduleId)
 
 		// Determine operation - undefined means unchanged module
-		let operation: AIModuleAction | undefined = moduleDiff[moduleId]?.after ?? moduleDiff[moduleId]?.before
+		let operation: AIModuleAction | undefined =
+			moduleDiff[moduleId]?.after ?? moduleDiff[moduleId]?.before
 		if (!afterModule) {
 			operation = options.markRemovedAsShadowed ? 'shadowed' : 'removed'
 		}
 
 		// Handle ID conflict (module removed but same ID exists in after with different content)
-		let actualModule = afterModule && operation !== 'removed' && operation !== 'shadowed' ? afterModule : beforeModule
+		let actualModule =
+			afterModule && operation !== 'removed' && operation !== 'shadowed'
+				? afterModule
+				: beforeModule
 		let actualId = moduleId
 		let renamedFrom: string | undefined
 
@@ -277,13 +281,18 @@ export function buildFlowTimeline(
 	// Build merged flow
 	const mergedModules = items.map((item) => item.module)
 	const isRemoved = (id: string | undefined) =>
-		id !== undefined && (moduleDiff[id]?.before === 'removed' || moduleDiff[id]?.before === 'shadowed')
+		id !== undefined &&
+		(moduleDiff[id]?.before === 'removed' || moduleDiff[id]?.before === 'shadowed')
 
 	const mergedFlow: FlowValue = {
 		...afterFlow,
 		modules: mergedModules,
-		failure_module: afterFlow.failure_module ?? (isRemoved(beforeFlow.failure_module?.id) ? beforeFlow.failure_module : undefined),
-		preprocessor_module: afterFlow.preprocessor_module ?? (isRemoved(beforeFlow.preprocessor_module?.id) ? beforeFlow.preprocessor_module : undefined)
+		failure_module:
+			afterFlow.failure_module ??
+			(isRemoved(beforeFlow.failure_module?.id) ? beforeFlow.failure_module : undefined),
+		preprocessor_module:
+			afterFlow.preprocessor_module ??
+			(isRemoved(beforeFlow.preprocessor_module?.id) ? beforeFlow.preprocessor_module : undefined)
 	}
 
 	// Build itemMap and diff
@@ -325,7 +334,11 @@ function findInsertionPoint(
 	let prevAnchor: string | undefined
 	for (let i = addedModule.afterIndex - 1; i >= 0; i--) {
 		const id = afterFlowModules[i]?.id
-		if (timelineItems.find((item) => item.module.id === id && item.insertionStrategy === 'original_position')) {
+		if (
+			timelineItems.find(
+				(item) => item.module.id === id && item.insertionStrategy === 'original_position'
+			)
+		) {
 			prevAnchor = id
 			break
 		}
@@ -334,7 +347,11 @@ function findInsertionPoint(
 	let nextAnchor: string | undefined
 	for (let i = addedModule.afterIndex + 1; i < afterFlowModules.length; i++) {
 		const id = afterFlowModules[i]?.id
-		if (timelineItems.find((item) => item.module.id === id && item.insertionStrategy === 'original_position')) {
+		if (
+			timelineItems.find(
+				(item) => item.module.id === id && item.insertionStrategy === 'original_position'
+			)
+		) {
 			nextAnchor = id
 			break
 		}
