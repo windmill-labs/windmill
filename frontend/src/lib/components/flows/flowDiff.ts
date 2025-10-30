@@ -139,7 +139,8 @@ function getTopLevelModuleIndices(flow: FlowValue): Map<string, number> {
 
 /**
  * Builds a sequential timeline of flow modules for diff visualization.
- * Uses beforeFlow positions as baseline and inserts added modules using anchor-based strategy.
+ * Uses afterFlow positions as baseline and inserts removed modules using anchor-based strategy.
+ * This ensures that the final positions of modules are preserved correctly.
  */
 export function buildFlowTimeline(
 	beforeFlow: FlowValue,
@@ -148,38 +149,28 @@ export function buildFlowTimeline(
 ): FlowTimeline {
 	const beforeModules = getAllModulesMap(beforeFlow)
 	const afterModules = getAllModulesMap(afterFlow)
-	const afterIndices = getTopLevelModuleIndices(afterFlow)
-	const allModuleIds = new Set([...beforeModules.keys(), ...afterModules.keys()])
+	const beforeIndices = getTopLevelModuleIndices(beforeFlow)
 
 	const { beforeActions, afterActions } = computeFlowModuleDiff(beforeFlow, afterFlow)
 
-	// Build timeline items starting with beforeFlow order
+	// Build timeline items starting with afterFlow order (preserves final positions)
 	const timelineItems: TimelineItem[] = []
 
-	// First, add all modules from beforeFlow in their original order
-	const beforeFlowModules = (beforeFlow.modules ?? [])
-		.map((m, idx) => ({ module: m, beforeIndex: idx }))
-		.sort((a, b) => a.beforeIndex - b.beforeIndex)
+	// First, add all modules from afterFlow in their final order
+	const afterFlowModules = (afterFlow.modules ?? [])
+		.map((m, idx) => ({ module: m, afterIndex: idx }))
+		.sort((a, b) => a.afterIndex - b.afterIndex)
 
-	for (const { module: beforeModule, beforeIndex } of beforeFlowModules) {
-		const moduleId = beforeModule.id
-		const afterModule = afterModules.get(moduleId)
-		const afterIndex = afterIndices.get(moduleId)
+	for (const { module: afterModule, afterIndex } of afterFlowModules) {
+		const moduleId = afterModule.id
+		const beforeIndex = beforeIndices.get(moduleId)
 
 		// Determine operation - undefined means unchanged module
-		let operation: AIModuleAction | undefined = afterActions[moduleId]
-		if (!afterModule) {
-			operation = options.markRemovedAsShadowed ? 'shadowed' : 'removed'
-		}
-
-		let actualModule =
-			afterModule && operation !== 'removed' && operation !== 'shadowed'
-				? afterModule
-				: beforeModule
+		const operation: AIModuleAction | undefined = afterActions[moduleId]
 
 		timelineItems.push({
-			module: actualModule,
-			position: beforeIndex,
+			module: afterModule,
+			position: afterIndex,
 			operation,
 			beforeIndex,
 			afterIndex,
@@ -187,24 +178,27 @@ export function buildFlowTimeline(
 		})
 	}
 
-	// Then, insert added modules using anchor-based strategy
-	const addedModules = Array.from(allModuleIds)
-		.filter((id) => !beforeModules.has(id) && afterModules.has(id))
+	// Then, insert removed modules using anchor-based strategy
+	const removedModules = Array.from(beforeModules.keys())
+		.filter((id) => !afterModules.has(id))
 		.map((id) => ({
 			id,
-			module: afterModules.get(id)!,
-			afterIndex: afterIndices.get(id)
+			module: beforeModules.get(id)!,
+			beforeIndex: beforeIndices.get(id)
 		}))
+		.sort((a, b) => (a.beforeIndex ?? 0) - (b.beforeIndex ?? 0))
 
-	for (const added of addedModules) {
-		const insertPoint = findInsertionPoint(added, timelineItems, afterFlow.modules ?? [])
+	for (const removed of removedModules) {
+		const insertPoint = findRemovedModulePosition(removed, timelineItems, beforeFlow.modules ?? [])
+
+		const operation = options.markRemovedAsShadowed ? 'shadowed' : 'removed'
 
 		timelineItems.splice(insertPoint.index, 0, {
-			module: added.module,
+			module: removed.module,
 			position: insertPoint.index,
-			operation: 'added',
-			beforeIndex: undefined,
-			afterIndex: added.afterIndex,
+			operation,
+			beforeIndex: removed.beforeIndex,
+			afterIndex: undefined,
 			insertionStrategy: insertPoint.strategy
 		})
 	}
@@ -232,21 +226,22 @@ export function buildFlowTimeline(
 }
 
 /**
- * Finds insertion point for a new module by looking at its neighbors in afterFlow.
+ * Finds insertion point for a removed module by looking at its neighbors in beforeFlow.
+ * Uses anchor-based strategy to place removed modules near their original context.
  */
-function findInsertionPoint(
-	addedModule: { id: string; afterIndex?: number; module: FlowModule },
+function findRemovedModulePosition(
+	removedModule: { id: string; beforeIndex?: number; module: FlowModule },
 	timelineItems: TimelineItem[],
-	afterFlowModules: FlowModule[]
+	beforeFlowModules: FlowModule[]
 ): { index: number; strategy: 'original_position' | 'anchor_based' | 'end_of_flow' } {
-	if (addedModule.afterIndex === undefined) {
+	if (removedModule.beforeIndex === undefined) {
 		return { index: timelineItems.length, strategy: 'end_of_flow' }
 	}
 
-	// Find nearest anchor module (from beforeFlow) before and after this position
+	// Find nearest anchor module (from beforeFlow that still exists) before and after this position
 	let prevAnchor: string | undefined
-	for (let i = addedModule.afterIndex - 1; i >= 0; i--) {
-		const id = afterFlowModules[i]?.id
+	for (let i = removedModule.beforeIndex - 1; i >= 0; i--) {
+		const id = beforeFlowModules[i]?.id
 		if (
 			timelineItems.find(
 				(item) => item.module.id === id && item.insertionStrategy === 'original_position'
@@ -258,8 +253,8 @@ function findInsertionPoint(
 	}
 
 	let nextAnchor: string | undefined
-	for (let i = addedModule.afterIndex + 1; i < afterFlowModules.length; i++) {
-		const id = afterFlowModules[i]?.id
+	for (let i = removedModule.beforeIndex + 1; i < beforeFlowModules.length; i++) {
+		const id = beforeFlowModules[i]?.id
 		if (
 			timelineItems.find(
 				(item) => item.module.id === id && item.insertionStrategy === 'original_position'
@@ -270,7 +265,7 @@ function findInsertionPoint(
 		}
 	}
 
-	// Insert between anchors
+	// Insert between anchors, preferring to place after the previous anchor
 	if (prevAnchor) {
 		const prevPos = timelineItems.findIndex((item) => item.module.id === prevAnchor)
 		return { index: prevPos + 1, strategy: 'anchor_based' }
@@ -278,7 +273,18 @@ function findInsertionPoint(
 		const nextPos = timelineItems.findIndex((item) => item.module.id === nextAnchor)
 		return { index: nextPos, strategy: 'anchor_based' }
 	} else {
-		return { index: timelineItems.length, strategy: 'end_of_flow' }
+		// If no anchors found, try to maintain relative ordering with other removed modules
+		// by finding the best position based on beforeIndex
+		let insertIndex = 0
+		for (let i = 0; i < timelineItems.length; i++) {
+			const item = timelineItems[i]
+			if (item.beforeIndex !== undefined && item.beforeIndex < removedModule.beforeIndex) {
+				insertIndex = i + 1
+			} else {
+				break
+			}
+		}
+		return { index: insertIndex, strategy: 'anchor_based' }
 	}
 }
 

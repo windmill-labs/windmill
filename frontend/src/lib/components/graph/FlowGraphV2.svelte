@@ -141,7 +141,6 @@
 		// Viewport synchronization props (for diff viewer)
 		sharedViewport?: Viewport
 		onViewportChange?: (viewport: Viewport, isUserInitiated: boolean) => void
-		showControls?: boolean
 		leftHeader?: Snippet
 	}
 
@@ -200,7 +199,6 @@
 		chatInputEnabled = false,
 		sharedViewport = undefined,
 		onViewportChange = undefined,
-		showControls = true,
 		leftHeader = undefined
 	}: Props = $props()
 
@@ -643,8 +641,7 @@
 					<div class="absolute top-2 left-2 z-10">
 						{@render leftHeader()}
 					</div>
-				{/if}
-				{#if showControls}
+				{:else}
 					<Controls position="top-right" orientation="horizontal" showLock={false}>
 						{#if download}
 							<ControlButton
@@ -665,22 +662,22 @@
 							</ControlButton>
 						{/if}
 					</Controls>
-				{/if}
 
-				<Controls
-					position="top-left"
-					orientation="vertical"
-					showLock={false}
-					showZoom={false}
-					showFitView={false}
-					class="!shadow-none gap-3"
-					style={leftHeader ? 'margin-top: 40px;' : ''}
-				>
-					<Toggle bind:checked={$showAssets} size="xs" options={{ right: 'Assets' }} />
-					{#if showDataflow}
-						<Toggle bind:checked={$useDataflow} size="xs" options={{ right: 'Dataflow' }} />
-					{/if}
-				</Controls>
+					<Controls
+						position="top-left"
+						orientation="vertical"
+						showLock={false}
+						showZoom={false}
+						showFitView={false}
+						class="!shadow-none gap-3"
+						style={leftHeader ? 'margin-top: 40px;' : ''}
+					>
+						<Toggle bind:checked={$showAssets} size="xs" options={{ right: 'Assets' }} />
+						{#if showDataflow}
+							<Toggle bind:checked={$useDataflow} size="xs" options={{ right: 'Dataflow' }} />
+						{/if}
+					</Controls>
+				{/if}
 			</SvelteFlow>
 		</SvelteFlowProvider>
 	{/if}

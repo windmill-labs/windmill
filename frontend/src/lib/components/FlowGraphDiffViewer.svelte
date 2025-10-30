@@ -219,7 +219,6 @@
 									triggerNode={false}
 									{sharedViewport}
 									onViewportChange={handleViewportChange}
-									showControls={false}
 								>
 									{#snippet leftHeader()}
 										<span class="text-sm text-primary">Before</span>
@@ -253,7 +252,6 @@
 										triggerNode={false}
 										{sharedViewport}
 										onViewportChange={handleViewportChange}
-										showControls={false}
 									>
 										{#snippet leftHeader()}
 											<span class="text-sm text-primary">After</span>
