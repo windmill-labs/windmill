@@ -39,8 +39,7 @@
 
 	export async function zoomIn() {
 		const viewport = getViewport()
-		// const newZoom = Math.min(viewport.zoom + 0.1, 1.2)
-		const newZoom = viewport.zoom + 0.1
+		const newZoom = Math.min(viewport.zoom + 0.1, 1.2)
 		setViewport({ ...viewport, zoom: newZoom })
 		await tick()
 		const updatedViewport = getViewport()
@@ -52,8 +51,7 @@
 
 	export async function zoomOut() {
 		const viewport = getViewport()
-		// const newZoom = Math.max(viewport.zoom - 0.1, 0.2)
-		const newZoom = viewport.zoom - 0.1
+		const newZoom = Math.max(viewport.zoom - 0.1, 0.2)
 		setViewport({ ...viewport, zoom: newZoom })
 		await tick()
 		const updatedViewport = getViewport()

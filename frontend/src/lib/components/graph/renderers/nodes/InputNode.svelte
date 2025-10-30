@@ -10,6 +10,7 @@
 	import type { Schema } from '$lib/common'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { MessageSquare, DiffIcon } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 
 	interface Props {
 		data: InputN['data']
@@ -35,14 +36,13 @@
 
 {#if data.inputSchemaModified && data.onShowModuleDiff}
 	<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start z-50">
-		<button
+		<Button
 			class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
-			onclick={() => {
+			onClick={() => {
 				data.onShowModuleDiff?.('Input')
 			}}
+			startIcon={{ icon: DiffIcon }}>Diff</Button
 		>
-			<DiffIcon size={14} /> Diff
-		</button>
 	</div>
 {/if}
 
