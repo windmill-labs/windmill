@@ -50,15 +50,6 @@ export type FlowTimeline = {
 	/** Mapping from module ID to timeline item for quick lookup */
 	itemMap: Map<string, TimelineItem>
 
-	/** Statistics about the diff */
-	stats: {
-		added: number
-		removed: number
-		modified: number
-		kept: number
-		shadowed: number
-	}
-
 	/** The merged flow for compatibility with existing code */
 	mergedFlow: FlowValue
 }
@@ -299,16 +290,7 @@ export function buildFlowTimeline(
 		itemMap.set(item.module.id, item)
 	}
 
-	// Calculate statistics
-	const stats = {
-		added: items.filter((i) => i.operation === 'added').length,
-		removed: items.filter((i) => i.operation === 'removed').length,
-		shadowed: items.filter((i) => i.operation === 'shadowed').length,
-		modified: items.filter((i) => i.operation === 'modified').length,
-		kept: items.filter((i) => i.operation === undefined).length
-	}
-
-	return { items, itemMap, stats, mergedFlow }
+	return { items, itemMap, mergedFlow }
 }
 
 /**
