@@ -38,7 +38,8 @@
 	import Select from '../select/Select.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
-	import { sendAlternativesToastOnTimeout } from '$lib/utils'
+	import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
+	import { sendUserToast } from '$lib/toast'
 
 	let usernames: string[] | undefined = $state()
 	let resources = usePromise(() => loadResources($workspaceStore!), { loadInit: false })
@@ -92,7 +93,9 @@
 		perPage = newPerPage
 	}
 
-	async function loadLogs(
+	$inspect('logs', logs)
+
+	function loadLogs(
 		username: string | undefined,
 		page: number | undefined,
 		perPage: number | undefined,
@@ -102,7 +105,7 @@
 		resource: string | undefined,
 		actionKind: ActionKind | undefined | 'all',
 		scope: undefined | 'all_workspaces' | 'instance'
-	): Promise<void> {
+	) {
 		loading = true
 
 		if (username == 'all') {
@@ -121,35 +124,41 @@
 			resource = undefined
 		}
 
-		try {
-			logs = await sendAlternativesToastOnTimeout(
-				AuditService.listAuditLogs({
-					workspace: scope === 'instance' ? 'global' : $workspaceStore!,
-					page,
-					perPage,
-					before,
-					after,
-					username,
-					operation,
-					resource,
-					actionKind,
-					allWorkspaces: scope === 'all_workspaces'
-				}),
-				perPage == 25
-					? []
-					: [{ label: 'Reduce to 25 items per page', callback: () => updatePerPage(25) }],
-				{ id: 'list-audit-logs' }
-			)
-		} catch (e) {
-			if (e instanceof CancelError) {
-				console.error('Loading audit logs cancelled')
-			} else {
-				throw e
-			}
-		}
-		hasMore = !logs || (logs.length > 0 && logs.length === perPage)
-
-		loading = false
+		let _promise = AuditService.listAuditLogs({
+			workspace: scope === 'instance' ? 'global' : $workspaceStore!,
+			page,
+			perPage,
+			before,
+			after,
+			username,
+			operation,
+			resource,
+			actionKind,
+			allWorkspaces: scope === 'all_workspaces'
+		})
+		let promise = CancelablePromiseUtils.map(_promise, (value) => {
+			logs = value
+			hasMore = !logs || (logs.length > 0 && logs.length === perPage)
+		})
+		promise = CancelablePromiseUtils.onTimeout(promise, 1000, () => {
+			sendUserToast('Loading audit logs is taking longer than expected...', true, [
+				{
+					label: 'Reduce to 25 items per page',
+					callback: () => {
+						_promise.cancel()
+						updatePerPage(25)
+					}
+				}
+			])
+		})
+		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
+			if (e instanceof CancelError) return CancelablePromiseUtils.pure<void>(undefined)
+			return CancelablePromiseUtils.pureErr<void>(e)
+		})
+		promise = CancelablePromiseUtils.finallyDo(promise, () => {
+			loading = false
+		})
+		return promise
 	}
 
 	async function loadUsers() {
@@ -163,10 +172,7 @@
 	function refreshLogs() {
 		loadUsers()
 		resources.refresh()
-		loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
-		tick().then(() => {
-			initialLoad = false
-		})
+		return loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
 	}
 
 	function updateLogs() {
@@ -193,16 +199,15 @@
 		const query = '?' + queryParams.join('&')
 		goto(query, { replaceState: true, keepFocus: true })
 
-		loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
+		return loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
 	}
 
 	function updateQueryParams() {
-		if (initialLoad) {
-			return
-		}
+		if (initialLoad) return
 		page = 1
 		pageIndex = 1
-		updateLogs()
+
+		return updateLogs()
 	}
 
 	function updatePageQueryParams(pageIndex?: number | undefined) {
@@ -329,12 +334,16 @@
 
 	let refresh = $state(1)
 	$effect(() => {
-		$workspaceStore && refresh && untrack(() => refreshLogs())
+		;[$workspaceStore, refresh]
+		let promise = untrack(() => refreshLogs())
+		tick().then(() => (initialLoad = false))
+		return () => promise.cancel()
 	})
 	// observe all the variables that should trigger an update
 	$effect(() => {
 		;[username, perPage, before, after, operation, resource, actionKind, scope]
-		updateQueryParams()
+		let promise = updateQueryParams()
+		return () => promise?.cancel()
 	})
 	// observe the pageIndex variable that should trigger an update
 	$effect(() => {

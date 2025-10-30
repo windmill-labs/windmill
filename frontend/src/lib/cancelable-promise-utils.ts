@@ -33,11 +33,11 @@ export namespace CancelablePromiseUtils {
 		return then(promise, (value) => pure(f(value)))
 	}
 
-	export function catchErr<T>(
+	export function catchErr<T, U>(
 		promise: CancelablePromise<T>,
-		f: (error: any) => CancelablePromise<T>
-	): CancelablePromise<T> {
-		return new CancelablePromise<T>((resolve, reject, onCancel) => {
+		f: (error: any) => CancelablePromise<U>
+	): CancelablePromise<T | U> {
+		return new CancelablePromise<T | U>((resolve, reject, onCancel) => {
 			let promiseToBeCanceled: CancelablePromise<any> = promise
 			onCancel(() => promiseToBeCanceled.cancel())
 			promise
@@ -51,18 +51,21 @@ export namespace CancelablePromiseUtils {
 	}
 
 	export function finallyDo<T>(promise: CancelablePromise<T>, f: () => void): CancelablePromise<T> {
-		return new CancelablePromise<T>((resolve, reject, onCancel) => {
-			let promiseToBeCanceled: CancelablePromise<any> = promise
-			onCancel(() => promiseToBeCanceled.cancel())
-			promise
-				.then((value) => {
-					f()
-					resolve(value)
-				})
-				.catch((err) => {
-					f()
-					reject(err)
-				})
+		promise = map(promise, (value) => (f(), value))
+		promise = catchErr(promise, (e) => (f(), pureErr(e)))
+		return promise
+	}
+
+	// Calls onTimeout if the promise does not settle within timeoutMs milliseconds
+	export function onTimeout<T>(
+		promise: CancelablePromise<T>,
+		timeoutMs: number,
+		onTimeout: () => void
+	): CancelablePromise<T> {
+		let timeoutId: number | undefined = setTimeout(onTimeout, timeoutMs)
+		promise = finallyDo(promise, () => {
+			if (timeoutId !== undefined) clearTimeout(timeoutId)
 		})
+		return promise
 	}
 }

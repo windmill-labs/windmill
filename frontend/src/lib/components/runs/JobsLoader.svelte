@@ -7,14 +7,15 @@
 		type ExtendedJobs,
 		ConcurrencyGroupsService,
 		type ObscuredJob,
-		CancelablePromise
+		CancelablePromise,
+		CancelError
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
 	import { workspaceStore } from '$lib/stores'
 
 	import { tweened, type Tweened } from 'svelte/motion'
-	import { sendAlternativesToastOnTimeout, subtractDaysFromDateString } from '$lib/utils'
+	import { subtractDaysFromDateString } from '$lib/utils'
 	import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
 
 	interface Props {
@@ -97,7 +98,23 @@
 
 	function onParamChanges() {
 		resetJobs()
-		loadJobsIntern(true)
+		let promise = loadJobsIntern(true)
+		promise = CancelablePromiseUtils.onTimeout(promise, 1000, () => {
+			sendUserToast(
+				'Loading jobs is taking longer than expected...',
+				true,
+				perPage > 25
+					? [{ label: 'Reduce to 25 items per page', callback: () => (perPage = 25) }]
+					: []
+			)
+		})
+		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
+			if (e instanceof CancelError) {
+				return CancelablePromiseUtils.pure<void>(undefined)
+			}
+			return CancelablePromiseUtils.pureErr(e)
+		})
+		return promise
 	}
 
 	function computeJobKinds(jobKindsCat: string | undefined): string {
@@ -177,64 +194,56 @@
 		createdAfterQueue: string | undefined
 	): CancelablePromise<Job[]> {
 		loadingFetch = true
-		try {
-			let scriptPathStart = folder === null || folder === '' ? undefined : `f/${folder}/`
-			let scriptPathExact = path === null || path === '' ? undefined : path
-			let listJobPromise = JobService.listJobs({
-				workspace: $workspaceStore!,
-				completedBefore,
-				completedAfter,
-				createdAfterQueue,
-				schedulePath,
-				scriptPathExact,
-				createdBy: user === null || user === '' ? undefined : user,
-				scriptPathStart: scriptPathStart,
-				jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
-				success: success == 'success' ? true : success == 'failure' ? false : undefined,
-				running:
-					success == 'running' || success == 'suspended'
-						? true
-						: success == 'waiting'
-							? false
-							: undefined,
-				isSkipped: isSkipped ? true : undefined,
-				// isFlowStep: jobKindsCat != 'all' ? false : undefined,
-				hasNullParent: jobKindsCat != 'all' ? true : undefined,
-				label: label === null || label === '' ? undefined : label,
-				tag: tag === null || tag === '' ? undefined : tag,
-				worker: worker === null || worker === '' ? undefined : worker,
-				isNotSchedule: showSchedules == false ? true : undefined,
-				suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
-				scheduledForBeforeNow:
-					showFutureJobs == false || success == 'waiting' || success == 'suspended'
-						? true
+		let scriptPathStart = folder === null || folder === '' ? undefined : `f/${folder}/`
+		let scriptPathExact = path === null || path === '' ? undefined : path
+		let promise = JobService.listJobs({
+			workspace: $workspaceStore!,
+			completedBefore,
+			completedAfter,
+			createdAfterQueue,
+			schedulePath,
+			scriptPathExact,
+			createdBy: user === null || user === '' ? undefined : user,
+			scriptPathStart: scriptPathStart,
+			jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
+			success: success == 'success' ? true : success == 'failure' ? false : undefined,
+			running:
+				success == 'running' || success == 'suspended'
+					? true
+					: success == 'waiting'
+						? false
 						: undefined,
-				args:
-					argFilter && argFilter != '{}' && argFilter != '' && argError == ''
-						? argFilter
-						: undefined,
-				result:
-					resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
-						? resultFilter
-						: undefined,
-				allWorkspaces: allWorkspaces ? true : undefined,
-				perPage,
-				allowWildcards: allowWildcards ? true : undefined
-			})
-			listJobPromise = sendAlternativesToastOnTimeout(listJobPromise, [
-				{
-					label: 'Reduce to 25 items per page',
-					callback: () => (perPage = 25)
-				}
-			])
-			return listJobPromise
-		} catch (e) {
+			isSkipped: isSkipped ? true : undefined,
+			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
+			hasNullParent: jobKindsCat != 'all' ? true : undefined,
+			label: label === null || label === '' ? undefined : label,
+			tag: tag === null || tag === '' ? undefined : tag,
+			worker: worker === null || worker === '' ? undefined : worker,
+			isNotSchedule: showSchedules == false ? true : undefined,
+			suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
+			scheduledForBeforeNow:
+				showFutureJobs == false || success == 'waiting' || success == 'suspended'
+					? true
+					: undefined,
+			args:
+				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
+			result:
+				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
+					? resultFilter
+					: undefined,
+			allWorkspaces: allWorkspaces ? true : undefined,
+			perPage,
+			allowWildcards: allowWildcards ? true : undefined
+		})
+		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
 			console.error(e)
-			return new CancelablePromise((resolve) => resolve([]))
-		} finally {
+			return CancelablePromiseUtils.pure([] as Job[])
+		})
+		promise = CancelablePromiseUtils.finallyDo(promise, () => {
 			loadingFetch = false
-		}
+		})
+		return promise
 	}
 
 	function fetchExtendedJobs(
@@ -567,7 +576,8 @@
 			resultFilter,
 			perPage
 		]
-		untrack(() => onParamChanges())
+		let p = untrack(() => onParamChanges())
+		return () => p.cancel()
 	})
 	$effect(() => {
 		;[autoRefresh, refreshRate]

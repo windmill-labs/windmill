@@ -9,8 +9,8 @@
 import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
-import { sendUserToast, type ToastAction } from './toast'
-import { CancelablePromise, type Job, type RunnableKind, type Script, type ScriptLang } from './gen'
+import { sendUserToast } from './toast'
+import { type Job, type RunnableKind, type Script, type ScriptLang } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -1646,37 +1646,3 @@ export function getCssColor(
 }
 
 export type IconType = Component<{ size?: number }> | typeof import('lucide-svelte').Dot
-
-let sendAlternativesToastOnTimeoutList: Record<string, { toastAppearedAt: number }> = {}
-export function sendAlternativesToastOnTimeout<T>(
-	promise: CancelablePromise<T>,
-	actions: ToastAction[],
-	{ timeoutMs = 3000, message = 'Operation taking longer than expected', id = '' } = {}
-): CancelablePromise<T> {
-	let timeout = setTimeout(() => {
-		actions = actions.map((action) => ({
-			...action,
-			callback: () => {
-				promise.cancel()
-				return action.callback?.()
-			}
-		}))
-
-		// Avoid spamming when multiple timeouts occur rapidly
-		if (
-			!id ||
-			!sendAlternativesToastOnTimeoutList[id] ||
-			Date.now() - sendAlternativesToastOnTimeoutList[id].toastAppearedAt > 30000
-		) {
-			sendUserToast(message, true, actions, undefined, 8000)
-			if (id) sendAlternativesToastOnTimeoutList[id] = { toastAppearedAt: Date.now() }
-		}
-	}, timeoutMs)
-	return new CancelablePromise<T>(async (resolve, reject, onCancel) => {
-		resolve(promise.finally(() => clearTimeout(timeout)))
-		onCancel(() => {
-			promise.cancel()
-			clearTimeout(timeout)
-		})
-	})
-}
