@@ -15,7 +15,7 @@
 		HelpCircle,
 		Building2,
 		Twitter,
-		Youtube,
+		Youtube
 	} from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 
@@ -87,16 +87,27 @@
 			})
 
 			sendUserToast('Information saved successfully')
-			goto('/user/workspaces')
 		} catch (error) {
 			console.error('Error submitting onboarding data:', error)
 			sendUserToast('Failed to save information: ' + (error?.body || error?.message || error), true)
-			isSubmitting = false
+		} finally {
+			// do not block users from accessing windmill even if there is an error
+			goto('/user/workspaces')
 		}
 	}
 
-	function skip() {
-		goto('/user/workspaces')
+	async function skip() {
+		isSubmitting = true
+		try {
+			await UserService.submitOnboardingData({
+				requestBody: {}
+			})
+		} catch (error) {
+			console.error('Error skipping onboarding:', error)
+		} finally {
+			// do not block users from accessing windmill even if there is an error
+			goto('/user/workspaces')
+		}
 	}
 </script>
 
@@ -106,11 +117,7 @@
 			<div class="grid grid-cols-1 gap-2 mt-6 mb-6">
 				{#each sources as source (source.id)}
 					{#if source.id === 'other'}
-						<Popover
-							bind:isOpen={otherPopoverOpen}
-							placement="bottom"
-							contentClasses="p-4 w-96"
-						>
+						<Popover bind:isOpen={otherPopoverOpen} placement="bottom" contentClasses="p-4 w-96">
 							{#snippet trigger()}
 								<Button
 									variant="default"
@@ -131,11 +138,7 @@
 										placeholder="Type your answer..."
 										class="input"
 									/>
-									<Button
-										variant="accent"
-										unifiedSize="md"
-										on:click={validateOtherSource}
-									>
+									<Button variant="accent" unifiedSize="md" on:click={validateOtherSource}>
 										Validate
 									</Button>
 								</div>
@@ -157,7 +160,9 @@
 			</div>
 
 			<div class="flex flex-row justify-end items-center pt-4">
-				<Button color="light" variant="border" size="xs" on:click={skip}>Skip</Button>
+				<Button color="light" variant="border" size="xs" on:click={skip} loading={isSubmitting}
+					>Skip</Button
+				>
 			</div>
 
 			<div class="flex justify-center mt-4">

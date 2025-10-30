@@ -19,7 +19,6 @@
 	import { setLicense } from '$lib/enterpriseUtils'
 	import Login from '$lib/components/Login.svelte'
 	import { onMount } from 'svelte'
-	import { isCloudHosted } from '$lib/cloud'
 
 	const email = $page.url.searchParams.get('email') ?? ''
 	const password = $page.url.searchParams.get('password') ?? ''
@@ -110,11 +109,7 @@
 	try {
 		setLicense()
 		redirectIfNecessary()
-		// Only check for first-time setup on self-hosted instances
-		// Cloud instances never have the default admin account
-		if (!isCloudHosted()) {
-			checkFirstTimeSetup()
-		}
+		checkFirstTimeSetup()
 	} catch {
 		clearStores()
 	}

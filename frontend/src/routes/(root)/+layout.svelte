@@ -13,7 +13,6 @@
 	import { computeDrift } from '$lib/forLater'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import { deepEqual } from 'fast-equals'
-	import { isCloudHosted } from '$lib/cloud'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -40,20 +39,6 @@
 	async function loadUser() {
 		try {
 			await refreshSuperadmin()
-
-			// Check if this is a first-time user (individual user onboarding)
-			// Only show onboarding for cloud-hosted instances
-			if (isCloudHosted()) {
-				try {
-					const globalUserInfo = await UserService.globalWhoami()
-					if (globalUserInfo.first_time_user) {
-						goto('/user/onboarding')
-						return
-					}
-				} catch (err) {
-					console.error('Could not fetch global user info for onboarding check:', err)
-				}
-			}
 
 			if ($workspaceStore) {
 				if ($userStore) {

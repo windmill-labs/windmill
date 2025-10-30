@@ -106,28 +106,7 @@
 		}
 
 		if (firstTime) {
-			if (isCloudHosted()) {
-				// Cloud first-time users go to onboarding
-				goto('/user/onboarding')
-			} else {
-				// Self-hosted first-time users go to instance setup
-				goto('/user/first-time')
-			}
 			return
-		}
-
-		// Check if this is a first-time user (individual user onboarding)
-		// Only show onboarding for cloud-hosted instances
-		if (isCloudHosted()) {
-			try {
-				const globalUserInfo = await UserService.globalWhoami()
-				if (globalUserInfo.first_time_user) {
-					goto('/user/onboarding')
-					return
-				}
-			} catch (err) {
-				console.error('Could not fetch global user info:', err)
-			}
 		}
 
 		// Once logged in, we can fetch the workspaces
@@ -202,7 +181,6 @@
 
 			showPassword = (logins.length == 0 && !saml) || (email != undefined && email.length > 0)
 		} catch (e) {
-			// OAuth endpoint not available (OSS version or not configured)
 			logins = []
 			saml = undefined
 			showPassword = true

@@ -566,9 +566,6 @@ paths:
           application/json:
             schema:
               type: object
-              required:
-                - touch_point
-                - use_case
               properties:
                 touch_point:
                   type: string
