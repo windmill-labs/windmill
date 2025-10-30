@@ -1781,7 +1781,6 @@
 									nullTag={script.language}
 									placeholder={customUi?.tagSelectPlaceholder}
 									bind:tag={script.tag}
-									alwaysDisplayRefresh
 								/>
 							</div>
 						{/if}
