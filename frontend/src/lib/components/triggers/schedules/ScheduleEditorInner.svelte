@@ -645,7 +645,7 @@
 		>
 			{#snippet extra()}
 				{#if !drawerLoading && edit}
-					<div class="mr-8 flex flex-row gap-3">
+					<div class="mr-12 flex flex-row gap-3">
 						<Button
 							size="sm"
 							variant="default"
