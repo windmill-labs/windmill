@@ -1,7 +1,7 @@
 import { CancelablePromise } from './gen'
 
 export namespace CancelablePromiseUtils {
-	export function bind<T, U>(
+	export function then<T, U>(
 		promise: CancelablePromise<T>,
 		f: (value: T) => CancelablePromise<U>
 	): CancelablePromise<U> {
@@ -23,7 +23,7 @@ export namespace CancelablePromiseUtils {
 		return new CancelablePromise((resolve) => resolve(value))
 	}
 
-	export function pureErr<T>(error: any): CancelablePromise<T> {
+	export function err<T>(error: any): CancelablePromise<T> {
 		return new CancelablePromise((_, reject) => reject(error))
 	}
 
@@ -31,14 +31,16 @@ export namespace CancelablePromiseUtils {
 		promise: CancelablePromise<T>,
 		f: (value: T) => U
 	): CancelablePromise<U> {
-		return bind(promise, (value) => pure(f(value)))
+		return then(promise, (value) => pure(f(value)))
 	}
 
 	export function pipe<T>(
 		promise: CancelablePromise<T>,
 		f: (value: T) => void
 	): CancelablePromise<T> {
-		promise.then(f)
+		promise.then((value) => {
+			f(value)
+		})
 		return promise
 	}
 
@@ -63,7 +65,7 @@ export namespace CancelablePromiseUtils {
 
 	export function finallyDo<T>(promise: CancelablePromise<T>, f: () => void): CancelablePromise<T> {
 		promise = map(promise, (value) => (f(), value))
-		promise = catchErr(promise, (e) => (f(), pureErr(e)))
+		promise = catchErr(promise, (e) => (f(), err(e)))
 		return promise
 	}
 

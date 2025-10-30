@@ -114,7 +114,6 @@
 			hasMore = !logs || (logs.length > 0 && logs.length === perPage)
 			loading = false
 		})
-		console.log('loadLogs:')
 		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
 			sendUserToast(
 				'Loading audit logs is taking longer than expected...',
@@ -126,7 +125,7 @@
 		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
 			if (e instanceof CancelError) return CancelablePromiseUtils.pure<void>(undefined)
-			return CancelablePromiseUtils.pureErr<void>(e)
+			return CancelablePromiseUtils.err<void>(e)
 		})
 		return promise
 	}

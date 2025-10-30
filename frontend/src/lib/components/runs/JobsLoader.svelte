@@ -112,7 +112,7 @@
 			if (e instanceof CancelError) {
 				return CancelablePromiseUtils.pure<void>(undefined)
 			}
-			return CancelablePromiseUtils.pureErr(e)
+			return CancelablePromiseUtils.err(e)
 		})
 		return promise
 	}
@@ -181,7 +181,7 @@
 			const minCreated = new Date(new Date(ts).getTime() - 1).toISOString()
 
 			let olderJobs = await fetchJobs(minCreated, minTs, undefined)
-			jobs = jobs.concat(olderJobs)
+			jobs = jobs?.concat(olderJobs)
 			computeCompletedJobs()
 			return olderJobs?.length < perPage
 		}
@@ -236,6 +236,7 @@
 			allowWildcards: allowWildcards ? true : undefined
 		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
+			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
 			console.error(e)
 			return CancelablePromiseUtils.pure([] as Job[])
