@@ -755,7 +755,7 @@
 
 				{#if $superadmin}
 					<Button
-						color="red"
+						destructive
 						disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
 						size="sm"
 						btnClasses="mt-2"
