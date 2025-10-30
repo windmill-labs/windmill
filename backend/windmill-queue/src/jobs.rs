@@ -4730,20 +4730,22 @@ pub async fn push<'c, 'd>(
     }
 
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    if let Some(debounced_job_id) = crate::jobs_ee::maybe_apply_debouncing(
-        &job_id,
-        debounce_delay_s,
-        custom_debounce_key,
-        workspace_id,
-        script_path.clone(),
-        &job_kind,
-        &args,
-        &mut scheduled_for_o,
-        &mut tx,
-    )
-    .await?
-    {
-        return Ok((debounced_job_id, tx));
+    if schedule_path.is_none() {
+        if let Some(debounced_job_id) = crate::jobs_ee::maybe_apply_debouncing(
+            &job_id,
+            debounce_delay_s,
+            custom_debounce_key,
+            workspace_id,
+            script_path.clone(),
+            &job_kind,
+            &args,
+            &mut scheduled_for_o,
+            &mut tx,
+        )
+        .await?
+        {
+            return Ok((debounced_job_id, tx));
+        }
     }
 
     if concurrent_limit.is_some() {
