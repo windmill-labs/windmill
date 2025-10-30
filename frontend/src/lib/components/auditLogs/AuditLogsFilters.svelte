@@ -43,7 +43,6 @@
 
 	let usernames: string[] | undefined = $state()
 	let resources = usePromise(() => loadResources($workspaceStore!), { loadInit: false })
-	let loading: boolean = $state(false)
 	let page: number | undefined = undefined
 
 	interface Props {
@@ -58,6 +57,7 @@
 		resource?: string | undefined
 		actionKind?: ActionKind | 'all'
 		scope?: undefined | 'all_workspaces' | 'instance'
+		loading?: boolean
 	}
 
 	let {
@@ -71,7 +71,8 @@
 		operation = $bindable(),
 		resource = $bindable() as string | undefined,
 		actionKind = $bindable(undefined),
-		scope = $bindable(undefined)
+		scope = $bindable(undefined),
+		loading = $bindable(false)
 	}: Props = $props()
 
 	$effect.pre(() => {
