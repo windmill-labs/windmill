@@ -45,11 +45,12 @@
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import type { Job } from '$lib/gen'
 	import { getNodeColorClasses, type FlowNodeState } from '$lib/components/graph'
+	import type { AIModuleAction } from '$lib/components/copilot/chat/flow/core'
 
 	interface Props {
 		selected?: boolean
 		deletable?: boolean
-		moduleAction?: 'added' | 'removed' | 'modified'
+		moduleAction: AIModuleAction | undefined
 		onShowModuleDiff?: (moduleId: string) => void
 		retry?: boolean
 		cache?: boolean
