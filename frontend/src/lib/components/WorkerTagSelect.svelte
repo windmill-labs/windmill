@@ -16,8 +16,7 @@
 		nullTag = undefined,
 		disabled = false,
 		placeholder,
-		inputClass,
-		alwaysDisplayRefresh = false
+		inputClass
 	}: {
 		tag: string | undefined
 		noLabel?: boolean
@@ -27,7 +26,6 @@
 		language?: string
 		class?: string
 		inputClass?: string
-		alwaysDisplayRefresh?: boolean
 	} = $props()
 
 	let loading = $state(false)
@@ -143,26 +141,21 @@
 		items={safeSelectItems(items)}
 		bind:value={() => tag, (value) => ((tag = value), dispatch('change', value))}
 		{startSnippet}
+		bottomSnippet={refreshAll}
 	/>
-	{#if alwaysDisplayRefresh}
-		{@render refreshAll()}
-	{:else if open}
-		<div class="absolute top-0 -right-10">
-			{@render refreshAll()}
-		</div>
-	{/if}
 </div>
 
 {#snippet refreshAll()}
 	<Button
 		iconOnly
 		variant="subtle"
-		unifiedSize="md"
+		unifiedSize="sm"
 		startIcon={{ icon: RotateCw, classes: loading ? 'animate-spin' : '' }}
 		on:click={async () => {
 			loadWorkerGroups(true)
 			open = true
 		}}
+		btnClasses="rounded-none"
 		title="Refresh worker groups"
 	></Button>
 {/snippet}

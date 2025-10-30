@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM workspace_settings WHERE slack_team_id = $1 AND slack_command_script IS NOT NULL",
+  "query": "SELECT * FROM workspace_settings WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
@@ -157,6 +157,16 @@
         "ordinal": 30,
         "name": "auto_add_instance_groups_roles",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 31,
+        "name": "slack_oauth_client_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 32,
+        "name": "slack_oauth_client_secret",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -195,8 +205,10 @@
       false,
       true,
       true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "55cb03040bc2a8c53dd7fbb42bbdcc40f463cbc52d94ed9315cf9a547d4c89f2"
+  "hash": "1730f39fd1793d45fbb41b21389c61296a3ff7489ae12f52a19f9543173ac597"
 }
