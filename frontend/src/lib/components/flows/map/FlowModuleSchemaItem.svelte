@@ -18,7 +18,7 @@
 		Loader2,
 		TriangleAlert,
 		Timer,
-		DiffIcon
+		DiffIcon,
 		Maximize2
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
