@@ -19,7 +19,7 @@
 	let state = page.url.searchParams.get('state') ?? undefined
 
 	onMount(async () => {
-		let rd = localStorage.getItem('rd')
+		const rd = localStorage.getItem('rd')
 		if (rd) {
 			localStorage.removeItem('rd')
 		}
