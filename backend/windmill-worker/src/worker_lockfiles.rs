@@ -1362,10 +1362,24 @@ async fn lock_modules<'c>(
                     .execute(&mut *tx)
                     .await?;
                 }
-                FlowModuleValue::AIAgent { input_transforms, tools, modules_node } => {
-                    let ntools;
-                    (ntools, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
-                        tools,
+                FlowModuleValue::AIAgent { input_transforms, mut tools } => {
+                    // Extract FlowModules from tools and track their original indices
+                    // MCP tools don't need locking, so we filter them out
+                    let mut flow_modules = Vec::new();
+                    let mut flow_module_indices = Vec::new();
+
+                    for (idx, tool) in tools.iter().enumerate() {
+                        if let Some(flow_module) = Option::<FlowModule>::from(tool) {
+                            // Convert AgentTool -> FlowModule for locking
+                            flow_modules.push(flow_module);
+                            flow_module_indices.push(idx);
+                        }
+                    }
+
+                    // Lock only the FlowModule-type tools
+                    let locked_flow_modules;
+                    (locked_flow_modules, tx, nmodified_ids, nerrors) = Box::pin(lock_modules(
+                        flow_modules,
                         job,
                         mem_peak,
                         canceled_by,
@@ -1384,9 +1398,16 @@ async fn lock_modules<'c>(
                         dependency_map,
                     ))
                     .await?;
-                    e.value =
-                        FlowModuleValue::AIAgent { input_transforms, tools: ntools, modules_node }
-                            .into();
+
+                    let mut locked_iter = locked_flow_modules.into_iter();
+                    for idx in flow_module_indices {
+                        let locked = locked_iter.next().ok_or_else(|| {
+                            Error::internal_err("locked tool module should exist".to_string())
+                        })?;
+                        tools[idx] = locked.into();
+                    }
+
+                    e.value = FlowModuleValue::AIAgent { input_transforms, tools }.into();
                 }
                 _ => (),
             };
