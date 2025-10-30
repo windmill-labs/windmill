@@ -16,7 +16,6 @@
 	import {
 		CancelablePromise,
 		HelpersService,
-		SettingService,
 		type DatasetStorageTestConnectionData,
 		type DatasetStorageTestConnectionResponse,
 		type DeleteS3FileData,
@@ -47,7 +46,6 @@
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import FileUploadModal from './common/fileUpload/FileUploadModal.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { usePromise } from '$lib/svelte5Utils.svelte'
 
 	let deletionModalOpen = $state(false)
 	let fileDeletionInProgress = $state(false)
@@ -57,10 +55,6 @@
 	let moveModalOpen = $state(false)
 	let moveDestKey: string | undefined = $state(undefined)
 	let fileMoveInProgress = $state(false)
-
-	let uploadModalOpen = $state(false)
-
-	let workspaceSettingsInitialized = $state(true)
 
 	let initialFileKeyInternalCopy: { s3: string; storage?: string }
 	interface Props {
@@ -72,6 +66,22 @@
 		regexFilter?: RegExp | undefined
 		hideS3SpecificDetails?: boolean
 		rootPath?: string
+		workspaceSettingsInitialized?: boolean
+		storage?: string | undefined
+		uploadModalOpen?: boolean
+		allFilesByKey?: Record<
+			string,
+			{
+				type: 'folder' | 'leaf'
+				full_key: string
+				display_name: string
+				collapsed: boolean
+				parentPath: string | undefined
+				nestingLevel: number
+				count: number
+			}
+		>
+		wasOpen?: boolean
 		replaceUnauthorizedWarning?: Snippet
 		listStoredFilesRequest?: (d: ListStoredFilesData) => CancelablePromise<ListStoredFilesResponse>
 		loadFilePreviewRequest?: (d: LoadFilePreviewData) => CancelablePromise<LoadFilePreviewResponse>
@@ -94,6 +104,11 @@
 		regexFilter = undefined,
 		hideS3SpecificDetails = false,
 		rootPath = '',
+		workspaceSettingsInitialized = $bindable(true),
+		storage = $bindable(undefined),
+		uploadModalOpen = $bindable(false),
+		allFilesByKey = $bindable({}),
+		wasOpen = $bindable(false),
 		replaceUnauthorizedWarning,
 		listStoredFilesRequest = HelpersService.listStoredFiles,
 		loadFilePreviewRequest = HelpersService.loadFilePreview,
@@ -115,18 +130,6 @@
 
 	let fileInfoLoading: boolean = $state(true)
 	let fileListLoading: boolean = $state(true)
-	let allFilesByKey: Record<
-		string,
-		{
-			type: 'folder' | 'leaf'
-			full_key: string
-			display_name: string
-			collapsed: boolean
-			parentPath: string | undefined
-			nestingLevel: number
-			count: number
-		}
-	> = $state({})
 	let displayedFileKeys: string[] = $state([])
 
 	let listDivHeight: number = $state(0)
@@ -161,17 +164,6 @@
 
 	let timeout: number | undefined = undefined
 	let firstLoad = true
-
-	let secondaryStorageNames = usePromise(
-		() => SettingService.getSecondaryStorageNames({ workspace: $workspaceStore! }),
-		{ loadInit: false }
-	)
-
-	let wasOpen = $state(false)
-
-	$effect(() => {
-		wasOpen && $workspaceStore && untrack(() => secondaryStorageNames.refresh())
-	})
 
 	function onFilterChange() {
 		if (!firstLoad) {
@@ -431,7 +423,6 @@
 		await loadFileMetadataPlusPreviewAsync(selectedFileKey.s3)
 	}
 
-	let storage: string | undefined = $state(undefined)
 	export async function open(_preSelectedFileKey: S3Object | undefined = undefined) {
 		wasOpen = true
 		const preSelectedFileKey = _preSelectedFileKey && parseS3Object(_preSelectedFileKey)
