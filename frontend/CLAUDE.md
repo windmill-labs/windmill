@@ -15,26 +15,7 @@
 - **Use Windmill's theming classes** for consistent colors and surfaces
 - **Avoid custom styles** - prefer Tailwind utility classes
 - **Follow existing patterns** - look at other components for reference
-
-### Windmill Theme Classes
-
-Use these semantic color classes that automatically handle light/dark modes:
-
-#### Backgrounds
-
-- `bg-surface` - Main surface background
-- `bg-surface-secondary` - Secondary/elevated surfaces
-- `bg-surface-hover` - Hover states for interactive elements
-
-#### Text Colors
-
-- `text-primary` - Primary text color
-- `text-secondary` - Secondary text (less prominent)
-- `text-tertiary` - Tertiary text (subtle/muted)
-
-#### Borders
-
-- `border-gray-200 dark:border-gray-700` - Standard borders that adapt to theme
+- **Respect design guidelines** - rules are defined in 'brand-guidelines.md'
 
 #### Status Colors
 
