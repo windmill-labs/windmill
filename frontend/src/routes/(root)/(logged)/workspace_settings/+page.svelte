@@ -662,7 +662,7 @@
 						}}
 						onSelect={editSlackCommand}
 						connectHref="{base}/api/oauth/connect_slack"
-						createScriptHref="{base}/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+						createScriptHref="{base}/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 						createFlowHref="{base}/flows/add?hub=28"
 						documentationLink="https://www.windmill.dev/docs/integrations/slack"
 						onLoadSettings={loadSettings}
