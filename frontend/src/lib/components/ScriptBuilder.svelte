@@ -1213,78 +1213,6 @@
 							</TabContent>
 							<TabContent value="runtime">
 								<div class="flex flex-col gap-8 px-4 py-2">
-									<Section label="Concurrency limits" eeOnly>
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits"
-											>
-												Allowed concurrency within a given timeframe
-											</Tooltip>
-										{/snippet}
-										<div class="flex flex-col gap-4">
-											<Label label="Max number of executions within the time window">
-												<div class="flex flex-row gap-2 max-w-sm whitespace-nowrap">
-													<input
-														disabled={!$enterpriseLicense}
-														bind:value={script.concurrent_limit}
-														type="number"
-													/>
-													<Button
-														size="sm"
-														color="light"
-														on:click={() => {
-															script.concurrent_limit = undefined
-															script.concurrency_time_window_s = undefined
-															script.concurrency_key = undefined
-														}}
-														variant="border">Remove Limits</Button
-													>
-												</div>
-											</Label>
-											{#if Boolean(script.concurrent_limit)}
-												<Label label="Time window in seconds">
-													<SecondsInput
-														disabled={!$enterpriseLicense}
-														bind:seconds={script.concurrency_time_window_s}
-													/>
-												</Label>
-												<Label label="Custom concurrency key (optional)">
-													{#snippet header()}
-														<Tooltip
-															documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits#custom-concurrency-key"
-														>
-															Concurrency keys are global, you can have them be workspace specific
-															using the variable `$workspace`. You can also use an argument's value
-															using `$args[name_of_arg]`</Tooltip
-														>
-													{/snippet}
-													<input
-														disabled={!$enterpriseLicense}
-														type="text"
-														autofocus
-														bind:value={script.concurrency_key}
-														placeholder={`$workspace/script/${script.path}-$args[foo]`}
-													/>
-												</Label>
-											{/if}
-										</div>
-									</Section>
-									<Section label="Debouncing" eeOnly>
-										<DebounceLimit
-											size="sm"
-											bind:debounce_delay_s={script.debounce_delay_s}
-											bind:debounce_key={script.debounce_key}
-											placeholder={`$workspace/script/${script.path}-$args[foo]`}
-										/>
-
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing"
-											>
-												Debounce Jobs
-											</Tooltip>
-										{/snippet}
-									</Section>
 									<Section label="Worker group tag (queue)">
 										{#snippet header()}
 											<Tooltip
@@ -1298,6 +1226,71 @@
 											bind:tag={script.tag}
 											placeholder={customUi?.tagSelectPlaceholder}
 										/>
+									</Section>
+
+									<Section label="Concurrency limits" eeOnly>
+										{#snippet header()}
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits"
+											>
+												Allowed concurrency within a given timeframe
+											</Tooltip>
+										{/snippet}
+										<Toggle
+											size="sm"
+											checked={Boolean(script.concurrent_limit)}
+											on:change={() => {
+												if (script.concurrent_limit && script.concurrent_limit != undefined) {
+													script.concurrent_limit = undefined
+													script.concurrency_time_window_s = undefined
+													script.concurrency_key = undefined
+												} else {
+													script.concurrent_limit = 1
+												}
+											}}
+											options={{
+												right: 'Concurrency limits'
+											}}
+										/>
+										{#if Boolean(script.concurrent_limit)}
+											<div class="flex flex-col gap-4 mt-2">
+												<Label label="Max number of executions within the time window">
+													<div class="flex flex-row gap-2 max-w-sm whitespace-nowrap">
+														<input
+															disabled={!$enterpriseLicense}
+															bind:value={script.concurrent_limit}
+															type="number"
+														/>
+													</div>
+												</Label>
+												{#if Boolean(script.concurrent_limit)}
+													<Label label="Time window in seconds">
+														<SecondsInput
+															disabled={!$enterpriseLicense}
+															bind:seconds={script.concurrency_time_window_s}
+														/>
+													</Label>
+													<Label label="Custom concurrency key (optional)">
+														{#snippet header()}
+															<Tooltip
+																documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits#custom-concurrency-key"
+															>
+																Concurrency keys are global, you can have them be workspace specific
+																using the variable `$workspace`. You can also use an argument's
+																value using `$args[name_of_arg]`</Tooltip
+															>
+														{/snippet}
+														<input
+															disabled={!$enterpriseLicense}
+															type="text"
+															autofocus
+															bind:value={script.concurrency_key}
+															placeholder={`$workspace/script/${script.path}-$args[foo]`}
+														/>
+													</Label>
+												{/if}
+											</div>
+										{/if}
 									</Section>
 									<Section label="Cache">
 										{#snippet header()}
@@ -1369,6 +1362,23 @@
 											{/if}
 										</div>
 									</Section>
+									<Section label="Debouncing">
+										<DebounceLimit
+											size="sm"
+											bind:debounce_delay_s={script.debounce_delay_s}
+											bind:debounce_key={script.debounce_key}
+											placeholder={`$workspace/script/${script.path}-$args[foo]`}
+										/>
+
+										{#snippet header()}
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing"
+											>
+												Debounce Jobs
+											</Tooltip>
+										{/snippet}
+									</Section>
+
 									<Section label="Perpetual script">
 										{#snippet header()}
 											<Tooltip
