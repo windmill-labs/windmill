@@ -93,7 +93,7 @@ export function aiModuleActionToBgColor(action: AIModuleAction | undefined) {
 		case 'removed':
 			return '!bg-red-200/50 dark:!bg-red-800/50'
 		case 'shadowed':
-			return '!bg-gray-200/30 dark:!bg-gray-800/30 bg-shadowed-stripe'
+			return '!bg-gray-200/30 dark:!bg-gray-800/30 !opacity-50'
 		default:
 			return ''
 	}
