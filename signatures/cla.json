@@ -959,6 +959,14 @@
       "created_at": "2025-10-22T04:59:30Z",
       "repoId": 488804911,
       "pullRequestNo": 6889
+    },
+    {
+      "name": "skrzyneckik",
+      "id": 1184480,
+      "comment_id": 3466608611,
+      "created_at": "2025-10-30T08:19:26Z",
+      "repoId": 488804911,
+      "pullRequestNo": 6999
     }
   ]
 }
