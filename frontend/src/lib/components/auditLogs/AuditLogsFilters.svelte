@@ -363,25 +363,30 @@
 
 	<div class="flex gap-1 relative w-full">
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Username</span>
-		<select bind:value={username}>
-			{#if usernames}
-				{#if $userStore?.is_admin || $userStore?.is_super_admin}
-					<option selected>all</option>
-				{/if}
-				{#each usernames as e}
-					{#if e == username || $userStore?.is_admin || $userStore?.is_super_admin}
-						<option>{e}</option>
-					{:else}
-						<option disabled>{e}</option>
-					{/if}
-				{/each}
-			{/if}
-		</select>
+		<Select
+			bind:value={username}
+			class="w-full"
+			disablePortal
+			RightIcon={ChevronDown}
+			items={usernames
+				? [
+						...($userStore?.is_admin || $userStore?.is_super_admin
+							? [{ value: 'all', label: 'all' }]
+							: []),
+						...usernames.map((e) => ({
+							value: e,
+							label: e,
+							disabled: e !== username && !$userStore?.is_admin && !$userStore?.is_super_admin
+						}))
+					]
+				: []}
+		/>
 	</div>
 	<div class="flex gap-1 relative w-full">
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Resource</span>
 
 		<Select
+			disablePortal
 			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
 			createText="Press enter to use this value"
 			bind:value={resource}
@@ -396,6 +401,7 @@
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Operation</span>
 
 		<Select
+			disablePortal
 			bind:value={operation}
 			items={['all', ...Object.values(operations)].map((r) => ({ value: r, label: r }))}
 			inputClass="dark:!bg-gray-700"
@@ -407,12 +413,19 @@
 	<div class="flex gap-1 relative w-full">
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Action</span>
 
-		<select class="!truncate" bind:value={actionKind}>
-			<option selected value="all">all</option>
-			{#each ['Create', 'Update', 'Delete', 'Execute'] as e}
-				<option value={e.toLocaleLowerCase()}>{e}</option>
-			{/each}
-		</select>
+		<Select
+			class="w-full"
+			bind:value={actionKind}
+			disablePortal
+			RightIcon={ChevronDown}
+			items={[
+				{ value: 'all', label: 'all' },
+				{ value: 'create', label: 'Create' },
+				{ value: 'update', label: 'Update' },
+				{ value: 'delete', label: 'Delete' },
+				{ value: 'execute', label: 'Execute' }
+			]}
+		/>
 	</div>
 
 	<div class="flex flex-row gap-1">

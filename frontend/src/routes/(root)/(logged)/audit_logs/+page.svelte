@@ -18,7 +18,7 @@
 	import AuditLogsTimeline from '$lib/components/auditLogs/AuditLogsTimeline.svelte'
 
 	let username: string = $state(page.url.searchParams.get('username') ?? 'all')
-	let pageIndex: number | undefined = $state(Number(page.url.searchParams.get('page')) || 0)
+	let pageIndex: number | undefined = $state(Number(page.url.searchParams.get('page')) || 1)
 	let before: string | undefined = $state(page.url.searchParams.get('before') ?? undefined)
 	let hasMore: boolean = $state(false)
 	let loading: boolean = $state(false)
