@@ -1,5 +1,4 @@
 <script lang="ts">
-
 	import { Button } from '$lib/components/common'
 	import {
 		InputService,
@@ -22,16 +21,14 @@
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import SaveInputsButton from './SaveInputsButton.svelte'
 
-
-	
 	interface Props {
-		scriptHash?: string | null;
-		scriptPath?: string | null;
-		flowPath?: string | null;
-		canSaveInputs?: boolean;
+		scriptHash?: string | null
+		scriptPath?: string | null
+		flowPath?: string | null
+		canSaveInputs?: boolean
 		// Are the current Inputs valid and able to be saved?
-		isValid: boolean;
-		args: object;
+		isValid: boolean
+		args: object
 	}
 
 	let {
@@ -41,7 +38,7 @@
 		canSaveInputs = true,
 		isValid,
 		args
-	}: Props = $props();
+	}: Props = $props()
 
 	interface EditableInput extends Input {
 		isEditing?: boolean
@@ -57,14 +54,9 @@
 
 	let runnableId = $derived(scriptHash || scriptPath || flowPath || undefined)
 
-	let runnableType: RunnableType | undefined = $derived(scriptHash
-			? 'ScriptHash'
-			: scriptPath
-				? 'ScriptPath'
-				: flowPath
-					? 'FlowPath'
-					: undefined)
-
+	let runnableType: RunnableType | undefined = $derived(
+		scriptHash ? 'ScriptHash' : scriptPath ? 'ScriptPath' : flowPath ? 'FlowPath' : undefined
+	)
 
 	let hasAlreadyFailed = false
 	async function loadInputHistory() {
@@ -131,11 +123,11 @@
 	$effect(() => {
 		if ($workspaceStore && (scriptHash || scriptPath || flowPath)) {
 			untrack(() => {
-			loadInputHistory()
-			loadSavedInputs()
+				loadInputHistory()
+				loadSavedInputs()
 			})
 		}
-	});
+	})
 
 	let previewArgs: any = $state(undefined)
 
@@ -162,7 +154,7 @@
 	<JobsLoader
 		bind:jobs
 		path={runnableId}
-		isSkipped={false}
+		showSkipped={false}
 		jobKindsCat="all"
 		user={null}
 		label={null}

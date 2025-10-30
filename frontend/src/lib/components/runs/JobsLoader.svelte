@@ -6,10 +6,7 @@
 		type CompletedJob,
 		type ExtendedJobs,
 		ConcurrencyGroupsService,
-		type ObscuredJob,
-
-
-
+		type ObscuredJob
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
@@ -26,7 +23,6 @@
 		folder: string | null
 		path: string | null
 		success?: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | undefined
-		isSkipped?: boolean
 		showSchedules?: boolean
 		showFutureJobs?: boolean
 		argFilter: string | undefined
@@ -43,6 +39,7 @@
 		externalJobs?: Job[] | undefined
 		concurrencyKey: string | null
 		tag: string | null
+		showSkipped?: boolean
 		extendedJobs?: ExtendedJobs | undefined
 		argError?: string
 		resultError?: string
@@ -64,7 +61,7 @@
 		folder,
 		path,
 		success = undefined,
-		isSkipped = false,
+		showSkipped = false,
 		showSchedules = true,
 		showFutureJobs = true,
 		argFilter,
@@ -142,7 +139,7 @@
 			let minQueueTs: string | undefined = undefined
 			let minCompletedTs: string | undefined = undefined
 
-			let cursor = 0 
+			let cursor = 0
 
 			while (jobs && cursor < jobs?.length) {
 				cursor++
@@ -150,7 +147,7 @@
 				if (job.type == 'CompletedJob') {
 					minCompletedTs = job.completed_at
 					break
-				} else if  (job.type == 'QueuedJob' && minQueueTs == undefined) {
+				} else if (job.type == 'QueuedJob' && minQueueTs == undefined) {
 					minQueueTs = job.created_at
 				}
 			}
@@ -158,7 +155,7 @@
 			const ts = minCompletedTs ?? minQueueTs
 
 			if (!ts) {
-				sendUserToast("No jobs to load from")
+				sendUserToast('No jobs to load from')
 				return false
 			}
 			// const minCreated = lastJob?.created_at
@@ -198,7 +195,7 @@
 						: success == 'waiting'
 							? false
 							: undefined,
-				isSkipped: isSkipped ? true : undefined,
+				isSkipped: showSkipped ? undefined : false,
 				// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 				hasNullParent: jobKindsCat != 'all' ? true : undefined,
 				label: label === null || label === '' ? undefined : label,
@@ -254,7 +251,7 @@
 				jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
 				success: success == 'success' ? true : success == 'failure' ? false : undefined,
 				running: success == 'running' ? true : undefined,
-				isSkipped: isSkipped ? true : undefined,
+				isSkipped: showSkipped ? undefined : false,
 				isFlowStep: jobKindsCat != 'all' ? false : undefined,
 				label: label === null || label === '' ? undefined : label,
 				tag: tag === null || tag === '' ? undefined : tag,
@@ -325,7 +322,7 @@
 				jobs = sortMinDate(minTs, newJobs)
 				externalJobs = []
 			} else {
-				extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs,  extendedMinTs)
+				extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, extendedMinTs)
 				const newJobs = extendedJobs.jobs
 				const newExternalJobs = extendedJobs.obscured_jobs
 
@@ -429,14 +426,13 @@
 						queueTs = lastQueueTs
 					}
 
-
 					loading = true
 					let newJobs: Job[]
 					if (concurrencyKey == null || concurrencyKey === '') {
 						newJobs = await fetchJobs(maxTs, minTs ?? completedTs, queueTs)
 					} else {
 						// Obscured jobs have no ids, so we have to do the full request
-						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs,  minTs ?? completedTs)
+						extendedJobs = await fetchExtendedJobs(concurrencyKey, maxTs, minTs ?? completedTs)
 						externalJobs = computeExternalJobs(extendedJobs.obscured_jobs)
 
 						// Filter on minTs here and not in the backend
@@ -548,7 +544,7 @@
 			label,
 			success,
 			worker,
-			isSkipped,
+			showSkipped,
 			jobKinds,
 			concurrencyKey,
 			tag,

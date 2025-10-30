@@ -27,7 +27,7 @@
 		worker?: string | null
 		tag?: string | null
 		success?: 'running' | 'waiting' | 'suspended' | 'queued' | 'success' | 'failure' | undefined
-		isSkipped?: boolean | undefined
+		showSkipped?: boolean | undefined
 		argFilter: string
 		argError: string
 		resultFilter: string
@@ -63,7 +63,7 @@
 		worker = $bindable(null),
 		tag = $bindable(null),
 		success = $bindable(undefined),
-		isSkipped = $bindable(undefined),
+		showSkipped = $bindable(undefined),
 		argFilter = $bindable(),
 		argError = $bindable(),
 		resultFilter = $bindable(),
@@ -950,7 +950,7 @@
 
 					<Label label="Show skipped flows">
 						<div class="flex flex-row gap-1 items-center">
-							<Toggle size="sm" bind:checked={isSkipped} />
+							<Toggle size="sm" bind:checked={showSkipped} />
 						</div>
 						{#snippet header()}
 							<Tooltip>Skipped flows are flows that did an early break</Tooltip>
