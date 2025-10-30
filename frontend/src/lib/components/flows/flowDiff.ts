@@ -23,9 +23,6 @@ export type TimelineItem = {
 	/** Position in afterFlow.modules (undefined if doesn't exist) */
 	afterIndex?: number
 
-	/** If the module ID had a conflict and was renamed */
-	renamedFrom?: string
-
 	/** Helps track insertion logic */
 	insertionStrategy?: 'original_position' | 'anchor_based' | 'end_of_flow'
 }
@@ -153,7 +150,6 @@ export function buildFlowTimeline(
 	const afterModules = getAllModulesMap(afterFlow)
 	const afterIndices = getTopLevelModuleIndices(afterFlow)
 	const allModuleIds = new Set([...beforeModules.keys(), ...afterModules.keys()])
-	const afterModuleIds = new Set(afterModules.keys())
 
 	const { beforeActions, afterActions } = computeFlowModuleDiff(beforeFlow, afterFlow)
 
@@ -180,14 +176,6 @@ export function buildFlowTimeline(
 			afterModule && operation !== 'removed' && operation !== 'shadowed'
 				? afterModule
 				: beforeModule
-		let actualId = moduleId
-		let renamedFrom: string | undefined
-
-		if (!afterModule && afterModuleIds.has(moduleId)) {
-			actualId = `__removed__${moduleId}`
-			actualModule = { ...beforeModule, id: actualId }
-			renamedFrom = moduleId
-		}
 
 		timelineItems.push({
 			module: actualModule,
@@ -195,7 +183,6 @@ export function buildFlowTimeline(
 			operation,
 			beforeIndex,
 			afterIndex,
-			renamedFrom,
 			insertionStrategy: 'original_position'
 		})
 	}
