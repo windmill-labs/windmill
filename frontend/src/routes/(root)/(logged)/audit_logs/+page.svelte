@@ -18,9 +18,10 @@
 	import AuditLogsTimeline from '$lib/components/auditLogs/AuditLogsTimeline.svelte'
 
 	let username: string = $state(page.url.searchParams.get('username') ?? 'all')
-	let pageIndex: number | undefined = $state(Number(page.url.searchParams.get('page')) || 0)
+	let pageIndex: number | undefined = $state(Number(page.url.searchParams.get('page')) || 1)
 	let before: string | undefined = $state(page.url.searchParams.get('before') ?? undefined)
 	let hasMore: boolean = $state(false)
+	let loading: boolean = $state(false)
 	let after: string | undefined = $state(page.url.searchParams.get('after') ?? undefined)
 	let perPage: number | undefined = $state(Number(page.url.searchParams.get('perPage')) || 100)
 	let operation: string = $state(page.url.searchParams.get('operation') ?? 'all')
@@ -107,6 +108,7 @@
 						bind:perPage
 						bind:scope
 						bind:hasMore
+						bind:loading
 					/>
 				</div>
 				<div class="2xl:hidden">
@@ -161,6 +163,7 @@
 					<Pane size={70} minSize={50}>
 						{#if logs}
 							<AuditLogsTable
+								{loading}
 								{logs}
 								{selectedId}
 								bind:pageIndex
