@@ -26,7 +26,7 @@
 	let {
 		logs = [],
 		pageIndex = $bindable(1),
-		perPage = $bindable(100),
+		perPage = $bindable(1000),
 		hasMore = $bindable(true),
 		actionKind = $bindable(),
 		operation = $bindable(),
@@ -142,16 +142,17 @@
 			<div class="w-2/12">Resource</div>
 		</div>
 	</div>
-	{#if logs?.length == 0}
+
+	{#if loading}
+		<div style="height: {height}px;" class="flex justify-center items-center">
+			<Loader2 class="animate-spin" />
+		</div>
+	{:else if !logs?.length}
 		<div
 			class="text-xs text-secondary p-8 flex justify-center items-center"
 			style="height: {height}px;"
 		>
 			No logs found for the selected filters.
-		</div>
-	{:else if loading}
-		<div style="height: {height}px;" class="flex justify-center items-center">
-			<Loader2 class="animate-spin" />
 		</div>
 	{:else}
 		<VirtualList
