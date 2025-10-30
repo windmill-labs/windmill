@@ -18,7 +18,7 @@
 <Popover
 	bind:isOpen={open}
 	portal="#flow-editor"
-	contentClasses="p-2 max-w-lg h-[400px] !resize bg-surface"
+	contentClasses="p-2 max-w-lg h-[400px] bg-surface"
 	class="inline-block"
 	usePointerDownOutside
 	floatingConfig={{
