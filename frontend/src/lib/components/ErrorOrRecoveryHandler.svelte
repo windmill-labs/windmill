@@ -131,7 +131,7 @@
 						workspace: $workspaceStore!,
 						id: connectionTestJob!.uuid,
 						requestBody: {
-							reason: 'Slack message not sent after 5s'
+							reason: 'Slack message not sent after 10s'
 						}
 					})
 				} catch (err) {
@@ -139,7 +139,7 @@
 				}
 			},
 			interval: 500,
-			timeout: 5000
+			timeout: 10000
 		})
 	}
 

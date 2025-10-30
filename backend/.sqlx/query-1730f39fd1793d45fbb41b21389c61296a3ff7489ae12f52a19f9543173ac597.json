@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT * FROM workspace_settings WHERE teams_team_id = $1 AND teams_command_script IS NOT NULL",
+  "query": "SELECT * FROM workspace_settings WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
@@ -210,5 +210,5 @@
       true
     ]
   },
-  "hash": "08f288d2781d823e109a9e5b8848234ca7d1efeee9661f3901f298da375e73f7"
+  "hash": "1730f39fd1793d45fbb41b21389c61296a3ff7489ae12f52a19f9543173ac597"
 }
