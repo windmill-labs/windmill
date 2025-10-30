@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS folder_permission_history (
     workspace_id VARCHAR(50) NOT NULL,
     folder_name VARCHAR(255) NOT NULL,
     changed_by VARCHAR(50) NOT NULL,
-    changed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    changed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     change_type VARCHAR(50) NOT NULL,
     owner_affected VARCHAR(100),
     FOREIGN KEY (workspace_id, folder_name) REFERENCES folder(workspace_id, name) ON DELETE CASCADE
@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS group_permission_history (
     workspace_id VARCHAR(50) NOT NULL,
     group_name VARCHAR(255) NOT NULL,
     changed_by VARCHAR(50) NOT NULL,
-    changed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    changed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     change_type VARCHAR(50) NOT NULL,
     member_affected VARCHAR(100),
     FOREIGN KEY (workspace_id, group_name) REFERENCES group_(workspace_id, name) ON DELETE CASCADE
