@@ -116,7 +116,7 @@ async fn add_granular_acl(
         "UPDATE {kind} SET extra_perms = jsonb_set(extra_perms, $1, to_jsonb($2), \
          true) WHERE {identifier} = $3 AND workspace_id = $4 RETURNING extra_perms"
     ))
-    .bind(vec![owner])
+    .bind(vec![owner.clone()])
     .bind(write.unwrap_or(false))
     .bind(path)
     .bind(&w_id)

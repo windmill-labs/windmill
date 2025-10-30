@@ -329,6 +329,10 @@ async fn update_folder(
 
     sqlb.set("edited_at", "now()");
 
+    // Track whether permission-related fields are being updated
+    let owners_changed = ng.owners.is_some();
+    let extra_perms_changed = ng.extra_perms.is_some();
+
     if !authed.is_admin {
         let prefixed_username = format!("u/{}", authed.username);
         if ng.owners.as_ref().is_some_and(|x| {
@@ -417,7 +421,8 @@ async fn update_folder(
     .await?;
 
     // Log permission changes if owners or extra_perms were updated
-    if ng.owners.is_some() || ng.extra_perms.is_some() {
+    let should_log = owners_changed || extra_perms_changed;
+    if should_log {
         log_folder_permission_change(
             &mut *tx,
             &w_id,
