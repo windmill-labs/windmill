@@ -93,8 +93,6 @@
 		perPage = newPerPage
 	}
 
-	$inspect('logs', logs)
-
 	function loadLogs(
 		username: string | undefined,
 		page: number | undefined,
