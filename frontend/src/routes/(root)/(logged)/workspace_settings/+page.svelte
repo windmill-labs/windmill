@@ -57,7 +57,13 @@
 	} from '$lib/components/workspaceSettings/DucklakeSettings.svelte'
 	import { AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+
+	// Modal state for workspace deletion
+	let archiveModalOpen = $state(false)
+	let deleteModalOpen = $state(false)
+	let isProcessingWorkspaceDeletion = $state(false)
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -742,13 +748,7 @@
 					disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
 					unifiedSize="md"
 					btnClasses="mt-2"
-					on:click={async () => {
-						await WorkspaceService.archiveWorkspace({ workspace: $workspaceStore ?? '' })
-						sendUserToast(`Archived workspace ${$workspaceStore}`)
-						workspaceStore.set(undefined)
-						usersWorkspaceStore.set(undefined)
-						goto('/user/workspaces')
-					}}
+					on:click={() => (archiveModalOpen = true)}
 				>
 					Archive workspace
 				</Button>
@@ -759,13 +759,7 @@
 						disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
 						size="sm"
 						btnClasses="mt-2"
-						on:click={async () => {
-							await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
-							sendUserToast(`Deleted workspace ${$workspaceStore}`)
-							workspaceStore.set(undefined)
-							usersWorkspaceStore.set(undefined)
-							goto('/user/workspaces')
-						}}
+						on:click={() => (deleteModalOpen = true)}
 					>
 						Delete workspace (superadmin)
 					</Button>
@@ -1049,6 +1043,61 @@
 	triggerOnSearchParamsChange={true}
 	tabMode={true}
 />
+
+<ConfirmationModal
+	open={archiveModalOpen}
+	title="Archive workspace"
+	confirmationText="Archive"
+	type="danger"
+	loading={isProcessingWorkspaceDeletion}
+	onConfirmed={async () => {
+		isProcessingWorkspaceDeletion = true
+		try {
+			await WorkspaceService.archiveWorkspace({ workspace: $workspaceStore ?? '' })
+			sendUserToast(`Archived workspace ${$workspaceStore}`)
+			workspaceStore.set(undefined)
+			usersWorkspaceStore.set(undefined)
+			goto('/user/workspaces')
+		} finally {
+			isProcessingWorkspaceDeletion = false
+			archiveModalOpen = false
+		}
+	}}
+	onCanceled={() => (archiveModalOpen = false)}
+>
+	<span>
+		Are you sure you want to archive workspace <b class='text-emphasis font-semibold'>{$workspaceStore}</b>? This action can be reversed by a superadmin.
+	</span>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={deleteModalOpen}
+	title="Delete workspace permanently"
+	confirmationText="Delete"
+	type="danger"
+	loading={isProcessingWorkspaceDeletion}
+	onConfirmed={async () => {
+		isProcessingWorkspaceDeletion = true
+		try {
+			await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
+			sendUserToast(`Deleted workspace ${$workspaceStore}`)
+			workspaceStore.set(undefined)
+			usersWorkspaceStore.set(undefined)
+			goto('/user/workspaces')
+		} finally {
+			isProcessingWorkspaceDeletion = false
+			deleteModalOpen = false
+		}
+	}}
+	onCanceled={() => (deleteModalOpen = false)}
+>
+	<span>
+		Are you sure you want to permanently delete workspace <b class='text-emphasis font-semibold'>{$workspaceStore}</b>?
+	</span>
+	<p class="mt-2 text-emphasis text-red-600 font-semibold">
+		This action is irreversible and will permanently delete all data in this workspace.
+	</p>
+</ConfirmationModal>
 
 <style>
 </style>
