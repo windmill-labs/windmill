@@ -216,11 +216,6 @@
 					<!-- Before (Left) -->
 					<Pane bind:size={beforePaneSize} minSize={30}>
 						<div class="flex flex-col h-full border-r border-gray-200 dark:border-gray-700">
-							<div
-								class="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700"
-							>
-								<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Before</h3>
-							</div>
 							<div class="flex-1 overflow-hidden">
 								<FlowGraphV2
 									bind:this={beforeGraph}
@@ -242,7 +237,11 @@
 									{sharedViewport}
 									onViewportChange={handleViewportChange}
 									showControls={false}
-								/>
+								>
+									{#snippet leftHeader()}
+										<span class="text-sm text-primary">Before</span>
+									{/snippet}
+								</FlowGraphV2>
 							</div>
 						</div>
 					</Pane>
@@ -250,11 +249,6 @@
 					<!-- After (Right) - Show merged flow with shadowed removed modules -->
 					<Pane minSize={30} class="flex flex-col h-full">
 						<div class="flex flex-col h-full">
-							<div
-								class="px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700"
-							>
-								<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">After</h3>
-							</div>
 							<div class="flex-1 overflow-hidden">
 								{#if mergedState}
 									<FlowGraphV2
@@ -277,7 +271,11 @@
 										{sharedViewport}
 										onViewportChange={handleViewportChange}
 										showControls={false}
-									/>
+									>
+										{#snippet leftHeader()}
+											<span class="text-sm text-primary">After</span>
+										{/snippet}
+									</FlowGraphV2>
 								{/if}
 							</div>
 						</div>

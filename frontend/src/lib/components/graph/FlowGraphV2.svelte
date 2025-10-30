@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FlowService, type FlowModule, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import { getContext, onDestroy, setContext, tick, untrack } from 'svelte'
+	import { getContext, onDestroy, setContext, tick, untrack, type Snippet } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
@@ -141,6 +141,7 @@
 		sharedViewport?: Viewport
 		onViewportChange?: (viewport: Viewport, isUserInitiated: boolean) => void
 		showControls?: boolean
+		leftHeader?: Snippet
 	}
 
 	let {
@@ -198,7 +199,8 @@
 		chatInputEnabled = false,
 		sharedViewport = undefined,
 		onViewportChange = undefined,
-		showControls = true
+		showControls = true,
+		leftHeader = undefined
 	}: Props = $props()
 
 	setContext<{
@@ -627,6 +629,11 @@
 				--background-color={false}
 			>
 				<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
+				{#if leftHeader}
+					<div class="absolute top-2 left-2 z-10">
+						{@render leftHeader()}
+					</div>
+				{/if}
 				{#if showControls}
 					<Controls position="top-right" orientation="horizontal" showLock={false}>
 						{#if download}
@@ -657,6 +664,7 @@
 					showZoom={false}
 					showFitView={false}
 					class="!shadow-none"
+					style={leftHeader ? 'margin-top: 40px;' : ''}
 				>
 					{#if showDataflow}
 						<Toggle
