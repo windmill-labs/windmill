@@ -8,6 +8,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import { Button } from './common'
 	import SchemaForm from './SchemaForm.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let isOwner: boolean
 	export let workspaceId: string | undefined
@@ -124,7 +125,7 @@
 	{/if}
 	<div>
 		{#if isOwner || resumeUrl}
-			<div class="flex flex-row gap-2 mt-2">
+			<div class={twMerge('flex gap-2 mt-2', light ? 'flex-col' : 'flex-row ')}>
 				{#if cancelUrl && !hide_cancel}
 					<div>
 						<Button
@@ -139,7 +140,7 @@
 				{/if}
 				<div>
 					<Button variant="accent" on:click={() => continu(true)}
-						>Resume <Tooltip class="text-primary-inverse"
+						>Resume <Tooltip class="text-white"
 							>Since you are an owner of this flow, you can send resume events without necessarily
 							knowing the resume id sent by the approval step</Tooltip
 						></Button
@@ -147,7 +148,12 @@
 				</div>
 
 				{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
-					<div class="w-full border rounded-lg p-2">
+					<div
+						class={twMerge(
+							'w-full border rounded-lg p-2',
+							light ? 'min-w-96 max-h-svh overflow-y-auto' : ''
+						)}
+					>
 						<SchemaForm onlyMaskPassword bind:args={default_payload} {defaultValues} {schema} />
 					</div>
 				{/if}
