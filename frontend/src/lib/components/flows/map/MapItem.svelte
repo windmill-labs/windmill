@@ -16,12 +16,13 @@
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowNodeState } from '$lib/components/graph'
+	import type { AIModuleAction } from '$lib/components/copilot/chat/flow/core'
 
 	interface Props {
 		moduleId: string
 		mod: FlowModule
 		insertable: boolean
-		moduleAction?: 'added' | 'removed' | 'modified'
+		moduleAction: AIModuleAction | undefined
 		onShowModuleDiff?: (moduleId: string) => void
 		annotation?: string | undefined
 		nodeState?: FlowNodeState

@@ -149,7 +149,7 @@ export type ModuleN = {
 		flowJob: Job | undefined
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
-		moduleAction?: AIModuleAction
+		moduleAction: AIModuleAction | undefined
 		onShowModuleDiff?: (moduleId: string) => void
 	}
 }
