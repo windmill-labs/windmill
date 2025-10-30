@@ -554,6 +554,31 @@ paths:
                 items:
                   $ref: "#/components/schemas/ExportedUser"
 
+  /users/onboarding:
+    post:
+      summary: Submit user onboarding data
+      operationId: submitOnboardingData
+      tags:
+        - user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                touch_point:
+                  type: string
+                use_case:
+                  type: string
+      responses:
+        '200':
+          description: Onboarding data submitted successfully
+          content:
+            application/json:
+              schema:
+                type: string                
+
   /w/{workspace}/users/delete/{username}:
     delete:
       summary: delete user (require admin privilege)
@@ -18595,12 +18620,15 @@ components:
           type: string
         operator_only:
           type: boolean
+        first_time_user:
+          type: boolean
 
       required:
         - email
         - login_type
         - super_admin
         - verified
+        - first_time_user
 
     Flow:
       allOf:
