@@ -4427,6 +4427,8 @@ pub async fn push<'c, 'd>(
     // prioritize flow steps to drain the queue faster
     let final_priority = if flow_step_id.is_some() && final_priority.is_none() {
         Some(0)
+    } else if job_kind == JobKind::Dependencies {
+        Some(0)
     } else {
         final_priority
     };
