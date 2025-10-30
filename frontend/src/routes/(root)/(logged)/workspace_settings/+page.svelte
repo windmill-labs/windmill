@@ -60,10 +60,11 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
-	// Modal state for workspace deletion
+	// Modal state for workspace operations
 	let archiveModalOpen = $state(false)
 	let deleteModalOpen = $state(false)
-	let isProcessingWorkspaceDeletion = $state(false)
+	let isProcessingArchive = $state(false)
+	let isProcessingDelete = $state(false)
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -1049,9 +1050,9 @@
 	title="Archive workspace"
 	confirmationText="Archive"
 	type="danger"
-	loading={isProcessingWorkspaceDeletion}
+	loading={isProcessingArchive}
 	onConfirmed={async () => {
-		isProcessingWorkspaceDeletion = true
+		isProcessingArchive = true
 		try {
 			await WorkspaceService.archiveWorkspace({ workspace: $workspaceStore ?? '' })
 			sendUserToast(`Archived workspace ${$workspaceStore}`)
@@ -1059,7 +1060,7 @@
 			usersWorkspaceStore.set(undefined)
 			goto('/user/workspaces')
 		} finally {
-			isProcessingWorkspaceDeletion = false
+			isProcessingArchive = false
 			archiveModalOpen = false
 		}
 	}}
@@ -1075,9 +1076,9 @@
 	title="Delete workspace permanently"
 	confirmationText="Delete"
 	type="danger"
-	loading={isProcessingWorkspaceDeletion}
+	loading={isProcessingDelete}
 	onConfirmed={async () => {
-		isProcessingWorkspaceDeletion = true
+		isProcessingDelete = true
 		try {
 			await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
 			sendUserToast(`Deleted workspace ${$workspaceStore}`)
@@ -1085,7 +1086,7 @@
 			usersWorkspaceStore.set(undefined)
 			goto('/user/workspaces')
 		} finally {
-			isProcessingWorkspaceDeletion = false
+			isProcessingDelete = false
 			deleteModalOpen = false
 		}
 	}}
