@@ -60,6 +60,7 @@
 
 	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 	let notSet: boolean | undefined = $state(undefined)
+	let isFlow = $derived(false)
 
 	async function reload(path: string) {
 		try {
@@ -638,7 +639,7 @@
 	{:else if seeTarget == true}
 		<h3 class="mb-6 mt-16">All related deployable items</h3>
 
-		<DiffDrawer bind:this={diffDrawer} />
+		<DiffDrawer bind:this={diffDrawer} {isFlow} />
 		<div class="grid grid-cols-9 justify-center max-w-3xl gap-2">
 			{#each dependencies ?? [] as { kind, path, include }, i}
 				{@const statusPath = computeStatusPath(kind, path)}
@@ -683,6 +684,7 @@
 							class="text-blue-600 font-normal mt-1"
 							onclick={() => {
 								showDiff(kind, path)
+								isFlow = kind === 'flow'
 							}}>diff</button
 						>
 					{/if}</div
