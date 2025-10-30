@@ -45,6 +45,7 @@
 		onEditInput?: (moduleId: string, key: string) => void
 		flowJob?: Job | undefined
 		isOwner?: boolean
+		maximizeSubflow?: () => void
 	}
 
 	let {
@@ -64,7 +65,8 @@
 		onUpdateMock,
 		onEditInput,
 		flowJob,
-		isOwner = false
+		isOwner = false,
+		maximizeSubflow
 	}: Props = $props()
 
 	const { selectedId } = getContext<{
@@ -251,6 +253,7 @@
 					{flowJob}
 					{isOwner}
 					enableTestRun
+					{maximizeSubflow}
 				>
 					{#snippet icon()}
 						{@const size =

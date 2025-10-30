@@ -1522,7 +1522,7 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 	return observer // return for testing
 }
 
-// Structured clone raises an error on $state values
+// Structured clone raises an error on $state values and some stuff like Window
 // $state.snapshot clones everything but prints warnings for some values (e.g. functions)
 import _clone from 'clone'
 export function clone<T>(t: T): T {
