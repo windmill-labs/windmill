@@ -25,7 +25,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<PopupV2 bind:open {floatingConfig} target="#flow-editor">
+<PopupV2 bind:open {floatingConfig} target="#flow-editor" class="h-[400px] overflow-y-auto">
 	{#snippet button()}
 		<Button
 			size="xs3"

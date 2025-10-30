@@ -103,6 +103,7 @@
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
 	import { inputSizeClasses } from './text_input/TextInput.svelte'
 	import type { ButtonType } from './common/button/model'
+	import DebounceLimit from './flows/DebounceLimit.svelte'
 
 	let {
 		script = $bindable(),
@@ -663,6 +664,8 @@
 						envs: script.envs,
 						concurrent_limit: script.concurrent_limit,
 						concurrency_time_window_s: script.concurrency_time_window_s,
+						debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
+						debounce_delay_s: script.debounce_delay_s,
 						cache_ttl: script.cache_ttl,
 						ws_error_handler_muted: script.ws_error_handler_muted,
 						priority: script.priority,
@@ -1238,33 +1241,42 @@
 													>
 												</div>
 											</Label>
-											<Label label="Time window in seconds">
-												<SecondsInput
-													disabled={!$enterpriseLicense}
-													bind:seconds={script.concurrency_time_window_s}
-												/>
-											</Label>
-											<Label label="Custom concurrency key (optional)">
-												{#snippet header()}
-													<Tooltip
-														documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits#custom-concurrency-key"
-													>
-														Concurrency keys are global, you can have them be workspace specific
-														using the variable `$workspace`. You can also use an argument's value
-														using `$args[name_of_arg]`</Tooltip
-													>
-												{/snippet}
-												<input
-													disabled={!$enterpriseLicense}
-													type="text"
-													autofocus
-													bind:value={script.concurrency_key}
-													placeholder={`$workspace/script/${script.path}-$args[foo]`}
-												/>
-											</Label>
+											{#if Boolean(script.concurrent_limit)}
+												<Label label="Time window in seconds">
+													<SecondsInput
+														disabled={!$enterpriseLicense}
+														bind:seconds={script.concurrency_time_window_s}
+													/>
+												</Label>
+												<Label label="Custom concurrency key (optional)">
+													{#snippet header()}
+														<Tooltip
+															documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits#custom-concurrency-key"
+														>
+															Concurrency keys are global, you can have them be workspace specific
+															using the variable `$workspace`. You can also use an argument's value
+															using `$args[name_of_arg]`</Tooltip
+														>
+													{/snippet}
+													<input
+														disabled={!$enterpriseLicense}
+														type="text"
+														autofocus
+														bind:value={script.concurrency_key}
+														placeholder={`$workspace/script/${script.path}-$args[foo]`}
+													/>
+												</Label>
+											{/if}
 										</div>
 									</Section>
 									<Section label="Debouncing" eeOnly>
+										<DebounceLimit
+											size="sm"
+											bind:debounce_delay_s={script.debounce_delay_s}
+											bind:debounce_key={script.debounce_key}
+											placeholder={`$workspace/script/${script.path}-$args[foo]`}
+										/>
+
 										{#snippet header()}
 											<Tooltip
 												documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing"
@@ -1272,37 +1284,6 @@
 												Debounce Jobs
 											</Tooltip>
 										{/snippet}
-										<div class="flex flex-col gap-4">
-											<Label label="Debounce Delay in seconds. (if not set - disabled)">
-												<SecondsInput bind:seconds={script.debounce_delay_s} />
-												<Button
-													size="sm"
-													color="light"
-													on:click={() => {
-														script.debounce_delay_s = undefined
-														script.debounce_key = undefined
-													}}
-													variant="border">Remove Debouncing</Button
-												>
-											</Label>
-											<Label label="Custom debounce key (optional)">
-												{#snippet header()}
-													<Tooltip
-														documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing#custom-debounce-key"
-													>
-														Debounce Keys are global, you can have them be workspace specific using
-														the variable `$workspace`. You can also use an argument's value using
-														`$args[name_of_arg]`</Tooltip
-													>
-												{/snippet}
-												<input
-													type="text"
-													autofocus
-													bind:value={script.debounce_key}
-													placeholder={`$workspace/script/${script.path}-$args[foo]`}
-												/>
-											</Label>
-										</div>
 									</Section>
 									<Section label="Worker group tag (queue)">
 										{#snippet header()}
@@ -1341,13 +1322,15 @@
 													right: 'Cache the results for each possible inputs'
 												}}
 											/>
-											<span class="text-xs font-semibold text-emphasis leading-none">
-												How long to the keep cache valid
-											</span>
-											{#if script.cache_ttl}
-												<SecondsInput bind:seconds={script.cache_ttl} />
-											{:else}
-												<SecondsInput disabled />
+											{#if Boolean(script.cache_ttl)}
+												<span class="text-xs font-semibold text-emphasis leading-none mt-2">
+													How long to the keep cache valid
+												</span>
+												{#if script.cache_ttl}
+													<SecondsInput bind:seconds={script.cache_ttl} />
+												{:else}
+													<SecondsInput disabled />
+												{/if}
 											{/if}
 										</div>
 									</Section>
@@ -1374,13 +1357,15 @@
 													right: 'Add a custom timeout for this script'
 												}}
 											/>
-											<span class="text-xs font-semibold text-emphasis leading-none">
-												Timeout duration
-											</span>
-											{#if script.timeout}
-												<SecondsInput bind:seconds={script.timeout} />
-											{:else}
-												<SecondsInput disabled />
+											{#if Boolean(script.timeout)}
+												<span class="text-xs font-semibold text-emphasis leading-none mt-2">
+													Timeout duration
+												</span>
+												{#if script.timeout}
+													<SecondsInput bind:seconds={script.timeout} />
+												{:else}
+													<SecondsInput disabled />
+												{/if}
 											{/if}
 										</div>
 									</Section>
