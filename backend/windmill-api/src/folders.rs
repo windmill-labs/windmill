@@ -415,6 +415,20 @@ async fn update_folder(
         None,
     )
     .await?;
+
+    // Log permission changes if owners or extra_perms were updated
+    if ng.owners.is_some() || ng.extra_perms.is_some() {
+        log_folder_permission_change(
+            &mut *tx,
+            &w_id,
+            &name,
+            &authed.username,
+            "update_permissions",
+            None,
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -672,6 +686,17 @@ async fn add_owner(
         Some([("owner", owner.as_str())].into()),
     )
     .await?;
+
+    log_folder_permission_change(
+        &mut *tx,
+        &w_id,
+        &name,
+        &authed.username,
+        "add_owner",
+        Some(&owner),
+    )
+    .await?;
+
     tx.commit().await?;
 
     webhook.send_message(
@@ -725,6 +750,17 @@ async fn remove_owner(
         Some([("owner", owner.as_str())].into()),
     )
     .await?;
+
+    log_folder_permission_change(
+        &mut *tx,
+        &w_id,
+        &name,
+        &authed.username,
+        "remove_owner",
+        Some(&owner),
+    )
+    .await?;
+
     tx.commit().await?;
 
     webhook.send_message(
@@ -733,4 +769,27 @@ async fn remove_owner(
     );
 
     Ok(format!("Removed {} to folder {}", owner, name))
+}
+
+pub async fn log_folder_permission_change<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    folder_name: &str,
+    changed_by: &str,
+    change_type: &str,
+    owner_affected: Option<&str>,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO folder_permission_history
+         (workspace_id, folder_name, changed_by, change_type, owner_affected)
+         VALUES ($1, $2, $3, $4, $5)",
+        workspace_id,
+        folder_name,
+        changed_by,
+        change_type,
+        owner_affected
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
