@@ -136,7 +136,7 @@
 										<Splitpanes horizontal class="grow border w-full">
 											<Pane size={10} minSize={10}>
 												<LogViewer
-													content={`Logs are avaiable in the browser console directly`}
+													content={`Logs are available in the browser console directly`}
 													isLoading={false}
 													tag={undefined}
 												/>
@@ -155,7 +155,7 @@
 										<Splitpanes horizontal class="grow border w-full">
 											<Pane size={10} minSize={10}>
 												<LogViewer
-													content={`Logs are avaiable in the browser console directly`}
+													content={`Logs are available in the browser console directly`}
 													isLoading={false}
 													tag={undefined}
 												/>
