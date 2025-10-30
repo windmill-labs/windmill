@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Job Debouncing',
+		href: 'https://www.windmill.dev/changelog/job-debouncing',
+		date: '2025-10-23'
+	},
+
+	{
 		label: 'Dynamic select for flows',
 		href: 'https://www.windmill.dev/changelog/dynamic-select-flows',
 		date: '2025-08-08'
