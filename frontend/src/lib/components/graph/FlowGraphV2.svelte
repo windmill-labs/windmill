@@ -140,6 +140,7 @@
 		// Viewport synchronization props (for diff viewer)
 		sharedViewport?: Viewport
 		onViewportChange?: (viewport: Viewport, isUserInitiated: boolean) => void
+		showControls?: boolean
 	}
 
 	let {
@@ -196,7 +197,8 @@
 		flowHasChanged = false,
 		chatInputEnabled = false,
 		sharedViewport = undefined,
-		onViewportChange = undefined
+		onViewportChange = undefined,
+		showControls = true
 	}: Props = $props()
 
 	setContext<{
@@ -559,6 +561,14 @@
 	export function isNodeVisible(nodeId: string): boolean {
 		return viewportResizer?.isNodeVisible(nodeId) ?? false
 	}
+
+	export function zoomIn() {
+		viewportSynchronizer?.zoomIn()
+	}
+
+	export function zoomOut() {
+		viewportSynchronizer?.zoomOut()
+	}
 </script>
 
 {#if insertable}
@@ -617,26 +627,28 @@
 				--background-color={false}
 			>
 				<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
-				<Controls position="top-right" orientation="horizontal" showLock={false}>
-					{#if download}
-						<ControlButton
-							onclick={() => {
-								try {
-									localStorage.setItem(
-										'svelvet',
-										encodeState({ modules, failureModule, preprocessorModule })
-									)
-								} catch (e) {
-									console.error('error interacting with local storage', e)
-								}
-								window.open('/view_graph', '_blank')
-							}}
-							class="!bg-surface"
-						>
-							<Expand size="14" />
-						</ControlButton>
-					{/if}
-				</Controls>
+				{#if showControls}
+					<Controls position="top-right" orientation="horizontal" showLock={false}>
+						{#if download}
+							<ControlButton
+								onclick={() => {
+									try {
+										localStorage.setItem(
+											'svelvet',
+											encodeState({ modules, failureModule, preprocessorModule })
+										)
+									} catch (e) {
+										console.error('error interacting with local storage', e)
+									}
+									window.open('/view_graph', '_blank')
+								}}
+								class="!bg-surface"
+							>
+								<Expand size="14" />
+							</ControlButton>
+						{/if}
+					</Controls>
+				{/if}
 
 				<Controls
 					position="top-left"

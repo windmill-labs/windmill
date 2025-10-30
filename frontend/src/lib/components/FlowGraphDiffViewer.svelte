@@ -2,7 +2,7 @@
 	import type { FlowModule, FlowValue, OpenFlow } from '$lib/gen'
 	import YAML from 'yaml'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
-	import { Alert } from './common'
+	import { Alert, Button } from './common'
 	import {
 		computeFlowModuleDiff,
 		splitModuleDiffForViews,
@@ -15,7 +15,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { DiffIcon, SquareSplitHorizontal } from 'lucide-svelte'
+	import { DiffIcon, Minus, Plus, SquareSplitHorizontal } from 'lucide-svelte'
 	import type { Viewport } from '@xyflow/svelte'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
@@ -35,6 +35,9 @@
 
 	// Shared viewport for synchronizing both graphs in side-by-side mode
 	let sharedViewport = $state<Viewport>({ x: 0, y: 0, zoom: 1 })
+
+	let beforeGraph: FlowGraphV2 | undefined = $state(undefined)
+	let afterGraph: FlowGraphV2 | undefined = $state(undefined)
 
 	let beforeFlow: OpenFlow | undefined = $derived.by(() => {
 		try {
@@ -161,7 +164,7 @@
 {:else if beforeFlow && afterFlow}
 	<div class="h-full flex flex-col" bind:clientWidth={viewerWidth}>
 		<!-- Header with view toggle -->
-		<div class="flex flex-row items-center justify-end m-2">
+		<div class="flex flex-row items-center justify-end m-2 gap-4">
 			<div>
 				<ToggleButtonGroup bind:selected={viewMode}>
 					{#snippet children({ item })}
@@ -175,6 +178,34 @@
 					{/snippet}
 				</ToggleButtonGroup>
 			</div>
+			<!-- Header with controls and view toggle -->
+			{#if isSideBySide}
+				<!-- Shared controls for both graphs in side-by-side mode -->
+				<div class="flex">
+					<Button
+						size="xs"
+						color="light"
+						variant="border"
+						onClick={() => {
+							beforeGraph?.zoomIn()
+							afterGraph?.zoomIn()
+						}}
+						iconOnly
+						startIcon={{ icon: Plus }}
+					/>
+					<Button
+						size="xs"
+						color="light"
+						variant="border"
+						onClick={() => {
+							beforeGraph?.zoomOut()
+							afterGraph?.zoomOut()
+						}}
+						iconOnly
+						startIcon={{ icon: Minus }}
+					/>
+				</div>
+			{/if}
 		</div>
 
 		<!-- Main content area -->
@@ -192,6 +223,7 @@
 							</div>
 							<div class="flex-1 overflow-hidden">
 								<FlowGraphV2
+									bind:this={beforeGraph}
 									modules={beforeFlow.value.modules}
 									failureModule={beforeFlow.value.failure_module}
 									preprocessorModule={beforeFlow.value.preprocessor_module}
@@ -209,6 +241,7 @@
 									triggerNode={false}
 									{sharedViewport}
 									onViewportChange={handleViewportChange}
+									showControls={false}
 								/>
 							</div>
 						</div>
@@ -225,6 +258,7 @@
 							<div class="flex-1 overflow-hidden">
 								{#if mergedState}
 									<FlowGraphV2
+										bind:this={afterGraph}
 										modules={mergedState.mergedFlow.modules}
 										failureModule={mergedState.mergedFlow.failure_module}
 										preprocessorModule={mergedState.mergedFlow.preprocessor_module}
@@ -242,6 +276,7 @@
 										triggerNode={false}
 										{sharedViewport}
 										onViewportChange={handleViewportChange}
+										showControls={false}
 									/>
 								{/if}
 							</div>
