@@ -329,6 +329,10 @@ async fn update_folder(
 
     sqlb.set("edited_at", "now()");
 
+    // Track whether permission-related fields are being updated
+    let owners_changed = ng.owners.is_some();
+    let extra_perms_changed = ng.extra_perms.is_some();
+
     if !authed.is_admin {
         let prefixed_username = format!("u/{}", authed.username);
         if ng.owners.as_ref().is_some_and(|x| {
@@ -415,6 +419,21 @@ async fn update_folder(
         None,
     )
     .await?;
+
+    // Log permission changes if owners or extra_perms were updated
+    let should_log = owners_changed || extra_perms_changed;
+    if should_log {
+        log_folder_permission_change(
+            &mut *tx,
+            &w_id,
+            &name,
+            &authed.username,
+            "update_permissions",
+            None,
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -672,6 +691,17 @@ async fn add_owner(
         Some([("owner", owner.as_str())].into()),
     )
     .await?;
+
+    log_folder_permission_change(
+        &mut *tx,
+        &w_id,
+        &name,
+        &authed.username,
+        "add_owner",
+        Some(&owner),
+    )
+    .await?;
+
     tx.commit().await?;
 
     webhook.send_message(
@@ -725,6 +755,17 @@ async fn remove_owner(
         Some([("owner", owner.as_str())].into()),
     )
     .await?;
+
+    log_folder_permission_change(
+        &mut *tx,
+        &w_id,
+        &name,
+        &authed.username,
+        "remove_owner",
+        Some(&owner),
+    )
+    .await?;
+
     tx.commit().await?;
 
     webhook.send_message(
@@ -733,4 +774,27 @@ async fn remove_owner(
     );
 
     Ok(format!("Removed {} to folder {}", owner, name))
+}
+
+pub async fn log_folder_permission_change<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    folder_name: &str,
+    changed_by: &str,
+    change_type: &str,
+    owner_affected: Option<&str>,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO folder_permission_history
+         (workspace_id, folder_name, changed_by, change_type, owner_affected)
+         VALUES ($1, $2, $3, $4, $5)",
+        workspace_id,
+        folder_name,
+        changed_by,
+        change_type,
+        owner_affected
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
