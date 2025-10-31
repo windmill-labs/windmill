@@ -6,7 +6,8 @@
 		userWorkspaces,
 		workspaceStore,
 		workspaceUsageStore,
-		workspaceColor
+		workspaceColor,
+		clearWorkspaceFromStorage
 	} from '$lib/stores'
 	import { Building, Plus, Settings, GitFork } from 'lucide-svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
@@ -95,11 +96,9 @@
 		: null}
 	<Menu {createMenu} usePointerDownOutside>
 		{#snippet triggr({ trigger })}
-			<div
-				class="group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full text-xs"
-			>
-				<Building size={12} class="text-tertiary" />
-				<span class="text-xs text-tertiary"> {parentWorkspace?.name ?? ''} </span>
+			<div class="group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full text-xs">
+				<Building size={12} class="text-primary" />
+				<span class="text-xs text-primary"> {parentWorkspace?.name ?? ''} </span>
 			</div>
 		{/snippet}
 	</Menu>
@@ -160,7 +159,7 @@
 								style:padding-left={`${4 + depth * 12}px`}
 							>
 								{#if isForked}
-									<GitFork size={12} class="text-tertiary flex-shrink-0" />
+									<GitFork size={12} class="text-primary flex-shrink-0" />
 								{:else}
 									<Building size={12} />
 								{/if}
@@ -176,13 +175,13 @@
 									<div
 										class={twMerge(
 											'font-mono text-2xs whitespace-nowrap truncate text-left',
-											isForked ? 'text-tertiary opacity-75' : 'text-tertiary'
+											isForked ? 'text-primary opacity-75' : 'text-primary'
 										)}
 									>
 										{workspace.id}
 									</div>
 									{#if isForked && parentName}
-										<div class="text-tertiary text-2xs truncate text-left pl-2 min-h-[1rem]">
+										<div class="text-primary text-2xs truncate text-left pl-2 min-h-[1rem]">
 											Fork of {parentName}
 										</div>
 									{/if}
@@ -211,7 +210,7 @@
 					</a>
 				</div>
 			{/if}
-			{#if !strictWorkspaceSelect}
+			{#if !strictWorkspaceSelect && !isCloudHosted()}
 				<div class="py-1" role="none">
 					<a
 						href="{base}/user/fork_workspace"
@@ -228,9 +227,7 @@
 				<div class="py-1" role="none">
 					<MenuItem
 						href="{base}/user/workspaces"
-						onClick={() => {
-							localStorage.removeItem('workspace')
-						}}
+						onClick={() => clearWorkspaceFromStorage()}
 						class={twMerge(
 							'text-primary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary',
 							'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'

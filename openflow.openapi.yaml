@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.563.4
+  version: 1.570.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -54,6 +54,10 @@ components:
           type: string
         concurrency_time_window_s:
           type: number
+        debounce_delay_s:
+          type: number
+        debounce_key:
+          type: string
         skip_expr:
           type: string
         cache_ttl:
@@ -200,7 +204,6 @@ components:
           enum:
             - static
       required:
-        - value
         - type
 
     JavascriptTransform:
@@ -268,6 +271,7 @@ components:
             - graphql
             - nativets
             - php
+            # TODO: Add missing languages
         path:
           type: string
         lock:
@@ -464,6 +468,62 @@ components:
         - branches
         - type
 
+    AgentTool:
+      type: object
+      properties:
+        id:
+          type: string
+        summary:
+          type: string
+        value:
+          $ref: "#/components/schemas/ToolValue"
+      required:
+        - id
+        - value
+
+    ToolValue:
+      oneOf:
+        - $ref: "#/components/schemas/FlowModuleTool"
+        - $ref: "#/components/schemas/McpToolValue"
+      discriminator:
+        propertyName: tool_type
+        mapping:
+          flowmodule: "#/components/schemas/FlowModuleTool"
+          mcp: "#/components/schemas/McpToolValue"
+
+    FlowModuleTool:
+      allOf:
+        - type: object
+          properties:
+            tool_type:
+              type: string
+              enum:
+                - flowmodule
+          required:
+            - tool_type
+        - $ref: "#/components/schemas/FlowModuleValue"
+
+    McpToolValue:
+      type: object
+      properties:
+        tool_type:
+          type: string
+          enum:
+            - mcp
+        resource_path:
+          type: string
+        include_tools:
+          type: array
+          items:
+            type: string
+        exclude_tools:
+          type: array
+          items:
+            type: string
+      required:
+        - tool_type
+        - resource_path
+
     AiAgent:
       type: object
       properties:
@@ -474,7 +534,7 @@ components:
         tools:
           type: array
           items:
-            $ref: "#/components/schemas/FlowModule"
+            $ref: "#/components/schemas/AgentTool"
         type:
           type: string
           enum:
@@ -645,6 +705,25 @@ components:
                   - function_name
                   - type
                   - module_id
+              - type: object
+                properties:
+                  call_id:
+                    type: string
+                    format: uuid
+                  function_name:
+                    type: string
+                  resource_path:
+                    type: string
+                  type:
+                    type: string
+                    enum: [mcp_tool_call]
+                  arguments:
+                    type: object
+                required:
+                  - call_id
+                  - function_name
+                  - resource_path
+                  - type
               - type: object
                 properties:
                   type:

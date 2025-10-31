@@ -51,12 +51,23 @@ use std::sync::atomic::Ordering;
 use crate::worker::CLOUD_HOSTED;
 
 lazy_static::lazy_static! {
+    pub static ref FORCE_IPV4: bool = std::env::var("FORCE_IPV4")
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or(false);
 
-    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .timeout(std::time::Duration::from_secs(20))
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .build().unwrap();
+    pub static ref HTTP_CLIENT: Client = {
+        let mut builder = reqwest::ClientBuilder::new()
+            .user_agent("windmill/beta")
+            .timeout(std::time::Duration::from_secs(20))
+            .connect_timeout(std::time::Duration::from_secs(10));
+
+        if *FORCE_IPV4 {
+            tracing::info!("FORCE_IPV4 is enabled - HTTP client will only use IPv4");
+            builder = builder.local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+        }
+
+        builder.build().unwrap()
+    };
     pub static ref GIT_SEM_VERSION: Version = Version::parse(
         if GIT_VERSION.starts_with('v') {
             &GIT_VERSION[1..]
@@ -174,6 +185,18 @@ pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
         Err(Error::RequireAdmin(username.to_string()))
     } else {
         Ok(())
+    }
+}
+
+/// Configure reqwest::ClientBuilder with environment-based settings
+/// When FORCE_IPV4=true environment variable is set, this configures the client
+/// to only use IPv4 addresses by binding to 0.0.0.0
+pub fn configure_client(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    if *FORCE_IPV4 {
+        tracing::info!("FORCE_IPV4 is enabled - HTTP client will only use IPv4");
+        builder.local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)))
+    } else {
+        builder
     }
 }
 

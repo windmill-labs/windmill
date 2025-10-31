@@ -16,7 +16,9 @@
 		X,
 		Play,
 		Loader2,
-		TriangleAlert
+		TriangleAlert,
+		Timer,
+		Maximize2
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -41,7 +43,8 @@
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
-	import type { FlowStatusModule, Job } from '$lib/gen'
+	import type { Job } from '$lib/gen'
+	import { getNodeColorClasses, type FlowNodeState } from '$lib/components/graph'
 
 	interface Props {
 		selected?: boolean
@@ -63,9 +66,10 @@
 		label: string
 		path?: string
 		modType?: string | undefined
-		bgColor?: string
-		bgHoverColor?: string
+		nodeState?: FlowNodeState
 		concurrency?: boolean
+		// TODO: Implement for this one. See how concurrency is implemented.
+		debouncing?: boolean
 		retries?: number | undefined
 		warningMessage?: string | undefined
 		isTrigger?: boolean
@@ -80,9 +84,7 @@
 		flowJob?: Job | undefined
 		isOwner?: boolean
 		enableTestRun?: boolean
-		type?: FlowStatusModule['type'] | undefined
-		darkMode?: boolean
-		skipped?: boolean
+		maximizeSubflow?: () => void
 	}
 
 	let {
@@ -100,9 +102,9 @@
 		label,
 		path = '',
 		modType = undefined,
-		bgColor = '',
-		bgHoverColor = '',
+		nodeState,
 		concurrency = false,
+		debouncing = false,
 		retries = undefined,
 		warningMessage = undefined,
 		isTrigger = false,
@@ -116,10 +118,10 @@
 		onEditInput,
 		flowJob,
 		enableTestRun = false,
-		type,
-		darkMode,
-		skipped
+		maximizeSubflow = undefined
 	}: Props = $props()
+
+	let colorClasses = $derived(getNodeColorClasses(nodeState, selected))
 
 	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
@@ -214,7 +216,7 @@
 				/>
 				<div class="mt-8">
 					<h3>Step Inputs Replacements</h3>
-					<div class="text-2xs text-tertiary pt-0.5">
+					<div class="text-2xs text-primary pt-0.5">
 						Replace all occurrences of `results.<span class="font-bold">{id}</span>` with{' '}
 						results.<span class="font-bold">{newId}</span> in the step inputs of all steps that depend
 						on it.
@@ -235,7 +237,7 @@
 								</div>
 							{/each}
 						{:else}
-							<div class="text-2xs text-tertiary"> No dependents </div>
+							<div class="text-2xs text-primary"> No dependents </div>
 						{/if}
 					</div>
 				</div>
@@ -265,12 +267,11 @@
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={classNames(
-			'w-full module flex rounded-sm cursor-pointer max-w-full',
-			deletable ? aiModuleActionToBgColor(action) : ''
+			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
+			deletable ? aiModuleActionToBgColor(action) : '',
+			colorClasses.bg
 		)}
-		style="width: 275px; height: 34px; background-color: {hover && bgHoverColor
-			? bgHoverColor
-			: bgColor};"
+		style="width: 275px; height: 34px;"
 		onmouseenter={() => (hover = true)}
 		onmouseleave={() => (hover = false)}
 		onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
@@ -279,11 +280,8 @@
 			<ModuleAcceptReject {action} {id} />
 		{/if}
 		<div
-			class={classNames(
-				'absolute rounded-sm outline-offset-0 outline-slate-500 dark:outline-gray-400',
-				selected ? 'outline outline-2' : 'active:outline active:outline-2'
-			)}
-			style={`width: 275px; height: ${outputPickerVisible ? '51px' : '34px'};`}
+			class={classNames('absolute z-0 rounded-md outline-offset-0', colorClasses.outline)}
+			style={`width: 275px; height: 34px;`}
 		></div>
 		<div
 			class="absolute text-sm right-2 flex flex-row gap-1 z-10 transition-all duration-100"
@@ -314,6 +312,19 @@
 					</div>
 					{#snippet text()}
 						Concurrency Limits
+					{/snippet}
+				</Popover>
+			{/if}
+			{#if debouncing}
+				<Popover notClickable>
+					<div
+						transition:fade|local={{ duration: 200 }}
+						class="center-center rounded border bg-surface border-gray-400 text-secondary px-1 py-0.5"
+					>
+						<Timer size={12} />
+					</div>
+					{#snippet text()}
+						Debouncing
 					{/snippet}
 				</Popover>
 			{/if}
@@ -412,6 +423,7 @@
 				{bold}
 				bind:editId
 				{hover}
+				{colorClasses}
 			>
 				{#snippet icon()}
 					{@render icon_render?.()}
@@ -430,9 +442,6 @@
 					bind:bottomBarOpen={outputPickerBarOpen}
 					{loopStatus}
 					{onEditInput}
-					{type}
-					{darkMode}
-					{skipped}
 				>
 					{#snippet children({ allowCopy, isConnecting, selectConnection })}
 						<OutputPickerInner
@@ -466,7 +475,7 @@
 				{#if id !== 'preprocessor'}
 					<button
 						class={twMerge(
-							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-blue-400 hover:text-white',
+							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white',
 							hover ? 'block' : '!hidden',
 							'shadow-md rounded-md',
 							'group-hover:block'
@@ -475,6 +484,25 @@
 						title="Move"
 					>
 						<Move size={12} />
+					</button>
+				{/if}
+				{#if maximizeSubflow !== undefined && (hover || selected)}
+					<button
+						title="Expand subflow"
+						class={twMerge(
+							'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white p-1',
+							selected || hover ? 'block' : '!hidden',
+							'group-hover:block',
+							'shadow-md rounded-md'
+						)}
+						onclick={(e) => {
+							e.stopPropagation()
+							e.preventDefault()
+
+							maximizeSubflow?.()
+						}}
+					>
+						<Maximize2 size={12} />
 					</button>
 				{/if}
 				<button
@@ -537,10 +565,9 @@
 					{#if !testIsLoading}
 						<Button
 							size="xs"
-							color="light"
 							title="Run"
-							variant="border"
-							btnClasses="px-1 py-1.5"
+							variant="default"
+							btnClasses="px-1 py-1.5 bg-surface"
 							on:click={() => {
 								outputPicker?.toggleOpen(true)
 								moduleTest?.loadArgsAndRunTest()

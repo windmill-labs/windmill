@@ -46,7 +46,12 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
-	import TextInput, { inputBaseClass, inputBorderClass } from './text_input/TextInput.svelte'
+	import TextInput, {
+		inputBaseClass,
+		inputBorderClass,
+		inputSizeClasses
+	} from './text_input/TextInput.svelte'
+	import FileInput from './common/fileInput/FileInput.svelte'
 
 	interface Props {
 		label?: string
@@ -368,17 +373,16 @@
 		evalValueToRaw()
 	})
 
-	function fileChanged(e: any, cb: (v: string | undefined) => void) {
-		let t = e.target
-		if (t && 'files' in t && t.files.length > 0) {
-			let reader = new FileReader()
-			reader.onload = (e: any) => {
-				cb(e.target.result.split('base64,')[1])
-			}
-			reader.readAsDataURL(t.files[0])
-		} else {
+	function fileChangedInner(file: File | undefined, cb: (v: string | undefined) => void) {
+		if (!file) {
 			cb(undefined)
+			return
 		}
+		let reader = new FileReader()
+		reader.onload = (e: any) => {
+			cb(e.target.result.split('base64,')[1])
+		}
+		reader.readAsDataURL(file)
 	}
 
 	export function focus() {
@@ -531,10 +535,10 @@
 
 {#snippet variableInput()}
 	{#if variableEditor}
-		<div class="text-sm text-hint">
+		<div class="text-2xs text-hint">
 			{#if value && typeof value == 'string' && value?.startsWith('$var:')}
 				Linked to variable <button
-					class="text-nord-950 underline font-normal"
+					class="text-accent underline font-normal"
 					onclick={() => variableEditor?.editVariable?.(value.slice(5))}>{value.slice(5)}</button
 				>
 			{/if}
@@ -543,7 +547,7 @@
 {/snippet}
 {#snippet resourceInput()}
 	{#if variableEditor}
-		<div class="text-sm text-tertiary">
+		<div class="text-sm text-primary">
 			{#if value && typeof value == 'string' && value?.startsWith('$res:')}
 				Linked to resource <a
 					target="_blank"
@@ -558,7 +562,7 @@
 <!-- svelte-ignore a11y_autofocus -->
 <div
 	class={twMerge(
-		'flex flex-col w-full rounded-md relative group',
+		'flex flex-col gap-1 w-full rounded-md relative group',
 		minW ? 'min-w-[250px]' : '',
 		diffStatus?.diff ? 'px-2' : '',
 		diffStatus?.diff == 'added'
@@ -600,7 +604,7 @@
 		</div>
 	{/if}
 	{#if displayHeader}
-		<div class="flex min-h-7 items-end pb-1">
+		<div class="flex items-end">
 			<FieldHeader
 				prettify={prettifyHeader}
 				label={title && !emptyString(title) ? title : label}
@@ -612,10 +616,7 @@
 				{simpleTooltip}
 				{lightHeader}
 				{displayType}
-				labelClass={twMerge(
-					lightHeaderFont ? '!font-normal !text-sm text-tertiary' : '',
-					css?.label?.class
-				)}
+				labelClass={twMerge(lightHeaderFont ? '!font-normal text-primary' : '', css?.label?.class)}
 			/>
 			<div class="ml-auto flex gap-2">
 				{#if displayJsonToggleHeader}
@@ -637,6 +638,12 @@
 				{/if}
 				{@render fieldHeaderActions?.()}
 			</div>
+		</div>
+	{/if}
+
+	{#if description}
+		<div class={twMerge('text-xs text-secondary', css?.description?.class)}>
+			<pre class="font-main whitespace-normal">{description}</pre>
 		</div>
 	{/if}
 
@@ -770,7 +777,7 @@
 						<Module.default code={JSON.stringify(value, null, 2)} bind:value />
 					{/await}
 				{:else}
-					<div class="px-3 pt-6 border rounded-md w-full">
+					<div class="px-4 pt-4 border rounded-md w-full">
 						<SchemaForm
 							lightHeaderFont
 							{onlyMaskPassword}
@@ -846,10 +853,10 @@
 														{@render deleteItemBtn()}
 													</div>
 												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-													<input
-														type="file"
-														class="my-6"
-														onchange={(x) => fileChanged(x, (val) => (value[i] = val))}
+													<FileInput
+														class="w-full"
+														on:change={(x) =>
+															fileChangedInner(x.detail?.[0], (val) => (value[i] = val))}
 														multiple={false}
 													/>
 													{@render deleteItemBtn()}
@@ -955,10 +962,9 @@
 							{/key}
 						</div>
 						<Button
-							variant="border"
+							variant="default"
 							color="light"
 							size="xs"
-							btnClasses="text-tertiary py-2.5"
 							wrapperClasses="w-full {Array.isArray(value) && value.length > 0 ? 'mt-1.5' : ''}"
 							on:click={() => {
 								if (value == undefined || !Array.isArray(value)) {
@@ -988,7 +994,7 @@
 					{/if}
 				</div>
 				{#if !displayHeader}
-					<div class="block mt-2.5 pl-2">
+					<div class="block mt-2 pl-2">
 						<Toggle
 							on:change={(e) => {
 								// Once the user has changed the input type, we should not change it back automatically
@@ -1010,7 +1016,7 @@
 		{:else if inputCat == 'dynamic'}
 			<DynamicInput name={label} {otherArgs} {helperScript} bind:value format={format ?? ''} />
 		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
-			<span class="text-2xs text-tertiary">Loading resource types...</span>
+			<span class="text-2xs text-primary">Loading resource types...</span>
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
 			<!-- {JSON.stringify(value)} -->
 			<ObjectResourceInput
@@ -1028,7 +1034,7 @@
 			/>
 		{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 			{#if oneOf && oneOf.length >= 2}
-				<div class="flex flex-col gap-2 w-full border rounded-md p-2">
+				<div class="flex flex-col gap-2 w-full border rounded-md p-4">
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
 							selected={oneOfSelected}
@@ -1178,7 +1184,7 @@
 					{/if}
 				</div>
 			{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
-				<div class={hideNested ? 'hidden' : 'px-3 pt-6 border rounded-md w-full'}>
+				<div class={hideNested ? 'hidden' : 'px-4 pt-4 border rounded-md w-full'}>
 					{#if orderEditable}
 						<SchemaFormDnd
 							lightHeaderFont
@@ -1279,6 +1285,10 @@
 		{:else if inputCat == 'enum'}
 			<div class="flex flex-row w-full gap-1">
 				<ArgEnum
+					onClear={() => {
+						lastValue = undefined
+						value = undefined
+					}}
 					create={extra['disableCreate'] != true}
 					{defaultValue}
 					valid={valid ?? true}
@@ -1293,7 +1303,6 @@
 						dispatch('blur')
 					}}
 					enumLabels={extra['enumLabels']}
-					selectClass="min-h-10"
 				/>
 			</div>
 		{:else if inputCat == 'date'}
@@ -1331,19 +1340,15 @@
 				</div>
 			{/if}
 		{:else if inputCat == 'base64'}
-			<div class="flex flex-col my-6 w-full">
-				<input
-					{autofocus}
-					type="file"
-					onchange={(x) => fileChanged(x, (val) => (value = val))}
+			<div class="flex flex-col w-full">
+				<FileInput
+					on:change={(x) => fileChangedInner(x.detail?.[0], (val) => (value = val))}
 					multiple={false}
 				/>
 				{#if value?.length}
-					<div class="text-2xs text-tertiary mt-1"
-						>File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(
-							2
-						)}MB)</div
-					>
+					<div class="text-2xs text-primary mt-1">
+						File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(2)}MB)
+					</div>
 				{/if}
 			</div>
 		{:else if inputCat == 'resource-string'}
@@ -1404,7 +1409,12 @@
 								use:autosize
 								onkeydown={onKeyDown}
 								{disabled}
-								class={twMerge('w-full', inputBaseClass, inputBorderClass({ error: !!error }))}
+								class={twMerge(
+									'w-full',
+									inputBaseClass,
+									inputSizeClasses.md,
+									inputBorderClass({ error: !!error })
+								)}
 								placeholder={placeholder ?? defaultValue ?? ''}
 								bind:value
 							></textarea>
@@ -1413,16 +1423,17 @@
 					{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
 						<button
-							class="absolute {password || extra?.['password'] == true
-								? 'right-16 top-1.5'
-								: 'right-1 top-[7px]'} opacity-0 group-hover:opacity-100 duration-200 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
+							class={twMerge(
+								'absolute opacity-0 group-hover:opacity-100 duration-200 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer',
+								password || extra?.['password'] == true ? 'right-16' : 'right-1'
+							)}
 							onclick={() => {
 								pickForField = label
 								itemPicker?.openDrawer?.()
 							}}
 							title="Insert a Variable"
 						>
-							<DollarSign class="!text-tertiary" size={14} />
+							<DollarSign class="!text-primary" size={14} />
 						</button>
 					{/if}
 				</div>
@@ -1433,20 +1444,14 @@
 		{@render actions?.()}
 	</div>
 
-	{#if description}
-		<div class={twMerge('text-2xs italic py-1 text-hint', css?.description?.class)}>
-			<pre class="font-main whitespace-normal">{description}</pre>
-		</div>
-	{/if}
-
 	{#if !compact || (error && error != '')}
-		{#if disabled || error === ''}
-			&nbsp;
-		{:else}
-			<div class="text-right text-xs text-red-600 dark:text-red-400 mb-2">
+		<div class="text-right text-xs leading-3 text-red-600 dark:text-red-400 mb-2">
+			{#if disabled || error === ''}
+				&nbsp;
+			{:else}
 				{error}
-			</div>
-		{/if}
+			{/if}
+		</div>
 	{:else if !noMargin}
 		<div class="mb-2"></div>
 	{/if}

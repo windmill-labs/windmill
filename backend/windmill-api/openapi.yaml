@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.563.4
+  version: 1.570.0
   title: Windmill API
 
   contact:
@@ -554,6 +554,31 @@ paths:
                 items:
                   $ref: "#/components/schemas/ExportedUser"
 
+  /users/onboarding:
+    post:
+      summary: Submit user onboarding data
+      operationId: submitOnboardingData
+      tags:
+        - user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                touch_point:
+                  type: string
+                use_case:
+                  type: string
+      responses:
+        '200':
+          description: Onboarding data submitted successfully
+          content:
+            application/json:
+              schema:
+                type: string                
+
   /w/{workspace}/users/delete/{username}:
     delete:
       summary: delete user (require admin privilege)
@@ -603,6 +628,13 @@ paths:
       operationId: getGlobalConnectedRepositories
       tags:
         - Git Sync
+      parameters:
+        - name: search
+          in: query
+          description: Search repositories by name
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: connected repositories
@@ -695,12 +727,14 @@ paths:
               schema:
                 type: string
 
-  /workspaces/create_fork:
+  /w/{workspace}/workspaces/create_fork:
     post:
       summary: create forked workspace
       operationId: createWorkspaceFork
       tags:
         - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
         description: new forked workspace
         required: true
@@ -1972,6 +2006,10 @@ paths:
                     type: string
                   slack_command_script:
                     type: string
+                  slack_oauth_client_id:
+                    type: string
+                  slack_oauth_client_secret:
+                    type: string
                   teams_team_id:
                     type: string
                   teams_command_script:
@@ -2206,6 +2244,73 @@ paths:
                 slack_command_script:
                   type: string
 
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/slack_oauth_config:
+    get:
+      summary: get workspace slack oauth config
+      operationId: getWorkspaceSlackOauthConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: slack oauth config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slack_oauth_client_id:
+                    type: string
+                    nullable: true
+                  slack_oauth_client_secret:
+                    type: string
+                    nullable: true
+                    description: Masked with *** if set
+    post:
+      summary: set workspace slack oauth config
+      operationId: setWorkspaceSlackOauthConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Slack OAuth Configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - slack_oauth_client_id
+                - slack_oauth_client_secret
+              properties:
+                slack_oauth_client_id:
+                  type: string
+                slack_oauth_client_secret:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+    delete:
+      summary: delete workspace slack oauth config
+      operationId: deleteWorkspaceSlackOauthConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
           description: status
@@ -4296,6 +4401,35 @@ paths:
                   required:
                     - path
                     - value
+
+  /w/{workspace}/resources/mcp_tools/{path}:
+    get:
+      summary: get MCP tools from resource
+      operationId: getMcpTools
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: list of MCP tools
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+                    parameters:
+                      type: object
+                  required:
+                    - name
+                    - parameters
 
   /w/{workspace}/resources/list_names/{name}:
     get:
@@ -8029,11 +8163,12 @@ paths:
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/CreatedBefore"
         - $ref: "#/components/parameters/CreatedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/CompletedBefore"
+        - $ref: "#/components/parameters/CompletedAfter"
+        - $ref: "#/components/parameters/CreatedBeforeQueue"
+        - $ref: "#/components/parameters/CreatedAfterQueue"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
-        - $ref: "#/components/parameters/CreatedOrStartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/Suspended"
         - $ref: "#/components/parameters/ArgsFilter"
@@ -8243,18 +8378,18 @@ paths:
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/CreatedBefore"
         - $ref: "#/components/parameters/CreatedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/CompletedBefore"
+        - $ref: "#/components/parameters/CompletedAfter"
+        - $ref: "#/components/parameters/CreatedBeforeQueue"
+        - $ref: "#/components/parameters/CreatedAfterQueue"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
-        - $ref: "#/components/parameters/CreatedOrStartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/Suspended"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
         - $ref: "#/components/parameters/AllowWildcards"
-        - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
           description: is the job skipped
@@ -14216,11 +14351,12 @@ paths:
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedBefore"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
-        - $ref: "#/components/parameters/CreatedOrStartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
+        - $ref: "#/components/parameters/CompletedBefore"
+        - $ref: "#/components/parameters/CompletedAfter"
+        - $ref: "#/components/parameters/CreatedBeforeQueue"
+        - $ref: "#/components/parameters/CreatedAfterQueue"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
@@ -14809,33 +14945,40 @@ components:
       schema:
         type: string
         format: date-time
-    CreatedOrStartedAfter:
-      name: created_or_started_after
-      description:
-        filter on created_at for non non started job and started_at otherwise
-        after (exclusive) timestamp
+
+    CompletedBefore:
+      name: completed_before
+      description: filter on started before (inclusive) timestamp
       in: query
       schema:
         type: string
         format: date-time
-    CreatedOrStartedAfterCompletedJob:
-      name: created_or_started_after_completed_jobs
-      description:
-        filter on created_at for non non started job and started_at otherwise
-        after (exclusive) timestamp but only for the completed jobs
+    CompletedAfter:
+      name: completed_after
+      description: filter on started after (exclusive) timestamp
       in: query
       schema:
         type: string
         format: date-time
-    CreatedOrStartedBefore:
-      name: created_or_started_before
+
+    CreatedAfterQueue:
+      name: created_after_queue
       description:
-        filter on created_at for non non started job and started_at otherwise
-        before (inclusive) timestamp
+        filter on jobs created after X for jobs in the queue only
       in: query
       schema:
         type: string
         format: date-time
+
+    CreatedBeforeQueue:
+      name: created_before_queue
+      description:
+        filter on jobs created before X for jobs in the queue only
+      in: query
+      schema:
+        type: string
+        format: date-time
+
     Success:
       name: success
       description: filter on successful jobs
@@ -15288,6 +15431,10 @@ components:
           type: integer
         concurrency_key:
           type: string
+        debounce_key:
+          type: string
+        debounce_delay_s:
+          type: integer
         cache_ttl:
           type: number
         dedicated_worker:
@@ -15385,6 +15532,10 @@ components:
           type: string
         concurrency_key:
           type: string
+        debounce_key:
+          type: string
+        debounce_delay_s:
+          type: integer
         visible_to_runner_only:
           type: boolean
         no_main_func:
@@ -15630,6 +15781,9 @@ components:
           type: string
           format: date-time
         started_at:
+          type: string
+          format: date-time
+        completed_at:
           type: string
           format: date-time
         duration_ms:
@@ -16265,30 +16419,30 @@ components:
     ScriptLang:
       type: string
       enum: [
-          python3,
-          deno,
-          go,
-          bash,
-          powershell,
-          postgresql,
-          mysql,
-          bigquery,
-          snowflake,
-          mssql,
-          oracledb,
-          graphql,
-          nativets,
-          bun,
-          php,
-          rust,
-          ansible,
-          csharp,
-          nu,
-          java,
-          ruby,
-          duckdb,
-          # for related places search: ADD_NEW_LANG
-        ]
+        python3,
+        deno,
+        go,
+        bash,
+        powershell,
+        postgresql,
+        mysql,
+        bigquery,
+        snowflake,
+        mssql,
+        oracledb,
+        graphql,
+        nativets,
+        bun,
+        php,
+        rust,
+        ansible,
+        csharp,
+        nu,
+        java,
+        ruby,
+        duckdb,
+        # for related places search: ADD_NEW_LANG
+      ]
 
     Preview:
       type: object
@@ -18376,11 +18530,7 @@ components:
           type: string
         name:
           type: string
-        username:
-          type: string
         color:
-          type: string
-        parent_workspace_id:
           type: string
       required:
         - id
@@ -18470,12 +18620,15 @@ components:
           type: string
         operator_only:
           type: boolean
+        first_time_user:
+          type: boolean
 
       required:
         - email
         - login_type
         - super_admin
         - verified
+        - first_time_user
 
     Flow:
       allOf:
@@ -19490,10 +19643,18 @@ components:
               required:
                 - name
                 - url
+          total_count:
+            type: number
+            description: Total number of repositories available for this installation
+          per_page:
+            type: number
+            description: Number of repositories loaded per page
         required:
           - installation_id
           - account_id
           - repositories
+          - total_count
+          - per_page
 
     WorkspaceGithubInstallation:
       type: object

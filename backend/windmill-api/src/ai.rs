@@ -11,16 +11,44 @@ use std::collections::HashMap;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel, AZURE_API_VERSION};
 use windmill_common::error::{to_anyhow, Error, Result};
+use windmill_common::utils::configure_client;
 
 lazy_static::lazy_static! {
-    static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+    static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .timeout(std::time::Duration::from_secs(60 * 5))
-        .user_agent("windmill/beta")
+        .user_agent("windmill/beta"))
         .build().unwrap();
 
     static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
 
     pub static ref AI_REQUEST_CACHE: Cache<(String, AIProvider), ExpiringAIRequestConfig> = Cache::new(500);
+
+    /// Parse AI_HTTP_HEADERS environment variable into a vector of (header_name, header_value) tuples
+    /// Format: "header1: value1, header2: value2"
+    static ref AI_HTTP_HEADERS: Vec<(String, String)> = {
+        std::env::var("AI_HTTP_HEADERS")
+            .ok()
+            .map(|headers_str| {
+                headers_str
+                    .split(',')
+                    .filter_map(|header| {
+                        let parts: Vec<&str> = header.splitn(2, ':').collect();
+                        if parts.len() == 2 {
+                            let name = parts[0].trim().to_string();
+                            let value = parts[1].trim().to_string();
+                            if !name.is_empty() && !value.is_empty() {
+                                Some((name, value))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
 }
 
 #[derive(Deserialize, Debug)]
@@ -200,6 +228,11 @@ impl AIRequestConfig {
             request = request.header("OpenAI-Organization", org_id);
         }
 
+        // Apply custom headers from AI_HTTP_HEADERS environment variable
+        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+            request = request.header(header_name.as_str(), header_value.as_str());
+        }
+
         Ok(request)
     }
 
@@ -287,11 +320,17 @@ async fn global_proxy(
 
     let url = format!("{}/{}", base_url, ai_path);
 
-    let request = HTTP_CLIENT
+    let mut request = HTTP_CLIENT
         .request(method, url)
         .header("content-type", "application/json")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .body(body);
+        .header("Authorization", format!("Bearer {}", api_key));
+
+    // Apply custom headers from AI_HTTP_HEADERS environment variable
+    for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+        request = request.header(header_name.as_str(), header_value.as_str());
+    }
+
+    let request = request.body(body);
 
     let response = request.send().await.map_err(to_anyhow)?;
 

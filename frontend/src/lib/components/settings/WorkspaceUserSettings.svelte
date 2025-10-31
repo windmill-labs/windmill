@@ -292,7 +292,7 @@
 />
 <div class="flex flex-col gap-4 my-8">
 	<div class="flex flex-col gap-1">
-		<div class="text-tertiary text-xs">
+		<div class="text-primary text-xs">
 			Add members to your workspace and manage their roles. You can also auto-add users to join your
 			workspace.
 			<a
@@ -308,12 +308,12 @@
 		title="Members {(filteredUsers?.length ?? users?.length) != undefined
 			? `(${filteredUsers?.length ?? users?.length})`
 			: ''}"
-		primary={true}
+		primary={false}
 		tooltip="Manage users manually or enable SSO authentication."
 		documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
 	/>
 
-	<div class="flex flex-row items-center gap-2 relative">
+	<div class="flex flex-row items-center gap-2 relative whitespace-nowrap">
 		<input placeholder="Filter members" bind:value={userFilter} class="input !pl-8" />
 		<Search class="absolute left-2" size={14} />
 
@@ -323,8 +323,9 @@
 		>
 			{#snippet trigger()}
 				<Button
-					color={auto_invite_domain != undefined ? 'green' : 'red'}
-					variant="border"
+					color={'accent'}
+					destructive={auto_invite_domain === undefined}
+					variant="default"
 					size="xs"
 					nonCaptureEvent={true}
 					startIcon={{ icon: Mails }}
@@ -478,7 +479,7 @@
 								<div class="flex w-full mt-1 gap-2 items-end justify-between">
 									<div class="flex gap-2 items-end">
 										<div class="flex flex-col gap-1">
-											<span class="text-xs text-tertiary">Instance group</span>
+											<span class="text-xs text-primary">Instance group</span>
 											<Select
 												items={availableGroupItems}
 												placeholder="Select group"
@@ -489,7 +490,7 @@
 										</div>
 
 										<div class="flex flex-col gap-1">
-											<span class="text-xs text-tertiary">Role</span>
+											<span class="text-xs text-primary">Role</span>
 											<ToggleButtonGroup
 												selected={selectedNewRole}
 												on:selected={(e) => {
@@ -539,7 +540,7 @@
 									<div class="flex flex-col gap-1">
 										<table class="w-full text-sm">
 											<thead>
-												<tr class="text-left text-xs text-tertiary">
+												<tr class="text-left text-xs text-primary">
 													<th class="pb-2 w-1/2">Group</th>
 													<th class="pb-2 w-1/4">Role</th>
 													<th class="pb-2 w-1/4"></th>
@@ -552,7 +553,7 @@
 														<td class="py-2">
 															<div class="font-medium">{groupName}</div>
 															{#if group?.summary}
-																<div class="text-xs text-tertiary">{group.summary}</div>
+																<div class="text-xs text-primary">{group.summary}</div>
 															{/if}
 														</td>
 														<td class="py-2">
@@ -612,7 +613,7 @@
 									</div>
 								</div>
 							{:else}
-								<div class="text-center text-tertiary text-sm py-4">
+								<div class="text-center text-primary text-sm py-4">
 									No instance groups configured for auto-add
 								</div>
 							{/if}
@@ -675,7 +676,7 @@
 					{#if hasNonManualUsers && index > 0 && sortedUsers()[index - 1]?.added_via?.source !== 'instance_group' && added_via?.source === 'instance_group'}
 						<tr class="bg-surface-secondary">
 							<td colspan={hasNonManualUsers ? 8 : 7} class="px-4 py-2">
-								<div class="text-xs text-tertiary font-bold"> Instance group users </div>
+								<div class="text-xs text-primary font-bold"> Instance group users </div>
 							</td>
 						</tr>
 					{/if}

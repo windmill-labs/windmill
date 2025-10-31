@@ -129,7 +129,7 @@
 	title={`Items ${navbarItems && navbarItems.length > 0 ? `(${navbarItems.length})` : ''}`}
 >
 	{#if !navbarItems || navbarItems.length == 0}
-		<span class="text-xs text-tertiary">No items</span>
+		<span class="text-xs text-primary">No items</span>
 	{/if}
 	<div class="w-full flex gap-2 flex-col mt-2">
 		<section
@@ -196,7 +196,7 @@
 						/>
 
 						{#if resolvedPaths[item.originalIndex]}
-							<div class="text-xs text-tertiary flex gap-2 flex-row flex-wrap">
+							<div class="text-xs text-primary flex gap-2 flex-row flex-wrap">
 								Path: <Badge small>{resolvedPaths[item.originalIndex]}</Badge>
 								{#if $appPath && resolvedPaths[item.originalIndex]?.includes($appPath)}
 									<Badge small color="blue"
@@ -216,13 +216,6 @@
 				{/key}
 			{/each}
 		</section>
-		<Button
-			size="xs"
-			color="light"
-			variant="border"
-			startIcon={{ icon: Plus }}
-			on:click={addPath}
-			iconOnly
-		/>
+		<Button size="xs" variant="default" startIcon={{ icon: Plus }} on:click={addPath} iconOnly />
 	</div>
 </PanelSection>

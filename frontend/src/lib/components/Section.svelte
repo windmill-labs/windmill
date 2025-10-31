@@ -51,9 +51,9 @@
 		<div class="flex flex-row justify-between items-center mb-2">
 			<h2
 				class={twMerge(
-					'font-semibold flex flex-row items-center gap-1',
+					'text-emphasis flex flex-row items-center gap-1',
 					breakAll ? 'break-all' : '',
-					small ? 'text-sm' : 'text-base',
+					small ? 'text-xs font-semibold' : 'text-sm font-semibold',
 					headerClass
 				)}
 			>

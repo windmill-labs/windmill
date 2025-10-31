@@ -11,7 +11,6 @@
 	import GroupInfo from '$lib/components/GroupInfo.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { canWrite } from '$lib/utils'
 	import { Pen, Plus, Trash } from 'lucide-svelte'
@@ -20,6 +19,8 @@
 	import Cell from '$lib/components/table/Cell.svelte'
 	import Row from '$lib/components/table/Row.svelte'
 	import { untrack } from 'svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { Tooltip } from '$lib/components/meltComponents'
 
 	type GroupW = Group & { canWrite: boolean }
 
@@ -95,18 +96,23 @@
 						containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
 					>
 						{#snippet trigger()}
-							<Button size="md" startIcon={{ icon: Plus }} nonCaptureEvent>New&nbsp;group</Button>
+							<Button unifiedSize="md" variant="accent" startIcon={{ icon: Plus }} nonCaptureEvent
+								>New&nbsp;group</Button
+							>
 						{/snippet}
 						{#snippet content({ close })}
 							<div class="flex-col flex gap-2 p-4">
-								<input
-									class="mr-2"
-									onkeyup={(e) => handleKeyUp(e, close)}
-									placeholder="New group name"
+								<TextInput
+									size="md"
+									inputProps={{
+										placeholder: 'New group name',
+										onkeyup: (e) => handleKeyUp(e, close)
+									}}
 									bind:value={newGroupName}
 								/>
 								<Button
-									size="md"
+									unifiedSize="md"
+									variant="accent"
 									startIcon={{ icon: Plus }}
 									disabled={!newGroupName}
 									on:click={() => {
@@ -153,10 +159,10 @@
 								<Cell first>
 									<div class="flex flex-row gap-2 justify-between">
 										<div>
-											<span class="text-blue-500">{name}</span>
+											<span class="text-emphasis text-xs font-semibold">{name}</span>
 											{#if summary}
 												<br />
-												<span class="text-gray-500">{summary}</span>
+												<span class="text-2xs font-normal text-secondary">{summary}</span>
 											{/if}
 										</div>
 										<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -200,53 +206,57 @@
 		</div>
 
 		{#if instanceGroups && instanceGroups.length > 0}
-			<PageHeader
-				title="Instance Groups"
-				tooltip="Instance Groups are managed by SCIM and are groups shared by every workspaces"
-				documentationLink="https://www.windmill.dev/docs/misc/saml_and_scim#scim"
-			/>
-			<div class="relative mb-20 pt-8">
-				<TableCustom>
-					<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-					<tr slot="header-row">
-						<th>Name</th>
-						<th>Members</th>
-						<th>Workspaces</th>
-					</tr>
-					{#snippet body()}
-						<tbody>
-							{#each instanceGroups ?? [] as { name, emails, workspaces }}
-								<tr>
-									<td>
-										<a
-											href="#{name}"
-											onclick={() => {
-												if (name) {
-													editGroupName = name
-													groupDrawer?.openDrawer()
-												}
-											}}
-											>{name}
-										</a>
-									</td>
-									<td>{emails?.length ?? 0} members</td>
-									<td>
-										{#if workspaces && workspaces.length > 0}
-											{#each workspaces as workspace, index}
-												{#if index > 0}${", "}{/if}<a
-													href="/workspace_settings?tab=users&workspace={workspace.workspace_id}"
-													class="text-blue-500 hover:underline"
-												>{workspace.workspace_id}</a> ({workspace.role})
-											{/each}
-										{:else}
-											<span class="text-tertiary text-sm">No workspaces</span>
-										{/if}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
+			<div class="flex flex-row gap-1 items-center mb-2">
+				<span class="text-emphasis text-sm font-semibold">Instance groups</span>
+				<Tooltip documentationLink="https://www.windmill.dev/docs/misc/saml_and_scim#scim">
+					{#snippet text()}
+						Instance Groups are managed by SCIM and are groups shared by every workspaces
 					{/snippet}
-				</TableCustom>
+				</Tooltip>
+			</div>
+			<div class="relative mb-20">
+				<DataTable>
+					<Head>
+						<tr>
+							<Cell head first>Name</Cell>
+							<Cell head>Members</Cell>
+							<Cell head last>Workspaces</Cell>
+						</tr>
+					</Head>
+					<tbody class="divide-y">
+						{#each instanceGroups ?? [] as { name, emails, workspaces }}
+							<Row>
+								<Cell first>
+									<a
+										href="#{name}"
+										onclick={() => {
+											if (name) {
+												editGroupName = name
+												groupDrawer?.openDrawer()
+											}
+										}}
+										>{name}
+									</a>
+								</Cell>
+								<Cell>{emails?.length ?? 0} members</Cell>
+								<Cell last>
+									{#if workspaces && workspaces.length > 0}
+										{#each workspaces as workspace, index}
+											{#if index > 0}${', '}{/if}<a
+												href="/workspace_settings?tab=users&workspace={workspace.workspace_id}"
+											>
+												{workspace.workspace_id}
+											</a>
+											({workspace.role})
+										{/each}
+									{:else}
+										<span class="text-emphasis font-semibold text-xs">No workspaces</span>
+									{/if}
+								</Cell>
+							</Row>
+						{/each}
+					</tbody>
+				</DataTable>
 			</div>
 		{/if}
 	</CenteredPage>

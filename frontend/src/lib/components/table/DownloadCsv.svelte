@@ -8,8 +8,8 @@
 </script>
 
 <Button
-	size="xs"
-	color="light"
+	unifiedSize="md"
+	variant="subtle"
 	startIcon={{ icon: Download }}
 	on:click={() => {
 		try {

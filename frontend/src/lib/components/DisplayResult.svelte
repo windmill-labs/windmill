@@ -42,9 +42,11 @@
 	import ResultStreamDisplay from './ResultStreamDisplay.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	const IMG_MAX_SIZE = 10000000
 	const TABLE_MAX_SIZE = 5000000
 	const DISPLAY_MAX_SIZE = 100000
+
+	const IMG_KINDS = ['png', 'svg', 'jpeg', 'gif']
+	const NO_SIZE_LIMIT_KINDS = [...IMG_KINDS, 'pdf', 'file', 'filename', 'html']
 
 	const dispatch = createEventDispatcher()
 
@@ -199,14 +201,6 @@
 				is_render_all =
 					keys.length == 1 && keys.includes('render_all') && Array.isArray(result['render_all'])
 
-				// Check if the result is an image
-				if (['png', 'svg', 'jpeg', 'html', 'gif'].includes(keys[0]) && keys.length == 1) {
-					// Check if the image is too large (10mb)
-					largeObject = roughSizeOfObject(result) > IMG_MAX_SIZE
-
-					return keys[0] as 'png' | 'svg' | 'jpeg' | 'html' | 'gif'
-				}
-
 				let size = roughSizeOfObject(result)
 				console.debug('size of object', size)
 				// Otherwise, check if the result is too large (10kb) for json
@@ -253,26 +247,20 @@
 					return keys[0] as 'table-row' | 'table-row-object' | 'table-col'
 				}
 
-				if (largeObject) {
-					return 'json'
-				}
-
 				if (keys.length != 0) {
-					if (keys.length == 1 && keys[0] === 'html') {
-						return 'html'
-					} else if (keys.length == 1 && keys[0] === 'map') {
-						return 'map'
-					} else if (keys.length == 1 && keys[0] === 'pdf') {
-						return 'pdf'
-					} else if (keys.length == 1 && keys[0] === 'file') {
-						return 'file'
+					if (
+						keys.length == 1 &&
+						[...IMG_KINDS, 'html', 'map', 'pdf', 'file', 'error'].includes(keys[0])
+					) {
+						return !largeObject || NO_SIZE_LIMIT_KINDS.includes(keys[0])
+							? (keys[0] as ResultKind)
+							: 'json'
 					} else if (
+						!largeObject &&
 						keys.includes('windmill_content_type') &&
 						result['windmill_content_type'].startsWith('text/')
 					) {
 						return 'plain'
-					} else if (keys.length == 1 && keys[0] === 'error') {
-						return 'error'
 					} else if (keys.length === 2 && keys.includes('file') && keys.includes('filename')) {
 						return 'file'
 					} else if (
@@ -290,39 +278,44 @@
 						}
 						return 'file'
 					} else if (
+						!largeObject &&
 						keys.includes('resume') &&
 						keys.includes('cancel') &&
 						keys.includes('approvalPage')
 					) {
 						return 'approval'
-					} else if (checkIfS3(result, keys)) {
+					} else if (!largeObject && checkIfS3(result, keys)) {
 						return 's3object'
-					} else if (keys.length === 1 && (keys.includes('md') || keys.includes('markdown'))) {
+					} else if (
+						!largeObject &&
+						keys.length === 1 &&
+						(keys[0] === 'md' || keys[0] === 'markdown')
+					) {
 						return 'markdown'
-					} else if (isTableCol(result, keys)) {
+					} else if (!largeObject && isTableCol(result, keys)) {
 						return 'table-col'
 					} else if (keys.length < 1000 && keys.includes('wm_renderer')) {
 						const renderer = result['wm_renderer']
-						if (typeof renderer === 'string') {
-							if (
-								[
-									'json',
-									'html',
-									'png',
-									'file',
-									'jpeg',
-									'gif',
-									'svg',
-									'filename',
-									's3object',
-									'plain',
-									'markdown',
-									'map',
-									'pdf'
-								].includes(renderer)
-							) {
-								return renderer as ResultKind
-							}
+						if (
+							typeof renderer === 'string' &&
+							(!largeObject || NO_SIZE_LIMIT_KINDS.includes(renderer)) &&
+							[
+								'json',
+								'html',
+								'png',
+								'file',
+								'jpeg',
+								'gif',
+								'svg',
+								'filename',
+								's3object',
+								'plain',
+								'markdown',
+								'map',
+								'pdf'
+							].includes(renderer)
+						) {
+							return renderer as ResultKind
 						}
 					}
 				}
@@ -505,7 +498,7 @@
 
 {#if result_stream && result == undefined}
 	<div class="flex flex-col w-full gap-2">
-		<div class="flex items-center gap-2 text-tertiary">
+		<div class="flex items-center gap-2 text-primary">
 			<Loader2 class="animate-spin" size={16} /> Streaming result
 		</div>
 		<ResultStreamDisplay {result_stream} />
@@ -513,18 +506,16 @@
 {:else if is_render_all}
 	<div class="flex flex-col w-full gap-2">
 		{#if !noControls}
-			<div class="text-tertiary text-sm">
+			<div class="text-primary text-sm">
 				<ToggleButtonGroup
-					class="h-6"
 					selected={globalForceJson ? 'json' : 'pretty'}
 					on:selected={(ev) => {
 						globalForceJson = ev.detail === 'json'
 					}}
 				>
 					{#snippet children({ item })}
-						<ToggleButton class="px-1.5" value="pretty" label="Pretty" icon={Highlighter} {item} />
-
-						<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
+						<ToggleButton value="pretty" label="Pretty" icon={Highlighter} {item} />
+						<ToggleButton value="json" label="JSON" icon={Braces} {item} />
 					{/snippet}
 				</ToggleButtonGroup>
 			</div>
@@ -559,11 +550,10 @@
 		{#if result != undefined && length != undefined && largeObject != undefined}
 			<div class="flex justify-between items-center w-full">
 				<div
-					class="text-tertiary text-sm flex flex-row gap-2 items-center"
+					class="text-primary text-sm flex flex-row gap-2 items-center"
 					bind:clientHeight={resultHeaderHeight}
 				>
 					{#if !hideAsJson && !['json', 's3object'].includes(resultKind ?? '') && typeof result === 'object'}<ToggleButtonGroup
-							class="h-6"
 							selected={forceJson ? 'json' : resultKind?.startsWith('table-') ? 'table' : 'pretty'}
 							on:selected={(ev) => {
 								forceJson = ev.detail === 'json'
@@ -571,17 +561,11 @@
 						>
 							{#snippet children({ item })}
 								{#if ['table-col', 'table-row', 'table-row-object'].includes(resultKind ?? '')}
-									<ToggleButton class="px-1.5" value="table" label="Table" icon={Table2} {item} />
+									<ToggleButton size="sm" value="table" label="Table" icon={Table2} {item} />
 								{:else}
-									<ToggleButton
-										class="px-1.5"
-										value="pretty"
-										label="Pretty"
-										icon={Highlighter}
-										{item}
-									/>
+									<ToggleButton size="sm" value="pretty" label="Pretty" icon={Highlighter} {item} />
 								{/if}
-								<ToggleButton class="px-1.5" value="json" label="JSON" icon={Braces} {item} />
+								<ToggleButton size="sm" value="json" label="JSON" icon={Braces} {item} />
 							{/snippet}
 						</ToggleButtonGroup>
 					{/if}
@@ -648,7 +632,7 @@
 										Warning
 									</div>
 									<p
-										class="text-tertiary mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
+										class="text-primary mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
 										>Rendering HTML can expose you to <a
 											href="https://owasp.org/www-community/attacks/xss/"
 											target="_blank"
@@ -658,7 +642,7 @@
 									</p>
 								</div>
 								<div class="center-center">
-									<Button size="sm" color="dark" on:click={() => (enableHtml = true)}>
+									<Button unifiedSize="md" variant="default" on:click={() => (enableHtml = true)}>
 										Enable HTML rendering
 									</Button>
 								</div>
@@ -723,10 +707,11 @@
 								<Button
 									on:click={() =>
 										copyToClipboard(typeof result === 'string' ? result : result?.['result'])}
-									color="light"
-									size="xs"
+									variant="subtle"
+									unifiedSize="sm"
+									endIcon={{ icon: ClipboardCopy }}
 								>
-									<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
+									Copy
 								</Button>
 							</div>
 						{/if}
@@ -788,8 +773,7 @@
 						class="flex flex-col gap-3 mt-2 mx-4"
 					>
 						<Button
-							color="green"
-							variant="border"
+							variant="accent"
 							on:click={() =>
 								fetch(result['resume'], {
 									method: 'POST',
@@ -799,7 +783,7 @@
 						>
 							Resume</Button
 						>
-						<Button color="red" variant="border" on:click={() => fetch(result['cancel'])}
+						<Button variant="default" destructive on:click={() => fetch(result['cancel'])}
 							>Cancel</Button
 						>
 						<div class="center-center"
@@ -926,7 +910,7 @@
 										code={toJsonStr(s3object).replace(/\\n/g, '\n')}
 									/>
 									<button
-										class="text-secondary text-2xs whitespace-nowrap"
+										class="text-primary text-2xs whitespace-nowrap"
 										onclick={() => {
 											s3FileViewer?.open?.(s3object)
 										}}
@@ -937,7 +921,7 @@
 								{:else if !s3object?.disable_download}
 									<FileDownload {workspaceId} {s3object} {appPath} />
 								{:else}
-									<div class="flex text-secondary pt-2">{s3object?.s3} (download disabled)</div>
+									<div class="flex text-primary pt-2">{s3object?.s3} (download disabled)</div>
 								{/if}
 								{#if s3object?.s3?.endsWith('.parquet') || s3object?.s3?.endsWith('.csv')}
 									{#if seeS3PreviewFileFromList == s3object?.s3}
@@ -948,7 +932,7 @@
 											storage={s3object?.storage}
 										/>{:else}
 										<button
-											class="text-secondary whitespace-nowrap flex gap-2 items-center"
+											class="text-primary whitespace-nowrap flex gap-2 items-center"
 											onclick={() => {
 												seeS3PreviewFileFromList = s3object?.s3
 											}}
@@ -968,7 +952,7 @@
 										</div>
 									{:else}
 										<button
-											class="text-secondary whitespace-nowrap flex gap-2 items-center"
+											class="text-primary whitespace-nowrap flex gap-2 items-center"
 											onclick={() => {
 												seeS3PreviewFileFromList = s3object?.s3
 											}}
@@ -1007,7 +991,7 @@
 						</div>
 					{:else}
 						{#if largeObject}
-							<div class="text-sm text-tertiary"
+							<div class="text-xs text-emphasis"
 								><a
 									download="{filename ?? 'result'}.json"
 									href={workspaceId && jobId
@@ -1042,14 +1026,17 @@
 					{/if}
 				{:else if typeof result === 'string' && result.length > 0}
 					<pre class="text-sm">{result}</pre>{#if !noControls}<div class="flex">
-							<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
-								<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
-							</Button>
+							<Button
+								on:click={() => copyToClipboard(result)}
+								variant="subtle"
+								unifiedSize="sm"
+								endIcon={{ icon: ClipboardCopy }}
+							></Button>
 						</div>
 					{/if}
 				{:else}
 					<Highlight
-						class={forceJson ? 'pt-1' : 'h-full w-full'}
+						class={twMerge(forceJson ? 'pt-1' : 'h-full w-full', '!bg-surface-primary')}
 						language={json}
 						code={toJsonStr(result).replace(/\\n/g, '\n')}
 					/>
@@ -1060,14 +1047,17 @@
 				<pre>{result}</pre>
 				{#if !noControls}
 					<div class="flex">
-						<Button on:click={() => copyToClipboard(result)} color="light" size="xs">
-							<div class="flex gap-2 items-center">Copy <ClipboardCopy size={12} /> </div>
-						</Button>
+						<Button
+							on:click={() => copyToClipboard(result)}
+							variant="subtle"
+							unifiedSize="md"
+							endIcon={{ icon: ClipboardCopy }}
+						></Button>
 					</div>
 				{/if}
 			</div>
 		{:else}
-			<div class="text-tertiary text-sm">No result: {toJsonStr(result)}</div>
+			<div class="text-primary text-xs">No result: {toJsonStr(result)}</div>
 		{/if}
 	</div>
 
@@ -1084,16 +1074,16 @@
 									: `${base}/api/w/${workspaceId}/jobs_u/completed/get_result/${jobId}`
 								: `data:text/json;charset=utf-8,${encodeURIComponent(toJsonStr(result))}`}
 							startIcon={{ icon: Download }}
-							color="light"
-							size="xs"
+							variant="subtle"
+							unifiedSize="md"
 						>
 							Download
 						</Button>
 					{/if}
 					<Button
 						on:click={() => copyToClipboard(toJsonStr(result))}
-						color="light"
-						size="xs"
+						variant="subtle"
+						unifiedSize="md"
 						startIcon={{
 							icon: ClipboardCopy
 						}}

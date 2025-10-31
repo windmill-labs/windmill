@@ -21,6 +21,7 @@
 	import { workspaceStore, userStore } from '$lib/stores'
 	import UserSettings from '../../UserSettings.svelte'
 	import { generateRandomString } from '$lib/utils'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	interface Props {
 		isFlow?: boolean
@@ -182,7 +183,8 @@
 
 	function fetchCode() {
 		if (requestType === 'sync_sse') {
-			return `
+			return `import { EventSource } from "eventsource";
+
 export async function main() {
   const response = await fetch(\`${url}\`, {
     method: '${callMethod === 'get' ? 'GET' : 'POST'}',
@@ -235,8 +237,7 @@ export async function main() {
 }`
 		}
 		if (requestType === 'sync') {
-			return `
-export async function main() {
+			return `export async function main() {
   const jobTriggerResponse = await triggerJob();
   const data = await jobTriggerResponse.json();
   return data;
@@ -263,8 +264,7 @@ async function triggerJob() {
 }`
 		} else {
 			// Main function
-			let mainFunction = `
-export async function main() {
+			let mainFunction = `export async function main() {
   const jobTriggerResponse = await triggerJob();
   const UUID = await jobTriggerResponse.text();
   const jobCompletionData = await waitForJobCompletion(UUID);
@@ -367,18 +367,13 @@ done`
 <div class="flex flex-col gap-8">
 	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 		<Label label="Token">
-			<div class="flex flex-row justify-between gap-2">
-				<input
+			<div class="flex flex-row justify-between gap-2 whitespace-nowrap">
+				<TextInput
 					bind:value={token}
-					placeholder="paste your token here once created to alter examples below"
+					inputProps={{ placeholder: 'Paste your token here once created to alter examples below' }}
 					class="!text-xs !font-normal"
 				/>
-				<Button
-					size="xs"
-					color="light"
-					variant="border"
-					on:click={() => userSettings?.openDrawer()}
-				>
+				<Button size="xs" variant="default" on:click={() => userSettings?.openDrawer()}>
 					Create a Webhook-specific Token
 					<Tooltip light>
 						The token will have a scope such that it can only be used to trigger this script. It is
@@ -389,10 +384,9 @@ done`
 		</Label>
 	{/if}
 
-	<div class="flex flex-col gap-2">
-		<div class="flex flex-row justify-between">
-			<div class="text-sm font-normal text-secondary flex flex-row items-center">Request type</div>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
+	<div class="flex flex-col gap-6">
+		<Label label="Request type">
+			<ToggleButtonGroup bind:selected={requestType}>
 				{#snippet children({ item })}
 					<ToggleButton
 						label="Async"
@@ -417,10 +411,9 @@ done`
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
-		</div>
-		<div class="flex flex-row justify-between">
-			<div class="text-sm font-normal text-secondary flex flex-row items-center">Call method</div>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={callMethod}>
+		</Label>
+		<Label label="Call method">
+			<ToggleButtonGroup bind:selected={callMethod}>
 				{#snippet children({ item })}
 					<ToggleButton
 						label="POST"
@@ -439,47 +432,41 @@ done`
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
-		</div>
+		</Label>
 		{#if !isFlow}
-			<div class="flex flex-row justify-between">
-				<div class="text-sm font-normal text-secondary flex flex-row items-center">
-					Reference type
-				</div>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={runnableId}>
+			<Label label="Reference type">
+				<ToggleButtonGroup bind:selected={runnableId}>
 					{#snippet children({ item })}
 						<ToggleButton label="Path" value="path" {item} />
 						<ToggleButton label="Hash" value="hash" disabled={!hash} {item} />
 					{/snippet}
 				</ToggleButtonGroup>
-			</div>
+			</Label>
 		{/if}
-		<div class="flex flex-row justify-between">
-			<div class="text-sm font-normal text-secondary flex flex-row items-center"
-				>Token configuration</div
-			>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
+		<Label label="Token configuration">
+			<ToggleButtonGroup bind:selected={tokenType}>
 				{#snippet children({ item })}
 					<ToggleButton label="Token in Headers" value="headers" {item} />
 					<ToggleButton label="Token in Query" value="query" {item} />
 				{/snippet}
 			</ToggleButtonGroup>
-		</div>
+		</Label>
 	</div>
 
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div>
 		<Tabs bind:selected={selectedTab}>
-			<Tab value="rest" size="xs">REST</Tab>
+			<Tab value="rest" label="REST" />
 			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
-				<Tab value="curl" size="xs">Curl</Tab>
+				<Tab value="curl" label="Curl" />
 			{/if}
-			<Tab value="fetch" size="xs">Fetch</Tab>
+			<Tab value="fetch" label="Fetch" />
 
 			{#snippet content()}
 				{#key token}
-					<TabContent value="rest" class="flex flex-col flex-1 h-full ">
-						<div class="flex flex-col gap-2">
+					<TabContent value="rest" class="flex flex-col flex-1 h-full mt-2">
+						<div class="flex flex-col gap-6">
 							<Label label="Url">
 								<ClipboardPanel content={url} />
 							</Label>
@@ -498,7 +485,7 @@ done`
 							{/key}
 						</div>
 					</TabContent>
-					<TabContent value="curl" class="flex flex-col flex-1 h-full">
+					<TabContent value="curl" class="flex flex-col flex-1 h-full mt-2">
 						<div class="relative">
 							{#key runnableArgs}
 								{#key callMethod}
@@ -520,7 +507,7 @@ done`
 							{/key}
 						</div>
 					</TabContent>
-					<TabContent value="fetch">
+					<TabContent value="fetch" class="mt-2">
 						{#key runnableArgs}
 							{#key callMethod}
 								{#key requestType}

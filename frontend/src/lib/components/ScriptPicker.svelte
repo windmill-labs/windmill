@@ -99,7 +99,7 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex flex-row items-center gap-4 w-full mt-2">
+<div class="flex flex-row items-center gap-1 w-full">
 	{#if options.length > 1}
 		<div>
 			<ToggleButtonGroup
@@ -137,9 +137,8 @@
 
 	{#if allowRefresh}
 		<Button
-			variant="border"
-			color="light"
-			wrapperClasses="self-stretch"
+			variant="subtle"
+			unifiedSize="md"
 			on:click={loadItems}
 			startIcon={{ icon: RefreshCw }}
 			iconOnly
@@ -148,22 +147,20 @@
 
 	{#if scriptPath !== undefined && scriptPath !== ''}
 		{#if itemKind == 'flow'}
-			<div class="flex gap-2">
+			<div class="flex gap-1">
 				{#if allowEdit}
 					<Button
 						endIcon={{ icon: ExternalLink }}
 						target="_blank"
-						color="light"
+						variant="default"
 						size="xs"
-						variant="border"
 						href="{base}/flows/edit/{scriptPath}">Edit</Button
 					>
 				{/if}
 				{#if allowView}
 					<Button
-						color="light"
+						variant="default"
 						size="xs"
-						variant="border"
 						on:click={async () => {
 							drawerFlowViewer?.openDrawer()
 						}}
@@ -178,19 +175,17 @@
 					<Button
 						startIcon={{ icon: Pen }}
 						target="_blank"
-						color="light"
+						variant="default"
 						size="xs"
 						href="{base}/apps/edit/{scriptPath}"
-						variant="border"
 					>
 						Edit
 					</Button>
 				{/if}
 				{#if allowView}
 					<Button
-						color="light"
+						variant="default"
 						size="xs"
-						variant="border"
 						target="_blank"
 						startIcon={{ icon: Code }}
 						href="{base}/apps/get/{scriptPath}"
@@ -205,19 +200,17 @@
 					<Button
 						startIcon={{ icon: Pen }}
 						target="_blank"
-						color="light"
+						variant="default"
 						size="xs"
 						href="{base}/scripts/edit/{scriptPath}"
-						variant="border"
 					>
 						Edit
 					</Button>
 				{/if}
 				{#if allowView}
 					<Button
-						color="light"
+						variant="default"
 						size="xs"
-						variant="border"
 						startIcon={{ icon: Code }}
 						on:click={async () => {
 							const { language, content } = await getScriptByPath(scriptPath ?? '')

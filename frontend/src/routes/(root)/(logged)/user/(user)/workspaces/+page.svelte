@@ -10,7 +10,8 @@
 		usersWorkspaceStore,
 		userWorkspaces,
 		workspaceStore,
-		userStore
+		userStore,
+		getWorkspaceFromStorage
 	} from '$lib/stores'
 	import { Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -20,7 +21,7 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { Cog, Crown, GitFork } from 'lucide-svelte'
+	import { Crown, GitFork, Settings } from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { emptyString } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
@@ -58,7 +59,7 @@
 		}
 		if ($usersWorkspaceStore) {
 			if (!$workspaceStore) {
-				const local = localStorage.getItem('workspace')?.toString()
+				const local = getWorkspaceFromStorage()?.toString()
 				switchWorkspace(local)
 			}
 		} else {
@@ -160,7 +161,7 @@
 {/if}
 
 <CenteredModal title="Select a workspace" subtitle="Logged in as {$usersWorkspaceStore?.email}">
-	<h2 class="mb-4 inline-flex gap-2">
+	<h2 class="mb-4 inline-flex gap-2 text-sm font-semibold text-emphasis">
 		Workspaces{#if loading}<WindmillIcon spin="fast" />{/if}
 	</h2>
 
@@ -175,8 +176,7 @@
 
 	{#if adminsInstance}
 		<Button
-			btnClasses="w-full mt-2 mb-4 truncate text-secondary"
-			color="light"
+			btnClasses="w-full mt-2 mb-4 truncate bg-surface-tertiary hover:bg-surface-secondary"
 			size="sm"
 			on:click={async () => {
 				workspaceStore.set('admins')
@@ -188,14 +188,14 @@
 				await goto(rd ?? '/')
 				loading = false
 			}}
-			variant="border"
+			variant="default"
 			>Manage Windmill on the superadmins workspace
 		</Button>
 	{/if}
 
 	{#if workspaces && $usersWorkspaceStore}
 		{#if workspaces.length == 0}
-			<p class="text-sm text-tertiary mt-2">
+			<p class="text-xs text-secondary mt-2">
 				You are not a member of any workspace yet. Accept an invitation {#if createWorkspace}or
 					create your own{/if}
 				workspace.
@@ -203,13 +203,9 @@
 		{/if}
 		{#each groupedNonAdminWorkspaces as { workspace, depth, isForked, parentName } (workspace.id)}
 			<label class="block pb-2" style:padding-left={`${depth * 24}px`}>
-				<button
-					class="w-full mx-auto py-1 px-2 rounded-md border
-					shadow-sm text-sm text-secondary font-normal mt-1 flex items-center"
-					class:opacity-50={workspace.disabled}
-					class:cursor-not-allowed={workspace.disabled}
-					class:hover:ring-1={!workspace.disabled}
-					class:hover:ring-indigo-300={!workspace.disabled}
+				<Button
+					variant="default"
+					btnClasses="bg-surface-tertiary hover:bg-surface-secondary"
 					disabled={workspace.disabled}
 					on:click={async () => {
 						if (!workspace.disabled) {
@@ -218,7 +214,7 @@
 					}}
 				>
 					{#if isForked}
-						<GitFork size={12} class="text-tertiary mr-2 flex-shrink-0" />
+						<GitFork size={12} class="text-primary mr-2 flex-shrink-0" />
 					{/if}
 					<span class="flex-1">
 						{#if workspace.color}
@@ -238,19 +234,18 @@
 							<span class="text-red-500"> (user disabled in this workspace)</span>
 						{/if}
 						{#if isForked && parentName}
-							<span class="text-tertiary text-xs mt-1">
+							<span class="text-secondary text-2xs mt-1">
 								<br />
 								Fork of {parentName}
 							</span>
 						{/if}
 					</span>
-				</button>
+				</Button>
 				{#if $superadmin && workspace['deleted']}
 					<Button
 						size="xs"
 						btnClasses="w-full mt-1"
-						color="green"
-						variant="border"
+						variant="default"
 						on:click={async () => {
 							await WorkspaceService.unarchiveWorkspace({ workspace: workspace.id })
 							loadWorkspacesAsAdmin()
@@ -272,9 +267,8 @@
 			<Button
 				size="sm"
 				btnClasses={noWorkspaces ? 'animate-bounce hover:animate-none' : ''}
-				color={noWorkspaces ? 'dark' : 'blue'}
 				href="{base}/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
-				variant={noWorkspaces ? 'contained' : 'border'}
+				variant={noWorkspaces ? 'accent' : 'default'}
 				>+&nbsp;Create a new workspace
 			</Button>
 		</div>
@@ -282,35 +276,37 @@
 
 	{@const nonForkInvites = invites.filter((invite) => invite.parent_workspace_id == undefined)}
 
-	<h2 class="mt-6 mb-4">Invites to join a Workspace</h2>
+	<h2 class="mt-6 mb-4 text-sm font-semibold text-emphasis">Invites to join a Workspace</h2>
 	{#if nonForkInvites.length == 0}
-		<p class="text-sm text-tertiary mt-2"> You don't have new invites at the moment. </p>
+		<p class="text-xs text-secondary mt-2"> You don't have new invites at the moment. </p>
 	{/if}
 	{#each nonForkInvites as invite}
 		<div
-			class="w-full mx-auto py-1 px-2 rounded-md border shadow-sm
-			text-sm mt-1 flex flex-row justify-between items-center"
+			class="w-full mx-auto py-1 px-2 rounded-md border border-border-light
+			text-xs mt-1 flex flex-row justify-between items-center"
 		>
 			<div class="grow">
-				<span class="font-mono font-semibold">{invite.workspace_id}</span>
+				<span class="font-mono font-semibold text-emphasis">{invite.workspace_id}</span>
 				{#if invite.is_admin}
-					<span class="text-sm">as an admin</span>
+					<span class="text-xs text-primary">as an admin</span>
 				{:else if invite.operator}
-					<span class="text-sm">as an operator</span>
+					<span class="text-xs text-primary">as an operator</span>
 				{/if}
 			</div>
 			<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
-				<a
-					class="font-bold p-1"
+				<Button
+					variant="accent"
+					size="xs2"
 					href="{base}/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
 						? `&rd=${encodeURIComponent(rd)}`
 						: ''}"
 				>
 					Accept
-				</a>
+				</Button>
 
-				<button
-					class="text-red-700 font-bold p-1"
+				<Button
+					variant="subtle"
+					size="xs2"
 					on:click={async () => {
 						await UserService.declineInvite({
 							requestBody: { workspace_id: invite.workspace_id }
@@ -318,48 +314,55 @@
 						sendUserToast(`Declined invite to ${invite.workspace_id}`)
 						loadInvites()
 					}}
+					destructive
 				>
 					Decline
-				</button>
+				</Button>
 			</div>
 		</div>
 	{/each}
+
+	{#if workspaces}
+		<div class="flex flex-row pt-6 pb-2">
+			<Toggle size="xs" bind:checked={showAllForks} options={{ right: 'Show workspace forks' }} />
+		</div>
+	{/if}
 
 	{#if showAllForks}
 		{@const allWorkspacesList = workspaces || []}
 		{@const filteredInvites = invites.filter((invite) => invite.parent_workspace_id)}
 
-		<h2 class="mt-6 mb-4">Forks of the workspaces you're in</h2>
+		<h2 class="mb-4 text-sm font-semibold text-emphasis">Forks of the workspaces you're in</h2>
 		{#if filteredInvites.length == 0}
-			<p class="text-sm text-tertiary mt-2"> There isn't anything here </p>
+			<p class="text-xs text-secondary mt-2"> There isn't anything here </p>
 		{/if}
 		{#each filteredInvites as invite}
 			{@const inviteWorkspace = allWorkspacesList.find((w) => w.id === invite.workspace_id)}
 			<div
-				class="w-full mx-auto py-1 px-2 rounded-md border shadow-sm
-			text-sm mt-1 flex flex-row justify-between items-center"
+				class="w-full mx-auto py-1 px-2 rounded-md border border-border-light
+			text-xs mt-1 flex flex-row justify-between items-center"
 			>
 				<div class="grow">
 					<div class="flex items-center gap-2">
 						{#if inviteWorkspace?.parent_workspace_id}
-							<GitFork size={12} class="text-tertiary flex-shrink-0" />
+							<GitFork size={12} class="text-secondary flex-shrink-0" />
 						{/if}
-						<span class="font-mono font-semibold">{invite.workspace_id}</span>
+						<span class="font-mono font-semibold text-emphasis">{invite.workspace_id}</span>
 					</div>
 					{#if invite.is_admin}
-						<span class="text-sm">as an admin</span>
+						<span class="text-xs text-primary">as an admin</span>
 					{:else if invite.operator}
-						<span class="text-sm">as an operator</span>
+						<span class="text-xs text-primary">as an operator</span>
 					{/if}
 					{#if invite.parent_workspace_id}
-						<div class="text-tertiary text-xs mt-1">
+						<div class="text-secondary text-2xs mt-1">
 							Fork of {invite.parent_workspace_id}
 						</div>
 					{/if}
 				</div>
 				<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
 					<a
-						class="font-bold p-1"
+						class="font-semibold text-xs p-1"
 						href="{base}/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
 							? `&rd=${encodeURIComponent(rd)}`
 							: ''}"
@@ -368,7 +371,7 @@
 					</a>
 
 					<button
-						class="text-red-700 font-bold p-1"
+						class="text-red-700 font-semibold text-xs p-1"
 						on:click={async () => {
 							await UserService.declineInvite({
 								requestBody: { workspace_id: invite.workspace_id }
@@ -383,16 +386,11 @@
 			</div>
 		{/each}
 	{/if}
-	{#if workspaces}
-		<div class="flex flex-row-reverse pt-4 pb-2">
-			<Toggle bind:checked={showAllForks} options={{ right: 'Show workspace forks' }} />
-		</div>
-	{/if}
 
 	<div class="flex justify-between items-center mt-10 flex-wrap gap-2">
 		{#if $superadmin}
 			<Button
-				variant="border"
+				variant="default"
 				size="sm"
 				on:click={superadminSettings.openDrawer}
 				startIcon={{ icon: Crown }}
@@ -401,17 +399,16 @@
 			</Button>
 		{/if}
 		<Button
-			variant="border"
+			variant="default"
 			size="sm"
 			on:click={() => userSettings.openDrawer()}
-			startIcon={{ icon: Cog }}
+			startIcon={{ icon: Settings }}
 		>
 			User settings
 		</Button>
 
 		<Button
-			variant="border"
-			color="blue"
+			variant="default"
 			size="sm"
 			on:click={async () => {
 				logout()
@@ -426,7 +423,7 @@
 		class="border rounded-md shadow-md bg-white w-full max-w-[640px] p-4 sm:py-8 sm:px-10 mb-6 md:mb-20"
 	>
 		<h1 class="text-center mb-2">Select a workspace</h1>
-		<p class="text-center font-medium text-tertiary text-xs mb-10">
+		<p class="text-center font-semibold text-primary text-xs mb-10">
 			Logged in as {$usersWorkspaceStore?.email}
 		</p>
 	</div>

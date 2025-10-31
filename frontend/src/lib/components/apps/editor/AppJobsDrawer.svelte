@@ -110,7 +110,7 @@
 								{/each}
 							</div>
 						{:else}
-							<div class="text-sm text-tertiary">No items</div>
+							<div class="text-sm text-primary">No items</div>
 						{/if}
 					</div>
 				</PanelSection>
@@ -119,8 +119,8 @@
 				<div class="w-full h-full flex flex-col">
 					<div>
 						<Tabs bind:selected={rightColumnSelect}>
-							<Tab value="timeline"><span class="font-semibold text-md">Timeline</span></Tab>
-							<Tab value="detail"><span class="font-semibold">Details</span></Tab>
+							<Tab value="timeline" label="Timeline" />
+							<Tab value="detail" label="Details" />
 						</Tabs>
 					</div>
 					{#if rightColumnSelect == 'timeline'}
@@ -136,7 +136,7 @@
 										<Splitpanes horizontal class="grow border w-full">
 											<Pane size={10} minSize={10}>
 												<LogViewer
-													content={`Logs are avaiable in the browser console directly`}
+													content={`Logs are available in the browser console directly`}
 													isLoading={false}
 													tag={undefined}
 												/>
@@ -155,7 +155,7 @@
 										<Splitpanes horizontal class="grow border w-full">
 											<Pane size={10} minSize={10}>
 												<LogViewer
-													content={`Logs are avaiable in the browser console directly`}
+													content={`Logs are available in the browser console directly`}
 													isLoading={false}
 													tag={undefined}
 												/>
@@ -178,8 +178,8 @@
 										{#if job?.['running']}
 											<div class="flex flex-row-reverse w-full">
 												<Button
-													color="red"
-													variant="border"
+													variant="accent"
+													destructive
 													on:click={() => jobLoader?.cancelJob()}
 												>
 													<Loader2 size={14} class="animate-spin mr-2" />
@@ -227,9 +227,9 @@
 													{:else if testIsLoading}
 														<div class="p-2"><Loader2 class="animate-spin" /> </div>
 													{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
-														<div class="p-2 text-tertiary">Result is undefined</div>
+														<div class="p-2 text-primary">Result is undefined</div>
 													{:else}
-														<div class="p-2 text-tertiary">
+														<div class="p-2 text-primary">
 															<Loader2 size={14} class="animate-spin mr-2" />
 														</div>
 													{/if}
@@ -248,9 +248,9 @@
 														{:else if testIsLoading}
 															<div class="p-2"><Loader2 class="animate-spin" /> </div>
 														{:else if job != undefined && 'result' in job && job?.['result'] == undefined}
-															<div class="p-2 text-tertiary">Result is undefined</div>
+															<div class="p-2 text-primary">Result is undefined</div>
 														{:else}
-															<div class="p-2 text-tertiary">
+															<div class="p-2 text-primary">
 																<Loader2 size={14} class="animate-spin mr-2" />
 															</div>
 														{/if}
@@ -276,7 +276,7 @@
 									</div>
 								{/if}
 							{:else}
-								<div class="text-sm p-2 text-tertiary">Select a job to see its details</div>
+								<div class="text-sm p-2 text-primary">Select a job to see its details</div>
 							{/if}
 						</div>
 					{/if}
@@ -287,8 +287,7 @@
 			{#if refreshComponents}
 				<Button
 					size="md"
-					color="light"
-					variant="border"
+					variant="default"
 					on:click={() => {
 						refreshComponents?.()
 					}}
@@ -299,15 +298,14 @@
 			{/if}
 			<Button
 				size="md"
-				color="light"
-				variant="border"
+				variant="default"
 				on:click={() => {
 					dispatch('clear')
 				}}
 				>Clear jobs
 			</Button>
 			{#if hasErrors}
-				<Button size="md" color="light" variant="border" on:click={() => dispatch('clearErrors')}>
+				<Button size="md" variant="default" on:click={() => dispatch('clearErrors')}>
 					Clear Errors &nbsp;<BellOff size={14} />
 				</Button>
 			{/if}

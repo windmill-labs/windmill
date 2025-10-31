@@ -87,6 +87,8 @@ async fn get_schedule_metadata<'c>(
             _custom_concurrency_key,
             _concurrent_limit,
             _concurrency_time_window_s,
+            _debounce_key,
+            _debounce_delay_s,
             _cache_ttl,
             _language,
             _dedicated_worker,
@@ -264,6 +266,8 @@ pub async fn push_scheduled_job<'c>(
                 tag_override: schedule.tag.clone(),
                 trigger_path: None,
                 apply_preprocessor: false,
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             },
             if schedule.tag.as_ref().is_some_and(|x| x != "") {
                 schedule.tag.clone()
@@ -318,6 +322,8 @@ pub async fn push_scheduled_job<'c>(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            custom_debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -360,11 +366,13 @@ pub async fn push_scheduled_job<'c>(
                     custom_concurrency_key: None,
                     concurrent_limit: None,
                     concurrency_time_window_s: None,
-                    cache_ttl: cache_ttl,
-                    priority: priority,
+                    cache_ttl,
+                    priority,
                     tag_override: schedule.tag.clone(),
                     trigger_path: None,
                     apply_preprocessor: false,
+                    custom_debounce_key: None,
+                    debounce_delay_s: None,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -381,13 +389,15 @@ pub async fn push_scheduled_job<'c>(
                     hash,
                     path: schedule.script_path.clone(),
                     custom_concurrency_key,
-                    concurrent_limit: concurrent_limit,
-                    concurrency_time_window_s: concurrency_time_window_s,
-                    cache_ttl: cache_ttl,
+                    concurrent_limit,
+                    concurrency_time_window_s,
+                    cache_ttl,
                     dedicated_worker,
                     language,
                     priority,
                     apply_preprocessor: false,
+                    custom_debounce_key,
+                    debounce_delay_s,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -458,6 +468,12 @@ pub async fn push_scheduled_job<'c>(
         .await?;
     }
 
+    tracing::info!(
+        "Pushing next scheduled job for schedule {} at {} (schedule: {})",
+        &schedule.path,
+        next,
+        &schedule.schedule
+    );
     let tx = PushIsolationLevel::Transaction(tx);
     let (_, mut tx) = push(
         &db,

@@ -32,8 +32,9 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::flows::FlowValue;
 use windmill_common::utils::{query_elems_from_hub, WarnAfterExt};
-use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -46,6 +47,7 @@ use windmill_common::{
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel};
+use windmill_worker::scoped_dependency_map::ScopedDependencyMap;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -385,6 +387,7 @@ async fn create_flow(
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
+    guard_flow_from_debounce_data(&nf).await?;
     if *CLOUD_HOSTED {
         let nb_flows =
             sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
@@ -733,6 +736,7 @@ async fn update_flow(
 ) -> Result<String> {
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
+    guard_flow_from_debounce_data(&nf).await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -1301,7 +1305,11 @@ async fn archive_flow_by_path(
         Some([("workspace", w_id.as_str())].into()),
     )
     .await?;
-    tx.commit().await?;
+
+    ScopedDependencyMap::clear_map_for_item(path, &w_id, "flow", tx, &None)
+        .await
+        .commit()
+        .await?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -1332,6 +1340,22 @@ async fn archive_flow_by_path(
     );
 
     Ok(format!("Flow {path} archived"))
+}
+
+/// Validates that flow debouncing configuration is supported by all workers
+/// Returns an error if debouncing is configured but workers are behind required version
+async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
+    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await && {
+        let flow_value: FlowValue = serde_json::from_value(nf.value.clone())?;
+        flow_value.debounce_key.is_some() || flow_value.debounce_delay_s.is_some()
+    } {
+        tracing::warn!(
+            "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
+        );
+        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
+    } else {
+        Ok(())
+    }
 }
 
 #[derive(Deserialize)]
@@ -1590,6 +1614,8 @@ mod tests {
             early_return: None,
             concurrency_key: None,
             chat_input_enabled: None,
+            debounce_key: None,
+            debounce_delay_s: None,
         };
         let expect = serde_json::json!({
           "modules": [

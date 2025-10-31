@@ -14,6 +14,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs::{self, File},
     io::Write,
+    ops::Deref,
     panic::Location,
     path::{Component, Path, PathBuf},
     str::FromStr,
@@ -187,6 +188,17 @@ lazy_static::lazy_static! {
         "other".to_string()
     ];
 
+    pub static ref NATIVE_TAGS: Vec<String> = vec![
+        "nativets".to_string(),
+        "postgresql".to_string(),
+        "mysql".to_string(),
+        "graphql".to_string(),
+        "snowflake".to_string(),
+        "mssql".to_string(),
+        "bigquery".to_string(),
+        "duckdb".to_string(),
+    ];
+
     pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
     pub static ref DEFAULT_TAGS_WORKSPACES: Arc<RwLock<Option<Vec<String>>>> = Arc::new(RwLock::new(None));
 
@@ -250,6 +262,10 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    /// Global flag indicating if all workers support the debouncing feature (>= 1.566.0)
+    /// Debouncing consolidates multiple dependency job requests within a time window to avoid redundant work
+    /// This flag is updated during worker initialization by checking the minimum version across all workers
+    pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_461: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
@@ -266,7 +282,18 @@ pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone)]
-pub struct HttpClient(pub ClientWithMiddleware);
+pub struct HttpClient {
+    pub client: ClientWithMiddleware,
+    pub base_internal_url: Option<String>,
+}
+
+impl Deref for HttpClient {
+    type Target = ClientWithMiddleware;
+
+    fn deref(&self) -> &Self::Target {
+        &self.client
+    }
+}
 
 impl HttpClient {
     pub async fn post<T: Serialize, R: DeserializeOwned>(
@@ -275,10 +302,12 @@ impl HttpClient {
         headers: Option<HeaderMap>,
         body: &T,
     ) -> anyhow::Result<R> {
-        let response_builder = self
-            .0
-            .post(format!("{}{}", *BASE_INTERNAL_URL, url))
-            .json(body);
+        let base_url = self
+            .base_internal_url
+            .clone()
+            .unwrap_or(BASE_INTERNAL_URL.clone().to_owned());
+
+        let response_builder = self.client.post(format!("{}{}", base_url, url)).json(body);
 
         let response_builder = match headers {
             Some(headers) => response_builder.headers(headers),
@@ -302,9 +331,14 @@ impl HttpClient {
     }
 
     pub async fn get<R: DeserializeOwned>(&self, url: &str) -> anyhow::Result<R> {
+        let base_url = self
+            .base_internal_url
+            .clone()
+            .unwrap_or(BASE_INTERNAL_URL.clone().to_owned());
+
         let response = self
-            .0
-            .get(format!("{}{}", *BASE_INTERNAL_URL, url))
+            .client
+            .get(format!("{}{}", base_url, url))
             .send()
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
@@ -386,6 +420,10 @@ fn format_pull_query(peek: String) -> String {
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
+        ), delete_debounce AS NOT MATERIALIZED (
+            DELETE FROM debounce_key
+            USING j
+            WHERE j.kind::text != 'flowdependencies' AND j.kind::text != 'appdependencies' AND j.kind::text != 'dependencies' AND debounce_key.job_id = j.id
         ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
             j.runnable_id, j.runnable_path, j.args, canceled_by,
             canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
@@ -399,7 +437,8 @@ fn format_pull_query(peek: String) -> String {
         FROM q, j
             LEFT JOIN v2_job_status f USING (id)
             LEFT JOIN job_perms p ON p.job_id = j.id
-            LEFT JOIN v2_job pj ON j.parent_job = pj.id",
+            LEFT JOIN v2_job pj ON j.parent_job = pj.id
+            ",
         peek
     );
     // tracing::debug!("pull query: {}", r);
@@ -1034,6 +1073,7 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
 }
 
 pub async fn update_min_version(conn: &Connection) -> bool {
+    tracing::debug!("Updating min version");
     use crate::utils::{GIT_SEM_VERSION, GIT_VERSION};
 
     let cur_version = GIT_SEM_VERSION.clone();
@@ -1065,6 +1105,9 @@ pub async fn update_min_version(conn: &Connection) -> bool {
         tracing::info!("Minimal worker version: {min_version}");
     }
 
+    // Debouncing feature requires minimum version 1.566.0 across all workers
+    // This ensures all workers can handle debounce keys and stale data accumulation
+    *MIN_VERSION_SUPPORTS_DEBOUNCING.write().await = min_version >= Version::new(1, 566, 0);
     *MIN_VERSION_IS_AT_LEAST_1_461.write().await = min_version >= Version::new(1, 461, 0);
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);

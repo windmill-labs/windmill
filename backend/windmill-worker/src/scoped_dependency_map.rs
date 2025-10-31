@@ -239,7 +239,7 @@ SELECT importer_node_id, imported_path
 
     /// Selectively clean dependency_map for object
     /// If `importer_node_id` is None will clear all nodes.
-    pub(crate) async fn clear_map_for_item<'c>(
+    pub async fn clear_map_for_item<'c>(
         item_path: &str,
         w_id: &str,
         importer_kind: &str,
@@ -335,7 +335,15 @@ SELECT importer_node_id, imported_path
                     // Traverse retrieved flow modules
                     let mut tx = db.begin().await?;
                     let mut to_process = vec![];
-                    FlowValue::traverse_leafs(&flow_data.flow.modules, &mut |fmv, id| {
+                    let mut modules_to_check = flow_data.flow.modules.iter().collect::<Vec<_>>();
+                    if let Some(failure_module) = flow_data.flow.failure_module.as_ref() {
+                        modules_to_check.push(failure_module.as_ref());
+                    }
+                    if let Some(preprocessor_module) = flow_data.flow.preprocessor_module.as_ref() {
+                        modules_to_check.push(preprocessor_module.as_ref());
+                    }
+
+                    FlowValue::traverse_leafs(modules_to_check, &mut |fmv, id| {
                         match fmv {
                             // Since we fetched from flow_version it is safe to assume all inline scripts are in form of RawScript.
                             FlowModuleValue::RawScript { content, language, .. } => {
