@@ -445,6 +445,17 @@ pub async fn process_relative_imports(
     Ok(())
 }
 
+fn is_generated_from_raw_requirements(lang: Option<ScriptLang>, lock: &Option<String>) -> bool {
+    (lang.is_some_and(|v| v == ScriptLang::Bun)
+        && lock
+            .as_ref()
+            .is_some_and(|v| v.contains("generatedFromPackageJson")))
+        || (lang.is_some_and(|v| v == ScriptLang::Python3)
+            && lock
+                .as_ref()
+                .is_some_and(|v| v.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)))
+}
+
 pub async fn trigger_dependents_to_recompute_dependencies(
     w_id: &str,
     script_path: &str,
@@ -1437,10 +1448,11 @@ async fn lock_modules<'c>(
 
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
-                tx = dependency_map
-                    .patch(relative_imports.clone(), e.id.clone(), tx)
-                    .await?;
-
+                if !is_generated_from_raw_requirements(Some(language), &lock) {
+                    tx = dependency_map
+                        .patch(relative_imports.clone(), e.id.clone(), tx)
+                        .await?;
+                }
                 new_flow_modules.push(e);
                 continue;
             }
@@ -1448,9 +1460,11 @@ async fn lock_modules<'c>(
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
                 let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
                 if skip_creating_new_lock {
-                    tx = dependency_map
-                        .patch(relative_imports.clone(), e.id.clone(), tx)
-                        .await?;
+                    if !is_generated_from_raw_requirements(Some(language), &lock) {
+                        tx = dependency_map
+                            .patch(relative_imports.clone(), e.id.clone(), tx)
+                            .await?;
+                    }
 
                     new_flow_modules.push(e);
                     continue;
