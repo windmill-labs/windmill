@@ -15,7 +15,7 @@
 		type NewHttpTrigger,
 		type Retry
 	} from '$lib/gen'
-	import { usedTriggerKinds, userStore, workspaceStore, superadmin } from '$lib/stores'
+	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Pipette, Plus } from 'lucide-svelte'
@@ -46,6 +46,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerActionWithMailboxWarning from '../TriggerActionWithMailboxWarning.svelte'
 
 	let {
 		useDrawer = true,
@@ -596,6 +597,15 @@
 				</Section>
 			{/if}
 
+			<Section label="Action to take">
+				<TriggerActionWithMailboxWarning
+					triggerTable="http_trigger"
+					triggerPath={path}
+					bind:actionToTake={action_to_take}
+					canWrite={can_write}
+				/>
+			</Section>
+
 			<RouteEditorConfigSection
 				initialTriggerPath={initialPath}
 				bind:route_path
@@ -608,26 +618,6 @@
 				showTestingBadge={isEditor}
 				isDraftOnly={trigger ? trigger.isDraft : false}
 			/>
-
-			{#if $superadmin}
-				<Section label="Action to take">
-					<div class="flex flex-col gap-2">
-						<p class="text-xs text-tertiary mb-2">
-							Choose whether to execute the trigger immediately or send it to the mailbox for manual
-							handling.
-						</p>
-						<Toggle
-							disabled={!can_write}
-							checked={action_to_take === 'send_to_mailbox'}
-							on:change={(e) => (action_to_take = e.detail ? 'send_to_mailbox' : 'run_job')}
-							options={{
-								right: 'Send to mailbox instead of executing immediately'
-							}}
-							size="xs"
-						/>
-					</div>
-				</Section>
-			{/if}
 
 			{#if !is_static_website}
 				<Section label="Advanced" collapsable>

@@ -526,7 +526,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 }
                 ActionToTake::SendToMailbox => {
                     let mailbox = Mailbox::open(
-                        Some(&listening_trigger.path),
+                        Some(&self.generate_mailbox_id(&listening_trigger.path)),
                         MailboxType::Trigger,
                         &listening_trigger.workspace_id,
                     );
@@ -685,6 +685,7 @@ async fn listen_to_unlistened_events<T: Copy + Listener>(
                                 "Spawning new task to listen for {} event",
                                 T::TABLE_NAME
                             );
+
                             tokio::spawn({
                                 let db = db.clone();
                                 let killpill_rx = killpill_rx.resubscribe();

@@ -142,6 +142,89 @@ paths:
                 items:
                   $ref: "#/components/schemas/AuditLog"
 
+  /w/{workspace}/mailbox/list:
+    get:
+      summary: list mailbox messages (requires super admin privilege)
+      operationId: listMailboxMessages
+      tags:
+        - mailbox
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page" 
+        - $ref: "#/components/parameters/PerPage"
+        - name: mailbox_type
+          in: query
+          description: filter by mailbox type
+          schema:
+            $ref: "#/components/schemas/MailboxType"
+        - name: mailbox_id
+          in: query
+          description: filter by mailbox id
+          schema:
+            type: string
+        - name: message_id
+          in: query
+          description: filter by message id
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: list of mailbox messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MailboxMessage"
+
+  /w/{workspace}/mailbox/{message_id}:
+    delete:
+      summary: delete mailbox message (requires super admin privilege)
+      operationId: deleteMailboxMessage
+      tags:
+        - mailbox
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: message_id
+          in: path
+          required: true
+          description: message id to delete
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: confirmation message
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/mailbox/bulk_delete:
+    delete:
+      summary: delete multiple mailbox messages (requires super admin privilege)
+      operationId: bulkDeleteMailboxMessages
+      tags:
+        - mailbox
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: list of message ids to delete
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkDeleteRequest"
+      responses:
+        "200":
+          description: confirmation message
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
   /auth/login:
     post:
       security: []
@@ -19823,3 +19906,36 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+    MailboxType:
+      type: string
+      enum:
+        - trigger
+        - debouncing_stale_data
+    MailboxMessage:
+      type: object
+      properties:
+        message_id:
+          type: integer
+          format: int64
+        mailbox_id:
+          type: string
+          nullable: true
+        workspace_id:
+          type: string
+        type:
+          $ref: "#/components/schemas/MailboxType"
+        created_at:
+          type: string
+          format: date-time
+        payload:
+          type: object
+      required: [message_id, workspace_id, type, created_at, payload]
+    BulkDeleteRequest:
+      type: object
+      properties:
+        message_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+      required: [message_ids]

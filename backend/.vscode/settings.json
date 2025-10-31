@@ -13,5 +13,18 @@
     "restructring triggers, decoding trigger message on work"
   ],
   "files.exclude": { "**/*ee.rs": false },
-  "search.exclude": { "**/*ee.rs": false }
+  "search.exclude": { "**/*ee.rs": false },
+  "rust-analyzer.cargo.features": [
+    "enterprise",
+    "private",
+    "license",
+    "http_trigger",
+    "sqs_trigger",
+    "gcp_trigger",
+    "postgres_trigger",
+    "websocket",
+    "kafka",
+    "nats",
+    "mqtt_trigger"
+  ]
 }

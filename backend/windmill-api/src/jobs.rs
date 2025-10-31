@@ -4019,7 +4019,7 @@ pub async fn run_flow_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-pub async fn run_flow_by_path_inner(
+pub async fn push_flow_into_queue<'c>(
     authed: ApiAuthed,
     db: DB,
     user_db: UserDB,
@@ -4027,7 +4027,7 @@ pub async fn run_flow_by_path_inner(
     flow_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-) -> error::Result<(Uuid, Option<String>)> {
+) -> error::Result<(Uuid, Transaction<'c, Postgres>, Option<String>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -4126,6 +4126,20 @@ pub async fn run_flow_by_path_inner(
         .await?;
     }
 
+    Ok((uuid, tx, early_return))
+}
+
+pub async fn run_flow_by_path_inner(
+    authed: ApiAuthed,
+    db: DB,
+    user_db: UserDB,
+    w_id: String,
+    flow_path: StripPath,
+    run_query: RunJobQuery,
+    args: PushArgsOwned,
+) -> error::Result<(Uuid, Option<String>)> {
+    let (uuid, tx, early_return) =
+        push_flow_into_queue(authed, db, user_db, w_id, flow_path, run_query, args).await?;
     tx.commit().await?;
     Ok((uuid, early_return))
 }
@@ -4252,7 +4266,7 @@ pub async fn run_script_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-pub async fn run_script_by_path_inner(
+pub async fn push_script_into_queue<'c>(
     authed: ApiAuthed,
     db: DB,
     user_db: UserDB,
@@ -4260,7 +4274,7 @@ pub async fn run_script_by_path_inner(
     script_path: StripPath,
     run_query: RunJobQuery,
     args: PushArgsOwned,
-) -> error::Result<(Uuid, Option<bool>)> {
+) -> error::Result<(Uuid, Transaction<'c, Postgres>, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -4328,6 +4342,22 @@ pub async fn run_script_by_path_inner(
         None,
     )
     .await?;
+
+    Ok((uuid, tx, delete_after_use))
+}
+
+pub async fn run_script_by_path_inner(
+    authed: ApiAuthed,
+    db: DB,
+    user_db: UserDB,
+    w_id: String,
+    script_path: StripPath,
+    run_query: RunJobQuery,
+    args: PushArgsOwned,
+) -> error::Result<(Uuid, Option<bool>)> {
+    let (uuid, tx, delete_after_use) =
+        push_script_into_queue(authed, db, user_db, w_id, script_path, run_query, args).await?;
+
     tx.commit().await?;
 
     Ok((uuid, delete_after_use))

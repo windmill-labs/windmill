@@ -3,7 +3,7 @@ use axum::response::IntoResponse;
 use http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-use sqlx::types::Json;
+use sqlx::{types::Json, Postgres, Transaction};
 use std::collections::HashMap;
 use std::future::Future;
 use uuid::Uuid;
@@ -30,8 +30,9 @@ use crate::jobs::check_license_key_valid;
 use crate::{
     db::{ApiAuthed, DB},
     jobs::{
-        check_tag_available_for_workspace, delete_job_metadata_after_use, result_to_response,
-        run_flow_by_path_inner, run_script_by_path_inner, run_wait_result_internal, RunJobQuery,
+        check_tag_available_for_workspace, delete_job_metadata_after_use, push_flow_into_queue,
+        push_script_into_queue, result_to_response, run_flow_by_path_inner,
+        run_script_by_path_inner, run_wait_result_internal, RunJobQuery,
     },
     utils::check_scopes,
     HTTP_CLIENT,
@@ -544,6 +545,70 @@ pub async fn trigger_runnable_inner(
     Ok((uuid, delete_after_use, early_return))
 }
 
+pub async fn push_runnable_into_queue<'c>(
+    db: &DB,
+    user_db: Option<UserDB>,
+    authed: ApiAuthed,
+    workspace_id: &str,
+    runnable_path: &str,
+    is_flow: bool,
+    args: PushArgsOwned,
+    retry: Option<&sqlx::types::Json<Retry>>,
+    error_handler_path: Option<&str>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
+    trigger_path: String,
+    job_id: Option<Uuid>,
+) -> Result<(
+    Uuid,
+    Transaction<'c, Postgres>,
+    Option<bool>,
+    Option<String>,
+)> {
+    let error_handler_args = error_handler_args.map(|args| {
+        let args = args
+            .0
+            .iter()
+            .map(|(key, value)| (key.to_owned(), to_raw_value(&value)))
+            .collect::<HashMap<String, Box<RawValue>>>();
+        Json(args)
+    });
+
+    let user_db = user_db.unwrap_or_else(|| UserDB::new(db.clone()));
+    let (uuid, tx, delete_after_use, early_return) = if is_flow {
+        let run_query = RunJobQuery { job_id, ..Default::default() };
+        let path = StripPath(runnable_path.to_string());
+        let (uuid, tx, early_return) = push_flow_into_queue(
+            authed,
+            db.clone(),
+            user_db,
+            workspace_id.to_string(),
+            path,
+            run_query,
+            args,
+        )
+        .await?;
+        (uuid, tx, None, early_return)
+    } else {
+        let (uuid, tx, delete_after_use) = push_script_into_queue_inner(
+            db,
+            user_db,
+            authed,
+            workspace_id,
+            runnable_path,
+            args,
+            retry,
+            error_handler_path,
+            error_handler_args.as_ref(),
+            trigger_path,
+            job_id,
+        )
+        .await?;
+        (uuid, tx, delete_after_use, None)
+    };
+
+    Ok((uuid, tx, delete_after_use, early_return))
+}
+
 #[allow(dead_code)]
 pub async fn trigger_runnable(
     db: &DB,
@@ -750,7 +815,7 @@ async fn trigger_script_internal(
     }
 }
 
-async fn trigger_script_with_retry_and_error_handler(
+async fn push_script_into_queue_inner<'c>(
     db: &DB,
     user_db: UserDB,
     authed: ApiAuthed,
@@ -762,7 +827,51 @@ async fn trigger_script_with_retry_and_error_handler(
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
     trigger_path: String,
     job_id: Option<Uuid>,
-) -> Result<(Uuid, Option<bool>)> {
+) -> Result<(Uuid, Transaction<'c, Postgres>, Option<bool>)> {
+    if retry.is_none() && error_handler_path.is_none() {
+        let run_query = RunJobQuery { job_id, ..Default::default() };
+        let path = StripPath(script_path.to_string());
+        push_script_into_queue(
+            authed,
+            db.clone(),
+            user_db,
+            workspace_id.to_string(),
+            path,
+            run_query,
+            args,
+        )
+        .await
+    } else {
+        push_script_with_error_handler_into_queue(
+            db,
+            user_db,
+            authed,
+            workspace_id,
+            script_path,
+            args,
+            retry,
+            error_handler_path,
+            error_handler_args,
+            trigger_path,
+            job_id,
+        )
+        .await
+    }
+}
+
+async fn push_script_with_error_handler_into_queue<'c>(
+    db: &DB,
+    user_db: UserDB,
+    authed: ApiAuthed,
+    workspace_id: &str,
+    script_path: &str,
+    args: PushArgsOwned,
+    retry: Option<&sqlx::types::Json<Retry>>,
+    error_handler_path: Option<&str>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    trigger_path: String,
+    job_id: Option<Uuid>,
+) -> Result<(Uuid, Transaction<'c, Postgres>, Option<bool>)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
@@ -874,6 +983,37 @@ async fn trigger_script_with_retry_and_error_handler(
         false,
         None,
         None,
+    )
+    .await?;
+
+    Ok((uuid, tx, delete_after_use))
+}
+
+async fn trigger_script_with_retry_and_error_handler(
+    db: &DB,
+    user_db: UserDB,
+    authed: ApiAuthed,
+    workspace_id: &str,
+    script_path: &str,
+    args: PushArgsOwned,
+    retry: Option<&sqlx::types::Json<Retry>>,
+    error_handler_path: Option<&str>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, Box<RawValue>>>>,
+    trigger_path: String,
+    job_id: Option<Uuid>,
+) -> Result<(Uuid, Option<bool>)> {
+    let (uuid, tx, delete_after_use) = push_script_with_error_handler_into_queue(
+        db,
+        user_db,
+        authed,
+        workspace_id,
+        script_path,
+        args,
+        retry,
+        error_handler_path,
+        error_handler_args,
+        trigger_path,
+        job_id,
     )
     .await?;
     tx.commit().await?;

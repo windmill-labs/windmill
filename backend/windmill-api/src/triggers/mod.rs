@@ -2,6 +2,12 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{types::Json as SqlxJson, FromRow};
 use std::{collections::HashMap, fmt::Debug};
+use windmill_common::{
+    error::Result,
+    mailbox::{Mailbox, MailboxType},
+    DB,
+};
+use windmill_queue::PushArgsOwned;
 
 #[cfg(all(feature = "smtp", feature = "enterprise", feature = "private"))]
 pub mod email;
@@ -26,14 +32,16 @@ mod handler;
 mod listener;
 pub mod trigger_helpers;
 
-#[allow(unused)]
-pub(crate) use handler::TriggerCrud;
+pub use handler::TriggerCrud;
 pub use handler::{generate_trigger_routers, get_triggers_count_internal, TriggersCount};
 pub use listener::start_all_listeners;
 #[allow(unused)]
-pub(crate) use listener::Listener;
+pub use listener::Listener;
 
-use crate::triggers::trigger_helpers::ActionToTake;
+use crate::{
+    db::ApiAuthed,
+    triggers::trigger_helpers::{push_runnable_into_queue, ActionToTake},
+};
 
 pub const COMMON_TRIGGER_FIELDS: [&'static str; 9] = [
     "workspace_id",
@@ -159,4 +167,94 @@ impl Default for StandardTriggerQuery {
     fn default() -> Self {
         Self { page: Some(0), per_page: Some(100), path: None, path_start: None, is_flow: None }
     }
+}
+
+async fn process_mailbox_for_trigger(
+    db: DB,
+    workspace_id: String,
+    authed: ApiAuthed,
+    mailbox_id: String,
+    trigger_path: String,
+    script_path: String,
+    is_flow: bool,
+    error_handling: Option<TriggerErrorHandling>,
+) -> Result<()> {
+    #[derive(sqlx::FromRow)]
+    struct MailboxPayload {
+        message_id: i64,
+        payload: serde_json::Value,
+    }
+    let payloads = sqlx::query_as!(
+        MailboxPayload,
+        r#"
+            SELECT 
+                message_id,
+                payload
+            FROM 
+                mailbox 
+            WHERE 
+                mailbox_id = $1 AND 
+                workspace_id = $2
+        "#,
+        &mailbox_id,
+        &workspace_id
+    )
+    .fetch_all(&db)
+    .await?;
+
+    if payloads.is_empty() {
+        return Ok(());
+    }
+
+    tracing::info!(
+        "Processing {} mailbox messages for trigger {} in workspace {}",
+        payloads.len(),
+        trigger_path,
+        workspace_id
+    );
+
+    let (retry, error_handler_path, error_handler_args) = match error_handling.as_ref() {
+        Some(error_handling) => (
+            error_handling.retry.as_ref(),
+            error_handling.error_handler_path.as_deref(),
+            error_handling.error_handler_args.as_ref(),
+        ),
+        None => (None, None, None),
+    };
+
+    let mailbox = Mailbox::open(Some(&mailbox_id), MailboxType::Trigger, &workspace_id);
+
+    for MailboxPayload { message_id, payload } in payloads {
+        let args = serde_json::from_value::<PushArgsOwned>(payload);
+
+        if let Ok(args) = args {
+            let result = push_runnable_into_queue(
+                &db,
+                None,
+                authed.clone(),
+                &workspace_id,
+                &script_path,
+                is_flow,
+                args,
+                retry,
+                error_handler_path,
+                error_handler_args,
+                trigger_path.clone(),
+                None,
+            )
+            .await;
+
+            if let Ok((_, mut tx, ..)) = result {
+                let delete_result = mailbox.delete(message_id, &mut *tx).await;
+                if let Ok(_) = delete_result {
+                    let transaction_result = tx.commit().await;
+                    if let Ok(_) = transaction_result {
+                        tracing::info!("");
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }

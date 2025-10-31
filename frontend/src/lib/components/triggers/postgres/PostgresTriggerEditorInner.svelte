@@ -13,7 +13,7 @@
 		type Relations,
 		type Retry
 	} from '$lib/gen'
-	import { usedTriggerKinds, userStore, workspaceStore, superadmin } from '$lib/stores'
+	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -22,7 +22,6 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import PublicationPicker from './PublicationPicker.svelte'
 	import SlotPicker from './SlotPicker.svelte'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
@@ -37,6 +36,7 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerActionWithMailboxWarning from '../TriggerActionWithMailboxWarning.svelte'
 	import { fade } from 'svelte/transition'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
@@ -581,6 +581,14 @@
 					</div>
 				</Section>
 			{/if}
+			<Section label="Action to take">
+				<TriggerActionWithMailboxWarning
+					triggerTable="postgres_trigger"
+					triggerPath={path}
+					bind:actionToTake={action_to_take}
+					canWrite={can_write}
+				/>
+			</Section>
 			<Section label="Database">
 				{#snippet badge()}
 					{#if isEditor}
@@ -807,26 +815,6 @@
 					{/if}
 				</div>
 			</Section>
-
-			{#if $superadmin}
-				<Section label="Delivery Method">
-					<div class="flex flex-col gap-2">
-						<p class="text-xs text-tertiary mb-2">
-							Choose whether to execute the trigger immediately or send it to the mailbox for manual
-							handling.
-						</p>
-						<Toggle
-							disabled={!can_write}
-							checked={action_to_take === 'send_to_mailbox'}
-							on:change={(e) => (action_to_take = e.detail ? 'send_to_mailbox' : 'run_job')}
-							options={{
-								right: 'Send to mailbox instead of executing immediately'
-							}}
-							size="xs"
-						/>
-					</div>
-				</Section>
-			{/if}
 
 			<Section label="Advanced" collapsable>
 				<div class="flex flex-col gap-4">

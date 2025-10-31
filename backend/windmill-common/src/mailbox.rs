@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sql_builder::arg::SqlArg;
 use sqlx::Postgres;
 
 use crate::error;
@@ -19,11 +20,23 @@ pub struct MailboxMsg {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-#[derive(Debug, Deserialize, Serialize, sqlx::Type, Clone, Copy)]
+#[derive(Debug, Deserialize, Serialize, sqlx::Type, Clone, Copy, PartialEq, Eq)]
 #[sqlx(rename_all = "snake_case", type_name = "mailbox_type")]
+#[serde(rename_all = "snake_case")]
 pub enum MailboxType {
     Trigger,
     DebouncingStaleData,
+}
+
+impl SqlArg for MailboxType {
+    fn sql_arg(&self) -> String {
+        let mailbox_type = match self {
+            MailboxType::Trigger => "trigger",
+            MailboxType::DebouncingStaleData => "debouncing_stale_data",
+        };
+
+        mailbox_type.to_string()
+    }
 }
 
 impl Mailbox {

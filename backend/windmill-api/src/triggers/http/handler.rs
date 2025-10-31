@@ -1042,8 +1042,9 @@ async fn route_job(
 
     match trigger.action_to_take {
         ActionToTake::SendToMailbox => {
+            let http_trigger_handler = HttpTrigger;
             let mailbox = Mailbox::open(
-                Some(&trigger.path),
+                Some(&http_trigger_handler.generate_mailbox_id(&trigger.path)),
                 MailboxType::Trigger,
                 &trigger.workspace_id,
             );

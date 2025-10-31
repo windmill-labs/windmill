@@ -1,8 +1,11 @@
 use crate::{
     db::ApiAuthed,
-    triggers::{COMMON_TRIGGER_FIELDS, StandardTriggerQuery, TriggerData},
+    triggers::{
+        process_mailbox_for_trigger, StandardTriggerQuery, TriggerData, COMMON_TRIGGER_FIELDS,
+    },
 };
 use async_trait::async_trait;
+
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, PgConnection};
@@ -10,7 +13,7 @@ use std::fmt::Debug;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    utils::{paginate, Pagination, StripPath},
+    utils::{paginate, report_critical_error, Pagination, StripPath},
     worker::CLOUD_HOSTED,
     DB,
 };
@@ -27,8 +30,6 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_git_sync::handle_deployment_metadata;
 
 use crate::utils::check_scopes;
-
-
 
 #[async_trait]
 pub trait TriggerCrud: Send + Sync + 'static {
@@ -62,6 +63,9 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
     fn get_deployed_object(path: String) -> DeployedObject;
 
+    fn generate_mailbox_id(&self, path: &str) -> String {
+        format!("{}::{}", Self::TABLE_NAME, path)
+    }
     async fn validate_new(
         &self,
         db: &DB,
@@ -492,10 +496,43 @@ async fn update_trigger<T: TriggerCrud>(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    let db_ = db.clone();
+    let workspace_id_ = workspace_id.clone();
+    let authed_ = authed.clone();
+    let mailbox_id_ = handler.generate_mailbox_id(path);
+    let script_path_ = edit_trigger.base.script_path.clone();
+    let is_flow_ = edit_trigger.base.is_flow;
+    let error_handling_ = edit_trigger.error_handling.clone();
+
     let new_path = edit_trigger.base.path.to_string();
     handler
         .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
         .await?;
+    let path_ = path.to_string();
+
+    tokio::spawn(async move {
+        if let Err(err) = process_mailbox_for_trigger(
+            db_.clone(),
+            workspace_id_.clone(),
+            authed_.clone(),
+            mailbox_id_.clone(),
+            path_.clone(),
+            script_path_.clone(),
+            is_flow_.clone(),
+            Some(error_handling_.clone()),
+        )
+        .await
+        {
+            let error_msg = format!(
+                "Error while trying to process mailbox's message for {} trigger at path :{} : {:?}",
+                T::TRIGGER_TYPE,
+                &path_,
+                err
+            );
+            tracing::warn!(error_msg);
+            report_critical_error(error_msg, db_, Some(&workspace_id_), None).await;
+        }
+    });
 
     audit_log(
         &mut *tx,

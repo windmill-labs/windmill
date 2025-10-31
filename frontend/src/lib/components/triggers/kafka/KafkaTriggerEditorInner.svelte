@@ -6,12 +6,11 @@
 	import Required from '$lib/components/Required.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { KafkaTriggerService, type ActionToTake, type ErrorHandler, type Retry } from '$lib/gen'
-	import { usedTriggerKinds, userStore, workspaceStore, superadmin } from '$lib/stores'
+	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import KafkaTriggersConfigSection from './KafkaTriggersConfigSection.svelte'
 	import { untrack, type Snippet } from 'svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
@@ -20,6 +19,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import TriggerActionWithMailboxWarning from '../TriggerActionWithMailboxWarning.svelte'
 
 	interface Props {
 		useDrawer?: boolean
@@ -388,6 +388,15 @@
 				</Section>
 			{/if}
 
+			<Section label="Action to take">
+				<TriggerActionWithMailboxWarning
+					triggerTable="kafka_trigger"
+					triggerPath={path}
+					bind:actionToTake={action_to_take}
+					canWrite={can_write}
+				/>
+			</Section>
+
 			<KafkaTriggersConfigSection
 				bind:kafkaCfgValid
 				bind:kafkaResourcePath
@@ -396,26 +405,6 @@
 				{can_write}
 				showTestingBadge={isEditor}
 			/>
-
-			{#if $superadmin}
-				<Section label="Delivery Method">
-					<div class="flex flex-col gap-2">
-						<p class="text-xs text-tertiary mb-2">
-							Choose whether to execute the trigger immediately or send it to the mailbox for manual
-							handling.
-						</p>
-						<Toggle
-							disabled={!can_write}
-							checked={action_to_take === 'send_to_mailbox'}
-							on:change={(e) => (action_to_take = e.detail ? 'send_to_mailbox' : 'run_job')}
-							options={{
-								right: 'Send to mailbox instead of executing immediately'
-							}}
-							size="xs"
-						/>
-					</div>
-				</Section>
-			{/if}
 
 			<Section label="Advanced" collapsable>
 				<div class="flex flex-col gap-4">
