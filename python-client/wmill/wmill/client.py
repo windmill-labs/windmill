@@ -534,6 +534,35 @@ class Windmill:
                 json={"value": value},
             )
 
+    def list_resources(
+        self,
+        resource_type: str = None,
+        page: int = None,
+        per_page: int = None,
+    ) -> list[dict]:
+        """List resources from Windmill workspace.
+        
+        Args:
+            resource_type: Optional resource type to filter by (e.g., "postgresql", "mysql", "s3")
+            page: Optional page number for pagination
+            per_page: Optional number of results per page
+            
+        Returns:
+            List of resource dictionaries
+        """
+        params = {}
+        if resource_type is not None:
+            params["resource_type"] = resource_type
+        if page is not None:
+            params["page"] = page
+        if per_page is not None:
+            params["per_page"] = per_page
+            
+        return self.get(
+            f"/w/{self.workspace}/resources/list",
+            params=params if params else None,
+        ).json()
+    
     def set_state(self, value: Any):
         self.set_resource(value, path=self.state_path, resource_type="state")
 
@@ -1261,6 +1290,36 @@ def set_resource(path: str, value: Any, resource_type: str = "any") -> None:
     Set the resource at a given path as a string, creating it if it does not exist
     """
     return _client.set_resource(value=value, path=path, resource_type=resource_type)
+
+
+@init_global_client
+def list_resources(
+    resource_type: str = None,
+    page: int = None,
+    per_page: int = None,
+) -> list[dict]:
+    """List resources from Windmill workspace.
+    
+    Args:
+        resource_type: Optional resource type to filter by (e.g., "postgresql", "mysql", "s3")
+        page: Optional page number for pagination
+        per_page: Optional number of results per page
+        
+    Returns:
+        List of resource dictionaries
+        
+    Example:
+        >>> # Get all resources
+        >>> all_resources = wmill.list_resources()
+        
+        >>> # Get only PostgreSQL resources
+        >>> pg_resources = wmill.list_resources(resource_type="postgresql")
+    """
+    return _client.list_resources(
+        resource_type=resource_type,
+        page=page,
+        per_page=per_page,
+    )
 
 
 @init_global_client
