@@ -60,7 +60,6 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
-	// Modal state for workspace operations
 	let archiveModalOpen = $state(false)
 	let deleteModalOpen = $state(false)
 	let isProcessingArchive = $state(false)
@@ -1059,9 +1058,11 @@
 			workspaceStore.set(undefined)
 			usersWorkspaceStore.set(undefined)
 			goto('/user/workspaces')
+			archiveModalOpen = false
+		} catch (error) {
+			sendUserToast(`Failed to archive workspace: ${error}`, true)
 		} finally {
 			isProcessingArchive = false
-			archiveModalOpen = false
 		}
 	}}
 	onCanceled={() => (archiveModalOpen = false)}
@@ -1085,9 +1086,11 @@
 			workspaceStore.set(undefined)
 			usersWorkspaceStore.set(undefined)
 			goto('/user/workspaces')
+			deleteModalOpen = false
+		} catch (error) {
+			sendUserToast(`Failed to delete workspace: ${error}`, true)
 		} finally {
 			isProcessingDelete = false
-			deleteModalOpen = false
 		}
 	}}
 	onCanceled={() => (deleteModalOpen = false)}
