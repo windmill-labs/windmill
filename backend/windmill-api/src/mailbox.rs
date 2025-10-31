@@ -81,7 +81,7 @@ async fn list_mailbox_messages(
     .and_where("workspace_id = ?".bind(&w_id));
 
     if let Some(mailbox_type) = &query.mailbox_type {
-        sqlb.and_where("type = ?".bind(mailbox_type));
+        sqlb.and_where("type = '?'".bind(mailbox_type));
     }
 
     if let Some(mailbox_id) = &query.mailbox_id {
@@ -94,11 +94,11 @@ async fn list_mailbox_messages(
 
     sqlb.offset(offset).limit(per_page);
 
-    let sql = sqlb
+    let sql_query = sqlb
         .sql()
         .map_err(|e| Error::InternalErr(format!("SQL error: {}", e)))?;
 
-    let messages = sqlx::query_as(&sql).fetch_all(&db).await?;
+    let messages = sqlx::query_as(&sql_query).fetch_all(&db).await?;
 
     Ok(Json(messages))
 }

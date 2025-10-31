@@ -67,26 +67,6 @@
 		payloadModalOpen = true
 	}
 
-	function toggleMessageSelection(messageId: number) {
-		if (selectedMessages.has(messageId)) {
-			selectedMessages.delete(messageId)
-		} else {
-			selectedMessages.add(messageId)
-		}
-		selectedMessages = selectedMessages
-		allSelected = selectedMessages.size === messages.length && messages.length > 0
-	}
-
-	function toggleAllSelection() {
-		if (allSelected) {
-			selectedMessages.clear()
-		} else {
-			selectedMessages = new Set(messages.map((m) => m.message_id))
-		}
-		allSelected = !allSelected
-		selectedMessages = selectedMessages
-	}
-
 	function handleBulkDelete() {
 		if (selectedMessages.size > 0) {
 			bulkDelete(Array.from(selectedMessages))
@@ -118,15 +98,6 @@
 	>
 		<Head>
 			<tr bind:clientHeight={headerHeight}>
-				<Cell head first class="max-w-4">
-					<input
-						type="checkbox"
-						bind:checked={allSelected}
-						onchange={toggleAllSelection}
-						class="rounded border-gray-300"
-						disabled={messages.length === 0}
-					/>
-				</Cell>
 				<Cell head class="max-w-4">&nbsp;</Cell>
 				<Cell head class="min-w-20">ID</Cell>
 				<Cell head class="min-w-24">Type</Cell>
@@ -174,17 +145,6 @@
 			<tbody class="divide-y border-b w-full overflow-y-auto">
 				{#each messages as message (message.message_id)}
 					<Row>
-						<Cell class="py-0">
-							<div class="flex items-center justify-center" style="height: {availableHeight}px">
-								<input
-									type="checkbox"
-									checked={selectedMessages.has(message.message_id)}
-									onchange={() => toggleMessageSelection(message.message_id)}
-									class="rounded border-gray-300"
-								/>
-							</div>
-						</Cell>
-
 						<Cell class="py-0">
 							<div class="flex items-center justify-center" style="height: {availableHeight}px">
 								{#if message.type === 'trigger'}
