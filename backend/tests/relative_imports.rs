@@ -437,6 +437,7 @@ def main():
                 deployment_message: None,
                 visible_to_runner_only: None,
                 on_behalf_of_email: None,
+                ws_error_handler_muted: None
             })
             .send()
             .await
