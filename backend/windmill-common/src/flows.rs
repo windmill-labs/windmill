@@ -103,28 +103,13 @@ fn validate_retry(retry: &Retry, module_id: &str) -> WindmillResult<()> {
     Ok(())
 }
 
-fn validate_flow_value<'de, D>(flow_value: D) -> Result<serde_json::Value, D::Error>
+fn validate_flow_value<'de, D>(flow_value: D) -> Result<FlowValue, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let flow_value = serde_json::value::Value::deserialize(flow_value)?;
+    let flow_value = FlowValue::deserialize(flow_value)?;
 
-    #[cfg(not(feature = "enterprise"))]
-    if flow_value
-        .get("ws_error_handler_muted")
-        .map(|val| val.as_bool().unwrap_or(false))
-        .is_some_and(|val| val)
-    {
-        return Err(serde::de::Error::custom(
-            "Muting the error handler for certain flow is only available in enterprise version"
-                .to_string(),
-        ));
-    }
-
-    let flow_value_parsed = serde_json::from_value::<FlowValue>(flow_value.clone())
-        .map_err(|e| serde::de::Error::custom(e.to_string()))?;
-
-    FlowModule::traverse_leafs(&flow_value_parsed.modules, &mut |module| {
+    FlowModule::traverse_leafs(&flow_value.modules, &mut |module| {
         if let Some(ref retry) = module.retry {
             validate_retry(retry, &module.id)?;
         }
@@ -132,11 +117,11 @@ where
     })
     .map_err(|e| serde::de::Error::custom(e.to_string()))?;
 
-    if let Some(ref _failure_module) = flow_value_parsed.failure_module {
+    if let Some(ref _failure_module) = flow_value.failure_module {
         //add validation logic here for failure module
     }
 
-    if let Some(ref _preprocessor_module) = flow_value_parsed.preprocessor_module {
+    if let Some(ref _preprocessor_module) = flow_value.preprocessor_module {
         //add validation logic here for preprocessor module
     }
 
@@ -149,7 +134,7 @@ pub struct NewFlow {
     pub summary: String,
     pub description: Option<String>,
     #[serde(deserialize_with = "validate_flow_value")]
-    pub value: serde_json::Value,
+    pub value: FlowValue,
     pub schema: Option<Schema>,
     pub draft_only: Option<bool>,
     pub tag: Option<String>,
@@ -158,6 +143,7 @@ pub struct NewFlow {
     pub deployment_message: Option<String>,
     pub visible_to_runner_only: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    pub ws_error_handler_muted: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
@@ -573,7 +559,31 @@ impl FlowModule {
                     }
                 }
                 FlowModuleValue::AIAgent { tools, .. } => {
-                    Self::traverse_leafs(&tools, cb)?;
+                    for tool in tools {
+                        match &tool.value {
+                            ToolValue::FlowModule(module_value) => match module_value {
+                                FlowModuleValue::ForloopFlow { modules, .. }
+                                | FlowModuleValue::WhileloopFlow { modules, .. } => {
+                                    Self::traverse_leafs(&modules, cb)?;
+                                }
+                                FlowModuleValue::BranchOne { branches, default, .. } => {
+                                    for branch in branches {
+                                        Self::traverse_leafs(&branch.modules, cb)?;
+                                    }
+                                    Self::traverse_leafs(&default, cb)?;
+                                }
+                                FlowModuleValue::BranchAll { branches, .. } => {
+                                    for branch in branches {
+                                        Self::traverse_leafs(&branch.modules, cb)?;
+                                    }
+                                }
+                                _ => {}
+                            },
+                            ToolValue::Mcp(_) => {
+                                // MCP tools don't have a FlowModule to traverse
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }
