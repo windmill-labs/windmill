@@ -71,9 +71,6 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "extra_perms",
         ];
 
-        if Self::SUPPORTS_SERVER_STATE {
-            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
-        }
         fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
         fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
 
