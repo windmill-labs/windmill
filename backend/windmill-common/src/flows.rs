@@ -103,40 +103,6 @@ fn validate_retry(retry: &Retry, module_id: &str) -> WindmillResult<()> {
     Ok(())
 }
 
-fn validate_modules_recursive(modules: &[FlowModule]) -> WindmillResult<()> {
-    for module in modules {
-        if let Some(ref retry) = module.retry {
-            validate_retry(retry, &module.id)?;
-        }
-
-        match module
-            .get_value()
-            .map_err(|e| Error::BadRequest(format!("Module '{}': {}", module.id, e)))?
-        {
-            FlowModuleValue::ForloopFlow { modules, .. }
-            | FlowModuleValue::WhileloopFlow { modules, .. } => {
-                validate_modules_recursive(&modules)?;
-            }
-            FlowModuleValue::BranchOne { branches, default, .. } => {
-                for branch in branches {
-                    validate_modules_recursive(&branch.modules)?;
-                }
-                validate_modules_recursive(&default)?;
-            }
-            FlowModuleValue::BranchAll { branches, .. } => {
-                for branch in branches {
-                    validate_modules_recursive(&branch.modules)?;
-                }
-            }
-            FlowModuleValue::AIAgent { tools, .. } => {
-                validate_modules_recursive(&tools)?;
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
 fn validate_flow_value<'de, D>(flow_value: D) -> Result<serde_json::Value, D::Error>
 where
     D: Deserializer<'de>,
@@ -158,8 +124,13 @@ where
     let flow_value_parsed = serde_json::from_value::<FlowValue>(flow_value.clone())
         .map_err(|e| serde::de::Error::custom(e.to_string()))?;
 
-    validate_modules_recursive(&flow_value_parsed.modules)
-        .map_err(|e| serde::de::Error::custom(e.to_string()))?;
+    FlowModule::traverse_leafs(&flow_value_parsed.modules, &mut |module| {
+        if let Some(ref retry) = module.retry {
+            validate_retry(retry, &module.id)?;
+        }
+        return Ok(());
+    })
+    .map_err(|e| serde::de::Error::custom(e.to_string()))?;
 
     if let Some(ref _failure_module) = flow_value_parsed.failure_module {
         //add validation logic here for failure module
@@ -559,6 +530,40 @@ impl FlowModule {
         serde_json::from_str::<FlowModuleValueType>(self.value.get())
             .map_err(crate::error::to_anyhow)
             .map(|x| x.r#type)
+    }
+
+    pub fn traverse_leafs<C: FnMut(&FlowModule) -> crate::error::Result<()>>(
+        modules: &Vec<FlowModule>,
+        cb: &mut C,
+    ) -> crate::error::Result<()> {
+        for module in modules {
+            cb(module)?;
+            match module
+                .get_value()
+                .map_err(|e| Error::BadRequest(format!("Module '{}': {}", module.id, e)))?
+            {
+                FlowModuleValue::ForloopFlow { modules, .. }
+                | FlowModuleValue::WhileloopFlow { modules, .. } => {
+                    Self::traverse_leafs(&modules, cb)?;
+                }
+                FlowModuleValue::BranchOne { branches, default, .. } => {
+                    for branch in branches {
+                        Self::traverse_leafs(&branch.modules, cb)?;
+                    }
+                    Self::traverse_leafs(&default, cb)?;
+                }
+                FlowModuleValue::BranchAll { branches, .. } => {
+                    for branch in branches {
+                        Self::traverse_leafs(&branch.modules, cb)?;
+                    }
+                }
+                FlowModuleValue::AIAgent { tools, .. } => {
+                    Self::traverse_leafs(&tools, cb)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 }
 
