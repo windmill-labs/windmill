@@ -1727,7 +1727,7 @@ async fn evaluate_retry(
     status: &RetryStatus,
     result: Arc<Box<RawValue>>,
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
-    flow_env: Option<&HashMap<String, String>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     client: Option<&AuthedClient>,
 ) -> anyhow::Result<Option<(u32, Duration)>> {
     if status.fail_count > MAX_RETRY_ATTEMPTS {
@@ -1762,7 +1762,7 @@ async fn evaluate_retry(
 async fn compute_bool_from_expr(
     expr: &str,
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
-    flow_env: Option<&HashMap<String, String>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     result: Arc<Box<RawValue>>,
     all_iters: Option<Arc<Box<RawValue>>>,
     by_id: Option<&IdContext>,
@@ -1813,7 +1813,7 @@ pub async fn evaluate_input_transform<T>(
     transform: &InputTransform,
     last_result: Arc<Box<RawValue>>,
     flow_args: Option<Marc<HashMap<String, Box<RawValue>>>>,
-    flow_env: Option<&HashMap<String, String>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     authed_client: Option<&AuthedClient>,
     by_id: Option<&IdContext>,
 ) -> error::Result<T>
@@ -1863,7 +1863,7 @@ where
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
     flow_args: Marc<HashMap<String, Box<RawValue>>>,
-    flow_env: Option<&HashMap<String, String>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     last_result: Arc<Box<RawValue>>,
     input_transforms: &HashMap<String, InputTransform>,
     resumes: Arc<Box<RawValue>>,
@@ -3680,7 +3680,7 @@ pub fn get_path(flow_job: &MiniPulledJob, status: &FlowStatus, module: &FlowModu
 async fn compute_next_flow_transform(
     arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>>,
     arc_last_job_result: Arc<Box<RawValue>>,
-    flow_env: Option<&HashMap<String, String>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     flow_job: &MiniPulledJob,
     flow: &FlowValue,
     by_id: Option<IdContext>,
@@ -4260,7 +4260,7 @@ async fn next_forloop_status(
     resume: Arc<Box<RawValue>>,
     approvers: Arc<Box<RawValue>>,
     arc_flow_job_args: Marc<HashMap<String, Box<RawValue>>>,
-    flow_env: Option<&HashMap<String, String>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     client: &AuthedClient,
     parallel: &bool,
 ) -> Result<ForLoopStatus, Error> {

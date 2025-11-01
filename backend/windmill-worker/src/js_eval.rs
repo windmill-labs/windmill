@@ -47,7 +47,7 @@ use windmill_common::utils::configure_client;
 #[cfg(feature = "deno_core")]
 use windmill_common::worker::{write_file, TMP_DIR};
 
-use windmill_common::{flow_status::JobResult, worker::to_raw_value};
+use windmill_common::flow_status::JobResult;
 use windmill_queue::CanceledBy;
 
 use crate::common::{OccupancyMetrics, StreamNotifier};
@@ -165,16 +165,14 @@ impl NetPermissions for PermissionsContainer {
 #[cfg(feature = "deno_core")]
 pub struct OptAuthedClient(Option<AuthedClient>);
 
-const FLOW_INPUT_PREFIX_SQUARE: &'static str = "flow_input[\"";
-const FLOW_INPUT_PREFIX: [&'static str; 2] = ["flow_input.", FLOW_INPUT_PREFIX_SQUARE];
-const ENV_KEY_PREFIX: &'static str = "env.";
-const ENV_KEY_PREFIX_LEN: usize = ENV_KEY_PREFIX.len();
+const FLOW_INPUT_PREFIX: &'static str = "flow_input";
+const ENV_KEY_PREFIX: &'static str = "env";
 
 pub async fn eval_timeout(
     expr: String,
     transform_context: HashMap<String, Arc<Box<RawValue>>>,
     flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
-    flow_env: Option<&HashMap<String, String>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
     authed_client: Option<&AuthedClient>,
     by_id: Option<&IdContext>,
     #[allow(unused_variables)] ctx: Option<Vec<(String, String)>>,
@@ -186,42 +184,46 @@ pub async fn eval_timeout(
         expr,
         transform_context
     );
-    for (k, v) in transform_context.iter() {
-        if k == &expr {
-            return Ok(v.as_ref().clone());
-        }
+
+    if let Some(value) = transform_context.get(&expr) {
+        return Ok(value.as_ref().clone());
     }
 
-    if let Some(flow_prefix) = FLOW_INPUT_PREFIX
-        .iter()
-        .find(|prefix| expr.starts_with(*prefix))
-    {
-        let flow_arg_name = if *flow_prefix == FLOW_INPUT_PREFIX_SQUARE {
-            let suffix = &expr[FLOW_INPUT_PREFIX_SQUARE.len()..];
-            let flow_arg_name = suffix
-                .ends_with("\"]")
-                .then(|| &expr[FLOW_INPUT_PREFIX_SQUARE.len()..expr.len() - 2])
-                .filter(|s| s.len() > 0);
-            flow_arg_name
-        } else {
-            Some(&expr[flow_prefix.len()..])
+    let obj = if expr.starts_with(FLOW_INPUT_PREFIX) {
+        Some((
+            FLOW_INPUT_PREFIX,
+            flow_input.as_ref().map(|obj| obj.as_ref()),
+        ))
+    } else if expr.starts_with(ENV_KEY_PREFIX) {
+        Some((ENV_KEY_PREFIX, flow_env))
+    } else {
+        None
+    };
+
+    if let Some((prefix, obj)) = obj {
+        let start_key_name_pos = prefix.len();
+
+        let maybe_key_name = match expr.chars().nth(start_key_name_pos) {
+            Some('.') => Some(&expr[start_key_name_pos..]),
+            Some('[') => {
+                let suffix = &expr[start_key_name_pos..];
+                let end_backet_pattern = "\"]";
+
+                let flow_arg_name = suffix
+                    .ends_with(end_backet_pattern)
+                    .then(|| {
+                        let end_key_name_pos = expr.len() - end_backet_pattern.len();
+                        &expr[start_key_name_pos..end_key_name_pos]
+                    })
+                    .filter(|s| s.len() > 0);
+                flow_arg_name
+            }
+            _ => None,
         };
 
-        if let Some(key) = flow_arg_name {
-            if let Some(args_value) = flow_input
-                .as_ref()
-                .and_then(|flow_input| flow_input.get(key))
-            {
-                return Ok(args_value.clone());
-            }
-        }
-    }
-
-    if let Some(flow_env) = flow_env {
-        if expr.starts_with(ENV_KEY_PREFIX) {
-            let env_key = &expr[ENV_KEY_PREFIX_LEN..];
-            if let Some(env_value) = flow_env.get(env_key) {
-                return Ok(to_raw_value(&env_value));
+        if let Some(key_name) = maybe_key_name {
+            if let Some(key_value) = obj.and_then(|obj| obj.get(key_name)) {
+                return Ok(key_value.clone());
             }
         }
     }
