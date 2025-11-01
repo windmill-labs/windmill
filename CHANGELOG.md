@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.571.0](https://github.com/windmill-labs/windmill/compare/v1.570.0...v1.571.0) (2025-11-01)
+
+
+### Features
+
+* Add "list_resources" function to the wmill sdk ([8d5328a](https://github.com/windmill-labs/windmill/commit/8d5328ac530d7ec5da7584ee8094fa18e8955176))
+* **backend:** allow specifying oidc token expiration with env var ([#7022](https://github.com/windmill-labs/windmill/issues/7022)) ([5f79a60](https://github.com/windmill-labs/windmill/commit/5f79a60d5b86687b433c48b10e810fd49de5f4bf))
+
+
+### Bug Fixes
+
+* redeployment of relative import overwrites lock from raw reqs ([#7023](https://github.com/windmill-labs/windmill/issues/7023)) ([abfc1cb](https://github.com/windmill-labs/windmill/commit/abfc1cba1ce2978d28459ef7a1f09025dfcbd95a))
+
 ## [1.570.0](https://github.com/windmill-labs/windmill/compare/v1.569.0...v1.570.0) (2025-10-31)
 
 
