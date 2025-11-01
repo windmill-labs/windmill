@@ -4,40 +4,16 @@ import { deepEqual } from 'fast-equals'
 import type { AIModuleAction } from '../copilot/chat/flow/core'
 
 /**
- * Represents a single item in the merged timeline for visualization.
- * Each item has complete context about its history and operation type.
- */
-export type TimelineItem = {
-	/** The flow module itself */
-	module: FlowModule
-
-	/** Sequential position in the final timeline (0, 1, 2, ...) */
-	position: number
-
-	/** The operation that occurred to this module (undefined for unchanged modules) */
-	operation: AIModuleAction | undefined
-
-	/** Position in beforeFlow.modules (undefined if didn't exist) */
-	beforeIndex?: number
-
-	/** Position in afterFlow.modules (undefined if doesn't exist) */
-	afterIndex?: number
-
-	/** Helps track insertion logic */
-	insertionStrategy?: 'original_position' | 'anchor_based' | 'end_of_flow'
-}
-
-/**
- * The complete timeline result with metadata
+ * The complete diff result with action maps and merged flow
  */
 export type FlowTimeline = {
-	/** Ordered list of all modules in rendering order */
-	items: TimelineItem[]
-
-	/** The before actions */
+	/** Actions for modules in the before flow */
 	beforeActions: Record<string, AIModuleAction>
 
-	/** The merged flow for compatibility with existing code */
+	/** Actions for modules in the after flow (adjusted based on display mode) */
+	afterActions: Record<string, AIModuleAction>
+
+	/** The merged flow containing both after modules and removed modules properly nested */
 	mergedFlow: FlowValue
 }
 
@@ -119,22 +95,6 @@ function getAllModulesMap(flow: FlowValue): Map<string, FlowModule> {
 	}
 
 	return moduleMap
-}
-
-/**
- * Helper function to get the indices of top-level modules
- */
-function getTopLevelModuleIndices(flow: FlowValue): Map<string, number> {
-	const indexMap = new Map<string, number>()
-
-	// Only track top-level modules
-	;(flow.modules ?? []).forEach((module, index) => {
-		if (module?.id) {
-			indexMap.set(module.id, index)
-		}
-	})
-
-	return indexMap
 }
 
 /**
@@ -250,6 +210,15 @@ function cloneModule(module: FlowModule): FlowModule {
 }
 
 /**
+ * Prepends a prefix to a module's ID to avoid collisions
+ */
+function prependModuleId(module: FlowModule, prefix: string): FlowModule {
+	const newModule = cloneModule(module)
+	newModule.id = prefix + newModule.id
+	return newModule
+}
+
+/**
  * Collects all module IDs from a flow structure recursively
  */
 function getAllModuleIds(flow: FlowValue): Set<string> {
@@ -296,15 +265,6 @@ function getAllModuleIds(flow: FlowValue): Set<string> {
 }
 
 /**
- * Prepends a prefix to a module's ID
- */
-function prependModuleId(module: FlowModule, prefix: string): FlowModule {
-	const newModule = cloneModule(module)
-	newModule.id = prefix + newModule.id
-	return newModule
-}
-
-/**
  * Reconstructs the merged flow with removed modules properly nested
  */
 function reconstructMergedFlow(
@@ -330,7 +290,9 @@ function reconstructMergedFlow(
 
 		let clonedModule = cloneModule(beforeModule)
 
-		// Check for ID collision and prepend "__" if necessary
+		// Check for ID collision - this happens when a module type changed
+		// In this case, the new module is already in the merged flow as 'added'
+		// We need to prepend "__" to the removed module's ID so both can coexist
 		const existingIds = getAllModuleIds(merged)
 		if (existingIds.has(clonedModule.id)) {
 			clonedModule = prependModuleId(clonedModule, '__')
@@ -502,140 +464,76 @@ function findModuleById(flow: FlowValue, moduleId: string): FlowModule | null {
 }
 
 /**
- * Builds a sequential timeline of flow modules for diff visualization.
- * Uses afterFlow positions as baseline and inserts removed modules using anchor-based strategy.
- * This ensures that the final positions of modules are preserved correctly.
+ * Adjusts the after actions based on display mode and adds entries for prefixed IDs
+ */
+function adjustActionsForDisplay(
+	afterActions: Record<string, AIModuleAction>,
+	beforeActions: Record<string, AIModuleAction>,
+	markRemovedAsShadowed: boolean,
+	mergedFlow: FlowValue
+): Record<string, AIModuleAction> {
+	const adjusted: Record<string, AIModuleAction> = {}
+
+	// Copy all existing actions
+	for (const [id, action] of Object.entries(afterActions)) {
+		if (!markRemovedAsShadowed && action === 'shadowed') {
+			// In unified mode, change 'shadowed' to 'removed' for proper coloring
+			adjusted[id] = 'removed'
+		} else {
+			adjusted[id] = action
+		}
+	}
+
+	// Add entries for prefixed IDs (modules that had type changes or were removed)
+	// These are the old versions that got "__" prepended to their ID
+	const allMergedIds = getAllModuleIds(mergedFlow)
+	for (const id of allMergedIds) {
+		if (id.startsWith('__') && !adjusted[id]) {
+			// This is a prefixed ID for a module that was removed
+			const originalId = id.substring(2)
+			// Check beforeActions to see if this module was removed
+			if (beforeActions[originalId] === 'removed') {
+				adjusted[id] = markRemovedAsShadowed ? 'shadowed' : 'removed'
+			}
+		}
+	}
+
+	return adjusted
+}
+
+/**
+ * Builds the complete flow diff result with action maps and merged flow.
+ * The merged flow contains all modules from afterFlow plus removed modules from
+ * beforeFlow properly nested in their original locations.
+ *
+ * @param beforeFlow - The original flow value
+ * @param afterFlow - The modified flow value
+ * @param options - Display options
+ * @returns Complete diff result with beforeActions, afterActions, and mergedFlow
  */
 export function buildFlowTimeline(
 	beforeFlow: FlowValue,
 	afterFlow: FlowValue,
 	options: { markRemovedAsShadowed: boolean } = { markRemovedAsShadowed: false }
 ): FlowTimeline {
-	const beforeModules = getAllModulesMap(beforeFlow)
-	const afterModules = getAllModulesMap(afterFlow)
-	const beforeIndices = getTopLevelModuleIndices(beforeFlow)
-
+	// Compute the diff between the two flows
 	const { beforeActions, afterActions } = computeFlowModuleDiff(beforeFlow, afterFlow)
 
-	// Build timeline items starting with afterFlow order (preserves final positions)
-	const timelineItems: TimelineItem[] = []
-
-	// First, add all modules from afterFlow in their final order
-	const afterFlowModules = (afterFlow.modules ?? [])
-		.map((m, idx) => ({ module: m, afterIndex: idx }))
-		.sort((a, b) => a.afterIndex - b.afterIndex)
-
-	for (const { module: afterModule, afterIndex } of afterFlowModules) {
-		const moduleId = afterModule.id
-		const beforeIndex = beforeIndices.get(moduleId)
-
-		// Determine operation - undefined means unchanged module
-		const operation: AIModuleAction | undefined = afterActions[moduleId]
-
-		timelineItems.push({
-			module: afterModule,
-			position: afterIndex,
-			operation,
-			beforeIndex,
-			afterIndex,
-			insertionStrategy: 'original_position'
-		})
-	}
-
-	// Then, insert removed modules using anchor-based strategy
-	const removedModules = Array.from(beforeModules.keys())
-		.filter((id) => !afterModules.has(id))
-		.map((id) => ({
-			id,
-			module: beforeModules.get(id)!,
-			beforeIndex: beforeIndices.get(id)
-		}))
-		.sort((a, b) => (a.beforeIndex ?? 0) - (b.beforeIndex ?? 0))
-
-	for (const removed of removedModules) {
-		const insertPoint = findRemovedModulePosition(removed, timelineItems, beforeFlow.modules ?? [])
-
-		const operation = options.markRemovedAsShadowed ? 'shadowed' : 'removed'
-
-		timelineItems.splice(insertPoint.index, 0, {
-			module: removed.module,
-			position: insertPoint.index,
-			operation,
-			beforeIndex: removed.beforeIndex,
-			afterIndex: undefined,
-			insertionStrategy: insertPoint.strategy
-		})
-	}
-
-	// Finalize positions
-	const items = timelineItems.map((item, index) => ({ ...item, position: index }))
-
-	// Build merged flow with proper nesting of removed modules
+	// Reconstruct merged flow with removed modules properly nested
 	const mergedFlow = reconstructMergedFlow(afterFlow, beforeFlow, beforeActions)
 
-	return { items, beforeActions, mergedFlow }
-}
+	// Adjust after actions based on display mode and add entries for prefixed IDs
+	const adjustedAfterActions = adjustActionsForDisplay(
+		afterActions,
+		beforeActions,
+		options.markRemovedAsShadowed,
+		mergedFlow
+	)
 
-/**
- * Finds insertion point for a removed module by looking at its neighbors in beforeFlow.
- * Uses anchor-based strategy to place removed modules near their original context.
- */
-function findRemovedModulePosition(
-	removedModule: { id: string; beforeIndex?: number; module: FlowModule },
-	timelineItems: TimelineItem[],
-	beforeFlowModules: FlowModule[]
-): { index: number; strategy: 'original_position' | 'anchor_based' | 'end_of_flow' } {
-	if (removedModule.beforeIndex === undefined) {
-		return { index: timelineItems.length, strategy: 'end_of_flow' }
-	}
-
-	// Find nearest anchor module (from beforeFlow that still exists) before and after this position
-	let prevAnchor: string | undefined
-	for (let i = removedModule.beforeIndex - 1; i >= 0; i--) {
-		const id = beforeFlowModules[i]?.id
-		if (
-			timelineItems.find(
-				(item) => item.module.id === id && item.insertionStrategy === 'original_position'
-			)
-		) {
-			prevAnchor = id
-			break
-		}
-	}
-
-	let nextAnchor: string | undefined
-	for (let i = removedModule.beforeIndex + 1; i < beforeFlowModules.length; i++) {
-		const id = beforeFlowModules[i]?.id
-		if (
-			timelineItems.find(
-				(item) => item.module.id === id && item.insertionStrategy === 'original_position'
-			)
-		) {
-			nextAnchor = id
-			break
-		}
-	}
-
-	// Insert between anchors, preferring to place after the previous anchor
-	if (prevAnchor) {
-		const prevPos = timelineItems.findIndex((item) => item.module.id === prevAnchor)
-		return { index: prevPos + 1, strategy: 'anchor_based' }
-	} else if (nextAnchor) {
-		const nextPos = timelineItems.findIndex((item) => item.module.id === nextAnchor)
-		return { index: nextPos, strategy: 'anchor_based' }
-	} else {
-		// If no anchors found, try to maintain relative ordering with other removed modules
-		// by finding the best position based on beforeIndex
-		let insertIndex = 0
-		for (let i = 0; i < timelineItems.length; i++) {
-			const item = timelineItems[i]
-			if (item.beforeIndex !== undefined && item.beforeIndex < removedModule.beforeIndex) {
-				insertIndex = i + 1
-			} else {
-				break
-			}
-		}
-		return { index: insertIndex, strategy: 'anchor_based' }
+	return {
+		beforeActions,
+		afterActions: adjustedAfterActions,
+		mergedFlow
 	}
 }
 

@@ -73,16 +73,8 @@
 	// Extract merged flow from timeline
 	let mergedFlow = $derived(timeline?.mergedFlow)
 
-	// Convert timeline items to AIModuleAction map for the graph
-	let unifiedActions = $derived.by((): Record<string, AIModuleAction> => {
-		const actions: Record<string, AIModuleAction> = {}
-
-		for (const item of timeline?.items ?? []) {
-			actions[item.module.id] = item.operation
-		}
-
-		return actions
-	})
+	// Get the unified actions directly from timeline
+	let unifiedActions = $derived(timeline?.afterActions ?? {})
 
 	// Helper to find module by ID in a flow
 	function getModuleById(flow: FlowValue, moduleId: string): FlowModule | undefined {
