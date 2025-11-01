@@ -351,6 +351,7 @@
 							unifiedSize="sm"
 							variant="subtle"
 							title="Edit global default scripts"
+							btnClasses="-my-1"
 						/>
 					{:else}
 						<Button
