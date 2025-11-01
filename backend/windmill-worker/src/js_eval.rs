@@ -167,6 +167,9 @@ pub struct OptAuthedClient(Option<AuthedClient>);
 
 const FLOW_INPUT_PREFIX: &'static str = "flow_input";
 const ENV_KEY_PREFIX: &'static str = "env";
+const DOT_PATTERN: &'static str = ".";
+const START_BRACKET_PATTERN: &'static str = "[\"";
+const END_BRACKET_PATTERN: &'static str = "\"]";
 
 pub async fn eval_timeout(
     expr: String,
@@ -201,24 +204,25 @@ pub async fn eval_timeout(
     };
 
     if let Some((prefix, obj)) = obj {
-        let start_key_name_pos = prefix.len();
+        let access_pattern_pos = prefix.len();
+        let suffix = &expr[access_pattern_pos..];
+        let maybe_key_name = if suffix.starts_with(DOT_PATTERN) {
+            let key_name_pos = access_pattern_pos + DOT_PATTERN.len();
+            Some(&expr[key_name_pos..])
+        } else if suffix.starts_with(START_BRACKET_PATTERN) {
+            let key_name_pos = access_pattern_pos + START_BRACKET_PATTERN.len();
+            let suffix = &suffix[key_name_pos..];
 
-        let maybe_key_name = match expr.chars().nth(start_key_name_pos) {
-            Some('.') => Some(&expr[start_key_name_pos..]),
-            Some('[') => {
-                let suffix = &expr[start_key_name_pos..];
-                let end_backet_pattern = "\"]";
-
-                let flow_arg_name = suffix
-                    .ends_with(end_backet_pattern)
-                    .then(|| {
-                        let end_key_name_pos = expr.len() - end_backet_pattern.len();
-                        &expr[start_key_name_pos..end_key_name_pos]
-                    })
-                    .filter(|s| s.len() > 0);
-                flow_arg_name
-            }
-            _ => None,
+            let flow_arg_name = suffix
+                .ends_with(END_BRACKET_PATTERN)
+                .then(|| {
+                    let end_key_name_pos = expr.len() - END_BRACKET_PATTERN.len();
+                    &expr[key_name_pos..end_key_name_pos]
+                })
+                .filter(|s| s.len() > 0);
+            flow_arg_name
+        } else {
+            None
         };
 
         if let Some(key_name) = maybe_key_name {
