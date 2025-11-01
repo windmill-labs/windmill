@@ -103,11 +103,14 @@ fn validate_retry(retry: &Retry, module_id: &str) -> WindmillResult<()> {
     Ok(())
 }
 
-fn validate_flow_value<'de, D>(flow_value: D) -> Result<FlowValue, D::Error>
+fn validate_flow_value<'de, D>(deserializer: D) -> Result<Box<RawValue>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let flow_value = FlowValue::deserialize(flow_value)?;
+    let raw_value = Box::<RawValue>::deserialize(deserializer)?;
+
+    let flow_value: FlowValue = serde_json::from_str(raw_value.get())
+        .map_err(|e| serde::de::Error::custom(format!("Invalid flow value: {}", e)))?;
 
     FlowModule::traverse_leafs(&flow_value.modules, &mut |module| {
         if let Some(ref retry) = module.retry {
@@ -125,7 +128,7 @@ where
         //add validation logic here for preprocessor module
     }
 
-    Ok(flow_value)
+    Ok(raw_value)
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -134,7 +137,7 @@ pub struct NewFlow {
     pub summary: String,
     pub description: Option<String>,
     #[serde(deserialize_with = "validate_flow_value")]
-    pub value: FlowValue,
+    pub value: Box<RawValue>,
     pub schema: Option<Schema>,
     pub draft_only: Option<bool>,
     pub tag: Option<String>,
@@ -144,6 +147,14 @@ pub struct NewFlow {
     pub visible_to_runner_only: Option<bool>,
     pub on_behalf_of_email: Option<String>,
     pub ws_error_handler_muted: Option<bool>,
+}
+
+impl NewFlow {
+    pub fn parse_flow_value(&self) -> crate::error::Result<FlowValue> {
+        serde_json::from_str(self.value.get()).map_err(|e| {
+            crate::error::Error::InternalErr(format!("Failed to parse flow value: {}", e))
+        })
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]

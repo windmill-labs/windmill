@@ -406,7 +406,7 @@ def main():
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base", "dependency_map"))]
     async fn relative_imports_test_rename_primary_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
-        use windmill_common::{cache::flow::fetch_version, flows::NewFlow};
+        use windmill_common::{cache::flow::fetch_version, flows::NewFlow, worker::to_raw_value};
 
         let (client, port, _s) = init(db.clone()).await;
         let flow = fetch_version(&db, 1443253234253454).await.unwrap();
@@ -421,14 +421,14 @@ def main():
                 path: "f/rel/root_flow_renamed".into(),
                 summary: "".into(),
                 description: None,
-                value: serde_json::from_str(
+                value: to_raw_value(&serde_json::from_str::<serde_json::Value>(
                     &serde_json::to_string(flow.value())
                         .unwrap()
                         .replace("nstep1", "Foxes")
                         .replace("nstep2_2", "like")
                         .replace("nstep_4_1", "Emeralds"),
                 )
-                .unwrap(),
+                .unwrap()),
                 schema: None,
                 draft_only: None,
                 tag: None,
