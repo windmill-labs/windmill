@@ -280,6 +280,9 @@ function reconstructMergedFlow(
 		.filter(([_, action]) => action === 'removed' || action === 'shadowed')
 		.map(([id]) => id)
 
+	// Create a Set for faster lookup
+	const removedModulesSet = new Set(removedModules)
+
 	// For each removed module, find its parent and insert it
 	for (const removedId of removedModules) {
 		const beforeModule = getAllModulesMap(beforeFlow).get(removedId)
@@ -287,6 +290,19 @@ function reconstructMergedFlow(
 
 		const parentLocation = findModuleParent(beforeFlow, removedId)
 		if (!parentLocation) continue
+
+		// Skip if parent is also removed - the module will be inserted as part of its parent
+		// This prevents duplicates when removing container modules with nested children
+		if (
+			parentLocation.type !== 'root' &&
+			parentLocation.type !== 'failure' &&
+			parentLocation.type !== 'preprocessor'
+		) {
+			if (removedModulesSet.has(parentLocation.parentId)) {
+				// Parent is also removed, skip this module
+				continue
+			}
+		}
 
 		let clonedModule = cloneModule(beforeModule)
 
