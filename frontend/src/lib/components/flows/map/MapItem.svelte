@@ -16,11 +16,14 @@
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowNodeState } from '$lib/components/graph'
+	import type { AIModuleAction } from '$lib/components/copilot/chat/flow/core'
 
 	interface Props {
 		moduleId: string
 		mod: FlowModule
 		insertable: boolean
+		moduleAction: AIModuleAction | undefined
+		onShowModuleDiff?: (moduleId: string) => void
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
 		moving?: string | undefined
@@ -53,6 +56,8 @@
 		moduleId,
 		mod = $bindable(),
 		insertable,
+		moduleAction = undefined,
+		onShowModuleDiff = undefined,
 		annotation = undefined,
 		nodeState,
 		moving = undefined,
@@ -148,6 +153,8 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
+					{onShowModuleDiff}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
 					}  ${mod.value.parallel ? '(parallel)' : ''} ${
@@ -181,6 +188,8 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
+					{onShowModuleDiff}
 					on:changeId
 					on:delete
 					on:move
@@ -199,6 +208,8 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
+					{onShowModuleDiff}
 					on:changeId
 					on:delete
 					on:move
@@ -217,6 +228,8 @@
 				<FlowModuleSchemaItem
 					{retries}
 					{editMode}
+					{moduleAction}
+					{onShowModuleDiff}
 					on:changeId
 					on:pointerdown={() => onSelect(mod.id)}
 					on:delete
