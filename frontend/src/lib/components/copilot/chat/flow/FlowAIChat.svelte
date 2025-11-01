@@ -5,19 +5,22 @@
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
 	import { dfs } from '$lib/components/flows/previousResults'
 	import { dfs as dfsApply } from '$lib/components/flows/dfs'
-	import { getSubModules } from '$lib/components/flows/flowExplorer'
-	import type { FlowModule, OpenFlow } from '$lib/gen'
-	import { getIndexInNestedModules, getNestedModules } from './utils'
+	import type { OpenFlow } from '$lib/gen'
+	import { getIndexInNestedModules } from './utils'
 	import type { AIModuleAction, FlowAIChatHelpers } from './core'
-	import {
-		insertNewFailureModule,
-		insertNewPreprocessorModule
-	} from '$lib/components/flows/flowStateUtils.svelte'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { aiChatManager } from '../AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import type { AgentTool } from '$lib/components/flows/agentToolUtils'
+	import YAML from 'yaml'
+
+	/**
+	 * Check if debug diff mode is enabled via localStorage
+	 */
+	function isDebugDiffModeEnabled(): boolean {
+		if (typeof window === 'undefined') return false
+		return localStorage.getItem('windmill_debug_diff_mode') === 'true'
+	}
 
 	let {
 		flowModuleSchemaMap
@@ -154,9 +157,6 @@
 				})
 			}
 		},
-		getModuleAction: (id: string) => {
-			return affectedModules[id]?.action
-		},
 		revertModuleAction: (id: string) => {
 			{
 				const action = affectedModules[id]?.action
@@ -242,187 +242,6 @@
 			}
 			setModuleStatus(id, 'modified')
 		},
-		insertStep: async (location, step) => {
-			const { index, modules } =
-				location.type === 'start'
-					? {
-							index: -1,
-							modules: flowStore.val.value.modules
-						}
-					: location.type === 'start_inside_forloop'
-						? {
-								index: -1,
-								modules: getNestedModules(flowStore.val, location.inside)
-							}
-						: location.type === 'start_inside_branch'
-							? {
-									index: -1,
-									modules: getNestedModules(flowStore.val, location.inside, location.branchIndex)
-								}
-							: location.type === 'after'
-								? getIndexInNestedModules(flowStore.val, location.afterId)
-								: {
-										index: -1,
-										modules: flowStore.val.value.modules
-									}
-
-			const indexToInsertAt = index + 1
-
-			let newModules: FlowModule[] | AgentTool[] | undefined = undefined
-			switch (step.type) {
-				case 'rawscript': {
-					const inlineScript = {
-						language: step.language,
-						kind: 'script' as const,
-						subkind: 'flow' as const,
-						summary: step.summary
-					}
-					if (location.type === 'preprocessor') {
-						await insertNewPreprocessorModule(flowStore, flowStateStore, inlineScript)
-					} else if (location.type === 'failure') {
-						await insertNewFailureModule(flowStore, flowStateStore, inlineScript)
-					} else {
-						newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
-							modules,
-							indexToInsertAt,
-							'script',
-							undefined,
-							undefined,
-							inlineScript
-						)
-					}
-					break
-				}
-				case 'script': {
-					const wsScript = {
-						path: step.path,
-						summary: '',
-						hash: undefined
-					}
-					if (location.type === 'preprocessor') {
-						await insertNewPreprocessorModule(flowStore, flowStateStore, undefined, wsScript)
-					} else if (location.type === 'failure') {
-						await insertNewFailureModule(flowStore, flowStateStore, undefined, wsScript)
-					} else {
-						newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
-							modules,
-							indexToInsertAt,
-							'script',
-							wsScript
-						)
-					}
-					break
-				}
-				case 'forloop':
-				case 'branchall':
-				case 'branchone': {
-					if (location.type === 'preprocessor' || location.type === 'failure') {
-						throw new Error('Cannot insert a non-script module for preprocessing or error handling')
-					}
-					newModules = await flowModuleSchemaMap?.insertNewModuleAtIndex(
-						modules,
-						indexToInsertAt,
-						step.type
-					)
-					break
-				}
-				default: {
-					throw new Error('Unknown step type')
-				}
-			}
-
-			if (location.type === 'preprocessor' || location.type === 'failure') {
-				refreshStateStore(flowStore)
-
-				setModuleStatus(location.type, 'added')
-
-				return location.type
-			} else {
-				const newModule = newModules?.[indexToInsertAt]
-
-				if (!newModule) {
-					throw new Error('Failed to insert module')
-				}
-
-				if (['branchone', 'branchall'].includes(step.type)) {
-					await flowModuleSchemaMap?.addBranch(newModule.id)
-				}
-
-				refreshStateStore(flowStore)
-
-				setModuleStatus(newModule.id, 'added')
-
-				return newModule.id
-			}
-		},
-		removeStep: (id) => {
-			setModuleStatus(id, 'removed')
-		},
-		getStepInputs: async (id) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-			const inputs =
-				module.value.type === 'script' || module.value.type === 'rawscript'
-					? module.value.input_transforms
-					: {}
-
-			return inputs
-		},
-		setStepInputs: async (id, inputs) => {
-			if (id === 'preprocessor') {
-				throw new Error('Cannot set inputs for preprocessor')
-			}
-
-			const regex = /\[\[(.+?)\]\]\s*\n([\s\S]*?)(?=\n\[\[|$)/g
-
-			const parsedInputs = Array.from(inputs.matchAll(regex)).map((match) => ({
-				input: match[1],
-				value: match[2].trim()
-			}))
-
-			if (id === $selectedId) {
-				exprsToSet?.set({})
-				const argsToUpdate = {}
-				for (const { input, value } of parsedInputs) {
-					argsToUpdate[input] = {
-						type: 'javascript',
-						expr: value
-					}
-				}
-				exprsToSet?.set(argsToUpdate)
-			} else {
-				const module = getModule(id)
-				if (!module) {
-					throw new Error('Module not found')
-				}
-
-				if (module.value.type !== 'script' && module.value.type !== 'rawscript') {
-					throw new Error('Module is not a script or rawscript')
-				}
-
-				for (const { input, value } of parsedInputs) {
-					module.value.input_transforms[input] = {
-						type: 'javascript',
-						expr: value
-					}
-				}
-				refreshStateStore(flowStore)
-			}
-
-			setModuleStatus(id, 'modified')
-		},
-		getFlowInputsSchema: async () => {
-			return flowStore.val.schema ?? {}
-		},
-		setFlowInputsSchema: async (newInputs) => {
-			flowStore.val.schema = newInputs
-			setModuleStatus('Input', 'modified')
-		},
-		selectStep: (id) => {
-			$selectedId = id
-		},
 		getStepCode: (id) => {
 			const module = getModule(id)
 			if (!module) {
@@ -434,147 +253,73 @@
 				throw new Error('Module is not a rawscript')
 			}
 		},
-		getModules: (id?: string) => {
-			if (id) {
-				const module = getModule(id)
+		setFlowYaml: async (yaml: string) => {
+			try {
+				// Parse YAML to JavaScript object
+				const parsed = YAML.parse(yaml)
 
-				if (!module) {
-					throw new Error('Module not found')
+				// Validate that it has the expected structure
+				if (!parsed.modules || !Array.isArray(parsed.modules)) {
+					throw new Error('YAML must contain a "modules" array')
 				}
 
-				return getSubModules(module).flat()
-			}
-			return flowStore.val.value.modules
-		},
-		setBranchPredicate: async (id, branchIndex, expression) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-			if (module.value.type !== 'branchone') {
-				throw new Error('Module is not a branchall or branchone')
-			}
-			const branch = module.value.branches[branchIndex]
-			if (!branch) {
-				throw new Error('Branch not found')
-			}
-			branch.expr = expression
-			refreshStateStore(flowStore)
-
-			setModuleStatus(id, 'modified')
-		},
-		addBranch: async (id) => {
-			flowModuleSchemaMap?.addBranch(id)
-			refreshStateStore(flowStore)
-
-			setModuleStatus(id, 'modified')
-		},
-		removeBranch: async (id, branchIndex) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-			if (module.value.type !== 'branchall' && module.value.type !== 'branchone') {
-				throw new Error('Module is not a branchall or branchone')
-			}
-
-			// for branch one, we set index + 1 because the removeBranch function assumes the index is shifted by 1 because of the default branch
-			flowModuleSchemaMap?.removeBranch(
-				module.id,
-				module.value.type === 'branchone' ? branchIndex + 1 : branchIndex
-			)
-			refreshStateStore(flowStore)
-
-			setModuleStatus(id, 'modified')
-		},
-		setForLoopIteratorExpression: async (id, expression) => {
-			if ($currentEditor && $currentEditor.type === 'iterator' && $currentEditor.stepId === id) {
-				$currentEditor.editor.setCode(expression)
-			} else {
-				const module = getModule(id)
-				if (!module) {
-					throw new Error('Module not found')
+				// Create snapshot for diff/revert functionality if it doesn't exist
+				if (!lastSnapshot) {
+					lastSnapshot = $state.snapshot(flowStore).val
 				}
-				if (module.value.type !== 'forloopflow') {
-					throw new Error('Module is not a forloopflow')
+
+				// Store IDs of modules that existed before the change
+				const previousModuleIds = new Set(dfsApply(flowStore.val.value.modules, (m) => m.id))
+
+				// Update the flow structure
+				flowStore.val.value.modules = parsed.modules
+
+				if (parsed.preprocessor_module !== undefined) {
+					flowStore.val.value.preprocessor_module = parsed.preprocessor_module || undefined
 				}
-				module.value.iterator = { type: 'javascript', expr: expression }
+
+				if (parsed.failure_module !== undefined) {
+					flowStore.val.value.failure_module = parsed.failure_module || undefined
+				}
+
+				// Update schema if provided
+				if (parsed.schema !== undefined) {
+					flowStore.val.schema = parsed.schema
+				}
+
+				// Mark all modules as modified
+				const newModuleIds = dfsApply(flowStore.val.value.modules, (m) => m.id)
+				for (const id of newModuleIds) {
+					// If module is new, mark as added; otherwise mark as modified
+					const action = previousModuleIds.has(id) ? 'modified' : 'added'
+					setModuleStatus(id, action)
+				}
+
+				// Mark modules that were removed
+				for (const id of previousModuleIds) {
+					if (!newModuleIds.includes(id)) {
+						setModuleStatus(id, 'removed')
+					}
+				}
+
+				// Mark special modules if changed
+				if (parsed.preprocessor_module !== undefined) {
+					setModuleStatus('preprocessor', 'modified')
+				}
+				if (parsed.failure_module !== undefined) {
+					setModuleStatus('failure', 'modified')
+				}
+				if (parsed.schema !== undefined) {
+					setModuleStatus('Input', 'modified')
+				}
+
+				// Refresh the state store to update UI
 				refreshStateStore(flowStore)
+			} catch (error) {
+				throw new Error(
+					`Failed to parse or apply YAML: ${error instanceof Error ? error.message : String(error)}`
+				)
 			}
-
-			setModuleStatus(id, 'modified')
-		},
-		setForLoopOptions: async (id, opts) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-			if (module.value.type !== 'forloopflow') {
-				throw new Error('Module is not a forloopflow')
-			}
-
-			// Apply skip_failures if provided
-			if (typeof opts.skip_failures === 'boolean') {
-				module.value.skip_failures = opts.skip_failures
-			}
-
-			// Apply parallel if provided
-			if (typeof opts.parallel === 'boolean') {
-				module.value.parallel = opts.parallel
-			}
-
-			// Handle parallelism
-			if (opts.parallel === false) {
-				// If parallel is disabled, clear parallelism
-				module.value.parallelism = undefined
-			} else if (opts.parallelism !== undefined) {
-				if (opts.parallelism === null) {
-					// Explicitly clear parallelism
-					module.value.parallelism = undefined
-				} else if (module.value.parallel || opts.parallel === true) {
-					// Only set parallelism if parallel is enabled
-					const n = Math.max(1, Math.floor(Math.abs(opts.parallelism)))
-					module.value.parallelism = {
-						type: 'static',
-						value: n
-					}
-				}
-			}
-
-			refreshStateStore(flowStore)
-			setModuleStatus(id, 'modified')
-		},
-		setModuleControlOptions: async (id, opts) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-
-			// Handle stop_after_if
-			if (typeof opts.stop_after_if === 'boolean') {
-				if (opts.stop_after_if === false) {
-					module.stop_after_if = undefined
-				} else {
-					module.stop_after_if = {
-						expr: opts.stop_after_if_expr ?? '',
-						skip_if_stopped: opts.stop_after_if
-					}
-				}
-			}
-
-			// Handle skip_if
-			if (typeof opts.skip_if === 'boolean') {
-				if (opts.skip_if === false) {
-					module.skip_if = undefined
-				} else {
-					module.skip_if = {
-						expr: opts.skip_if_expr ?? ''
-					}
-				}
-			}
-
-			refreshStateStore(flowStore)
-			setModuleStatus(id, 'modified')
 		}
 	}
 

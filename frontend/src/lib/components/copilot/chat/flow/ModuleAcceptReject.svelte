@@ -1,5 +1,7 @@
 <script module lang="ts">
-	export const getAiModuleAction = (id: string | undefined) => {
+	import type { AIModuleAction } from './core'
+
+	export const getAiModuleAction = (id: string | undefined): AIModuleAction | undefined => {
 		if (!id) return undefined
 		return aiChatManager.flowAiChatHelpers?.getModuleAction(id)
 	}
@@ -9,7 +11,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import { Check, DiffIcon, X } from 'lucide-svelte'
 	import { aiChatManager } from '../AIChatManager.svelte'
-	import type { AIModuleAction } from './core'
 
 	let {
 		id,
