@@ -6,7 +6,6 @@
 	import { buildFlowTimeline, hasInputSchemaChanged } from './flows/flowDiff'
 	import { dfs } from './flows/dfs'
 	import DiffDrawer from './DiffDrawer.svelte'
-	import type { AIModuleAction } from './copilot/chat/flow/core'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
