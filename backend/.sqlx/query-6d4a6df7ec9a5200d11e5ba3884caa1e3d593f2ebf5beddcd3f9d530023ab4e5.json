@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path, versions[array_upper(versions, 1)] as version FROM flow WHERE workspace_id = $1",
+  "query": "SELECT path, versions[array_upper(versions, 1)] as version FROM flow WHERE workspace_id = $1 AND archived = false",
   "describe": {
     "columns": [
       {
@@ -24,5 +24,5 @@
       null
     ]
   },
-  "hash": "094587579285fc5656f6104716dca1805e3a1530fc64bf95eaee5b645e885251"
+  "hash": "6d4a6df7ec9a5200d11e5ba3884caa1e3d593f2ebf5beddcd3f9d530023ab4e5"
 }
