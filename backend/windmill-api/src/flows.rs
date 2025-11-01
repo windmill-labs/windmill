@@ -1365,8 +1365,8 @@ async fn archive_flow_by_path(
 /// Validates that flow debouncing configuration is supported by all workers
 /// Returns an error if debouncing is configured but workers are behind required version
 async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
-    let flow_value = nf.parse_flow_value()?;
     if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await && {
+        let flow_value = nf.parse_flow_value()?;
         flow_value.debounce_key.is_some() || flow_value.debounce_delay_s.is_some()
     } {
         tracing::warn!(
