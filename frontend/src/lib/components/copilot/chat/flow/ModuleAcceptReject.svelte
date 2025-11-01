@@ -3,7 +3,8 @@
 
 	export const getAiModuleAction = (id: string | undefined): AIModuleAction | undefined => {
 		if (!id) return undefined
-		return aiChatManager.flowAiChatHelpers?.getModuleAction(id)
+		return undefined
+		// return aiChatManager.flowAiChatHelpers?.getModuleAction(id)
 	}
 </script>
 

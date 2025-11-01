@@ -94,8 +94,7 @@
 				'Input',
 				'triggers'
 			].includes(upToSelected) ||
-			upToSelected?.includes('branch') ||
-			aiChatManager.flowAiChatHelpers?.getModuleAction(upToSelected) === 'removed'
+			upToSelected?.includes('branch')
 		)
 	})
 

@@ -120,11 +120,11 @@
 	let loadingHistory = $state(false)
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
-		const previewFlow = aiChatManager.flowAiChatHelpers?.getPreviewFlow()
+		const previewFlow = flowStore.val
 		if (previewMode === 'whole') {
-			return previewFlow ?? flowStore.val
+			return previewFlow
 		} else {
-			const flow = previewFlow ?? stateSnapshot(flowStore).val
+			const flow = previewFlow
 			const idOrders = dfs(flow.value.modules, (x) => x.id)
 			let upToIndex = idOrders.indexOf(upToId ?? $selectedId)
 
@@ -323,7 +323,7 @@
 				</div>
 			{:else}
 				<div class="grow justify-center flex flex-row gap-2">
-					{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel && aiChatManager.flowAiChatHelpers?.getModuleAction(selectedJobStep) !== 'removed'}
+					{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
 						{#if selectedJobStepType == 'single'}
 							<Button
 								unifiedSize="md"
