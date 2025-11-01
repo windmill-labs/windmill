@@ -112,7 +112,7 @@ where
     let flow_value: FlowValue = serde_json::from_str(raw_value.get())
         .map_err(|e| serde::de::Error::custom(format!("Invalid flow value: {}", e)))?;
 
-    FlowModule::traverse_leafs(&flow_value.modules, &mut |module| {
+    FlowModule::traverse_modules(&flow_value.modules, &mut |module| {
         if let Some(ref retry) = module.retry {
             validate_retry(retry, &module.id)?;
         }
@@ -544,7 +544,7 @@ impl FlowModule {
             .map(|x| x.r#type)
     }
 
-    pub fn traverse_leafs<C: FnMut(&FlowModule) -> crate::error::Result<()>>(
+    pub fn traverse_modules<C: FnMut(&FlowModule) -> crate::error::Result<()>>(
         modules: &Vec<FlowModule>,
         cb: &mut C,
     ) -> crate::error::Result<()> {
@@ -556,17 +556,17 @@ impl FlowModule {
             {
                 FlowModuleValue::ForloopFlow { modules, .. }
                 | FlowModuleValue::WhileloopFlow { modules, .. } => {
-                    Self::traverse_leafs(&modules, cb)?;
+                    Self::traverse_modules(&modules, cb)?;
                 }
                 FlowModuleValue::BranchOne { branches, default, .. } => {
                     for branch in branches {
-                        Self::traverse_leafs(&branch.modules, cb)?;
+                        Self::traverse_modules(&branch.modules, cb)?;
                     }
-                    Self::traverse_leafs(&default, cb)?;
+                    Self::traverse_modules(&default, cb)?;
                 }
                 FlowModuleValue::BranchAll { branches, .. } => {
                     for branch in branches {
-                        Self::traverse_leafs(&branch.modules, cb)?;
+                        Self::traverse_modules(&branch.modules, cb)?;
                     }
                 }
                 FlowModuleValue::AIAgent { tools, .. } => {
@@ -575,17 +575,17 @@ impl FlowModule {
                             ToolValue::FlowModule(module_value) => match module_value {
                                 FlowModuleValue::ForloopFlow { modules, .. }
                                 | FlowModuleValue::WhileloopFlow { modules, .. } => {
-                                    Self::traverse_leafs(&modules, cb)?;
+                                    Self::traverse_modules(&modules, cb)?;
                                 }
                                 FlowModuleValue::BranchOne { branches, default, .. } => {
                                     for branch in branches {
-                                        Self::traverse_leafs(&branch.modules, cb)?;
+                                        Self::traverse_modules(&branch.modules, cb)?;
                                     }
-                                    Self::traverse_leafs(&default, cb)?;
+                                    Self::traverse_modules(&default, cb)?;
                                 }
                                 FlowModuleValue::BranchAll { branches, .. } => {
                                     for branch in branches {
-                                        Self::traverse_leafs(&branch.modules, cb)?;
+                                        Self::traverse_modules(&branch.modules, cb)?;
                                     }
                                 }
                                 _ => {}
