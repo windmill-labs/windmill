@@ -1451,6 +1451,7 @@ async fn lock_modules<'c>(
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
                 if !is_generated_from_raw_requirements(Some(language), &lock) {
+                    let relative_imports = get_imports();
                     tx = dependency_map
                         .patch(relative_imports.clone(), e.id.clone(), tx)
                         .await?;
@@ -1463,6 +1464,7 @@ async fn lock_modules<'c>(
                 let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
                 if skip_creating_new_lock {
                     if !is_generated_from_raw_requirements(Some(language), &lock) {
+                        let relative_imports = get_imports();
                         tx = dependency_map
                             .patch(relative_imports.clone(), e.id.clone(), tx)
                             .await?;
