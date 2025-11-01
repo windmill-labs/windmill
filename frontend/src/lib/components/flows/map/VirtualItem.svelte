@@ -28,6 +28,7 @@
 		cache?: boolean
 		earlyStop?: boolean
 		editMode?: boolean
+		action?: 'added' | 'removed' | 'modified' | 'shadowed' | undefined
 		icon?: import('svelte').Snippet
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
@@ -57,6 +58,7 @@
 		cache = false,
 		earlyStop = false,
 		editMode = false,
+		action: actionProp = undefined,
 		icon,
 		onUpdateMock,
 		onEditInput,
@@ -75,7 +77,7 @@
 		(nodeKind || (inputJson && Object.keys(inputJson).length > 0)) && editMode
 	)
 
-	let action = $derived(label === 'Input' ? getAiModuleAction(label) : undefined)
+	let action = $derived(actionProp ?? (label === 'Input' ? getAiModuleAction(label) : undefined))
 	let hoverButton = $state(false)
 
 	const outputType = $derived(

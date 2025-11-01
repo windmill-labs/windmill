@@ -9,7 +9,8 @@
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
-	import { MessageSquare } from 'lucide-svelte'
+	import { MessageSquare, DiffIcon } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 
 	interface Props {
 		data: InputN['data']
@@ -32,6 +33,18 @@
 
 	let inputLabel = $derived(data.chatInputEnabled ? 'Chat message' : 'Input')
 </script>
+
+{#if data.inputSchemaModified && data.onShowModuleDiff}
+	<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start z-50">
+		<Button
+			class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
+			onClick={() => {
+				data.onShowModuleDiff?.('Input')
+			}}
+			startIcon={{ icon: DiffIcon }}>Diff</Button
+		>
+	</div>
+{/if}
 
 <NodeWrapper>
 	{#snippet children({ darkMode })}
@@ -82,6 +95,7 @@
 			cache={data.cache}
 			earlyStop={data.earlyStop}
 			editMode={data.editMode}
+			action={data.inputSchemaModified ? 'modified' : undefined}
 			onEditInput={data.eventHandlers.editInput}
 			onTestFlow={() => {
 				data.eventHandlers.testFlow()
