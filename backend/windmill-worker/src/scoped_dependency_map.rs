@@ -326,7 +326,7 @@ SELECT importer_node_id, imported_path
             // Fetch only top level versions and paths
             // It is not fetching value
             tracing::info!(workspace_id = w_id, "Rebuilding dependency map for flows");
-            for r in sqlx::query!("SELECT path, versions[array_upper(versions, 1)] as version FROM flow WHERE workspace_id = $1", w_id).fetch_all(db).await? {
+            for r in sqlx::query!("SELECT path, versions[array_upper(versions, 1)] as version FROM flow WHERE workspace_id = $1 AND archived = false", w_id).fetch_all(db).await? {
                 if let Some(version) = r.version {
                     // To reduce stress on db try to fetch from cache
                     // Since our flow versions are immutable it is safe to assume if we have cache for specific version/id it is up to date.
