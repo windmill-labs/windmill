@@ -1,7 +1,6 @@
 <script lang="ts">
 	import FlowModuleSchemaMap from '$lib/components/flows/map/FlowModuleSchemaMap.svelte'
 	import { getContext, untrack } from 'svelte'
-	import type { FlowCopilotContext } from '../../flow'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
 	import { dfs } from '$lib/components/flows/previousResults'
 	import { dfs as dfsApply } from '$lib/components/flows/dfs'
@@ -13,14 +12,7 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import YAML from 'yaml'
-
-	/**
-	 * Check if debug diff mode is enabled via localStorage
-	 */
-	function isDebugDiffModeEnabled(): boolean {
-		if (typeof window === 'undefined') return false
-		return localStorage.getItem('windmill_debug_diff_mode') === 'true'
-	}
+	import { getSubModules } from '$lib/components/flows/flowExplorer'
 
 	let {
 		flowModuleSchemaMap
@@ -31,8 +23,6 @@
 	const { flowStore, flowStateStore, selectedId, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	const { exprsToSet } = getContext<FlowCopilotContext | undefined>('FlowCopilotContext') ?? {}
-
 	let affectedModules: Record<
 		string,
 		{
@@ -40,18 +30,6 @@
 		}
 	> = $state({})
 	let lastSnapshot: ExtendedOpenFlow | undefined = $state(undefined)
-	let previewFlow = $derived.by(() => {
-		const flow = $state.snapshot(flowStore).val
-		if (Object.values(affectedModules).some((m) => m.action === 'removed')) {
-			dfsApply(flow.value.modules, (m, modules) => {
-				const action = affectedModules[m.id]?.action
-				if (action === 'removed') {
-					modules.splice(modules.indexOf(m), 1)
-				}
-			})
-		}
-		return flow
-	})
 
 	function setModuleStatus(id: string, action: AIModuleAction) {
 		const existingAction: AIModuleAction | undefined = affectedModules[id]?.action
@@ -90,9 +68,17 @@
 				selectedId: $selectedId
 			}
 		},
-		// flow apply/reject
-		getPreviewFlow: () => {
-			return $state.snapshot(previewFlow)
+		getModules: (id?: string) => {
+			if (id) {
+				const module = getModule(id)
+
+				if (!module) {
+					throw new Error('Module not found')
+				}
+
+				return getSubModules(module).flat()
+			}
+			return flowStore.val.value.modules
 		},
 		hasDiff: () => {
 			return Object.keys(affectedModules).length > 0
@@ -131,30 +117,6 @@
 						}
 					}
 				}
-			}
-		},
-		showModuleDiff(id: string) {
-			if (!lastSnapshot) {
-				return
-			}
-			const moduleLastSnapshot = id === 'Input' ? lastSnapshot.schema : getModule(id, lastSnapshot)
-			const currentModule = id === 'Input' ? flowStore.val.schema : getModule(id)
-
-			if (moduleLastSnapshot && currentModule) {
-				diffDrawer?.openDrawer()
-				diffDrawer?.setDiff({
-					mode: 'simple',
-					title: `Diff for ${id}`,
-					original: moduleLastSnapshot,
-					current: currentModule,
-					button: {
-						text: 'Accept',
-						onClick: () => {
-							diffDrawer?.closeDrawer()
-							this.acceptModuleAction(id)
-						}
-					}
-				})
 			}
 		},
 		revertModuleAction: (id: string) => {
@@ -216,7 +178,7 @@
 			delete affectedModules[id]
 		},
 		// ai chat tools
-		setCode: async (id, code) => {
+		setCode: async (id: string, code: string) => {
 			const module = getModule(id)
 			if (!module) {
 				throw new Error('Module not found')
@@ -242,16 +204,8 @@
 			}
 			setModuleStatus(id, 'modified')
 		},
-		getStepCode: (id) => {
-			const module = getModule(id)
-			if (!module) {
-				throw new Error('Module not found')
-			}
-			if (module.value.type === 'rawscript') {
-				return module.value.content
-			} else {
-				throw new Error('Module is not a rawscript')
-			}
+		getFlowInputsSchema: async () => {
+			return flowStore.val.schema ?? {}
 		},
 		setFlowYaml: async (yaml: string) => {
 			try {

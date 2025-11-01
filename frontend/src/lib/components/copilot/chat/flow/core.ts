@@ -28,22 +28,19 @@ export type AIModuleAction = 'added' | 'modified' | 'removed' | 'shadowed' | und
 export interface FlowAIChatHelpers {
 	// flow context
 	getFlowAndSelectedId: () => { flow: ExtendedOpenFlow; selectedId: string }
-	getPreviewFlow: () => ExtendedOpenFlow
 	getModules: (id?: string) => FlowModule[]
-	getFlowInputsSchema: () => Promise<Record<string, any>>
 	// flow diff management
 	hasDiff: () => boolean
 	setLastSnapshot: (snapshot: ExtendedOpenFlow) => void
-	showModuleDiff: (id: string) => void
-	getModuleAction: (id: string) => AIModuleAction | undefined
 	revertModuleAction: (id: string) => void
 	acceptModuleAction: (id: string) => void
 	acceptAllModuleActions: () => void
 	rejectAllModuleActions: () => void
 	revertToSnapshot: (snapshot?: ExtendedOpenFlow) => void
 	// ai chat tools
-	selectStep: (id: string) => void
+	setCode: (id: string, code: string) => Promise<void>
 	setFlowYaml: (yaml: string) => Promise<void>
+	getFlowInputsSchema: () => Promise<Record<string, any>>
 }
 
 const searchScriptsSchema = z.object({
