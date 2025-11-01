@@ -91,6 +91,7 @@ components:
               type: integer
             seconds:
               type: integer
+              minimum: 1
             random_factor:
               type: integer
               minimum: 0
