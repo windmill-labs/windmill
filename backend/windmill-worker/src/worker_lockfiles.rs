@@ -445,7 +445,7 @@ pub async fn process_relative_imports(
     Ok(())
 }
 
-fn is_generated_from_raw_requirements(lang: Option<ScriptLang>, lock: &Option<String>) -> bool {
+pub fn is_generated_from_raw_requirements(lang: Option<ScriptLang>, lock: &Option<String>) -> bool {
     (lang.is_some_and(|v| v == ScriptLang::Bun)
         && lock
             .as_ref()
