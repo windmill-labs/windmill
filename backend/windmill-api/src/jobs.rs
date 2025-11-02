@@ -1507,7 +1507,7 @@ async fn get_job_logs(
 
     let record = sqlx::query!(
         "SELECT j.created_by AS \"created_by!\", CONCAT(coalesce(NULL, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
-        FROM v2_job_completed c JOIN v2_job j USING (id)
+        FROM v2_job j
         LEFT JOIN job_logs ON job_logs.job_id = j.id
         WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
         id,
@@ -1555,7 +1555,7 @@ async fn get_job_logs(
     } else {
         let text = sqlx::query!(
             "SELECT j.created_by AS \"created_by!\", CONCAT(coalesce(NULL, ''), coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
-            FROM v2_job_queue q JOIN v2_job j USING (id)
+            FROM v2_job j
             LEFT JOIN job_logs ON job_logs.job_id = j.id
             WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
             id,
@@ -1614,7 +1614,7 @@ async fn get_args(
         .flatten();
     let record = sqlx::query!(
         "SELECT j.created_by AS \"created_by!\", j.args as \"args: sqlx::types::Json<Box<RawValue>>\"
-        FROM v2_job_completed c JOIN v2_job j USING (id)
+        FROM v2_job j
         WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
         id,
         &w_id,
@@ -2170,7 +2170,7 @@ async fn cancel_selection(
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
     let jobs_to_cancel = sqlx::query_scalar!(
-        "SELECT j.id AS \"id!\" FROM v2_job_queue q JOIN v2_job j USING (id) WHERE j.id = ANY($1) AND (CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END) IS NULL AND ($2::text[] IS NULL OR j.tag = ANY($2))",
+        "SELECT j.id AS \"id!\" FROM v2_job j WHERE j.id = ANY($1) AND (CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END) IS NULL AND ($2::text[] IS NULL OR j.tag = ANY($2))",
         &jobs,
         tags.as_ref().map(|v| v.as_slice())
     )
@@ -2934,8 +2934,8 @@ pub async fn get_flow_user_state(
     let r = sqlx::query_scalar!(
         r#"
         SELECT COALESCE(s.flow_status, s.workflow_as_code_status)->'user_states'->$1
-        FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_status s USING (id)
-        WHERE j.id = $2 AND j.workspace_id = $3
+        FROM v2_job_queue q LEFT JOIN v2_job_status s USING (id)
+        WHERE q.id = $2 AND q.workspace_id = $3
         "#,
         key,
         job_id,
@@ -4168,7 +4168,7 @@ pub async fn restart_flow(
         "SELECT
             j.runnable_path as script_path, j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
             j.tag AS \"tag!\", j.priority
-        FROM v2_job_completed c JOIN v2_job j USING (id)
+        FROM v2_job j
         WHERE j.id = $1 and j.workspace_id = $2",
         job_id,
         &w_id,
@@ -4819,10 +4819,9 @@ pub async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<()
 pub async fn check_queue_too_long(db: &DB, queue_limit: Option<i64>) -> error::Result<()> {
     if let Some(limit) = queue_limit {
         let count = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM v2_job_queue q JOIN v2_job j USING (id) WHERE q.canceled_by IS NULL AND (q.scheduled_for <= now()
+            "SELECT COUNT(*) FROM v2_job_queue q WHERE q.canceled_by IS NULL AND (q.scheduled_for <= now()
         OR (q.suspend_until IS NOT NULL
-            AND (   q.suspend <= 0
-                 OR q.suspend_until <= now())))",
+            AND (q.suspend <= 0 OR q.suspend_until <= now())))",
         )
         .fetch_one(db)
         .await?
