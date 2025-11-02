@@ -17,6 +17,7 @@
 	import RunOption from './RunOption.svelte'
 	import DropdownSelect from '../DropdownSelect.svelte'
 	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 
 	interface Props {
 		// Filters
@@ -26,7 +27,7 @@
 		worker?: string | null
 		tag?: string | null
 		success?: 'running' | 'waiting' | 'suspended' | 'queued' | 'success' | 'failure' | undefined
-		isSkipped?: boolean | undefined
+		showSkipped?: boolean | undefined
 		argFilter: string
 		argError: string
 		resultFilter: string
@@ -62,7 +63,7 @@
 		worker = $bindable(null),
 		tag = $bindable(null),
 		success = $bindable(undefined),
-		isSkipped = $bindable(undefined),
+		showSkipped = $bindable(undefined),
 		argFilter = $bindable(),
 		argError = $bindable(),
 		resultFilter = $bindable(),
@@ -183,10 +184,9 @@
 		</RunOption>
 	{/if}
 	<!-- Filter by -->
-	<div class="flex flex-row gap-4">
+	<div class="flex flex-row gap-2">
 		<RunOption label="Filter by" for="filter-by">
 			<ToggleButtonGroup
-				class="h-9"
 				bind:selected={filterBy}
 				on:selected={(e) => {
 					if (e.detail != filterBy) {
@@ -227,7 +227,6 @@
 						bind:value={() => user ?? undefined, (v) => (user = v ?? null)}
 						clearable
 						onClear={() => ((user = null), dispatch('reset'))}
-						inputClass="!max-h-9 min-w-36 border-none"
 						onCreateItem={(item) => (usernames.push(item), (user = item))}
 						createText="Press enter to use this value"
 						id="user"
@@ -242,7 +241,6 @@
 						bind:value={() => folder ?? undefined, (v) => (folder = v ?? null)}
 						clearable
 						onClear={() => ((folder = null), dispatch('reset'))}
-						inputClass="!max-h-9 min-w-36 border-none"
 						id="folder"
 					/>
 				{/key}
@@ -255,7 +253,6 @@
 						bind:value={() => path ?? undefined, (v) => (path = v ?? null)}
 						clearable
 						onClear={() => ((path = null), dispatch('reset'))}
-						inputClass="!max-h-9 min-w-36 border-none"
 						onCreateItem={(item) => (paths.push(item), (path = item))}
 						createText="Press enter to use this value"
 						id="path"
@@ -285,20 +282,21 @@
 						{/if}
 
 						<!-- svelte-ignore a11y_autofocus -->
-						<input
-							autofocus
-							type="text"
-							class="!h-[32px] py-1 !text-xs min-w-36"
-							bind:value={displayedLabel}
-							onkeydown={(e) => {
-								if (labelTimeout) {
-									clearTimeout(labelTimeout)
-								}
+						<TextInput
+							inputProps={{
+								autofocus: true,
+								type: 'text',
+								onkeydown: (e) => {
+									if (labelTimeout) {
+										clearTimeout(labelTimeout)
+									}
 
-								labelTimeout = setTimeout(() => {
-									label = displayedLabel
-								}, 1000)
+									labelTimeout = setTimeout(() => {
+										label = displayedLabel
+									}, 1000)
+								}
 							}}
+							bind:value={() => displayedLabel ?? undefined, (v) => (displayedLabel = v ?? null)}
 						/>
 						<div class="absolute -top-4 right-0">
 							<Toggle
@@ -333,21 +331,24 @@
 					{/if}
 
 					<!-- svelte-ignore a11y_autofocus -->
-					<input
-						autofocus
-						type="text"
-						class="!h-[32px] py-1 !text-xs min-w-36"
-						bind:value={displayedConcurrencyKey}
-						onkeydown={(e) => {
-							if (concurrencyKeyTimeout) {
-								clearTimeout(concurrencyKeyTimeout)
-							}
+					<TextInput
+						inputProps={{
+							autofocus: true,
+							type: 'text',
+							onkeydown: (e) => {
+								if (concurrencyKeyTimeout) {
+									clearTimeout(concurrencyKeyTimeout)
+								}
 
-							concurrencyKeyTimeout = setTimeout(() => {
-								concurrencyKey = displayedConcurrencyKey
-							}, 1000)
+								concurrencyKeyTimeout = setTimeout(() => {
+									concurrencyKey = displayedConcurrencyKey
+								}, 1000)
+							}
 						}}
-						id="concurrencyKey"
+						bind:value={
+							() => displayedConcurrencyKey ?? undefined,
+							(v) => (displayedConcurrencyKey = v ?? null)
+						}
 					/>
 				{/key}
 			</RunOption>
@@ -368,21 +369,22 @@
 						{/if}
 
 						<!-- svelte-ignore a11y_autofocus -->
-						<input
-							autofocus
-							type="text"
-							class="!h-[32px] py-1 !text-xs min-w-36"
-							bind:value={displayedTag}
-							onkeydown={(e) => {
-								if (tagTimeout) {
-									clearTimeout(tagTimeout)
-								}
+						<TextInput
+							inputProps={{
+								autofocus: true,
+								type: 'text',
+								id: 'tag',
+								onkeydown: (e) => {
+									if (tagTimeout) {
+										clearTimeout(tagTimeout)
+									}
 
-								tagTimeout = setTimeout(() => {
-									tag = displayedTag
-								}, 1000)
+									tagTimeout = setTimeout(() => {
+										tag = displayedTag
+									}, 1000)
+								}
 							}}
-							id="tag"
+							bind:value={() => displayedTag ?? undefined, (v) => (displayedTag = v ?? null)}
 						/>
 						<div class="absolute -top-4 right-0">
 							<Toggle
@@ -411,21 +413,22 @@
 						{/if}
 
 						<!-- svelte-ignore a11y_autofocus -->
-						<input
-							autofocus
-							type="text"
-							class="!h-[32px] py-1 !text-xs min-w-36"
-							bind:value={displayedSchedule}
-							onkeydown={(e) => {
-								if (tagTimeout) {
-									clearTimeout(tagTimeout)
-								}
+						<TextInput
+							inputProps={{
+								autofocus: true,
+								type: 'text',
+								onkeydown: (e) => {
+									if (tagTimeout) {
+										clearTimeout(tagTimeout)
+									}
 
-								tagTimeout = setTimeout(() => {
-									schedulePath = displayedSchedule
-								}, 1000)
+									tagTimeout = setTimeout(() => {
+										schedulePath = displayedSchedule
+									}, 1000)
+								},
+								id: 'schedulePath'
 							}}
-							id="schedulePath"
+							bind:value={displayedSchedule}
 						/>
 					</div>
 				{/key}
@@ -447,21 +450,21 @@
 						{/if}
 
 						<!-- svelte-ignore a11y_autofocus -->
-						<input
-							autofocus
-							type="text"
-							class="!h-[32px] py-1 !text-xs min-w-36"
-							bind:value={displayedWorker}
-							onkeydown={(e) => {
-								if (workerTimeout) {
-									clearTimeout(workerTimeout)
-								}
+						<TextInput
+							inputProps={{
+								autofocus: true,
+								onkeydown: (e) => {
+									if (workerTimeout) {
+										clearTimeout(workerTimeout)
+									}
 
-								workerTimeout = setTimeout(() => {
-									worker = displayedWorker
-								}, 1000)
+									workerTimeout = setTimeout(() => {
+										worker = displayedWorker
+									}, 1000)
+								},
+								id: 'worker'
 							}}
-							id="worker"
+							bind:value={() => displayedWorker ?? undefined, (v) => (displayedWorker = v ?? null)}
 						/>
 						<div class="absolute -top-4 right-0">
 							<Toggle
@@ -525,7 +528,7 @@
 				selected={jobKindsCat}
 			/>
 		{:else}
-			<ToggleButtonGroup bind:selected={jobKindsCat} class="h-9">
+			<ToggleButtonGroup bind:selected={jobKindsCat}>
 				{#snippet children({ item })}
 					<ToggleButton value="all" label="All" {item} />
 					<ToggleButton
@@ -572,7 +575,6 @@
 	<!-- Status -->
 	<RunOption label="Status" for="status">
 		<ToggleButtonGroup
-			class="h-9"
 			selected={success ?? 'all'}
 			on:selected={({ detail }) => {
 				success = detail === 'all' ? undefined : detail
@@ -587,7 +589,10 @@
 					tooltip="Running"
 					class="whitespace-nowrap"
 					icon={CirclePlay}
-					selectedColor="yellow"
+					iconProps={{
+						class:
+							'group-data-[state=on]:text-yellow-600 dark:group-data-[state=on]:text-yellow-400'
+					}}
 					{item}
 				/>
 				<ToggleButton
@@ -595,7 +600,9 @@
 					tooltip="Success"
 					class="whitespace-nowrap"
 					icon={CircleCheck}
-					selectedColor="green"
+					iconProps={{
+						class: 'group-data-[state=on]:text-green-500 dark:group-data-[state=on]:text-green-300'
+					}}
 					{item}
 				/>
 				<ToggleButton
@@ -603,7 +610,9 @@
 					tooltip="Failure"
 					class="whitespace-nowrap"
 					icon={CircleAlert}
-					selectedColor="red"
+					iconProps={{
+						class: 'group-data-[state=on]:text-red-500 dark:group-data-[state=on]:text-red-300'
+					}}
 					{item}
 				/>
 				{#if success == 'waiting'}
@@ -639,19 +648,17 @@
 	>
 		{#snippet trigger()}
 			<Button
-				color="light"
-				variant="contained"
-				size="xs"
+				variant="default"
+				unifiedSize="md"
 				nonCaptureEvent={true}
 				startIcon={{ icon: ListFilterPlus }}
 				iconOnly
-				btnClasses="bg-surface-secondary py-[8.5px]"
 			></Button>
 		{/snippet}
 
 		{#snippet content()}
 			<Section label="Filters">
-				<div class="w-102 flex flex-col gap-4">
+				<div class="w-102 flex flex-col gap-6">
 					{#if mobile}
 						{#if $workspaceStore == 'admins'}
 							<Label label="Workspaces">
@@ -943,27 +950,32 @@
 
 					<Label label="Show skipped flows">
 						<div class="flex flex-row gap-1 items-center">
-							<Toggle size="xs" bind:checked={isSkipped} />
-							<Tooltip>Skipped flows are flows that did an early break</Tooltip>
+							<Toggle size="sm" bind:checked={showSkipped} />
 						</div>
+						{#snippet header()}
+							<Tooltip>Skipped flows are flows that did an early break</Tooltip>
+						{/snippet}
 					</Label>
 
-					<div class="flex flex-col gap-1">
-						<span class="text-xs leading-6">
-							{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
-						</span>
+					<div class="flex flex-col gap-6">
 						<Label label="Filter by args">
 							<JsonEditor bind:error={argError} bind:code={copyArgFilter} />
+							<span class="text-2xs text-secondary">
+								{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
+							</span>
 						</Label>
 						<Label label="Filter by result">
 							<JsonEditor bind:error={resultError} bind:code={copyResultFilter} />
+							<span class="text-2xs text-secondary">
+								{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
+							</span>
 						</Label>
 					</div>
 
 					<div class="flex flex-row gap-2 justify-between">
 						<Button
-							size="xs"
-							color="light"
+							unifiedSize="md"
+							variant="default"
 							on:click={() => {
 								argFilter = ''
 								resultFilter = ''
@@ -973,8 +985,8 @@
 						</Button>
 
 						<Button
-							size="xs"
-							color="dark"
+							unifiedSize="md"
+							variant="accent"
 							on:click={() => {
 								argFilter = copyArgFilter
 								resultFilter = copyResultFilter

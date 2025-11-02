@@ -5,6 +5,7 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import Toggle from '../Toggle.svelte'
+	import Popover from '../Popover.svelte'
 	import {
 		FlowService,
 		IntegrationService,
@@ -20,6 +21,7 @@
 	import FolderPicker from '../FolderPicker.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
+	import { mcpEndpointTools } from '$lib/mcpEndpointTools'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -121,12 +123,14 @@
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $workspaceStore))
 	const mcpBaseUrl = $derived(`${window.location.origin}/api/mcp/w/${newTokenWorkspace}/sse?token=`)
+
 	const warning = $derived(
-		newMcpScope === 'favorites'
-			? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.`
-			: 'Create your first scripts or flows to make them available via MCP.'
+		newMcpScope === 'all'
+			? 'Create your first scripts or flows to make them available via MCP.'
+			: newMcpScope === 'favorites'
+				? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.`
+				: `You do not have any scripts or flows in the selected folder.`
 	)
-	const noScriptsOrFlowsAvailableWarning = $derived(includedRunnables.length === 0 ? warning : '')
 	const longPathRunnables = $derived(
 		includedRunnables.filter((path) => path.length > MAX_PATH_LENGTH)
 	)
@@ -246,8 +250,8 @@
 </script>
 
 <div>
-	<div class="py-3 px-3 border rounded-md mb-6 bg-surface-secondary min-w-min">
-		<h3 class="pb-3 font-semibold">Add a new token</h3>
+	<div class="p-4 rounded-md mb-6 min-w-min bg-surface-tertiary">
+		<h3 class="pb-2 font-semibold text-emphasis text-sm">Add a new token</h3>
 
 		{#if showMcpMode}
 			<div
@@ -274,7 +278,7 @@
 					options={{
 						right: 'Generate MCP URL',
 						rightTooltip:
-							'Generate a new MCP URL to make your scripts and flows available as tools through your LLM clients.',
+							'Generate a new MCP URL to make your scripts, flows, and API endpoints available as tools through your LLM clients.',
 						rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/mcp'
 					}}
 					size="xs"
@@ -284,9 +288,9 @@
 
 		{#if scopes != undefined}
 			<div class="mb-4">
-				<span class="block mb-1">Scope</span>
+				<span class="block mb-1 text-emphasis text-xs font-semibold">Scope</span>
 				{#each scopes as scope}
-					<input disabled type="text" value={scope} class="mb-2 w-full" />
+					<TextInput inputProps={{ disabled: true }} value={scope} class="mb-2 w-full" />
 				{/each}
 			</div>
 		{/if}
@@ -314,7 +318,7 @@
 		<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
 			{#if mcpCreationMode}
 				<div>
-					<span class="block mb-1">Scope</span>
+					<span class="block mb-1 text-emphasis text-xs font-semibold">Scope</span>
 					<ToggleButtonGroup bind:selected={newMcpScope} allowEmpty={false}>
 						{#snippet children({ item })}
 							<ToggleButton
@@ -341,13 +345,13 @@
 
 				{#if newMcpScope === 'folder'}
 					<div>
-						<span class="block mb-1">Select Folder</span>
+						<span class="block mb-1 text-emphasis text-xs font-semibold">Select Folder</span>
 						<FolderPicker bind:folderName={selectedFolder} />
 					</div>
 				{/if}
 
 				<div>
-					<span class="block mb-1">Hub scripts (optional)</span>
+					<span class="block mb-1 text-emphasis text-xs font-semibold">Hub scripts (optional)</span>
 					{#if loadingApps}
 						<div>Loading...</div>
 					{:else if errorFetchApps}
@@ -357,13 +361,12 @@
 							items={safeSelectItems(allApps)}
 							placeholder="Select apps"
 							bind:value={newMcpApps}
-							class="!bg-surface"
 						/>
 					{/if}
 				</div>
 
 				<div>
-					<span class="block mb-1">Workspace</span>
+					<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
 					<select bind:value={newTokenWorkspace} disabled={workspaces.length === 1} class="w-full">
 						{#each workspaces as workspace}
 							<option value={workspace.id}>{workspace.name}</option>
@@ -373,23 +376,21 @@
 			{/if}
 
 			<div>
-				<span class="block mb-1">Label <span class="text-xs text-tertiary">(optional)</span></span>
-				<TextInput
-					inputProps={{ type: 'text' }}
-					bind:value={newTokenLabel}
-					class="w-full !bg-surface"
-				/>
+				<span class="block mb-1 text-emphasis text-xs font-semibold"
+					>Label <span class="text-xs text-primary">(optional)</span></span
+				>
+				<TextInput inputProps={{ type: 'text' }} bind:value={newTokenLabel} class="w-full" />
 			</div>
 
 			{#if !mcpCreationMode}
 				<div>
-					<span class="block mb-1"
-						>Expires In <span class="text-xs text-tertiary">(optional)</span></span
+					<span class="block mb-1 text-xs text-emphasis font-semibold"
+						>Expires In <span class="text-xs text-primary">(optional)</span></span
 					>
 					<Select
 						bind:value={newTokenExpiration}
 						placeholder="No expiration"
-						inputClass="!bg-surface"
+						inputClass="w-full"
 						items={[
 							{ label: 'No expiration', value: undefined },
 							{ label: '15 minutes', value: 15 * 60 },
@@ -406,7 +407,7 @@
 			{#if mcpCreationMode && (newMcpScope !== 'folder' || selectedFolder.length > 0)}
 				{#if loadingRunnables}
 					<div class="flex flex-col gap-2 col-span-2 pr-4">
-						<span class="block text-xs text-tertiary"
+						<span class="block text-xs text-primary"
 							>Scripts & Flows that will be available via MCP</span
 						>
 						<div class="flex flex-wrap gap-1">
@@ -415,34 +416,49 @@
 					</div>
 				{:else}
 					<div class="flex flex-col gap-2 col-span-2 pr-4">
-						{#if noScriptsOrFlowsAvailableWarning}
-							<Alert type="info" title="No scripts or flows available" size="xs">
-								{noScriptsOrFlowsAvailableWarning}
+						{#if longPathWarning}
+							<Alert type="warning" title="Some paths are too long" size="xs">
+								{longPathWarning}
 							</Alert>
-						{:else}
-							{#if longPathWarning}
-								<Alert type="warning" title="Some paths are too long" size="xs">
-									{longPathWarning}
-								</Alert>
-							{/if}
-							<span class="block text-xs text-tertiary"
-								>Scripts & Flows that will be available via MCP</span
-							>
-							<div class="flex flex-wrap gap-1">
-								{#if validRunnables.length <= 5}
-									{#each validRunnables as scriptOrFlow}
-										<Badge rounded small color="blue">{scriptOrFlow}</Badge>
-									{/each}
-								{:else}
-									{#each validRunnables.slice(0, 3) as scriptOrFlow}
-										<Badge rounded small color="blue">{scriptOrFlow}</Badge>
-									{/each}
-									<Badge rounded small color="dark-gray">
-										+{validRunnables.length - 3} more
-									</Badge>
-								{/if}
-							</div>
 						{/if}
+						<span class="block text-xs">Scripts & Flows that will be available via MCP</span>
+						<div class="flex flex-wrap gap-1">
+							{#if validRunnables.length > 0 && validRunnables.length <= 5}
+								{#each validRunnables as scriptOrFlow}
+									<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+								{/each}
+							{:else if validRunnables.length > 0}
+								{#each validRunnables.slice(0, 3) as scriptOrFlow}
+									<Badge rounded small color="blue">{scriptOrFlow}</Badge>
+								{/each}
+								<Badge rounded small color="dark-gray">
+									+{validRunnables.length - 3} more
+								</Badge>
+							{:else}
+								<p class="text-xs text-primary">
+									{warning}
+								</p>
+							{/if}
+						</div>
+
+						<span class="block text-xs mt-2">API endpoint tools that will be available via MCP</span
+						>
+						<div class="flex flex-wrap gap-1">
+							{#each mcpEndpointTools as endpoint}
+								<Popover notClickable>
+									{#snippet text()}
+										<div class="flex flex-col gap-1">
+											<div class="text-xs">{endpoint.description}</div>
+											<div class="text-xs">
+												{endpoint.method}
+												{endpoint.path}
+											</div>
+										</div>
+									{/snippet}
+									<Badge rounded small color="green">{endpoint.name}</Badge>
+								</Popover>
+							{/each}
+						</div>
 					</div>
 				{/if}
 			{/if}
@@ -453,6 +469,7 @@
 				on:click={() => {
 					mcpCreationMode = false
 				}}
+				variant="default"
 			>
 				Cancel
 			</Button>
@@ -460,6 +477,7 @@
 				on:click={() => createToken(mcpCreationMode)}
 				disabled={mcpCreationMode &&
 					(newTokenWorkspace == undefined || (newMcpScope === 'folder' && !selectedFolder))}
+				variant="accent"
 			>
 				New token
 			</Button>

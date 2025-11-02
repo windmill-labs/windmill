@@ -62,7 +62,7 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
+use windmill_common::{utils::{configure_client, GIT_VERSION}, BASE_URL, INSTANCE_NAME};
 
 use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
@@ -87,6 +87,7 @@ pub mod ee;
 pub mod ee_oss;
 pub mod embeddings;
 mod favorite;
+mod flow_conversations;
 pub mod flows;
 mod folders;
 mod granular_acls;
@@ -100,7 +101,8 @@ mod inkeep_oss;
 mod inputs;
 mod integration;
 mod live_migrations;
-pub mod openapi;
+#[cfg(feature = "http_trigger")]
+mod openapi;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
@@ -197,11 +199,11 @@ lazy_static::lazy_static! {
 
     pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
-    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+    pub static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
-        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
+        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok()))
         .build().unwrap();
 
 
@@ -443,6 +445,10 @@ pub async fn run_server(
                         .nest("/drafts", drafts::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest(
+                            "/flow_conversations",
+                            flow_conversations::workspaced_service(),
+                        )
                         .nest("/folders", folders::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
@@ -470,7 +476,17 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_oss::workspaced_service())
-                        .nest("/openapi", openapi::openapi_service())
+                        .nest("/openapi", {
+                            #[cfg(feature = "http_trigger")]
+                            {
+                                openapi::openapi_service()
+                            }
+
+                            #[cfg(not(feature = "http_trigger"))]
+                            {
+                                Router::new()
+                            }
+                        })
                         .merge(triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())

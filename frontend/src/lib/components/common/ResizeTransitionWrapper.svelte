@@ -1,4 +1,10 @@
+<script lang="ts" module>
+	let CURRENT_RESIZE_TRANSITION_WRAPPER_CONTEXT = 'CURRENT_RESIZE_TRANSITION_WRAPPER_CONTEXT'
+</script>
+
 <script lang="ts">
+	import { getContext, setContext } from 'svelte'
+
 	import type { HTMLAttributes } from 'svelte/elements'
 	import { twMerge } from 'tailwind-merge'
 
@@ -18,6 +24,10 @@
 		vertical,
 		outerDivProps
 	}: Props = $props()
+
+	let currentResizeTransitionWrapper =
+		getContext<boolean>(CURRENT_RESIZE_TRANSITION_WRAPPER_CONTEXT) ?? false
+	setContext(CURRENT_RESIZE_TRANSITION_WRAPPER_CONTEXT, true)
 
 	let innerContainer: HTMLElement | null = $state(null)
 	let outerContainer: HTMLElement | null = $state(null)
@@ -48,8 +58,13 @@
 	})
 </script>
 
-<div bind:this={outerContainer} {...outerDivProps} class={className} {style}>
-	<div class={twMerge('absolute', innerClass)} bind:this={innerContainer}>
-		{@render children()}
+<!-- Prevent nesting this component to avoid weird behavior -->
+{#if currentResizeTransitionWrapper}
+	{@render children()}
+{:else}
+	<div bind:this={outerContainer} {...outerDivProps} class={twMerge('relative', className)} {style}>
+		<div class={twMerge('absolute', innerClass)} bind:this={innerContainer}>
+			{@render children()}
+		</div>
 	</div>
-</div>
+{/if}

@@ -1,7 +1,7 @@
+#!/bin/bash
+
 # This script outputs all features except private. Usage :
 #  > cargo build --features $(./all_features_oss.sh)
-
-#!/bin/bash
 
 # Path to the Cargo.toml file
 CARGO_TOML_PATH="./Cargo.toml"
@@ -12,6 +12,7 @@ if [[ -f "$CARGO_TOML_PATH" ]]; then
     sed -n '/\[features\]/,/^\[/p' | \
     grep -E '^[a-zA-Z0-9_-]+' | \
     grep -v 'private' | \
+    grep -v 'benchmark' | \
     cut -d' ' -f1 | \
     paste -sd ',' -
 else

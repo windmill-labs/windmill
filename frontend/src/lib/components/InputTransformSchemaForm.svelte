@@ -25,6 +25,7 @@
 		enableAi?: boolean
 		class?: string
 		helperScript?: DynamicInputTypes.HelperScript
+		isAgentTool?: boolean
 	}
 
 	let {
@@ -38,7 +39,8 @@
 		pickableProperties = undefined,
 		enableAi = false,
 		class: clazz = '',
-		helperScript = undefined
+		helperScript = undefined,
+		isAgentTool = false
 	}: Props = $props()
 
 	let inputCheck: { [id: string]: boolean } = $state({})
@@ -83,7 +85,7 @@
 
 <div class="w-full mb-6 {clazz}">
 	{#if enableAi}
-		<div class="mt-2">
+		<div class="pt-2">
 			<StepInputsGen
 				{pickableProperties}
 				argNames={keys
@@ -102,7 +104,7 @@
 	{#if keys.length > 0}
 		{#each keys as argName, index (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
-				<ResizeTransitionWrapper class="mt-2 relative" innerClass="w-full" vertical>
+				<ResizeTransitionWrapper class="mt-6" innerClass="w-full" vertical>
 					<InputTransformForm
 						{previousModuleId}
 						bind:arg={args[argName]}
@@ -119,6 +121,7 @@
 						{pickableProperties}
 						{enableAi}
 						{helperScript}
+						{isAgentTool}
 						otherArgs={Object.fromEntries(
 							Object.entries(args ?? {}).filter(([key]) => key !== argName)
 						)}
@@ -127,7 +130,7 @@
 			{/if}
 		{/each}
 	{:else}
-		<div class="text-tertiary text-sm">No inputs</div>
+		<div class="text-primary text-xs mt-2">No inputs</div>
 	{/if}
 </div>
 
@@ -149,8 +152,7 @@
 	{#snippet submission()}
 		<div class="flex flex-row-reverse w-full border-t border-gray-200 rounded-bl-lg rounded-br-lg">
 			<Button
-				variant="border"
-				color="blue"
+				variant="accent"
 				size="sm"
 				startIcon={{ icon: Plus }}
 				on:click={() => {

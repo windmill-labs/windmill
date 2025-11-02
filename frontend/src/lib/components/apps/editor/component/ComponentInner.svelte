@@ -237,6 +237,7 @@
 				customCss={component.customCss}
 				actions={component.actions ?? []}
 				actionsOrder={component.actionsOrder ?? undefined}
+				onChange={component.onChange}
 				{render}
 			/>
 		{:else if component.type === 'aggridcomponentee'}
@@ -249,6 +250,7 @@
 				customCss={component.customCss}
 				actions={component.actions ?? []}
 				actionsOrder={component.actionsOrder ?? undefined}
+				onChange={component.onChange}
 				{render}
 			/>
 		{:else if component.type === 'aggridinfinitecomponent'}
@@ -259,6 +261,7 @@
 				componentInput={component.componentInput}
 				customCss={component.customCss}
 				actions={component.actions ?? []}
+				onChange={component.onChange}
 				{render}
 			/>
 		{:else if component.type === 'aggridinfinitecomponentee'}
@@ -271,6 +274,7 @@
 				customCss={component.customCss}
 				actions={component.actions ?? []}
 				{render}
+				onChange={component.onChange}
 			/>
 		{:else if component.type === 'alertcomponent'}
 			<AppAlert
@@ -959,7 +963,7 @@
 				>{error}</pre
 			>
 			<div class="flex mt-4">
-				<Button wrapperClasses="border rounded !border-gray-400" color="dark" on:click={reset}
+				<Button wrapperClasses="border rounded !border-gray-400" variant="accent" on:click={reset}
 					>reset</Button
 				>
 			</div>

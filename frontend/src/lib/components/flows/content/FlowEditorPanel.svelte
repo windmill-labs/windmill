@@ -29,7 +29,7 @@
 		onDeployTrigger?: (trigger: Trigger) => void
 		forceTestTab?: Record<string, boolean>
 		highlightArg?: Record<string, string | undefined>
-		onTestFlow?: () => void
+		onTestFlow?: () => Promise<string | undefined>
 		job?: Job
 		isOwner?: boolean
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>

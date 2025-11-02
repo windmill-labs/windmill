@@ -33,7 +33,7 @@
 		<Button
 			loading={runLoading}
 			size="xs"
-			color="dark"
+			variant="accent"
 			btnClasses="!px-2 !py-1"
 			on:click={async () => {
 				runLoading = true
@@ -51,8 +51,8 @@
 	{:else}
 		<Button
 			size="xs"
-			color="red"
-			variant="border"
+			variant="accent"
+			destructive
 			btnClasses="!px-2 !py-1 !ml-[3px]"
 			on:click={async () => {
 				cancelable?.forEach((f) => f.cancel())

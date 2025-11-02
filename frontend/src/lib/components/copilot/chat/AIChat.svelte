@@ -1,18 +1,13 @@
 <script lang="ts">
 	import AIChatDisplay from './AIChatDisplay.svelte'
-	import { onDestroy, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { type ScriptLang } from '$lib/gen'
-	import {
-		copilotInfo,
-		copilotSessionModel,
-		dbSchemas,
-		userStore,
-		workspaceStore
-	} from '$lib/stores'
+	import { dbSchemas, userStore, workspaceStore } from '$lib/stores'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import { base } from '$lib/base'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
+	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const hasCopilot = $derived($copilotInfo.enabled)
@@ -58,17 +53,7 @@
 		aiChatManager.sendRequest(options)
 	}
 
-	function cancel() {
-		aiChatManager.cancel()
-	}
-
 	const historyManager = aiChatManager.historyManager
-	historyManager.init()
-
-	onDestroy(() => {
-		cancel()
-		historyManager.close()
-	})
 
 	let aiChatDisplay: AIChatDisplay | undefined = $state(undefined)
 
@@ -77,11 +62,7 @@
 	})
 
 	$effect(() => {
-		aiChatManager.listenForContextChange(
-			$dbSchemas,
-			$workspaceStore,
-			$copilotSessionModel
-		)
+		aiChatManager.listenForContextChange($dbSchemas, $workspaceStore, $copilotSessionModel)
 	})
 
 	$effect(() => {
@@ -137,7 +118,7 @@
 	loadPastChat={(id) => {
 		aiChatManager.loadPastChat(id)
 	}}
-	{cancel}
+	cancel={aiChatManager.cancel}
 	askAi={aiChatManager.askAi}
 	{headerLeft}
 	hasDiff={aiChatManager.scriptEditorOptions &&

@@ -7,7 +7,7 @@
 	import { Clock, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
-	import { inputBaseClass, inputBorderClass } from './text_input/TextInput.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 	// import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 
 	interface Props {
@@ -20,6 +20,11 @@
 		maxDate?: string | undefined
 		disabled?: boolean | undefined
 		inputClass?: string | undefined
+		/**
+		 * 'naive' will ignore timezone and return a date without timezone
+		 * 'local' will use the local timezone of the user
+		 */
+		timezone?: 'naive' | 'local'
 	}
 
 	let {
@@ -30,7 +35,8 @@
 		minDate = undefined,
 		maxDate = undefined,
 		disabled = undefined,
-		inputClass = undefined
+		inputClass = undefined,
+		timezone = 'local'
 	}: Props = $props()
 
 	let date: string | undefined = $state(undefined)
@@ -40,18 +46,23 @@
 
 	function parseValue(value: string | undefined = undefined) {
 		let dateFromValue: Date | undefined = value ? new Date(value) : undefined
-		date = isValidDate(dateFromValue)
-			? `${dateFromValue!.getFullYear().toString()}-${(dateFromValue!.getMonth() + 1)
-					.toString()
-					.padStart(2, '0')}-${dateFromValue!.getDate().toString().padStart(2, '0')}`
-			: undefined
+		if (!isValidDate(dateFromValue)) {
+			date = undefined
+			time = '12:00'
+			return
+		}
 
-		time = isValidDate(dateFromValue)
-			? `${dateFromValue!.getHours().toString().padStart(2, '0')}:${dateFromValue!
-					.getMinutes()
-					.toString()
-					.padStart(2, '0')}`
-			: '12:00'
+		let year = timezone === 'local' ? dateFromValue?.getFullYear() : dateFromValue?.getUTCFullYear()
+		let month = timezone === 'local' ? dateFromValue?.getMonth() : dateFromValue?.getUTCMonth()
+		let day = timezone === 'local' ? dateFromValue?.getDate() : dateFromValue?.getUTCDate()
+		let hours = timezone === 'local' ? dateFromValue.getHours() : dateFromValue.getUTCHours()
+		let minutes = timezone === 'local' ? dateFromValue.getMinutes() : dateFromValue.getUTCMinutes()
+
+		date = `${year.toString()}-${(month + 1)
+			.toString()
+			.padStart(2, '0')}-${day.toString().padStart(2, '0')}`
+
+		time = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
 	}
 
 	$effect(() => {
@@ -66,10 +77,9 @@
 
 	function parseDateAndTime(date: string | undefined, time: string | undefined) {
 		if (date && time && (initialDate != date || initialTime != time)) {
-			let newDate = new Date(`${date}T${time}`)
+			let newDate = new Date(timezone === 'local' ? `${date}T${time}` : `${date}T${time}Z`)
 			if (newDate.toString() === 'Invalid Date') return
 			if (newDate.getFullYear() < 1900) return
-
 			value = newDate.toISOString()
 			dispatchIfMounted('change', value)
 		}
@@ -82,7 +92,7 @@
 		})
 	})
 
-	function isValidDate(d: Date | undefined): boolean {
+	function isValidDate(d: Date | undefined): d is Date {
 		return d instanceof Date && !isNaN(d as any)
 	}
 
@@ -91,6 +101,9 @@
 
 	function setTimeLater(mins: number) {
 		let newDate = new Date()
+		if (timezone === 'naive') {
+			newDate.setMinutes(newDate.getMinutes() - newDate.getTimezoneOffset())
+		}
 		newDate.setMinutes(newDate.getMinutes() + mins)
 		value = newDate.toISOString()
 		dispatch('change', value)
@@ -100,32 +113,24 @@
 </script>
 
 <div
-	class="flex flex-row gap-1 items-center w-full"
+	class="flex flex-row gap-1 items-center w-full relative"
 	id={randomId}
 	onpointerdown={bubble('pointerdown')}
 	onfocus={bubble('focus')}
 >
 	<!-- svelte-ignore a11y_autofocus -->
-	<input
-		type="date"
+	<TextInput
+		inputProps={{ type: 'date', autofocus, disabled, min: minDate, max: maxDate }}
 		bind:value={date}
-		{autofocus}
-		{disabled}
-		class={twMerge(inputBaseClass, inputBorderClass(), 'text-sm !w-3/4 ', inputClass)}
-		min={minDate}
-		max={maxDate}
+		class={twMerge('!w-3/4 ', inputClass)}
 	/>
-	<input
-		type="time"
+	<TextInput
+		inputProps={{ type: 'time', disabled }}
 		bind:value={time}
-		class={twMerge(inputBaseClass, inputBorderClass(), 'text-sm !w-1/4 min-w-[100px] ', inputClass)}
-		{disabled}
+		class={twMerge('!w-1/4 min-w-[100px] !max-h-full', inputClass)}
 	/>
 	<Button
-		variant="contained"
-		color="light"
-		wrapperClasses="h-full"
-		btnClasses="bg-surface-secondary"
+		variant="default"
 		startIcon={{
 			icon: Clock
 		}}
@@ -168,8 +173,8 @@
 	</Button>
 	{#if clearable}
 		<Button
-			variant="border"
-			color="light"
+			variant="default"
+			unifiedSize="md"
 			wrapperClasses="h-full"
 			{disabled}
 			on:click={() => {

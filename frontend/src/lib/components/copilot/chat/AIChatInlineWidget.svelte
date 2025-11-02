@@ -187,7 +187,7 @@
 	{#if processing}
 		<LoadingIcon />
 	{:else if aiChatManager.pendingNewCode}
-		<span class="text-xs text-tertiary pr-1">
+		<span class="text-xs text-primary pr-1">
 			{getModifierKey()}↓ to apply
 		</span>
 	{:else}

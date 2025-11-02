@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.554.1"
+version = "1.571.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -18,7 +18,6 @@ members = [
     "./windmill-macros",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
-    "./parsers/windmill-parser-wasm",
     "./parsers/windmill-parser-go",
     "./parsers/windmill-parser-rust",
     "./parsers/windmill-parser-csharp",
@@ -34,7 +33,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.554.1"
+version = "1.571.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -86,6 +85,7 @@ oauth2 = ["windmill-api/oauth2"]
 zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
+test_job_debouncing = []
 # Languages
 python = ["windmill-worker/python", "windmill-api/python"]
 rust = ["windmill-worker/rust"]
@@ -159,6 +159,7 @@ libloading.workspace = true
 bitflags.workspace = true
 nom.workspace = true
 globset.workspace = true
+
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { optional = true, workspace = true }
@@ -264,6 +265,7 @@ aws-sigv4 = "^1.3.4"
 aws-sdk-config = "=1.68.0"
 async-trait = "0.1.88"
 
+
 v8 = "=130.0.7"  # Exact version NOTE: Do not forget to update version and hash in flake.nix
 deno_fetch = "0.214.0"
 deno_tls = "0.177.0"
@@ -328,7 +330,7 @@ once_cell = "1.17.1"
 gosyn = "0.2.6"
 bytes = "1.4.0"
 gethostname = "0.4.3"
-wasm-bindgen = "^0"
+wasm-bindgen = "=0.2.103"
 serde-wasm-bindgen = "^0"
 wasm-bindgen-test = "^0"
 convert_case = "0.6.0"

@@ -15,8 +15,10 @@ const p = {
 
     const cdir = resolve("./");
     const cdirNoPrivate = cdir.replace(/^\/private/, ""); // for macos
+    // On Windows, normalize path to POSIX format to match args.path from Bun's resolver
+    const cdirPosix = cdir.replace(/\\/g, "/").replace(/^[a-zA-Z]:/, "");
     const filterResolve = new RegExp(
-      `^(?!\\.\/main\\.ts)(?!${cdir}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
+      `^(?!\\.\/main\\.ts)(?!${cdir}\/main\\.ts)(?!${cdirPosix}\/main\\.ts)(?!(?:/private)?${cdirNoPrivate}\/wrapper\\.mjs).*\\.ts$`
     );
 
     let cdirNodeModules = `${cdir}/node_modules/`;

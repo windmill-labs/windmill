@@ -80,6 +80,7 @@
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { GraphModuleState } from './graph'
+	import { validateRetryConfig } from '$lib/utils'
 	import {
 		setStepHistoryLoaderContext,
 		StepHistoryLoader,
@@ -88,6 +89,7 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
+	import { inputSizeClasses } from './text_input/TextInput.svelte'
 
 	let {
 		initialPath = $bindable(''),
@@ -427,6 +429,28 @@
 		loadingSave = true
 		try {
 			const flow = cleanInputs(flowStore.val)
+
+			if (flow.value?.modules) {
+				const validationErrors: string[] = []
+				dfsApply(flow.value.modules, (module) => {
+					const error = validateRetryConfig(module.retry)
+					if (error) {
+						validationErrors.push(`Step '${module.id}': ${error}`)
+					}
+				})
+
+				if (flow.value.failure_module) {
+					// add validation logic here for failure module
+				}
+
+				if (flow.value.preprocessor_module) {
+					// add validation logic here for preprocessor module
+				}
+
+				if (validationErrors.length > 0) {
+					throw new Error(validationErrors.join('\n'))
+				}
+			}
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
@@ -1010,15 +1034,14 @@
 					/>
 				</div>
 
-				<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
+				<div class="gap-4 flex-row hidden md:flex w-full whitespace-nowrap max-w-md">
 					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
 						{@const primaryScheduleIndex = triggersState.triggers.findIndex((t) => t.isPrimary)}
 						{@const scheduleIndex = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
-							variant="contained"
-							color="light"
+							variant="subtle"
 							size="xs"
 							on:click={async () => {
 								select('triggers')
@@ -1035,27 +1058,25 @@
 					{/if}
 
 					{#if customUi?.topBar?.path != false}
-						<div class="flex justify-start w-full">
-							<div>
-								<button
-									onclick={async () => {
-										select('settings-metadata')
-										document.getElementById('path')?.focus()
-									}}
+						<div class="flex justify-start items-center w-full">
+							<button
+								onclick={async () => {
+									select('settings-metadata')
+									document.getElementById('path')?.focus()
+								}}
+							>
+								<Badge
+									color="gray"
+									class="text-primary rounded-r-none border border-r-0 {inputSizeClasses.md}"
 								>
-									<Badge
-										color="gray"
-										class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[28px]  !w-[70px] rounded-r-none"
-									>
-										<Pen size={12} class="mr-2" /> Path
-									</Badge>
-								</button>
-							</div>
+									<Pen size={12} class="mr-2" /> Path
+								</Badge>
+							</button>
 							<input
 								type="text"
 								readonly
 								value={$pathStore && $pathStore != '' ? $pathStore : 'Choose a path'}
-								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
+								class="font-mono !text-2xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 cursor-default !rounded-l-none {inputSizeClasses.md}"
 								onfocus={({ currentTarget }) => {
 									currentTarget.select()
 								}}
@@ -1081,9 +1102,8 @@
 					{/if}
 					{#if customUi?.topBar?.diff != false}
 						<Button
-							color="light"
-							variant="border"
-							size="xs"
+							variant="default"
+							unifiedSize="md"
 							on:click={async () => {
 								if (!savedFlow) {
 									return
@@ -1110,11 +1130,9 @@
 								})
 							}}
 							disabled={!savedFlow}
+							startIcon={{ icon: DiffIcon }}
 						>
-							<div class="flex flex-row gap-2 items-center">
-								<DiffIcon size={14} />
-								Diff
-							</div>
+							Diff
 						</Button>
 					{/if}
 					<FlowPreviewButtons
@@ -1138,13 +1156,12 @@
 					/>
 					<Button
 						loading={loadingDraft}
-						size="xs"
+						unifiedSize="md"
+						variant="accent"
 						startIcon={{ icon: Save }}
 						on:click={() => saveDraft()}
 						disabled={(!newFlow && !savedFlow) || loading}
-						shortCut={{
-							key: 'S'
-						}}
+						shortCut={{ key: 'S' }}
 					>
 						Draft
 					</Button>

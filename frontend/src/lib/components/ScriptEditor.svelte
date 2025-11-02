@@ -3,10 +3,10 @@
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
-	import { copilotInfo, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
-	import { inferArgs, inferAssets } from '$lib/infer'
+	import { inferArgs, inferAssets, inferAnsibleExecutionMode } from '$lib/infer'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
@@ -27,6 +27,7 @@
 		CornerDownLeft,
 		ExternalLink,
 		Github,
+		GitBranch,
 		Play,
 		PlayIcon,
 		WandSparkles
@@ -50,6 +51,10 @@
 	import { assetEq, type AssetWithAltAccessType } from './assets/lib'
 	import { editor as meditor } from 'monaco-editor'
 	import type { ReviewChangesOpts } from './copilot/chat/monaco-adapter'
+	import GitRepoViewer from './GitRepoViewer.svelte'
+	import GitRepoResourcePicker from './GitRepoResourcePicker.svelte'
+	import { updateDelegateToGitRepoConfig, insertAdditionalInventories } from '$lib/ansibleUtils'
+	import { copilotInfo } from '$lib/aiStore'
 
 	interface Props {
 		// Exported
@@ -153,6 +158,26 @@
 				}
 				assets = newAssets
 			})
+
+			if (lang === 'ansible') {
+				inferAnsibleExecutionMode(code).then((v) => {
+					if (
+						v !== undefined &&
+						(v.delegate_to_git_repo_details === null ||
+							v.delegate_to_git_repo_details.resource !==
+								ansibleAlternativeExecutionMode?.resource ||
+							v.delegate_to_git_repo_details.playbook !==
+								ansibleAlternativeExecutionMode?.playbook ||
+							v.delegate_to_git_repo_details.inventories_location !==
+								ansibleAlternativeExecutionMode?.inventories_location ||
+							v.delegate_to_git_repo_details.commit !== ansibleAlternativeExecutionMode?.commit ||
+							v.git_ssh_identity !== ansibleGitSshIdentity)
+					) {
+						ansibleAlternativeExecutionMode = v.delegate_to_git_repo_details
+						ansibleGitSshIdentity = v.git_ssh_identity
+					}
+				})
+			}
 		})
 	})
 
@@ -174,6 +199,13 @@
 	let yContent: Y.Text | undefined = $state(undefined)
 	let peers: { name: string }[] = $state([])
 	let showCollabPopup = $state(false)
+
+	let ansibleAlternativeExecutionMode = $state<
+		| { resource?: string; commit?: string; inventories_location?: string; playbook?: string }
+		| null
+		| undefined
+	>()
+	let ansibleGitSshIdentity = $state<string[]>([])
 
 	const url = new URL(window.location.toString())
 	let initialCollab = /true|1/i.test(url.searchParams.get('collab') ?? '0')
@@ -268,6 +300,40 @@
 		} catch (e) {
 			validCode = false
 		}
+	}
+
+	let gitRepoResourcePickerOpen = $state(false)
+	let commitHashForGitRepo = $derived(ansibleAlternativeExecutionMode?.commit)
+
+	// Check if delegate_to_git_repo exists in the code
+	let hasDelegateToGitRepo = $derived(code && code.includes('delegate_to_git_repo:'))
+
+	function handleDelegateConfigUpdate(event: {
+		detail: { resourcePath: string; playbook?: string; inventoriesLocation?: string }
+	}) {
+		if (!editor) return
+
+		const currentCode = editor.getCode()
+		const newCode = updateDelegateToGitRepoConfig(currentCode, {
+			resource: event.detail.resourcePath,
+			playbook: event.detail.playbook,
+			inventories_location: event.detail.inventoriesLocation
+		})
+		editor.setCode(newCode)
+
+		// Trigger schema inference to update assets
+		inferSchema(newCode)
+	}
+
+	function handleAddInventories(event: { detail: { inventoryPaths: string[] } }) {
+		if (!editor) return
+
+		const currentCode = editor.getCode()
+		const newCode = insertAdditionalInventories(currentCode, event.detail.inventoryPaths)
+		editor.setCode(newCode)
+
+		// Trigger schema inference to update assets
+		inferSchema(newCode)
 	}
 
 	onMount(() => {
@@ -521,8 +587,8 @@
 				<Button
 					target="_blank"
 					href="https://www.windmill.dev/docs/cli_local_dev/vscode-extension"
-					color="light"
-					size="xs"
+					variant="subtle"
+					unifiedSize="md"
 					btnClasses="hidden lg:flex"
 					startIcon={{
 						icon: Github
@@ -537,136 +603,41 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane bind:size={codePanelSize} minSize={10} class="!overflow-visible">
-			<div class="h-full !overflow-visible bg-surface dark:bg-[#272D38] relative">
-				<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
-					{#if assets?.length}
-						<AssetsDropdownButton {assets} />
-					{/if}
-					{#if testPanelSize === 0}
-						<HideButton
-							hidden={true}
-							direction="right"
-							size="md"
-							panelName="Test"
-							shortcut="U"
-							customHiddenIcon={{
-								icon: PlayIcon
-							}}
-							on:click={() => {
-								toggleTestPanel()
-							}}
-							btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
-							color="marine"
-						/>
-					{/if}
-					{#if !aiChatManager.open && !disableAi}
-						{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
-							<HideButton
-								hidden={true}
-								direction="right"
-								panelName="AI"
-								shortcut="L"
-								size="md"
-								usePopoverOverride={!$copilotInfo.enabled}
-								customHiddenIcon={{
-									icon: WandSparkles
-								}}
-								btnClasses="!text-violet-800 dark:!text-violet-400 border border-gray-200 dark:border-gray-600 bg-surface"
-								on:click={() => {
-									if (!aiChatManager.open) {
-										aiChatManager.changeMode(AIMode.SCRIPT)
-									}
-									aiChatManager.toggleOpen()
-								}}
-							>
-								{#snippet popoverOverride()}
-									<div class="text-sm">
-										Enable Windmill AI in the <a
-											href="{base}/workspace_settings?tab=ai"
-											target="_blank"
-											class="inline-flex flex-row items-center gap-1"
-										>
-											workspace settings <ExternalLink size={16} />
-										</a>
-									</div>
-								{/snippet}
-							</HideButton>
-						{/if}
-					{/if}
-				</div>
-
-				{#key lang}
-					<Editor
-						lineNumbersMinChars={4}
-						folding
-						{path}
-						bind:code
-						bind:websocketAlive
-						bind:this={editor}
-						{yContent}
-						awareness={wsProvider?.awareness}
-						on:change={(e) => {
-							inferSchema(e.detail)
-						}}
-						on:saveDraft
-						on:toggleTestPanel={toggleTestPanel}
-						cmdEnterAction={async () => {
-							await inferSchema(code)
-							runTest()
-						}}
-						formatAction={async () => {
-							await inferSchema(code)
-							try {
-								localStorage.setItem(path ?? 'last_save', code)
-							} catch (e) {
-								console.error('Could not save last_save to local storage', e)
-							}
-							dispatch('format')
-						}}
-						class="flex flex-1 h-full !overflow-visible"
-						scriptLang={lang}
-						automaticLayout={true}
-						{fixedOverflowWidgets}
-						{args}
-						{enablePreprocessorSnippet}
-					/>
-					<DiffEditor
-						className="h-full"
-						bind:this={diffEditor}
-						modifiedModel={editor?.getModel() as meditor.ITextModel}
-						automaticLayout
-						defaultLang={scriptLangToEditorLang(lang)}
-						{fixedOverflowWidgets}
-						buttons={diffMode
-							? [
-									{
-										text: 'See changes history',
-										onClick: () => {
-											showHistoryDrawer = true
-										}
-									},
-									{
-										text: 'Quit diff mode',
-										onClick: () => {
-											hideDiffMode()
-										},
-										color: 'red'
-									}
-								]
-							: []}
-					/>
-				{/key}
-			</div>
+			{#if lang === 'ansible' && ansibleAlternativeExecutionMode != null}
+				<!-- Vertical split for ansible with assets -->
+				<Splitpanes horizontal class="!overflow-visible h-full">
+					<Pane size={60} minSize={30} class="!overflow-visible">
+						{@render editorContent()}
+					</Pane>
+					<Pane size={40} minSize={20} class="!overflow-visible">
+						<div
+							class="h-full flex flex-col bg-surface border-l border-gray-200 dark:border-gray-700"
+						>
+							<div class="p-3 border-b border-gray-200 dark:border-gray-700">
+								<h4 class="text-sm font-semibold text-primary">File Browser</h4>
+							</div>
+							<GitRepoViewer
+								gitRepoResourcePath={ansibleAlternativeExecutionMode?.resource || ''}
+								gitSshIdentity={ansibleGitSshIdentity}
+								bind:commitHashInput={commitHashForGitRepo}
+							/>
+						</div>
+					</Pane>
+				</Splitpanes>
+			{:else}
+				<!-- Original single editor layout -->
+				{@render editorContent()}
+			{/if}
 		</Pane>
 		<Pane bind:size={testPanelSize} minSize={0}>
 			<div class="flex flex-col h-full">
 				{#if showTabs}
 					<div transition:slide={{ duration: 200 }}>
 						<Tabs bind:selected={selectedTab}>
-							<Tab value="main">Main</Tab>
+							<Tab value="main" label="Main" />
 							{#if hasPreprocessor}
 								<div transition:slide={{ duration: 200, axis: 'x' }}>
-									<Tab value="preprocessor">Preprocessor</Tab>
+									<Tab value="preprocessor" label="Preprocessor" />
 								</div>
 							{/if}
 						</Tabs>
@@ -697,42 +668,15 @@
 							/>
 							Cancel
 						</Button>
-					{:else if customUi?.previewPanel?.disableTriggerButton !== true}
-						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
-							<Button
-								color="dark"
-								on:click={() => {
-									runTest()
-								}}
-								btnClasses="w-full rounded-r-none"
-								size="xs"
-								startIcon={{
-									icon: Play,
-									classes: 'animate-none'
-								}}
-								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
-							>
-								{#if testIsLoading}
-									Running
-								{:else}
-									Test
-								{/if}
-							</Button>
-							<CaptureButton on:openTriggers />
-						</div>
 					{:else}
+						{@const disableTriggerButton = customUi?.previewPanel?.disableTriggerButton === true}
 						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
 							<Button
-								color="dark"
-								on:click={() => {
-									runTest()
-								}}
-								btnClasses="w-full"
+								on:click={() => runTest()}
+								btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
 								size="xs"
-								startIcon={{
-									icon: Play,
-									classes: 'animate-none'
-								}}
+								variant="accent-secondary"
+								startIcon={{ icon: Play, classes: 'animate-none' }}
 								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
 							>
 								{#if testIsLoading}
@@ -741,6 +685,9 @@
 									Test
 								{/if}
 							</Button>
+							{#if !disableTriggerButton}
+								<CaptureButton on:openTriggers />
+							{/if}
 						</div>
 					{/if}
 				</div>
@@ -811,3 +758,148 @@
 		</Pane>
 	</Splitpanes>
 </SplitPanesWrapper>
+
+{#snippet editorContent()}
+	<div class="h-full !overflow-visible bg-surface dark:bg-[#272D38] relative">
+		<div class="absolute top-2 right-4 z-10 flex flex-row gap-2">
+			{#if assets?.length}
+				<AssetsDropdownButton {assets} />
+			{/if}
+			{#if lang === 'ansible' && hasDelegateToGitRepo}
+				<Button
+					variant="default"
+					size="xs"
+					on:click={() => (gitRepoResourcePickerOpen = true)}
+					startIcon={{ icon: GitBranch }}
+					btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
+				>
+					Delegating to git repo
+				</Button>
+			{/if}
+			{#if testPanelSize === 0}
+				<HideButton
+					hidden={true}
+					direction="right"
+					size="md"
+					panelName="Test"
+					shortcut="U"
+					customHiddenIcon={{
+						icon: PlayIcon
+					}}
+					on:click={() => {
+						toggleTestPanel()
+					}}
+					btnClasses="bg-marine-400 hover:bg-marine-200 !text-primary-inverse hover:!text-primary-inverse hover:dark:!text-primary-inverse dark:bg-marine-50 dark:hover:bg-marine-50/70"
+					color="marine"
+				/>
+			{/if}
+			{#if !aiChatManager.open && !disableAi}
+				{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
+					<HideButton
+						hidden={true}
+						direction="right"
+						panelName="AI"
+						shortcut="L"
+						size="md"
+						usePopoverOverride={!$copilotInfo.enabled}
+						customHiddenIcon={{
+							icon: WandSparkles
+						}}
+						btnClasses="!text-ai border border-gray-200 dark:border-gray-600 bg-surface"
+						on:click={() => {
+							if (!aiChatManager.open) {
+								aiChatManager.changeMode(AIMode.SCRIPT)
+							}
+							aiChatManager.toggleOpen()
+						}}
+					>
+						{#snippet popoverOverride()}
+							<div class="text-sm">
+								Enable Windmill AI in the <a
+									href="{base}/workspace_settings?tab=ai"
+									target="_blank"
+									class="inline-flex flex-row items-center gap-1"
+								>
+									workspace settings <ExternalLink size={16} />
+								</a>
+							</div>
+						{/snippet}
+					</HideButton>
+				{/if}
+			{/if}
+		</div>
+
+		{#key lang}
+			<Editor
+				lineNumbersMinChars={4}
+				folding
+				{path}
+				bind:code
+				bind:websocketAlive
+				bind:this={editor}
+				{yContent}
+				awareness={wsProvider?.awareness}
+				on:change={(e) => {
+					inferSchema(e.detail)
+				}}
+				on:saveDraft
+				on:toggleTestPanel={toggleTestPanel}
+				cmdEnterAction={async () => {
+					await inferSchema(code)
+					runTest()
+				}}
+				formatAction={async () => {
+					await inferSchema(code)
+					try {
+						localStorage.setItem(path ?? 'last_save', code)
+					} catch (e) {
+						console.error('Could not save last_save to local storage', e)
+					}
+					dispatch('format')
+				}}
+				class="flex flex-1 h-full !overflow-visible"
+				scriptLang={lang}
+				automaticLayout={true}
+				{fixedOverflowWidgets}
+				{args}
+				{enablePreprocessorSnippet}
+			/>
+			<DiffEditor
+				className="h-full"
+				bind:this={diffEditor}
+				modifiedModel={editor?.getModel() as meditor.ITextModel}
+				automaticLayout
+				defaultLang={scriptLangToEditorLang(lang)}
+				{fixedOverflowWidgets}
+				buttons={diffMode
+					? [
+							{
+								text: 'See changes history',
+								onClick: () => {
+									showHistoryDrawer = true
+								}
+							},
+							{
+								text: 'Quit diff mode',
+								onClick: () => {
+									hideDiffMode()
+								},
+								color: 'red'
+							}
+						]
+					: []}
+			/>
+		{/key}
+	</div>
+{/snippet}
+
+<GitRepoResourcePicker
+	bind:open={gitRepoResourcePickerOpen}
+	currentResource={ansibleAlternativeExecutionMode?.resource}
+	currentCommit={commitHashForGitRepo || ansibleAlternativeExecutionMode?.commit}
+	currentInventories={ansibleAlternativeExecutionMode?.inventories_location}
+	currentPlaybook={ansibleAlternativeExecutionMode?.playbook}
+	gitSshIdentity={ansibleGitSshIdentity}
+	on:selected={handleDelegateConfigUpdate}
+	on:addInventories={handleAddInventories}
+/>

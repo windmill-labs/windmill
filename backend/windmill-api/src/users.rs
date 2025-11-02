@@ -110,6 +110,7 @@ pub fn global_service() -> Router {
         .route("/leave_instance", post(leave_instance))
         .route("/export", get(export_global_users))
         .route("/overwrite", post(overwrite_global_users))
+        .route("/onboarding", post(submit_onboarding_data))
 
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
@@ -286,6 +287,7 @@ pub struct GlobalUserInfo {
     username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_only: Option<bool>,
+    first_time_user: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -533,7 +535,7 @@ async fn list_users_as_super_admin(
             GlobalUserInfo,
             "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
-            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username
+            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username, first_time_user
             FROM password
             WHERE email IN (SELECT email FROM active_users)
             ORDER BY super_admin DESC, devops DESC
@@ -546,7 +548,7 @@ async fn list_users_as_super_admin(
     } else {
         sqlx::query_as!(
             GlobalUserInfo,
-            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
+            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only, first_time_user FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
             $1 OFFSET $2",
             per_page as i32,
             offset as i32
@@ -583,7 +585,7 @@ async fn update_tutorial_progress(
     Json(progress): Json<Progress>,
 ) -> Result<String> {
     sqlx::query_scalar!(
-        "INSERT INTO tutorial_progress VALUES ($2, $1::bigint::bit(64)) ON CONFLICT (email) DO UPDATE SET progress = $1::bigint::bit(64)",
+        "INSERT INTO tutorial_progress VALUES ($2, $1::bigint::bit(64)) ON CONFLICT (email) DO UPDATE SET progress = EXCLUDED.progress",
         progress.progress as i64,
         authed.email
     )
@@ -749,7 +751,7 @@ async fn global_whoami(
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
         GlobalUserInfo,
-        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only FROM password WHERE \
+        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only, first_time_user FROM password WHERE \
          email = $1",
         email
     )
@@ -770,6 +772,7 @@ async fn global_whoami(
             company: None,
             username: None,
             operator_only: None,
+            first_time_user: false,
         }))
     } else {
         Err(user.unwrap_err())
@@ -1385,7 +1388,9 @@ async fn convert_user_to_group(
     // Check if user is already a group user
     if let Some(added_via) = &user_info.added_via {
         if added_via.get("source").and_then(|v| v.as_str()) == Some("instance_group") {
-            return Err(Error::BadRequest("User is already a group user".to_string()));
+            return Err(Error::BadRequest(
+                "User is already a group user".to_string(),
+            ));
         }
     }
 
@@ -1408,16 +1413,18 @@ async fn convert_user_to_group(
 
     if eligible_groups.is_empty() {
         return Err(Error::BadRequest(
-            "User is not a member of any instance groups configured for auto-add in this workspace".to_string()
+            "User is not a member of any instance groups configured for auto-add in this workspace"
+                .to_string(),
         ));
     }
 
     // Determine the group with highest precedence (same logic as process_instance_group_auto_adds)
-    let roles: std::collections::HashMap<String, String> = if let Some(roles_json) = &eligible_groups[0].auto_add_instance_groups_roles {
-        serde_json::from_value(roles_json.clone()).unwrap_or_default()
-    } else {
-        std::collections::HashMap::new()
-    };
+    let roles: std::collections::HashMap<String, String> =
+        if let Some(roles_json) = &eligible_groups[0].auto_add_instance_groups_roles {
+            serde_json::from_value(roles_json.clone()).unwrap_or_default()
+        } else {
+            std::collections::HashMap::new()
+        };
 
     let mut best_group = &eligible_groups[0].group_name;
     let mut best_precedence = 0u8;
@@ -1443,7 +1450,10 @@ async fn convert_user_to_group(
 
     // Determine role from group configuration using the selected primary group
     let default_role = "developer".to_string();
-    let role = roles.get(primary_group_name).unwrap_or(&default_role).as_str();
+    let role = roles
+        .get(primary_group_name)
+        .unwrap_or(&default_role)
+        .as_str();
 
     let (is_admin, is_operator) = match role {
         "admin" => (true, false),
@@ -1487,12 +1497,18 @@ async fn convert_user_to_group(
         &db,
         &w_id,
         windmill_git_sync::DeployedObject::User { email: user_info.email.clone() },
-        Some(format!("Converted user '{}' to group user (group: {}, role: {})", &user_info.email, primary_group_name, role)),
+        Some(format!(
+            "Converted user '{}' to group user (group: {}, role: {})",
+            &user_info.email, primary_group_name, role
+        )),
         true,
     )
     .await?;
 
-    Ok(format!("User {} converted to group user (group: {}, role: {})", username_to_convert, primary_group_name, role))
+    Ok(format!(
+        "User {} converted to group user (group: {}, role: {})",
+        username_to_convert, primary_group_name, role
+    ))
 }
 
 async fn update_user(
@@ -1594,9 +1610,12 @@ async fn delete_user(
     }
 
     // Remove user from all instance groups email_to_igroup
-    sqlx::query!("DELETE FROM email_to_igroup WHERE email = $1", &email_to_delete)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "DELETE FROM email_to_igroup WHERE email = $1",
+        &email_to_delete
+    )
+    .execute(&mut *tx)
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -1625,6 +1644,14 @@ async fn create_user(
     Json(nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
     crate::users_oss::create_user(authed, db, webhook, argon2, nu).await
+}
+
+async fn submit_onboarding_data(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(data): Json<crate::users_oss::OnboardingData>,
+) -> Result<String> {
+    crate::users_oss::submit_onboarding_data(authed, Extension(db), Json(data)).await
 }
 
 /// Internal helper for updating workspace user permissions - used by both API and system operations
@@ -1842,15 +1869,15 @@ async fn login(
         username_override: None,
         token_prefix: None,
     };
-    let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
-        "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
+    let email_w_h: Option<(String, String, bool)> = sqlx::query_as(
+        "SELECT email, password_hash, super_admin FROM password WHERE email = $1 AND login_type = \
          'password'",
     )
     .bind(&email)
     .fetch_optional(&mut *tx)
     .await?;
 
-    if let Some((email, hash, super_admin, first_time_user)) = email_w_h {
+    if let Some((email, hash, super_admin)) = email_w_h {
         let parsed_hash =
             PasswordHash::new(&hash).map_err(|e| Error::internal_err(e.to_string()))?;
         if argon2
@@ -1869,25 +1896,6 @@ async fn login(
             .await?;
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
-            if first_time_user {
-                sqlx::query_scalar!(
-                    "UPDATE password SET first_time_user = false WHERE email = $1",
-                    &email
-                )
-                .execute(&mut *tx)
-                .await?;
-                let mut c = Cookie::new("first_time", "1");
-                if let Some(domain) = COOKIE_DOMAIN.as_ref() {
-                    c.set_domain(domain);
-                }
-                c.set_secure(false);
-                c.set_expires(time::OffsetDateTime::now_utc() + time::Duration::minutes(15));
-                c.set_http_only(false);
-                c.set_path("/");
-
-                cookies.add(c);
-            }
-
             let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
 
             let audit_author = AuditAuthor {

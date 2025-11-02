@@ -3,6 +3,7 @@ use crate::db::ApiAuthed;
 use crate::workspaces::{check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN, WM_FORK_PREFIX};
 use crate::{db::DB, utils::require_super_admin};
 
+use axum::extract::Query;
 use axum::{
     extract::{Extension, Path},
     Json,
@@ -415,10 +416,16 @@ pub(crate) async fn change_workspace_id(
     ))
 }
 
+#[derive(Deserialize)]
+pub(crate) struct DeleteWorkspaceQuery {
+    pub(crate) only_delete_forks: Option<bool>,
+}
+
 pub(crate) async fn delete_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     authed: ApiAuthed,
+    Query(dwq): Query<DeleteWorkspaceQuery>,
 ) -> Result<String> {
     let w_id = match w_id.as_str() {
         "starter" => Err(Error::BadRequest(
@@ -429,10 +436,21 @@ pub(crate) async fn delete_workspace(
         )),
         _ => Ok(w_id),
     }?;
+
+    if dwq.only_delete_forks.unwrap_or(false) && !w_id.starts_with(WM_FORK_PREFIX) {
+        return Err(Error::BadRequest(
+            "Cannot delete this workspace because it is not a workspace fork.".to_string(),
+        ));
+    }
+
     let mut tx = db.begin().await?;
     if !(w_id.starts_with(WM_FORK_PREFIX) && is_workspace_owner(&authed, &w_id, &mut tx).await?) {
         require_super_admin(&db, &authed.email).await?;
     }
+
+    sqlx::query!("DELETE FROM workspace_env WHERE workspace_id = $1", &w_id)
+        .execute(&mut *tx)
+        .await?;
 
     sqlx::query!("DELETE FROM dependency_map WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)

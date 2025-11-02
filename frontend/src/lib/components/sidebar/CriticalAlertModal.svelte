@@ -185,7 +185,7 @@
 				>
 					<svelte:fragment slot="trigger">
 						<div id="mute-settings-button">
-							<Button variant="border" color="light" nonCaptureEvent>
+							<Button variant="default" nonCaptureEvent>
 								{#if muteSettings.global || muteSettings.workspace}
 									<BellOff size="16" />
 								{:else}
@@ -205,7 +205,6 @@
 											right: 'Automatically acknowledge critical alerts instance wide'
 										}}
 										size="xs"
-										stopPropagation={true}
 									/>
 								{/if}
 							</div>
@@ -218,7 +217,6 @@
 										right: 'Automatically acknowledge critical alerts for current workspace'
 									}}
 									size="xs"
-									stopPropagation={true}
 								/>
 							</div>
 						</List>
@@ -234,7 +232,7 @@
 				>
 					<svelte:fragment slot="trigger">
 						<div id="settings-button">
-							<Button variant="border" color="light" nonCaptureEvent>
+							<Button variant="default" nonCaptureEvent>
 								<Settings size="16" />
 							</Button>
 						</div>
@@ -272,8 +270,7 @@
 			{:else}
 				<Button
 					size="xs"
-					color="light"
-					variant="border"
+					variant="default"
 					href="{base}/workspace_settings?tab=error_handler"
 					target="_blank"
 				>

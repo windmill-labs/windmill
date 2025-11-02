@@ -4,10 +4,10 @@
 	import { getNonStreamingCompletion } from './lib'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { copilotInfo } from '$lib/stores'
 
 	import { base } from '$lib/base'
 	import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+	import { copilotInfo } from '$lib/aiStore'
 
 	export let schedule: string
 	export let cronVersion: string
@@ -77,7 +77,7 @@
 			startIcon={{ icon: Wand2 }}
 			iconOnly
 			title="AI Assistant"
-			btnClasses="text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+			btnClasses="text-ai bg-violet-100 dark:bg-gray-700"
 			loading={genLoading}
 			clickableWhileLoading
 			on:click={genLoading ? () => abortController?.abort() : () => {}}
@@ -104,7 +104,7 @@
 						color="light"
 						variant="contained"
 						buttonType="button"
-						btnClasses="!ml-2 text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700"
+						btnClasses="!ml-2 text-ai bg-violet-100 dark:bg-gray-700"
 						title="Generate CRON schedule from prompt"
 						aria-label="Generate"
 						iconOnly

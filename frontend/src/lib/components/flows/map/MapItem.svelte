@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import type { FlowModule, FlowStatusModule, Job } from '$lib/gen'
+	import type { FlowModule, Job } from '$lib/gen'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
@@ -15,14 +15,17 @@
 	import { checkIfParentLoop } from '$lib/components/flows/utils'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
+	import type { FlowNodeState } from '$lib/components/graph'
+	import type { AIModuleAction } from '$lib/components/copilot/chat/flow/core'
 
 	interface Props {
 		moduleId: string
 		mod: FlowModule
 		insertable: boolean
+		moduleAction: AIModuleAction | undefined
+		onShowModuleDiff?: (moduleId: string) => void
 		annotation?: string | undefined
-		bgColor?: string
-		bgHoverColor?: string
+		nodeState?: FlowNodeState
 		moving?: string | undefined
 		duration_ms?: number | undefined
 		retries?: number | undefined
@@ -45,9 +48,7 @@
 		onEditInput?: (moduleId: string, key: string) => void
 		flowJob?: Job | undefined
 		isOwner?: boolean
-		type?: FlowStatusModule['type'] | undefined
-		darkMode?: boolean
-		skipped?: boolean
+		maximizeSubflow?: () => void
 	}
 
 	let {
@@ -55,9 +56,10 @@
 		moduleId,
 		mod = $bindable(),
 		insertable,
+		moduleAction = undefined,
+		onShowModuleDiff = undefined,
 		annotation = undefined,
-		bgColor = '',
-		bgHoverColor = '',
+		nodeState,
 		moving = undefined,
 		duration_ms = undefined,
 		retries = undefined,
@@ -69,9 +71,7 @@
 		onEditInput,
 		flowJob,
 		isOwner = false,
-		type,
-		darkMode,
-		skipped
+		maximizeSubflow
 	}: Props = $props()
 
 	const { selectedId } = getContext<{
@@ -108,16 +108,16 @@
 	<div class="relative">
 		{#if moving == mod.id}
 			<div class="absolute z-10 right-20 top-0.5 center-center">
-				<Button color="dark" on:click={() => dispatch('move')} size="xs" variant="border">
-					Cancel move
-				</Button>
+				<Button variant="accent" on:click={() => dispatch('move')} size="xs" destructive
+					>Cancel move</Button
+				>
 			</div>
 		{/if}
 
 		{#if duration_ms}
 			<div
 				class={twMerge(
-					'absolute z-10 right-0 -top-4 center-center text-tertiary text-2xs',
+					'absolute z-10 right-0 -top-4 center-center text-primary text-2xs',
 					editMode ? 'text-gray-400 dark:text-gray-500 text-2xs font-normal mr-2 right-10' : ''
 				)}
 			>
@@ -127,7 +127,7 @@
 		{#if annotation && annotation != ''}
 			<div
 				class={twMerge(
-					'absolute z-10 left-0 -top-5 center-center text-tertiary',
+					'absolute z-10 left-0 -top-5 center-center text-primary',
 					editMode ? '-top-4 text-gray-400 dark:text-gray-500 text-xs font-normal' : ''
 				)}
 			>
@@ -153,6 +153,8 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
+					{onShowModuleDiff}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
 					}  ${mod.value.parallel ? '(parallel)' : ''} ${
@@ -168,8 +170,7 @@
 						onUpdateMock?.({ id: mod.id, mock })
 					}}
 					{...itemProps}
-					{bgColor}
-					{bgHoverColor}
+					{nodeState}
 					warningMessage={mod?.value?.type === 'forloopflow' &&
 					mod?.value?.iterator?.type === 'javascript' &&
 					mod?.value?.iterator?.expr === ''
@@ -178,8 +179,6 @@
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:')}
 					loopStatus={{ type: 'self', flow: mod.value.type }}
 					{onTestUpTo}
-					{type}
-					{darkMode}
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
@@ -189,6 +188,8 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
+					{onShowModuleDiff}
 					on:changeId
 					on:delete
 					on:move
@@ -196,11 +197,8 @@
 					{...itemProps}
 					id={mod.id}
 					label={mod.summary || 'Run one branch'}
-					{bgColor}
-					{bgHoverColor}
+					{nodeState}
 					{onTestUpTo}
-					{type}
-					{darkMode}
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
@@ -210,6 +208,8 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
+					{onShowModuleDiff}
 					on:changeId
 					on:delete
 					on:move
@@ -217,11 +217,8 @@
 					id={mod.id}
 					{...itemProps}
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
-					{bgColor}
-					{bgHoverColor}
+					{nodeState}
 					{onTestUpTo}
-					{type}
-					{darkMode}
 				>
 					{#snippet icon()}
 						<FlowModuleIcon module={mod} />
@@ -231,6 +228,8 @@
 				<FlowModuleSchemaItem
 					{retries}
 					{editMode}
+					{moduleAction}
+					{onShowModuleDiff}
 					on:changeId
 					on:pointerdown={() => onSelect(mod.id)}
 					on:delete
@@ -245,8 +244,7 @@
 					id={mod.id}
 					{...itemProps}
 					modType={mod.value.type}
-					{bgColor}
-					{bgHoverColor}
+					{nodeState}
 					label={mod.summary ||
 						(mod.value.type === 'aiagent' ? 'AI Agent' : undefined) ||
 						(mod.id === 'preprocessor'
@@ -268,9 +266,7 @@
 					{flowJob}
 					{isOwner}
 					enableTestRun
-					{type}
-					{darkMode}
-					{skipped}
+					{maximizeSubflow}
 				>
 					{#snippet icon()}
 						{@const size =

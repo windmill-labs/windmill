@@ -34,12 +34,13 @@
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	export function runTestWithStepArgs() {
-		runTest(stepsInputArgs.getStepArgs(mod.id))
+		const args = stepsInputArgs.getStepArgs(mod.id)
+		runTest(args)
 	}
 
 	export function loadArgsAndRunTest() {
 		stepsInputArgs?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
-		runTest(stepsInputArgs.getStepArgs(mod.id))
+		runTestWithStepArgs()
 	}
 
 	export async function runTest(args: any) {

@@ -53,7 +53,7 @@
 				</Button>
 			{/snippet}
 			{#if args.length > 100000 || (args && typeof args === 'object' && deepEqual( Object.keys(args), ['reason'] ) && args['reason'] == 'WINDMILL_TOO_BIG')}
-				<div class="text-sm mb-2 text-tertiary">
+				<div class="text-sm mb-2 text-primary">
 					<a
 						download="windmill-args.json"
 						href={`data:text/json;charset=utf-8,${encodeURIComponent(args)}`}

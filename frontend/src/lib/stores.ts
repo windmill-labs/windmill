@@ -1,11 +1,8 @@
 import { BROWSER } from 'esm-env'
-import { derived, get, type Readable, writable } from 'svelte/store'
+import { derived, type Readable, writable } from 'svelte/store'
 
 import type { IntrospectionQuery } from 'graphql'
 import {
-	type AIConfig,
-	type AIProvider,
-	type AIProviderModel,
 	type OperatorSettings,
 	type TokenResponse,
 	type UserWorkspaceList,
@@ -13,7 +10,6 @@ import {
 	WorkspaceService
 } from './gen'
 import { getLocalSetting, type StateStore } from './utils'
-import { workspaceAIClients } from './components/copilot/lib'
 import { createState } from './svelte5Utils.svelte'
 
 export interface UserExt {
@@ -37,18 +33,24 @@ export interface UserWorkspace {
 	color?: string
 	operator_settings?: OperatorSettings
 	parent_workspace_id?: string | null
+	disabled: boolean
 }
 
-const persistedWorkspace = BROWSER && getWorkspace()
+const persistedWorkspace = BROWSER && getWorkspaceFromStorage()
 
-function getWorkspace(): string | undefined {
+export function getWorkspaceFromStorage(): string | undefined {
 	try {
-		return localStorage.getItem('workspace') ?? undefined
+		return sessionStorage.getItem('workspace') ?? localStorage.getItem('workspace') ?? undefined
 	} catch (e) {
 		console.error('error interacting with local storage', e)
 	}
 	return undefined
 }
+export function clearWorkspaceFromStorage() {
+	localStorage.removeItem('workspace')
+	sessionStorage.removeItem('workspace')
+}
+
 export const tutorialsToDo = writable<number[]>([])
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)
@@ -89,7 +91,8 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 					name: 'Admins',
 					username: 'superadmin',
 					color: undefined,
-					operator_settings: undefined
+					operator_settings: undefined,
+					disabled: false
 				}
 			]
 		} else {
@@ -97,80 +100,6 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 		}
 	}
 )
-export const copilotInfo = writable<{
-	enabled: boolean
-	codeCompletionModel?: AIProviderModel
-	defaultModel?: AIProviderModel
-	aiModels: AIProviderModel[]
-	customPrompts?: Record<string, string>
-	maxTokensPerModel?: Record<string, number>
-}>({
-	enabled: false,
-	codeCompletionModel: undefined,
-	defaultModel: undefined,
-	aiModels: [],
-	customPrompts: {},
-	maxTokensPerModel: {}
-})
-
-export async function loadCopilot(workspace: string) {
-	workspaceAIClients.init(workspace)
-	try {
-		const info = await WorkspaceService.getCopilotInfo({ workspace })
-		setCopilotInfo(info)
-	} catch (err) {
-		setCopilotInfo({})
-		console.error('Could not get copilot info', err)
-	}
-}
-
-export function setCopilotInfo(aiConfig: AIConfig) {
-	if (Object.keys(aiConfig.providers ?? {}).length > 0) {
-		const aiModels = Object.entries(aiConfig.providers ?? {}).flatMap(
-			([provider, providerConfig]) =>
-				providerConfig.models.map((m) => ({ model: m, provider: provider as AIProvider }))
-		)
-
-		copilotSessionModel.update((model) => {
-			if (
-				model &&
-				!aiModels.some((m) => m.model === model.model && m.provider === model.provider)
-			) {
-				return undefined
-			}
-			return model
-		})
-
-		copilotInfo.set({
-			enabled: true,
-			codeCompletionModel: aiConfig.code_completion_model,
-			defaultModel: aiConfig.default_model,
-			aiModels: aiModels,
-			customPrompts: aiConfig.custom_prompts ?? {},
-			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {}
-		})
-	} else {
-		copilotSessionModel.set(undefined)
-
-		copilotInfo.set({
-			enabled: false,
-			codeCompletionModel: undefined,
-			defaultModel: undefined,
-			aiModels: [],
-			customPrompts: {},
-			maxTokensPerModel: {}
-		})
-	}
-}
-
-export function getCurrentModel() {
-	const model =
-		get(copilotSessionModel) ?? get(copilotInfo).defaultModel ?? get(copilotInfo).aiModels[0]
-	if (!model) {
-		throw new Error('No model selected')
-	}
-	return model
-}
 
 export const codeCompletionLoading = writable<boolean>(false)
 export const metadataCompletionEnabled = writable<boolean>(true)
@@ -190,17 +119,6 @@ export const relativeLineNumbers = writable<boolean>(
 )
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
-)
-
-const sessionModel = getLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME)
-const sessionProvider = getLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME)
-export const copilotSessionModel = writable<AIProviderModel | undefined>(
-	sessionModel && sessionProvider
-		? {
-				model: sessionModel,
-				provider: sessionProvider as AIProvider
-			}
-		: undefined
 )
 
 export const usedTriggerKinds = writable<string[]>([])

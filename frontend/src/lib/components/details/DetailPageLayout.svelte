@@ -2,11 +2,14 @@
 	import { Tabs, Tab, TabContent } from '$lib/components/common'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import DetailPageDetailPanel from './DetailPageDetailPanel.svelte'
+	import FlowViewerInner from '../FlowViewerInner.svelte'
 
 	interface Props {
 		isOperator?: boolean
 		flow_json?: any | undefined
 		selected: string
+		forceSmallScreen?: boolean
+		isChatMode?: boolean
 		header?: import('svelte').Snippet
 		form?: import('svelte').Snippet
 		scriptRender?: import('svelte').Snippet
@@ -19,6 +22,8 @@
 		isOperator = false,
 		flow_json = undefined,
 		selected = $bindable(),
+		forceSmallScreen = false,
+		isChatMode = false,
 		header,
 		form,
 		scriptRender: script,
@@ -35,10 +40,12 @@
 	const save_inputs_render = $derived(save_inputs)
 	const flow_step_render = $derived(flow_step)
 	const triggers_render = $derived(triggers)
+
+	const useDesktopLayout = $derived(clientWidth >= 768 && !forceSmallScreen)
 </script>
 
 <main class="h-screen w-full" bind:clientWidth>
-	{#if clientWidth >= 768}
+	{#if useDesktopLayout}
 		<div class="h-full w-full flex flex-col">
 			{@render header?.()}
 			<div class="grow min-h-0 w-full">
@@ -70,15 +77,17 @@
 			{@render header?.()}
 			<div class="grow min-h-0 w-full flex flex-col">
 				<Tabs bind:selected={mobileTab} wrapperClass="flex-none">
-					<Tab value="form">Run form</Tab>
-					<Tab value="saved_inputs">Inputs</Tab>
+					<Tab value="form" label={isChatMode ? 'Chat' : 'Run form'} />
+					{#if !isChatMode}
+						<Tab value="saved_inputs" label="Inputs" />
+					{/if}
 					{#if !isOperator}
-						<Tab value="triggers">Triggers</Tab>
+						<Tab value="triggers" label="Triggers" />
 					{/if}
 					{#if flow_json}
-						<Tab value="raw">Export</Tab>
+						<Tab value="raw" label="Export" />
 					{:else}
-						<Tab value="script">Script</Tab>
+						<Tab value="script" label="Script" />
 					{/if}
 
 					{#snippet content()}
@@ -93,6 +102,11 @@
 							<TabContent value="triggers" class="flex flex-col flex-1 h-full mt-[-2px]">
 								{@render triggers?.()}
 							</TabContent>
+							{#if flow_json}
+								<TabContent value="raw" class="flex flex-col flex-1 h-full overflow-auto p-2">
+									<FlowViewerInner flow={flow_json} />
+								</TabContent>
+							{/if}
 							<TabContent value="script" class="flex flex-col flex-1 h-full">
 								{@render script?.()}
 							</TabContent>

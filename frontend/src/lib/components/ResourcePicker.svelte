@@ -11,7 +11,6 @@
 	import Select from './select/Select.svelte'
 	import DbManagerDrawer from './DBManagerDrawer.svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
-	import { twMerge } from 'tailwind-merge'
 	import DropdownV2 from './DropdownV2.svelte'
 
 	interface Props {
@@ -51,7 +50,6 @@
 	}: Props = $props()
 
 	if (initialValue && value == undefined) {
-		console.log('initialValue', initialValue)
 		value = initialValue
 	}
 
@@ -76,15 +74,12 @@
 	$effect(() => {
 		if (value === undefined) {
 			if (initialValue) {
-				console.log('initialValue', initialValue)
 				if (initialValue != value) {
 					value = initialValue
 				}
 			} else {
-				console.log('no value')
 			}
 		} else {
-			console.log('value', value)
 		}
 	})
 
@@ -125,7 +120,6 @@
 			}
 			collection = nc
 			if (collection.length == 1 && selectFirst && (value == undefined || value == '')) {
-				console.log('selectFirst', collection[0].value)
 				value = collection[0].value
 				valueType = collection[0].type
 			}
@@ -182,7 +176,7 @@
 	}}
 />
 <!-- {JSON.stringify({ value, collection })} -->
-<div class="flex flex-col w-full items-start min-h-10 {className}">
+<div class="flex flex-col w-full items-start {className}">
 	<div class="flex flex-row w-full items-center">
 		<Select
 			{disabled}
@@ -203,19 +197,18 @@
 			items={collection}
 			clearable
 			class="text-clip grow min-w-0"
-			inputClass={twMerge('min-h-10', selectInputClass)}
+			inputClass={selectInputClass}
 			placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
 			itemLabelWrapperClasses="flex-1"
-			itemButtonWrapperClasses="flex"
+			itemButtonWrapperClasses="flex items-center"
 		>
 			{#snippet endSnippet({ item, close })}
 				<Button
 					{disabled}
-					color="light"
-					variant="contained"
-					size="xs3"
-					btnClasses="w-8 px-0.5 py-1.5 bg-transparent hover:bg-surface-secondary"
-					wrapperClasses="-mr-2 pl-1"
+					variant="subtle"
+					size="xs2"
+					wrapperClasses="-mr-2 pl-1 -my-2"
+					btnClasses="hover:bg-surface-tertiary"
 					on:click={() => (resourceEditor?.initEdit?.(item.value ?? ''), close())}
 					startIcon={{ icon: Pen }}
 					iconOnly

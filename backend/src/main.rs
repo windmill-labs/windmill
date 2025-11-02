@@ -42,15 +42,15 @@ use windmill_common::{
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_BASE_URL_SETTING, INDEXER_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
-        NO_DEFAULT_MAVEN_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING,
-        OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        RUBY_REPOS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING,
-        TIMEOUT_WAIT_RESULT_SETTING,
+        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
+        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
+        PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
+        SCIM_TOKEN_SETTING, SMTP_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
@@ -95,10 +95,10 @@ use crate::monitor::{
     reload_app_workspaced_route_setting, reload_base_url_setting,
     reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
     reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
-    reload_hub_base_url_setting, reload_job_default_timeout_setting, reload_jwt_secret_setting,
-    reload_license_key, reload_npm_config_registry_setting, reload_pip_index_url_setting,
-    reload_retention_period_setting, reload_scim_token_setting, reload_smtp_config,
-    reload_worker_config, MonitorIteration,
+    reload_hub_api_secret_setting, reload_hub_base_url_setting, reload_job_default_timeout_setting,
+    reload_jwt_secret_setting, reload_license_key, reload_npm_config_registry_setting,
+    reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
+    reload_smtp_config, reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -423,7 +423,7 @@ async fn windmill_main() -> anyhow::Result<()> {
         );
         let suffix = create_default_worker_suffix(&hostname);
         (
-            Connection::Http(build_agent_http_client(&suffix)),
+            Connection::Http(build_agent_http_client(&suffix, None, None)),
             Some(suffix),
         )
     } else {
@@ -774,7 +774,7 @@ Windmill Community Edition {GIT_VERSION}
                             conn: if i == 0 || mode != Mode::Agent {
                                 conn.clone()
                             } else {
-                                Connection::Http(build_agent_http_client(&suffix))
+                                Connection::Http(build_agent_http_client(&suffix, None, None))
                             },
                             worker_name: worker_name_with_suffix(
                                 mode == Mode::Agent,
@@ -1070,6 +1070,9 @@ Windmill Community Edition {GIT_VERSION}
                                                         },
                                                         RUBY_REPOS_SETTING => {
                                                             reload_ruby_repos_setting(&conn).await
+                                                        },
+                                                        HUB_API_SECRET_SETTING => {
+                                                            reload_hub_api_secret_setting(&conn).await
                                                         },
                                                         KEEP_JOB_DIR_SETTING => {
                                                             load_keep_job_dir(&conn).await;

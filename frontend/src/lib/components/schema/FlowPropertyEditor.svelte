@@ -179,8 +179,7 @@
 								bind:value={variantName}
 							/>
 							<Button
-								variant="border"
-								color="light"
+								variant="default"
 								size="xs"
 								on:click={() => {
 									createVariant(variantName)
@@ -232,8 +231,7 @@
 								bind:value={variantName}
 							/>
 							<Button
-								variant="border"
-								color="light"
+								variant="default"
 								size="xs"
 								on:click={() => {
 									if (oneOfSelected) {
@@ -329,7 +327,7 @@
 					/>
 				{:else if customObjectSelected === 'json-schema-resource'}
 					{#if format == undefined}
-						<div class="text-xs text-tertiary my-1">
+						<div class="text-xs text-primary my-1">
 							Select a <code>json_schema</code> resource as a reusable JSON schema template
 						</div>
 					{/if}
@@ -451,9 +449,9 @@
 		}}
 	/>
 	{#if showExpr}
-		<div class="mt-2 bg-surface-secondary rounded-md pl-4">
+		<div class="mt-2 bg-surface-tertiary rounded-md pl-3">
 			<SimpleEditor
-				yPadding={8}
+				small
 				extraLib={`declare const fields: Record<${propsNames
 					?.filter((x) => x != name)
 					.map((x) => `"${x}"`)
@@ -466,7 +464,7 @@
 				autoHeight
 			/>
 		</div>
-		<div class="flex flex-row-reverse text-2xs text-tertiary">
+		<div class="flex flex-row-reverse text-2xs text-primary">
 			<div>
 				Other fields are available under <code>fields</code> (e.g:
 				<code>fields.foo == 42</code>)

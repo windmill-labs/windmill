@@ -50,10 +50,10 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-        JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING,
-        OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
+        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
         POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
@@ -65,14 +65,14 @@ use windmill_common::{
     server::load_smtp_config,
     tracing_init::JSON_FMT,
     users::truncate_token,
-    utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode},
+    utils::{empty_as_none, now_from_db, rd_string, report_critical_error, Mode, HUB_API_SECRET},
     worker::{
         load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, reload_custom_tags_setting, store_pull_query,
-        store_suspended_pull_query, update_min_version, Connection, WorkerConfig,
-        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY,
-        SMTP_CONFIG, TMP_DIR, WORKER_CONFIG, WORKER_GROUP,
+        store_suspended_pull_query, Connection, WorkerConfig, DEFAULT_TAGS_PER_WORKSPACE,
+        DEFAULT_TAGS_WORKSPACES, INDEXER_CONFIG, SCRIPT_TOKEN_EXPIRY, SMTP_CONFIG, TMP_DIR,
+        WORKER_CONFIG, WORKER_GROUP,
     },
     KillpillSender, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE, CRITICAL_ALERT_MUTE_UI_ENABLED,
     CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, JOB_RETENTION_SECS,
@@ -284,6 +284,8 @@ pub async fn initial_load(
     if let Some(db) = conn.as_sql() {
         reload_smtp_config(db).await;
     }
+
+    reload_hub_api_secret_setting(&conn).await;
 
     if server_mode {
         reload_retention_period_setting(&conn).await;
@@ -1185,6 +1187,16 @@ pub async fn reload_ruby_repos_setting(conn: &Connection) {
     .await;
 }
 
+pub async fn reload_hub_api_secret_setting(conn: &Connection) {
+    reload_option_setting_with_tracing(
+        conn,
+        HUB_API_SECRET_SETTING,
+        "HUB_API_SECRET",
+        HUB_API_SECRET.clone(),
+    )
+    .await;
+}
+
 pub async fn reload_retention_period_setting(conn: &Connection) {
     if let Err(e) = reload_setting(
         conn,
@@ -1520,7 +1532,7 @@ pub struct MonitorIteration {
 
 impl MonitorIteration {
     pub fn should_run(&self, period: u8) -> bool {
-        self.iter % (period as u64) == self.rd_shift as u64
+        (self.iter + self.rd_shift as u64) % (period as u64) == 0
     }
 }
 
@@ -1576,6 +1588,17 @@ pub async fn monitor_db(
             }
         }
     };
+
+    let cleanup_debounce_keys_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = cleanup_debounce_orphaned_keys(&db).await {
+                    tracing::error!("Error cleaning up debounce keys: {:?}", e);
+                }
+            }
+        }
+    };
+
     // run every hour (60 minutes / 30 seconds = 120)
     let cleanup_worker_group_stats_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
@@ -1677,7 +1700,8 @@ pub async fn monitor_db(
     };
 
     let update_min_worker_version_f = async {
-        update_min_version(conn).await;
+        #[cfg(not(feature = "test_job_debouncing"))]
+        windmill_common::worker::update_min_version(conn).await;
     };
 
     join!(
@@ -1694,6 +1718,7 @@ pub async fn monitor_db(
         update_min_worker_version_f,
         cleanup_concurrency_counters_f,
         cleanup_concurrency_counters_empty_keys_f,
+        cleanup_debounce_keys_f,
         cleanup_worker_group_stats_f,
     );
 }
@@ -2035,7 +2060,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
                 LEFT JOIN zombie_job_counter zjc ON zjc.job_id = q.id
                 WHERE ping < now() - ($1 || ' seconds')::interval
                     AND running = true
-                    AND kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow')
+                    AND kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')
                     AND same_worker = false
                     AND (zjc.counter IS NULL OR zjc.counter <= $2)
                 FOR UPDATE of q SKIP LOCKED
@@ -2149,7 +2174,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
     let same_worker_timeout_jobs = {
         let long_same_worker_jobs = sqlx::query!(
             "SELECT worker, array_agg(v2_job_queue.id) as ids FROM v2_job_queue LEFT JOIN v2_job ON v2_job_queue.id = v2_job.id LEFT JOIN v2_job_runtime ON v2_job_queue.id = v2_job_runtime.id WHERE v2_job_queue.created_at < now() - ('60 seconds')::interval
-    AND running = true AND ping IS NULL AND same_worker = true AND worker IS NOT NULL GROUP BY worker",
+    AND running = true AND (ping IS NULL OR ping < now() - ('60 seconds')::interval) AND same_worker = true AND worker IS NOT NULL GROUP BY worker",
         )
         .fetch_all(db)
         .await
@@ -2233,7 +2258,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
              j.priority, NULL::TEXT AS logs, j.script_entrypoint_override, j.preprocessed, null as workflow_as_code_status
              FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
              WHERE r.ping < now() - ($1 || ' seconds')::interval
-             AND q.running = true AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlescriptflow') AND j.same_worker = false")
+             AND q.running = true AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') AND j.same_worker = false")
         .bind(ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
         .await
@@ -2436,6 +2461,7 @@ async fn cleanup_concurrency_counters_empty_keys(db: &DB) -> error::Result<()> {
 WITH rows_to_delete AS (
     SELECT concurrency_id
     FROM concurrency_counter
+    
     WHERE job_uuids = '{}'::jsonb
     FOR UPDATE SKIP LOCKED
 )
@@ -2745,7 +2771,7 @@ pub async fn reload_critical_alerts_on_db_oversize(conn: &DB) -> error::Result<(
 async fn generate_and_save_jwt_secret(db: &DB) -> error::Result<String> {
     let secret = rd_string(32);
     sqlx::query!(
-        "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = $2",
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value",
         JWT_SECRET_SETTING,
         serde_json::to_value(&secret).unwrap()
     ).execute(db).await?;
@@ -2771,5 +2797,31 @@ pub async fn reload_jwt_secret_setting(db: &DB) -> error::Result<()> {
     let mut l = JWT_SECRET.write().await;
     *l = jwt_secret;
 
+    Ok(())
+}
+
+async fn cleanup_debounce_orphaned_keys(db: &DB) -> error::Result<()> {
+    let result = sqlx::query!(
+        "
+DELETE FROM debounce_key
+WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
+RETURNING key,job_id
+        ",
+    )
+    .fetch_all(db)
+    .await?;
+
+    tracing::debug!("Cleaning up debounce keys");
+
+    if result.len() > 0 {
+        tracing::info!("Cleaned up {} debounce keys", result.len());
+        for row in result {
+            tracing::info!(
+                "Debounce key cleaned up: key: {}, job_id: {:?}",
+                row.key,
+                row.job_id
+            );
+        }
+    }
     Ok(())
 }

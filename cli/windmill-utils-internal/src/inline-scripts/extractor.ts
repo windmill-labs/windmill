@@ -1,5 +1,5 @@
-import { newPathAssigner, PathAssigner } from "../path-utils/path-assigner";
-import { FlowModule } from "../gen/types.gen";
+import { newPathAssigner, PathAssigner } from "../path-utils/path-assigner.ts";
+import { FlowModule } from "../gen/types.gen.ts";
 
 /**
  * Represents an inline script extracted from a flow module
@@ -34,8 +34,7 @@ export function extractInlineScripts(
 
   return modules.flatMap((m) => {
     if (m.value.type == "rawscript") {
-      let basePath, ext;
-      [basePath, ext] = assigner.assignPath(m.summary, m.value.language);
+      const [basePath, ext] = assigner.assignPath(m.summary, m.value.language);
       const path = mapping[m.id] ?? basePath + ext;
       const content = m.value.content;
       const r = [{ path: path, content: content }];

@@ -1,7 +1,7 @@
 #[cfg(feature = "ts-parser")]
 use serde_json::json;
 #[allow(unused_imports)]
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::prelude::wasm_bindgen;
 use windmill_parser::MainArgSignature;
 #[cfg(feature = "ts-parser")]
 use windmill_parser_ts::{parse_expr_for_ids, parse_expr_for_imports};
@@ -150,6 +150,16 @@ pub fn parse_ansible(code: &str) -> String {
     wrap_sig(windmill_parser_yaml::parse_ansible_sig(code))
 }
 
+#[cfg(feature = "ansible-parser")]
+#[wasm_bindgen]
+pub fn parse_ansible_delegate(code: &str) -> String {
+    if let Ok(r) = windmill_parser_yaml::parse_delegate_to_git_repo(code) {
+        return serde_json::to_string(&r).unwrap();
+    } else {
+        return "Invalid".to_string();
+    }
+}
+
 #[cfg(feature = "csharp-parser")]
 #[wasm_bindgen]
 pub fn parse_csharp(code: &str) -> String {
@@ -173,6 +183,7 @@ pub fn parse_java(code: &str) -> String {
 pub fn parse_ruby(code: &str) -> String {
     wrap_sig(windmill_parser_ruby::parse_ruby_signature(code))
 }
+
 #[cfg(feature = "sql-parser")]
 #[wasm_bindgen]
 pub fn parse_assets_sql(code: &str) -> String {
@@ -200,6 +211,17 @@ pub fn parse_assets_py(code: &str) -> String {
         return serde_json::to_string(&r).unwrap();
     } else {
         return "Invalid".to_string();
+    }
+}
+
+#[cfg(feature = "ansible-parser")]
+#[wasm_bindgen]
+pub fn parse_assets_ansible(code: &str) -> String {
+    let o = windmill_parser_yaml::parse_assets(code);
+    if let Ok(r) = o {
+        return serde_json::to_string(&r).unwrap();
+    } else {
+        return format!("err: {:?}", o.err().unwrap());
     }
 }
 

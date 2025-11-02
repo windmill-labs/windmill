@@ -131,7 +131,7 @@
 	{#if value}
 		<div class="p-2 flex flex-col gap-2">
 			{#if tooltip}
-				<div class="text-tertiary text-2xs py-2">{tooltip}</div>
+				<div class="text-primary text-2xs py-2">{tooltip}</div>
 			{/if}
 
 			{#if value.style !== undefined || forceStyle}
@@ -139,7 +139,7 @@
 					<!-- svelte-ignore a11y_label_has_associated_control -->
 					<div class="block w-full">
 						<div class="flex flex-row justify-between items-center w-full h-8 mb-1">
-							<div class="text-xs font-medium text-tertiary"> Plain CSS </div>
+							<div class="text-xs font-medium text-primary"> Plain CSS </div>
 
 							<div class="flex flex-row gap-1">
 								{#if overriden}
@@ -161,7 +161,6 @@
 										{#snippet children({ item })}
 											<ToggleButton
 												small
-												light
 												value={'false'}
 												icon={Code}
 												tooltip="Edit the CSS directly"
@@ -169,7 +168,6 @@
 											/>
 											<ToggleButton
 												small
-												light
 												value={'true'}
 												icon={Paintbrush2}
 												tooltip="Open the rich editor to style the component with a visual interface"
@@ -206,7 +204,8 @@
 								<Badge
 									small
 									baseClass="cursor-pointer"
-									on:click={() => {
+									clickable
+									onclick={() => {
 										value.style = value.style === '' ? `${v};` : `${value.style} ${v};`
 									}}
 								>
@@ -220,41 +219,40 @@
 
 			{#if value.class !== undefined || forceClass}
 				<!-- svelte-ignore a11y_label_has_associated_control -->
-				<label class="block">
-					<div class="text-xs font-medium text-tertiary mb-1">
-						Tailwind classes
-						<Tooltip light documentationLink="https://tailwindcss.com/">
-							Use any tailwind classes to style your component
-						</Tooltip>
+				<div class="text-xs font-medium text-primary mb-1">
+					Tailwind classes
+					<Tooltip light documentationLink="https://tailwindcss.com/">
+						Use any tailwind classes to style your component
+					</Tooltip>
+				</div>
+				<div class="relative">
+					<SimpleEditor
+						class="h-24 border !rounded-none"
+						lang="tailwindcss"
+						{tailwindClasses}
+						bind:code={value.class}
+						fixedOverflowWidgets={true}
+						small
+						automaticLayout
+					/>
+				</div>
+				{#if componentType && ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses}
+					<div class="flex flex-row gap-1 items-center mt-1 flex-wrap">
+						{#each ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses ?? [] as cls}
+							<Badge
+								baseClass="cursor-pointer"
+								small
+								clickable
+								onclick={() => {
+									value.class = value.class === '' ? cls : `${value.class} ${cls}`
+									render++
+								}}
+							>
+								{cls}
+							</Badge>
+						{/each}
 					</div>
-					<div class="relative">
-						<SimpleEditor
-							class="h-24 border !rounded-none"
-							lang="tailwindcss"
-							{tailwindClasses}
-							bind:code={value.class}
-							fixedOverflowWidgets={true}
-							small
-							automaticLayout
-						/>
-					</div>
-					{#if componentType && ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses}
-						<div class="flex flex-row gap-1 items-center mt-1 flex-wrap">
-							{#each ccomponents?.[componentType]?.quickstyle?.[name]?.quickTailwindClasses ?? [] as cls}
-								<Badge
-									baseClass="cursor-pointer"
-									small
-									on:click={() => {
-										value.class = value.class === '' ? cls : `${value.class} ${cls}`
-										render++
-									}}
-								>
-									{cls}
-								</Badge>
-							{/each}
-						</div>
-					{/if}
-				</label>
+				{/if}
 			{/if}
 			<div class="flex flex-row justify-between items-center">
 				<div class="text-xs flex flex-row items-center justify-center">

@@ -18,7 +18,6 @@ use quick_cache::sync::Cache;
 use serde_json::value::RawValue;
 use serde_json::Value;
 use sqlx::Pool;
-use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::ops::{Deref, DerefMut};
@@ -31,11 +30,13 @@ use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
+use windmill_common::flow_conversations::add_message_to_conversation_tx;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
     check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
     DynamicInput, ENTRYPOINT_OVERRIDE,
 };
+use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
 use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
 use windmill_common::DYNAMIC_INPUT_CACHE;
@@ -101,6 +102,9 @@ use windmill_queue::{
     cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
     PushArgsOwned, PushIsolationLevel,
 };
+
+use crate::flow_conversations;
+use windmill_common::flow_conversations::MessageType;
 
 pub fn workspaced_service() -> Router {
     let cors = CorsLayer::new()
@@ -774,7 +778,7 @@ macro_rules! get_job_query {
     ("v2_job_completed", $($opts:tt)*) => {
         get_job_query!(
             @impl "v2_job_completed", ($($opts)*),
-            "v2_job_completed.duration_ms, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, result->'wm_labels' as labels, \
+            "v2_job_completed.duration_ms, v2_job_completed.completed_at, CASE WHEN status = 'success' OR status = 'skipped' THEN true ELSE false END as success, result_columns, deleted, status = 'skipped' as is_skipped, result->'wm_labels' as labels, \
             CASE WHEN result is null or pg_column_size(result) < 90000 THEN result ELSE '\"WINDMILL_TOO_BIG\"'::jsonb END as result",
             "",
         )
@@ -1755,6 +1759,7 @@ pub struct RunJobQuery {
     pub cache_ttl: Option<i32>,
     pub skip_preprocessor: Option<bool>,
     pub poll_delay_ms: Option<u64>,
+    pub memory_id: Option<Uuid>,
 }
 
 impl RunJobQuery {
@@ -1815,8 +1820,8 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             created_by: lcq.created_by,
             started_before: lcq.started_before,
             started_after: lcq.started_after,
-            created_before: lcq.created_before,
-            created_after: lcq.created_after,
+            created_before: lcq.created_before_queue.or(lcq.created_before),
+            created_after: lcq.created_after_queue.or(lcq.created_after),
             created_or_started_before: lcq.created_or_started_before,
             created_or_started_after: lcq.created_or_started_after,
             worker: lcq.worker,
@@ -1850,11 +1855,11 @@ pub fn filter_list_queue_query(
     if join_outstanding_wait_times {
         sqlb.left()
             .join("outstanding_wait_time")
-            .on_eq("v2_job.id", "outstanding_wait_time.job_id");
+            .on_eq("v2_job_queue.id", "outstanding_wait_time.job_id");
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
-        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job_queue.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(w) = &lq.worker {
@@ -1955,8 +1960,7 @@ pub fn filter_list_queue_query(
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
-        sqlb.and_where("trigger_kind != 'schedule'")
-            .or_where("trigger_kind IS NULL");
+        sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
     }
 
     sqlb
@@ -2355,9 +2359,12 @@ async fn list_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<Job>> {
-    let limit = pagination.per_page.unwrap_or(1000);
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
+
+    if offset > 0 {
+        tracing::warn!("offset is not 0, but is ignored for list_jobs. Use created_before or completed_before instead.");
+    }
 
     if lq.success.is_some() && lq.running.is_some_and(|x| x) {
         return Err(error::Error::BadRequest(
@@ -2367,7 +2374,7 @@ async fn list_jobs(
     let sqlc = if lq.running.is_none() {
         Some(list_completed_jobs_query(
             &w_id,
-            Some(per_page + offset),
+            Some(per_page),
             0,
             &ListCompletedQuery { order_desc: Some(true), ..lqc },
             UnifiedJob::completed_job_fields(),
@@ -2380,26 +2387,22 @@ async fn list_jobs(
 
     let sql = if lq.success.is_none()
         && lq.label.is_none()
-        && lq.created_or_started_before.is_none()
+        && lq.created_before.is_none()
         && lq.started_before.is_none()
+        && lq.created_or_started_before.is_none()
+        && lq.completed_before.is_none()
     {
         let mut sqlq = list_queue_jobs_query(
             &w_id,
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
             UnifiedJob::queued_job_fields(),
-            Pagination { per_page: Some(limit), page: None },
+            Pagination { per_page: None, page: None },
             true,
             get_scope_tags(&authed),
         );
 
         if let Some(sqlc) = sqlc {
-            format!(
-                "{} UNION ALL {} LIMIT {} OFFSET {};",
-                &sqlq.subquery()?,
-                &sqlc.subquery()?,
-                per_page,
-                offset
-            )
+            format!("{} UNION ALL {}", &sqlq.subquery()?, &sqlc.subquery()?,)
         } else {
             sqlq.limit(per_page).offset(offset).query()?
         }
@@ -2413,6 +2416,7 @@ async fn list_jobs(
         }
         sqlc.unwrap().limit(per_page).offset(offset).query()?
     };
+    // tracing::info!("sql: {}", sql);
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql)
@@ -3290,6 +3294,7 @@ pub struct UnifiedJob {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
     pub running: Option<bool>,
     pub script_hash: Option<ScriptHash>,
@@ -3322,13 +3327,14 @@ pub struct UnifiedJob {
 
 const CJ_FIELDS: &[&str] = &[
     "'CompletedJob' as typ",
-    "v2_job.id",
-    "v2_job.workspace_id",
+    "v2_job_completed.id",
+    "v2_job_completed.workspace_id",
     "v2_job.parent_job",
     "v2_job.created_by",
     "v2_job.created_at",
     "v2_job_completed.started_at",
     "null as scheduled_for",
+    "v2_job_completed.completed_at",
     "null as running",
     "v2_job.runnable_id as script_hash",
     "v2_job.runnable_path as script_path",
@@ -3361,13 +3367,14 @@ const CJ_FIELDS: &[&str] = &[
 
 const QJ_FIELDS: &[&str] = &[
     "'QueuedJob' as typ",
-    "v2_job.id",
-    "v2_job.workspace_id",
+    "v2_job_queue.id",
+    "v2_job_queue.workspace_id",
     "v2_job.parent_job",
     "v2_job.created_by",
-    "v2_job.created_at",
+    "v2_job_queue.created_at",
     "v2_job_queue.started_at",
     "v2_job_queue.scheduled_for",
+    "null as completed_at",
     "v2_job_queue.running",
     "v2_job.runnable_id as script_hash",
     "v2_job.runnable_path as script_path",
@@ -3420,6 +3427,7 @@ impl<'a> From<UnifiedJob> for Job {
                     created_by: uj.created_by,
                     created_at: uj.created_at,
                     started_at: uj.started_at,
+                    completed_at: uj.completed_at,
                     duration_ms: uj.duration_ms.unwrap(),
                     success: uj.success.unwrap(),
                     script_hash: uj.script_hash,
@@ -3526,7 +3534,7 @@ struct Preview {
     tag: Option<String>,
     dedicated_worker: Option<bool>,
     lock: Option<String>,
-    format: Option<String>
+    format: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -3600,7 +3608,7 @@ where
 }
 
 fn decode_payload<D: DeserializeOwned>(t: String) -> anyhow::Result<D> {
-    let vec = base64::engine::general_purpose::URL_SAFE
+    let vec = base64::engine::general_purpose::STANDARD
         .decode(t)
         .context("invalid base64")?;
     serde_json::from_slice(vec.as_slice()).context("invalid json")
@@ -3868,7 +3876,7 @@ async fn batch_rerun_handle_job(
                 user_db.clone(),
                 w_id.clone(),
                 StripPath(job.script_path.clone()),
-                RunJobQuery { ..Default::default() },
+                RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                 PushArgsOwned { extra: None, args },
             )
             .await;
@@ -3884,7 +3892,7 @@ async fn batch_rerun_handle_job(
                     user_db.clone(),
                     w_id.clone(),
                     StripPath(job.script_path.clone()),
-                    RunJobQuery { ..Default::default() },
+                    RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
                 )
                 .await
@@ -3895,7 +3903,7 @@ async fn batch_rerun_handle_job(
                     user_db.clone(),
                     w_id.clone(),
                     job.script_hash,
-                    RunJobQuery { ..Default::default() },
+                    RunJobQuery { skip_preprocessor: Some(true), ..Default::default() },
                     PushArgsOwned { extra: None, args },
                 )
                 .await
@@ -3909,6 +3917,82 @@ async fn batch_rerun_handle_job(
     Err(error::Error::ExecutionErr(
         format!("Couldn't re-run job {}", job.id).to_string(),
     ))
+}
+
+/// Set the memory_id in flow_status for agent memory persistence
+async fn set_flow_memory_id(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    job_id: Uuid,
+    memory_id: Uuid,
+) -> error::Result<()> {
+    sqlx::query!(
+        "UPDATE v2_job_status 
+         SET flow_status = jsonb_set(
+             flow_status,
+             '{memory_id}',
+             to_jsonb($2::uuid)
+         )
+         WHERE id = $1",
+        job_id,
+        memory_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+async fn handle_chat_conversation_messages(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    authed: &ApiAuthed,
+    w_id: &str,
+    flow_path: &str,
+    run_query: &RunJobQuery,
+    user_message_raw: Option<&Box<serde_json::value::RawValue>>,
+) -> error::Result<()> {
+    let memory_id = run_query.memory_id.ok_or_else(|| {
+        windmill_common::error::Error::BadRequest(
+            "memory_id is required for chat-enabled flows".to_string(),
+        )
+    })?;
+
+    let user_message_raw = user_message_raw.ok_or_else(|| {
+        windmill_common::error::Error::BadRequest(
+            "user_message argument is required for chat-enabled flows".to_string(),
+        )
+    })?;
+
+    // Deserialize the RawValue to get the actual string without quotes
+    let user_message: String = serde_json::from_str(user_message_raw.get()).map_err(|e| {
+        windmill_common::error::Error::BadRequest(format!(
+            "Failed to deserialize user_message: {}",
+            e
+        ))
+    })?;
+
+    // Create conversation with provided ID (or get existing one)
+    flow_conversations::get_or_create_conversation_with_id(
+        tx,
+        w_id,
+        flow_path,
+        &authed.username,
+        &user_message,
+        memory_id,
+    )
+    .await?;
+
+    // Create user message
+    add_message_to_conversation_tx(
+        tx,
+        memory_id,
+        None,
+        &user_message,
+        MessageType::User,
+        None,
+        true,
+    )
+    .await?;
+
+    Ok(())
 }
 
 pub async fn run_flow_by_path(
@@ -3957,6 +4041,7 @@ pub async fn run_flow_by_path_inner(
         tag,
         dedicated_worker,
         has_preprocessor,
+        chat_input_enabled,
         on_behalf_of_email,
         edited_by,
         early_return,
@@ -3982,11 +4067,11 @@ pub async fn run_flow_by_path_inner(
                 &authed.email,
                 username_to_permissioned_as(&authed.username),
                 Some(authed.clone().into()),
-                PushIsolationLevel::Isolated(user_db, authed.clone().into()),
+                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
             )
         };
 
-    let (uuid, tx) = push(
+    let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
@@ -4018,8 +4103,29 @@ pub async fn run_flow_by_path_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
+
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
+    }
+
+    // Handle conversation messages for chat-enabled flows
+    if chat_input_enabled.unwrap_or(false) {
+        handle_chat_conversation_messages(
+            &mut tx,
+            &authed,
+            &w_id,
+            &flow_path.to_string(),
+            &run_query,
+            args.args.get("user_message"),
+        )
+        .await?;
+    }
+
     tx.commit().await?;
     Ok((uuid, early_return))
 }
@@ -4114,6 +4220,8 @@ pub async fn restart_flow(
         completed_job.priority,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4216,6 +4324,8 @@ pub async fn run_script_by_path_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -4281,6 +4391,9 @@ pub async fn run_workflow_as_code(
                 concurrency_time_window_s: job.concurrency_time_window_s,
                 cache_ttl: job.cache_ttl,
                 dedicated_worker: None,
+                // TODO(debouncing): enable for this mode
+                custom_debounce_key: None,
+                debounce_delay_s: None,
             }),
             Some(job.tag.clone()),
             None,
@@ -4368,6 +4481,8 @@ pub async fn run_workflow_as_code(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
 
@@ -4911,6 +5026,8 @@ pub async fn run_wait_result_job_by_path_get(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5063,6 +5180,8 @@ pub async fn run_wait_result_script_by_path_internal(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5105,6 +5224,8 @@ pub async fn run_wait_result_script_by_hash(
         concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
+        debounce_key,
+        debounce_delay_s,
         mut cache_ttl,
         language,
         dedicated_worker,
@@ -5151,6 +5272,8 @@ pub async fn run_wait_result_script_by_hash(
             custom_concurrency_key: concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
+            custom_debounce_key: debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -5179,6 +5302,8 @@ pub async fn run_wait_result_script_by_hash(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5431,6 +5556,7 @@ pub async fn run_wait_result_flow_by_path_internal(
         dedicated_worker,
         early_return,
         has_preprocessor,
+        chat_input_enabled,
         on_behalf_of_email,
         edited_by,
         version,
@@ -5453,11 +5579,11 @@ pub async fn run_wait_result_flow_by_path_internal(
                 &authed.email,
                 username_to_permissioned_as(&authed.username),
                 Some(authed.clone().into()),
-                PushIsolationLevel::Isolated(user_db, authed.clone().into()),
+                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
             )
         };
 
-    let (uuid, tx) = push(
+    let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
@@ -5489,8 +5615,29 @@ pub async fn run_wait_result_flow_by_path_internal(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
+
+    // Set conversation_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
+    }
+
+    // Handle conversation messages for chat-enabled flows
+    if chat_input_enabled.unwrap_or(false) {
+        handle_chat_conversation_messages(
+            &mut tx,
+            &authed,
+            &w_id,
+            &flow_path.to_string(),
+            &run_query,
+            args.args.get("user_message"),
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
@@ -5535,6 +5682,8 @@ async fn run_preview_script(
                 custom_concurrency_key: None,
                 concurrent_limit: None, // TODO(gbouv): once I find out how to store limits in the content of a script, should be easy to plug limits here
                 concurrency_time_window_s: None, // TODO(gbouv): same as above
+                custom_debounce_key: None, // TODO(pyra): same as for concurrency limits.
+                debounce_delay_s: None,
                 cache_ttl: None,
                 dedicated_worker: preview.dedicated_worker,
             }),
@@ -5560,6 +5709,8 @@ async fn run_preview_script(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5591,7 +5742,6 @@ async fn run_wait_result_preview_script(
     return result;
 }
 
-
 async fn run_bundle_preview_script(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -5600,7 +5750,6 @@ async fn run_bundle_preview_script(
     Query(run_query): Query<RunJobQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> error::Result<(StatusCode, String)> {
-
     if authed.is_operator {
         return Err(error::Error::NotAuthorized(
             "Operators cannot run preview jobs for security reasons".to_string(),
@@ -5619,7 +5768,10 @@ async fn run_bundle_preview_script(
         let data = data.map_err(to_anyhow)?;
         if name == "preview" {
             let preview: Preview = serde_json::from_slice(&data).map_err(to_anyhow)?;
-            format = preview.format.and_then(|s| BundleFormat::from_string(&s)).unwrap_or(BundleFormat::Cjs);
+            format = preview
+                .format
+                .and_then(|s| BundleFormat::from_string(&s))
+                .unwrap_or(BundleFormat::Cjs);
 
             let scheduled_for = run_query.get_scheduled_for(&db).await?;
             let tag = run_query.tag.clone().or(preview.tag.clone());
@@ -5640,7 +5792,10 @@ async fn run_bundle_preview_script(
                 ltx,
                 &w_id,
                 JobPayload::Code(RawCode {
-                    hash: Some(windmill_common::scripts::codebase_to_hash(is_tar, format == BundleFormat::Esm)),
+                    hash: Some(windmill_common::scripts::codebase_to_hash(
+                        is_tar,
+                        format == BundleFormat::Esm,
+                    )),
                     content: preview.content.unwrap_or_default(),
                     path: preview.path,
                     language: preview.language.unwrap_or(ScriptLang::Deno),
@@ -5650,6 +5805,8 @@ async fn run_bundle_preview_script(
                     cache_ttl: None,
                     dedicated_worker: preview.dedicated_worker,
                     custom_concurrency_key: None,
+                    custom_debounce_key: None,
+                    debounce_delay_s: None,
                 }),
                 PushArgs::from(&args),
                 authed.display_username(),
@@ -5672,6 +5829,8 @@ async fn run_bundle_preview_script(
                 None,
                 Some(&authed.clone().into()),
                 false,
+                None,
+                None,
             )
             .await?;
             job_id = Some(uuid);
@@ -5699,7 +5858,12 @@ async fn run_bundle_preview_script(
             uploaded = true;
 
             let path = windmill_common::s3_helpers::bundle(&w_id, &id);
-            upload_artifact_to_store(&path, data, &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR).await?;
+            upload_artifact_to_store(
+                &path,
+                data,
+                &windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
+            )
+            .await?;
         }
         // println!("Length of `{}` is {} bytes", name, data.len());
     }
@@ -5804,6 +5968,8 @@ async fn run_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -5871,6 +6037,8 @@ async fn run_flow_dependencies_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6214,6 +6382,8 @@ async fn run_preview_flow_job(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6365,6 +6535,8 @@ async fn run_dynamic_select(
             concurrency_time_window_s: None,
             cache_ttl: None,
             dedicated_worker: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
         }),
         PushArgs::from(&request.args.unwrap_or_default()),
         authed.display_username(),
@@ -6387,6 +6559,8 @@ async fn run_dynamic_select(
         None,
         Some(&authed.clone().into()),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6438,6 +6612,8 @@ pub async fn run_job_by_hash_inner(
         concurrency_key,
         concurrent_limit,
         concurrency_time_window_s,
+        debounce_delay_s,
+        debounce_key,
         mut cache_ttl,
         language,
         dedicated_worker,
@@ -6486,6 +6662,8 @@ pub async fn run_job_by_hash_inner(
             custom_concurrency_key: concurrency_key,
             concurrent_limit: concurrent_limit,
             concurrency_time_window_s: concurrency_time_window_s,
+            custom_debounce_key: debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -6514,6 +6692,8 @@ pub async fn run_job_by_hash_inner(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -6736,7 +6916,7 @@ async fn get_job_update_sse(
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
-enum JobUpdateSSEStream {
+pub enum JobUpdateSSEStream {
     Update(JobUpdate),
     Error { error: String },
     NotFound,
@@ -6744,7 +6924,12 @@ enum JobUpdateSSEStream {
     Ping,
 }
 
-fn start_job_update_sse_stream(
+lazy_static::lazy_static! {
+    pub static ref TIMEOUT_SSE_STREAM: u64 =
+        std::env::var("TIMEOUT_SSE_STREAM").unwrap_or("60".to_string()).parse::<u64>().unwrap_or(60);
+}
+
+pub fn start_job_update_sse_stream(
     opt_authed: Option<ApiAuthed>,
     opt_tokened: OptTokened,
     db: DB,
@@ -6876,7 +7061,7 @@ fn start_job_update_sse_stream(
                 last_ping = Instant::now();
             }
 
-            if start.elapsed().as_secs() > 30 {
+            if start.elapsed().as_secs() > *TIMEOUT_SSE_STREAM {
                 if tx.send(JobUpdateSSEStream::Timeout).await.is_err() {
                     tracing::warn!("Failed to send job timeout for job {job_id}");
                 }
@@ -7325,7 +7510,7 @@ pub fn filter_list_completed_query(
     if join_outstanding_wait_times {
         sqlb.left()
             .join("outstanding_wait_time")
-            .on_eq("v2_job.id", "outstanding_wait_time.job_id");
+            .on_eq("v2_job_completed.id", "outstanding_wait_time.job_id");
     }
 
     if let Some(label) = &lq.label {
@@ -7353,7 +7538,8 @@ pub fn filter_list_completed_query(
     }
 
     if w_id != "admins" || !lq.all_workspaces.is_some_and(|x| x) {
-        sqlb.and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
+        sqlb.and_where_eq("v2_job_completed.workspace_id", "?".bind(&w_id))
+            .and_where_eq("v2_job.workspace_id", "?".bind(&w_id));
     }
 
     if let Some(p) = &lq.schedule_path {
@@ -7404,8 +7590,12 @@ pub fn filter_list_completed_query(
         sqlb.and_where_le("started_at", "?".bind(&dt.to_rfc3339()));
     }
     if let Some(dt) = &lq.created_or_started_after {
-        sqlb.and_where_ge("created_at", "?".bind(&dt.to_rfc3339()));
-        sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
+        let ts = dt.to_rfc3339();
+        sqlb.and_where(format!(
+            "(created_at >= '{}' OR started_at >= '{}')",
+            ts.replace("'", "''"),
+            ts.replace("'", "''")
+        ));
     }
 
     if let Some(dt) = &lq.created_before {
@@ -7417,6 +7607,13 @@ pub fn filter_list_completed_query(
 
     if let Some(dt) = &lq.created_or_started_after_completed_jobs {
         sqlb.and_where_ge("started_at", "?".bind(&dt.to_rfc3339()));
+    }
+
+    if let Some(dt) = &lq.completed_after {
+        sqlb.and_where_ge("completed_at", "?".bind(&dt.to_rfc3339()));
+    }
+    if let Some(dt) = &lq.completed_before {
+        sqlb.and_where_le("completed_at", "?".bind(&dt.to_rfc3339()));
     }
 
     if let Some(sk) = &lq.is_skipped {
@@ -7454,8 +7651,7 @@ pub fn filter_list_completed_query(
     }
 
     if lq.is_not_schedule.unwrap_or(false) {
-        sqlb.and_where("trigger_kind != 'schedule'")
-            .or_where("trigger_kind IS NULL");
+        sqlb.and_where("trigger_kind IS DISTINCT FROM 'schedule'");
     }
 
     sqlb
@@ -7472,7 +7668,14 @@ pub fn list_completed_jobs_query(
 ) -> SqlBuilder {
     let mut sqlb = SqlBuilder::select_from("v2_job_completed")
         .fields(fields)
-        .order_by("v2_job.created_at", lq.order_desc.unwrap_or(true))
+        .order_by(
+            if lq.completed_before.is_some() || lq.completed_after.is_some() {
+                "v2_job_completed.completed_at"
+            } else {
+                "v2_job.created_at"
+            },
+            lq.order_desc.unwrap_or(true),
+        )
         .offset(offset)
         .clone();
     if let Some(per_page) = per_page {
@@ -7501,6 +7704,10 @@ pub struct ListCompletedQuery {
     pub created_or_started_before: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub created_or_started_after_completed_jobs: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_before_queue: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_after_queue: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_before: Option<chrono::DateTime<chrono::Utc>>,
     pub success: Option<bool>,
     pub running: Option<bool>,
     pub parent_job: Option<String>,
@@ -7540,8 +7747,8 @@ async fn list_completed_jobs(
         offset,
         &lq,
         &[
-            "v2_job.id",
-            "v2_job.workspace_id",
+            "v2_job_completed.id",
+            "v2_job_completed.workspace_id",
             "v2_job.parent_job",
             "v2_job.created_by",
             "v2_job.created_at",

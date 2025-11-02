@@ -35,8 +35,7 @@ import { getStringError } from './utils'
 import type { FlowModuleState, FlowState } from '$lib/components/flows/flowState'
 import type { CurrentEditor, ExtendedOpenFlow } from '$lib/components/flows/types'
 import { untrack } from 'svelte'
-import { get } from 'svelte/store'
-import { getCurrentModel, type DBSchemas, copilotInfo } from '$lib/stores'
+import { type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
 import type { ContextElement } from './context'
@@ -45,6 +44,7 @@ import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 import type { ReviewChangesOpts } from './monaco-adapter'
+import { getCurrentModel, getCombinedCustomPrompt } from '$lib/aiStore'
 
 // If the estimated token usage is greater than the model context window - the threshold, we delete the oldest message
 const MAX_TOKENS_THRESHOLD_PERCENTAGE = 0.05
@@ -208,7 +208,7 @@ class AIChatManager {
 		this.mode = mode
 		this.pendingPrompt = pendingPrompt ?? ''
 		if (mode === AIMode.SCRIPT) {
-			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			const customPrompt = getCombinedCustomPrompt(mode)
 			const currentModel = getCurrentModel()
 			this.systemMessage = prepareScriptSystemMessage(currentModel, customPrompt)
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
@@ -235,23 +235,23 @@ class AIChatManager {
 				}
 			}
 		} else if (mode === AIMode.FLOW) {
-			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
 			this.tools = [this.changeModeTool, ...flowTools]
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
-			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareNavigatorSystemMessage(customPrompt)
 			this.tools = [this.changeModeTool, ...navigatorTools]
 			this.helpers = {}
 		} else if (mode === AIMode.ASK) {
-			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAskSystemMessage(customPrompt)
 			this.tools = [...askTools]
 			this.helpers = {}
 		} else if (mode === AIMode.API) {
-			const customPrompt = get(copilotInfo).customPrompts?.[mode]
+			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareApiSystemMessage(customPrompt)
 			this.tools = [...this.apiTools]
 			this.helpers = {}
@@ -480,7 +480,8 @@ class AIChatManager {
 						reply += token
 					},
 					onMessageEnd: () => {},
-					setToolStatus: () => {}
+					setToolStatus: () => {},
+					removeToolStatus: () => {}
 				},
 				systemMessage
 			}
@@ -678,6 +679,15 @@ class AIChatManager {
 								...(metadata || {})
 							}
 							this.displayMessages.push(newMessage)
+						}
+					},
+					removeToolStatus: (id) => {
+						const existingIdx = this.displayMessages.findIndex(
+							(m) => m.role === 'tool' && m.tool_call_id === id
+						)
+						if (existingIdx !== -1) {
+							this.displayMessages.splice(existingIdx, 1)
+							this.displayMessages = [...this.displayMessages]
 						}
 					},
 					requestConfirmation: this.requestConfirmation

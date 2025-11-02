@@ -5,7 +5,7 @@ import type {
 } from 'openai/resources/chat/completions.mjs'
 import { get } from 'svelte/store'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
-import { workspaceStore, getCurrentModel } from '$lib/stores'
+import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { zodToJsonSchema } from 'zod-to-json-schema'
@@ -13,6 +13,7 @@ import { z } from 'zod'
 import { ScriptService, JobService, type CompletedJob, type FlowModule } from '$lib/gen'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import YAML from 'yaml'
+import { getCurrentModel } from '$lib/aiStore'
 
 export interface ContextStringResult {
 	dbContext: string
@@ -268,7 +269,6 @@ export async function processToolCall<T>({
 		// Check if tool requires confirmation
 		const needsConfirmation = tool?.requiresConfirmation
 
-		// Add the tool to the display with appropriate status
 		toolCallbacks.setToolStatus(toolCall.id, {
 			...(tool?.requiresConfirmation
 				? { content: tool.confirmationMessage ?? 'Waiting for confirmation...' }
@@ -362,6 +362,7 @@ export interface Tool<T> {
 
 export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
+	removeToolStatus: (id: string) => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
 }
 

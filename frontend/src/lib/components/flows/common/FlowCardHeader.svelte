@@ -25,6 +25,7 @@
 		title?: string | undefined
 		summary?: string | undefined
 		children?: import('svelte').Snippet
+		action?: import('svelte').Snippet
 		isAgentTool?: boolean
 	}
 
@@ -33,6 +34,7 @@
 		title = undefined,
 		summary = $bindable(undefined),
 		children,
+		action,
 		isAgentTool = false
 	}: Props = $props()
 
@@ -72,7 +74,7 @@
 </script>
 
 <div
-	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 pt-1 pb-4 flex-nowrap"
+	class="overflow-x-auto scrollbar-hidden flex items-center justify-between px-4 pt-1 pb-1 flex-nowrap"
 >
 	{#if flowModuleValue}
 		<span class="text-sm w-full mr-4">
@@ -98,9 +100,8 @@
 					{#if flowModuleValue.hash}
 						{#if latestHash != flowModuleValue.hash}
 							<Button
-								color="light"
 								size="xs"
-								variant="border"
+								variant="default"
 								on:click={() => {
 									if (flowModuleValue.type == 'script') {
 										dispatch('setHash', latestHash)
@@ -112,7 +113,7 @@
 						<Button
 							title="Unlock hash to always use latest deployed version at that path"
 							size="xs"
-							btnClasses="text-tertiary inline-flex gap-1 items-center"
+							btnClasses="text-primary inline-flex gap-1 items-center"
 							color="light"
 							on:click={() => {
 								if (flowModuleValue.type == 'script') {
@@ -126,7 +127,7 @@
 								title="Lock hash to always use this specific version"
 								color="light"
 								size="xs"
-								btnClasses="text-tertiary inline-flex gap-1 items-center"
+								btnClasses="text-primary inline-flex gap-1 items-center"
 								on:click={() => {
 									if (flowModuleValue.type == 'script') {
 										dispatch('setHash', latestHash)
@@ -165,4 +166,5 @@
 		<div class="text-sm font-bold text-primary pr-2">{title}</div>
 	{/if}
 	{@render children?.()}
+	{@render action?.()}
 </div>

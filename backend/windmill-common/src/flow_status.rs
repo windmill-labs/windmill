@@ -45,6 +45,10 @@ pub struct FlowStatus {
     pub restarted_from: Option<RestartedFrom>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_job: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_input_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_id: Option<Uuid>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -183,7 +187,18 @@ struct UntaggedFlowStatusModule {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentAction {
-    ToolCall { job_id: uuid::Uuid, function_name: String, module_id: String },
+    ToolCall {
+        job_id: uuid::Uuid,
+        function_name: String,
+        module_id: String,
+    },
+    McpToolCall {
+        call_id: uuid::Uuid,
+        function_name: String,
+        resource_path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        arguments: Option<serde_json::Value>,
+    },
     Message {},
 }
 
@@ -508,6 +523,8 @@ impl FlowStatus {
             restarted_from: None,
             user_states: HashMap::new(),
             stream_job: None,
+            chat_input_enabled: f.chat_input_enabled,
+            memory_id: None,
         }
     }
 
