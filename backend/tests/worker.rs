@@ -2395,7 +2395,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job = sqlx::query!(
-                "SELECT j.runnable_path as script_path FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1",
+                "SELECT runnable_path as script_path FROM v2_job WHERE id = $1",
                 uuid
             )
             .fetch_one(&db2)
@@ -2466,7 +2466,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job =
-                sqlx::query!("SELECT j.runnable_path as script_path FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1", uuid)
+                sqlx::query!("SELECT runnable_path as script_path FROM v2_job WHERE id = $1", uuid)
                     .fetch_one(&db2)
                     .await
                     .unwrap();
@@ -2553,7 +2553,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job = sqlx::query!(
-                "SELECT j.runnable_path as script_path FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1",
+                "SELECT runnable_path as script_path FROM v2_job WHERE id = $1",
                 uuid
             )
             .fetch_one(&db2)
@@ -2625,7 +2625,7 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
             let uuid = uuid.unwrap().unwrap();
 
             let completed_job =
-                sqlx::query!("SELECT j.runnable_path as script_path FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1", uuid)
+                sqlx::query!("SELECT runnable_path as script_path FROM v2_job WHERE id = $1", uuid)
                     .fetch_one(&db2)
                     .await
                     .unwrap();
