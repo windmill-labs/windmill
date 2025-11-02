@@ -494,8 +494,7 @@ async fn list_user_usage(
             UserWithUsage,
             "
     SELECT usr.email, usage.executions
-        FROM usr
-            , LATERAL (
+        FROM usr, LATERAL (
             SELECT COALESCE(SUM(c.duration_ms + 1000)/1000 , 0)::BIGINT executions
                 FROM v2_job_completed c JOIN v2_job j USING (id)
                 WHERE j.workspace_id = $1

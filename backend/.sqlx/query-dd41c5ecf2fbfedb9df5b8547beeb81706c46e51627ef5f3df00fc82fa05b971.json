@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT created_by AS \"created_by!\", CONCAT(coalesce(v2_as_completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index\n        FROM v2_as_completed_job\n        LEFT JOIN job_logs ON job_logs.job_id = v2_as_completed_job.id\n        WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2 AND ($3::text[] IS NULL OR v2_as_completed_job.tag = ANY($3))",
+  "query": "SELECT j.created_by AS \"created_by!\", CONCAT(coalesce(NULL, ''), coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index\n            FROM v2_job j\n            LEFT JOIN job_logs ON job_logs.job_id = j.id\n            WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
   "describe": {
     "columns": [
       {
@@ -32,11 +32,11 @@
       ]
     },
     "nullable": [
-      true,
-      null,
       false,
+      null,
+      null,
       true
     ]
   },
-  "hash": "ca5d9a9d8d18da970c7fd6eab41ecbb3a5c7c29803e4c38b8a0b2ca3790e52f9"
+  "hash": "dd41c5ecf2fbfedb9df5b8547beeb81706c46e51627ef5f3df00fc82fa05b971"
 }

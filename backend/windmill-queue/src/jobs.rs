@@ -3529,7 +3529,7 @@ pub async fn push<'c, 'd>(
                     }
 
                     let in_queue = sqlx::query_scalar!(
-                        "SELECT COUNT(j.id) FROM v2_job_queue q JOIN v2_job j USING (id) WHERE j.permissioned_as_email = $1",
+                        "SELECT COUNT(id) FROM v2_job WHERE permissioned_as_email = $1",
                         email
                     )
                     .fetch_one(_db)
