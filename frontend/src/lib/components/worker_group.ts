@@ -57,7 +57,8 @@ export const defaultTags = [
 	'csharp',
 	'nu',
 	'java',
-	'ruby'
+	'ruby',
+	'duckdb'
 	// for related places search: ADD_NEW_LANG
 ]
 export const nativeTags = [
@@ -68,6 +69,5 @@ export const nativeTags = [
 	'snowflake',
 	'mssql',
 	'bigquery',
-	'oracledb',
-	'duckdb'
+	'oracledb'
 ]
