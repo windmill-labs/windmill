@@ -7,9 +7,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { fade } from 'svelte/transition'
 	import { Database, Square } from 'lucide-svelte'
-	import ModuleAcceptReject, {
-		getAiModuleAction
-	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
+	import { getAiModuleAction } from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
 	import type { Job } from '$lib/gen'
@@ -104,9 +102,6 @@
 	on:select
 >
 	{#snippet children({ hover })}
-		{#if editMode}
-			<ModuleAcceptReject id="Input" {action} />
-		{/if}
 		<div class="flex flex-col w-full">
 			<div
 				class="flex flex-row justify-between {colorClasses.outline} {center
