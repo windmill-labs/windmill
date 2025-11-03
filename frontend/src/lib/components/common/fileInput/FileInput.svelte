@@ -15,7 +15,7 @@
 	export let multiple = false
 	export let convertTo: ReadFileAs | undefined = undefined
 	export let hideIcon = false
-	export let iconSize = 36
+	export let iconSize = 24
 	export let returnFileNames = false
 	export let submittedText: string | undefined = undefined
 	export let defaultFile: string | string[] | undefined = undefined
@@ -187,10 +187,11 @@
 
 <button
 	class={twMerge(
-		`relative center-center flex-col text-center font-medium text-tertiary
-		border border-dashed border-gray-400 hover:border-blue-500
+		`relative center-center flex flex-col gap-x-2 gap-y-1 justify-center items-center flex-wrap text-center font-normal text-hint text-xs rounded-md
+		bg-surface-secondary
+		border border-dashed border-nord-400 dark:border-nord-300 hover:border-nord-900 dark:hover:border-nord-900
 		focus-within:border-blue-300 hover:bg-blue-50 dark:hover:bg-frost-900
-		duration-200 rounded-component p-1`,
+		duration-200 px-1 py-8`,
 		c
 	)}
 	on:dragover={handleDragOver}
@@ -209,7 +210,7 @@
 	{disabled}
 >
 	{#if !hideIcon && !files}
-		<FileUp size={iconSize} class="mb-2" />
+		<FileUp size={iconSize} />
 	{/if}
 	{#if files}
 		<div class="w-full max-h-full overflow-auto px-6">
@@ -227,12 +228,12 @@
 						<span class="pr-2 ellipsize">{name}</span>
 						<Button
 							size="xs"
-							color="red"
-							variant="border"
+							variant="default"
 							iconOnly
 							btnClasses="bg-transparent"
 							startIcon={{ icon: Trash }}
 							on:click={() => removeFile(i)}
+							destructive
 						/>
 					</li>
 				{/each}
@@ -257,8 +258,8 @@
 		{...$$restProps}
 	/>
 	{#if defaultFile && (!Array.isArray(defaultFile) || defaultFile.length > 0)}
-		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-tertiary mt-2">
-			Default file: <span class="text-blue-500">{defaultFile}</span>
+		<div class="w-full border-dashed border-t-2 text-2xs pt-1 text-primary mt-2">
+			Default file: <span class="text-nord-900">{defaultFile}</span>
 		</div>
 	{/if}
 </button>

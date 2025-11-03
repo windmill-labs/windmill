@@ -14,7 +14,6 @@
 	import { canWrite, isOwner } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import Section from './Section.svelte'
 	import { Loader2, Save } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 
@@ -144,46 +143,53 @@
 					You only have read access to this resource and cannot edit it
 				</Alert>
 			{/if}
-			<Section label="Path">
-				<div class="flex flex-col gap-4">
-					<Path
-						disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
-						bind:error={pathError}
-						bind:path
-						{initialPath}
-						namePlaceholder="variable"
-						kind="variable"
-					/>
-					<Toggle
-						on:change={() => edit && loadVariable(initialPath)}
-						bind:checked={variable.is_secret}
-						disabled={edit && $userStore?.operator}
-						options={{ right: 'Secret' }}
-					/>
-					{#if variable.is_secret}
-						<Alert type="warning" title="Audit log for each access">
-							Every secret is encrypted at rest and in transit with a key specific to this
-							workspace. In addition, any read of a secret variable generates an audit log whose
-							operation name is: variables.decrypt_secret
-						</Alert>
-					{/if}
-				</div>
-			</Section>
-			<Section label="Variable value">
-				{#snippet header()}
-					<span class="text-sm text-tertiary mr-4 font-normal">
+
+			<div class="flex flex-col gap-1">
+				<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
+				<Path
+					disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
+					bind:error={pathError}
+					bind:path
+					{initialPath}
+					namePlaceholder="variable"
+					kind="variable"
+				/>
+			</div>
+			<label class="flex flex-col gap-1">
+				<span class="text-xs font-semibold text-emphasis">Secret</span>
+				<Toggle
+					on:change={() => edit && loadVariable(initialPath)}
+					bind:checked={variable.is_secret}
+					disabled={edit && $userStore?.operator}
+				/>
+				{#if variable.is_secret}
+					<Alert type="warning" title="Audit log for each access">
+						Every secret is encrypted at rest and in transit with a key specific to this workspace.
+						In addition, any read of a secret variable generates an audit log whose operation name
+						is: variables.decrypt_secret
+					</Alert>
+				{/if}
+			</label>
+
+			<div class="flex flex-col gap-1">
+				<label for="variable-value" class="flex flex-row justify-left items-center">
+					<span class="text-xs font-semibold text-emphasis">Variable value&nbsp;</span>
+
+					<span class="text-xs text-secondary font-normal">
 						({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)
 					</span>
-				{/snippet}
+					{#if edit && variable.is_secret}
+						<div class="ml-3"></div>
+						{#if $userStore?.operator}
+							<div class="p-2 border">Operators cannot load secret value</div>
+						{:else}
+							<Button size="xs" variant="default" on:click={() => loadVariable(initialPath)}>
+								Load secret value<Tooltip>Will generate an audit log</Tooltip>
+							</Button>
+						{/if}
+					{/if}
+				</label>
 				<div>
-					<div class="mb-1">
-						{#if edit && variable.is_secret}{#if $userStore?.operator}
-								<div class="p-2 border">Operators cannot load secret value</div>
-							{:else}
-								<Button variant="border" size="xs" on:click={() => loadVariable(initialPath)}
-									>Load secret value<Tooltip>Will generate an audit log</Tooltip></Button
-								>{/if}{/if}
-					</div>
 					<div class="flex flex-col gap-2">
 						<ToggleButtonGroup bind:selected={editorKind}>
 							{#snippet children({ item })}
@@ -199,6 +205,7 @@
 								use:autosize
 								bind:value={variable.value}
 								placeholder="Update variable value"
+								id="variable-value"
 							></textarea>
 						{:else if editorKind == 'json'}
 							<div class="border rounded mb-4 w-full">
@@ -211,6 +218,7 @@
 										lang="json"
 										bind:code={variable.value}
 										fixedOverflowWidgets={false}
+										class="bg-surface-tertiary"
 									/>
 								{/await}
 							</div>
@@ -225,24 +233,26 @@
 										lang="yaml"
 										bind:code={variable.value}
 										fixedOverflowWidgets={false}
+										class="bg-surface-tertiary"
 									/>
 								{/await}
 							</div>
 						{/if}
 					</div>
 				</div>
-			</Section>
-			<Section label="Description">
+			</div>
+			<label class="flex flex-col gap-1">
+				<span class="text-xs font-semibold text-emphasis">Description</span>
 				<textarea rows="4" use:autosize bind:value={variable.description} placeholder="Used for X"
 				></textarea>
-			</Section>
+			</label>
 		</div>
 		{#snippet actions()}
 			<Button
 				on:click={() => (edit ? updateVariable() : createVariable())}
 				disabled={!can_write || !valid || pathError != ''}
 				startIcon={{ icon: Save }}
-				color="dark"
+				variant="accent"
 				size="sm"
 			>
 				{edit ? 'Update' : 'Save'}

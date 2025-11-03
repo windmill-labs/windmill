@@ -288,8 +288,8 @@
 				label: 'Fork',
 				buttonProps: {
 					href: `${base}/scripts/add?template=${script.path}`,
-					size: 'xs',
-					color: 'light',
+					unifiedSize: 'md',
+					variant: 'subtle',
 					startIcon: GitFork
 				}
 			})
@@ -303,8 +303,8 @@
 			label: `Runs`,
 			buttonProps: {
 				href: `${base}/runs/${script.path}`,
-				size: 'xs',
-				color: 'light',
+				unifiedSize: 'md',
+				variant: 'subtle',
 				startIcon: Play
 			}
 		})
@@ -321,8 +321,8 @@
 						versionsDrawerOpen = !versionsDrawerOpen
 					},
 
-					size: 'xs',
-					color: 'light',
+					unifiedSize: 'md',
+					variant: 'subtle',
 					startIcon: History
 				}
 			})
@@ -338,8 +338,8 @@
 						await goto('/apps/add?nodraft=true')
 					},
 
-					size: 'xs',
-					color: 'light',
+					unifiedSize: 'md',
+					variant: 'accent',
 					startIcon: Table2
 				}
 			})
@@ -351,10 +351,9 @@
 						onClick: () => {
 							persistentScriptDrawer?.open?.(script)
 						},
-						size: 'xs',
+						unifiedSize: 'md',
 						startIcon: Activity,
-						color: 'dark',
-						variant: 'contained'
+						variant: 'accent'
 					}
 				})
 			}
@@ -366,10 +365,9 @@
 						href: `${base}/scripts/edit/${script.path}?${
 							topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
 						}`,
-						size: 'xs',
+						unifiedSize: 'md',
 						startIcon: Pen,
-						color: 'dark',
-						variant: 'contained',
+						variant: 'accent-secondary',
 						disabled: !can_write
 					}
 				})
@@ -704,7 +702,6 @@
 							/>
 							<Toggle
 								bind:checked={jsonView}
-								label="JSON View"
 								size="xs"
 								options={{
 									right: 'JSON',
@@ -747,12 +744,12 @@
 
 					<div class="py-10"></div>
 					{#if !emptyString(script.summary)}
-						<div class="mb-2">
-							<span class="!text-tertiary">{script.path}</span>
+						<div>
+							<span class="text-primary">{script.path}</span>
 						</div>
 					{/if}
 					<div class="flex flex-row gap-x-2 flex-wrap items-center">
-						<span class="text-sm text-tertiary">
+						<span class="text-2xs text-secondary">
 							Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
 						</span>
 						<Badge small color="gray">
@@ -812,9 +809,9 @@
 				<Skeleton {loading} layout={[[20]]} />
 
 				<Tabs selected="code">
-					<Tab value="code" size="xs">Code</Tab>
-					<Tab value="dependencies" size="xs">Lockfile</Tab>
-					<Tab value="schema" size="xs">Schema</Tab>
+					<Tab value="code" label="Code" />
+					<Tab value="dependencies" label="Lockfile" />
+					<Tab value="schema" label="Schema" />
 					{#snippet content()}
 						{#if script}
 							<TabContent value="code">
@@ -822,7 +819,7 @@
 									<HighlightCode
 										language={script.language}
 										code={script.content}
-										class="whitespace-pre-wrap"
+										className="whitespace-pre-wrap"
 									/>
 								</div>
 							</TabContent>

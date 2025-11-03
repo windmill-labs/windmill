@@ -29,6 +29,14 @@ use crate::{
     FlowVersionInfo, ScriptHashInfo,
 };
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct DynamicInput {
+    #[serde(rename = "x-windmill-dyn-select-code")]
+    pub x_windmill_dyn_select_code: String,
+    #[serde(rename = "x-windmill-dyn-select-lang")]
+    pub x_windmill_dyn_select_lang: ScriptLang,
+}
+
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, Clone)]
 #[sqlx(type_name = "JOB_TRIGGER_KIND", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
@@ -76,7 +84,7 @@ pub enum JobKind {
     Dependencies,
     Flow,
     FlowPreview,
-    SingleScriptFlow,
+    SingleStepFlow,
     Identity,
     FlowDependencies,
     AppDependencies,
@@ -92,7 +100,7 @@ impl JobKind {
     pub fn is_flow(&self) -> bool {
         matches!(
             self,
-            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleScriptFlow | JobKind::FlowNode
+            JobKind::Flow | JobKind::FlowPreview | JobKind::SingleStepFlow | JobKind::FlowNode
         )
     }
 
@@ -255,6 +263,7 @@ pub struct CompletedJob {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub duration_ms: i64,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -315,22 +324,42 @@ impl CompletedJob {
 
 #[derive(Debug, Clone)]
 pub enum JobPayload {
+    /// Execute Hub Script
     ScriptHub {
         path: String,
         apply_preprocessor: bool,
     },
+
+    /// Execute script
     ScriptHash {
         hash: ScriptHash,
         path: String,
+        /// Override default concurrency key
         custom_concurrency_key: Option<String>,
+        /// How many jobs can run at the same time
         concurrent_limit: Option<i32>,
+        /// In seconds
         concurrency_time_window_s: Option<i32>,
+        /// If not set, will be inferred from the hash(path + step_id + inputs)
+        custom_debounce_key: Option<String>,
+        /// Debouncing delay will be determined by the first job with the key.
+        /// All subsequent jobs with Some will get debounced.
+        /// If the job has no delay, it will execute immediately, fully ignoring pending delays.
+        debounce_delay_s: Option<i32>,
         cache_ttl: Option<i32>,
         dedicated_worker: Option<bool>,
         language: ScriptLang,
         priority: Option<i16>,
         apply_preprocessor: bool,
     },
+
+    /// Execute flow step (can be subflow only).
+    FlowNode {
+        id: FlowNodeId, // flow_node(id).
+        path: String,   // flow node inner path (e.g. `outer/branchall-42`).
+    },
+
+    /// Execute flow step
     FlowScript {
         id: FlowNodeId, // flow_node(id).
         language: ScriptLang,
@@ -341,67 +370,89 @@ pub enum JobPayload {
         dedicated_worker: Option<bool>,
         path: String,
     },
-    FlowNode {
-        id: FlowNodeId, // flow_node(id).
-        path: String,   // flow node inner path (e.g. `outer/branchall-42`).
-    },
+
+    /// Inline App Script
     AppScript {
         id: AppScriptId, // app_script(id).
         path: Option<String>,
         language: ScriptLang,
         cache_ttl: Option<i32>,
     },
+
+    /// Script/App/FlowAsCode Preview
     Code(RawCode),
+
+    /// Script Dependency Job
     Dependencies {
         path: String,
         hash: ScriptHash,
         language: ScriptLang,
         dedicated_worker: Option<bool>,
     },
+
+    /// Flow Dependency Job
     FlowDependencies {
         path: String,
         dedicated_worker: Option<bool>,
         version: i64,
     },
+
+    /// App Dependency Job
     AppDependencies {
         path: String,
         version: i64,
     },
+
+    /// Flow Dependency Job, exposed with API. Requirements can be partially or fully predefined
     RawFlowDependencies {
         path: String,
         flow_value: FlowValue,
     },
+
+    /// Dependency Job, exposed with API. Requirements can be predefined
     RawScriptDependencies {
         script_path: String,
+        /// Will reflect raw requirements content (e.g. requirements.txt)
         content: String,
         language: ScriptLang,
     },
+
+    /// Flow Job
     Flow {
         path: String,
         dedicated_worker: Option<bool>,
         apply_preprocessor: bool,
         version: i64,
     },
+
     RestartedFlow {
         completed_job_id: Uuid,
         step_id: String,
         branch_or_iteration_n: Option<usize>,
     },
+
+    /// Flow Preview
     RawFlow {
         value: FlowValue,
         path: Option<String>,
         restarted_from: Option<RestartedFrom>,
     },
-    SingleScriptFlow {
+
+    /// Flow consisting of single script
+    SingleStepFlow {
         path: String,
-        hash: ScriptHash,
+        hash: Option<ScriptHash>,
+        flow_version: Option<i64>,
         args: HashMap<String, Box<serde_json::value::RawValue>>,
         retry: Option<Retry>,
         error_handler_path: Option<String>,
         error_handler_args: Option<HashMap<String, Box<RawValue>>>,
+        skip_handler: Option<SkipHandler>,
         custom_concurrency_key: Option<String>,
         concurrent_limit: Option<i32>,
         concurrency_time_window_s: Option<i32>,
+        custom_debounce_key: Option<String>,
+        debounce_delay_s: Option<i32>,
         cache_ttl: Option<i32>,
         priority: Option<i16>,
         tag_override: Option<String>,
@@ -418,6 +469,14 @@ pub enum JobPayload {
     },
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct SkipHandler {
+    pub path: String,
+    pub args: HashMap<String, Box<RawValue>>,
+    pub stop_condition: String,
+    pub stop_message: String,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct RawCode {
     pub content: String,
@@ -428,6 +487,8 @@ pub struct RawCode {
     pub custom_concurrency_key: Option<String>,
     pub concurrent_limit: Option<i32>,
     pub concurrency_time_window_s: Option<i32>,
+    pub custom_debounce_key: Option<String>,
+    pub debounce_delay_s: Option<i32>,
     pub cache_ttl: Option<i32>,
     pub dedicated_worker: Option<bool>,
 }
@@ -499,6 +560,8 @@ pub async fn script_path_to_payload<'e>(
             concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            debounce_key,
+            debounce_delay_s,
             cache_ttl,
             language,
             dedicated_worker,
@@ -527,7 +590,9 @@ pub async fn script_path_to_payload<'e>(
                 custom_concurrency_key: concurrency_key,
                 concurrent_limit,
                 concurrency_time_window_s,
-                cache_ttl: cache_ttl,
+                custom_debounce_key: debounce_key,
+                debounce_delay_s,
+                cache_ttl,
                 language,
                 dedicated_worker,
                 priority,
@@ -547,6 +612,11 @@ pub async fn script_path_to_payload<'e>(
         script_timeout,
         on_behalf_of,
     ))
+}
+
+#[inline(always)]
+pub fn generate_dynamic_input_key(workspace_id: &str, path: &str) -> String {
+    format!("{workspace_id}:{path}")
 }
 
 pub async fn get_payload_tag_from_prefixed_path(
@@ -751,4 +821,32 @@ pub async fn check_tag_available_for_workspace_internal(
     }
 
     return Ok(());
+}
+
+pub async fn lock_debounce_key<'c>(
+    w_id: &str,
+    runnable_path: &str,
+    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+) -> error::Result<Option<Uuid>> {
+    if !*crate::worker::MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
+        tracing::warn!("Debouncing is not supported on this version of Windmill. Minimum version required for debouncing support.");
+        return Ok(None);
+    }
+
+    let key = format!("{w_id}:{runnable_path}:dependency");
+
+    tracing::debug!(
+        workspace_id = %w_id,
+        runnable_path = %runnable_path,
+        debounce_key = %key,
+        "Locking debounce_key for dependency job scheduling"
+    );
+
+    sqlx::query_scalar!(
+        "SELECT job_id FROM debounce_key WHERE key = $1 AND job_id IN (SELECT id FROM v2_job_queue) FOR UPDATE",
+        &key
+    )
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(error::Error::from)
 }

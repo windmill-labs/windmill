@@ -21,7 +21,6 @@
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
-	import { type ScriptLang } from '$lib/gen'
 
 	let reloadArgs = $state(0)
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
@@ -193,7 +192,7 @@
 						{/if}
 
 						<div class="flex items-center gap-2">
-							<span class="text-sm text-tertiary">
+							<span class="text-sm text-primary">
 								{#if runnable}
 									Edited <TimeAgo agoOnlyIfRecent date={runnable.created_at || ''} /> by {runnable.created_by ||
 										'unknown'}
@@ -230,7 +229,7 @@
 	{#if topButton}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
-			disabled={!isValid || jsonView}
+			disabled={!isValid && !jsonView}
 			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
 		>
 			{buttonText}
@@ -238,10 +237,12 @@
 	{/if}
 	{#if runnable?.schema}
 		<div class="my-2"></div>
-		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
-			<div class="text-sm py-4 italic">No arguments</div>
-		{:else if jsonView}
-			<div class="py-2" style="height: {schemaHeight}px" data-schema-picker>
+		{#if jsonView}
+			<div
+				class="py-2"
+				style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
+				data-schema-picker
+			>
 				<JsonInputs
 					bind:this={jsonEditor}
 					on:select={(e) => {
@@ -253,23 +254,17 @@
 					placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 				/>
 			</div>
+		{:else if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
+			<div class="text-sm py-4 italic">No arguments</div>
 		{:else}
 			{#key reloadArgs}
 				<div bind:clientHeight={schemaHeight}>
 					<SchemaForm
-						helperScript={runnable.hash
-							? {
-									type: 'hash',
-									hash: runnable.hash
-								}
-							: runnable.schema?.['x-windmill-dyn-select-code'] &&
-								  runnable.schema?.['x-windmill-dyn-select-lang']
-								? {
-										type: 'inline',
-										code: runnable.schema['x-windmill-dyn-select-code'] as string,
-										lang: runnable.schema['x-windmill-dyn-select-lang'] as ScriptLang
-									}
-								: undefined}
+						helperScript={{
+							source: 'deployed',
+							path: runnable.path!,
+							runnable_kind: runnable.hash ? 'script' : 'flow'
+						}}
 						prettifyHeader
 						{noVariablePicker}
 						{autofocus}
@@ -281,7 +276,7 @@
 			{/key}
 		{/if}
 	{:else}
-		<div class="text-xs text-tertiary">No arguments</div>
+		<div class="text-xs text-primary">No arguments</div>
 	{/if}
 	{#if schedulable}
 		<div class="mt-10"></div>
@@ -289,9 +284,9 @@
 			<div class="flex-row-reverse flex-wrap flex w-full gap-4">
 				<Button
 					{loading}
-					color="dark"
+					variant="accent"
 					btnClasses="!px-6 !py-1 !h-8 inline-flex gap-2"
-					disabled={!isValid || jsonView}
+					disabled={!isValid && !jsonView}
 					on:click={() => runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 				>
@@ -329,7 +324,7 @@
 	{:else if !topButton}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
-			disabled={!isValid || jsonView}
+			disabled={!isValid && !jsonView}
 			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
 		>

@@ -62,14 +62,15 @@
 		/>
 
 		<div
-			class="w-full border p-2 mt-2 flex flex-col {flowModule.skip_if
+			class="w-full border rounded-md p-2 mt-2 flex flex-col gap-1 {flowModule.skip_if
 				? ''
 				: 'bg-surface-secondary'}"
 		>
 			{#if flowModule.skip_if}
 				<span class="mt-2 text-xs font-bold">Skip condition expression</span>
-				<div class="border w-full">
+				<div class="border rounded-md w-full overflow-auto">
 					<PropPickerWrapper
+						noPadding
 						notSelectable
 						pickableProperties={stepPropPicker.pickableProperties}
 						on:select={({ detail }) => {
@@ -81,7 +82,7 @@
 							bind:this={editor}
 							lang="javascript"
 							bind:code={flowModule.skip_if.expr}
-							class="few-lines-editor"
+							class="h-full"
 							extraLib={stepPropPicker.extraLib}
 						/>
 					</PropPickerWrapper>

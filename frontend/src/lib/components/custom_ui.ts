@@ -20,6 +20,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 		earlyReturn?: boolean
 		workerGroup?: boolean
 		concurrency?: boolean
+		debouncing?: boolean
 		cache?: boolean
 	}
 	triggers?: boolean
@@ -38,6 +39,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 	tagSelectPlaceholder?: string
 	tagSelectNoLabel?: boolean
 	tagLabel?: string
+	aiAgent?: boolean
 }
 
 export type DisplayResultUi = {

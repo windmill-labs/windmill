@@ -450,6 +450,7 @@ pub trait TriggerJobArgs {
         trigger_info: HashMap<String, Box<RawValue>>,
     ) -> impl Future<Output = Result<PushArgsOwned>> + Send {
         async move {
+            tracing::debug!("Building job args for {runnable_id:?}");
             let runnable_format =
                 get_runnable_format(runnable_id, w_id, db, &Self::TRIGGER_KIND).await?;
             let job_args = match runnable_format {
@@ -460,6 +461,7 @@ pub trait TriggerJobArgs {
                     Self::build_job_args_v2(has_preprocessor, &payload, trigger_info)
                 }
             };
+
             Ok(job_args)
         }
     }
@@ -475,7 +477,7 @@ pub trait TriggerJobArgs {
 }
 
 #[allow(dead_code)]
-async fn trigger_runnable_inner(
+pub async fn trigger_runnable_inner(
     db: &DB,
     user_db: Option<UserDB>,
     authed: ApiAuthed,
@@ -621,7 +623,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     error_handler_path: Option<&str>,
     error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     trigger_path: String,
-) -> Result<Box<RawValue>> {
+) -> Result<(Box<RawValue>, bool)> {
     let username = authed.username.clone();
     let (uuid, delete_after_use, early_return) = trigger_runnable_inner(
         db,
@@ -653,6 +655,37 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
+
+    Ok((result, success))
+}
+
+pub async fn trigger_runnable_and_wait_for_raw_result_with_error_ctx(
+    db: &DB,
+    user_db: Option<UserDB>,
+    authed: ApiAuthed,
+    workspace_id: &str,
+    runnable_path: &str,
+    is_flow: bool,
+    args: PushArgsOwned,
+    retry: Option<&sqlx::types::Json<Retry>>,
+    error_handler_path: Option<&str>,
+    error_handler_args: Option<&sqlx::types::Json<HashMap<String, serde_json::Value>>>,
+    trigger_path: String,
+) -> Result<Box<RawValue>> {
+    let (result, success) = trigger_runnable_and_wait_for_raw_result(
+        db,
+        user_db,
+        authed,
+        workspace_id,
+        runnable_path,
+        is_flow,
+        args,
+        retry,
+        error_handler_path,
+        error_handler_args,
+        trigger_path,
+    )
+    .await?;
 
     if !success {
         Err(windmill_common::error::Error::internal_err(format!(
@@ -771,17 +804,21 @@ async fn trigger_script_with_retry_and_error_handler(
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            custom_debounce_key,
+            debounce_delay_s,
             cache_ttl,
             priority,
             apply_preprocessor,
             ..
-        } => JobPayload::SingleScriptFlow {
+        } => JobPayload::SingleStepFlow {
             path,
-            hash,
+            hash: Some(hash),
+            flow_version: None,
             args: HashMap::from(&push_args),
             retry,
             error_handler_path,
             error_handler_args,
+            skip_handler: None,
             custom_concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
@@ -790,6 +827,8 @@ async fn trigger_script_with_retry_and_error_handler(
             tag_override: tag.clone(),
             apply_preprocessor,
             trigger_path: Some(trigger_path),
+            custom_debounce_key,
+            debounce_delay_s,
         },
         _ => {
             return Err(windmill_common::error::Error::internal_err(format!(
@@ -825,6 +864,8 @@ async fn trigger_script_with_retry_and_error_handler(
         None,
         push_authed.as_ref(),
         false,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;

@@ -78,16 +78,23 @@ export class JobManager {
 		try {
 			onProgress?.({ status: 'running' })
 
-			const result = await tryEvery({
+			let finalResult: T | undefined = undefined
+
+			await tryEvery({
 				tryCode: async () => {
 					if (controller.signal.aborted) {
 						throw new Error('Job was cancelled')
 					}
 
-					const jobResult = await JobService.getCompletedJob({
-						workspace,
-						id: jobId
-					})
+					let jobResult
+					try {
+						jobResult = await JobService.getCompletedJob({
+							workspace,
+							id: jobId
+						})
+					} catch (error) {
+						throw error
+					}
 
 					const success = !!jobResult.success
 					const status: JobStatus = {
@@ -98,9 +105,7 @@ export class JobManager {
 
 					onProgress?.(status)
 
-					if (!success) {
-						throw new Error(status.error)
-					}
+					finalResult = jobResult.result as T
 
 					return jobResult.result as T
 				},
@@ -122,7 +127,7 @@ export class JobManager {
 				timeout
 			})
 
-			return result as T
+			return finalResult as T
 		} finally {
 			this.activeJobs.delete(jobId)
 		}

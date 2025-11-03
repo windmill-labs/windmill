@@ -88,7 +88,7 @@
 	<div class="flex flex-col w-full h-screen">
 		<div class="flex items-center space-x-2 flex-row justify-between">
 			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
-				<h1 class="!text-2xl font-semibold leading-6 tracking-tight">Audit logs</h1>
+				<h1 class="text-2xl font-semibold text-emphasis">Audit logs</h1>
 				<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs">
 					You can only see your own audit logs unless you are an admin.
 				</Tooltip>
@@ -170,6 +170,7 @@
 								bind:usernameFilter={username}
 								bind:resourceFilter={resource}
 								bind:hasMore
+								showWorkspace={scope === 'instance' || scope === 'all_workspaces'}
 								onselect={(id) => {
 									selectedId = id
 								}}
@@ -200,6 +201,7 @@
 					bind:operation
 					bind:usernameFilter={username}
 					bind:resourceFilter={resource}
+					showWorkspace={scope === 'instance' || scope === 'all_workspaces'}
 					onselect={(id) => {
 						selectedId = id
 						auditLogDrawer?.openDrawer()

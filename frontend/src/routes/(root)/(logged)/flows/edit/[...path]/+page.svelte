@@ -10,7 +10,7 @@
 		orderedJsonStringify,
 		type StateStore
 	} from '$lib/utils'
-	import { initFlow } from '$lib/components/flows/flowStore'
+	import { initFlow } from '$lib/components/flows/flowStore.svelte'
 	import { goto } from '$lib/navigation'
 	import { afterNavigate, replaceState } from '$app/navigation'
 
@@ -266,7 +266,7 @@
 
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
-<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} />
+<DiffDrawer bind:this={diffDrawer} {restoreDeployed} {restoreDraft} isFlow />
 {#if notFound}
 	<div class="flex flex-col items-center justify-center h-full">
 		<h1 class="text-2xl font-bold">Flow not found at path {page.params.path}</h1>

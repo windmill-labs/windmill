@@ -16,7 +16,7 @@
 		type TriggersCount
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { setCopilotInfo, userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, readFieldsRecursively, sendUserToast, type StateStore } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext, untrack } from 'svelte'
@@ -51,6 +51,22 @@
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import type { GraphModuleState } from './graph'
+	import { setCopilotInfo } from '$lib/aiStore'
+
+	let {
+		initial = undefined
+	}: {
+		initial?:
+			| {
+					type: 'script'
+					script: LastEditScript
+			  }
+			| {
+					type: 'flow'
+					flow: LastEditFlow
+			  }
+			| undefined
+	} = $props()
 
 	let flowCopilotContext: FlowCopilotContext = {
 		shouldUpdatePropertyType: writable<{
@@ -126,11 +142,14 @@
 	}
 
 	let currentScript: LastEditScript | undefined = $state(undefined)
+	let mode: 'script' | 'flow' = $state('script')
+	let lastPath: string | undefined = undefined
 
 	let schema = $state(emptySchema())
 	const href = window.location.href
 	const indexQ = href.indexOf('?')
 	const searchParams = indexQ > -1 ? new URLSearchParams(href.substring(indexQ)) : undefined
+	let relativePaths: any[] = $state([])
 
 	if (searchParams?.has('local')) {
 		connectWs()
@@ -144,6 +163,15 @@
 	let loadingCodebaseButton = $state(false)
 	let lastCommandId = ''
 
+	if (initial) {
+		if (initial.type == 'script') {
+			replaceScript(initial.script)
+		} else if (initial.type == 'flow') {
+			replaceFlow(initial.flow)
+		}
+		modeInitialized = true
+	}
+
 	const el = (event) => {
 		// sendUserToast(`Received message from parent ${event.data.type}`, true)
 		if (event.data.type == 'runTest') {
@@ -153,7 +181,7 @@
 			replaceScript(event.data)
 		} else if (event.data.type == 'testBundle') {
 			if (event.data.id == lastCommandId) {
-				testBundle(event.data.file, event.data.isTar)
+				testBundle(event.data.file, event.data.isTar, event.data.format)
 			} else {
 				sendUserToast(`Bundle received ${lastCommandId} was obsolete, ignoring`, true)
 			}
@@ -225,7 +253,7 @@
 		window.parent?.postMessage({ type: 'refresh' }, '*')
 	})
 
-	async function testBundle(file: string, isTar: boolean) {
+	async function testBundle(file: string, isTar: boolean, format: 'cjs' | 'esm' | undefined) {
 		jobLoader?.abstractRun(
 			async () => {
 				try {
@@ -238,7 +266,8 @@
 							path: currentScript?.path,
 							args,
 							language: currentScript?.language,
-							tag: currentScript?.tag
+							tag: currentScript?.tag,
+							format
 						})
 					)
 					// sendUserToast(JSON.stringify(file))
@@ -389,8 +418,6 @@
 		}
 	}
 
-	let relativePaths: any[] = $state([])
-	let lastPath: string | undefined = undefined
 	async function replaceScript(lastEdit: LastEditScript) {
 		mode = 'script'
 		currentScript = lastEdit
@@ -414,8 +441,6 @@
 		}
 	}
 
-	let mode: 'script' | 'flow' = $state('script')
-
 	const flowStore = $state({
 		val: {
 			summary: '',
@@ -428,11 +453,13 @@
 	type LastEditFlow = {
 		flow: OpenFlow
 		uriPath: string
+		path: string
 	}
 	let lastUriPath: string | undefined = undefined
 	async function replaceFlow(lastEdit: LastEditFlow) {
 		mode = 'flow'
 		lastUriPath = lastEdit.uriPath
+		pathStore.set(lastEdit.path)
 		// sendUserToast(JSON.stringify(lastEdit.flow), true)
 		// return
 		try {
@@ -444,6 +471,10 @@
 					lastEdit.flow.value = { modules: [] }
 				}
 				flowStore.val = lastEdit.flow
+				try {
+					let ids = dfs(flowStore.val.value.modules ?? [], (m) => m.id)
+					flowStateStore.val = Object.fromEntries(ids.map((k) => [k, {}]))
+				} catch (e) {}
 				inferModuleArgs($selectedIdStore)
 			}
 		} catch (e) {
@@ -461,8 +492,9 @@
 	const selectedIdStore = writable('settings-metadata')
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const modulesTestStates = new ModulesTestStates((moduleId) => {
+		// console.log('FOO')
 		// Update the derived store with test job states
-		showJobStatus = false
+		// showJobStatus = false
 	})
 	const outputPickerOpenFns: Record<string, () => void> = $state({})
 
@@ -472,18 +504,21 @@
 		showCaptureHint: writable(undefined),
 		triggersState: new Triggers()
 	})
+
+	let pathStore = writable('')
+	let initialPathStore = writable('')
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
 		moving,
 		history,
-		pathStore: writable(''),
+		pathStore: pathStore,
 		flowStateStore,
 		flowStore,
 		stepsInputArgs,
 		saveDraft: () => {},
-		initialPathStore: writable(''),
+		initialPathStore,
 		fakeInitialPath: '',
 		flowInputsStore: writable<FlowInput>({}),
 		customUi: {},
@@ -550,6 +585,10 @@
 	let workspace = $derived($page.url.searchParams.get('workspace') ?? undefined)
 	let themeDarkRaw = $derived($page.url.searchParams.get('activeColorTheme'))
 	let themeDark = $derived(themeDarkRaw == '2' || themeDarkRaw == '4')
+
+	$effect.pre(() => {
+		setContext<{ token?: string }>('AuthToken', { token })
+	})
 	$effect.pre(() => {
 		if (token) {
 			OpenAPI.WITH_CREDENTIALS = true
@@ -634,7 +673,7 @@
 
 <main class="h-screen w-full">
 	{#if mode == 'script'}
-		<div class="flex flex-col min-h-full overflow-auto">
+		<div class="flex flex-col min-h-full min-h-screen overflow-auto">
 			<div class="absolute top-0 left-2">
 				<DarkModeToggle bind:darkMode bind:this={darkModeToggle} forcedDarkMode={false} />
 			</div>
@@ -645,7 +684,7 @@
 				>
 			</div>
 
-			<div class="absolute top-2 right-2 !text-tertiary text-xs">
+			<div class="absolute top-2 right-2 !text-primary text-xs">
 				{#if $userStore != undefined}
 					As {$userStore?.username} in {$workspaceStore}
 				{:else}
@@ -704,7 +743,7 @@
 				{:else}
 					<Button
 						disabled={currentScript === undefined}
-						color="dark"
+						variant="accent"
 						on:click={(e) => {
 							runTest()
 						}}
@@ -726,7 +765,7 @@
 					</Button>
 				{/if}
 			</div>
-			<Splitpanes horizontal class="h-full">
+			<Splitpanes horizontal style="height: 1000px;">
 				<Pane size={33}>
 					<div class="px-2">
 						<div class="break-words relative font-sans">
@@ -762,8 +801,8 @@
 					<FlowPreviewButtons
 						bind:this={flowPreviewButtons}
 						{onJobDone}
+						bind:localModuleStates
 						onRunPreview={() => {
-							localModuleStates = {}
 							showJobStatus = true
 						}}
 					/>
@@ -778,7 +817,7 @@
 								disableTutorials
 								smallErrorHandler={true}
 								disableStaticInputs
-								{localModuleStates}
+								localModuleStates={showJobStatus ? localModuleStates : {}}
 								onTestUpTo={flowPreviewButtons?.testUpTo}
 								testModuleStates={modulesTestStates}
 								isOwner={flowPreviewContent?.getIsOwner?.()}

@@ -13,6 +13,7 @@
 
 	let app = $state(undefined) as AppWithLastVersion | undefined
 
+	let secret = $state(undefined) as string | undefined
 	async function loadApp() {
 		console.log('Loading app')
 		app = await AppService.getAppLiteByPath({
@@ -21,16 +22,21 @@
 		})
 	}
 
+	async function loadSecret() {
+		secret = await AppService.getPublicSecretOfLatestVersionOfApp({
+			workspace: $workspaceStore!,
+			path: page.params.path ?? ''
+		})
+	}
+
 	$effect(() => {
 		$workspaceStore && loadApp()
+		$workspaceStore && loadSecret()
 	})
 
 	let can_write = $derived(canWrite(page.params.path ?? '', app?.extra_perms ?? {}, $userStore))
 	function getRunnables(app: AppWithLastVersion) {
 		return (app?.value?.runnables ?? {}) as Record<string, HiddenRunnable>
-	}
-	function getVersion(app: AppWithLastVersion) {
-		return app?.value?.version as number
 	}
 </script>
 
@@ -43,7 +49,7 @@
 			workspace={$workspaceStore}
 			user={$userStore}
 			runnables={getRunnables(app)}
-			version={getVersion(app)}
+			{secret}
 		/>
 	{/if}
 	{#if can_write && !hideEditBtn}
@@ -51,7 +57,7 @@
 			<Button
 				size="sm"
 				startIcon={{ icon: Pen }}
-				variant="border"
+				variant="default"
 				btnClasses="bg-white"
 				href="{base}/apps_raw/edit/{page.params.path}?nodraft=true">Edit</Button
 			>

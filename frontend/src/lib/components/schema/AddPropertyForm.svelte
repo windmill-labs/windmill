@@ -2,6 +2,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { Button } from '../common'
 	import { Plus } from 'lucide-svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 
 	let name: string = ''
 
@@ -13,19 +14,18 @@
 	}
 </script>
 
-<div class="flex flex-row gap-2">
-	<input
-		bind:value={name}
-		placeholder="Field name"
-		on:keydown={(event) => {
-			if (event.key === 'Enter') {
-				addField()
+<div class="flex gap-2 whitespace-nowrap">
+	<TextInput
+		inputProps={{
+			placeholder: 'Field name',
+			onkeydown: (event) => {
+				if (event.key === 'Enter') addField()
 			}
 		}}
+		bind:value={name}
 	/>
 	<Button
-		variant="contained"
-		color="dark"
+		variant="accent"
 		size="xs"
 		startIcon={{ icon: Plus }}
 		id="flow-editor-add-property"

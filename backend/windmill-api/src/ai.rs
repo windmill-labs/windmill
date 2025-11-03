@@ -1,7 +1,4 @@
-use crate::{
-    db::{ApiAuthed, DB},
-    variables::get_variable_or_self,
-};
+use crate::db::{ApiAuthed, DB};
 
 use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
 use http::{HeaderMap, Method};
@@ -9,24 +6,50 @@ use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use windmill_common::variables::get_variable_or_self;
 use std::collections::HashMap;
-use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel, AZURE_API_VERSION};
 use windmill_common::error::{to_anyhow, Error, Result};
+use windmill_common::utils::configure_client;
 
 lazy_static::lazy_static! {
-    static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+    static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .timeout(std::time::Duration::from_secs(60 * 5))
-        .user_agent("windmill/beta")
+        .user_agent("windmill/beta"))
         .build().unwrap();
 
     static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
 
     pub static ref AI_REQUEST_CACHE: Cache<(String, AIProvider), ExpiringAIRequestConfig> = Cache::new(500);
-}
 
-const AZURE_API_VERSION: &str = "2025-04-01-preview";
-const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+    /// Parse AI_HTTP_HEADERS environment variable into a vector of (header_name, header_value) tuples
+    /// Format: "header1: value1, header2: value2"
+    static ref AI_HTTP_HEADERS: Vec<(String, String)> = {
+        std::env::var("AI_HTTP_HEADERS")
+            .ok()
+            .map(|headers_str| {
+                headers_str
+                    .split(',')
+                    .filter_map(|header| {
+                        let parts: Vec<&str> = header.splitn(2, ':').collect();
+                        if parts.len() == 2 {
+                            let name = parts[0].trim().to_string();
+                            let value = parts[1].trim().to_string();
+                            if !name.is_empty() && !value.is_empty() {
+                                Some((name, value))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+}
 
 #[derive(Deserialize, Debug)]
 struct AIOAuthResource {
@@ -154,21 +177,13 @@ impl AIRequestConfig {
 
         let base_url = self.base_url.trim_end_matches('/');
 
-        let is_azure = matches!(provider, AIProvider::OpenAI) && base_url != OPENAI_BASE_URL
-            || matches!(provider, AIProvider::AzureOpenAI);
+        let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
 
         let url = if is_azure && method != Method::GET {
-            if base_url.ends_with("/deployments") {
-                let model = Self::get_azure_model(&body)?;
-                format!("{}/{}/{}", base_url, model, path)
-            } else if base_url.ends_with("/openai") {
-                let model = Self::get_azure_model(&body)?;
-                format!("{}/deployments/{}/{}", base_url, model, path)
-            } else {
-                format!("{}/{}", base_url, path)
-            }
+            let model = AIProvider::extract_model_from_body(&body)?;
+            AIProvider::build_azure_openai_url(base_url, &model, path)
         } else if is_anthropic_sdk {
             let truncated_base_url = base_url.trim_end_matches("/v1");
             format!("{}/{}", truncated_base_url, path)
@@ -213,6 +228,11 @@ impl AIRequestConfig {
             request = request.header("OpenAI-Organization", org_id);
         }
 
+        // Apply custom headers from AI_HTTP_HEADERS environment variable
+        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+            request = request.header(header_name.as_str(), header_value.as_str());
+        }
+
         Ok(request)
     }
 
@@ -232,18 +252,6 @@ impl AIRequestConfig {
         Ok(serde_json::to_vec(&json_body)
             .map_err(|e| Error::internal_err(format!("Failed to reserialize request body: {}", e)))?
             .into())
-    }
-
-    fn get_azure_model(body: &Bytes) -> Result<String> {
-        #[derive(Deserialize, Debug)]
-        struct AzureModel {
-            model: String,
-        }
-
-        let azure_model: AzureModel = serde_json::from_slice(body)
-            .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
-
-        Ok(azure_model.model)
     }
 }
 
@@ -272,6 +280,8 @@ pub struct AIConfig {
     pub code_completion_model: Option<ProviderModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_prompts: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens_per_model: Option<HashMap<String, i32>>,
 }
 
 pub fn global_service() -> Router {
@@ -310,11 +320,17 @@ async fn global_proxy(
 
     let url = format!("{}/{}", base_url, ai_path);
 
-    let request = HTTP_CLIENT
+    let mut request = HTTP_CLIENT
         .request(method, url)
         .header("content-type", "application/json")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .body(body);
+        .header("Authorization", format!("Bearer {}", api_key));
+
+    // Apply custom headers from AI_HTTP_HEADERS environment variable
+    for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+        request = request.header(header_name.as_str(), header_value.as_str());
+    }
+
+    let request = request.body(body);
 
     let response = request.send().await.map_err(to_anyhow)?;
 

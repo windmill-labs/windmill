@@ -28,8 +28,10 @@ export type UsePromiseResult<T> = (
 	| { status: 'loading'; value?: undefined; error?: undefined }
 	| { status: 'error'; error: any; value?: undefined }
 	| { status: 'ok'; value: T; error?: undefined }
+	| { status: 'idle'; value?: undefined; error?: undefined }
 ) & {
 	refresh: () => void
+	clear: () => void
 }
 
 export type UsePromiseOptions = {
@@ -42,7 +44,7 @@ export function usePromise<T>(
 	{ loadInit = true, clearValueOnRefresh = true }: UsePromiseOptions = {}
 ): UsePromiseResult<T> {
 	const ret: any = $state({
-		status: 'loading',
+		status: 'idle',
 		__promise: undefined,
 		refresh: () => {
 			untrack(() => {
@@ -64,6 +66,12 @@ export function usePromise<T>(
 						ret.status = 'error'
 					})
 			})
+		},
+		clear: () => {
+			ret.status = loadInit ? 'loading' : 'idle'
+			ret.value = undefined
+			ret.error = undefined
+			ret.__promise = undefined
 		}
 	})
 	if (loadInit) ret.refresh()

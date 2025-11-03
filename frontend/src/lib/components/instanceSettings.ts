@@ -194,7 +194,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Private Hub base url',
 			description:
-				'Base URL of your private Hub instance, without trailing slash. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
+				'Base URL of your Private Hub instance, without trailing slash. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
 			placeholder: 'https://hub.company.com',
 			key: 'hub_base_url',
 			fieldType: 'text',
@@ -225,6 +225,15 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			requiresReloadOnChange: true
+		},
+		{
+			label: 'Private Hub API secret',
+			description:
+				'If access to your Private Hub is restricted, you can set the hub API secret here. <a href="https://www.windmill.dev/docs/core_concepts/private_hub">Learn more</a>',
+			key: 'hub_api_secret',
+			fieldType: 'password',
+			storage: 'setting',
+			ee_only: ''
 		},
 		{
 			label: 'App workspace prefix',
@@ -338,6 +347,24 @@ export const settings: Record<string, Setting[]> = {
 			key: 'ruby_repos',
 			fieldType: 'text',
 			placeholder: 'https://user:password@gems.foo.com/',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'PowerShell Repository URL',
+			description: 'Add private PowerShell repository URL',
+			key: 'powershell_repo_url',
+			placeholder:
+				'https://pkgs.dev.azure.com/<org>/<project>/_packaging/<feed>/nuget/v3/index.json',
+			fieldType: 'text',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
+			label: 'PowerShell Repository PAT',
+			description: 'Add private PowerShell repository Personal Access Token',
+			key: 'powershell_repo_pat',
+			fieldType: 'password',
 			storage: 'setting',
 			ee_only: ''
 		}

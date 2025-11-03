@@ -1,8 +1,11 @@
 use super::WebsocketTrigger;
 use crate::triggers::{
     listener::ListeningTrigger,
-    trigger_helpers::{trigger_runnable, trigger_runnable_and_wait_for_raw_result, TriggerJobArgs},
-    websocket::WebsocketConfig,
+    trigger_helpers::{
+        trigger_runnable, trigger_runnable_and_wait_for_raw_result,
+        trigger_runnable_and_wait_for_raw_result_with_error_ctx, TriggerJobArgs,
+    },
+    websocket::{get_url_from_runnable_value, WebsocketConfig},
     Listener,
 };
 use anyhow::Context;
@@ -28,43 +31,6 @@ use windmill_common::{
 use windmill_queue::PushArgsOwned;
 
 impl ListeningTrigger<WebsocketConfig> {
-    async fn get_url_from_runnable(&self, db: &DB) -> Result<String> {
-        let runnable_kind = if self.is_flow { "Flow" } else { "Script" };
-        tracing::info!(
-            "Running {} {} to get WebSocket URL",
-            runnable_kind.to_lowercase(),
-            self.path
-        );
-
-        let authed = self.authed(db, "ws").await?;
-
-        let args = raw_value_to_args_hashmap(
-            self.trigger_config.url_runnable_args.as_ref().map(|r| &r.0),
-        )?;
-
-        let result = trigger_runnable_and_wait_for_raw_result(
-            db,
-            None,
-            authed,
-            &self.workspace_id,
-            &self.script_path,
-            self.is_flow,
-            PushArgsOwned { args, extra: None },
-            None,
-            None,
-            None,
-            "".to_string(), // doesn't matter as no retry/error handler
-        )
-        .await?;
-
-        serde_json::from_str::<String>(result.get()).map_err(|_| {
-            Error::BadConfig(format!(
-                "{} {} did not return a string",
-                runnable_kind, self.path,
-            ))
-        })
-    }
-
     async fn send_initial_messages(
         &self,
         writer: &mut SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
@@ -116,7 +82,7 @@ impl ListeningTrigger<WebsocketConfig> {
                     }
                     let authed = authed_o.clone().unwrap();
 
-                    let result = trigger_runnable_and_wait_for_raw_result(
+                    let result = trigger_runnable_and_wait_for_raw_result_with_error_ctx(
                         db,
                         None,
                         authed.clone(),
@@ -164,6 +130,7 @@ impl Listener for WebsocketTrigger {
         Response<Option<Vec<u8>>>,
     );
     type Extra = ReturnMessageChannels;
+    type ExtraState = ();
     const JOB_TRIGGER_KIND: JobTriggerKind = JobTriggerKind::Websocket;
     async fn get_consumer(
         &self,
@@ -185,8 +152,12 @@ impl Listener for WebsocketTrigger {
                 )) => {
                         return Ok(None);
                     },
-
-                    url_result = listening_trigger.get_url_from_runnable(&db) => match url_result {
+                    url_result = {
+                        let authed = listening_trigger.authed(db, "ws").await?;
+                        let args = listening_trigger.trigger_config.url_runnable_args.as_ref().map(|r| &r.0);
+                        let path = url.splitn(2, ':').nth(1).unwrap();
+                        get_url_from_runnable_value(path, url.starts_with("$flow:"), db, authed, args, &listening_trigger.workspace_id)
+                    } => match url_result {
                         Ok(url) => Cow::Owned(url),
                         Err(err) => {
                             return Err(anyhow::anyhow!("Error getting WebSocket URL from runnable after 5 tries: {:?}", err).into());
@@ -214,6 +185,7 @@ impl Listener for WebsocketTrigger {
         listening_trigger: &ListeningTrigger<Self::TriggerConfig>,
         err_message: Arc<RwLock<Option<String>>>,
         mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+        _extra_state: Option<&Self::ExtraState>,
     ) {
         let WebsocketConfig { ref url, .. } = listening_trigger.trigger_config;
 
@@ -402,6 +374,7 @@ impl Listener for WebsocketTrigger {
             let error_handler_path = error_handler_path.map(|s| s.to_string());
             let error_handler_args = error_handler_args.cloned();
             let trigger_path = path.clone();
+            let can_return_error_result = trigger_config.can_return_error_result;
             let handle_response_f = async move {
                 tokio::select! {
                     _ = killpill_rx.recv() => {
@@ -420,7 +393,11 @@ impl Listener for WebsocketTrigger {
                         error_handler_args.as_ref(),
                         format!("websocket_trigger/{}", trigger_path),
                     ) => {
-                        if let Ok(result) = result.map(|r| r.get().to_owned()) {
+                        if let Ok((result, success)) = result {
+                            if !success && !can_return_error_result {
+                                return;
+                            }
+                            let result = result.get().to_owned();
                             // only send the result if it's not null
                             if result != "null" {
                                 tracing::info!("Sending job result to WebSocket {}", url);

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import { getBezierPath, BaseEdge, type EdgeProps, EdgeLabel } from '@xyflow/svelte'
 	import { ClipboardCopy, Hourglass } from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -12,9 +12,11 @@
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
 	import type { Job } from '$lib/gen'
 	import type { GraphModuleState } from '../../model'
+	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 
-	const { useDataflow } = getContext<{
+	const { useDataflow, showAssets } = getContext<{
 		useDataflow: Writable<boolean | undefined>
+		showAssets?: Writable<boolean>
 	}>('FlowGraphContext')
 
 	let {
@@ -80,7 +82,9 @@
 
 <EdgeLabel
 	x={sourceX}
-	y={sourceY + 28 + (data.shouldOffsetInsertBtnDueToAssetNode ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)}
+	y={sourceY +
+		32 +
+		(data.shouldOffsetInsertBtnDueToAssetNode && $showAssets ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)}
 	class="base-edge"
 	style=""
 >
@@ -91,8 +95,9 @@
 		>
 			<!-- <pre class="text-2xs">A{JSON.stringify(data.branch)}, {data.sourceId}, {data.targetId}</pre> -->
 			<!-- {data.targetId} B -->
-			<InsertModuleButton
-				index={data.index ?? 0}
+			<InsertModulePopover
+				disableAi={data.disableAi}
+				allowTrigger={data.index == 0}
 				on:new={(e) => {
 					data?.eventHandlers.insert({
 						sourceId: data.sourceId,
@@ -124,7 +129,12 @@
 						flow: e.detail
 					})
 				}}
-			/>
+				gutter={0}
+			>
+				{#snippet trigger()}
+					<InsertModuleButton title={`Add step`} id={`flow-editor-add-step-${data.index ?? 0}`} />
+				{/snippet}
+			</InsertModulePopover>
 		</div>
 	{/if}
 

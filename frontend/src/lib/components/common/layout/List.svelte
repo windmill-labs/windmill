@@ -1,10 +1,22 @@
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
-	export let horizontal: boolean = false
-	export let gap: 'none' | 'sm' | 'md' | 'lg' = 'sm'
-	export let justify: 'start' | 'center' | 'end' | 'between' = 'start'
-	export let wFull = true
-	export let hFull = true
+	interface Props {
+		horizontal?: boolean
+		gap?: 'none' | 'sm' | 'md' | 'lg'
+		justify?: 'start' | 'center' | 'end' | 'between'
+		wFull?: boolean
+		hFull?: boolean
+		children?: import('svelte').Snippet
+	}
+
+	let {
+		horizontal = false,
+		gap = 'sm',
+		justify = 'start',
+		wFull = true,
+		hFull = true,
+		children
+	}: Props = $props()
 
 	const gapMap = {
 		none: '',
@@ -27,7 +39,7 @@
 			justify
 		]}"
 	>
-		<slot />
+		{@render children?.()}
 	</div>
 {:else}
 	<div
@@ -39,6 +51,6 @@
 			justifyMap[justify]
 		)}
 	>
-		<slot />
+		{@render children?.()}
 	</div>
 {/if}

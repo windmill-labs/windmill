@@ -3,29 +3,48 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { DatatableContext } from './DataTable.svelte'
 
-	export let first: boolean = false
-	export let last: boolean = false
-	export let numeric: boolean = false
-	export let head: boolean = false
-	export let shouldStopPropagation: boolean = false
-	export let selected = false
-	export let sticky: boolean = false
-	export let wrap: boolean = false
+	interface Props {
+		first?: boolean
+		last?: boolean
+		numeric?: boolean
+		head?: boolean
+		shouldStopPropagation?: boolean
+		selected?: boolean
+		sticky?: boolean
+		wrap?: boolean
+		children?: import('svelte').Snippet
+		[key: string]: any
+	}
+
+	let {
+		first = false,
+		last = false,
+		numeric = false,
+		head = false,
+		shouldStopPropagation = false,
+		selected = false,
+		sticky = false,
+		wrap = false,
+		children,
+		...rest
+	}: Props = $props()
 
 	let Tag = head ? 'th' : 'td'
 
 	const { size } = getContext<DatatableContext>('datatable')
 </script>
 
-<!-- svelte-ignore a11y-no-static-element-interactions -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
 <svelte:element
 	this={Tag}
-	{...$$restProps}
-	on:click={(e) => {
+	{...rest}
+	onclick={(e) => {
 		if (shouldStopPropagation) e.stopPropagation()
 	}}
 	class={twMerge(
-		'text-left text-xs text-primary font-normal',
+		'text-left font-normal',
+		// Typography based on brand guidelines
+		head ? 'text-2xs text-primary' : 'text-xs text-primary',
 		wrap ? 'break-words' : 'whitespace-nowrap',
 		first ? 'sm:pl-6' : '',
 		last ? 'sm:pr-6' : '',
@@ -34,21 +53,20 @@
 		last && size === 'xs' ? 'sm:pr-3' : '',
 
 		numeric ? 'text-right' : '',
-		head ? 'font-semibold ' : '',
-		sticky ? `!p-0 sticky ${first ? 'left-0' : 'right-0'}` : 'px-2 py-3.5',
+		sticky ? `!p-0 sticky ${first ? 'left-0' : 'right-0'}` : 'px-2 py-2',
 		size === 'sm' ? 'px-1.5 py-2.5' : '',
 		size === 'lg' ? 'px-3 py-4' : '',
 		size === 'xs' ? 'px-1 py-1.5' : '',
 		selected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
 		'transition-all',
-		$$restProps.class
+		rest.class
 	)}
 >
 	{#if sticky}
 		<div class={twMerge(first ? 'border-r' : ' border-l ')}>
-			<slot />
+			{@render children?.()}
 		</div>
 	{:else}
-		<slot />
+		{@render children?.()}
 	{/if}
 </svelte:element>

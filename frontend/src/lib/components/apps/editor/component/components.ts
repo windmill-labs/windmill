@@ -185,22 +185,26 @@ export type TableComponent = BaseComponent<'tablecomponent'> & {
 export type AggridComponent = BaseComponent<'aggridcomponent'> & {
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 export type AggridComponentEe = BaseComponent<'aggridcomponentee'> & {
 	license: string
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type AggridInfiniteComponent = BaseComponent<'aggridinfinitecomponent'> & {
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee'> & {
 	actions: TableAction[]
 	license: string
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>
@@ -239,6 +243,7 @@ export type FileInputComponent = BaseComponent<'fileinputcomponent'> & {
 export type TabsComponent = BaseComponent<'tabscomponent'> & {
 	tabs: string[]
 	disabledTabs: RichConfiguration[]
+	hiddenTabs: RichConfiguration[]
 	onTabChange?: string[]
 }
 
@@ -288,6 +293,7 @@ export type DBExplorerComponent = BaseComponent<'dbexplorercomponent'> & {
 	columns: RichConfiguration
 	actions: TableAction[]
 	actionsOrder: RichConfiguration | undefined
+	onChange?: string[] | undefined
 }
 
 export type S3FileInputComponent = BaseComponent<'s3fileinputcomponent'> & {
@@ -634,6 +640,94 @@ const onSuccessClick = {
 	}
 } as const
 
+const onSubmitClick = {
+	type: 'oneOf',
+	tooltip: 'Action to perform on submit (when job ID is obtained)',
+	selected: 'none',
+	labels,
+	configuration: {
+		none: {},
+		gotoUrl: {
+			url: {
+				tooltip: 'Go to the given url, absolute or relative',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: '/apps/get/foo',
+				onDemandOnly: true
+			},
+			newTab: {
+				tooltip: 'Open the url in a new tab',
+				fieldType: 'boolean',
+				type: 'static',
+				value: true
+			}
+		},
+		setTab: {
+			setTab: {
+				type: 'static',
+				value: [] as Array<{ id: string; index: number }>,
+				fieldType: 'array',
+				subFieldType: 'tab-select',
+				tooltip: 'Set the tabs id and index to go to on submit',
+				onDemandOnly: true
+			}
+		},
+		sendToast: {
+			message: {
+				tooltip: 'The message of the toast to display',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: 'Hello there',
+				onDemandOnly: true
+			}
+		},
+		openModal: {
+			modalId: {
+				tooltip: 'The id of the modal to open',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				deprecated: true
+			}
+		},
+		closeModal: {
+			modalId: {
+				tooltip: 'The id of the modal to close',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				deprecated: true
+			}
+		},
+		open: {
+			id: {
+				tooltip: 'The id of the modal or the drawer to open',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		},
+		close: {
+			id: {
+				tooltip: 'The id of the modal or the drawer to close',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		},
+		clearFiles: {
+			id: {
+				tooltip: 'The id of s3 file input to clear',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		}
+	}
+} as const
+
 const onErrorClick = {
 	type: 'oneOf',
 	tooltip: 'Action to perform on error',
@@ -672,7 +766,7 @@ const onErrorClick = {
 				tooltip: 'The message of the toast to display',
 				fieldType: 'text',
 				type: 'static',
-				value: 'An error occured',
+				value: 'An error occurred',
 				placeholder: 'Hello there',
 				onDemandOnly: true
 			},
@@ -1379,13 +1473,27 @@ export const components = {
 					value: undefined,
 					fieldType: 'icon-select'
 				},
+				tooltip: {
+					type: 'static',
+					value: '',
+					fieldType: 'text',
+					tooltip: 'Tooltip text to show on hover'
+				},
 				triggerOnAppLoad: {
 					type: 'static',
 					value: false,
 					fieldType: 'boolean'
 				},
+				runInBackground: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					tooltip:
+						'Run the job in the background without blocking the button. Multiple clicks will trigger multiple jobs.'
+				},
 
 				onSuccess: onSuccessClick,
+				onSubmit: onSubmitClick,
 				onError: onErrorClick,
 				confirmationModal: {
 					type: 'oneOf',
@@ -1524,6 +1632,7 @@ export const components = {
 					selectOptions: selectOptions.buttonSizeOptions
 				},
 				onSuccess: onSuccessClick,
+				onSubmit: onSubmitClick,
 				onError: onErrorClick
 			}
 		}
@@ -1573,6 +1682,7 @@ export const components = {
 					selectOptions: selectOptions.buttonSizeOptions
 				},
 				onSuccess: onSuccessClick,
+				onSubmit: onSubmitClick,
 				onError: onErrorClick,
 				disabled: {
 					fieldType: 'boolean',
@@ -3006,7 +3116,15 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 			},
 			componentInput: undefined,
 			numberOfSubgrids: 2,
-			tabs: ['First tab', 'Second tab'] as string[]
+			tabs: ['First tab', 'Second tab'] as string[],
+			disabledTabs: [
+				{ type: 'static', value: false, fieldType: 'boolean' },
+				{ type: 'static', value: false, fieldType: 'boolean' }
+			] as RichConfiguration[],
+			hiddenTabs: [
+				{ type: 'static', value: false, fieldType: 'boolean' },
+				{ type: 'static', value: false, fieldType: 'boolean' }
+			] as RichConfiguration[]
 		}
 	},
 	steppercomponent: {
@@ -3567,7 +3685,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fieldType: 'object',
 					value: {},
 					tooltip:
-						'This enables setting form enum values dynamically using an object: keys are field names, and values are arrays of strings.'
+						'This enables setting form enum values dynamically using an object: keys are field names, and values are arrays of strings or { "label": "myLabel", "value": "myValue" }.'
 				},
 
 				displayType: {
@@ -3927,7 +4045,8 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						ms_sql_server: 'MS SQL Server',
 						snowflake: 'Snowflake',
 						bigquery: 'BigQuery',
-						snowflake_oauth: 'Snowflake OAuth'
+						snowflake_oauth: 'Snowflake OAuth',
+						ducklake: 'Ducklake'
 					},
 					configuration: {
 						postgresql: {
@@ -3997,6 +4116,21 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 								type: 'static',
 								fieldType: 'resource',
 								subFieldType: 'bigquery',
+								value: ''
+							} as StaticAppInput,
+							table: {
+								fieldType: 'select',
+								subFieldType: 'db-table',
+								type: 'static',
+								selectOptions: [],
+								value: undefined
+							}
+						},
+						ducklake: {
+							ducklake: {
+								type: 'static',
+								fieldType: 'ducklake',
+								subFieldType: 'ducklake',
 								value: ''
 							} as StaticAppInput,
 							table: {

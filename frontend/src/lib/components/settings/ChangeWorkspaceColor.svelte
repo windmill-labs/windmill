@@ -51,8 +51,8 @@
 	}
 </script>
 
-<div>
-	<p class="font-semibold text-sm">Workspace color</p>
+<div class="flex flex-col gap-1">
+	<p class="font-medium text-xs text-emphasis">Workspace color</p>
 	<div class="flex flex-row gap-0.5 items-center">
 		{#if $workspaceColor}
 			<div
@@ -60,7 +60,7 @@
 				style="background-color: {$workspaceColor}"
 			></div>
 		{:else}
-			<span class="text-xs text-secondary">No color set</span>
+			<span class="text-xs font-normal text-primary">No color set</span>
 		{/if}
 		<Button
 			on:click={() => {
@@ -75,7 +75,9 @@
 			}}
 		/>
 	</div>
-	<p class="italic text-xs"> Color to identify the current workspace in the list of workspaces </p>
+	<p class="text-2xs text-secondary font-normal">
+		Color to identify the current workspace in the list of workspaces
+	</p>
 </div>
 
 <Modal bind:open title="Change Workspace Color">

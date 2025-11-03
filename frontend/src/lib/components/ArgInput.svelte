@@ -46,6 +46,12 @@
 	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
+	import TextInput, {
+		inputBaseClass,
+		inputBorderClass,
+		inputSizeClasses
+	} from './text_input/TextInput.svelte'
+	import FileInput from './common/fileInput/FileInput.svelte'
 
 	interface Props {
 		label?: string
@@ -71,6 +77,7 @@
 					properties?: { [name: string]: SchemaProperty }
 			  }
 			| undefined
+		lightHeaderFont?: boolean
 		displayHeader?: boolean
 		properties?: { [name: string]: SchemaProperty } | undefined
 		nestedRequired?: string[] | undefined
@@ -120,6 +127,8 @@
 			| undefined
 		workspace?: string | undefined
 		actions?: import('svelte').Snippet
+		innerBottomSnippet?: import('svelte').Snippet
+		fieldHeaderActions?: import('svelte').Snippet
 	}
 
 	let {
@@ -133,7 +142,7 @@
 		oneOf = $bindable(undefined),
 		required = false,
 		pattern = $bindable(undefined),
-		valid = $bindable(undefined),
+		valid = $bindable(undefined), // Note : this should not exist, valid and error should be one coherent state
 		enum_ = $bindable(undefined),
 		disabled = false,
 		itemsType = $bindable(undefined),
@@ -176,7 +185,10 @@
 		appPath = undefined,
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
-		actions
+		actions,
+		innerBottomSnippet,
+		fieldHeaderActions,
+		lightHeaderFont = false
 	}: Props = $props()
 
 	$effect(() => {
@@ -248,7 +260,12 @@
 				if (inputCat === 'string') {
 					nvalue = nullable ? null : ''
 				} else if (inputCat == 'enum' && required) {
-					nvalue = enum_?.[0]
+					let firstV = enum_?.[0]
+					if (typeof firstV === 'string') {
+						nvalue = firstV
+					} else if (firstV && typeof firstV === 'object') {
+						nvalue = firstV.value
+					}
 				} else if (inputCat == 'boolean') {
 					nvalue = false
 				} else if (inputCat == 'list') {
@@ -272,7 +289,7 @@
 	function checkArrayValueType() {
 		try {
 			if (Array.isArray(value) && value.length > 0) {
-				const firstItem = value?.[0]
+				let firstItem = value?.[0]
 				const type = itemsType?.type
 
 				switch (type) {
@@ -356,17 +373,16 @@
 		evalValueToRaw()
 	})
 
-	function fileChanged(e: any, cb: (v: string | undefined) => void) {
-		let t = e.target
-		if (t && 'files' in t && t.files.length > 0) {
-			let reader = new FileReader()
-			reader.onload = (e: any) => {
-				cb(e.target.result.split('base64,')[1])
-			}
-			reader.readAsDataURL(t.files[0])
-		} else {
+	function fileChangedInner(file: File | undefined, cb: (v: string | undefined) => void) {
+		if (!file) {
 			cb(undefined)
+			return
 		}
+		let reader = new FileReader()
+		reader.onload = (e: any) => {
+			cb(e.target.result.split('base64,')[1])
+		}
+		reader.readAsDataURL(file)
 	}
 
 	export function focus() {
@@ -463,6 +479,11 @@
 
 	let { debounced, clearDebounce } = debounce(() => compareValues(value), 50)
 	let inputCat = $derived(computeInputCat(type, format, itemsType?.type, enum_, contentEncoding))
+	let displayJsonToggleHeader = $derived(
+		displayHeader &&
+			inputCat === 'list' &&
+			!(itemsType?.resourceType === 's3_object' || itemsType?.resourceType === 's3object')
+	)
 	$effect(() => {
 		oneOf && untrack(() => updateOneOfSelected(oneOf))
 	})
@@ -482,6 +503,7 @@
 	$effect.pre(() => {
 		!isListJson &&
 			inputCat === 'list' &&
+			enum_ == undefined &&
 			value != lastValue &&
 			itemsType?.type &&
 			!hasIsListJsonChanged &&
@@ -513,10 +535,10 @@
 
 {#snippet variableInput()}
 	{#if variableEditor}
-		<div class="text-sm text-tertiary">
+		<div class="text-2xs text-hint">
 			{#if value && typeof value == 'string' && value?.startsWith('$var:')}
 				Linked to variable <button
-					class="text-blue-500 underline"
+					class="text-accent underline font-normal"
 					onclick={() => variableEditor?.editVariable?.(value.slice(5))}>{value.slice(5)}</button
 				>
 			{/if}
@@ -525,7 +547,7 @@
 {/snippet}
 {#snippet resourceInput()}
 	{#if variableEditor}
-		<div class="text-sm text-tertiary">
+		<div class="text-sm text-primary">
 			{#if value && typeof value == 'string' && value?.startsWith('$res:')}
 				Linked to resource <a
 					target="_blank"
@@ -540,7 +562,7 @@
 <!-- svelte-ignore a11y_autofocus -->
 <div
 	class={twMerge(
-		'flex flex-col w-full rounded-md relative',
+		'flex flex-col gap-1 w-full rounded-md relative group',
 		minW ? 'min-w-[250px]' : '',
 		diffStatus?.diff ? 'px-2' : '',
 		diffStatus?.diff == 'added'
@@ -582,23 +604,45 @@
 		</div>
 	{/if}
 	{#if displayHeader}
-		<FieldHeader
-			prettify={prettifyHeader}
-			label={title && !emptyString(title) ? title : label}
-			{disabled}
-			{required}
-			{type}
-			{contentEncoding}
-			{format}
-			{simpleTooltip}
-			{lightHeader}
-			{displayType}
-			labelClass={css?.label?.class}
-		/>
+		<div class="flex items-end">
+			<FieldHeader
+				prettify={prettifyHeader}
+				label={title && !emptyString(title) ? title : label}
+				{disabled}
+				{required}
+				{type}
+				{contentEncoding}
+				{format}
+				{simpleTooltip}
+				{lightHeader}
+				{displayType}
+				labelClass={twMerge(lightHeaderFont ? '!font-normal text-primary' : '', css?.label?.class)}
+			/>
+			<div class="ml-auto flex gap-2">
+				{#if displayJsonToggleHeader}
+					<Toggle
+						on:change={(e) => {
+							// Once the user has changed the input type, we should not change it back automatically
+							if (!hasIsListJsonChanged) {
+								hasIsListJsonChanged = true
+							}
+
+							evalValueToRaw()
+							isListJson = !isListJson
+						}}
+						checked={isListJson}
+						textClass="text-secondary"
+						size="xs"
+						options={{ left: 'json' }}
+					/>
+				{/if}
+				{@render fieldHeaderActions?.()}
+			</div>
+		</div>
 	{/if}
 
 	{#if description}
-		<div class={twMerge('text-xs italic pb-1 text-secondary', css?.description?.class)}>
+		<div class={twMerge('text-xs text-secondary', css?.description?.class)}>
 			<pre class="font-main whitespace-normal">{description}</pre>
 		</div>
 	{/if}
@@ -624,7 +668,22 @@
 				/>
 			{:else}
 				<div class="relative w-full">
-					<input
+					<TextInput
+						inputProps={{
+							autofocus,
+							onfocus: bubble('focus'),
+							onblur: bubble('blur'),
+							disabled,
+							type: 'number',
+							onkeydown: () => (ignoreValueUndefined = true),
+							placeholder: placeholder ?? defaultValue ?? '',
+							min: extra['min'],
+							max: extra['max']
+						}}
+						{error}
+						bind:value
+					/>
+					<!-- <input
 						{autofocus}
 						onfocus={bubble('focus')}
 						onblur={bubble('blur')}
@@ -640,7 +699,7 @@
 						bind:value
 						min={extra['min']}
 						max={extra['max']}
-					/>
+					/> -->
 				</div>
 			{/if}
 		{:else if inputCat == 'boolean'}
@@ -674,6 +733,7 @@
 				bind:editor
 				{appPath}
 				{computeS3ForceViewerPolicies}
+				bottom={innerBottomSnippet}
 			/>
 		{:else if inputCat == 'object' && format == 'json-schema'}
 			{#await import('$lib/components/EditableSchemaForm.svelte')}
@@ -717,8 +777,9 @@
 						<Module.default code={JSON.stringify(value, null, 2)} bind:value />
 					{/await}
 				{:else}
-					<div class="py-4 pr-2 pl-6 border rounded-md w-full">
+					<div class="px-4 pt-4 border rounded-md w-full">
 						<SchemaForm
+							lightHeaderFont
 							{onlyMaskPassword}
 							{disablePortal}
 							{disabled}
@@ -763,21 +824,42 @@
 							/>
 						</div>
 					{:else}
-						<div class="w-full">
+						<div class="w-full flex flex-col gap-y-1">
 							{#key redraw}
 								{#if Array.isArray(value)}
 									{#each value ?? [] as v, i}
 										{#if i < itemsLimit}
-											<div class="flex max-w-md mt-1 w-full items-center">
+											<div class="flex w-full items-center relative">
+												{#snippet deleteItemBtn()}
+													<button
+														transition:fade|local={{ duration: 100 }}
+														class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+														aria-label="Clear"
+														onclick={() => {
+															value = value.filter((_, index) => index !== i)
+															redraw += 1
+														}}
+													>
+														<X size={14} />
+													</button>
+												{/snippet}
 												{#if itemsType?.type == 'number'}
-													<input type="number" bind:value={value[i]} id="arg-input-number-array" />
+													<TextInput
+														inputProps={{ type: 'number', id: 'arg-input-number-array' }}
+														class="pr-8"
+														bind:value={value[i]}
+													/>
+													<div class="absolute z-10 right-1.5">
+														{@render deleteItemBtn()}
+													</div>
 												{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-													<input
-														type="file"
-														class="my-6"
-														onchange={(x) => fileChanged(x, (val) => (value[i] = val))}
+													<FileInput
+														class="w-full"
+														on:change={(x) =>
+															fileChangedInner(x.detail?.[0], (val) => (value[i] = val))}
 														multiple={false}
 													/>
+													{@render deleteItemBtn()}
 												{:else if itemsType?.type == 'object' && itemsType?.resourceType === undefined && itemsType?.properties === undefined && !(format?.startsWith('resource-') && resourceTypes?.includes(format.split('-')[1]))}
 													{#await import('$lib/components/JsonEditor.svelte')}
 														<Loader2 class="animate-spin" />
@@ -787,6 +869,7 @@
 															bind:value={value[i]}
 														/>
 													{/await}
+													{@render deleteItemBtn()}
 												{:else if Array.isArray(itemsType?.enum)}
 													<ArgEnum
 														create={extra['disableCreate'] != true}
@@ -804,6 +887,7 @@
 														enum_={itemsType?.enum ?? []}
 														enumLabels={extra['enumLabels']}
 													/>
+													{@render deleteItemBtn()}
 												{:else if (itemsType?.type == 'resource' && itemsType?.resourceType && resourceTypes?.includes(itemsType.resourceType)) || (format?.startsWith('resource-') && resourceTypes?.includes(format.split('-')[1]))}
 													{@const resourceFormat =
 														itemsType?.type == 'resource' &&
@@ -816,6 +900,7 @@
 														format={resourceFormat}
 														defaultValue={undefined}
 													/>
+													{@render deleteItemBtn()}
 												{:else if itemsType?.type == 'resource'}
 													{#await import('$lib/components/JsonEditor.svelte')}
 														<Loader2 class="animate-spin" />
@@ -832,9 +917,11 @@
 															bind:value={value[i]}
 														/>
 													{/await}
+													{@render deleteItemBtn()}
 												{:else if itemsType?.type === 'object' && itemsType?.properties}
 													<div class="p-8 border rounded-md w-full">
 														<SchemaForm
+															lightHeaderFont
 															{onlyMaskPassword}
 															{disablePortal}
 															{disabled}
@@ -843,20 +930,17 @@
 															bind:args={value[i]}
 														/>
 													</div>
+													{@render deleteItemBtn()}
 												{:else}
-													<input type="text" bind:value={value[i]} id="arg-input-array" />
+													<TextInput
+														inputProps={{ type: 'text', id: 'arg-input-array' }}
+														class="pr-8"
+														bind:value={value[i]}
+													/>
+													<div class="absolute z-10 right-1.5">
+														{@render deleteItemBtn()}
+													</div>
 												{/if}
-												<button
-													transition:fade|local={{ duration: 100 }}
-													class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-													aria-label="Clear"
-													onclick={() => {
-														value = value.filter((_, index) => index !== i)
-														redraw += 1
-													}}
-												>
-													<X size={14} />
-												</button>
 											</div>
 										{/if}
 									{/each}
@@ -869,7 +953,7 @@
 									{#if value.startsWith('$res:')}
 										{@render resourceInput()}
 									{:else}
-										<div class="text-red-500">
+										<div class="text-red-500 text-xs">
 											Invalid string value: "{value}", expected array. Click add item to turn it
 											into an array.
 										</div>
@@ -877,70 +961,68 @@
 								{/if}
 							{/key}
 						</div>
-						<div class="flex mt-2 gap-20 items-baseline">
-							<Button
-								variant="border"
-								color="light"
-								size="xs"
-								btnClasses="mt-1"
-								on:click={() => {
-									if (value == undefined || !Array.isArray(value)) {
-										value = []
-									}
-									if (itemsType?.type == 'number') {
-										value = value.concat(0)
-									} else if (
-										(itemsType?.type == 'object' &&
-											!(
-												format?.startsWith('resource-') &&
-												resourceTypes?.includes(format.split('-')[1])
-											)) ||
-										(itemsType?.type == 'resource' &&
-											!(
-												itemsType?.resourceType && resourceTypes?.includes(itemsType?.resourceType)
-											))
-									) {
-										value = value.concat({})
-									} else {
-										value = value.concat('')
-									}
-								}}
-								id="arg-input-add-item"
-								startIcon={{ icon: Plus }}
-							>
-								Add item
-							</Button>
-						</div>
+						<Button
+							variant="default"
+							color="light"
+							size="xs"
+							wrapperClasses="w-full {Array.isArray(value) && value.length > 0 ? 'mt-1.5' : ''}"
+							on:click={() => {
+								if (value == undefined || !Array.isArray(value)) {
+									value = []
+								}
+								if (itemsType?.type == 'number') {
+									value = value.concat(0)
+								} else if (
+									(itemsType?.type == 'object' &&
+										!(
+											format?.startsWith('resource-') &&
+											resourceTypes?.includes(format.split('-')[1])
+										)) ||
+									(itemsType?.type == 'resource' &&
+										!(itemsType?.resourceType && resourceTypes?.includes(itemsType?.resourceType)))
+								) {
+									value = value.concat({})
+								} else {
+									value = value.concat('')
+								}
+							}}
+							id="arg-input-add-item"
+							startIcon={{ icon: Plus }}
+						>
+							Add item
+						</Button>
 					{/if}
 				</div>
-				<div class="mt-2 mr-4">
-					<Toggle
-						on:change={(e) => {
-							// Once the user has changed the input type, we should not change it back automatically
-							if (!hasIsListJsonChanged) {
-								hasIsListJsonChanged = true
-							}
+				{#if !displayHeader}
+					<div class="block mt-2 pl-2">
+						<Toggle
+							on:change={(e) => {
+								// Once the user has changed the input type, we should not change it back automatically
+								if (!hasIsListJsonChanged) {
+									hasIsListJsonChanged = true
+								}
 
-							evalValueToRaw()
-							isListJson = !isListJson
-						}}
-						checked={isListJson}
-						textClass="text-secondary"
-						size="xs"
-						options={{ right: 'json' }}
-					/>
-				</div>
+								evalValueToRaw()
+								isListJson = !isListJson
+							}}
+							checked={isListJson}
+							textClass="text-secondary"
+							size="xs"
+							options={{ left: 'json' }}
+						/>
+					</div>
+				{/if}
 			</div>
 		{:else if inputCat == 'dynamic'}
 			<DynamicInput name={label} {otherArgs} {helperScript} bind:value format={format ?? ''} />
 		{:else if inputCat == 'resource-object' && resourceTypes == undefined}
-			<span class="text-2xs text-tertiary">Loading resource types...</span>
+			<span class="text-2xs text-primary">Loading resource types...</span>
 		{:else if inputCat == 'resource-object' && (resourceTypes == undefined || (format && format?.split('-').length > 1 && resourceTypes.includes(format?.substring('resource-'.length))))}
 			<!-- {JSON.stringify(value)} -->
 			<ObjectResourceInput
 				{disabled}
 				{defaultValue}
-				selectFirst={!noDefaultOnSelectFirst}
+				selectFirst={!noDefaultOnSelectFirst && required}
 				{disablePortal}
 				format={format ?? ''}
 				bind:value
@@ -952,7 +1034,7 @@
 			/>
 		{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 			{#if oneOf && oneOf.length >= 2}
-				<div class="flex flex-col gap-2 w-full">
+				<div class="flex flex-col gap-2 w-full border rounded-md p-4">
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
 							selected={oneOfSelected}
@@ -992,70 +1074,70 @@
 							{@const obj = oneOf[objIdx]}
 							{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
 								{#key redraw}
-									<div class="py-4 pr-2 pl-6 border rounded w-full">
-										{#if orderEditable}
-											<SchemaFormDnd
-												{nestedClasses}
-												{onlyMaskPassword}
-												{disablePortal}
-												{disabled}
-												{prettifyHeader}
-												bind:schema={
-													() => ({
-														properties: obj.properties ?? {},
-														order: obj.order,
-														$schema: '',
-														required: obj.required ?? [],
-														type: 'object'
-													}),
-													() => {
-														dispatch('nestedChange')
-													}
-												}
-												bind:args={value}
-												hiddenArgs={[
-													oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
-														? 'kind'
-														: 'label'
-												]}
-												on:reorder={(e) => {
-													if (oneOf && oneOf[objIdx]) {
-														const keys = e.detail
-														oneOf[objIdx].order = keys
-													}
-												}}
-												on:nestedChange
-												{shouldDispatchChanges}
-											/>
-										{:else}
-											<SchemaForm
-												{nestedClasses}
-												{onlyMaskPassword}
-												{disablePortal}
-												{disabled}
-												{prettifyHeader}
-												hiddenArgs={['label', 'kind']}
-												schema={{
-													properties: obj.properties,
+									{#if orderEditable}
+										<SchemaFormDnd
+											lightHeaderFont
+											{nestedClasses}
+											{onlyMaskPassword}
+											{disablePortal}
+											{disabled}
+											{prettifyHeader}
+											bind:schema={
+												() => ({
+													properties: obj.properties ?? {},
 													order: obj.order,
 													$schema: '',
 													required: obj.required ?? [],
 													type: 'object'
-												}}
-												bind:args={
-													() => value,
-													(v) => {
-														value = { ...v, [tagKey]: oneOfSelected }
-													}
-												}
-												{shouldDispatchChanges}
-												on:change={() => {
+												}),
+												() => {
 													dispatch('nestedChange')
-												}}
-												on:nestedChange
-											/>
-										{/if}
-									</div>
+												}
+											}
+											bind:args={value}
+											hiddenArgs={[
+												oneOf?.find((o) => Object.keys(o.properties ?? {}).includes('kind'))
+													? 'kind'
+													: 'label'
+											]}
+											on:reorder={(e) => {
+												if (oneOf && oneOf[objIdx]) {
+													const keys = e.detail
+													oneOf[objIdx].order = keys
+												}
+											}}
+											on:nestedChange
+											{shouldDispatchChanges}
+										/>
+									{:else}
+										<SchemaForm
+											lightHeaderFont
+											{nestedClasses}
+											{onlyMaskPassword}
+											{disablePortal}
+											{disabled}
+											{prettifyHeader}
+											hiddenArgs={['label', 'kind']}
+											schema={{
+												properties: obj.properties,
+												order: obj.order,
+												$schema: '',
+												required: obj.required ?? [],
+												type: 'object'
+											}}
+											bind:args={
+												() => value,
+												(v) => {
+													value = { ...v, [tagKey]: oneOfSelected }
+												}
+											}
+											{shouldDispatchChanges}
+											on:change={() => {
+												dispatch('nestedChange')
+											}}
+											on:nestedChange
+										/>
+									{/if}
 								{/key}
 							{:else if disabled}
 								<textarea disabled></textarea>
@@ -1102,9 +1184,10 @@
 					{/if}
 				</div>
 			{:else if properties && Object.keys(properties).length > 0 && inputCat !== 'list'}
-				<div class={hideNested ? 'hidden' : 'py-4 pr-2 pl-6 border rounded-md w-full'}>
+				<div class={hideNested ? 'hidden' : 'px-4 pt-4 border rounded-md w-full'}>
 					{#if orderEditable}
 						<SchemaFormDnd
+							lightHeaderFont
 							{nestedClasses}
 							{onlyMaskPassword}
 							{disablePortal}
@@ -1135,6 +1218,7 @@
 						/>
 					{:else}
 						<SchemaForm
+							lightHeaderFont
 							{nestedClasses}
 							{onlyMaskPassword}
 							{disablePortal}
@@ -1185,8 +1269,8 @@
 					/>
 				{/await}
 			{/if}
-			{#if inputCat == 'list'}
-				<div class="block">
+			{#if inputCat == 'list' && !displayHeader}
+				<div class="block mt-2.5 pl-2">
 					<Toggle
 						on:change={(e) => {
 							isListJson = !isListJson
@@ -1194,13 +1278,17 @@
 						checked={isListJson}
 						textClass="text-secondary"
 						size="xs"
-						options={{ right: 'json' }}
+						options={{ left: 'json' }}
 					/>
 				</div>
 			{/if}
 		{:else if inputCat == 'enum'}
 			<div class="flex flex-row w-full gap-1">
 				<ArgEnum
+					onClear={() => {
+						lastValue = undefined
+						value = undefined
+					}}
 					create={extra['disableCreate'] != true}
 					{defaultValue}
 					valid={valid ?? true}
@@ -1220,6 +1308,8 @@
 		{:else if inputCat == 'date'}
 			{#if format === 'date'}
 				<DateInput {disabled} {autofocus} bind:value dateFormat={extra?.['dateFormat']} />
+			{:else if format === 'naive-date-time'}
+				<DateTimeInput {disabled} useDropdown {autofocus} bind:value timezone="naive" />
 			{:else}
 				<DateTimeInput {disabled} useDropdown {autofocus} bind:value />
 			{/if}
@@ -1250,19 +1340,15 @@
 				</div>
 			{/if}
 		{:else if inputCat == 'base64'}
-			<div class="flex flex-col my-6 w-full">
-				<input
-					{autofocus}
-					type="file"
-					onchange={(x) => fileChanged(x, (val) => (value = val))}
+			<div class="flex flex-col w-full">
+				<FileInput
+					on:change={(x) => fileChangedInner(x.detail?.[0], (val) => (value = val))}
 					multiple={false}
 				/>
 				{#if value?.length}
-					<div class="text-2xs text-tertiary mt-1"
-						>File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(
-							2
-						)}MB)</div
-					>
+					<div class="text-2xs text-primary mt-1">
+						File length: {value.length} base64 chars ({(value.length / 1024 / 1024).toFixed(2)}MB)
+					</div>
 				{/if}
 			</div>
 		{:else if inputCat == 'resource-string'}
@@ -1325,27 +1411,30 @@
 								{disabled}
 								class={twMerge(
 									'w-full',
-									valid
-										? ''
-										: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-3'
+									inputBaseClass,
+									inputSizeClasses.md,
+									inputBorderClass({ error: !!error })
 								)}
 								placeholder={placeholder ?? defaultValue ?? ''}
 								bind:value
 							></textarea>
 						{/key}
-						{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
-							<!-- svelte-ignore a11y_click_events_have_key_events -->
-							<button
-								class="absolute right-1 top-1 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
-								onclick={() => {
-									pickForField = label
-									itemPicker?.openDrawer?.()
-								}}
-								title="Insert a Variable"
-							>
-								<DollarSign class="!text-tertiary" size={14} />
-							</button>
-						{/if}
+					{/if}
+					{#if !disabled && itemPicker && extra?.['disableVariablePicker'] != true}
+						<!-- svelte-ignore a11y_click_events_have_key_events -->
+						<button
+							class={twMerge(
+								'absolute opacity-0 group-hover:opacity-100 duration-200 py-1 min-w-min !px-2 items-center text-gray-800 bg-surface-secondary border rounded center-center hover:bg-gray-300 transition-all cursor-pointer',
+								password || extra?.['password'] == true ? 'right-16' : 'right-1'
+							)}
+							onclick={() => {
+								pickForField = label
+								itemPicker?.openDrawer?.()
+							}}
+							title="Insert a Variable"
+						>
+							<DollarSign class="!text-primary" size={14} />
+						</button>
 					{/if}
 				</div>
 				{@render variableInput()}
@@ -1356,7 +1445,7 @@
 	</div>
 
 	{#if !compact || (error && error != '')}
-		<div class="text-right text-xs text-red-600 dark:text-red-400">
+		<div class="text-right text-xs leading-3 text-red-600 dark:text-red-400 mb-2">
 			{#if disabled || error === ''}
 				&nbsp;
 			{:else}
@@ -1373,11 +1462,5 @@
 	input::-webkit-inner-spin-button {
 		-webkit-appearance: none !important;
 		margin: 0;
-	}
-
-	/* Firefox */
-	input[type='number'] {
-		-moz-appearance: textfield !important;
-		appearance: textfield !important;
 	}
 </style>

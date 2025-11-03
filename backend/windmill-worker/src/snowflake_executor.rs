@@ -20,7 +20,7 @@ use windmill_queue::{CanceledBy, MiniPulledJob, HTTP_CLIENT};
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::build_args_values;
+use crate::common::{build_args_values, get_reserved_variables};
 use crate::common::{
     build_http_client, resolve_job_timeout, s3_mode_args_to_worker_data, OccupancyMetrics,
     S3ModeWorkerData,
@@ -132,12 +132,14 @@ fn do_snowflake_inner<'a>(
     skip_collect: bool,
     http_client: &'a Client,
     s3: Option<S3ModeWorkerData>,
+    reserved_variables: &HashMap<String, String>,
 ) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
     let sig = parse_snowflake_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
 
-    let (query, args_to_skip) = &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args)?;
+    let (query, args_to_skip) =
+        &sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args, reserved_variables)?;
 
     body.insert("statement".to_string(), json!(query));
 
@@ -282,6 +284,7 @@ pub async fn do_snowflake(
     worker_name: &str,
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
+    parent_runnable_path: Option<String>,
 ) -> windmill_common::error::Result<Box<RawValue>> {
     let snowflake_args = build_args_values(job, client, conn).await?;
 
@@ -403,6 +406,9 @@ pub async fn do_snowflake(
 
     let http_client = build_http_client(timeout_duration)?;
 
+    let reserved_variables =
+        get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+
     let result_f = if queries.len() > 1 {
         let futures = queries
             .iter()
@@ -419,6 +425,7 @@ pub async fn do_snowflake(
                     annotations.return_last_result && i < queries.len() - 1,
                     &http_client,
                     s3.clone(),
+                    &reserved_variables,
                 )
             })
             .collect::<windmill_common::error::Result<Vec<_>>>()?;
@@ -449,6 +456,7 @@ pub async fn do_snowflake(
             false,
             &http_client,
             s3.clone(),
+            &reserved_variables,
         )?
     };
     let r = run_future_with_polling_update_job_poller(

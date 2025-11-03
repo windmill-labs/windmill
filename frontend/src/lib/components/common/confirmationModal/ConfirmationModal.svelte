@@ -69,7 +69,7 @@
 			Icon: RefreshCcw,
 			color: 'dark',
 			classes: {
-				icon: 'text-blue-500 dark:text-blue-400',
+				icon: 'text-blue-700 dark:text-blue-300',
 				iconWrapper: 'bg-blue-100 dark:bg-blue-800/50'
 			}
 		}
@@ -126,6 +126,8 @@
 							color={theme[type].color}
 							size="sm"
 							shortCut={{ Icon: CornerDownLeft, hide: !keyListen, withoutModifier: true }}
+							variant="accent"
+							destructive={type === 'danger'}
 						>
 							{#if loading}
 								<Loader2 class="animate-spin" />
@@ -135,7 +137,7 @@
 						<Button
 							disabled={loading}
 							on:click={() => (dispatch('canceled'), onCanceled?.())}
-							color="light"
+							variant="default"
 							size="sm"
 							shortCut={{ key: 'Esc', hide: !keyListen, withoutModifier: true }}
 						>

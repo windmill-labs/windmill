@@ -14,6 +14,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs::{self, File},
     io::Write,
+    ops::Deref,
     panic::Location,
     path::{Component, Path, PathBuf},
     str::FromStr,
@@ -167,6 +168,7 @@ lazy_static::lazy_static! {
         "powershell".to_string(),
         "nativets".to_string(),
         "mysql".to_string(),
+        "oracledb".to_string(),
         "bun".to_string(),
         "postgresql".to_string(),
         "bigquery".to_string(),
@@ -185,6 +187,18 @@ lazy_static::lazy_static! {
         "dependency".to_string(),
         "flow".to_string(),
         "other".to_string()
+    ];
+
+    pub static ref NATIVE_TAGS: Vec<String> = vec![
+        "nativets".to_string(),
+        "postgresql".to_string(),
+        "mysql".to_string(),
+        "graphql".to_string(),
+        "snowflake".to_string(),
+        "mssql".to_string(),
+        "bigquery".to_string(),
+        "oracledb".to_string()
+        // for related places search: ADD_NEW_LANG
     ];
 
     pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
@@ -250,6 +264,10 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    /// Global flag indicating if all workers support the debouncing feature (>= 1.566.0)
+    /// Debouncing consolidates multiple dependency job requests within a time window to avoid redundant work
+    /// This flag is updated during worker initialization by checking the minimum version across all workers
+    pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_461: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
@@ -258,7 +276,7 @@ lazy_static::lazy_static! {
     // Features flags:
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
 
-    pub static ref ROOT_STANDALONE_BUNDLE_DIR: String = format!("{}/.windmill/standalone_bundle/", std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
+    pub static ref ROOT_STANDALONE_BUNDLE_DIR: String = format!("{}/.windmill/standalone_bundle", std::env::var("HOME").unwrap_or_else(|_| "/root".to_string()));
 }
 
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
@@ -266,7 +284,18 @@ pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone)]
-pub struct HttpClient(pub ClientWithMiddleware);
+pub struct HttpClient {
+    pub client: ClientWithMiddleware,
+    pub base_internal_url: Option<String>,
+}
+
+impl Deref for HttpClient {
+    type Target = ClientWithMiddleware;
+
+    fn deref(&self) -> &Self::Target {
+        &self.client
+    }
+}
 
 impl HttpClient {
     pub async fn post<T: Serialize, R: DeserializeOwned>(
@@ -275,10 +304,12 @@ impl HttpClient {
         headers: Option<HeaderMap>,
         body: &T,
     ) -> anyhow::Result<R> {
-        let response_builder = self
-            .0
-            .post(format!("{}{}", *BASE_INTERNAL_URL, url))
-            .json(body);
+        let base_url = self
+            .base_internal_url
+            .clone()
+            .unwrap_or(BASE_INTERNAL_URL.clone().to_owned());
+
+        let response_builder = self.client.post(format!("{}{}", base_url, url)).json(body);
 
         let response_builder = match headers {
             Some(headers) => response_builder.headers(headers),
@@ -302,9 +333,14 @@ impl HttpClient {
     }
 
     pub async fn get<R: DeserializeOwned>(&self, url: &str) -> anyhow::Result<R> {
+        let base_url = self
+            .base_internal_url
+            .clone()
+            .unwrap_or(BASE_INTERNAL_URL.clone().to_owned());
+
         let response = self
-            .0
-            .get(format!("{}{}", *BASE_INTERNAL_URL, url))
+            .client
+            .get(format!("{}{}", base_url, url))
             .send()
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
@@ -386,6 +422,10 @@ fn format_pull_query(peek: String) -> String {
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
+        ), delete_debounce AS NOT MATERIALIZED (
+            DELETE FROM debounce_key
+            USING j
+            WHERE j.kind::text != 'flowdependencies' AND j.kind::text != 'appdependencies' AND j.kind::text != 'dependencies' AND debounce_key.job_id = j.id
         ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
             j.runnable_id, j.runnable_path, j.args, canceled_by,
             canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
@@ -395,11 +435,12 @@ fn format_pull_query(peek: String) -> String {
             j.timeout, j.flow_step_id, j.cache_ttl, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
             j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
-            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders
+            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
         FROM q, j
             LEFT JOIN v2_job_status f USING (id)
             LEFT JOIN job_perms p ON p.job_id = j.id
-            LEFT JOIN v2_job pj ON j.parent_job = pj.id",
+            LEFT JOIN v2_job pj ON j.parent_job = pj.id
+            ",
         peek
     );
     // tracing::debug!("pull query: {}", r);
@@ -457,6 +498,7 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
 
 pub const TMP_DIR: &str = "/tmp/windmill";
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
+pub const TMP_MEMORY_DIR: &str = concatcp!(TMP_DIR, "/memory");
 
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 
@@ -470,9 +512,8 @@ pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     Ok(file)
 }
 
-pub fn write_file_bytes(dir: &str, path: &str, content: &Bytes) -> error::Result<File> {
-    let path = format!("{}/{}", dir, path);
-    let mut file = File::create(&path)?;
+pub fn write_file_bytes(path: &str, content: &Bytes) -> error::Result<File> {
+    let mut file = File::create(path)?;
     file.write_all(content)?;
     file.flush()?;
     Ok(file)
@@ -1034,6 +1075,7 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
 }
 
 pub async fn update_min_version(conn: &Connection) -> bool {
+    tracing::debug!("Updating min version");
     use crate::utils::{GIT_SEM_VERSION, GIT_VERSION};
 
     let cur_version = GIT_SEM_VERSION.clone();
@@ -1065,6 +1107,9 @@ pub async fn update_min_version(conn: &Connection) -> bool {
         tracing::info!("Minimal worker version: {min_version}");
     }
 
+    // Debouncing feature requires minimum version 1.566.0 across all workers
+    // This ensures all workers can handle debounce keys and stale data accumulation
+    *MIN_VERSION_SUPPORTS_DEBOUNCING.write().await = min_version >= Version::new(1, 566, 0);
     *MIN_VERSION_IS_AT_LEAST_1_461.write().await = min_version >= Version::new(1, 461, 0);
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);
@@ -1277,7 +1322,8 @@ pub async fn insert_ping_query(
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (worker) DO UPDATE set ip = $3, custom_tags = $4, worker_group = $5",
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (worker) 
+        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group",
         worker_instance,
         worker_name,
         ip,
@@ -1352,7 +1398,11 @@ pub async fn update_job_ping_query(
         if let Some(i) = r {
             Ok(i)
         } else {
-            Err(anyhow::anyhow!("Job not found"))
+            Ok(PingJobStatusResponse {
+                canceled_by: None,
+                canceled_reason: None,
+                already_completed: true,
+            })
         }
     } else {
         Err(to_anyhow(ro.unwrap_err()))

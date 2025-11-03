@@ -13,16 +13,7 @@
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { DEFAULT_THEME } from '$lib/components/apps/editor/componentsPanel/themeUtils'
-	import {
-		presets,
-		processDimension,
-		type AppComponent
-	} from '$lib/components/apps/editor/component'
-	import {
-		appComponentFromType,
-		insertNewGridItem,
-		setUpTopBarComponentContent
-	} from '$lib/components/apps/editor/appUtils'
+	import { emptyApp } from '$lib/components/apps/editor/appUtils'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const hubId = $page.url.searchParams.get('hub')
@@ -118,36 +109,7 @@
 			])
 			value = decodeState(appState)
 		} else {
-			const preset = presets['topbarcomponent']
-
-			const id = insertNewGridItem(
-				value,
-				appComponentFromType(preset.targetComponent, preset.configuration, undefined, {
-					customCss: {
-						container: {
-							class: '!p-0' as any,
-							style: ''
-						}
-					}
-				}) as (id: string) => AppComponent,
-				undefined,
-				undefined,
-				'topbar',
-				{ x: 0, y: 0 },
-				{
-					3: processDimension(preset.dims, 3),
-					12: processDimension(preset.dims, 12)
-				},
-				true,
-				true
-			)
-
-			setUpTopBarComponentContent(id, value)
-
-			value.hideLegacyTopBar = true
-			value.mobileViewOnSmallerScreens = false
-
-			value = value
+			value = emptyApp()
 		}
 	}
 </script>

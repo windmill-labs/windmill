@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.542.4
+  version: 1.571.0
   title: Windmill API
 
   contact:
@@ -554,6 +554,31 @@ paths:
                 items:
                   $ref: "#/components/schemas/ExportedUser"
 
+  /users/onboarding:
+    post:
+      summary: Submit user onboarding data
+      operationId: submitOnboardingData
+      tags:
+        - user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                touch_point:
+                  type: string
+                use_case:
+                  type: string
+      responses:
+        '200':
+          description: Onboarding data submitted successfully
+          content:
+            application/json:
+              schema:
+                type: string                
+
   /w/{workspace}/users/delete/{username}:
     delete:
       summary: delete user (require admin privilege)
@@ -575,6 +600,27 @@ paths:
             text/plain:
               schema:
                 type: string
+  /w/{workspace}/users/convert_to_group/{username}:
+    post:
+      summary: convert manual user to group user (require admin privilege)
+      operationId: convertUserToGroup
+      tags:
+        - user
+        - admin
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: convert user to group user
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /github_app/connected_repositories:
     get:
@@ -582,6 +628,13 @@ paths:
       operationId: getGlobalConnectedRepositories
       tags:
         - Git Sync
+      parameters:
+        - name: search
+          in: query
+          description: Search repositories by name
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: connected repositories
@@ -674,12 +727,14 @@ paths:
               schema:
                 type: string
 
-  /workspaces/create_fork:
+  /w/{workspace}/workspaces/create_fork:
     post:
       summary: create forked workspace
       operationId: createWorkspaceFork
       tags:
         - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
         description: new forked workspace
         required: true
@@ -749,34 +804,26 @@ paths:
               schema:
                 type: boolean
 
-  /settings/databases_exist:
+  /settings/get_ducklake_instance_catalog_db_status:
     post:
-      summary: checks that all given databases exist or else return the ones that don't
-      operationId: databasesExist
+      summary: Returns the set-up statuses of ducklake instance catalog dbs
+      operationId: getDucklakeInstanceCatalogDbStatus
       tags:
         - setting
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                type: string
       responses:
         "200":
-          description: databases that do not exist
+          description: Statuses of all ducklake instance catalog dbs
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: string
+                type: object
+                additionalProperties:
+                  $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
 
-  /settings/create_ducklake_database/{name}:
+  /settings/setup_ducklake_catalog_db/{name}:
     post:
       summary: Runs CREATE DATABASE on the Windmill Postgres and grants access to the ducklake_user
-      operationId: createDucklakeDatabase
+      operationId: setupDucklakeCatalogDb
       tags:
         - setting
       parameters:
@@ -791,7 +838,8 @@ paths:
           description: status
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
 
   /settings/global/{key}:
     get:
@@ -1306,8 +1354,6 @@ paths:
                     type: string
                   endpoint_sync:
                     type: string
-                  endpoint_openai_sync:
-                    type: string
                   summary:
                     type: string
                   description:
@@ -1318,7 +1364,6 @@ paths:
                   - workspace
                   - endpoint_async
                   - endpoint_sync
-                  - endpoint_openai_sync
                   - summary
                   - kind
 
@@ -1707,6 +1752,11 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: only_delete_forks
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: status
@@ -1956,6 +2006,10 @@ paths:
                     type: string
                   slack_command_script:
                     type: string
+                  slack_oauth_client_id:
+                    type: string
+                  slack_oauth_client_secret:
+                    type: string
                   teams_team_id:
                     type: string
                   teams_command_script:
@@ -2137,6 +2191,40 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/rebuild_dependency_map:
+    post:
+      summary: rebuild dependency map
+      operationId: rebuildDependencyMap
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/get_dependency_map:
+    get:
+      summary: get dependency map
+      operationId: getDependencyMap
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: dmap
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DependencyMap"
+
   /w/{workspace}/workspaces/edit_slack_command:
     post:
       summary: edit slack command
@@ -2156,6 +2244,73 @@ paths:
                 slack_command_script:
                   type: string
 
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/slack_oauth_config:
+    get:
+      summary: get workspace slack oauth config
+      operationId: getWorkspaceSlackOauthConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: slack oauth config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slack_oauth_client_id:
+                    type: string
+                    nullable: true
+                  slack_oauth_client_secret:
+                    type: string
+                    nullable: true
+                    description: Masked with *** if set
+    post:
+      summary: set workspace slack oauth config
+      operationId: setWorkspaceSlackOauthConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Slack OAuth Configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - slack_oauth_client_id
+                - slack_oauth_client_secret
+              properties:
+                slack_oauth_client_id:
+                  type: string
+                slack_oauth_client_secret:
+                  type: string
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+    delete:
+      summary: delete workspace slack oauth config
+      operationId: deleteWorkspaceSlackOauthConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
           description: status
@@ -2198,6 +2353,12 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: search
+          in: query
+          description: Search teams by name
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: status
@@ -2215,15 +2376,27 @@ paths:
 
   /w/{workspace}/workspaces/available_teams_channels:
     get:
-      summary: list available teams channels
+      summary: list available channels for a specific team
       operationId: listAvailableTeamsChannels
       tags:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: team_id
+          in: query
+          description: Microsoft Teams team ID
+          required: true
+          schema:
+            type: string
+        - name: search
+          in: query
+          description: Search channels by name
+          required: false
+          schema:
+            type: string
       responses:
         "200":
-          description: status
+          description: List of channels for the specified team
           content:
             application/json:
               schema:
@@ -2234,10 +2407,6 @@ paths:
                     channel_name:
                       type: string
                     channel_id:
-                      type: string
-                    service_url:
-                      type: string
-                    tenant_id:
                       type: string
 
   /w/{workspace}/workspaces/connect_teams:
@@ -3672,6 +3841,7 @@ paths:
               properties:
                 refresh_token:
                   type: string
+                  description: "OAuth refresh token. For authorization_code flow, this contains the actual refresh token. For client_credentials flow, this must be set to an empty string."
                 expires_in:
                   type: integer
                 client:
@@ -3689,6 +3859,7 @@ paths:
                   type: string
                   description: "OAuth token URL override for resource-level authentication (client_credentials flow only)"
               required:
+                - refresh_token
                 - expires_in
                 - client
       responses:
@@ -3899,22 +4070,6 @@ paths:
                     type: array
                     items:
                       type: string
-
-  /teams/sync:
-    post:
-      operationId: syncTeams
-      summary: synchronize Microsoft Teams information (teams/channels)
-      tags:
-        - teams
-      responses:
-        "200":
-          description: Teams information successfully synchronized
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/TeamInfo"
 
   /teams/activities:
     post:
@@ -4142,6 +4297,33 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/resources/git_commit_hash/{path}:
+    get:
+      summary: get git repository latest commit hash
+      operationId: getGitCommitHash
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: git_ssh_identity
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: git commit hash
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  commit_hash:
+                    type: string
+                    description: Latest commit hash from git ls-remote
+                required:
+                  - commit_hash
+
   /w/{workspace}/resources/exists/{path}:
     get:
       summary: does resource exists
@@ -4219,6 +4401,35 @@ paths:
                   required:
                     - path
                     - value
+
+  /w/{workspace}/resources/mcp_tools/{path}:
+    get:
+      summary: get MCP tools from resource
+      operationId: getMcpTools
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: list of MCP tools
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+                    parameters:
+                      type: object
+                  required:
+                    - name
+                    - parameters
 
   /w/{workspace}/resources/list_names/{name}:
     get:
@@ -5606,35 +5817,6 @@ paths:
                 type: string
                 format: uuid
 
-  /w/{workspace}/jobs/openai_sync/p/{path}:
-    post:
-      summary: run script by path in openai format
-      operationId: openaiSyncScriptByPath
-      tags:
-        - job
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-        - $ref: "#/components/parameters/ParentJob"
-        - $ref: "#/components/parameters/NewJobId"
-        - $ref: "#/components/parameters/IncludeHeader"
-        - $ref: "#/components/parameters/QueueLimit"
-
-      requestBody:
-        description: script args
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ScriptArgs"
-
-      responses:
-        "200":
-          description: job result
-          content:
-            application/json:
-              schema: {}
-
   /w/{workspace}/jobs/run_wait_result/p/{path}:
     post:
       summary: run script by path
@@ -5650,6 +5832,7 @@ paths:
         - $ref: "#/components/parameters/NewJobId"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/SkipPreprocessor"
 
       requestBody:
         description: script args
@@ -5681,34 +5864,7 @@ paths:
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
         - $ref: "#/components/parameters/Payload"
-
-      responses:
-        "200":
-          description: job result
-          content:
-            application/json:
-              schema: {}
-
-  /w/{workspace}/jobs/openai_sync/f/{path}:
-    post:
-      summary: run flow by path and wait until completion in openai format
-      operationId: openaiSyncFlowByPath
-      tags:
-        - job
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-        - $ref: "#/components/parameters/IncludeHeader"
-        - $ref: "#/components/parameters/QueueLimit"
-        - $ref: "#/components/parameters/NewJobId"
-
-      requestBody:
-        description: script args
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/ScriptArgs"
+        - $ref: "#/components/parameters/SkipPreprocessor"
 
       responses:
         "200":
@@ -5729,6 +5885,13 @@ paths:
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
         - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: memory_id
+          description: memory ID for chat-enabled flows
+          in: query
+          schema:
+            type: string
+            format: uuid
 
       requestBody:
         description: script args
@@ -5744,6 +5907,230 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/jobs/run_and_stream/f/{path}:
+    post:
+      summary: run flow by path and stream updates via SSE
+      operationId: runAndStreamFlowByPath
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: memory_id
+          description: memory ID for chat-enabled flows
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: poll_delay_ms
+          description: delay between polling for job updates in milliseconds
+          in: query
+          schema:
+            type: integer
+            format: int64
+
+      requestBody:
+        description: flow args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+    get:
+      summary: run flow by path with GET and stream updates via SSE
+      operationId: runAndStreamFlowByPathGet
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/Payload"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: memory_id
+          description: memory ID for chat-enabled flows
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: poll_delay_ms
+          description: delay between polling for job updates in milliseconds
+          in: query
+          schema:
+            type: integer
+            format: int64
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs/run_and_stream/p/{path}:
+    post:
+      summary: run script by path and stream updates via SSE
+      operationId: runAndStreamScriptByPath
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: poll_delay_ms
+          description: delay between polling for job updates in milliseconds
+          in: query
+          schema:
+            type: integer
+            format: int64
+
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+    get:
+      summary: run script by path with GET and stream updates via SSE
+      operationId: runAndStreamScriptByPathGet
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/Payload"
+        - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: poll_delay_ms
+          description: delay between polling for job updates in milliseconds
+          in: query
+          schema:
+            type: integer
+            format: int64
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs/run_and_stream/h/{hash}:
+    post:
+      summary: run script by hash and stream updates via SSE
+      operationId: runAndStreamScriptByHash
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: poll_delay_ms
+          description: delay between polling for job updates in milliseconds
+          in: query
+          schema:
+            type: integer
+            format: int64
+
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+    get:
+      summary: run script by hash with GET and stream updates via SSE
+      operationId: runAndStreamScriptByHashGet
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: hash
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/WorkerTag"
+        - $ref: "#/components/parameters/CacheTtl"
+        - $ref: "#/components/parameters/NewJobId"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/Payload"
+        - $ref: "#/components/parameters/SkipPreprocessor"
+        - name: poll_delay_ms
+          description: delay between polling for job updates in milliseconds
+          in: query
+          schema:
+            type: integer
+            format: int64
+
+      responses:
+        "200":
+          description: server-sent events stream of job updates
+          content:
+            text/event-stream:
+              schema:
+                type: string
 
   /w/{workspace}/jobs/result_by_id/{flow_job_id}/{node_id}:
     get:
@@ -6252,6 +6639,88 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/flow_conversations/list:
+    get:
+      summary: list flow conversations
+      operationId: listFlowConversations
+      tags:
+        - flow_conversation
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: flow_path
+          description: filter conversations by flow path
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: flow conversations list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowConversation"
+
+  /w/{workspace}/flow_conversations/delete/{conversation_id}:
+    delete:
+      summary: delete flow conversation
+      operationId: deleteFlowConversation
+      tags:
+        - flow_conversation
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: conversation_id
+          description: conversation id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: flow conversation deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/flow_conversations/{conversation_id}/messages:
+    get:
+      summary: list conversation messages
+      operationId: listConversationMessages
+      tags:
+        - flow_conversation
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: conversation_id
+          description: conversation id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: after_id
+          description: id to fetch only the messages after that id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: conversation messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowConversationMessage"
+
   /w/{workspace}/raw_apps/list:
     get:
       summary: list all raw apps
@@ -6700,6 +7169,23 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/apps/secret_of_latest_version/{path}:
+    get:
+      summary: get public secret of latest version of an app bundle
+      operationId: getPublicSecretOfLatestVersionOfApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: app secret
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/get/v/{id}:
     get:
       summary: get app by version
@@ -7114,11 +7600,7 @@ paths:
           in: query
           schema:
             type: integer
-        - name: skip_preprocessor
-          description: skip the preprocessor
-          in: query
-          schema:
-            type: boolean
+        - $ref: "#/components/parameters/SkipPreprocessor"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/NewJobId"
@@ -7128,6 +7610,12 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: memory_id
+          description: memory ID for chat-enabled flows
+          in: query
+          schema:
+            type: string
+            format: uuid
       requestBody:
         description: flow args
         required: true
@@ -7276,11 +7764,7 @@ paths:
           in: query
           schema:
             type: integer
-        - name: skip_preprocessor
-          description: skip the preprocessor
-          in: query
-          schema:
-            type: boolean
+        - $ref: "#/components/parameters/SkipPreprocessor"
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/WorkerTag"
         - $ref: "#/components/parameters/CacheTtl"
@@ -7504,6 +7988,30 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/jobs/run/dynamic_select:
+    post:
+      summary: run dynamic select helper function
+      operationId: runDynamicSelect
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: dynamic select request
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DynamicInputData"
+      responses:
+        "201":
+          description: dynamic select job created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
   /w/{workspace}/jobs/queue/list:
     get:
       summary: list all queued jobs
@@ -7655,11 +8163,12 @@ paths:
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/CreatedBefore"
         - $ref: "#/components/parameters/CreatedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/CompletedBefore"
+        - $ref: "#/components/parameters/CompletedAfter"
+        - $ref: "#/components/parameters/CreatedBeforeQueue"
+        - $ref: "#/components/parameters/CreatedAfterQueue"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
-        - $ref: "#/components/parameters/CreatedOrStartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/Suspended"
         - $ref: "#/components/parameters/ArgsFilter"
@@ -7768,6 +8277,10 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: force_cancel
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: uuids of the jobs to cancel
         required: true
@@ -7865,18 +8378,18 @@ paths:
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/CreatedBefore"
         - $ref: "#/components/parameters/CreatedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedBefore"
+        - $ref: "#/components/parameters/CompletedBefore"
+        - $ref: "#/components/parameters/CompletedAfter"
+        - $ref: "#/components/parameters/CreatedBeforeQueue"
+        - $ref: "#/components/parameters/CreatedAfterQueue"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
-        - $ref: "#/components/parameters/CreatedOrStartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/Suspended"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
         - $ref: "#/components/parameters/AllowWildcards"
-        - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
         - name: is_skipped
           description: is the job skipped
@@ -8064,6 +8577,34 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/jobs_u/queue/get_started_at_by_ids:
+    post:
+      summary: get started at by ids
+      operationId: getStartedAtByIds
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: ids
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+      responses:
+        "200":
+          description: started at by ids
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: date-time
 
   /w/{workspace}/jobs_u/getupdate/{id}:
     get:
@@ -12031,6 +12572,8 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
       responses:
         "200":
           description: List of autoscaling events
@@ -13060,6 +13603,160 @@ paths:
               schema:
                 $ref: "#/components/schemas/WindmillFilePreview"
 
+  /w/{workspace}/job_helpers/list_git_repo_files:
+    get:
+      summary: List the file keys available in instance object storage with resource-based access control
+      operationId: listGitRepoFiles
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: max_keys
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: marker
+          in: query
+          schema:
+            type: string
+        - name: prefix
+          in: query
+          required: false
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of file keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  next_marker:
+                    type: string
+                  windmill_large_files:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WindmillLargeFile"
+                  restricted_access:
+                    type: boolean
+                required:
+                  - windmill_large_files
+
+  /w/{workspace}/job_helpers/load_git_repo_file_preview:
+    get:
+      summary: Load a preview of a file from instance storage with resource-based access control
+      operationId: loadGitRepoFilePreview
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: file_size_in_bytes
+          in: query
+          schema:
+            type: integer
+        - name: file_mime_type
+          in: query
+          schema:
+            type: string
+        - name: csv_separator
+          in: query
+          schema:
+            type: string
+        - name: csv_has_header
+          in: query
+          schema:
+            type: boolean
+        - name: read_bytes_from
+          in: query
+          schema:
+            type: integer
+        - name: read_bytes_length
+          in: query
+          schema:
+            type: integer
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FilePreview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFilePreview"
+
+  /w/{workspace}/job_helpers/load_git_repo_file_metadata:
+    get:
+      summary: Load file metadata from instance storage with resource-based access control
+      operationId: loadGitRepoFileMetadata
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: true
+          schema:
+            type: string
+            description: Must follow format gitrepos/{workspace_id}/{resource_path}/...
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: FileMetadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WindmillFileMetadata"
+
+  /w/{workspace}/job_helpers/check_s3_folder_exists:
+    get:
+      summary: Check if S3 path exists and is a folder
+      operationId: checkS3FolderExists
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          description: S3 file key to check (e.g., gitrepos/{workspace_id}/u/user/resource/{commit_hash})
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: S3 folder existence check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exists:
+                    type: boolean
+                    description: Whether the path exists
+                  is_folder:
+                    type: boolean
+                    description: Whether the path is a folder (true) or file (false)
+                required:
+                  - exists
+                  - is_folder
+
   /w/{workspace}/job_helpers/load_parquet_preview/{path}:
     get:
       summary: Load a preview of a parquet file
@@ -13239,6 +13936,67 @@ paths:
     post:
       summary: Upload file to S3 bucket
       operationId: fileUpload
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: file_key
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: file_extension
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: s3_resource_path
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: resource_type
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: storage
+          in: query
+          schema:
+            type: string
+        - name: content_type
+          in: query
+          schema:
+            type: string
+        - name: content_disposition
+          in: query
+          schema:
+            type: string
+      requestBody:
+        description: File content
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: File upload status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_key:
+                    type: string
+                required:
+                  - file_key
+
+  /w/{workspace}/job_helpers/upload_git_repo_file_to_instance_storage:
+    post:
+      summary: Upload a file to the instance storage gitrepos section for viewing
+      operationId: gitRepoViewerFileUpload
       tags:
         - helpers
       parameters:
@@ -13593,11 +14351,12 @@ paths:
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedBefore"
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ScheduledForBeforeNow"
-        - $ref: "#/components/parameters/CreatedOrStartedAfter"
-        - $ref: "#/components/parameters/CreatedOrStartedAfterCompletedJob"
+        - $ref: "#/components/parameters/CompletedBefore"
+        - $ref: "#/components/parameters/CompletedAfter"
+        - $ref: "#/components/parameters/CreatedBeforeQueue"
+        - $ref: "#/components/parameters/CreatedAfterQueue"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/Tag"
@@ -14113,6 +14872,12 @@ components:
       in: query
       schema:
         type: string
+    SkipPreprocessor:
+      name: skip_preprocessor
+      description: skip the preprocessor
+      in: query
+      schema:
+        type: boolean
     Payload:
       name: payload
       description: |
@@ -14180,33 +14945,40 @@ components:
       schema:
         type: string
         format: date-time
-    CreatedOrStartedAfter:
-      name: created_or_started_after
-      description:
-        filter on created_at for non non started job and started_at otherwise
-        after (exclusive) timestamp
+
+    CompletedBefore:
+      name: completed_before
+      description: filter on started before (inclusive) timestamp
       in: query
       schema:
         type: string
         format: date-time
-    CreatedOrStartedAfterCompletedJob:
-      name: created_or_started_after_completed_jobs
-      description:
-        filter on created_at for non non started job and started_at otherwise
-        after (exclusive) timestamp but only for the completed jobs
+    CompletedAfter:
+      name: completed_after
+      description: filter on started after (exclusive) timestamp
       in: query
       schema:
         type: string
         format: date-time
-    CreatedOrStartedBefore:
-      name: created_or_started_before
+
+    CreatedAfterQueue:
+      name: created_after_queue
       description:
-        filter on created_at for non non started job and started_at otherwise
-        before (inclusive) timestamp
+        filter on jobs created after X for jobs in the queue only
       in: query
       schema:
         type: string
         format: date-time
+
+    CreatedBeforeQueue:
+      name: created_before_queue
+      description:
+        filter on jobs created before X for jobs in the queue only
+      in: query
+      schema:
+        type: string
+        format: date-time
+
     Success:
       name: success
       description: filter on successful jobs
@@ -14385,6 +15157,72 @@ components:
     # -- INLINE END --
     # Do not change line above
 
+    FlowConversation:
+      type: object
+      required:
+        [id, workspace_id, flow_path, created_at, updated_at, created_by]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the conversation
+        workspace_id:
+          type: string
+          description: The workspace ID where the conversation belongs
+        flow_path:
+          type: string
+          description: Path of the flow this conversation is for
+        title:
+          type: string
+          description: Optional title for the conversation
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the conversation was created
+        updated_at:
+          type: string
+          format: date-time
+          description: When the conversation was last updated
+        created_by:
+          type: string
+          description: Username who created the conversation
+
+    FlowConversationMessage:
+      type: object
+      required: [id, conversation_id, message_type, content, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the message
+        conversation_id:
+          type: string
+          format: uuid
+          description: The conversation this message belongs to
+        message_type:
+          type: string
+          enum: [user, assistant, system, tool]
+          description: Type of the message
+        content:
+          type: string
+          description: The message content
+        job_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Associated job ID if this message came from a flow run
+        created_at:
+          type: string
+          format: date-time
+          description: When the message was created
+        step_name:
+          type: string
+          description: The step name that produced that message
+        success:
+          type: boolean
+          description: Whether the message is a success
+
     EndpointTool:
       type: object
       required: [name, description, instructions, path, method]
@@ -14490,6 +15328,12 @@ components:
           type: object
           additionalProperties:
             type: string
+        max_tokens_per_model:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 1
+            maximum: 2000000
 
     Alert:
       type: object
@@ -14587,6 +15431,10 @@ components:
           type: integer
         concurrency_key:
           type: string
+        debounce_key:
+          type: string
+        debounce_delay_s:
+          type: integer
         cache_ttl:
           type: number
         dedicated_worker:
@@ -14684,6 +15532,10 @@ components:
           type: string
         concurrency_key:
           type: string
+        debounce_key:
+          type: string
+        debounce_delay_s:
+          type: integer
         visible_to_runner_only:
           type: boolean
         no_main_func:
@@ -14858,7 +15710,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
-              "singlescriptflow",
+              "singlestepflow",
               "flowscript",
               "flownode",
               "appscript",
@@ -14931,6 +15783,9 @@ components:
         started_at:
           type: string
           format: date-time
+        completed_at:
+          type: string
+          format: date-time
         duration_ms:
           type: integer
         success:
@@ -14968,7 +15823,7 @@ components:
               "script_hub",
               "identity",
               "deploymentcallback",
-              "singlescriptflow",
+              "singlestepflow",
               "flowscript",
               "flownode",
               "appscript",
@@ -15314,6 +16169,8 @@ components:
     AuditLog:
       type: object
       properties:
+        workspace_id:
+          type: string
         id:
           type: integer
         timestamp:
@@ -15419,6 +16276,7 @@ components:
         span:
           type: string
       required:
+        - workspace_id
         - id
         - timestamp
         - username
@@ -15561,30 +16419,30 @@ components:
     ScriptLang:
       type: string
       enum: [
-          python3,
-          deno,
-          go,
-          bash,
-          powershell,
-          postgresql,
-          mysql,
-          bigquery,
-          snowflake,
-          mssql,
-          oracledb,
-          graphql,
-          nativets,
-          bun,
-          php,
-          rust,
-          ansible,
-          csharp,
-          nu,
-          java,
-          ruby,
-          duckdb,
-          # for related places search: ADD_NEW_LANG
-        ]
+        python3,
+        deno,
+        go,
+        bash,
+        powershell,
+        postgresql,
+        mysql,
+        bigquery,
+        snowflake,
+        mssql,
+        oracledb,
+        graphql,
+        nativets,
+        bun,
+        php,
+        rust,
+        ansible,
+        csharp,
+        nu,
+        java,
+        ruby,
+        duckdb,
+        # for related places search: ADD_NEW_LANG
+      ]
 
     Preview:
       type: object
@@ -15834,6 +16692,9 @@ components:
           format: date-time
         cron_version:
           type: string
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - path
         - edited_by
@@ -15952,6 +16813,9 @@ components:
         cron_version:
           type: string
           description: The version of the cron schedule to use (last is v2)
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - path
         - schedule
@@ -16025,6 +16889,9 @@ components:
         cron_version:
           type: string
           description: The version of the cron schedule to use (last is v2)
+        dynamic_skip:
+          type: string
+          description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean.
       required:
         - schedule
         - timezone
@@ -16181,6 +17048,13 @@ components:
         - delete
         - patch
 
+    HttpRequestType:
+      type: string
+      enum:
+        - sync
+        - async
+        - sync_sse
+
     HttpTrigger:
       allOf:
         - $ref: "#/components/schemas/TriggerExtraProperty"
@@ -16207,8 +17081,8 @@ components:
           type: string
         description:
           type: string
-        is_async:
-          type: boolean
+        request_type:
+          $ref: "#/components/schemas/HttpRequestType"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
@@ -16228,7 +17102,7 @@ components:
 
       required:
         - route_path
-        - is_async
+        - request_type
         - authentication_method
         - http_method
         - is_static_website
@@ -16270,6 +17144,9 @@ components:
           type: string
         is_async:
           type: boolean
+          description: Deprecated, use request_type instead
+        request_type:
+          $ref: "#/components/schemas/HttpRequestType"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
@@ -16290,7 +17167,6 @@ components:
         - script_path
         - route_path
         - is_flow
-        - is_async
         - authentication_method
         - http_method
         - is_static_website
@@ -16329,6 +17205,9 @@ components:
           $ref: "#/components/schemas/HttpMethod"
         is_async:
           type: boolean
+          description: Deprecated, use request_type instead
+        request_type:
+          $ref: "#/components/schemas/HttpRequestType"
         authentication_method:
           $ref: "#/components/schemas/AuthenticationMethod"
         is_static_website:
@@ -16348,7 +17227,6 @@ components:
         - script_path
         - is_flow
         - kind
-        - is_async
         - authentication_method
         - http_method
         - is_static_website
@@ -16421,6 +17299,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+        can_return_error_result:
+          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -16433,6 +17313,7 @@ components:
         - enabled
         - filters
         - can_return_message
+        - can_return_error_result
 
     NewWebsocketTrigger:
       type: object
@@ -16466,6 +17347,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+        can_return_error_result:
+          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -16480,6 +17363,7 @@ components:
         - is_flow
         - filters
         - can_return_message
+        - can_return_error_result
 
     EditWebsocketTrigger:
       type: object
@@ -16511,6 +17395,8 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         can_return_message:
           type: boolean
+        can_return_error_result:
+          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -16525,6 +17411,7 @@ components:
         - is_flow
         - filters
         - can_return_message
+        - can_return_error_result
     WebsocketTriggerInitialMessage:
       anyOf:
         - type: object
@@ -16794,6 +17681,12 @@ components:
           type: boolean
         auto_acknowledge_msg:
           type: boolean
+        ack_deadline:
+          type: integer
+          format: int32
+          minimum: 10
+          maximum: 600
+          description: "Time in seconds within which the message must be acknowledged. If not provided, defaults to the subscription's acknowledgment deadline (600 seconds)."
         error_handler_path:
           type: string
         error_handler_args:
@@ -16866,6 +17759,48 @@ components:
         - aws_resource_path
         - enabled
         - aws_auth_resource_type
+
+    LoggedWizardStatus:
+      type: string
+      enum:
+        - OK
+        - SKIP
+        - FAIL
+
+    DucklakeInstanceCatalogDbStatusLogs:
+      type: object
+      properties:
+        super_admin:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        database_credentials:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        valid_dbname:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        created_database:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+          description: Created database status log
+        db_connect:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+        grant_permissions:
+          $ref: "#/components/schemas/LoggedWizardStatus"
+
+    DucklakeInstanceCatalogDbStatus:
+      type: object
+      required:
+        - logs
+        - success
+      properties:
+        logs:
+          $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatusLogs"
+        success:
+          type: boolean
+          description: Whether the operation completed successfully
+          example: true
+        error:
+          type: string
+          nullable: true
+          description: Error message if the operation failed
+          example: "Connection timeout"
 
     NewSqsTrigger:
       type: object
@@ -17561,11 +18496,14 @@ components:
               created_by:
                 type: string
                 nullable: true
+              disabled:
+                type: boolean
             required:
               - id
               - name
               - username
               - color
+              - disabled
       required:
         - email
         - workspaces
@@ -17592,11 +18530,7 @@ components:
           type: string
         name:
           type: string
-        username:
-          type: string
         color:
-          type: string
-        parent_workspace_id:
           type: string
       required:
         - id
@@ -17624,6 +18558,25 @@ components:
         - name
         - owner
         - created_at
+
+    DependencyMap:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+          nullable: true
+        importer_path:
+          type: string
+          nullable: true
+        importer_kind:
+          type: string
+          nullable: true
+        imported_path:
+          type: string
+          nullable: true
+        importer_node_id:
+          type: string
+          nullable: true
 
     WorkspaceInvite:
       type: object
@@ -17667,12 +18620,15 @@ components:
           type: string
         operator_only:
           type: boolean
+        first_time_user:
+          type: boolean
 
       required:
         - email
         - login_type
         - super_admin
         - verified
+        - first_time_user
 
     Flow:
       allOf:
@@ -18064,6 +19020,10 @@ components:
           type: string
         public_resource:
           type: boolean
+        advanced_permissions:
+          type: array
+          items:
+            $ref: "#/components/schemas/S3PermissionRule"
         secondary_storage:
           type: object
           additionalProperties:
@@ -18120,6 +19080,49 @@ components:
                     type: string
                 required:
                   - path
+
+    DynamicInputData:
+      type: object
+      properties:
+        entrypoint_function:
+          type: string
+          description: Name of the function to execute for dynamic select
+        args:
+          type: object
+          description: Arguments to pass to the function
+        runnable_ref:
+          type: object
+          oneOf:
+            - type: object
+              properties:
+                source:
+                  type: string
+                  enum: [deployed]
+                path:
+                  type: string
+                  description: Path to the deployed script or flow
+                runnable_kind:
+                  $ref: "#/components/schemas/RunnableKind"
+              required:
+                - source
+                - path
+                - runnable_kind
+            - type: object
+              properties:
+                source:
+                  type: string
+                  enum: [inline]
+                code:
+                  type: string
+                  description: Code content for inline execution
+                language:
+                  $ref: "#/components/schemas/ScriptLang"
+              required:
+                - source
+                - code
+      required:
+        - entrypoint_function
+        - runnable_ref
 
     WindmillLargeFile:
       type: object
@@ -18217,6 +19220,15 @@ components:
           additionalProperties:
             type: string
 
+    S3PermissionRule:
+      type: object
+      properties:
+        pattern:
+          type: string
+        allow:
+          type: string # comma separated permissions : "read,write,delete,list"
+      required: ["pattern", "allow"]
+
     GitRepositorySettings:
       type: object
       properties:
@@ -18256,17 +19268,6 @@ components:
       required:
         - script_path
         - git_repo_resource_path
-
-    UploadFilePart:
-      type: object
-      properties:
-        part_number:
-          type: integer
-        tag:
-          type: string
-      required:
-        - part_number
-        - tag
 
     MetricMetadata:
       type: object
@@ -18642,10 +19643,18 @@ components:
               required:
                 - name
                 - url
+          total_count:
+            type: number
+            description: Total number of repositories available for this installation
+          per_page:
+            type: number
+            description: Number of repositories loaded per page
         required:
           - installation_id
           - account_id
           - repositories
+          - total_count
+          - per_page
 
     WorkspaceGithubInstallation:
       type: object

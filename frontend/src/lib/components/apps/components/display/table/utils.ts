@@ -218,18 +218,27 @@ export function transformColumnDefs({
 			// Set default minWidth based on number of actions (if not wrapping)
 			...(!wrapActions ? { minWidth: 130 * actions?.length } : {}),
 			// Respect user-specified overrides when placeholder present (these should override defaults)
-			...(
-				actionsIndex > -1
-					? {
+			...(actionsIndex > -1
+				? {
 						// keep width/pin/flex/align/hide from placeholder when provided
-						...(['width', 'minWidth', 'maxWidth', 'flex', 'pinned', 'headerName', 'cellStyle', 'cellClass', 'autoHeight', 'hide']
-							.reduce((acc, key) => {
-								if (r[actionsIndex] && r[actionsIndex][key] !== undefined) acc[key] = r[actionsIndex][key]
-								return acc
-							}, {} as any))
+						...[
+							'width',
+							'minWidth',
+							'maxWidth',
+							'flex',
+							'pinned',
+							'headerName',
+							'cellStyle',
+							'cellClass',
+							'autoHeight',
+							'hide'
+						].reduce((acc, key) => {
+							if (r[actionsIndex] && r[actionsIndex][key] !== undefined)
+								acc[key] = r[actionsIndex][key]
+							return acc
+						}, {} as any)
 					}
-					: {}
-			),
+				: {}),
 			...(customActionsHeader?.trim() ? { headerName: customActionsHeader } : {})
 		}
 
@@ -275,7 +284,7 @@ export function validateColumnDefs(columnDefs: WindmillColumnDef[]): {
 		}
 
 		// Check if 'field' property exists and is a non-empty string
-		if (noField && !(colDef.children && Array.isArray(colDef.children))) {
+		if (noField && !(colDef.children && Array.isArray(colDef.children)) && !colDef.cellRenderer) {
 			isValid = false
 			errors.push(
 				`Column at index ${index} is missing a valid 'field' property nor having any children.`

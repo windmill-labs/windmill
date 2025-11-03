@@ -22,10 +22,12 @@
 
 	// import '@codingame/monaco-vscode-standalone-typescript-language-features'
 
-	import { initializeVscode } from './vscode'
+	import { initializeVscode, MONACO_Y_PADDING } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { setMonacoJsonOptions } from './monacoLanguagesOptions'
+	import { inputBorderClass } from './text_input/TextInput.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export const conf = {
 		wordPattern:
@@ -379,8 +381,10 @@
 	export let extraLib: string = ''
 	export let autoHeight = true
 	export let fixedOverflowWidgets = true
-	export let fontSize = 16
+	export let fontSize = 12
 	export let loadAsync = false
+
+	let yPadding = MONACO_Y_PADDING
 
 	if (typeof code != 'string') {
 		code = ''
@@ -446,10 +450,14 @@
 				model,
 				// overflowWidgetsDomNode: widgets,
 				// lineNumbers: 'on',
-				lineDecorationsWidth: 6,
+				lineDecorationsWidth: 0,
 				lineNumbersMinChars: 2,
 				fontSize,
-				suggestOnTriggerCharacters: true
+				suggestOnTriggerCharacters: true,
+				renderLineHighlight: 'none',
+				lineNumbers: 'off',
+
+				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {})
 			})
 		} catch (e) {
 			console.error('Error loading monaco:', e)
@@ -498,10 +506,12 @@
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
+			isFocus = true
 		})
 
 		editor.onDidBlurEditorText(() => {
 			dispatch('blur')
+			isFocus = false
 			updateCode()
 		})
 
@@ -597,6 +607,7 @@
 		editor?.focus()
 	}
 
+	let isFocus = false
 	let mounted = false
 	let loadTimeout: number | undefined = undefined
 	onMount(async () => {
@@ -647,24 +658,23 @@
 
 <EditorTheme />
 
-{#if !editor}
-	<FakeMonacoPlaceHolder
-		autoheight
-		{code}
-		lineNumbersWidth={23}
-		lineNumbersOffset={-8}
-		class="border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip"
-	/>
-{/if}
 <div
-	bind:this={divEl}
-	style="height: 18px;"
-	class="{$$props.class ??
-		''} border template nonmain-editor rounded min-h-4 mx-0.5 overflow-clip {!editor
-		? 'hidden'
-		: ''}"
-	bind:clientWidth={width}
-></div>
+	class={twMerge(
+		inputBorderClass({ forceFocus: isFocus }),
+		'rounded-md overflow-auto pl-2',
+		$$props.class
+	)}
+>
+	{#if !editor}
+		<FakeMonacoPlaceHolder autoheight showNumbers={false} {code} {fontSize} />
+	{/if}
+	<div
+		bind:this={divEl}
+		style="height: 18px;"
+		class="template nonmain-editor rounded-md overflow-clip {!editor ? 'hidden' : ''}"
+		bind:clientWidth={width}
+	></div>
+</div>
 
 <style>
 	:global(.template .mtk20) {

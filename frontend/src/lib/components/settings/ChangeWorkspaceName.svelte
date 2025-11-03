@@ -37,10 +37,10 @@
 	}
 </script>
 
-<div>
-	<p class="font-semibold text-sm">Workspace name</p>
+<div class="flex flex-col gap-1">
+	<p class="font-medium text-xs text-emphasis">Workspace name</p>
 	<div class="flex flex-row gap-0.5 items-center">
-		<p class="text-sm text-secondary">{currentName}</p>
+		<p class="text-xs font-normal text-primary">{currentName}</p>
 		<Button
 			on:click={() => {
 				open = true
@@ -55,7 +55,7 @@
 		/>
 	</div>
 
-	<p class="italic text-xs"> Displayable name </p>
+	<p class="text-2xs text-secondary font-normal"> Displayable name </p>
 </div>
 
 <Modal bind:open title="Change workspace name">

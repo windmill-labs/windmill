@@ -3,16 +3,16 @@
 //! Contains functions for transforming Windmill schemas into MCP-compatible formats,
 //! including resource enrichment and schema conversion utilities.
 
-use rmcp::Error;
+use rmcp::ErrorData;
 use serde_json::Value;
 use std::collections::HashMap;
 use windmill_common::db::UserDB;
 use windmill_common::scripts::Schema;
 
-use crate::db::ApiAuthed;
-use super::models::{SchemaType, ResourceInfo, ResourceType};
 use super::database::get_resources;
+use super::models::{ResourceInfo, ResourceType, SchemaType};
 use super::transform::apply_key_transformation;
+use crate::db::ApiAuthed;
 
 /// Convert a Windmill Schema to a SchemaType
 pub fn convert_schema_to_schema_type(schema: Option<Schema>) -> SchemaType {
@@ -35,7 +35,7 @@ pub async fn transform_schema_for_resources(
     w_id: &str,
     resources_cache: &mut HashMap<String, Vec<ResourceInfo>>,
     resources_types: &Vec<ResourceType>,
-) -> Result<SchemaType, Error> {
+) -> Result<SchemaType, ErrorData> {
     let mut schema_obj: SchemaType = schema.clone();
 
     // replace invalid char in property key with underscore
@@ -71,24 +71,15 @@ pub async fn transform_schema_for_resources(
                         let resource_type_obj = resource_type.cloned();
 
                         if !resources_cache.contains_key(&resource_type_key) {
-                            let available_resources = get_resources(
-                                user_db,
-                                authed,
-                                &w_id,
-                                &resource_type_key,
-                            )
-                            .await;
+                            let available_resources =
+                                get_resources(user_db, authed, &w_id, &resource_type_key).await;
 
                             match available_resources {
                                 Ok(cache_data) => {
-                                    resources_cache
-                                        .insert(resource_type_key.clone(), cache_data);
+                                    resources_cache.insert(resource_type_key.clone(), cache_data);
                                 }
                                 Err(e) => {
-                                    tracing::error!(
-                                        "Failed to fetch resource cache data: {}",
-                                        e
-                                    );
+                                    tracing::error!("Failed to fetch resource cache data: {}", e);
                                     continue; // Skip this property if fetching failed
                                 }
                             }
@@ -111,24 +102,16 @@ pub async fn transform_schema_for_resources(
                                 ),
                                 None => "An object parameter.".to_string()
                             };
-                            prop_map.insert(
-                                "type".to_string(),
-                                Value::String("string".to_string()),
-                            );
-                            prop_map.insert(
-                                "description".to_string(),
-                                Value::String(description),
-                            );
+                            prop_map
+                                .insert("type".to_string(), Value::String("string".to_string()));
+                            prop_map.insert("description".to_string(), Value::String(description));
                             if resources_count > 0 {
                                 let resources_description = resource_cache
                                     .iter()
                                     .map(|resource| {
                                         format!(
                                             "{}: $res:{}",
-                                            resource
-                                                .description
-                                                .as_deref()
-                                                .unwrap_or("No title"),
+                                            resource.description.as_deref().unwrap_or("No title"),
                                             resource.path
                                         )
                                     })

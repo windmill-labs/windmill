@@ -101,14 +101,20 @@ impl Migrate for CustomMigrator {
             let mut r = false;
 
             while !r {
-                r = sqlx::query_scalar!("SELECT pg_try_advisory_lock($1)", lock_id)
-                    .fetch_one(&mut *self.inner)
+                r = match tokio::time::timeout(std::time::Duration::from_secs(5), sqlx::query_scalar!("SELECT pg_try_advisory_lock($1)", lock_id)  
+                    .fetch_one(&mut *self.inner))
                     .await
-                    .map_err(|e| {
-                        tracing::error!("Error acquiring lock: {e:#}");
-                        sqlx::migrate::MigrateError::Execute(e)
-                    })?
-                    .unwrap_or(false);
+                    {
+                        Ok(Ok(r)) => r.unwrap_or(false),
+                        Ok(Err(e)) => {
+                            tracing::error!("Error acquiring lock: {e:#}");
+                            return Err(sqlx::migrate::MigrateError::Execute(e));
+                        }
+                        Err(e) => {
+                            tracing::error!("Timed out acquiring lock retrying in 5s: {e:#}");
+                            false
+                        }
+                    };
                 if !r {
                     tracing::info!("PG migration lock already acquired by another server or worker, a migration is in progress, this may take a long time if you have many jobs and be normal, rechecking in 5s.");
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -196,14 +202,17 @@ impl Migrate for CustomMigrator {
     }
 }
 
-pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
+pub async fn migrate(
+    db: &DB,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> Result<Option<JoinHandle<()>>, Error> {
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
     if let Err(err) = sqlx::query!(
         "DELETE FROM _sqlx_migrations WHERE
         version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
-        version=20250201145631 OR version=20250201145632"
+        version=20250201145631 OR version=20250201145632 OR version=20251006143821"
     )
     .execute(db)
     .await
@@ -211,20 +220,27 @@ pub async fn migrate(db: &DB) -> Result<Option<JoinHandle<()>>, Error> {
         tracing::info!("Could not remove sqlx migrations: {err:#}");
     }
 
-    match sqlx::migrate!("../migrations")
-        .run_direct(&mut custom_migrator)
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(sqlx::migrate::MigrateError::VersionMissing(e)) => {
-            tracing::error!("Database had been applied more migrations than this container.
-            This usually mean than another container on a more recent version migrated the database and this one is on an earlier version.
-            Please update the container to latest. Not critical, but may cause issues if migration introduced a breaking change. Version missing: {e:#}");
-            custom_migrator.unlock().await?;
-            Ok(())
+    tokio::select! {
+        _ = killpill_rx.recv() => {
+            tracing::info!("Killpill received, stopping migration");
+            return Ok(None);
         }
-        Err(err) => Err(err),
-    }?;
+        migration_result = sqlx::migrate!("../migrations")
+            .run_direct(&mut custom_migrator)
+     => {
+        match migration_result {
+            Ok(_) => Ok(()),
+            Err(sqlx::migrate::MigrateError::VersionMissing(e)) => {
+                tracing::error!("Database had been applied more migrations than this container.
+                This usually mean than another container on a more recent version migrated the database and this one is on an earlier version.
+                Please update the container to latest. Not critical, but may cause issues if migration introduced a breaking change. Version missing: {e:#}");
+                custom_migrator.unlock().await?;
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }?;
+        }
+    }
 
     return crate::live_migrations::custom_migrations(&mut custom_migrator, db).await;
 }

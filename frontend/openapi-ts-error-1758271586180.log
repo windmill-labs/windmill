@@ -1,0 +1,28 @@
+Error parsing /home/rfiszel/windmill/backend/windmill-api/openapi.yaml: bad indentation of a mapping entry (8025:25)
+
+ 8022 |           description: job args
+ 8023 |           content:
+ 8024 |             application/json:
+ 8025 |               schema: {}\
+--------------------------------^
+ 8026 | 
+ 8027 |   /w/{workspace}/jobs/queue/get_scheduled_for_by_ids:
+ParserError: Error parsing /home/rfiszel/windmill/backend/windmill-api/openapi.yaml: bad indentation of a mapping entry (8025:25)
+
+ 8022 |           description: job args
+ 8023 |           content:
+ 8024 |             application/json:
+ 8025 |               schema: {}\
+--------------------------------^
+ 8026 | 
+ 8027 |   /w/{workspace}/jobs/queue/get_scheduled_for_by_ids:
+    at Object.parse (/home/rfiszel/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/parsers/yaml.js:44:23)
+    at getResult (/home/rfiszel/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/util/plugins.js:116:22)
+    at runNextPlugin (/home/rfiszel/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/util/plugins.js:64:32)
+    at /home/rfiszel/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/util/plugins.js:55:9
+    at new Promise (<anonymous>)
+    at Object.run (/home/rfiszel/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/util/plugins.js:54:12)
+    at parseFile (/home/rfiszel/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/parse.js:130:38)
+    at parse (/home/rfiszel/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/parse.js:56:30)
+    at async $RefParser.parse (/home/rfiszel/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/index.js:115:28)
+    at async $RefParser.resolve (/home/rfiszel/windmill/frontend/node_modules/@apidevtools/json-schema-ref-parser/dist/lib/index.js:145:13)

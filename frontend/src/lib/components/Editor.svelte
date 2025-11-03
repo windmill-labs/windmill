@@ -30,7 +30,6 @@
 	import {
 		dbSchemas,
 		type DBSchema,
-		copilotInfo,
 		codeCompletionSessionEnabled,
 		lspTokenStore,
 		formatOnSave,
@@ -43,7 +42,11 @@
 	import { workspaceStore } from '$lib/stores'
 	import { type Preview, ResourceService, type ScriptLang, UserService } from '$lib/gen'
 	import type { Text } from 'yjs'
-	import { initializeVscode, keepModelAroundToAvoidDisposalOfWorkers } from '$lib/components/vscode'
+	import {
+		initializeVscode,
+		keepModelAroundToAvoidDisposalOfWorkers,
+		MONACO_Y_PADDING
+	} from '$lib/components/vscode'
 
 	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
 	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
@@ -91,6 +94,7 @@
 	import { getDbSchemas } from './apps/components/display/dbtable/utils'
 	import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
+	import { copilotInfo } from '$lib/aiStore'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -251,6 +255,12 @@
 	export function insertAtCursor(code: string): void {
 		if (editor) {
 			editor.trigger('keyboard', 'type', { text: code })
+		}
+	}
+
+	export function insertAtCurrentLine(code: string): void {
+		if (editor) {
+			insertAtLine(code, editor.getPosition()?.lineNumber ?? 0)
 		}
 	}
 
@@ -486,12 +496,18 @@
 		if (typeof newSchemaRes === 'string') {
 			const resourcePath = newSchemaRes.replace('$res:', '')
 			dbSchema = $dbSchemas[resourcePath]
-			if (lang === 'graphql' && dbSchema === undefined) {
-				await getDbSchemas(lang, resourcePath, $workspaceStore, $dbSchemas, (e) => {
-					console.error('error getting graphql db schema', e)
-				})
-				dbSchema = $dbSchemas[resourcePath]
+			if (dbSchema === undefined) {
+				if (lang === 'graphql') {
+					await getDbSchemas('graphql', resourcePath, $workspaceStore, $dbSchemas, (e) => {
+						console.error('error getting graphql db schema', e)
+					})
+				} else if (lang === 'sql') {
+					await getDbSchemas(scriptLang ?? '', resourcePath, $workspaceStore, $dbSchemas, (e) => {
+						console.error(`error getting SQL (${scriptLang}) db schema`, e)
+					})
+				}
 			}
+			dbSchema = $dbSchemas[resourcePath]
 		} else {
 			dbSchema = undefined
 		}
@@ -1065,6 +1081,8 @@
 
 	let pathTimeout: number | undefined = undefined
 
+	let yPadding = MONACO_Y_PADDING
+
 	function getHostname() {
 		return BROWSER ? window.location.protocol + '//' + window.location.host : 'SSR'
 	}
@@ -1249,7 +1267,8 @@
 				lineNumbersMinChars,
 				// overflowWidgetsDomNode: widgets,
 				tabSize: lang == 'python' ? 4 : 2,
-				folding
+				folding,
+				padding: { bottom: yPadding, top: yPadding }
 			})
 			if (key && editorPositionMap?.[key]) {
 				editor.setPosition(editorPositionMap[key])
@@ -1677,8 +1696,8 @@
 	})
 	$effect(() => {
 		if (yContent && awareness && model && editor) {
-			monacoBinding && monacoBinding.destroy()
 			untrack(() => {
+				monacoBinding && monacoBinding.destroy()
 				monacoBinding = new MonacoBinding(
 					yContent,
 					model!,
@@ -1708,7 +1727,7 @@
 <EditorTheme />
 {#if !editor}
 	<div class="inset-0 absolute overflow-clip">
-		<FakeMonacoPlaceHolder {code} />
+		<FakeMonacoPlaceHolder {code} lineNumbersWidth={51} />
 	</div>
 {/if}
 <div bind:this={divEl} class="{clazz} editor {disabled ? 'disabled' : ''}"></div>

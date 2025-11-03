@@ -1,8 +1,8 @@
 mod common;
 use crate::common::*;
-use sqlx::Pool;
 use sqlx::postgres::Postgres;
-use windmill_common::scripts::{ ScriptLang};
+use sqlx::Pool;
+use windmill_common::scripts::ScriptLang;
 
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base", "lockfile_python"))]
@@ -162,7 +162,6 @@ use windmill_common::jobs::RawCode;
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base"))]
 async fn test_python_job(db: Pool<Postgres>) -> anyhow::Result<()> {
-
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -182,11 +181,13 @@ def main():
         custom_concurrency_key: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
         cache_ttl: None,
         dedicated_worker: None,
     });
 
-    let result = run_job_in_new_worker_until_complete(&db, job, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
         .await
         .json_result()
         .unwrap();
@@ -211,7 +212,6 @@ async fn test_python_global_site_packages(db: Pool<Postgres>) -> anyhow::Result<
 
     // 3.12
     {
-
         let content = r#"# py: ==3.12
 #requirements:
 #
@@ -232,11 +232,13 @@ def main():
             custom_concurrency_key: None,
             concurrent_limit: None,
             concurrency_time_window_s: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
             cache_ttl: None,
             dedicated_worker: None,
         });
 
-        let result = run_job_in_new_worker_until_complete(&db, job, port)
+        let result = run_job_in_new_worker_until_complete(&db, false, job, port)
             .await
             .json_result()
             .unwrap();
@@ -266,11 +268,13 @@ def main():
             custom_concurrency_key: None,
             concurrent_limit: None,
             concurrency_time_window_s: None,
+            custom_debounce_key: None,
+            debounce_delay_s: None,
             cache_ttl: None,
             dedicated_worker: None,
         });
 
-        let result = run_job_in_new_worker_until_complete(&db, job, port)
+        let result = run_job_in_new_worker_until_complete(&db, false, job, port)
             .await
             .json_result()
             .unwrap();
@@ -305,11 +309,13 @@ def main():
         custom_concurrency_key: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
         cache_ttl: None,
         dedicated_worker: None,
     });
 
-    let result = run_job_in_new_worker_until_complete(&db, job, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
         .await
         .json_result()
         .unwrap();
@@ -342,11 +348,13 @@ def main():
         custom_concurrency_key: None,
         concurrent_limit: None,
         concurrency_time_window_s: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
         cache_ttl: None,
         dedicated_worker: None,
     });
 
-    let result = run_job_in_new_worker_until_complete(&db, job, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
         .await
         .json_result()
         .unwrap();
@@ -354,7 +362,6 @@ def main():
     assert_eq!(result, serde_json::json!("test-workspace"));
     Ok(())
 }
-
 
 #[cfg(feature = "python")]
 #[sqlx::test(fixtures("base", "relative_python"))]
@@ -391,4 +398,3 @@ def main():
     run_preview_relative_imports(&db, content, ScriptLang::Python3).await?;
     Ok(())
 }
-

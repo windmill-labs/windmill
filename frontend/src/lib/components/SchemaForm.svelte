@@ -19,6 +19,8 @@
 	import { dragHandleZone, type Options as DndOptions } from '@windmill-labs/svelte-dnd-action'
 	import type { SchemaDiff } from '$lib/components/schema/schemaUtils.svelte'
 	import type { ComponentCustomCSS } from './apps/types'
+	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		schema: Schema | any
@@ -56,6 +58,7 @@
 		displayType?: boolean
 		appPath?: string | undefined
 		className?: string
+		lightHeaderFont?: boolean
 		computeS3ForceViewerPolicies?:
 			| (() =>
 					| {
@@ -67,7 +70,7 @@
 					| undefined)
 			| undefined
 		workspace?: string | undefined
-		actions?: import('svelte').Snippet
+		actions?: import('svelte').Snippet<[{ item: { id: string; value: string } }]> | undefined
 	}
 
 	let {
@@ -106,6 +109,7 @@
 		displayType = true,
 		appPath = undefined,
 		className = '',
+		lightHeaderFont = false,
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
 		actions: actions_render = undefined
@@ -269,10 +273,14 @@
 	{#if keys.length > 0 && args}
 		{#each fields as item, i (item.id)}
 			{@const argName = item.value}
-			<div
-				class={typeof diff[argName] === 'object' && diff[argName].diff !== 'same'
-					? 'bg-red-300 dark:bg-red-800 rounded-md'
-					: ''}
+			<ResizeTransitionWrapper
+				vertical
+				class={twMerge(
+					typeof diff[argName] === 'object' &&
+						diff[argName].diff !== 'same' &&
+						'bg-red-300 dark:bg-red-800 rounded-md'
+				)}
+				innerClass="w-full"
 			>
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				{#if !hiddenArgs.includes(argName) && keys.includes(argName)}
@@ -280,6 +288,7 @@
 						{@const formerProperty = diff[argName].oldSchema}
 						<div class="px-2">
 							<ArgInput
+								{lightHeaderFont}
 								{disablePortal}
 								{resourceTypes}
 								{prettifyHeader}
@@ -331,7 +340,7 @@
 					{/if}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="flex flex-row items-center {largeGap ? 'pb-4' : ''} "
+						class="flex flex-row items-center {largeGap ? 'pb-4' : 'pb-2'} "
 						onclick={() => {
 							dispatch('click', argName)
 						}}
@@ -342,6 +351,7 @@
 							{JSON.stringify(args?.[argName])} -->
 							{#if !hidden[argName]}
 								<ArgInput
+									{lightHeaderFont}
 									on:change={() => {
 										dispatch('change')
 									}}
@@ -403,7 +413,7 @@
 									{displayType}
 								>
 									{#snippet actions()}
-										{@render actions_render?.()}
+										{@render actions_render?.({ item })}
 										{#if linkedSecretCandidates?.includes(argName)}
 											<div>
 												<ToggleButtonGroup
@@ -419,15 +429,14 @@
 													{#snippet children({ item })}
 														<ToggleButton
 															value="inlined"
-															size="sm"
+															small
 															label="Inlined"
 															tooltip="The value is inlined in the resource and thus has no special treatment."
 															{item}
 														/>
 														<ToggleButton
-															position="right"
 															value="secret"
-															size="sm"
+															small
 															label="Secret"
 															tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
 															{item}
@@ -443,10 +452,10 @@
 						{/if}
 					</div>
 				{/if}
-			</div>
+			</ResizeTransitionWrapper>
 		{/each}
 	{:else if !shouldHideNoInputs}
-		<div class="text-secondary text-sm">No inputs</div>
+		<div class="text-secondary text-xs">No inputs</div>
 	{/if}
 </div>
 {#if !noVariablePicker}
@@ -470,9 +479,8 @@
 		{#snippet submission()}
 			<div>
 				<Button
-					variant="border"
-					color="blue"
-					size="sm"
+					variant="default"
+					unifiedSize="md"
 					startIcon={{ icon: Plus }}
 					on:click={() => variableEditor?.initNew?.()}
 				>

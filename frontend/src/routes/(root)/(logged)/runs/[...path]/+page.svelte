@@ -48,6 +48,7 @@
 	import { createBubbler } from 'svelte/legacy'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -66,6 +67,7 @@
 	let allowWildcards: boolean = $state(page.url.searchParams.get('allow_wildcards') == 'true')
 	let concurrencyKey: string | null = $state(page.url.searchParams.get('concurrency_key'))
 	let tag: string | null = $state(page.url.searchParams.get('tag'))
+
 	// Rest of filters handled by RunsFilter
 	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined = $state(
 		(page.url.searchParams.get('success') ?? undefined) as
@@ -74,9 +76,9 @@
 			| 'failure'
 			| undefined
 	)
-	let isSkipped: boolean | undefined = $state(
-		page.url.searchParams.get('is_skipped') != undefined
-			? page.url.searchParams.get('is_skipped') == 'true'
+	let showSkipped: boolean | undefined = $state(
+		page.url.searchParams.get('show_skipped') != undefined
+			? page.url.searchParams.get('show_skipped') == 'true'
 			: false
 	)
 
@@ -129,9 +131,9 @@
 			| 'success'
 			| 'failure'
 			| undefined
-		isSkipped =
-			page.url.searchParams.get('is_skipped') != undefined
-				? page.url.searchParams.get('is_skipped') == 'true'
+		showSkipped =
+			page.url.searchParams.get('show_skipped') != undefined
+				? page.url.searchParams.get('show_skipped') == 'true'
 				: false
 
 		showSchedules =
@@ -165,7 +167,7 @@
 	let queue_count: Tweened<number> | undefined = $state(undefined)
 	let suspended_count: Tweened<number> | undefined = $state(undefined)
 
-	let jobKinds: string | undefined = undefined
+	let jobKinds: string | undefined = $state(undefined)
 	let loading: boolean = $state(false)
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
@@ -186,7 +188,7 @@
 				confirmBtnText: string
 				loading?: boolean
 				preContent?: string
-				onConfirm?: () => void
+				onConfirm?: (forceCancel: boolean) => void
 				type?: ConfirmationModal['$$prop_def']['type']
 		  } = $state(undefined)
 
@@ -239,10 +241,10 @@
 			searchParams.delete('success')
 		}
 
-		if (isSkipped) {
-			searchParams.set('is_skipped', isSkipped.toString())
+		if (showSkipped) {
+			searchParams.set('show_skipped', showSkipped.toString())
 		} else {
-			searchParams.delete('is_skipped')
+			searchParams.delete('show_skipped')
 		}
 
 		if (showSchedules) {
@@ -350,6 +352,7 @@
 	}
 
 	function reset() {
+		path = page.params.path ?? null
 		minTs = undefined
 		maxTs = undefined
 		jobs = undefined
@@ -513,7 +516,7 @@
 			scriptPathExact: path === null || path === '' ? undefined : path,
 			createdBy: user === null || user === '' ? undefined : user,
 			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
-			jobKinds,
+			jobKinds: jobKinds == '' ? undefined : jobKinds,
 			success: success == 'success' ? true : success == 'failure' ? false : undefined,
 			running:
 				success == 'running' || success == 'suspended'
@@ -521,7 +524,7 @@
 					: success == 'waiting'
 						? false
 						: undefined,
-			isSkipped: isSkipped ? undefined : false,
+			isSkipped: showSkipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
 				path != undefined || path != undefined || jobKindsCat != 'all' ? true : undefined,
@@ -544,10 +547,11 @@
 		}
 	}
 
-	async function cancelJobs(uuidsToCancel: string[]) {
+	async function cancelJobs(uuidsToCancel: string[], forceCancel: boolean = false) {
 		const uuids = await JobService.cancelSelection({
 			workspace: $workspaceStore ?? '',
-			requestBody: uuidsToCancel
+			requestBody: uuidsToCancel,
+			forceCancel: forceCancel
 		})
 		selectedIds = []
 		jobsLoader?.loadJobs(minTs, maxTs, true, true)
@@ -556,6 +560,7 @@
 	}
 
 	async function onCancelFilteredJobs() {
+		forceCancelInPopup = false
 		askingForConfirmation = {
 			title: 'Confirm cancelling all jobs corresponding to the selected filters',
 			confirmBtnText: 'Loading...',
@@ -570,18 +575,19 @@
 			title: `Confirm cancelling all jobs corresponding to the selected filters (${jobIdsToCancel.length} jobs)`,
 			confirmBtnText: `Cancel ${jobIdsToCancel.length} jobs that matched the filters`,
 			preContent: selectedFiltersString,
-			onConfirm: () => {
-				cancelJobs(jobIdsToCancel)
+			onConfirm: (forceCancel) => {
+				cancelJobs(jobIdsToCancel, forceCancel)
 			}
 		}
 	}
 
 	async function onCancelSelectedJobs() {
+		forceCancelInPopup = true
 		askingForConfirmation = {
 			confirmBtnText: `Cancel ${selectedIds.length} jobs`,
 			title: 'Confirm cancelling the selected jobs',
-			onConfirm: () => {
-				cancelJobs(selectedIds)
+			onConfirm: (forceCancel) => {
+				cancelJobs(selectedIds, forceCancel)
 			}
 		}
 	}
@@ -729,7 +735,7 @@
 			folder,
 			path,
 			success !== undefined,
-			isSkipped,
+			showSkipped,
 			showSchedules,
 			showFutureJobs,
 			argFilter,
@@ -798,6 +804,8 @@
 
 	const smallScreenWidth = 1920
 	const verySmallScreenWidth = 1300
+
+	let forceCancelInPopup = $state(false)
 </script>
 
 <JobsLoader
@@ -810,7 +818,7 @@
 	{worker}
 	{label}
 	{success}
-	{isSkipped}
+	{showSkipped}
 	{argFilter}
 	{resultFilter}
 	{showSchedules}
@@ -820,7 +828,7 @@
 	computeMinAndMax={manualDatePicker?.computeMinMax}
 	bind:minTs
 	bind:maxTs
-	{jobKinds}
+	bind:jobKinds
 	bind:queue_count
 	bind:suspended_count
 	{autoRefresh}
@@ -842,7 +850,7 @@
 	open={!!askingForConfirmation}
 	on:confirmed={async () => {
 		const func = askingForConfirmation?.onConfirm
-		await func?.()
+		await func?.(forceCancelInPopup)
 		askingForConfirmation = undefined
 	}}
 	type={askingForConfirmation?.type}
@@ -853,6 +861,27 @@
 >
 	{#if askingForConfirmation?.preContent}
 		<pre>{askingForConfirmation.preContent}</pre>
+		<Toggle
+			size="xs"
+			class="mt-4"
+			color="red"
+			bind:checked={forceCancelInPopup}
+			options={{
+				right: 'Force cancel',
+				rightTooltip:
+					'Only use this for jobs that refuse to gracefully cancel. This is dangerous, only do this if you have no alternatives!'
+			}}
+		></Toggle>
+		{#if forceCancelInPopup}
+			<div class="mt-4 text-red-500 p-2 text-sm">
+				<p>
+					Force cancel is enabled. This is dangerous, only do this if you have no alternatives.
+					Instead of being gracefully cancelled, all jobs will be immediately sent to the completed
+					job table regardless of them being processed or not or part of running flows. You may end
+					up in an inconsistent state.
+				</p>
+			</div>
+		{/if}
 	{/if}
 </ConfirmationModal>
 
@@ -925,6 +954,7 @@
 						{#if minTs || maxTs}
 							<input
 								type="text"
+								class="!text-sm text-primary !bg-surface-secondary h-9 !border-none"
 								value={minTs ? new Date(minTs).toLocaleString() : 'zoom x axis to set min'}
 								disabled
 								name="min-datetimes"
@@ -956,6 +986,7 @@
 						{#if maxTs || minTs}
 							<input
 								type="text"
+								class="!text-sm text-primary !bg-surface-secondary h-9 !border-none"
 								value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
 								name="max-datetimes"
 								disabled
@@ -985,16 +1016,16 @@
 
 					{#if minTs || maxTs}
 						<RunOption label="Reset" for="reset" noLabel>
-							<Button color="light" variant="border" size="xs" onClick={reset}>Reset</Button>
+							<Button variant="default" size="xs" onClick={reset} btnClasses="h-9">Reset</Button>
 						</RunOption>
 					{/if}
 				</div>
 
 				<!-- Filters 1 -->
-				<div class="flex flex-row gap-4">
+				<div class="flex flex-row gap-2">
 					<RunsFilter
 						bind:allowWildcards
-						bind:isSkipped
+						bind:showSkipped
 						bind:user
 						bind:folder
 						bind:label
@@ -1127,7 +1158,7 @@
 
 		<div class="grow min-h-0">
 			<Splitpanes>
-				<Pane size={60} minSize={40}>
+				<Pane minSize={40}>
 					<div class="flex flex-col h-full">
 						<!-- Runs table top bar -->
 						<div
@@ -1151,8 +1182,9 @@
 												onclick={selectAll}
 											/>
 										</div>
-										<label class="cursor-pointer whitespace-nowrap" for="select-all"
-											>Select all</label
+										<label
+											class="cursor-pointer whitespace-nowrap text-xs text-emphasis font-semibold"
+											for="select-all">Select all</label
 										>
 									</div>
 								{/if}
@@ -1174,7 +1206,6 @@
 								<div class="flex flex-row gap-1 items-center">
 									<Toggle
 										id="cron-schedules"
-										size="xs"
 										bind:checked={showSchedules}
 										on:change={() => {
 											localStorage.setItem(
@@ -1184,16 +1215,16 @@
 										}}
 										options={tableTopBarWidth < 800 || selectionMode
 											? {}
-											: { right: 'CRON Schedules' }}
+											: { right: 'Cron schedules' }}
 									/>
-									<span title="CRON Schedules">
-										<Calendar size="16" />
+									<span title="Cron schedules">
+										<Calendar size="14" />
 									</span>
 								</div>
 
 								<div class="flex flex-row gap-1 items-center">
 									<Toggle
-										size="xs"
+										size="sm"
 										bind:checked={showFutureJobs}
 										on:change={() => {
 											localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
@@ -1204,7 +1235,7 @@
 											: { right: 'Planned later' }}
 									/>
 									<span title="Planned later">
-										<Clock size={16} />
+										<Clock size={14} />
 									</span>
 								</div>
 								<div class="flex flex-row gap-2 items-center">
@@ -1220,7 +1251,7 @@
 										bind:this={manualDatePicker}
 									/>
 									<Toggle
-										size="xs"
+										size="sm"
 										bind:checked={autoRefresh}
 										on:change={() => {
 											localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
@@ -1266,7 +1297,7 @@
 						</div>
 					</div>
 				</Pane>
-				<Pane size={40} minSize={15} class="flex flex-col">
+				<AnimatedPane size={40} minSize={15} class="flex flex-col" opened={selectedIds.length > 0}>
 					{#if selectionMode === 're-run'}
 						<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
 					{:else if selectedIds.length === 1}
@@ -1284,10 +1315,8 @@
 						<div class="text-xs m-4"
 							>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
 						>
-					{:else}
-						<div class="text-xs m-4">No job selected</div>
 					{/if}
-				</Pane>
+				</AnimatedPane>
 			</Splitpanes>
 		</div>
 	</div>

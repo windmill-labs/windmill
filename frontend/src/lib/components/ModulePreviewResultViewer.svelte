@@ -46,8 +46,6 @@
 
 	const { stepsInputArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let jobProgressReset: () => void = $state(() => {})
-
 	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
 	export function getOutputPickerInner() {
 		return outputPickerInner
@@ -61,14 +59,9 @@
 </script>
 
 <Splitpanes horizontal>
-	<Pane size={65} minSize={10} class="text-sm text-tertiary">
+	<Pane size={65} minSize={10} class="text-sm text-primary">
 		{#if scriptProgress}
-			<JobProgressBar
-				job={testJob}
-				bind:scriptProgress
-				bind:reset={jobProgressReset}
-				compact={true}
-			/>
+			<JobProgressBar job={testJob} {scriptProgress} compact={true} />
 		{/if}
 
 		<OutputPickerInner

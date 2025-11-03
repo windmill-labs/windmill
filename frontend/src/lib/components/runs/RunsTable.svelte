@@ -37,7 +37,7 @@
 	}: Props = $props()
 
 	function getTime(job: Job): string | undefined {
-		return job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
+		return job['completed_at'] ?? job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
 	}
 
 	function groupJobsByDay(jobs: Job[]): {
@@ -275,7 +275,7 @@
 						{#if jobOrDate}
 							{#if jobOrDate?.type === 'date'}
 								<div
-									class="bg-surface-secondary py-2 border-b font-semibold text-xs pl-2 h-[42px] flex items-center"
+									class="bg-surface-secondary py-2 font-semibold text-xs pl-2 h-[42px] flex items-center"
 								>
 									{jobOrDate.date}
 								</div>

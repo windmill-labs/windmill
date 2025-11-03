@@ -1,6 +1,5 @@
 use serde::de::DeserializeOwned;
 
-
 #[cfg(feature = "enterprise")]
 use chrono::Timelike;
 
@@ -20,20 +19,19 @@ use windmill_api_client::types::{EditSchedule, NewSchedule, ScriptArgs};
 use windmill_common::flows::InputTransform;
 
 #[cfg(any(feature = "python", feature = "deno_core"))]
-use windmill_common::flow_status::{RestartedFrom};
-
+use windmill_common::flow_status::RestartedFrom;
 use windmill_common::{
-    flows::{ FlowValue},
-    jobs::{ JobPayload, RawCode},
-    scripts::{ScriptLang},
-
+    flows::FlowValue,
+    jobs::{JobPayload, RawCode},
+    scripts::ScriptLang,
 };
 mod common;
 use common::*;
 
 #[cfg(feature = "enterprise")]
 use futures::StreamExt;
-
+use windmill_common::flows::FlowModule;
+use windmill_common::flows::FlowModuleValue;
 
 // async fn _print_job(id: Uuid, db: &Pool<Postgres>) -> Result<(), anyhow::Error> {
 //     tracing::info!(
@@ -44,7 +42,6 @@ use futures::StreamExt;
 //     );
 //     Ok(())
 // }
-
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
@@ -80,7 +77,7 @@ async fn test_iteration(db: Pool<Postgres>) -> anyhow::Result<()> {
     let result =
         RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
             .arg("items", json!([]))
-            .run_until_complete(&db, server.addr.port())
+            .run_until_complete(&db, false, server.addr.port())
             .await
             .json_result()
             .unwrap();
@@ -90,7 +87,7 @@ async fn test_iteration(db: Pool<Postgres>) -> anyhow::Result<()> {
     let result =
         RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
             .arg("items", json!((0..257).collect::<Vec<_>>()))
-            .run_until_complete(&db, server.addr.port())
+            .run_until_complete(&db, false, server.addr.port())
             .await
             .json_result()
             .unwrap();
@@ -141,7 +138,7 @@ async fn test_iteration_parallel(db: Pool<Postgres>) -> anyhow::Result<()> {
     let result =
         RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
             .arg("items", json!([]))
-            .run_until_complete(&db, server.addr.port())
+            .run_until_complete(&db, false, server.addr.port())
             .await
             .json_result()
             .unwrap();
@@ -151,7 +148,7 @@ async fn test_iteration_parallel(db: Pool<Postgres>) -> anyhow::Result<()> {
     let job =
         RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
             .arg("items", json!((0..50).collect::<Vec<_>>()))
-            .run_until_complete(&db, server.addr.port())
+            .run_until_complete(&db, false, server.addr.port())
             .await;
     // println!("{:#?}", job);
     let result = job.json_result().unwrap();
@@ -166,8 +163,6 @@ async fn test_iteration_parallel(db: Pool<Postgres>) -> anyhow::Result<()> {
         .contains("2"));
     Ok(())
 }
-
-
 
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
@@ -214,6 +209,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -258,6 +254,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                             continue_on_error: None,
                             skip_if: None,
                             apply_preprocessor: None,
+                            pass_flow_input_directly: None,
                         }],
                         modules_node: None,
                     }
@@ -276,6 +273,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
             ],
             same_worker: false,
@@ -288,7 +286,7 @@ async fn test_deno_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     for i in 0..50 {
         println!("deno flow iteration: {}", i);
-        let job = run_job_in_new_worker_until_complete(&db, job.clone(), port).await;
+        let job = run_job_in_new_worker_until_complete(&db, false, job.clone(), port).await;
         // println!("job: {:#?}", job.flow_status);
         let result = job.json_result().unwrap();
         assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {}", i);
@@ -327,7 +325,7 @@ async fn test_identity(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let result =
         RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
-            .run_until_complete(&db, server.addr.port())
+            .run_until_complete(&db, false, server.addr.port())
             .await
             .json_result()
             .unwrap();
@@ -335,13 +333,9 @@ async fn test_identity(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-use windmill_common::flows::FlowModule;
-use windmill_common::flows::FlowModuleValue;
-
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
-
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
@@ -394,6 +388,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
                 FlowModule {
                     id: "b".to_string(),
@@ -448,6 +443,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                 continue_on_error: None,
                                 skip_if: None,
                                 apply_preprocessor: None,
+                                pass_flow_input_directly: None,
                             },
                             FlowModule {
                                 id: "e".to_string(),
@@ -489,6 +485,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                                 continue_on_error: None,
                                 skip_if: None,
                                 apply_preprocessor: None,
+                                pass_flow_input_directly: None,
                             },
                         ],
                         modules_node: None,
@@ -507,6 +504,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
                 FlowModule {
                     id: "c".to_string(),
@@ -554,6 +552,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
                     continue_on_error: None,
                     skip_if: None,
                     apply_preprocessor: None,
+                    pass_flow_input_directly: None,
                 },
             ],
             same_worker: true,
@@ -562,7 +561,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let job = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
 
-    let result = run_job_in_new_worker_until_complete(&db, job.clone(), server.addr.port())
+    let result = run_job_in_new_worker_until_complete(&db, false, job.clone(), server.addr.port())
         .await
         .json_result()
         .unwrap();
@@ -617,7 +616,7 @@ async fn test_flow_result_by_id(db: Pool<Postgres>) -> anyhow::Result<()> {
         .unwrap();
 
     let job = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
-    let result = run_job_in_new_worker_until_complete(&db, job.clone(), port)
+    let result = run_job_in_new_worker_until_complete(&db, false, job.clone(), port)
         .await
         .json_result()
         .unwrap();
@@ -664,7 +663,7 @@ async fn test_stop_after_if(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let result = RunJob::from(job.clone())
         .arg("n", json!(123))
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -672,7 +671,7 @@ async fn test_stop_after_if(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let cjob = RunJob::from(job.clone())
         .arg("n", json!(-123))
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await;
 
     let result = cjob.json_result().unwrap();
@@ -725,7 +724,7 @@ async fn test_stop_after_if_nested(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let result = RunJob::from(job.clone())
         .arg("n", json!(123))
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -733,7 +732,7 @@ async fn test_stop_after_if_nested(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let cjob = RunJob::from(job.clone())
         .arg("n", json!(-123))
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await;
 
     let result = cjob.json_result().unwrap();
@@ -788,6 +787,7 @@ async fn test_python_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
         println!("python flow iteration: {}", i);
         let result = run_job_in_new_worker_until_complete(
             &db,
+            false,
             JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None },
             port,
         )
@@ -825,6 +825,7 @@ async fn test_python_flow_2(db: Pool<Postgres>) -> anyhow::Result<()> {
         println!("python flow iteration: {}", i);
         let result = run_job_in_new_worker_until_complete(
             &db,
+            false,
             JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None },
             port,
         )
@@ -866,9 +867,11 @@ func main(derp string) (string, error) {
         concurrency_time_window_s: None,
         cache_ttl: None,
         dedicated_worker: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
     }))
     .arg("derp", json!("world"))
-    .run_until_complete(&db, port)
+    .run_until_complete(&db, false, port)
     .await
     .json_result()
     .unwrap();
@@ -903,9 +906,11 @@ fn main(world: String) -> Result<String, String> {
         concurrency_time_window_s: None,
         cache_ttl: None,
         dedicated_worker: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
     }))
     .arg("world", json!("Hyrule"))
-    .run_until_complete(&db, port)
+    .run_until_complete(&db, false, port)
     .await
     .json_result()
     .unwrap();
@@ -948,7 +953,7 @@ fn main(world: String) -> Result<String, String> {
 //     }))
 //     .arg("world", json!("Arakis"))
 //     .arg("b", json!(3))
-//     .run_until_complete(&db, port)
+//     .run_until_complete(&db, false, port)
 //     .await
 //     .json_result()
 //     .unwrap();
@@ -979,9 +984,11 @@ echo "hello $msg"
         concurrency_time_window_s: None,
         cache_ttl: None,
         dedicated_worker: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
     }))
     .arg("msg", json!("world"))
-    .run_until_complete(&db, port)
+    .run_until_complete(&db, false, port)
     .await;
     assert_eq!(job.json_result(), Some(json!("hello world")));
     Ok(())
@@ -1012,9 +1019,11 @@ def main [ msg: string ] {
         concurrency_time_window_s: None,
         cache_ttl: None,
         dedicated_worker: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
     }))
     .arg("msg", json!("world"))
-    .run_until_complete(&db, port)
+    .run_until_complete(&db, false, port)
     .await;
     assert_eq!(job.json_result(), Some(json!("hello world")));
     Ok(())
@@ -1065,6 +1074,8 @@ def main [
         concurrency_time_window_s: None,
         cache_ttl: None,
         dedicated_worker: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
     }))
     .arg("a", json!("3"))
     .arg("b", json!("null"))
@@ -1083,7 +1094,7 @@ def main [
         ]),
     )
     .arg("n", json!("baz"))
-    .run_until_complete(&db, port)
+    .run_until_complete(&db, false, port)
     .await
     .json_result()
     .unwrap();
@@ -1127,18 +1138,18 @@ public class Main {
         concurrency_time_window_s: None,
         cache_ttl: None,
         dedicated_worker: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
     }))
     .arg("a", json!(3))
     .arg("b", json!(3.0))
     .arg("age", json!(30))
     .arg("d", json!(3.0))
-    .run_until_complete(&db, port)
+    .run_until_complete(&db, false, port)
     .await;
     assert_eq!(job.json_result(), Some(json!("hello world")));
     Ok(())
 }
-
-
 
 #[sqlx::test(fixtures("base"))]
 async fn test_bun_job_datetime(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -1164,9 +1175,11 @@ export async function main(a: Date) {
         concurrency_time_window_s: None,
         cache_ttl: None,
         dedicated_worker: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
     }))
     .arg("a", json!("2024-09-24T10:00:00.000Z"))
-    .run_until_complete(&db, port)
+    .run_until_complete(&db, false, port)
     .await
     .json_result()
     .unwrap();
@@ -1199,9 +1212,11 @@ export async function main(a: Date) {
         concurrency_time_window_s: None,
         cache_ttl: None,
         dedicated_worker: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
     }))
     .arg("a", json!("2024-09-24T10:00:00.000Z"))
-    .run_until_complete(&db, port)
+    .run_until_complete(&db, false, port)
     .await
     .json_result()
     .unwrap();
@@ -1235,10 +1250,12 @@ def main(a: datetime, b: bytes):
         concurrency_time_window_s: None,
         cache_ttl: None,
         dedicated_worker: None,
+        custom_debounce_key: None,
+        debounce_delay_s: None,
     }))
     .arg("a", json!("2024-09-24T10:00:00.000Z"))
     .arg("b", json!("dGVzdA=="))
-    .run_until_complete(&db, port)
+    .run_until_complete(&db, false, port)
     .await
     .json_result()
     .unwrap();
@@ -1296,7 +1313,7 @@ async fn test_empty_loop_1(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, flow, port)
         .await
         .json_result()
         .unwrap();
@@ -1337,7 +1354,7 @@ async fn test_invalid_first_step(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
-    let job = run_job_in_new_worker_until_complete(&db, flow, port).await;
+    let job = run_job_in_new_worker_until_complete(&db, false, flow, port).await;
 
     assert!(
         serde_json::to_string(&job.json_result().unwrap()).unwrap().contains("Expected an array value in the iterator expression, found: invalid type: map, expected a sequence at line 1 column 0")
@@ -1379,7 +1396,7 @@ async fn test_empty_loop_2(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, flow, port)
         .await
         .json_result()
         .unwrap();
@@ -1436,7 +1453,7 @@ async fn test_step_after_loop(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, flow, port)
         .await
         .json_result()
         .unwrap();
@@ -1505,7 +1522,7 @@ async fn test_branchone_simple(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, flow, port)
         .await
         .json_result()
         .unwrap();
@@ -1543,7 +1560,7 @@ async fn test_branchone_with_cond(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, flow, port)
         .await
         .json_result()
         .unwrap();
@@ -1583,7 +1600,7 @@ async fn test_branchall_sequential(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, flow, port)
         .await
         .json_result()
         .unwrap();
@@ -1622,7 +1639,7 @@ async fn test_branchall_simple(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, flow, port)
         .await
         .json_result()
         .unwrap();
@@ -1670,7 +1687,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, flow, port)
         .await
         .json_result()
         .unwrap();
@@ -1707,7 +1724,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, flow, port)
         .await
         .json_result()
         .unwrap();
@@ -1773,7 +1790,7 @@ async fn test_branchone_nested(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, flow, port)
         .await
         .json_result()
         .unwrap();
@@ -1831,7 +1848,7 @@ async fn test_branchall_nested(db: Pool<Postgres>) -> anyhow::Result<()> {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+    let result = run_job_in_new_worker_until_complete(&db, false, flow, port)
         .await
         .json_result()
         .unwrap();
@@ -1899,7 +1916,7 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
     let result =
         RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
             .arg("n", json!(0))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -1916,7 +1933,7 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
     let result =
         RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
             .arg("n", json!(1))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -1933,7 +1950,7 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
     let result =
         RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
             .arg("n", json!(2))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -1950,7 +1967,7 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
     let result =
         RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
             .arg("n", json!(3))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -2084,14 +2101,14 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
                     language: windmill_api_client::types::RawScriptLanguage::Bash,
                     lock: Some(ref lock),
                     ..
-                }) if lock == "")
+                }) if lock.is_empty())
                 || matches!(
                 m.value,
                 windmill_api_client::types::FlowModuleValue::RawScript(RawScript{
                     language: windmill_api_client::types::RawScriptLanguage::Go | windmill_api_client::types::RawScriptLanguage::Python3 | windmill_api_client::types::RawScriptLanguage::Deno,
                     lock: Some(ref lock),
                     ..
-                }) if lock.len() > 0),
+                }) if !lock.is_empty()),
             "{:?}", m.value
             );
         });
@@ -2270,7 +2287,7 @@ async fn test_complex_flow_restart(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     let first_run_result =
         RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await;
 
     let restarted_flow_result = RunJob::from(JobPayload::RawFlow {
@@ -2282,7 +2299,7 @@ async fn test_complex_flow_restart(db: Pool<Postgres>) -> anyhow::Result<()> {
             branch_or_iteration_n: None,
         }),
     })
-    .run_until_complete(&db, port)
+    .run_until_complete(&db, false, port)
     .await;
 
     let first_run_result_int =
@@ -2311,7 +2328,7 @@ async fn test_rust_client(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 #[sqlx::test(fixtures("base", "schedule"))]
 async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -2468,7 +2485,7 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
     Ok(())
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(all(feature = "enterprise", feature = "private"))]
 #[sqlx::test(fixtures("base", "schedule"))]
 async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -2627,7 +2644,6 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-
 #[sqlx::test(fixtures("base", "relative_bun"))]
 async fn test_relative_imports_bun(db: Pool<Postgres>) -> anyhow::Result<()> {
     let content = r#"
@@ -2699,8 +2715,6 @@ export async function main() {
     Ok(())
 }
 
-
-
 #[sqlx::test(fixtures("base", "result_format"))]
 async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
     let ordered_result_job_id = "1eecb96a-c8b0-4a3d-b1b6-087878c55e41";
@@ -2753,7 +2767,7 @@ async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(job_result.get(), correct_result);
 
     let response = windmill_api::jobs::run_wait_result(
-        &db.into(),
+        &db,
         Uuid::parse_str(ordered_result_job_id).unwrap(),
         "test-workspace".to_string(),
         None,
@@ -2764,8 +2778,7 @@ async fn test_result_format(db: Pool<Postgres>) -> anyhow::Result<()> {
     let result: Box<serde_json::value::RawValue> = serde_json::from_slice(
         &axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
-            .unwrap()
-            .to_vec(),
+            .unwrap(),
     )
     .unwrap();
     assert_eq!(result.get(), correct_result);
@@ -2809,7 +2822,7 @@ async fn test_job_labels(db: Pool<Postgres>) -> anyhow::Result<()> {
             restarted_from: None,
         })
         .arg("world", json!("you"))
-        .run_until_complete_with(&db, port, |id| async move {
+        .run_until_complete_with(db, false, port, |id| async move {
             sqlx::query!(
                 "UPDATE v2_job SET labels = $2 WHERE id = $1 AND $2::TEXT[] IS NOT NULL",
                 id,
@@ -2856,13 +2869,15 @@ def heavy_compute(n: int):
 def send_result(res: int, email: str):
     print(f"Sending result {res} to {email}")
     return "OK"
-
+    
 def main(n: int):
     l = []
     for i in range(n):
         l.append(heavy_compute(i))
     print(l)
     return [send_result(sum(l), "example@example.com"), n]
+
+
 "#;
 
 #[cfg(feature = "python")]
@@ -2875,7 +2890,7 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
     // workflow as code require at least 2 workers:
     let db = &db;
     in_test_worker(
-        &db,
+        db,
         async move {
             let job = RunJob::from(JobPayload::Code(RawCode {
                 language: ScriptLang::Python3,
@@ -2883,7 +2898,7 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
                 ..RawCode::default()
             }))
             .arg("n", json!(3))
-            .run_until_complete(&db, port)
+            .run_until_complete(db, false, port)
             .await;
 
             assert_eq!(job.json_result().unwrap(), json!(["OK", 3]));
@@ -2929,4 +2944,3 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await;
     Ok(())
 }
-

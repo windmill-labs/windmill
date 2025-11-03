@@ -1,11 +1,12 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy'
+
 	import { Check, Loader2, Wand2 } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { getNonStreamingCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import type { Flow, InputTransform } from '$lib/gen'
-	import ManualPopover from '../ManualPopover.svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
 	import YAML from 'yaml'
@@ -13,31 +14,45 @@
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { FlowCopilotContext } from './flow'
-	import { copilotInfo, stepInputCompletionEnabled } from '$lib/stores'
+	import { stepInputCompletionEnabled } from '$lib/stores'
 	import type { SchemaProperty } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
+	import { copilotInfo } from '$lib/aiStore'
+	import { flowAIBtnClasses } from './chat/flow/FlowAIButton.svelte'
 
-	let generatedContent = ''
-	let loading = false
-	export let focused = false
-	export let arg: InputTransform | any
-	export let schemaProperty: SchemaProperty
-	export let pickableProperties: PickableProperties | undefined = undefined
-	export let argName: string
-	export let showPopup: boolean
+	let generatedContent = $state('')
+	let loading = $state(false)
+	interface Props {
+		focused?: boolean
+		arg: InputTransform | any
+		schemaProperty: SchemaProperty
+		pickableProperties?: PickableProperties | undefined
+		argName: string
+		btnClass?: string
+	}
 
-	let empty = false
-	$: empty =
-		Object.keys(arg ?? {}).length === 0 ||
-		(arg.type === 'static' && !arg.value) ||
-		(arg.type === 'javascript' && !arg.expr)
+	let {
+		focused = false,
+		arg,
+		schemaProperty,
+		pickableProperties = undefined,
+		argName,
+		btnClass = ''
+	}: Props = $props()
 
-	let btnFocused = false
+	let empty = $state(false)
+	run(() => {
+		empty =
+			Object.keys(arg ?? {}).length === 0 ||
+			(arg.type === 'static' && !arg.value) ||
+			(arg.type === 'javascript' && !arg.expr)
+	})
+
+	let btnFocused = $state(false)
 
 	let abortController = new AbortController()
-	let newFlowInput = ''
+	let newFlowInput = $state('')
 
 	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 	const { stepInputsLoading, generatedExprs } =
@@ -156,7 +171,6 @@ Only return the expression without any wrapper.`
 	}
 
 	const dispatch = createEventDispatcher()
-	const dispatchIfMounted = createDispatcherIfMounted(dispatch)
 
 	function cancel() {
 		abortController.abort()
@@ -178,20 +192,32 @@ Only return the expression without any wrapper.`
 		}, 150)
 	}
 
-	$: if (!focused) {
-		cancelOnOutOfFocus()
-	}
+	$effect(() => {
+		if (!focused) {
+			untrack(() => {
+				cancelOnOutOfFocus()
+			})
+		}
+	})
 
-	$: if ($copilotInfo.enabled && $stepInputCompletionEnabled && focused) {
-		automaticGeneration()
-	}
+	$effect(() => {
+		if ($copilotInfo.enabled && $stepInputCompletionEnabled && focused) {
+			untrack(() => {
+				automaticGeneration()
+			})
+		}
+	})
 
-	$: dispatchIfMounted('showExpr', generatedContent)
+	$effect(() => {
+		dispatch('showExpr', generatedContent)
+	})
 
-	$: dispatchIfMounted('showExpr', $generatedExprs?.[argName] || '')
+	$effect(() => {
+		dispatch('showExpr', $generatedExprs?.[argName] || '')
+	})
 
-	let out = true // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
-	let openInputsModal = false
+	let out = $state(true) // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
+	let openInputsModal = $state(false)
 </script>
 
 {#if $copilotInfo.enabled && $stepInputCompletionEnabled}
@@ -202,67 +228,54 @@ Only return the expression without any wrapper.`
 		bind:open={openInputsModal}
 		inputs={[newFlowInput]}
 	/>
-	<ManualPopover
-		showTooltip={showPopup && (generatedContent.length > 0 || !!$generatedExprs?.[argName])}
-		placement="bottom"
-		class="p-2"
+	<Button
+		size="xs"
+		variant="default"
+		btnClasses={twMerge(
+			flowAIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'default'),
+			btnClass
+		)}
+		on:click={() => {
+			if (!loading && generatedContent.length > 0) {
+				dispatch('setExpr', generatedContent)
+				if (newFlowInput) {
+					openInputsModal = true
+				}
+				generatedContent = ''
+			}
+		}}
+		on:mouseenter={(ev) => {
+			if (out) {
+				out = false
+				generateStepInput()
+			}
+		}}
+		on:mouseleave={() => {
+			out = true
+			cancel()
+		}}
+		endIcon={{
+			icon:
+				loading || ($stepInputsLoading && empty)
+					? Loader2
+					: generatedContent.length > 0
+						? Check
+						: Wand2,
+			classes: loading || ($stepInputsLoading && empty) ? 'animate-spin' : ''
+		}}
+		on:focus={() => {
+			btnFocused = true
+		}}
+		on:blur={() => {
+			btnFocused = false
+		}}
 	>
-		<Button
-			size="xs"
-			color="light"
-			btnClasses={twMerge(
-				'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover',
-				!loading && generatedContent.length > 0
-					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
-					: ''
-			)}
-			on:click={() => {
-				if (!loading && generatedContent.length > 0) {
-					dispatch('setExpr', generatedContent)
-					if (newFlowInput) {
-						openInputsModal = true
-					}
-					generatedContent = ''
-				}
-			}}
-			on:mouseenter={(ev) => {
-				if (out) {
-					out = false
-					generateStepInput()
-				}
-			}}
-			on:mouseleave={() => {
-				out = true
-				cancel()
-			}}
-			endIcon={{
-				icon:
-					loading || ($stepInputsLoading && empty)
-						? Loader2
-						: generatedContent.length > 0
-							? Check
-							: Wand2,
-				classes: loading || ($stepInputsLoading && empty) ? 'animate-spin' : ''
-			}}
-			on:focus={() => {
-				btnFocused = true
-			}}
-			on:blur={() => {
-				btnFocused = false
-			}}
-		>
-			{#if focused}
-				{#if loading}
-					ESC
-				{:else if generatedContent.length > 0}
-					TAB
-				{/if}
+		{#if focused}
+			{#if loading}
+				ESC
+			{:else if generatedContent.length > 0}
+				TAB
 			{/if}
-		</Button>
-		<svelte:fragment slot="content">
-			<div class="text-sm text-tertiary">
-				{generatedContent || $generatedExprs?.[argName]}
-			</div>
-		</svelte:fragment>
-	</ManualPopover>
+		{/if}
+	</Button>
 {/if}

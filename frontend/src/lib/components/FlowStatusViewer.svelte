@@ -11,7 +11,7 @@
 		jobId: string
 		initialJob?: Job | undefined
 		workspaceId?: string | undefined
-		flowStateStore?: FlowState
+		flowState?: FlowState
 		selectedJobStep?: string | undefined
 		hideFlowResult?: boolean
 		hideTimeline?: boolean
@@ -39,7 +39,7 @@
 		jobId,
 		initialJob = undefined,
 		workspaceId = undefined,
-		flowStateStore = $bindable({}),
+		flowState = $bindable({}),
 		selectedJobStep = $bindable(undefined),
 		hideFlowResult = false,
 		hideTimeline = false,
@@ -66,10 +66,8 @@
 	let retryStatus = $state({ val: {} })
 	let globalRefreshes: Record<string, ((clear, root) => Promise<void>)[]> = $state({})
 
-	let globalIterationBounds = $state({})
-
 	setContext<FlowStatusViewerContext>('FlowStatusViewer', {
-		flowStateStore,
+		flowState,
 		suspendStatus,
 		retryStatus,
 		hideDownloadInGraph,
@@ -90,8 +88,7 @@
 			retryStatus.val = {}
 			suspendStatus.val = {}
 			globalRefreshes = {}
-			globalIterationBounds = {}
-			flowStateStore.val = {}
+			for (let key in localModuleStates) delete flowState[key]
 			localDurationStatuses = {}
 			localModuleStates = {}
 		}
@@ -130,7 +127,6 @@
 			onJobsLoaded?.({ job, force })
 		}}
 		globalModuleStates={[]}
-		{globalIterationBounds}
 		bind:localModuleStates
 		bind:selectedNode={selectedJobStep}
 		bind:localDurationStatuses

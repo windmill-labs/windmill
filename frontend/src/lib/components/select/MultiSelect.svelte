@@ -7,6 +7,11 @@
 	import DraggableTags from './DraggableTags.svelte'
 	import { Search } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
+	import TextInput, {
+		inputBaseClass,
+		inputBorderClass,
+		inputSizeClasses
+	} from '../text_input/TextInput.svelte'
 
 	type Value = Item['value']
 
@@ -25,6 +30,8 @@
 		selectedUlClass = '',
 		placeholderClass = '',
 		allowClear = true,
+		hideMainClearBtn = false,
+		size = 'md',
 		onOpen,
 		groupBy,
 		sortBy,
@@ -47,6 +54,8 @@
 		selectedUlClass?: string
 		placeholderClass?: string
 		allowClear?: boolean
+		hideMainClearBtn?: boolean
+		size?: keyof typeof inputSizeClasses
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onOpen?: () => void
@@ -57,7 +66,7 @@
 	let filterText = $state<string>('')
 	let open = $state<boolean>(false)
 	let wrapperEl: HTMLDivElement | undefined = $state()
-	let searchInputEl: HTMLInputElement | undefined = $state()
+	let searchInputEl: TextInput | undefined = $state()
 
 	$effect(() => searchInputEl?.focus())
 
@@ -97,7 +106,10 @@
 <div
 	bind:this={wrapperEl}
 	class={twMerge(
-		'relative min-h-8 flex items-center w-full bg-surface border border-gray-300 rounded-md text-tertiary',
+		'flex items-center flex-wrap',
+		inputBaseClass,
+		inputSizeClasses[size],
+		inputBorderClass({ forceFocus: open && !disabled }),
 		disabled ? 'pointer-events-none' : '',
 		open && !disabled ? 'open' : '',
 		disabled ? 'disabled' : '',
@@ -111,13 +123,13 @@
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 
 	{#if value.length === 0}
-		<span class={twMerge('text-sm ml-2 h-full flex items-center flex-1', placeholderClass)}>
+		<span class={twMerge('text-xs h-full flex items-center flex-1 text-hint', placeholderClass)}>
 			{placeholder}
 		</span>
 	{:else}
 		<ul
 			class={twMerge(
-				'overflow-clip overflow-x-hidden h-full cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5 flex-1 text-primary',
+				'overflow-clip overflow-x-hidden h-full cursor-pointer items-center flex flex-wrap gap-1 py-0.5 flex-1 text-primary',
 				selectedUlClass
 			)}
 			role="list"
@@ -132,10 +144,10 @@
 			/>
 		</ul>
 	{/if}
-	{#if allowClear}
+	{#if allowClear && !hideMainClearBtn && !!value?.length}
 		<CloseButton
 			noBg
-			class="mr-1 remove-all"
+			class="mr-1 remove-all bg-transparent text-hint"
 			small
 			on:close={(e) => (clearValue(), e.stopPropagation())}
 		/>
@@ -161,14 +173,16 @@
 		{#snippet header()}
 			{#if processedItems.length - value.length > 0 || onCreateItem}
 				<div class="mx-2 mb-1 mt-2 flex items-center relative">
-					<input
+					<TextInput
 						bind:this={searchInputEl}
 						bind:value={filterText}
-						onblur={(e) => (e.preventDefault(), searchInputEl?.focus())}
-						placeholder="Search"
-						class="!pr-7"
+						inputProps={{
+							onblur: (e) => (e.preventDefault(), searchInputEl?.focus()),
+							placeholder: 'Search...'
+						}}
+						class="!pr-7 !bg-surface"
 					/>
-					<Search size={16} class="absolute right-2 text-tertiary" />
+					<Search size={16} class="absolute right-2 text-primary" />
 				</div>
 			{/if}
 		{/snippet}

@@ -1,16 +1,16 @@
 <script lang="ts">
 	import ConfirmationModal from './ConfirmationModal.svelte'
 	import Button from '../button/Button.svelte'
-	import {  type Value } from '$lib/utils'
+	import { type Value } from '$lib/utils'
 	import type { DiffDrawerI } from '$lib/components/diff_drawer'
 
 	interface Props {
-		deployedValue?: Value | undefined;
-		currentValue?: Value | undefined;
-		diffDrawer?: DiffDrawerI | undefined;
-		confirmCallback: () => void;
-		deployedBy?: string | undefined;
-		open?: boolean;
+		deployedValue?: Value | undefined
+		currentValue?: Value | undefined
+		diffDrawer?: DiffDrawerI | undefined
+		confirmCallback: () => void
+		deployedBy?: string | undefined
+		open?: boolean
 	}
 
 	let {
@@ -20,12 +20,12 @@
 		confirmCallback,
 		deployedBy = undefined,
 		open = $bindable(false)
-	}: Props = $props();
+	}: Props = $props()
 </script>
 
 <ConfirmationModal
 	{open}
-	title={"New version deployed by " + deployedBy}
+	title={'New version deployed by ' + deployedBy}
 	confirmationText="Override"
 	on:canceled={() => {
 		open = false
@@ -37,8 +37,7 @@
 		{#if diffDrawer}
 			<Button
 				wrapperClasses="self-start"
-				color="light"
-				variant="border"
+				variant="default"
 				size="xs"
 				on:click={() => {
 					if (!deployedValue || !currentValue) {

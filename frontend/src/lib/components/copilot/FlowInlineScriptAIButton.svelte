@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { copilotInfo } from '$lib/stores'
 	import { autoPlacement } from '@floating-ui/core'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Button from '../common/button/Button.svelte'
@@ -7,12 +6,15 @@
 	import { base } from '$lib/base'
 	import { twMerge } from 'tailwind-merge'
 	import { aiChatManager, AIMode } from './chat/AIChatManager.svelte'
+	import { copilotInfo } from '$lib/aiStore'
+	import type { ComponentProps } from 'svelte'
 
 	interface Props {
 		moduleId?: string
+		btnProps?: ComponentProps<typeof Button>
 	}
 
-	const { moduleId }: Props = $props()
+	const { moduleId, btnProps }: Props = $props()
 
 	const aiChatScriptModeClasses = $derived(
 		aiChatManager.mode === AIMode.SCRIPT && aiChatManager.isOpen
@@ -29,7 +31,8 @@
 		{onClick}
 		iconOnly
 		title="Open AI chat"
-		startIcon={{ icon: WandSparkles, classes: 'text-violet-800 dark:text-violet-400' }}
+		startIcon={{ icon: WandSparkles, classes: 'text-ai' }}
+		{...btnProps}
 	/>
 {/snippet}
 

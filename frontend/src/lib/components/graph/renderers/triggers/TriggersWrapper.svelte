@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { NODE } from '../../util'
+	import { NODE, type FlowNodeColorClasses } from '../../util'
 	import { createEventDispatcher } from 'svelte'
 	import type { TriggerType } from '$lib/components/triggers/utils'
 	import TriggersBadge from './TriggersBadge.svelte'
@@ -17,9 +17,8 @@
 		selected: boolean
 		isEditor?: boolean
 		disableAi?: boolean
-		bgColor: string
-		bgHoverColor?: string
 		showDraft?: boolean
+		colorClasses: FlowNodeColorClasses
 		onSelect?: (triggerIndex: number) => void
 		onAddDraftTrigger?: (type: TriggerType) => void
 	}
@@ -30,10 +29,9 @@
 		selected,
 		isEditor = false,
 		disableAi = false,
-		bgColor,
-		bgHoverColor = '',
 		showDraft,
 		onSelect,
+		colorClasses,
 		onAddDraftTrigger
 	}: Props = $props()
 
@@ -41,8 +39,6 @@
 	let numberOfTriggers = $state(0)
 
 	const dispatch = createEventDispatcher()
-
-	let hover = $state(false)
 
 	let floatingConfig: ComputeConfig = {
 		strategy: 'fixed',
@@ -57,19 +53,14 @@
 
 <div style={`width: ${NODE.width}px;`} use:floatingRef>
 	<button
-		style="background-color: {hover && bgHoverColor ? bgHoverColor : bgColor};"
-		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center justify-center rounded-sm {selected
-			? 'outline  outline-2  outline-gray-600 dark:bg-white/5 dark:outline-gray-400'
-			: ''}"
-		onclick={() => {
-			dispatch('select')
-		}}
-		onmouseenter={() => (hover = true)}
-		onmouseleave={() => (hover = false)}
+		class="relative flex w-full flex-row gap-1.5 px-2 p-1 items-center justify-center rounded-md drop-shadow-base {colorClasses.outline} {colorClasses.bg}"
+		style="height: {NODE.height}px"
+		onclick={() => dispatch('select')}
 	>
 		<div
 			class={twMerge(
 				'flex flex-row items-center text-2xs font-normal',
+				colorClasses.text,
 				numberOfTriggers > 6 ? 'absolute left-0 -top-[20px]' : ''
 			)}
 		>

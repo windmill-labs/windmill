@@ -62,7 +62,7 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
+use windmill_common::{utils::{configure_client, GIT_VERSION}, BASE_URL, INSTANCE_NAME};
 
 use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
@@ -87,7 +87,8 @@ pub mod ee;
 pub mod ee_oss;
 pub mod embeddings;
 mod favorite;
-mod flows;
+mod flow_conversations;
+pub mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
@@ -100,10 +101,11 @@ mod inkeep_oss;
 mod inputs;
 mod integration;
 mod live_migrations;
+#[cfg(feature = "http_trigger")]
+mod openapi;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
-pub mod openapi;
 
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -155,6 +157,9 @@ pub mod stripe_ee;
 #[cfg(all(feature = "stripe", feature = "enterprise"))]
 mod stripe_oss;
 #[cfg(feature = "private")]
+pub mod teams_cache_ee;
+mod teams_cache_oss;
+#[cfg(feature = "private")]
 pub mod teams_ee;
 mod teams_oss;
 mod token;
@@ -179,6 +184,7 @@ mod workspaces_oss;
 #[cfg(feature = "mcp")]
 mod mcp;
 
+pub use apps::EditApp;
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
 
 lazy_static::lazy_static! {
@@ -193,11 +199,11 @@ lazy_static::lazy_static! {
 
     pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
-    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+    pub static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
-        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
+        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok()))
         .build().unwrap();
 
 
@@ -407,7 +413,7 @@ pub async fn run_server(
     };
 
     #[cfg(feature = "agent_worker_server")]
-    let (agent_workers_router, agent_workers_bg_processor, agent_workers_killpill_tx) =
+    let (agent_workers_router, agent_workers_bg_processor, agent_workers_job_completed_tx) =
         if server_mode {
             agent_workers_oss::workspaced_service(db.clone(), _base_internal_url.clone())
         } else {
@@ -439,6 +445,10 @@ pub async fn run_server(
                         .nest("/drafts", drafts::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest(
+                            "/flow_conversations",
+                            flow_conversations::workspaced_service(),
+                        )
                         .nest("/folders", folders::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
@@ -466,7 +476,17 @@ pub async fn run_server(
                         .nest("/variables", variables::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_oss::workspaced_service())
-                        .nest("/openapi", openapi::openapi_service())
+                        .nest("/openapi", {
+                            #[cfg(feature = "http_trigger")]
+                            {
+                                openapi::openapi_service()
+                            }
+
+                            #[cfg(not(feature = "http_trigger"))]
+                            {
+                                Router::new()
+                            }
+                        })
                         .merge(triggers_service),
                 )
                 .nest("/workspaces", workspaces::global_service())
@@ -531,7 +551,14 @@ pub async fn run_server(
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
-                        agent_workers_oss::global_service().layer(Extension(agent_cache.clone()))
+                        if let Some(agent_workers_job_completed_tx) =
+                            agent_workers_job_completed_tx.clone()
+                        {
+                            agent_workers_oss::global_service(agent_workers_job_completed_tx)
+                                .layer(Extension(agent_cache.clone()))
+                        } else {
+                            Router::new()
+                        }
                     }
                     #[cfg(not(feature = "agent_worker_server"))]
                     {
@@ -693,15 +720,16 @@ pub async fn run_server(
         name.map(|x| format!("name={x}")).unwrap_or_default()
     );
 
-    port_tx
-        .send(format!("http://localhost:{}", port))
-        .expect("Failed to send port");
+    if let Err(e) = port_tx.send(format!("http://localhost:{}", port)) {
+        tracing::error!("Failed to send port: {e:#}");
+        return Err(anyhow::anyhow!("Failed to send port, exiting early: {e:#}"));
+    }
 
     let server = server.with_graceful_shutdown(async move {
         killpill_rx.recv().await.ok();
         #[cfg(feature = "agent_worker_server")]
-        if let Some(agent_workers_killpill_tx) = agent_workers_killpill_tx {
-            if let Err(e) = agent_workers_killpill_tx.kill().await {
+        if let Some(agent_workers_job_completed_tx) = agent_workers_job_completed_tx {
+            if let Err(e) = agent_workers_job_completed_tx.kill().await {
                 tracing::error!("Error killing agent workers: {e:#}");
             }
         }
@@ -791,8 +819,11 @@ async fn openapi_json() -> Response {
         .unwrap()
 }
 
-pub async fn migrate_db(db: &DB) -> anyhow::Result<Option<JoinHandle<()>>> {
-    db::migrate(db)
+pub async fn migrate_db(
+    db: &DB,
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+) -> anyhow::Result<Option<JoinHandle<()>>> {
+    db::migrate(db, killpill_rx)
         .await
         .map_err(|e| anyhow::anyhow!("Error migrating db: {e:#}"))
 }

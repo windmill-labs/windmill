@@ -36,7 +36,7 @@
 	let nbDisplayed = $state(30)
 
 	// Instance group auto-add settings
-	let instanceGroups: Array<{name: string, summary?: string, emails?: string[]}> = $state([])
+	let instanceGroups: Array<{ name: string; summary?: string; emails?: string[] }> = $state([])
 	let autoAddInstanceGroups: string[] = $state([])
 	let autoAddInstanceGroupsRoles: Record<string, string> = $state({})
 
@@ -47,8 +47,8 @@
 	// Available groups for dropdowns - filter out already configured groups
 	let availableGroupItems = $derived(
 		instanceGroups
-			.filter(group => !autoAddInstanceGroups.includes(group.name))
-			.map(group => ({
+			.filter((group) => !autoAddInstanceGroups.includes(group.name))
+			.map((group) => ({
 				value: group.name,
 				label: group.name + (group.summary ? ` - ${group.summary}` : '')
 			}))
@@ -65,9 +65,30 @@
 	})
 
 	let hasNonManualUsers = $derived(
-		(filteredUsers || users || []).some((user: User) => user.added_via?.source === 'instance_group' || user.added_via?.source === 'domain')
+		(filteredUsers || users || []).some(
+			(user: User) =>
+				user.added_via?.source === 'instance_group' || user.added_via?.source === 'domain'
+		)
 	)
 
+	// Function to check if a manual user can be converted to a group user
+	function canConvertToGroup(user: User): boolean {
+		// User must be manually added (not via instance group or domain)
+		if (user.added_via?.source === 'instance_group' || user.added_via?.source === 'domain') {
+			return false
+		}
+
+		// Check if user's email is in any configured instance group
+		const userEmail = user.email
+		for (const groupName of autoAddInstanceGroups) {
+			const group = instanceGroups.find((g) => g.name === groupName)
+			if (group && group.emails && group.emails.includes(userEmail)) {
+				return true
+			}
+		}
+
+		return false
+	}
 
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
@@ -158,7 +179,7 @@
 			await saveInstanceGroupSettings()
 		} catch (e) {
 			// Rollback on error
-			autoAddInstanceGroups = autoAddInstanceGroups.filter(g => g !== groupToAdd)
+			autoAddInstanceGroups = autoAddInstanceGroups.filter((g) => g !== groupToAdd)
 			delete autoAddInstanceGroupsRoles[groupToAdd]
 			sendUserToast('Failed to add instance group', true)
 		}
@@ -169,7 +190,7 @@
 		const previousRole = autoAddInstanceGroupsRoles[groupName]
 
 		try {
-			autoAddInstanceGroups = autoAddInstanceGroups.filter(g => g !== groupName)
+			autoAddInstanceGroups = autoAddInstanceGroups.filter((g) => g !== groupName)
 			delete autoAddInstanceGroupsRoles[groupName]
 			await saveInstanceGroupSettings()
 		} catch (e) {
@@ -192,6 +213,20 @@
 			// Rollback on error
 			autoAddInstanceGroupsRoles[groupName] = previousRole
 			sendUserToast('Failed to update role', true)
+		}
+	}
+
+	async function convertUserToGroup(username: string): Promise<void> {
+		try {
+			await UserService.convertUserToGroup({
+				workspace: $workspaceStore ?? '',
+				username
+			})
+			sendUserToast('User converted to group user')
+			listUsers()
+		} catch (e) {
+			console.error('Failed to convert user:', e)
+			sendUserToast('Failed to convert user', true)
 		}
 	}
 
@@ -220,6 +255,7 @@
 
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let removeInstanceGroupConfirmedCallback: (() => void) | undefined = $state(undefined)
+	let convertConfirmedCallback: (() => void) | undefined = $state(undefined)
 
 	async function removeAllInvitesFromDomain() {
 		await Promise.all(
@@ -256,7 +292,7 @@
 />
 <div class="flex flex-col gap-4 my-8">
 	<div class="flex flex-col gap-1">
-		<div class="text-tertiary text-xs">
+		<div class="text-primary text-xs">
 			Add members to your workspace and manage their roles. You can also auto-add users to join your
 			workspace.
 			<a
@@ -272,12 +308,12 @@
 		title="Members {(filteredUsers?.length ?? users?.length) != undefined
 			? `(${filteredUsers?.length ?? users?.length})`
 			: ''}"
-		primary={true}
+		primary={false}
 		tooltip="Manage users manually or enable SSO authentication."
 		documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
 	/>
 
-	<div class="flex flex-row items-center gap-2 relative">
+	<div class="flex flex-row items-center gap-2 relative whitespace-nowrap">
 		<input placeholder="Filter members" bind:value={userFilter} class="input !pl-8" />
 		<Search class="absolute left-2" size={14} />
 
@@ -287,8 +323,9 @@
 		>
 			{#snippet trigger()}
 				<Button
-					color={auto_invite_domain != undefined ? 'green' : 'red'}
-					variant="border"
+					color={'accent'}
+					destructive={auto_invite_domain === undefined}
+					variant="default"
 					size="xs"
 					nonCaptureEvent={true}
 					startIcon={{ icon: Mails }}
@@ -334,8 +371,8 @@
 							}}
 						>
 							{#snippet children({ item })}
-								<ToggleButton value="invite" size="xs" label="Auto-invite" {item} />
-								<ToggleButton value="add" size="xs" label="Auto-add" {item} />
+								<ToggleButton value="invite" small label="Auto-invite" {item} />
+								<ToggleButton value="add" small label="Auto-add" {item} />
 							{/snippet}
 						</ToggleButtonGroup>
 					{/if}
@@ -435,16 +472,14 @@
 				{#snippet content()}
 					<div class="flex flex-col p-4 min-w-[500px]">
 						<div class="flex flex-col gap-4">
-							<span class="text-sm leading-6 font-semibold">
-								Auto-add instance groups
-							</span>
+							<span class="text-sm leading-6 font-semibold"> Auto-add instance groups </span>
 
 							<!-- Add new instance group form -->
 							{#if availableGroupItems.length > 0}
 								<div class="flex w-full mt-1 gap-2 items-end justify-between">
 									<div class="flex gap-2 items-end">
 										<div class="flex flex-col gap-1">
-											<span class="text-xs text-tertiary">Instance group</span>
+											<span class="text-xs text-primary">Instance group</span>
 											<Select
 												items={availableGroupItems}
 												placeholder="Select group"
@@ -455,7 +490,7 @@
 										</div>
 
 										<div class="flex flex-col gap-1">
-											<span class="text-xs text-tertiary">Role</span>
+											<span class="text-xs text-primary">Role</span>
 											<ToggleButtonGroup
 												selected={selectedNewRole}
 												on:selected={(e) => {
@@ -505,7 +540,7 @@
 									<div class="flex flex-col gap-1">
 										<table class="w-full text-sm">
 											<thead>
-												<tr class="text-left text-xs text-tertiary">
+												<tr class="text-left text-xs text-primary">
 													<th class="pb-2 w-1/2">Group</th>
 													<th class="pb-2 w-1/4">Role</th>
 													<th class="pb-2 w-1/4"></th>
@@ -513,12 +548,12 @@
 											</thead>
 											<tbody>
 												{#each autoAddInstanceGroups as groupName (groupName)}
-													{@const group = instanceGroups.find(g => g.name === groupName)}
+													{@const group = instanceGroups.find((g) => g.name === groupName)}
 													<tr class="border-t border-gray-200 dark:border-gray-700">
 														<td class="py-2">
 															<div class="font-medium">{groupName}</div>
 															{#if group?.summary}
-																<div class="text-xs text-tertiary">{group.summary}</div>
+																<div class="text-xs text-primary">{group.summary}</div>
 															{/if}
 														</td>
 														<td class="py-2">
@@ -578,7 +613,7 @@
 									</div>
 								</div>
 							{:else}
-								<div class="text-center text-tertiary text-sm py-4">
+								<div class="text-center text-primary text-sm py-4">
 									No instance groups configured for auto-add
 								</div>
 							{/if}
@@ -613,7 +648,8 @@
 					<Cell head>
 						Added via
 						<Tooltip>
-							Shows how the user was added to the workspace: manually, via domain auto-invite, or through an instance group.
+							Shows how the user was added to the workspace: manually, via domain auto-invite, or
+							through an instance group.
 						</Tooltip>
 					</Cell>
 				{/if}
@@ -634,14 +670,13 @@
 		</Head>
 		<tbody class="divide-y bg-surface">
 			{#if filteredUsers}
-				{#each sortedUsers().slice(0, nbDisplayed) as { email, username, is_admin, operator, disabled, added_via }, index (email)}
+				{#each sortedUsers().slice(0, nbDisplayed) as user, index (user.email)}
+					{@const { email, username, is_admin, operator, disabled, added_via } = user}
 					<!-- Add separator between manual users and instance group users -->
 					{#if hasNonManualUsers && index > 0 && sortedUsers()[index - 1]?.added_via?.source !== 'instance_group' && added_via?.source === 'instance_group'}
 						<tr class="bg-surface-secondary">
 							<td colspan={hasNonManualUsers ? 8 : 7} class="px-4 py-2">
-								<div class="text-xs text-tertiary font-bold">
-									Instance group users
-								</div>
+								<div class="text-xs text-primary font-bold"> Instance group users </div>
 							</td>
 						</tr>
 					{/if}
@@ -772,8 +807,45 @@
 										>
 											Remove
 										</Button>
-										<Tooltip>Cannot remove users synced from instance groups. Either disable the user or remove them from the SCIM group.</Tooltip>
+										<Tooltip
+											>Cannot remove users synced from instance groups. Either disable the user or
+											remove them from the SCIM group.</Tooltip
+										>
 									</div>
+								{:else if canConvertToGroup(user)}
+									<Button
+										color="light"
+										variant="contained"
+										btnClasses="text-blue-500"
+										size="xs"
+										spacingSize="xs2"
+										on:click={() => {
+											convertConfirmedCallback = async () => {
+												await convertUserToGroup(username)
+											}
+										}}
+									>
+										Convert
+									</Button>
+									<Button
+										color="light"
+										variant="contained"
+										btnClasses="text-red-500"
+										size="xs"
+										spacingSize="xs2"
+										on:click={() => {
+											deleteConfirmedCallback = async () => {
+												await UserService.deleteUser({
+													workspace: $workspaceStore ?? '',
+													username
+												})
+												sendUserToast('User removed')
+												listUsers()
+											}
+										}}
+									>
+										Remove
+									</Button>
 								{:else}
 									<Button
 										color="light"
@@ -959,7 +1031,35 @@
 		}}
 	>
 		<div class="flex flex-col w-full space-y-4">
-			<span>Are you sure you want to remove this instance group from auto-add? This will not remove users already added from this group.</span>
+			<span
+				>Are you sure you want to remove this instance group from auto-add? This will not remove
+				users already added from this group.</span
+			>
 		</div>
 	</ConfirmationModal>
 </div>
+
+<ConfirmationModal
+	open={Boolean(convertConfirmedCallback)}
+	title="Convert to Group User"
+	confirmationText="Convert"
+	on:canceled={() => {
+		convertConfirmedCallback = undefined
+	}}
+	on:confirmed={() => {
+		if (convertConfirmedCallback) {
+			convertConfirmedCallback()
+		}
+		convertConfirmedCallback = undefined
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to convert this user to a group user?</span>
+		<span class="text-sm text-secondary">This will:</span>
+		<ul class="text-sm text-secondary list-disc ml-4 space-y-1">
+			<li>Change the user's role based on their instance group configuration</li>
+			<li>Make their role managed through the instance group settings</li>
+			<li>Prevent manual role changes for this user</li>
+		</ul>
+	</div>
+</ConfirmationModal>

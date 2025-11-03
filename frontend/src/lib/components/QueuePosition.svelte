@@ -27,9 +27,13 @@
 					JobService.getScheduledFor({
 						workspace: workspace,
 						id: jobId
-					}).then((response) => {
-						scheduledFor = response
 					})
+						.then((response) => {
+							scheduledFor = response
+						})
+						.catch((error) => {
+							console.error('Failed to fetch scheduled for:', error)
+						})
 				} catch (error) {
 					console.error('Failed to fetch scheduled for:', error)
 				}
@@ -57,8 +61,8 @@
 		}
 
 		return () => {
+			scheduledForTimeout && clearTimeout(scheduledForTimeout)
 			if (queuePositionInterval) {
-				scheduledForTimeout && clearTimeout(scheduledForTimeout)
 				clearInterval(queuePositionInterval)
 			}
 		}
@@ -86,7 +90,7 @@
 	<div class="text-small ml-4">
 		<span class="text-orange-600">Queue position: <b>{queueState.position}</b></span>
 		{#if !minimal}
-			<span class="ml-2 text-tertiary">(Waiting for an available worker)</span>
+			<span class="ml-2 text-primary">(Waiting for an available worker)</span>
 		{/if}
 	</div>
 {/if}

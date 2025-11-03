@@ -186,7 +186,7 @@
 		let index = 0
 		let hasChanged = false
 		for (let k of properties) {
-			if (schema.properties[k].type === 'object' && schema.properties[k].properties) {
+			if (schema.properties[k]?.type === 'object' && schema.properties[k].properties) {
 				hasChanged = hasChanged || alignOrderWithProperties(schema.properties[k])
 			}
 			if (!norder.includes(k)) {
@@ -220,7 +220,7 @@
 
 	function computeSelected(property: any) {
 		if (!opened) return ''
-		if (property.type !== 'object') return property.type
+		if (property?.type !== 'object') return property?.type
 		if (property.format === 'resource-s3_object') return 'S3'
 		if (property.format?.startsWith('dynselect-')) return 'dynselect'
 		if (property.format?.startsWith('dynmultiselect-')) return 'dynmultiselect'
@@ -344,7 +344,7 @@
 		Object.entries(schema?.properties ?? {})
 			.filter(([_, property]) => {
 				const props = property as any
-				return props.type === 'object' && DynamicInput.isDynInputFormat(props.format)
+				return props?.type === 'object' && DynamicInput.isDynInputFormat(props.format)
 			})
 			.map(([fieldName, _]) => fieldName.replace(/\s+/g, '_'))
 	)
@@ -358,11 +358,11 @@
 		['String', 'string'],
 		['Number', 'number'],
 		['Integer', 'integer'],
-		['Object', 'object'],
+		['Boolean', 'boolean'],
 		['Resource', 'resource'],
+		['Object', 'object'],
 		['OneOf', 'oneOf'],
 		['Array', 'array'],
-		['Boolean', 'boolean'],
 		['S3', 'S3']
 	])
 
@@ -372,6 +372,14 @@
 	}
 
 	function updateDynCode(functionName: string, lang: ScriptLang = 'bun') {
+		if (
+			(lang == 'bun' && dynCode?.includes(`function ${functionName}`)) ||
+			(lang == 'python3' && dynCode?.includes(`def ${functionName}`))
+		) {
+			// Don't add the function if it already exists
+			return
+		}
+
 		const generateFn = DynamicInput.getGenerateTemplateFn(lang)
 		const code = generateFn(functionName)
 		dynCode = dynCode ? dynCode.concat(code) : code
@@ -442,7 +450,7 @@
 								}
 							}}
 							helperScript={{
-								type: 'inline',
+								source: 'inline',
 								code: dynCode!,
 								lang: dynLang!
 							}}
@@ -468,7 +476,7 @@
 								<div class="flex flex-col gap-2 h-full">
 									{#if dynamicFunctions.length > 0}
 										<div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
-											<div class="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+											<div class="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-2">
 												Expected Functions for Dynamic Input Fields:
 											</div>
 											<ul class="text-xs text-blue-700 dark:text-blue-300 space-y-1">
@@ -522,7 +530,7 @@
 				{:else}
 					<!-- WIP -->
 					{#if jsonEnabled && customUi?.jsonOnly != true}
-						<div class="w-full p-3 flex gap-4 justify-end items-center">
+						<div class="w-full px-4 py-2 flex gap-4 justify-end items-center">
 							{#if addPropertyInEditorTab}
 								<AddPropertyV2
 									bind:schema
@@ -531,18 +539,17 @@
 									}}
 								>
 									{#snippet trigger()}
-										<Button color="light" size="xs" iconOnly startIcon={{ icon: Plus }} />
+										<Button variant="subtle" size="xs" iconOnly startIcon={{ icon: Plus }} />
 									{/snippet}
 								</AddPropertyV2>
 							{/if}
 							<div class="shrink-0">
 								<Toggle
 									bind:checked={jsonView}
-									label="JSON View"
 									size="xs"
 									options={{
-										right: 'JSON editor',
-										rightTooltip:
+										left: 'JSON editor',
+										leftTooltip:
 											'Arguments can be edited either using the wizard, or by editing their JSON Schema.'
 									}}
 									lightMode
@@ -581,15 +588,15 @@
 												}
 											}}
 										>
-											<div class="flex flex-row gap-2">
+											<div class="flex flex-row gap-2 text-sm">
 												{argName}
 												{#if !uiOnly}
 													<div onclick={stopPropagation(preventDefault(bubble('click')))}>
 														<Popover placement="bottom-end" containerClasses="p-4" closeButton>
 															{#snippet trigger()}
 																<Button
-																	color="light"
-																	size="xs2"
+																	variant="subtle"
+																	size="xs3"
 																	nonCaptureEvent
 																	startIcon={{ icon: Pen }}
 																	iconOnly
@@ -611,8 +618,7 @@
 																			}}
 																		/>
 																		<Button
-																			variant="border"
-																			color="light"
+																			variant="default"
 																			size="xs"
 																			on:click={() => {
 																				renameProperty(argName, argName + i)
@@ -635,7 +641,8 @@
 
 											{#if !uiOnly}
 												<button
-													class="rounded-full p-1 text-gray-500 bg-white
+													class="delete-schema-field-button
+													rounded-full p-1 text-gray-500 bg-white
 				duration-200 hover:bg-gray-600 focus:bg-gray-600 hover:text-white dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800"
 													aria-label="Clear"
 													onclick={() => {
@@ -652,7 +659,7 @@
 													{#if typeof args == 'object' && schema?.properties[argName]}
 														<PropertyEditor
 															bind:description={schema.properties[argName].description}
-															type={schema.properties[argName].type}
+															type={schema.properties[argName]?.type}
 															bind:oneOf={schema.properties[argName].oneOf}
 															bind:pattern={schema.properties[argName].pattern}
 															bind:enum_={schema.properties[argName].enum}
@@ -701,6 +708,15 @@
 																						nullable: undefined,
 																						required: undefined
 																					}
+
+																					if (
+																						isDynMultiselect &&
+																						args &&
+																						!Array.isArray(args?.[argName])
+																					) {
+																						args[argName] = []
+																					}
+
 																					if (isS3) {
 																						schema.properties[argName] = {
 																							...emptyProperty,
@@ -795,7 +811,7 @@
 																	{itemPicker}
 																	bind:nullable={schema.properties[argName].nullable}
 																	bind:disabled={schema.properties[argName].disabled}
-																	type={schema.properties[argName].type}
+																	type={schema.properties[argName]?.type}
 																	bind:oneOf={schema.properties[argName].oneOf}
 																	bind:format={schema.properties[argName].format}
 																	contentEncoding={schema.properties[argName].contentEncoding}
@@ -831,7 +847,7 @@
 									</div>
 								{/each}
 							{:else if !shouldHideNoInputs}
-								<div class="text-secondary text-sm p-2">No inputs</div>
+								<div class="text-secondary text-xs p-2">No inputs</div>
 							{/if}
 						</div>
 					{:else}
@@ -891,8 +907,7 @@
 		{#snippet submission()}
 			<div>
 				<Button
-					variant="border"
-					color="blue"
+					variant="default"
 					size="sm"
 					startIcon={{ icon: Plus }}
 					on:click={() => variableEditor?.initNew?.()}

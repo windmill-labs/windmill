@@ -65,7 +65,7 @@
 			<Subsection label="Connection setup">
 				<div class="flex flex-col gap-3">
 					<div class="flex flex-col gap-3">
-						<p class="text-xs text-tertiary">
+						<p class="text-xs text-primary">
 							Select an AWS resource to authenticate your account. <Required required={true} />
 						</p>
 
@@ -93,7 +93,7 @@
 					<div class="flex flex-col gap-1">
 						<div class="text-secondary text-sm flex items-center gap-1 w-full justify-between">
 							<div class="flex flex-col gap-1">
-								<p class="text-xs text-tertiary">
+								<p class="text-xs text-primary">
 									Provide the URL of the SQS queue the application should listen to. <Required
 										required={true}
 									/>
@@ -170,8 +170,7 @@
 	{#snippet submission()}
 		<div class="flex flex-row">
 			<Button
-				variant="border"
-				color="blue"
+				variant="accent"
 				size="sm"
 				startIcon={{ icon: Plus }}
 				on:click={() => {

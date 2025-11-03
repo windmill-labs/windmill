@@ -2,7 +2,7 @@
 	import { FlowService, type FlowModule, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import type { Note } from '../flows/types'
-	import { getContext, onDestroy, setContext, tick, untrack } from 'svelte'
+	import { getContext, onDestroy, setContext, tick, untrack, type Snippet } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
@@ -13,7 +13,8 @@
 		ConnectionLineType,
 		Controls,
 		ControlButton,
-		SvelteFlowProvider
+		SvelteFlowProvider,
+		type Viewport
 	} from '@xyflow/svelte'
 	import {
 		graphBuilder,
@@ -51,6 +52,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import ViewportResizer from './ViewportResizer.svelte'
+	import ViewportSynchronizer from './ViewportSynchronizer.svelte'
 	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
 	import AssetsOverflowedNode from './renderers/nodes/AssetsOverflowedNode.svelte'
 	import type { FlowGraphAssetContext } from '../flows/types'
@@ -62,8 +64,10 @@
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
+	import type { AIModuleAction } from '../copilot/chat/flow/core'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
+	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
 
@@ -82,6 +86,8 @@
 		notSelectable?: boolean
 		flowModuleStates?: Record<string, GraphModuleState> | undefined
 		testModuleStates?: ModulesTestStates
+		moduleActions?: Record<string, AIModuleAction>
+		inputSchemaModified?: boolean
 		selectedId?: Writable<string | undefined>
 		path?: string | undefined
 		newFlow?: boolean
@@ -107,6 +113,7 @@
 		suspendStatus?: Record<string, { job: Job; nb: number }>
 		noteMode?: boolean
 		notes?: Note[]
+		chatInputEnabled?: boolean
 		onNotesChange?: (notes: Note[]) => void
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
@@ -135,8 +142,13 @@
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
+		onShowModuleDiff?: (moduleId: string) => void
 		flowHasChanged?: boolean
 		exitNoteMode?: () => void
+		// Viewport synchronization props (for diff viewer)
+		sharedViewport?: Viewport
+		onViewportChange?: (viewport: Viewport, isUserInitiated: boolean) => void
+		leftHeader?: Snippet
 	}
 
 	let {
@@ -147,7 +159,6 @@
 		onNewBranch = undefined,
 		onSelect = undefined,
 		onChangeId = undefined,
-
 		onUpdateMock = undefined,
 		onSelectedIteration = undefined,
 		success = undefined,
@@ -159,6 +170,8 @@
 		notSelectable = false,
 		flowModuleStates = undefined,
 		testModuleStates = undefined,
+		moduleActions = undefined,
+		inputSchemaModified = undefined,
 		selectedId = writable<string | undefined>(undefined),
 		path = undefined,
 		newFlow = false,
@@ -183,6 +196,7 @@
 		onCancelTestFlow = undefined,
 		onOpenPreview = undefined,
 		onHideJobStatus = undefined,
+		onShowModuleDiff = undefined,
 		individualStepTests = false,
 		flowJob = undefined,
 		showJobStatus = false,
@@ -191,13 +205,18 @@
 		noteMode = false,
 		notes = [],
 		onNotesChange = undefined,
-		exitNoteMode = undefined
+		exitNoteMode = undefined,
+		chatInputEnabled = false,
+		sharedViewport = undefined,
+		onViewportChange = undefined,
+		leftHeader = undefined
 	}: Props = $props()
 
 	setContext<{
 		selectedId: Writable<string | undefined>
 		useDataflow: Writable<boolean | undefined>
-	}>('FlowGraphContext', { selectedId, useDataflow })
+		showAssets: Writable<boolean | undefined>
+	}>('FlowGraphContext', { selectedId, useDataflow, showAssets })
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
@@ -472,25 +491,33 @@
 		)
 		let newNodes: (Node & NodeLayout)[] = layoutedNodes.map((n) => ({ ...n, ...graph.nodes[n.id] }))
 
-		let assetNodesResult = computeAssetNodes(
-			newNodes.map((n) => ({
-				data: { assets: n.data?.assets as AssetWithAltAccessType[] },
-				id: n.id,
-				position: n.position
+		let assetNodesResult = $showAssets
+			? computeAssetNodes(
+					newNodes.map((n) => ({
+						data: { assets: n.data?.assets as AssetWithAltAccessType[] },
+						id: n.id,
+						position: n.position
+					}))
+				)
+			: undefined
+		if (assetNodesResult) {
+			newNodes = newNodes.map((n) => ({
+				...n,
+				position: assetNodesResult.newNodePositions[n.id]
 			}))
-		)
-		newNodes = newNodes.map((n) => ({
-			...n,
-			position: assetNodesResult.newNodePositions[n.id]
-		}))
+		}
 		let aiToolNodesResult = computeAIToolNodes(newNodes, eventHandler, insertable, flowModuleStates)
 		nodes = [
 			...newNodes.map((n) => ({ ...n, position: aiToolNodesResult.newNodePositions[n.id] })),
-			...assetNodesResult.newAssetNodes,
+			...(assetNodesResult?.newAssetNodes ?? []),
 			...aiToolNodesResult.toolNodes,
 			...convertNotesToNodes()
 		]
-		edges = [...assetNodesResult.newAssetEdges, ...aiToolNodesResult.toolEdges, ...graph.edges]
+		edges = [
+			...(assetNodesResult?.newAssetEdges ?? []),
+			...aiToolNodesResult.toolEdges,
+			...graph.edges
+		]
 
 		await tick()
 		height = Math.max(...nodes.map((n) => n.position.y + NODE.height + 100), minHeight)
@@ -551,6 +578,8 @@
 				insertable,
 				flowModuleStates: untrack(() => flowModuleStates),
 				testModuleStates: untrack(() => testModuleStates),
+				moduleActions: untrack(() => moduleActions),
+				inputSchemaModified: untrack(() => inputSchemaModified),
 				selectedId: untrack(() => $selectedId),
 				path,
 				newFlow,
@@ -564,6 +593,8 @@
 				showJobStatus,
 				suspendStatus,
 				flowHasChanged,
+				chatInputEnabled,
+				onShowModuleDiff: untrack(() => onShowModuleDiff),
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
 			untrack(() => failureModule),
@@ -580,7 +611,7 @@
 	})
 
 	$effect(() => {
-		;[graph, allowSimplifiedPoll]
+		;[graph, allowSimplifiedPoll, $showAssets]
 		untrack(() => updateStores())
 	})
 
@@ -614,15 +645,24 @@
 	})
 
 	let viewportResizer: ViewportResizer | undefined = $state(undefined)
+	let viewportSynchronizer: ViewportSynchronizer | undefined = $state(undefined)
+
 	export function isNodeVisible(nodeId: string): boolean {
 		return viewportResizer?.isNodeVisible(nodeId) ?? false
+	}
+
+	export function zoomIn() {
+		viewportSynchronizer?.zoomIn()
+	}
+
+	export function zoomOut() {
+		viewportSynchronizer?.zoomOut()
 	}
 </script>
 
 {#if insertable}
 	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 {/if}
-
 <div
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}
 	class="overflow-clip"
@@ -644,6 +684,13 @@
 	{:else}
 		<SvelteFlowProvider>
 			<ViewportResizer {height} {width} {nodes} bind:this={viewportResizer} />
+			{#if sharedViewport && onViewportChange}
+				<ViewportSynchronizer
+					{sharedViewport}
+					onLocalChange={onViewportChange}
+					bind:this={viewportSynchronizer}
+				/>
+			{/if}
 			<SvelteFlow
 				onpaneclick={() => {
 					document.dispatchEvent(new Event('focus'))
@@ -653,6 +700,9 @@
 					if (node && node.type === 'note') {
 						updateNotePosition(node.id, node.position)
 					}
+				}}
+				onmove={(event, viewport) => {
+					viewportSynchronizer?.handleLocalViewportChange(event, viewport)
 				}}
 				{nodes}
 				{edges}
@@ -671,53 +721,53 @@
 				nodesDraggable={false}
 				--background-color={false}
 			>
-				<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
+				<div class="absolute inset-0 !bg-surface-secondary h-full" id="flow-graph-v2"></div>
 
 				{#if noteMode}
 					<NoteTool {onNoteAdded} />
 				{/if}
-				<Controls position="top-right" orientation="horizontal" showLock={false}>
-					{#if download}
-						<ControlButton
-							onclick={() => {
-								try {
-									localStorage.setItem(
-										'svelvet',
-										encodeState({ modules, failureModule, preprocessorModule })
-									)
-								} catch (e) {
-									console.error('error interacting with local storage', e)
-								}
-								window.open('/view_graph', '_blank')
-							}}
-							class="!bg-surface"
-						>
-							<Expand size="14" />
-						</ControlButton>
-					{/if}
-				</Controls>
 
-				<Controls
-					position="top-left"
-					orientation="horizontal"
-					showLock={false}
-					showZoom={false}
-					showFitView={false}
-					class="!shadow-none"
-				>
-					{#if showDataflow}
-						<Toggle
-							value={$useDataflow}
-							on:change={() => {
-								$useDataflow = !$useDataflow
-							}}
-							size="xs"
-							options={{
-								right: 'Dataflow'
-							}}
-						/>
-					{/if}
-				</Controls>
+				{#if leftHeader}
+					<div class="absolute top-2 left-2 z-10">
+						{@render leftHeader()}
+					</div>
+				{:else}
+					<Controls position="top-right" orientation="horizontal" showLock={false}>
+						{#if download}
+							<ControlButton
+								onclick={() => {
+									try {
+										localStorage.setItem(
+											'svelvet',
+											encodeState({ modules, failureModule, preprocessorModule })
+										)
+									} catch (e) {
+										console.error('error interacting with local storage', e)
+									}
+									window.open('/view_graph', '_blank')
+								}}
+								class="!bg-surface"
+							>
+								<Expand size="14" />
+							</ControlButton>
+						{/if}
+					</Controls>
+
+					<Controls
+						position="top-left"
+						orientation="vertical"
+						showLock={false}
+						showZoom={false}
+						showFitView={false}
+						class="!shadow-none gap-3"
+						style={leftHeader ? 'margin-top: 40px;' : ''}
+					>
+						<Toggle bind:checked={$showAssets} size="xs" options={{ right: 'Assets' }} />
+						{#if showDataflow}
+							<Toggle bind:checked={$useDataflow} size="xs" options={{ right: 'Dataflow' }} />
+						{/if}
+					</Controls>
+				{/if}
 			</SvelteFlow>
 		</SvelteFlowProvider>
 	{/if}

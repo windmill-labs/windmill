@@ -22,7 +22,7 @@
 		</table>
 	</div>
 	{#if paginated}
-		<div class="sticky flex flex-row-reverse text-tertiary mb-6">
+		<div class="sticky flex flex-row-reverse text-primary mb-6">
 			<button
 				class="ml-2 drop-shadow-md {showNext ? 'visible' : 'invisible'}"
 				on:click={() => dispatch('next')}

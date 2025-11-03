@@ -1,11 +1,5 @@
 import type { AIProvider, AIProviderModel } from '$lib/gen'
-import {
-	getCurrentModel,
-	workspaceStore,
-	type DBSchema,
-	type GraphqlSchema,
-	type SQLSchema
-} from '$lib/stores'
+import { workspaceStore, type DBSchema, type GraphqlSchema, type SQLSchema } from '$lib/stores'
 import { buildClientSchema, printSchema } from 'graphql'
 import OpenAI from 'openai'
 import type {
@@ -25,6 +19,7 @@ import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import type { Stream } from 'openai/core/streaming.mjs'
 import { generateRandomString } from '$lib/utils'
+import { copilotInfo, getCurrentModel } from '$lib/aiStore'
 
 export const SUPPORTED_LANGUAGES = new Set(Object.keys(GEN_CONFIG.prompts))
 
@@ -157,7 +152,7 @@ export async function fetchAvailableModels(
 	return data?.data.map((m) => m.id) ?? []
 }
 
-function getModelMaxTokens(provider: AIProvider, model: string) {
+export function getModelMaxTokens(provider: AIProvider, model: string) {
 	if (model.startsWith('gpt-5')) {
 		return 128000
 	} else if ((provider === 'azure_openai' || provider === 'openai') && model.startsWith('o')) {
@@ -196,7 +191,10 @@ function getModelSpecificConfig(
 	modelProvider: AIProviderModel,
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 ) {
-	const maxTokens = getModelMaxTokens(modelProvider.provider, modelProvider.model)
+	const defaultMaxTokens = getModelMaxTokens(modelProvider.provider, modelProvider.model)
+	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
+	const customMaxTokensStore = get(copilotInfo)?.maxTokensPerModel
+	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
 		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
@@ -794,6 +792,12 @@ export async function parseOpenAICompletion(
 					if (tool && tool.preAction) {
 						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
 					}
+
+					// Display tool call immediately in loading state
+					callbacks.setToolStatus(toolCallId, {
+						isLoading: true,
+						content: `Calling ${funcName} tool...`
+					})
 				}
 			}
 		}

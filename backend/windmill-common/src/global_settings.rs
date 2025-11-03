@@ -11,6 +11,8 @@ pub const LICENSE_KEY_SETTING: &str = "license_key";
 pub const NPM_CONFIG_REGISTRY_SETTING: &str = "npm_config_registry";
 pub const BUNFIG_INSTALL_SCOPES_SETTING: &str = "bunfig_install_scopes";
 pub const NUGET_CONFIG_SETTING: &str = "nuget_config";
+pub const POWERSHELL_REPO_URL_SETTING: &str = "powershell_repo_url";
+pub const POWERSHELL_REPO_PAT_SETTING: &str = "powershell_repo_pat";
 pub const MAVEN_REPOS_SETTING: &str = "maven_repos";
 pub const NO_DEFAULT_MAVEN_SETTING: &str = "no_default_maven";
 pub const RUBY_REPOS_SETTING: &str = "ruby_repos";
@@ -32,6 +34,7 @@ pub const EXPOSE_DEBUG_METRICS_SETTING: &str = "expose_debug_metrics";
 pub const KEEP_JOB_DIR_SETTING: &str = "keep_job_dir";
 pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexisting_user_for_oauth";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
+pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";

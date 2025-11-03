@@ -103,7 +103,7 @@
 	<JobsLoader
 		bind:jobs
 		path={runnableId}
-		isSkipped={false}
+		showSkipped={false}
 		jobKinds={getJobKinds(runnableType)}
 		user={null}
 		label={null}
@@ -120,11 +120,11 @@
 	/>
 {/if}
 
-<div class="h-full max-h-full min-h-0 w-full flex flex-col gap-4 relative">
+<div class="h-full max-h-full min-h-0 w-full flex flex-col gap-2 relative">
 	<div class="grow-0" data-schema-picker>
 		<DataTable size="xs" bind:currentPage={page} hasMore={hasMoreCurrentRuns} tableFixed={true}>
 			{#if loading}
-				<div class="text-tertiary absolute top-2 right-2">
+				<div class="text-primary absolute top-2 right-2">
 					<Loader2 class="animate-spin" size={14} />
 				</div>
 			{/if}
@@ -145,13 +145,13 @@
 						/>
 					{/each}
 					{#if jobs?.length == 5}
-						<tr class="text-left text-tertiary text-xs w-full">
+						<tr class="text-left text-primary text-xs w-full">
 							<td class="w-full px-2" colspan="3">limited to 5 runs</td>
 						</tr>
 					{/if}
 				</tbody>
 			{:else}
-				<div class="text-center text-tertiary text-xs py-2">No job currently running</div>
+				<div class="text-center text-primary text-xs py-2">No job currently running</div>
 			{/if}
 		</DataTable>
 	</div>

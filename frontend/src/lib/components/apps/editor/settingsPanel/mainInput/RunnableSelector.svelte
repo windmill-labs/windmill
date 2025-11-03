@@ -148,33 +148,13 @@
 				<Tabs bind:selected={tab}>
 					{#if !onlyFlow}
 						{#if !rawApps}
-							<Tab size="sm" value="inlinescripts">
-								<div class="flex gap-2 items-center my-1">
-									<Building size={18} strokeWidth={1.5} />
-									Detached Inline Scripts
-								</div>
-							</Tab>
+							<Tab value="inlinescripts" label="Detached Inline Scripts" icon={Building} />
 						{/if}
-						<Tab size="sm" value="workspacescripts">
-							<div class="flex gap-2 items-center my-1">
-								<Building size={18} strokeWidth={1.5} />
-								Workspace Scripts
-							</div>
-						</Tab>
+						<Tab value="workspacescripts" label="Workspace Scripts" icon={Building} />
 					{/if}
-					<Tab size="sm" value="workspaceflows">
-						<div class="flex gap-2 items-center my-1">
-							<Building size={18} strokeWidth={1.5} />
-							Workspace Flows
-						</div>
-					</Tab>
+					<Tab value="workspaceflows" label="Workspace Flows" icon={Building} />
 					{#if !onlyFlow}
-						<Tab size="sm" value="hubscripts">
-							<div class="flex gap-2 items-center my-1">
-								<Globe2 size={18} strokeWidth={1.5} />
-								Hub Scripts
-							</div>
-						</Tab>
+						<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
 					{/if}
 				</Tabs>
 				<div class="my-2"></div>
@@ -205,9 +185,8 @@
 	{#if !hideCreateScript}
 		<Button
 			on:click={createScript}
-			size="xs"
-			color="light"
-			variant="border"
+			unifiedSize="md"
+			variant="default"
 			startIcon={{ icon: Plus }}
 			btnClasses="truncate w-full"
 			id="app-editor-create-inline-script"
@@ -217,8 +196,7 @@
 	{/if}
 	<Button
 		on:click={() => picker?.openDrawer()}
-		size="xs"
-		color="blue"
+		unifiedSize="md"
 		variant={rawApps ? 'contained' : 'border'}
 		startIcon={{ icon: MousePointer }}
 		btnClasses="truncate w-full"

@@ -1,4 +1,8 @@
 <script lang="ts">
+	/**
+	 * @deprecated Use `$lib/components/meltComponents/Popover.svelte` instead.
+	 * This legacy popover component will be removed in a future version.
+	 */
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import type { PopoverPlacement } from './Popover.model'
 	import Portal from '$lib/components/Portal.svelte'
@@ -104,14 +108,14 @@
 			onmouseenter={open}
 			onmouseleave={close}
 			class={twMerge(
-				'z-[5001] py-2 px-3 rounded-md text-sm font-normal !text-gray-300 bg-gray-800 whitespace-normal text-left',
+				'z-[5001] p-4 rounded-md text-xs font-normal bg-surface-secondary whitespace-normal text-left shadow-lg',
 				popupClass
 			)}
 		>
 			<div class="max-w-sm break-words">
 				{@render text?.()}
 				{#if documentationLink}
-					<a href={documentationLink} target="_blank" class="text-blue-300 text-xs">
+					<a href={documentationLink} target="_blank">
 						<div class="flex flex-row gap-2 mt-4">
 							See documentation
 							<ExternalLink size="16" />

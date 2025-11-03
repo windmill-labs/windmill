@@ -29,7 +29,7 @@ import {
   parseMetadataFile,
 } from "../../utils/metadata.ts";
 import {
-    LanguageWithRawReqsSupport,
+  LanguageWithRawReqsSupport,
   ScriptLanguage,
   inferContentTypeFromFilePath,
   languagesWithRawReqsSupport,
@@ -114,8 +114,14 @@ export async function findResourceFile(path: string) {
 
   if (currentBranch) {
     // Add branch-specific candidates at the beginning (higher priority)
-    const branchSpecificJSON = specificItems.toBranchSpecificPath(contentBasePathJSON, currentBranch);
-    const branchSpecificYAML = specificItems.toBranchSpecificPath(contentBasePathYAML, currentBranch);
+    const branchSpecificJSON = specificItems.toBranchSpecificPath(
+      contentBasePathJSON,
+      currentBranch
+    );
+    const branchSpecificYAML = specificItems.toBranchSpecificPath(
+      contentBasePathYAML,
+      currentBranch
+    );
     candidates.unshift(branchSpecificJSON, branchSpecificYAML);
   }
 
@@ -136,7 +142,7 @@ export async function findResourceFile(path: string) {
   if (validCandidates.length > 1) {
     throw new Error(
       "Found two resource files for the same resource" +
-        validCandidates.join(", ")
+      validCandidates.join(", ")
     );
   }
   if (validCandidates.length < 1) {
@@ -208,7 +214,8 @@ export async function handleFile(
       if (codebase.customBundler) {
         log.info(`Using custom bundler ${codebase.customBundler} for ${path}`);
         bundleContent = execSync(
-          codebase.customBundler + " " + path
+          codebase.customBundler + " " + path,
+          { maxBuffer: 1024 * 1024 * 50 }
         ).toString();
         log.info("Custom bundler executed for " + path);
       } else {
@@ -216,9 +223,10 @@ export async function handleFile(
 
         log.info(`Started bundling ${path} ...`);
         const startTime = performance.now();
+        const format = codebase.format ?? "cjs";
         const out = await esbuild.build({
           entryPoints: [path],
-          format: "cjs",
+          format: format,
           bundle: true,
           write: false,
           external: codebase.external,
@@ -226,7 +234,7 @@ export async function handleFile(
           define: codebase.define,
           platform: "node",
           packages: "bundle",
-          target: "node20.15.1",
+          target: format == "cjs" ? "node20.15.1" : "esnext",
         });
         const endTime = performance.now();
         bundleContent = out.outputFiles[0].text;
@@ -266,20 +274,20 @@ export async function handleFile(
     let typed = opts?.skipScriptsMetadata
       ? undefined
       : (
-          await parseMetadataFile(
-            remotePath,
-            opts
-              ? {
-                  ...opts,
-                  path,
-                  workspaceRemote: workspace,
-                  schemaOnly: codebase ? true : undefined,
-                }
-              : undefined,
-            globalDeps,
-            codebases
-          )
-        )?.payload;
+        await parseMetadataFile(
+          remotePath,
+          opts
+            ? {
+              ...opts,
+              path,
+              workspaceRemote: workspace,
+              schemaOnly: codebase ? true : undefined,
+              globalDeps,
+              codebases
+            }
+            : undefined,
+        )
+      )?.payload;
 
     const workspaceId = workspace.workspaceId;
 
@@ -342,6 +350,8 @@ export async function handleFile(
       has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
+      debounce_key: typed?.debounce_key,
+      debounce_delay_s: typed?.debounce_delay_s,
       codebase: await codebase?.getDigest(),
       timeout: typed?.timeout,
       on_behalf_of_email: typed?.on_behalf_of_email,
@@ -364,23 +374,25 @@ export async function handleFile(
             deepEqual(typed.schema, remote.schema) &&
             typed.tag == remote.tag &&
             (typed.ws_error_handler_muted ?? false) ==
-              remote.ws_error_handler_muted &&
+            remote.ws_error_handler_muted &&
             typed.dedicated_worker == remote.dedicated_worker &&
             typed.cache_ttl == remote.cache_ttl &&
             typed.concurrency_time_window_s ==
-              remote.concurrency_time_window_s &&
+            remote.concurrency_time_window_s &&
             typed.concurrent_limit == remote.concurrent_limit &&
             Boolean(typed.restart_unless_cancelled) ==
-              Boolean(remote.restart_unless_cancelled) &&
+            Boolean(remote.restart_unless_cancelled) &&
             Boolean(typed.visible_to_runner_only) ==
-              Boolean(remote.visible_to_runner_only) &&
+            Boolean(remote.visible_to_runner_only) &&
             Boolean(typed.no_main_func) == Boolean(remote.no_main_func) &&
             Boolean(typed.has_preprocessor) ==
-              Boolean(remote.has_preprocessor) &&
+            Boolean(remote.has_preprocessor) &&
             typed.priority == Boolean(remote.priority) &&
             typed.timeout == remote.timeout &&
             //@ts-ignore
             typed.concurrency_key == remote["concurrency_key"] &&
+            typed.debounce_key == remote["debounce_key"] &&
+            typed.debounce_delay_s == remote["debounce_delay_s"] &&
             typed.codebase == remote.codebase &&
             typed.on_behalf_of_email == remote.on_behalf_of_email)
         ) {
@@ -467,8 +479,7 @@ async function createScript(
       });
     } catch (e: any) {
       throw Error(
-        `Script creation for ${body.path} with parent ${
-          body.parent_hash
+        `Script creation for ${body.path} with parent ${body.parent_hash
         }  was not successful: ${e.body ?? e.message} `
       );
     }
@@ -494,8 +505,7 @@ async function createScript(
     });
     if (req.status != 201) {
       throw Error(
-        `Script snapshot creation was not successful: ${req.status} - ${
-          req.statusText
+        `Script snapshot creation was not successful: ${req.status} - ${req.statusText
         } - ${await req.text()} `
       );
     }
@@ -507,8 +517,8 @@ export async function findContentFile(filePath: string) {
   const candidates = filePath.endsWith("script.json")
     ? exts.map((x) => filePath.replace(".script.json", x))
     : filePath.endsWith("script.lock")
-    ? exts.map((x) => filePath.replace(".script.lock", x))
-    : exts.map((x) => filePath.replace(".script.yaml", x));
+      ? exts.map((x) => filePath.replace(".script.lock", x))
+      : exts.map((x) => filePath.replace(".script.yaml", x));
 
   const validCandidates = (
     await Promise.all(
@@ -527,7 +537,7 @@ export async function findContentFile(filePath: string) {
   if (validCandidates.length > 1) {
     throw new Error(
       "No content path given and more than one candidate found: " +
-        validCandidates.join(", ")
+      validCandidates.join(", ")
     );
   }
   if (validCandidates.length < 1) {
@@ -624,7 +634,7 @@ export const exts = [
   ".nu",
   ".playbook.yml",
   ".java",
-  ".rb"
+  ".rb",
   // for related places search: ADD_NEW_LANG
 ];
 
@@ -727,7 +737,7 @@ async function run(
       if (opts.silent) {
         console.log(result);
       } else {
-        log.info(result);
+        log.info(JSON.stringify(result, null, 2));
       }
 
       break;
@@ -885,7 +895,10 @@ async function bootstrap(
   );
 }
 
-export type GlobalDeps = Map<LanguageWithRawReqsSupport, Record<string, string>>;
+export type GlobalDeps = Map<
+  LanguageWithRawReqsSupport,
+  Record<string, string>
+>;
 
 export async function findGlobalDeps(): Promise<GlobalDeps> {
   var globalDeps: GlobalDeps = new Map();
@@ -895,9 +908,8 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
     return (
       !isDir &&
       // Skip if the filename is not one of lockfile names
-      !(languagesWithRawReqsSupport.some(
-        lockfile =>
-        p.endsWith(SEP + lockfile.rrFilename))
+      !languagesWithRawReqsSupport.some((lockfile) =>
+        p.endsWith(SEP + lockfile.rrFilename)
       )
     );
   }, els)) {
@@ -906,9 +918,11 @@ export async function findGlobalDeps(): Promise<GlobalDeps> {
 
     // Iterate over available languages to find which lockfile
     languagesWithRawReqsSupport.map((lock) => {
-      if (entry.path.endsWith(lock.rrFilename)){
+      if (entry.path.endsWith(lock.rrFilename)) {
         const current = globalDeps.get(lock) ?? {};
-        current[entry.path.substring(0, entry.path.length - lock.rrFilename.length)] = content;
+        current[
+          entry.path.substring(0, entry.path.length - lock.rrFilename.length)
+        ] = content;
         globalDeps.set(lock, current);
       }
     });
@@ -924,7 +938,7 @@ async function generateMetadata(
   scriptPath: string | undefined
 ) {
   log.info(
-    "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate - locks`"
+    "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate-locks`"
   );
   if (scriptPath == "") {
     scriptPath = undefined;

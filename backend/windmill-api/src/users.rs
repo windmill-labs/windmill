@@ -71,6 +71,7 @@ pub fn workspaced_service() -> Router {
         .route("/get/:user", get(get_workspace_user))
         .route("/update/:user", post(update_workspace_user))
         .route("/delete/:user", delete(delete_workspace_user))
+        .route("/convert_to_group/:user", post(convert_user_to_group))
         .route("/is_owner/*path", get(is_owner_of_path))
         .route("/whois/:username", get(whois))
         .route("/whoami", get(whoami))
@@ -109,6 +110,7 @@ pub fn global_service() -> Router {
         .route("/leave_instance", post(leave_instance))
         .route("/export", get(export_global_users))
         .route("/overwrite", post(overwrite_global_users))
+        .route("/onboarding", post(submit_onboarding_data))
 
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
@@ -285,6 +287,7 @@ pub struct GlobalUserInfo {
     username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     operator_only: Option<bool>,
+    first_time_user: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -532,7 +535,7 @@ async fn list_users_as_super_admin(
             GlobalUserInfo,
             "WITH active_users AS (SELECT distinct username as email FROM audit WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
-            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username
+            SELECT email, email NOT IN (SELECT email FROM authors) as operator_only, login_type::text, verified, super_admin, devops, name, company, username, first_time_user
             FROM password
             WHERE email IN (SELECT email FROM active_users)
             ORDER BY super_admin DESC, devops DESC
@@ -545,7 +548,7 @@ async fn list_users_as_super_admin(
     } else {
         sqlx::query_as!(
             GlobalUserInfo,
-            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
+            "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only, first_time_user FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT \
             $1 OFFSET $2",
             per_page as i32,
             offset as i32
@@ -582,7 +585,7 @@ async fn update_tutorial_progress(
     Json(progress): Json<Progress>,
 ) -> Result<String> {
     sqlx::query_scalar!(
-        "INSERT INTO tutorial_progress VALUES ($2, $1::bigint::bit(64)) ON CONFLICT (email) DO UPDATE SET progress = $1::bigint::bit(64)",
+        "INSERT INTO tutorial_progress VALUES ($2, $1::bigint::bit(64)) ON CONFLICT (email) DO UPDATE SET progress = EXCLUDED.progress",
         progress.progress as i64,
         authed.email
     )
@@ -748,7 +751,7 @@ async fn global_whoami(
 ) -> JsonResult<GlobalUserInfo> {
     let user = sqlx::query_as!(
         GlobalUserInfo,
-        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only FROM password WHERE \
+        "SELECT email, login_type::TEXT, super_admin, devops, verified, name, company, username, NULL::bool as operator_only, first_time_user FROM password WHERE \
          email = $1",
         email
     )
@@ -769,6 +772,7 @@ async fn global_whoami(
             company: None,
             username: None,
             operator_only: None,
+            first_time_user: false,
         }))
     } else {
         Err(user.unwrap_err())
@@ -1362,6 +1366,151 @@ async fn update_workspace_user(
     Ok(format!("user {} updated", user_email))
 }
 
+async fn convert_user_to_group(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, username_to_convert)): Path<(String, String)>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let mut tx = db.begin().await?;
+
+    // Get user email and current status
+    let user_info = sqlx::query!(
+        "SELECT email, is_admin, operator, added_via FROM usr WHERE username = $1 AND workspace_id = $2",
+        username_to_convert,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let user_info = not_found_if_none(user_info, "User", &username_to_convert)?;
+
+    // Check if user is already a group user
+    if let Some(added_via) = &user_info.added_via {
+        if added_via.get("source").and_then(|v| v.as_str()) == Some("instance_group") {
+            return Err(Error::BadRequest(
+                "User is already a group user".to_string(),
+            ));
+        }
+    }
+
+    // Find which instance groups this user belongs to that are configured for auto-add in this workspace
+    let eligible_groups = sqlx::query!(
+        r#"
+        SELECT
+            eig.igroup as group_name,
+            ws.auto_add_instance_groups_roles
+        FROM email_to_igroup eig
+        INNER JOIN workspace_settings ws ON ws.workspace_id = $1
+        WHERE eig.email = $2
+        AND eig.igroup = ANY(ws.auto_add_instance_groups)
+        "#,
+        &w_id,
+        &user_info.email
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    if eligible_groups.is_empty() {
+        return Err(Error::BadRequest(
+            "User is not a member of any instance groups configured for auto-add in this workspace"
+                .to_string(),
+        ));
+    }
+
+    // Determine the group with highest precedence (same logic as process_instance_group_auto_adds)
+    let roles: std::collections::HashMap<String, String> =
+        if let Some(roles_json) = &eligible_groups[0].auto_add_instance_groups_roles {
+            serde_json::from_value(roles_json.clone()).unwrap_or_default()
+        } else {
+            std::collections::HashMap::new()
+        };
+
+    let mut best_group = &eligible_groups[0].group_name;
+    let mut best_precedence = 0u8;
+
+    for group in &eligible_groups {
+        let default_role = "developer".to_string();
+        let role = roles.get(&group.group_name).unwrap_or(&default_role);
+
+        let precedence = match role.as_str() {
+            "admin" => 3,
+            "developer" => 2,
+            "operator" => 1,
+            _ => 2,
+        };
+
+        if precedence > best_precedence {
+            best_precedence = precedence;
+            best_group = &group.group_name;
+        }
+    }
+
+    let primary_group_name = best_group;
+
+    // Determine role from group configuration using the selected primary group
+    let default_role = "developer".to_string();
+    let role = roles
+        .get(primary_group_name)
+        .unwrap_or(&default_role)
+        .as_str();
+
+    let (is_admin, is_operator) = match role {
+        "admin" => (true, false),
+        "operator" => (false, true),
+        _ => (false, false),
+    };
+
+    // Update user with instance group information
+    let instance_group_source = serde_json::json!({
+        "source": "instance_group",
+        "group": primary_group_name
+    });
+
+    sqlx::query!(
+        "UPDATE usr SET added_via = $1, is_admin = $2, operator = $3 WHERE username = $4 AND workspace_id = $5",
+        instance_group_source,
+        is_admin,
+        is_operator,
+        username_to_convert,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.convert_to_group",
+        ActionKind::Update,
+        &w_id,
+        Some(&username_to_convert),
+        Some([("group", primary_group_name.as_str()), ("role", role)].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::User { email: user_info.email.clone() },
+        Some(format!(
+            "Converted user '{}' to group user (group: {}, role: {})",
+            &user_info.email, primary_group_name, role
+        )),
+        true,
+    )
+    .await?;
+
+    Ok(format!(
+        "User {} converted to group user (group: {}, role: {})",
+        username_to_convert, primary_group_name, role
+    ))
+}
+
 async fn update_user(
     authed: ApiAuthed,
     Path(email_to_update): Path<String>,
@@ -1459,6 +1608,15 @@ async fn delete_user(
         .execute(&mut *tx)
         .await?;
     }
+
+    // Remove user from all instance groups email_to_igroup
+    sqlx::query!(
+        "DELETE FROM email_to_igroup WHERE email = $1",
+        &email_to_delete
+    )
+    .execute(&mut *tx)
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1486,6 +1644,14 @@ async fn create_user(
     Json(nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
     crate::users_oss::create_user(authed, db, webhook, argon2, nu).await
+}
+
+async fn submit_onboarding_data(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Json(data): Json<crate::users_oss::OnboardingData>,
+) -> Result<String> {
+    crate::users_oss::submit_onboarding_data(authed, Extension(db), Json(data)).await
 }
 
 /// Internal helper for updating workspace user permissions - used by both API and system operations
@@ -1703,15 +1869,15 @@ async fn login(
         username_override: None,
         token_prefix: None,
     };
-    let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
-        "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
+    let email_w_h: Option<(String, String, bool)> = sqlx::query_as(
+        "SELECT email, password_hash, super_admin FROM password WHERE email = $1 AND login_type = \
          'password'",
     )
     .bind(&email)
     .fetch_optional(&mut *tx)
     .await?;
 
-    if let Some((email, hash, super_admin, first_time_user)) = email_w_h {
+    if let Some((email, hash, super_admin)) = email_w_h {
         let parsed_hash =
             PasswordHash::new(&hash).map_err(|e| Error::internal_err(e.to_string()))?;
         if argon2
@@ -1730,25 +1896,6 @@ async fn login(
             .await?;
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
-            if first_time_user {
-                sqlx::query_scalar!(
-                    "UPDATE password SET first_time_user = false WHERE email = $1",
-                    &email
-                )
-                .execute(&mut *tx)
-                .await?;
-                let mut c = Cookie::new("first_time", "1");
-                if let Some(domain) = COOKIE_DOMAIN.as_ref() {
-                    c.set_domain(domain);
-                }
-                c.set_secure(false);
-                c.set_expires(time::OffsetDateTime::now_utc() + time::Duration::minutes(15));
-                c.set_http_only(false);
-                c.set_path("/");
-
-                cookies.add(c);
-            }
-
             let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
 
             let audit_author = AuditAuthor {
@@ -2131,7 +2278,6 @@ struct Runnable {
     workspace: String,
     endpoint_async: String,
     endpoint_sync: String,
-    endpoint_openai_sync: String,
     summary: String,
     description: String,
     schema: Option<serde_json::Value>,
@@ -2183,10 +2329,6 @@ async fn get_all_runnables(
                         "/w/{}/jobs/run_wait_result/f/{}",
                         &f.workspace, &f.path
                     ),
-                    endpoint_openai_sync: format!(
-                        "/w/{}/jobs/openai_sync/f/{}",
-                        &f.workspace, &f.path
-                    ),
                     summary: f.summary,
                     description: f.description,
                     schema: f.schema,
@@ -2196,8 +2338,8 @@ async fn get_all_runnables(
                 .collect::<Vec<_>>(),
         );
         let scripts = sqlx::query!(
-        "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o 
-         WHERE created_at = (select max(created_at) from script where o.path = path and workspace_id = $1 AND archived = false) 
+        "SELECT workspace_id as workspace, path, summary, description, schema FROM script as o
+         WHERE created_at = (select max(created_at) from script where o.path = path and workspace_id = $1 AND archived = false)
          AND workspace_id = $1 and archived = false", workspace
     )
     .fetch_all(&mut *tx)
@@ -2210,10 +2352,6 @@ async fn get_all_runnables(
                     endpoint_async: format!("/w/{}/jobs/run/p/{}", &s.workspace, &s.path),
                     endpoint_sync: format!(
                         "/w/{}/jobs/run_wait_result/p/{}",
-                        &s.workspace, &s.path
-                    ),
-                    endpoint_openai_sync: format!(
-                        "/w/{}/jobs/openai_sync/p/{}",
                         &s.workspace, &s.path
                     ),
                     summary: s.summary,

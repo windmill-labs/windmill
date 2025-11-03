@@ -6,7 +6,7 @@
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import hubPaths from '$lib/hubPaths.json'
-	import { tryEvery } from '$lib/utils'
+	import { jobManager } from '$lib/services/JobManager'
 	import type { SyncResponse, SettingsObject } from '$lib/git-sync'
 
 	interface Props {
@@ -60,7 +60,6 @@
 		}
 	})
 
-
 	// Execute job with dry run or actual execution
 	async function executeJob(isDryRun: boolean) {
 		const isPreview = isDryRun
@@ -105,44 +104,37 @@
 				applyJobStatus = 'running'
 			}
 
-			let jobSuccess = false
-			let result: any = {}
-
-			await tryEvery({
-				tryCode: async () => {
-					const testResult = await JobService.getCompletedJob({ workspace, id: jobId })
-					jobSuccess = !!testResult.success
-					if (jobSuccess) {
-						const jobResult = await JobService.getCompletedJobResult({ workspace, id: jobId })
-						result = jobResult
+			// Use JobManager instead of tryEvery
+			const result = await jobManager.runWithProgress(() => Promise.resolve(jobId), {
+				workspace,
+				timeout: 60000,
+				timeoutMessage: `${isPreview ? 'Preview' : 'Apply'} job timed out after 60s`,
+				onProgress: (status) => {
+					if (isPreview) {
+						previewJobStatus = status.status
+					} else {
+						applyJobStatus = status.status
 					}
-				},
-				timeoutCode: async () => {
-					try {
-						await JobService.cancelQueuedJob({
-							workspace,
-							id: jobId,
-							requestBody: { reason: `${isPreview ? 'Preview' : 'Apply'} job timed out after 60s` }
-						})
-					} catch (err) {}
-				},
-				interval: 500,
-				timeout: 60000
+
+					// Handle failure status
+					if (status.status === 'failure') {
+						if (isPreview) {
+							previewError = status.error || 'Preview failed'
+						} else {
+							applyError = status.error || 'Push failed'
+						}
+					}
+				}
 			})
 
+			// Handle successful result
 			if (isPreview) {
-				previewJobStatus = jobSuccess ? 'success' : 'failure'
-				if (jobSuccess) {
-					previewResult = result
-				} else {
-					previewError = 'Preview failed'
+				if (previewJobStatus === 'success') {
+					previewResult = result as SyncResponse
 				}
 			} else {
-				applyJobStatus = jobSuccess ? 'success' : 'failure'
-				if (jobSuccess) {
+				if (applyJobStatus === 'success') {
 					onSuccess?.()
-				} else {
-					applyError = 'Push failed'
 				}
 			}
 		} catch (e) {
@@ -162,20 +154,26 @@
 			}
 		}
 	}
-
 </script>
-
 
 <Modal bind:open title="Push Workspace to Git Repository" class="sm:max-w-4xl">
 	<div class="flex flex-col gap-4">
 		<!-- Description -->
-		<p class="text-sm text-secondary">Push your current workspace content to the connected Git repository based on the configured filters.</p>
-		<p class="text-sm text-tertiary">Note: This will not update git sync settings in wmill.yaml. Settings can only be pulled from the repository as it is the source of truth.</p>
+		<p class="text-sm text-secondary"
+			>Push your current workspace content to the connected Git repository based on the configured
+			filters.</p
+		>
+		<p class="text-sm text-primary"
+			>Note: This will not update git sync settings in wmill.yaml. Settings can only be pulled from
+			the repository as it is the source of truth.</p
+		>
 
 		<!-- Settings display for new connections -->
 		{#if isNewConnection}
 			<div class="bg-surface-secondary border border-border rounded-lg p-3">
-				<h4 class="text-sm font-medium text-primary mb-2">Settings that will be pushed to repository</h4>
+				<h4 class="text-sm font-medium text-primary mb-2"
+					>Settings that will be pushed to repository</h4
+				>
 				<div class="text-xs text-secondary space-y-1">
 					<div><strong>Include paths:</strong> {uiState.include_path?.join(', ') || 'None'}</div>
 					<div><strong>Exclude paths:</strong> {uiState.exclude_path?.join(', ') || 'None'}</div>
@@ -184,7 +182,9 @@
 					{/if}
 					<div><strong>Include types:</strong> {uiState.include_type?.join(', ') || 'None'}</div>
 				</div>
-				<p class="text-xs text-tertiary mt-2">To modify these settings, cancel and configure them in the workspace settings.</p>
+				<p class="text-xs text-primary mt-2"
+					>To modify these settings, cancel and configure them in the workspace settings.</p
+				>
 			</div>
 		{/if}
 
@@ -193,7 +193,7 @@
 			<div class="flex justify-start pt-4">
 				<Button
 					size="md"
-					color="dark"
+					variant="accent"
 					onclick={() => executeJob(true)}
 					disabled={isPreviewLoading}
 					startIcon={{
@@ -208,7 +208,7 @@
 
 		<!-- Job status for preview -->
 		{#if previewJobId}
-			<div class="flex items-center gap-2 text-xs text-tertiary">
+			<div class="flex items-center gap-2 text-xs text-primary">
 				{#if previewJobStatus === 'running'}
 					<Loader2 class="animate-spin" size={14} />
 				{:else if previewJobStatus === 'success'}
@@ -240,10 +240,10 @@
 				<h4 class="text-sm font-semibold text-primary">Changes to Push</h4>
 
 				{#if previewResult.changes?.length > 0}
-					<GitDiffPreview previewResult={previewResult} />
+					<GitDiffPreview {previewResult} />
 				{:else}
 					<div class="bg-surface-secondary rounded-lg p-3">
-						<div class="text-sm text-tertiary">No changes to push to the repository.</div>
+						<div class="text-sm text-primary">No changes to push to the repository.</div>
 					</div>
 				{/if}
 			</div>
@@ -253,40 +253,38 @@
 		{#if previewResult && !previewError}
 			{@const hasChanges = previewResult.changes?.length > 0}
 			{#if hasChanges}
-			<div class="border-t pt-4 mt-4">
-				<div class="flex justify-start gap-2">
-					<Button
-						size="xs"
-						onclick={() => executeJob(false)}
-						disabled={isApplying}
-						startIcon={{
-							icon: isApplying ? Loader2 : undefined,
-							classes: isApplying ? 'animate-spin' : ''
-						}}
-					>
-						{isApplying ?
-							(isNewConnection ? 'Initializing...' : 'Pushing...') :
-							(isNewConnection ? 'Initialize repo and save connection' : 'Push to repository')
-						}
-					</Button>
-					{#if isNewConnection && onSaveWithoutInit}
+				<div class="border-t pt-4 mt-4">
+					<div class="flex justify-start gap-2">
 						<Button
 							size="xs"
-							color="light"
-							onclick={onSaveWithoutInit}
+							onclick={() => executeJob(false)}
 							disabled={isApplying}
+							startIcon={{
+								icon: isApplying ? Loader2 : undefined,
+								classes: isApplying ? 'animate-spin' : ''
+							}}
 						>
-							Save without initializing repo
+							{isApplying
+								? isNewConnection
+									? 'Initializing...'
+									: 'Pushing...'
+								: isNewConnection
+									? 'Initialize repo and save connection'
+									: 'Push to repository'}
 						</Button>
-					{/if}
+						{#if isNewConnection && onSaveWithoutInit}
+							<Button size="xs" color="light" onclick={onSaveWithoutInit} disabled={isApplying}>
+								Save without initializing repo
+							</Button>
+						{/if}
+					</div>
 				</div>
-			</div>
 			{/if}
 		{/if}
 
 		<!-- Job status for apply -->
 		{#if applyJobId}
-			<div class="flex items-center gap-2 text-xs text-tertiary">
+			<div class="flex items-center gap-2 text-xs text-primary">
 				{#if applyJobStatus === 'running'}
 					<Loader2 class="animate-spin" size={14} />
 				{:else if applyJobStatus === 'success'}
@@ -316,7 +314,7 @@
 		<div class="border-t pt-4 mt-4">
 			<button
 				class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
-				onclick={() => showCliInstructions = !showCliInstructions}
+				onclick={() => (showCliInstructions = !showCliInstructions)}
 			>
 				<Terminal size={16} />
 				<span>CLI Instructions</span>
@@ -336,7 +334,8 @@ wmill workspace add {$workspaceStore} {$workspaceStore} {window.location.origin}
 wmill init --workspace {$workspaceStore} --repository {gitRepoResourcePath}
 
 # Pull workspace content to git repository
-wmill sync pull --workspace {$workspaceStore} --repository {gitRepoResourcePath}</pre>
+wmill sync pull --workspace {$workspaceStore} --repository {gitRepoResourcePath}</pre
+					>
 				</div>
 			{/if}
 		</div>

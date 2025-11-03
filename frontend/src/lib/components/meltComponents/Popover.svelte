@@ -8,7 +8,7 @@
 
 <script lang="ts">
 	import { createPopover, createSync, melt } from '@melt-ui/svelte'
-	import { fade } from 'svelte/transition'
+	import { fly } from 'svelte/transition'
 	import { X, Minimize2, Maximize2 } from 'lucide-svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { debounce, pointerDownOutside } from '$lib/utils'
@@ -38,9 +38,13 @@
 	export let documentationLink: string | undefined = undefined
 	export let disableFocusTrap: boolean = false
 	export let escapeBehavior: EscapeBehaviorType = 'close'
+	export let enableFlyTransition: boolean = false
 
 	let fullScreen = false
 	const dispatch = createEventDispatcher()
+
+	// Dynamic portal: use 'body' when fullscreen, otherwise use the provided portal
+	$: dynamicPortal = fullScreen ? 'body' : portal
 
 	function clearTimers() {
 		clearDebounceClose()
@@ -53,11 +57,11 @@
 	const {
 		elements: { trigger, content, arrow, close: closeElement, overlay },
 		states,
-		options: { closeOnOutsideClick: closeOnOutsideClickOption, positioning },
+		options: { closeOnOutsideClick: closeOnOutsideClickOption, positioning, portal: portalOption },
 		ids: { content: popoverId }
 	} = createPopover({
 		forceVisible: true,
-		portal,
+		portal: dynamicPortal,
 		disableFocusTrap,
 		escapeBehavior,
 		onOpenChange: ({ curr, next }) => {
@@ -86,8 +90,16 @@
 	$positioning = floatingConfig ?? {
 		placement,
 		strategy: 'absolute',
-		x: undefined,
-		y: undefined
+		gutter: 8,
+		overflowPadding: 16,
+		flip: true,
+		fitViewport: true,
+		overlap: false
+	}
+
+	// Update portal reactively when fullscreen state changes
+	$: if (portalOption) {
+		$portalOption = dynamicPortal
 	}
 
 	export let isOpen = false
@@ -168,9 +180,9 @@
 		}}
 		on:mouseleave={debounceClose}
 		use:melt={$content}
-		transition:fade={{ duration: 0 }}
+		transition:fly={{ duration: enableFlyTransition ? 100 : 0, y: -16 }}
 		class={twMerge(
-			'relative border rounded-md bg-surface shadow-lg',
+			'relative dark:border rounded-md bg-surface-tertiary shadow-lg',
 			fullScreen
 				? `fixed !top-1/2 !left-1/2 !-translate-x-1/2 !-translate-y-1/2 !resize-none`
 				: 'w-fit',
@@ -188,11 +200,11 @@
 			<div class="absolute top-0 right-0 z-10">
 				<Button
 					on:click={() => (fullScreen = !fullScreen)}
-					color="light"
-					size="xs2"
+					variant="subtle"
+					unifiedSize="sm"
+					btnClasses="text-secondary"
 					iconOnly
 					startIcon={fullScreen ? { icon: Minimize2 } : { icon: Maximize2 }}
-					btnClasses="text-gray-400"
 				/>
 			</div>
 		{/if}
@@ -216,6 +228,6 @@
 		@apply absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full;
 		@apply text-primary  transition-colors hover:bg-surface-hover;
 		@apply focus-visible:ring focus-visible:ring-gray-400 focus-visible:ring-offset-2;
-		@apply bg-surface p-0 text-sm font-medium;
+		@apply bg-surface p-0 text-sm font-semibold;
 	}
 </style>

@@ -31,7 +31,7 @@
 	{#snippet trigger()}
 		<div
 			class={twMerge(
-				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-tertiary text-xs cursor-default hover:bg-surface-hover hover:cursor-pointer max-w-48 bg-surface'
+				'border rounded-md px-1 py-0.5 flex flex-row items-center gap-1 text-primary text-xs cursor-default hover:bg-surface-hover hover:cursor-pointer max-w-48 bg-surface'
 			)}
 			onmouseenter={() => (showDelete = true)}
 			onmouseleave={() => (showDelete = false)}
@@ -75,7 +75,7 @@
 				{:else if contextElement.schema}
 					<ObjectViewer json={formatSchema(contextElement.schema)} pureViewer collapseLevel={1} />
 				{:else}
-					<div class="text-tertiary">Not loaded yet</div>
+					<div class="text-primary">Not loaded yet</div>
 				{/if}
 			</div>
 		{:else if contextElement.type === 'code' || contextElement.type === 'code_piece' || contextElement.type === 'diff' || contextElement.type === 'flow_module_code_piece'}
@@ -83,7 +83,7 @@
 				<HighlightCode
 					language={contextElement.lang}
 					code={contextElement.content}
-					class="w-full p-2 "
+					className="w-full p-2 "
 				/>
 			</div>
 		{:else if contextElement.type === 'flow_module'}
@@ -92,12 +92,12 @@
 					<HighlightCode
 						language={contextElement.value.language}
 						code={contextElement.value.content}
-						class="w-full p-2 "
+						className="w-full p-2 "
 					/>
 				</div>
 			{:else}
 				<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
-					<div class="text-tertiary">{contextElement.title}</div>
+					<div class="text-primary">{contextElement.title}</div>
 				</div>
 			{/if}
 		{/if}

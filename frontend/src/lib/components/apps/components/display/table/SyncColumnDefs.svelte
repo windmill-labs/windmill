@@ -71,20 +71,10 @@
 
 		// Type guard for configuration structure
 		const conf = rawConf as ColumnDefsConfiguration
-		if (!conf.type || (conf.type !== 'static' && conf.type !== 'evalv2')) return
+		if (!conf.type || conf.type !== 'static') return
 
 		let currentColumns: WindmillColumnDef[] | undefined
-		if (conf.type === 'static') {
-			currentColumns = Array.isArray(conf.value) ? conf.value : []
-		} else if (conf.type === 'evalv2') {
-			try {
-				const parsed = JSON.parse(conf.expr ?? '[]')
-				currentColumns = Array.isArray(parsed) ? parsed : []
-			} catch (e) {
-				console.warn('Failed to parse columnDefs expression:', e)
-				currentColumns = []
-			}
-		}
+		currentColumns = Array.isArray(conf.value) ? conf.value : []
 
 		const hasPlaceholder = hasActionsPlaceholder(currentColumns)
 
@@ -99,11 +89,7 @@
 		if (needsRemove) nextColumns = removeActionsPlaceholder(nextColumns)
 
 		// Update configuration with proper typing
-		if (conf.type === 'static') {
-			conf.value = nextColumns
-		} else if (conf.type === 'evalv2') {
-			conf.expr = JSON.stringify(nextColumns)
-		}
+		conf.value = nextColumns
 
 		await updateConfiguration()
 	}
@@ -118,11 +104,12 @@
 		}
 	})
 
+	let keys = $derived(Object.keys(result[0] ?? []).filter((x) => x !== '__index'))
+
 	async function syncColumns() {
 		const gridItem = findGridItem($app, id)
 
 		if (gridItem && result) {
-			const keys = Object.keys(result[0] ?? {}) ?? []
 			const conf = gridItem.data.configuration.columnDefs as ColumnDefsConfiguration
 
 			const newColumns: WindmillColumnDef[] = keys.map((key) => ({
@@ -171,12 +158,17 @@
 					<div class="flex flex-col items-start gap-2">
 						<div class="text-xs"> No columns definition found. Columns found in data: </div>
 						<div class="text-sm flex flex-row gap-2">
-							{#each Object.keys(result[0] ?? []) as key}
+							{#each keys as key}
 								<Badge small color="dark-gray">{key}</Badge>
 							{/each}
 						</div>
 						<div class="w-full flex fles-row justify-end">
-							<Button startIcon={{ icon: RefreshCw }} size="xs" color="dark" on:click={syncColumns}>
+							<Button
+								startIcon={{ icon: RefreshCw }}
+								size="xs"
+								variant="accent"
+								on:click={syncColumns}
+							>
 								Sync columns definition
 							</Button>
 						</div>

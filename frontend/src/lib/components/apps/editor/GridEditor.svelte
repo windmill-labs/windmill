@@ -128,7 +128,6 @@
 	}
 </script>
 
-<input />
 <div class="w-full z-[1000] overflow-visible h-full">
 	<div class={$app.hideLegacyTopBar ? 'hidden' : ''}>
 		<div
@@ -145,7 +144,7 @@
 				</div>
 				{#if $bgRuns.length > 0}
 					<Popover notClickable>
-						<span class="!text-2xs text-tertiary inline-flex gap-1 items-center"
+						<span class="!text-2xs text-primary inline-flex gap-1 items-center"
 							><Loader2 size={10} class="animate-spin" /> {$bgRuns.length}
 						</span>
 						{#snippet text()}
@@ -153,7 +152,7 @@
 								><div class="flex flex-col">
 									{#each $bgRuns as bgRun}
 										<div class="flex gap-2 items-center">
-											<div class="text-2xs text-tertiary">{bgRun}</div>
+											<div class="text-2xs text-primary">{bgRun}</div>
 										</div>
 									{/each}
 								</div></span
@@ -167,7 +166,13 @@
 			<div class="flex text-2xs gap-8 items-center">
 				<div class="py-2 pr-2 text-secondary flex gap-1 items-center">
 					Hide bar on view
-					<Toggle size="xs" bind:checked={$app.norefreshbar} />
+					<Toggle
+						size="xs"
+						bind:checked={
+							() => $app.norefreshbar ?? false,
+							(v) => ($app.norefreshbar !== undefined || v) && ($app.norefreshbar = v)
+						}
+					/>
 				</div>
 				<div>
 					{policy.on_behalf_of ? `Author ${policy.on_behalf_of_email}` : ''}

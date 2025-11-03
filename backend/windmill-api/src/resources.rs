@@ -11,8 +11,9 @@ use std::collections::HashMap;
 use crate::{
     db::{ApiAuthed, DB},
     users::{maybe_refresh_folders, require_owner_of_path, Tokened},
-    utils::{check_scopes, BulkDeleteRequest},
+    utils::{check_scopes, require_super_admin, BulkDeleteRequest},
     var_resource_cache::{cache_resource, get_cached_resource},
+    variables::get_value_internal,
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -28,15 +29,19 @@ use serde::{Deserialize, Serialize};
 use serde_json::{value::RawValue, Value};
 use sql_builder::{bind::Bind, quote, SqlBuilder};
 use sqlx::{FromRow, Postgres, Transaction};
+use std::process::Stdio;
+use tokio::process::Command;
 use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    db::{UserDB, UserDbWithOptAuthed},
-    error::{Error, JsonResult, Result},
+    db::{UserDB, UserDbWithAuthed, UserDbWithOptAuthed},
+    error::{self, Error, JsonResult, Result},
+    get_database_url, parse_postgres_url,
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
     variables,
-    worker::CLOUD_HOSTED,
+    worker::{CLOUD_HOSTED, TMP_DIR},
+    workspaces::get_ducklake_instance_pg_catalog_password,
 };
 
 pub fn workspaced_service() -> Router {
@@ -56,6 +61,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/*path", delete(delete_resource))
         .route("/delete_bulk", delete(delete_resources_bulk))
         .route("/create", post(create_resource))
+        .route("/git_commit_hash/*path", get(get_git_commit_hash))
         .route("/type/list", get(list_resource_types))
         .route("/type/listnames", get(list_resource_types_names))
         .route("/type/get/:name", get(get_resource_type))
@@ -67,6 +73,7 @@ pub fn workspaced_service() -> Router {
             get(file_resource_ext_to_resource_type),
         )
         .route("/type/create", post(create_resource_type))
+        .route("/mcp_tools/*path", get(get_mcp_tools))
 }
 
 pub fn public_service() -> Router {
@@ -462,6 +469,20 @@ pub async fn get_resource_value_interpolated_internal(
     token: &str,
     allow_cache: bool,
 ) -> Result<Option<serde_json::Value>> {
+    // This is a special syntax to help debugging ducklake catalogs stored in the instance
+    if let Some(dbname) = path.strip_prefix("INSTANCE_DUCKLAKE_CATALOG/") {
+        require_super_admin(db, &authed.email).await?;
+        let pg_creds = parse_postgres_url(&get_database_url().await?)?;
+        return Ok(Some(serde_json::json!({
+            "dbname": dbname,
+            "host": pg_creds.host,
+            "port": pg_creds.port,
+            "user": "ducklake_user",
+            "sslmode": pg_creds.ssl_mode,
+            "password": get_ducklake_instance_pg_catalog_password(&db).await?,
+        })));
+    }
+
     if allow_cache {
         if let Some(cached_value) = get_cached_resource(&workspace, &path) {
             return Ok(Some(cached_value));
@@ -515,7 +536,8 @@ pub async fn transform_json_value<'c>(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let userdb_authed = UserDbWithOptAuthed { authed: authed, user_db: user_db.clone(), db: db.clone() };
+            let userdb_authed =
+                UserDbWithOptAuthed { authed: authed, user_db: user_db.clone(), db: db.clone() };
 
             let v = crate::variables::get_value_internal(
                 &userdb_authed,
@@ -615,6 +637,7 @@ pub async fn transform_json_value<'c>(
                 job.flow_innermost_root_job.map(|x| x.to_string()),
                 job.root_job.map(|x| x.to_string()),
                 Some(job.scheduled_for.clone()),
+                None,
                 None,
             )
             .await;
@@ -719,7 +742,7 @@ async fn create_resource(
         "INSERT INTO resource
             (workspace_id, path, value, description, resource_type, created_by, edited_at)
             VALUES ($1, $2, $3, $4, $5, $6, now()) ON CONFLICT (workspace_id, path)
-            DO UPDATE SET value = $3, description = $4, resource_type = $5, edited_at = now()",
+            DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description, resource_type = EXCLUDED.resource_type, edited_at = now()",
         w_id,
         resource.path,
         raw_json as sqlx::types::Json<&RawValue>,
@@ -1368,4 +1391,281 @@ where
     };
 
     Ok(resource)
+}
+
+/// Get list of tools from an MCP resource
+async fn get_mcp_tools(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Vec<serde_json::Value>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    // Fetch the MCP resource from database
+    let resource_value_o = sqlx::query_scalar!(
+        "SELECT value as \"value: sqlx::types::Json<Box<RawValue>>\" FROM resource WHERE path = $1 AND workspace_id = $2",
+        &path,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    if resource_value_o.is_none() {
+        explain_resource_perm_error(&path, &w_id, &db, &authed).await?;
+    }
+
+    let resource_value = not_found_if_none(resource_value_o, "Resource", path)?
+        .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", path)))?;
+
+    // Parse MCP resource
+    let mcp_resource =
+        serde_json::from_str::<windmill_common::mcp_client::McpResource>(resource_value.0.get())
+            .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
+
+    // Create MCP client connection
+    let client = windmill_common::mcp_client::McpClient::from_resource(mcp_resource, &db, &w_id)
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Failed to connect to MCP server: {}", e)))?;
+
+    // Get raw MCP tools and convert to JSON
+    let tools: Vec<serde_json::Value> = client
+        .available_tools()
+        .iter()
+        .map(|tool| {
+            serde_json::to_value(tool)
+                .map_err(|e| Error::ExecutionErr(format!("Failed to serialize MCP tool: {}", e)))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    // Gracefully shutdown the client
+    if let Err(e) = client.shutdown().await {
+        tracing::warn!("Failed to shutdown MCP client: {}", e);
+    }
+
+    Ok(Json(tools))
+}
+
+#[derive(Deserialize, Serialize)]
+struct GitRepositoryResource {
+    url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    branch: Option<String>,
+}
+
+#[derive(Serialize)]
+struct GitCommitHashResponse {
+    commit_hash: String,
+}
+
+#[derive(Deserialize)]
+struct GitCommitHashQuery {
+    git_ssh_identity: Option<String>,
+}
+
+async fn get_git_commit_hash(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Tokened { token }: Tokened,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<GitCommitHashQuery>,
+) -> JsonResult<GitCommitHashResponse> {
+    let path = path.to_path();
+
+    check_scopes(&authed, || format!("resources:read:{}", path))?;
+
+    let git_repo_resource_value = get_resource_value_interpolated_internal(
+        &authed,
+        Some(user_db.clone()),
+        &db,
+        &w_id,
+        path,
+        None,
+        &token,
+        false,
+    )
+    .await
+    .map_err(|e| Error::NotFound(format!("Access to resource {} denied: ({e})", path)))?;
+
+    let git_resource: GitRepositoryResource = match git_repo_resource_value {
+        Some(value) => serde_json::from_value(value).map_err(|e| {
+            Error::BadRequest(format!("Invalid git repository resource format: {}", e))
+        })?,
+        None => return Err(Error::NotFound(format!("Resource {} not found", path)).into()),
+    };
+
+    let identities: Vec<String> = query
+        .git_ssh_identity
+        .map(|s| {
+            s.split(",")
+                .filter_map(|s| {
+                    if !s.is_empty() {
+                        Some(s.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or(vec![]);
+
+    let (git_ssh_cmd, filenames) =
+        get_git_ssh_cmd(&authed, &user_db, &db, &w_id, identities).await?;
+
+    let commit_hash = get_repo_latest_commit_hash(&git_resource, git_ssh_cmd).await;
+
+    delete_paths(&filenames).await;
+
+    Ok(Json(GitCommitHashResponse { commit_hash: commit_hash? }))
+}
+
+async fn write_ssh_file(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    db: &DB,
+    w_id: &str,
+    var_path: &str,
+) -> std::result::Result<std::path::PathBuf, (error::Error, std::path::PathBuf)> {
+    let id_file_name = format!(".ssh_id_priv_{}", Uuid::new_v4());
+    let loc = std::path::Path::new(TMP_DIR)
+        .join("ssh_ids")
+        .join(id_file_name);
+
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let mut content = get_value_internal(&userdb_authed, db, w_id, var_path, authed, false)
+        .await
+        .map_err(|e| {
+            (
+                error::Error::NotFound(format!(
+                    "Variable {var_path} not found for git ssh identity: {e:#}"
+                )),
+                loc.clone(),
+            )
+        })?;
+    content.push_str("\n");
+
+    if let Some(p) = &loc.parent() {
+        tokio::fs::create_dir_all(p)
+            .await
+            .map_err(|e| (e.into(), loc.clone()))?;
+    }
+    tokio::fs::write(&loc, content)
+        .await
+        .map_err(|e| (e.into(), loc.clone()))?;
+
+    #[cfg(unix)]
+    {
+        let perm = std::os::unix::fs::PermissionsExt::from_mode(0o600);
+        tokio::fs::set_permissions(&loc, perm)
+            .await
+            .map_err(|e| (e.into(), loc.clone()))?;
+    }
+
+    return Ok(loc);
+}
+
+async fn delete_paths(paths: &Vec<std::path::PathBuf>) {
+    for path in paths {
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+}
+
+async fn get_git_ssh_cmd(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    db: &DB,
+    w_id: &str,
+    git_ssh_identity: Vec<String>,
+) -> error::Result<(Option<String>, Vec<std::path::PathBuf>)> {
+    if git_ssh_identity.len() > 5 {
+        return Err(error::Error::BadRequest(
+            "Too many ssh identities, try using at most 1".to_string(),
+        ));
+    }
+    if git_ssh_identity.len() == 0 {
+        return Ok((None, vec![]));
+    }
+
+    let mut ssh_id_files = vec![];
+    let mut file_paths = vec![];
+    for var_path in git_ssh_identity.iter() {
+        match write_ssh_file(authed, user_db, db, w_id, &var_path).await {
+            Ok(loc) => {
+                ssh_id_files.push(format!(
+                    " -i '{}'",
+                    loc.to_string_lossy().replace('\'', r"'\''")
+                ));
+                file_paths.push(loc);
+            }
+            Err((e, loc)) => {
+                file_paths.push(loc);
+                delete_paths(&file_paths).await;
+                return Err(e);
+            }
+        }
+    }
+
+    let git_ssh_cmd = format!("ssh -o StrictHostKeyChecking=no{}", ssh_id_files.join(""));
+    Ok((Some(git_ssh_cmd), file_paths))
+}
+
+async fn get_repo_latest_commit_hash(
+    git_resource: &GitRepositoryResource,
+    git_ssh_command: Option<String>,
+) -> Result<String> {
+    let mut git_cmd = Command::new("git");
+
+    let ref_spec = git_resource
+        .branch
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("HEAD");
+
+    git_cmd.args(["ls-remote", &git_resource.url, ref_spec]);
+    if let Some(git_ssh_command) = git_ssh_command {
+        git_cmd.env("GIT_SSH_COMMAND", git_ssh_command);
+    }
+    git_cmd.stderr(Stdio::piped());
+
+    let output = git_cmd
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute git command: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8(output.stderr)
+            .unwrap_or_else(|_| "Failed to decode stderr".to_string());
+        return Err(Error::BadRequest(format!(
+            "Error getting git repo commit hash: {}",
+            stderr
+        )));
+    }
+
+    let stdout = String::from_utf8(output.stdout)
+        .map_err(|e| Error::internal_err(format!("Failed to decode git output: {}", e)))?;
+
+    let lines: Vec<&str> = stdout.lines().collect();
+
+    if lines.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "No commits found for reference '{}' in repository '{}'",
+            ref_spec, git_resource.url
+        )));
+    }
+
+    let commit_hash = lines
+        .first()
+        .and_then(|line| line.split_whitespace().next())
+        .map(|s| s.to_string())
+        .ok_or_else(|| {
+            Error::BadRequest("Unexpected output format for git ls-remote".to_string())
+        })?;
+
+    Ok(commit_hash)
 }

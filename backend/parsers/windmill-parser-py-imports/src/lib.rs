@@ -170,10 +170,10 @@ fn parse_code_for_imports(code: &str, path: &str) -> error::Result<Vec<NImport>>
     // This is needed because we've split off the real main function above
     let code_with_fake_main = format!("{}\n\ndef main(): pass", code);
 
+
     let ast = Suite::parse(&code_with_fake_main, "main.py").map_err(|e| {
         error::Error::ExecutionErr(format!("Error parsing code for imports: {}", e.to_string()))
     })?;
-
     // Note: We're still using the original code for finding pins,
     // as the TextRange values from the parsed AST would be based on code_with_fake_main
     // but we want to match against the original code
@@ -363,11 +363,11 @@ async fn parse_python_imports_inner(
     // This way we make sure there is no multiple annotations for same script
     // and we get detailed span on conflicting versions
 
-    #[derive(serde::Serialize, serde::Deserialize)]
-    struct InlineMetadata {
-        requires_python: String,
-        dependencies: Vec<String>,
-    }
+    // #[derive(serde::Serialize, serde::Deserialize)]
+    // struct InlineMetadata {
+    //     requires_python: String,
+    //     dependencies: Vec<String>,
+    // }
 
     let find_requirements = code.lines().find_position(|x| {
         x.starts_with("#requirements:")
