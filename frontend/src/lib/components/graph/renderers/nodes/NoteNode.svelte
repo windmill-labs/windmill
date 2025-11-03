@@ -22,12 +22,11 @@
 	let textareaElement: HTMLTextAreaElement | undefined = $state(undefined)
 	let editMode = $state(false)
 	let hovering = $state(false)
+	let textContent = $state(data.text ?? '')
 
-	function handleTextChange(event: Event) {
-		const target = event.target as HTMLTextAreaElement
-		console.log('Text change detected', target.value)
-		// Call the update callback
-		data.onUpdate?.(target.value)
+	function handleTextSave() {
+		// Only update parent when done editing
+		data.onUpdate?.(textContent)
 	}
 
 	function handleDelete(event: Event) {
@@ -41,6 +40,7 @@
 		console.log('Double click detected', { editMode, selected, dragging })
 		event.preventDefault()
 		event.stopPropagation()
+		textContent = data.text ?? '' // Initialize local state with current data
 		editMode = true
 		// Focus the textarea after a short delay to ensure it's rendered
 		setTimeout(() => {
@@ -58,7 +58,8 @@
 
 	// Exit edit mode when note is deselected
 	$effect(() => {
-		if (!selected) {
+		if (!selected && editMode) {
+			handleTextSave() // Save changes before exiting
 			editMode = false
 		}
 	})
@@ -117,10 +118,10 @@
 			<!-- Edit mode: show textarea -->
 			<textarea
 				bind:this={textareaElement}
+				bind:value={textContent}
 				class="windmillapp w-full h-full min-h-0 shadow-none resize-none text-xs overflow-y-auto border-none rounded-md bg-transparent transition-colors p-2"
 				placeholder="Add your note here... (Markdown supported)"
-				value={data.text ?? ''}
-				oninput={handleTextChange}
+				onblur={handleTextSave}
 				spellcheck="false"
 			></textarea>
 		{:else}
