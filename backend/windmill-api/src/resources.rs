@@ -798,13 +798,14 @@ async fn delete_resource(
     check_scopes(&authed, || format!("resources:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query!(
-        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2",
+    let deleted_path = sqlx::query_scalar!(
+        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
         path,
         w_id
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+    not_found_if_none(deleted_path, "Resource", &path)?;
     sqlx::query!(
         "DELETE FROM variable WHERE path = $1 AND workspace_id = $2",
         path,
@@ -1248,13 +1249,16 @@ async fn delete_resource_type(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query!(
-        "DELETE FROM resource_type WHERE name = $1 AND workspace_id = $2",
+    let deleted_name = sqlx::query_scalar!(
+        "DELETE FROM resource_type WHERE name = $1 AND workspace_id = $2 RETURNING name",
         name,
         w_id
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+
+    not_found_if_none(deleted_name, "ResourceType", &name)?;
+
     audit_log(
         &mut *tx,
         &authed,
