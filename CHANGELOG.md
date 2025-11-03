@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.572.0](https://github.com/windmill-labs/windmill/compare/v1.571.0...v1.572.0) (2025-11-03)
+
+
+### Features
+
+* **flow:** Add graph diff visualizer ([#6948](https://github.com/windmill-labs/windmill/issues/6948)) ([04d2ef4](https://github.com/windmill-labs/windmill/commit/04d2ef419dfe64c99da55ecead545cb1cc5cf185))
+
+
+### Bug Fixes
+
+* **backend:** add 404 error when not found in resource delete endpoints ([#7036](https://github.com/windmill-labs/windmill/issues/7036)) ([aaadf60](https://github.com/windmill-labs/windmill/commit/aaadf60d8f975df66bb9837d8fe21eaeaaf2e70b))
+* consider duckdb as a normal tag ([#7035](https://github.com/windmill-labs/windmill/issues/7035)) ([16317a4](https://github.com/windmill-labs/windmill/commit/16317a471446e444ada4a67d56be36b146c4dfcf))
+* fix rebuild_dependency_map ([#7026](https://github.com/windmill-labs/windmill/issues/7026)) ([f661caf](https://github.com/windmill-labs/windmill/commit/f661caf2b1bb9cb9a2f388684f94cb3055291da5))
+* include missing tags from default/native consts ([#7034](https://github.com/windmill-labs/windmill/issues/7034)) ([c04489c](https://github.com/windmill-labs/windmill/commit/c04489c463f6b277452b7480659fa65cef1ab1ba))
+
+
+### Performance Improvements
+
+* parse flow value only if needed ([#7025](https://github.com/windmill-labs/windmill/issues/7025)) ([b5e341f](https://github.com/windmill-labs/windmill/commit/b5e341fde79d6335c0e27d0adbe0febd49a09d36))
+
 ## [1.571.0](https://github.com/windmill-labs/windmill/compare/v1.570.0...v1.571.0) (2025-11-01)
 
 
