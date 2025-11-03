@@ -3,51 +3,42 @@
 	import { getContext, untrack } from 'svelte'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
 	import { dfs } from '$lib/components/flows/previousResults'
-	import { dfs as dfsApply } from '$lib/components/flows/dfs'
 	import type { OpenFlow } from '$lib/gen'
 	import { getIndexInNestedModules } from './utils'
-	import type { AIModuleAction, FlowAIChatHelpers } from './core'
+	import type { FlowAIChatHelpers } from './core'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { aiChatManager } from '../AIChatManager.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import YAML from 'yaml'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
+	import { buildFlowTimeline } from '$lib/components/flows/flowDiff'
 
 	let {
-		flowModuleSchemaMap
+		flowModuleSchemaMap,
+		diffMode = $bindable(),
+		beforeFlow = $bindable()
 	}: {
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
+		diffMode?: boolean
+		beforeFlow?: ExtendedOpenFlow
 	} = $props()
 
 	const { flowStore, flowStateStore, selectedId, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	let affectedModules: Record<
-		string,
-		{
-			action: AIModuleAction
-		}
-	> = $state({})
 	let lastSnapshot: ExtendedOpenFlow | undefined = $state(undefined)
 
-	function setModuleStatus(id: string, action: AIModuleAction) {
-		const existingAction: AIModuleAction | undefined = affectedModules[id]?.action
+	// Compute diff timeline using buildFlowTimeline
+	let timeline = $derived.by(() => {
+		if (!lastSnapshot) return undefined
 
-		if (existingAction === 'added' && action === 'modified') {
-			// means it was added but then edited => keep the action as added
-			action = 'added'
-		} else if (existingAction === 'added' && action === 'removed') {
-			delete affectedModules[id]
-			deleteStep(id)
-			return
-		} else if (existingAction === 'removed' && action === 'added') {
-			action = 'modified'
-		}
-		affectedModules[id] = {
-			action
-		}
-	}
+		return buildFlowTimeline(lastSnapshot.value, flowStore.val.value, {
+			markRemovedAsShadowed: false
+		})
+	})
+
+	// Derive module actions from timeline
+	let moduleActions = $derived(timeline?.afterActions)
 
 	function getModule(id: string, flow: OpenFlow = flowStore.val) {
 		if (id === 'preprocessor') {
@@ -81,26 +72,26 @@
 			return flowStore.val.value.modules
 		},
 		hasDiff: () => {
-			return Object.keys(affectedModules).length > 0
+			return timeline !== undefined && Object.keys(moduleActions ?? {}).length > 0
 		},
 		acceptAllModuleActions() {
-			for (const id of Object.keys(affectedModules)) {
+			for (const id of Object.keys(moduleActions ?? {})) {
 				this.acceptModuleAction(id)
 			}
 		},
 		rejectAllModuleActions() {
 			// Do it in reverse to revert nested modules first then parents
-			const ids = Object.keys(affectedModules)
+			const ids = Object.keys(moduleActions ?? {})
 			for (let i = ids.length - 1; i >= 0; i--) {
 				this.revertModuleAction(ids[i])
 			}
-			affectedModules = {}
+			lastSnapshot = undefined
 		},
 		setLastSnapshot: (snapshot) => {
 			lastSnapshot = snapshot
 		},
 		revertToSnapshot: (snapshot?: ExtendedOpenFlow) => {
-			affectedModules = {}
+			lastSnapshot = undefined
 			if (snapshot) {
 				flowStore.val = snapshot
 				refreshStateStore(flowStore)
@@ -121,18 +112,30 @@
 		},
 		revertModuleAction: (id: string) => {
 			{
-				const action = affectedModules[id]?.action
+				// Handle __ prefixed IDs for type-changed modules
+				const actualId = id.startsWith('__') ? id.substring(2) : id
+				const action = moduleActions?.[id]
+
 				if (action && lastSnapshot) {
 					if (id === 'Input') {
 						flowStore.val.schema = lastSnapshot.schema
 					} else if (action === 'added') {
-						deleteStep(id)
+						deleteStep(actualId)
+					} else if (action === 'removed') {
+						// For removed modules, restore from lastSnapshot
+						const oldModule = getModule(actualId, lastSnapshot)
+						if (oldModule) {
+							// Re-insert the module at its original position
+							// This is complex, so for now we'll revert the whole flow and re-apply other changes
+							// TODO: Implement proper re-insertion logic
+							console.warn('Reverting removed module - full flow revert needed')
+						}
 					} else if (action === 'modified') {
-						const oldModule = getModule(id, lastSnapshot)
+						const oldModule = getModule(actualId, lastSnapshot)
 						if (!oldModule) {
 							throw new Error('Module not found')
 						}
-						const newModule = getModule(id)
+						const newModule = getModule(actualId)
 						if (!newModule) {
 							throw new Error('Module not found')
 						}
@@ -141,7 +144,7 @@
 						if (
 							newModule.value.type === 'rawscript' &&
 							$currentEditor?.type === 'script' &&
-							$currentEditor.stepId === id
+							$currentEditor.stepId === actualId
 						) {
 							const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
 							if (aiChatEditorHandler) {
@@ -155,27 +158,32 @@
 					}
 
 					refreshStateStore(flowStore)
-					delete affectedModules[id]
 				}
 			}
 		},
 		acceptModuleAction: (id: string) => {
-			if (affectedModules[id]?.action === 'removed') {
-				deleteStep(id)
+			// Handle __ prefixed IDs for type-changed modules
+			const actualId = id.startsWith('__') ? id.substring(2) : id
+			const action = moduleActions?.[id]
+
+			if (action === 'removed') {
+				deleteStep(actualId)
 			}
 
 			if (
-				affectedModules[id]?.action === 'modified' &&
+				action === 'modified' &&
 				$currentEditor &&
 				$currentEditor.type === 'script' &&
-				$currentEditor.stepId === id
+				$currentEditor.stepId === actualId
 			) {
 				const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
 				if (aiChatEditorHandler) {
 					aiChatEditorHandler.keepAll({ disableReviewCallback: true })
 				}
 			}
-			delete affectedModules[id]
+
+			// Note: We don't delete from moduleActions since it's derived from timeline
+			// Accepting all changes means clearing the lastSnapshot
 		},
 		// ai chat tools
 		setCode: async (id: string, code: string) => {
@@ -202,7 +210,7 @@
 			if ($currentEditor && $currentEditor.type === 'script' && $currentEditor.stepId === id) {
 				$currentEditor.editor.setCode(code)
 			}
-			setModuleStatus(id, 'modified')
+			// Note: No need to manually track status - timeline will compute diff automatically
 		},
 		getFlowInputsSchema: async () => {
 			return flowStore.val.schema ?? {}
@@ -222,9 +230,6 @@
 					lastSnapshot = $state.snapshot(flowStore).val
 				}
 
-				// Store IDs of modules that existed before the change
-				const previousModuleIds = new Set(dfsApply(flowStore.val.value.modules, (m) => m.id))
-
 				// Update the flow structure
 				flowStore.val.value.modules = parsed.modules
 
@@ -241,33 +246,8 @@
 					flowStore.val.schema = parsed.schema
 				}
 
-				// Mark all modules as modified
-				const newModuleIds = dfsApply(flowStore.val.value.modules, (m) => m.id)
-				for (const id of newModuleIds) {
-					// If module is new, mark as added; otherwise mark as modified
-					const action = previousModuleIds.has(id) ? 'modified' : 'added'
-					setModuleStatus(id, action)
-				}
-
-				// Mark modules that were removed
-				for (const id of previousModuleIds) {
-					if (!newModuleIds.includes(id)) {
-						setModuleStatus(id, 'removed')
-					}
-				}
-
-				// Mark special modules if changed
-				if (parsed.preprocessor_module !== undefined) {
-					setModuleStatus('preprocessor', 'modified')
-				}
-				if (parsed.failure_module !== undefined) {
-					setModuleStatus('failure', 'modified')
-				}
-				if (parsed.schema !== undefined) {
-					setModuleStatus('Input', 'modified')
-				}
-
 				// Refresh the state store to update UI
+				// The timeline derived state will automatically compute the diff
 				refreshStateStore(flowStore)
 			} catch (error) {
 				throw new Error(
@@ -290,18 +270,6 @@
 
 		refreshStateStore(flowStore)
 	}
-
-	const allModuleIds = $derived(dfsApply(flowStore.val.value.modules, (m) => m.id))
-
-	$effect(() => {
-		// remove any affected modules that are no longer in the flow
-		const untrackedAffectedModules = untrack(() => affectedModules)
-		for (const id of Object.keys(untrackedAffectedModules)) {
-			if (!allModuleIds.includes(id)) {
-				delete affectedModules[id]
-			}
-		}
-	})
 
 	$effect(() => {
 		const cleanup = aiChatManager.setFlowHelpers(flowHelpers)
@@ -328,7 +296,7 @@
 		if (
 			$currentEditor?.type === 'script' &&
 			$selectedId &&
-			affectedModules[$selectedId] &&
+			moduleActions?.[$selectedId] &&
 			$currentEditor.editor.getAiChatEditorHandler()
 		) {
 			const moduleLastSnapshot = getModule($selectedId, lastSnapshot)
@@ -348,7 +316,14 @@
 		}
 	})
 
-	let diffDrawer: DiffDrawer | undefined = $state(undefined)
+	// Sync diff mode state with parent when AI chat makes changes
+	$effect(() => {
+		if (timeline !== undefined && lastSnapshot) {
+			diffMode = true
+			beforeFlow = lastSnapshot
+		} else {
+			diffMode = false
+			beforeFlow = undefined
+		}
+	})
 </script>
-
-<DiffDrawer bind:this={diffDrawer} />

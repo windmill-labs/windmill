@@ -335,10 +335,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			toolCallbacks.setToolStatus(toolId, { content: 'Flow YAML applied successfully' })
 
 			return 'Flow structure updated via YAML. All affected modules have been marked and require review/acceptance.'
-		},
-		requiresConfirmation: true,
-		confirmationMessage: 'Apply flow YAML changes',
-		showDetails: true
+		}
 	}
 ]
 
