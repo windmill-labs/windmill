@@ -26,7 +26,7 @@
 		/>
 		<button
 			title="Unexpand subflow"
-			class="z-50 absolute -top-[10px] right-[25px] rounded-md h-[20px] w-[20px] center-center text-primary bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white"
+			class="z-50 absolute -top-4 right-11 rounded-md center-center text-primary bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white shadow-md p-1"
 			onclick={stopPropagation(
 				preventDefault(() => {
 					data.eventHandlers.minimizeSubflow(data.subflowId)

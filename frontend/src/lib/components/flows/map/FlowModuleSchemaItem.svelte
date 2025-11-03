@@ -489,10 +489,12 @@
 		</div>
 
 		{#if deletable && !action}
-			<div
-				class="absolute -translate-y-[100%] top-2 -right-2 flex flex-row gap-1 p-1 min-w-[52px] h-7 group justify-end"
-			>
-				{#if id !== 'preprocessor'}
+			{#if maximizeSubflow !== undefined}
+				{@render buttonMaximizeSubflow?.()}
+			{/if}
+
+			{#if id !== 'preprocessor'}
+				<div class={twMerge('absolute -translate-y-[100%] top-2 right-4 h-7 p-1 min-w-7 ')}>
 					<button
 						class={twMerge(
 							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white',
@@ -505,12 +507,10 @@
 					>
 						<Move size={12} />
 					</button>
-				{/if}
+				</div>
+			{/if}
 
-				{#if maximizeSubflow !== undefined && (hover || selected)}
-					{@render buttonMaximizeSubflow?.()}
-				{/if}
-
+			<div class="absolute -translate-y-[100%] top-2 -right-2 h-7 p-1 min-w-7">
 				<button
 					class={twMerge(
 						'trash center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white p-1',
@@ -557,11 +557,7 @@
 				</Popover>
 			{/if}
 		{:else if maximizeSubflow !== undefined}
-			<div
-				class="absolute -translate-y-[100%] top-2 right-10 flex flex-row gap-1 p-1 min-w-[52px] h-7 justify-end"
-			>
-				{@render buttonMaximizeSubflow?.()}
-			</div>
+			{@render buttonMaximizeSubflow?.()}
 		{/if}
 	</div>
 
@@ -624,24 +620,26 @@
 </div>
 
 {#snippet buttonMaximizeSubflow()}
-	<button
-		title="Expand subflow"
-		class={twMerge(
-			'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white p-1',
-			'shadow-md rounded-md'
-		)}
-		onclick={(e) => {
-			e.stopPropagation()
-			e.preventDefault()
-			maximizeSubflow?.()
-		}}
-		onpointerdown={(e) => {
-			e.stopPropagation()
-			e.preventDefault()
-		}}
-	>
-		<Maximize2 size={12} />
-	</button>
+	<div class="absolute -translate-y-[100%] top-2 right-10 h-7 p-1">
+		<button
+			title="Expand subflow"
+			class={twMerge(
+				'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white p-1',
+				'shadow-md rounded-md'
+			)}
+			onclick={(e) => {
+				e.stopPropagation()
+				e.preventDefault()
+				maximizeSubflow?.()
+			}}
+			onpointerdown={(e) => {
+				e.stopPropagation()
+				e.preventDefault()
+			}}
+		>
+			<Maximize2 size={12} />
+		</button>
+	</div>
 {/snippet}
 
 <style>
