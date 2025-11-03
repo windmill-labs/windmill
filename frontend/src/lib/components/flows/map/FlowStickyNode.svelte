@@ -88,9 +88,14 @@
 		</Popover>
 	{/if}
 	<Popover>
-		<button onclick={() => toggleNoteMode?.()} class="relative">
-			<StickyNote size={14} />
-		</button>
+		<Button
+			onclick={() => toggleNoteMode?.()}
+			iconOnly
+			variant="default"
+			size="sm"
+			startIcon={{ icon: StickyNote }}
+			selected={noteMode}
+		></Button>
 		{#snippet text()}
 			{noteMode ? 'Exit note mode' : 'Add notes'}
 		{/snippet}
