@@ -15,7 +15,7 @@
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let flow = $derived(aiChatManager.flowAiChatHelpers?.getPreviewFlow() ?? flowStore.val)
+	let flow = $derived(flowStore.val)
 </script>
 
 <Drawer bind:this={drawer} size="800px">

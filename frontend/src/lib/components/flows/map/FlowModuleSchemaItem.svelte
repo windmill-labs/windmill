@@ -37,9 +37,7 @@
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
-	import ModuleAcceptReject, {
-		getAiModuleAction
-	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
+	import { getAiModuleAction } from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { Button } from '$lib/components/common'
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
@@ -283,9 +281,6 @@
 		onmouseleave={() => (hover = false)}
 		onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
 	>
-		{#if deletable}
-			<ModuleAcceptReject action={moduleAction ?? action} {id} />
-		{/if}
 		{#if moduleAction === 'modified' && onShowModuleDiff && id}
 			<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start z-50">
 				<Button

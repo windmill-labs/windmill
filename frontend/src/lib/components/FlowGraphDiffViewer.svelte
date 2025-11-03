@@ -254,28 +254,26 @@
 					</Pane>
 				</Splitpanes>
 			{:else}
-				<!-- Unified view for narrow screens - show merged flow with all diff colors -->
-				{#if mergedFlow}
-					<div class="h-full overflow-hidden">
-						<FlowGraphV2
-							modules={mergedFlow.modules}
-							failureModule={mergedFlow.failure_module}
-							preprocessorModule={mergedFlow.preprocessor_module}
-							earlyStop={mergedFlow.skip_expr !== undefined}
-							cache={mergedFlow.cache_ttl !== undefined}
-							moduleActions={unifiedActions}
-							{inputSchemaModified}
-							onShowModuleDiff={handleShowModuleDiff}
-							notSelectable={true}
-							insertable={false}
-							editMode={false}
-							download={false}
-							scroll={false}
-							minHeight={400}
-							triggerNode={false}
-						/>
-					</div>
-				{/if}
+				<!-- Unified view - uses FlowGraphV2's built-in diff mode -->
+				<div class="h-full overflow-hidden">
+					<FlowGraphV2
+						diffMode={true}
+						beforeFlow={beforeFlow}
+						modules={afterFlow.value.modules}
+						failureModule={afterFlow.value.failure_module}
+						preprocessorModule={afterFlow.value.preprocessor_module}
+						earlyStop={afterFlow.value.skip_expr !== undefined}
+						cache={afterFlow.value.cache_ttl !== undefined}
+						onShowModuleDiff={handleShowModuleDiff}
+						notSelectable={true}
+						insertable={false}
+						editMode={false}
+						download={false}
+						scroll={false}
+						minHeight={400}
+						triggerNode={false}
+					/>
+				</div>
 			{/if}
 		</div>
 		<!-- Nested DiffDrawer for module-level diffs -->

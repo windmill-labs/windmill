@@ -1116,8 +1116,7 @@
 								)
 
 								diffDrawer?.openDrawer()
-								const currentFlow =
-									aiChatManager.flowAiChatHelpers?.getPreviewFlow() ?? flowStore.val
+								const currentFlow = flowStore.val
 								diffDrawer?.setDiff({
 									mode: 'normal',
 									deployed: deployedValue ?? savedFlow,

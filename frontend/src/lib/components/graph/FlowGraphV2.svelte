@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { FlowService, type FlowModule, type Job } from '../../gen'
+	import { FlowService, type FlowModule, type Job, type OpenFlow } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, setContext, tick, untrack, type Snippet } from 'svelte'
+	import { buildFlowTimeline, hasInputSchemaChanged } from '../flows/flowDiff'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
@@ -142,6 +143,9 @@
 		sharedViewport?: Viewport
 		onViewportChange?: (viewport: Viewport, isUserInitiated: boolean) => void
 		leftHeader?: Snippet
+		// Diff mode props
+		diffMode?: boolean
+		beforeFlow?: OpenFlow
 	}
 
 	let {
@@ -199,7 +203,9 @@
 		chatInputEnabled = false,
 		sharedViewport = undefined,
 		onViewportChange = undefined,
-		leftHeader = undefined
+		leftHeader = undefined,
+		diffMode = false,
+		beforeFlow = undefined
 	}: Props = $props()
 
 	setContext<{
@@ -380,7 +386,52 @@
 		}
 	}
 
-	let moduleTracker = new ChangeTracker($state.snapshot(modules))
+	// Compute diff when diffMode is enabled
+	let computedDiff = $derived.by(() => {
+		if (!diffMode || !beforeFlow || !modules) {
+			return undefined
+		}
+
+		// Construct current flow value from props
+		const afterFlowValue = {
+			modules: modules,
+			failure_module: failureModule,
+			preprocessor_module: preprocessorModule,
+			skip_expr: earlyStop ? '' : undefined,
+			cache_ttl: cache ? 300 : undefined
+		}
+
+		// Use existing flowDiff utility - always unified mode (markRemovedAsShadowed: false)
+		return buildFlowTimeline(beforeFlow.value, afterFlowValue, {
+			markRemovedAsShadowed: false
+		})
+	})
+
+	// Create effective props that merge computed diff with explicit props
+	let effectiveModuleActions = $derived(moduleActions ?? computedDiff?.afterActions)
+
+	let effectiveInputSchemaModified = $derived(
+		inputSchemaModified ??
+			(diffMode && beforeFlow
+				? hasInputSchemaChanged(beforeFlow, { schema: beforeFlow.schema })
+				: false)
+	)
+
+	// Use merged flow modules when in diff mode, otherwise use raw modules
+	let effectiveModules = $derived(
+		diffMode && computedDiff ? computedDiff.mergedFlow.modules : modules
+	)
+
+	let effectiveFailureModule = $derived(
+		diffMode && computedDiff ? computedDiff.mergedFlow.failure_module : failureModule
+	)
+
+	let effectivePreprocessorModule = $derived(
+		diffMode && computedDiff ? computedDiff.mergedFlow.preprocessor_module : preprocessorModule
+	)
+
+	// Initialize moduleTracker with effectiveModules
+	let moduleTracker = new ChangeTracker($state.snapshot(effectiveModules))
 
 	let nodes = $state.raw<Node[]>([])
 	let edges = $state.raw<Edge[]>([])
@@ -486,21 +537,21 @@
 		allowSimplifiedPoll && modules && untrack(() => onModulesChange(modules ?? []))
 	})
 	$effect(() => {
-		readFieldsRecursively(modules)
-		untrack(() => moduleTracker.track($state.snapshot(modules)))
+		readFieldsRecursively(effectiveModules)
+		untrack(() => moduleTracker.track($state.snapshot(effectiveModules)))
 	})
 
 	let graph = $derived.by(() => {
 		moduleTracker.counter
 		return graphBuilder(
-			untrack(() => modules),
+			untrack(() => effectiveModules),
 			{
 				disableAi,
 				insertable,
 				flowModuleStates: untrack(() => flowModuleStates),
 				testModuleStates: untrack(() => testModuleStates),
-				moduleActions: untrack(() => moduleActions),
-				inputSchemaModified: untrack(() => inputSchemaModified),
+				moduleActions: untrack(() => effectiveModuleActions),
+				inputSchemaModified: untrack(() => effectiveInputSchemaModified),
 				selectedId: untrack(() => $selectedId),
 				path,
 				newFlow,
@@ -518,8 +569,8 @@
 				onShowModuleDiff: untrack(() => onShowModuleDiff),
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
-			untrack(() => failureModule),
-			preprocessorModule,
+			untrack(() => effectiveFailureModule),
+			effectivePreprocessorModule,
 			eventHandler,
 			success,
 			$useDataflow,

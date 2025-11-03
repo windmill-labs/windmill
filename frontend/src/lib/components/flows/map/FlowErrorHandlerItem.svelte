@@ -7,9 +7,7 @@
 	import type { RawScript, ScriptLang } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import ModuleAcceptReject, {
-		getAiModuleAction
-	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
+	import { getAiModuleAction } from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import {
 		aiModuleActionToBgColor,
 		aiModuleActionToBorderColor,
@@ -77,8 +75,6 @@
 			}
 		}}
 	>
-		<ModuleAcceptReject id="failure" {action} placement="bottom" />
-
 		<Bug size={14} class="shrink-0" />
 
 		<div class="truncate grow min-w-0 text-center text-xs">

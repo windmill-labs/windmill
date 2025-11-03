@@ -71,6 +71,9 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
+		// AI Chat diff mode props
+		aiChatDiffMode?: boolean
+		aiChatBeforeFlow?: any
 	}
 
 	let {
@@ -100,7 +103,9 @@
 		showJobStatus = false,
 		suspendStatus = $bindable({ val: {} }),
 		onDelete,
-		flowHasChanged
+		flowHasChanged,
+		aiChatDiffMode = $bindable(false),
+		aiChatBeforeFlow = $bindable(undefined)
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -433,6 +438,8 @@
 			suspendStatus={suspendStatus.val}
 			{flowHasChanged}
 			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
+			diffMode={aiChatDiffMode}
+			beforeFlow={aiChatBeforeFlow}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
 				const cb = () => {
