@@ -6,6 +6,17 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Slack @mention triggers',
+		href: 'https://www.windmill.dev/changelog/slack-mention-triggers',
+		date: '2025-10-30'
+	},
+	{
+		label: 'Workspace-level Slack app configuration',
+		href: 'https://www.windmill.dev/changelog/workspace-slack-oauth',
+		date: '2025-10-30'
+	},
+
+	{
 		label: 'Dynamic select for flows',
 		href: 'https://www.windmill.dev/changelog/dynamic-select-flows',
 		date: '2025-08-08'
