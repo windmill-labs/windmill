@@ -85,7 +85,6 @@
 		flowModuleStates?: Record<string, GraphModuleState> | undefined
 		testModuleStates?: ModulesTestStates
 		moduleActions?: Record<string, AIModuleAction>
-		inputSchemaModified?: boolean
 		selectedId?: Writable<string | undefined>
 		path?: string | undefined
 		newFlow?: boolean
@@ -145,6 +144,8 @@
 		leftHeader?: Snippet
 		// Diff mode props
 		diffBeforeFlow?: OpenFlow
+		currentInputSchema?: Record<string, any>
+		markRemovedAsShadowed?: boolean
 	}
 
 	let {
@@ -168,7 +169,6 @@
 		flowModuleStates = undefined,
 		testModuleStates = undefined,
 		moduleActions = undefined,
-		inputSchemaModified = undefined,
 		selectedId = writable<string | undefined>(undefined),
 		path = undefined,
 		newFlow = false,
@@ -203,7 +203,9 @@
 		sharedViewport = undefined,
 		onViewportChange = undefined,
 		leftHeader = undefined,
-		diffBeforeFlow = undefined
+		diffBeforeFlow = undefined,
+		currentInputSchema = undefined,
+		markRemovedAsShadowed = false
 	}: Props = $props()
 
 	setContext<{
@@ -401,7 +403,7 @@
 
 		// Use existing flowDiff utility - always unified mode (markRemovedAsShadowed: false)
 		return buildFlowTimeline(diffBeforeFlow.value, afterFlowValue, {
-			markRemovedAsShadowed: false
+			markRemovedAsShadowed: markRemovedAsShadowed
 		})
 	})
 
@@ -409,10 +411,9 @@
 	let effectiveModuleActions = $derived(moduleActions ?? computedDiff?.afterActions)
 
 	let effectiveInputSchemaModified = $derived(
-		inputSchemaModified ??
-			(diffBeforeFlow
-				? hasInputSchemaChanged(diffBeforeFlow, { schema: diffBeforeFlow.schema })
-				: false)
+		diffBeforeFlow && currentInputSchema
+			? hasInputSchemaChanged(diffBeforeFlow, { schema: currentInputSchema })
+			: false
 	)
 
 	// Use merged flow modules when in diff mode, otherwise use raw modules
@@ -426,6 +427,10 @@
 
 	// Initialize moduleTracker with effectiveModules
 	let moduleTracker = new ChangeTracker($state.snapshot(effectiveModules))
+
+	$inspect('HERE', effectiveModules)
+	$inspect('HERE', effectiveModuleActions)
+	$inspect('HERE', diffBeforeFlow)
 
 	let nodes = $state.raw<Node[]>([])
 	let edges = $state.raw<Edge[]>([])

@@ -3,7 +3,7 @@
 	import YAML from 'yaml'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { Alert, Button } from './common'
-	import { buildFlowTimeline, hasInputSchemaChanged } from './flows/flowDiff'
+	import { buildFlowTimeline } from './flows/flowDiff'
 	import { dfs } from './flows/dfs'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -53,9 +53,6 @@
 		}
 	})
 
-	// Detect if input schema has changed
-	let inputSchemaModified = $derived(hasInputSchemaChanged(beforeFlow, afterFlow))
-
 	// Determine if we should render side-by-side or unified (user controlled via toggle)
 	let isSideBySide = $derived(viewMode === 'sidebyside')
 
@@ -68,12 +65,6 @@
 			markRemovedAsShadowed: isSideBySide
 		})
 	})
-
-	// Extract merged flow from timeline
-	let mergedFlow = $derived(timeline?.mergedFlow)
-
-	// Get the unified actions directly from timeline
-	let unifiedActions = $derived(timeline?.afterActions ?? {})
 
 	// Helper to find module by ID in a flow
 	function getModuleById(flow: FlowValue, moduleId: string): FlowModule | undefined {
@@ -199,7 +190,6 @@
 									earlyStop={beforeFlow.value.skip_expr !== undefined}
 									cache={beforeFlow.value.cache_ttl !== undefined}
 									moduleActions={timeline?.beforeActions}
-									{inputSchemaModified}
 									onShowModuleDiff={handleShowModuleDiff}
 									notSelectable={true}
 									insertable={false}
@@ -223,32 +213,29 @@
 					<Pane minSize={30} class="flex flex-col h-full">
 						<div class="flex flex-col h-full">
 							<div class="flex-1 overflow-hidden">
-								{#if mergedFlow}
-									<FlowGraphV2
-										bind:this={afterGraph}
-										modules={mergedFlow.modules}
-										failureModule={mergedFlow.failure_module}
-										preprocessorModule={mergedFlow.preprocessor_module}
-										earlyStop={mergedFlow.skip_expr !== undefined}
-										cache={mergedFlow.cache_ttl !== undefined}
-										moduleActions={unifiedActions}
-										{inputSchemaModified}
-										onShowModuleDiff={handleShowModuleDiff}
-										notSelectable={true}
-										insertable={false}
-										editMode={false}
-										download={false}
-										scroll={false}
-										minHeight={400}
-										triggerNode={false}
-										{sharedViewport}
-										onViewportChange={handleViewportChange}
-									>
-										{#snippet leftHeader()}
-											<span class="text-sm text-primary">After</span>
-										{/snippet}
-									</FlowGraphV2>
-								{/if}
+								<FlowGraphV2
+									bind:this={afterGraph}
+									diffBeforeFlow={beforeFlow}
+									modules={afterFlow.value.modules}
+									failureModule={afterFlow.value.failure_module}
+									preprocessorModule={afterFlow.value.preprocessor_module}
+									earlyStop={afterFlow.value.skip_expr !== undefined}
+									cache={afterFlow.value.cache_ttl !== undefined}
+									currentInputSchema={afterFlow.schema}
+									onShowModuleDiff={handleShowModuleDiff}
+									markRemovedAsShadowed={true}
+									notSelectable={true}
+									insertable={false}
+									editMode={false}
+									download={false}
+									scroll={false}
+									minHeight={400}
+									triggerNode={false}
+								>
+									{#snippet leftHeader()}
+										<span class="text-sm text-primary">After</span>
+									{/snippet}
+								</FlowGraphV2>
 							</div>
 						</div>
 					</Pane>
@@ -263,6 +250,7 @@
 						preprocessorModule={afterFlow.value.preprocessor_module}
 						earlyStop={afterFlow.value.skip_expr !== undefined}
 						cache={afterFlow.value.cache_ttl !== undefined}
+						currentInputSchema={afterFlow.schema}
 						onShowModuleDiff={handleShowModuleDiff}
 						notSelectable={true}
 						insertable={false}

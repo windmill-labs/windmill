@@ -221,12 +221,8 @@
 					throw new Error('YAML must contain a "modules" array')
 				}
 
-				// Create snapshot for diff/revert functionality if it doesn't exist
-				if (!lastSnapshot) {
-					lastSnapshot = $state.snapshot(flowStore).val
-				}
-
 				// Update the before flow
+				lastSnapshot = $state.snapshot(flowStore).val
 				flowModuleSchemaMap?.setBeforeFlow(lastSnapshot)
 
 				// Update the flow structure
