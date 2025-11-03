@@ -7,7 +7,6 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { fade } from 'svelte/transition'
 	import { Database, Square } from 'lucide-svelte'
-	import { getAiModuleAction } from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
 	import type { Job } from '$lib/gen'
@@ -56,7 +55,7 @@
 		cache = false,
 		earlyStop = false,
 		editMode = false,
-		action: actionProp = undefined,
+		action = undefined,
 		icon,
 		onUpdateMock,
 		onEditInput,
@@ -75,7 +74,6 @@
 		(nodeKind || (inputJson && Object.keys(inputJson).length > 0)) && editMode
 	)
 
-	let action = $derived(actionProp ?? (label === 'Input' ? getAiModuleAction(label) : undefined))
 	let hoverButton = $state(false)
 
 	const outputType = $derived(

@@ -37,7 +37,6 @@
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
-	import { getAiModuleAction } from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { Button } from '$lib/components/common'
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
@@ -184,8 +183,6 @@
 
 	const icon_render = $derived(icon)
 
-	const action = $derived(getAiModuleAction(id))
-
 	let testRunDropdownOpen = $state(false)
 
 	let outputPickerInner: OutputPickerInner | undefined = $state(undefined)
@@ -273,7 +270,7 @@
 	<div
 		class={classNames(
 			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
-			deletable || moduleAction ? aiModuleActionToBgColor(moduleAction ?? action) : '',
+			deletable || moduleAction ? aiModuleActionToBgColor(moduleAction) : '',
 			colorClasses.bg
 		)}
 		style="width: 275px; height: 34px;"
@@ -427,14 +424,12 @@
 			{/if}
 		</div>
 
-		<div
-			class={twMerge('flex flex-col w-full', deletable && action === 'removed' ? 'opacity-50' : '')}
-		>
+		<div class="flex flex-col w-full">
 			<FlowModuleSchemaItemViewer
 				{label}
 				{path}
 				{id}
-				deletable={deletable && !action}
+				{deletable}
 				{bold}
 				bind:editId
 				{hover}
@@ -483,7 +478,7 @@
 			{/if}
 		</div>
 
-		{#if deletable && !action}
+		{#if deletable}
 			<div
 				class="absolute -translate-y-[100%] top-2 -right-2 flex flex-row gap-1 p-1 min-w-[52px] h-7 group justify-end"
 			>

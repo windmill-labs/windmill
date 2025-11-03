@@ -7,12 +7,6 @@
 	import type { RawScript, ScriptLang } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
-	import { getAiModuleAction } from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
-	import {
-		aiModuleActionToBgColor,
-		aiModuleActionToBorderColor,
-		aiModuleActionToTextColor
-	} from '$lib/components/copilot/chat/flow/utils'
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	let {
@@ -51,8 +45,6 @@
 		$selectedId = 'failure'
 		refreshStateStore(flowStore)
 	}
-
-	const action = $derived(getAiModuleAction('failure'))
 </script>
 
 {#if flowStore.val?.value?.failure_module}
@@ -62,11 +54,6 @@
 		variant="default"
 		unifiedSize="sm"
 		wrapperClasses={twMerge('min-w-36', small ? 'max-w-52' : 'max-w-64')}
-		btnClasses={twMerge(
-			aiModuleActionToBgColor(action),
-			aiModuleActionToBorderColor(action),
-			aiModuleActionToTextColor(action)
-		)}
 		id="flow-editor-error-handler"
 		selected={$selectedId?.includes('failure')}
 		onClick={() => {
@@ -84,19 +71,17 @@
 					: 'TBD')}
 		</div>
 
-		{#if !action}
-			<button
-				title="Delete failure script"
-				type="button"
-				class="ml-1"
-				onclick={() => {
-					flowStore.val.value.failure_module = undefined
-					$selectedId = 'settings-metadata'
-				}}
-			>
-				<X size={12} />
-			</button>
-		{/if}
+		<button
+			title="Delete failure script"
+			type="button"
+			class="ml-1"
+			onclick={() => {
+				flowStore.val.value.failure_module = undefined
+				$selectedId = 'settings-metadata'
+			}}
+		>
+			<X size={12} />
+		</button>
 	</Button>
 {:else}
 	<!-- Index 0 is used by the tutorial to identify the first "Add step" -->

@@ -3,7 +3,7 @@
 	import YAML from 'yaml'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { Alert, Button } from './common'
-	import { buildFlowTimeline } from './flows/flowDiff'
+	import { computeFlowModuleDiff } from './flows/flowDiff'
 	import { dfs } from './flows/dfs'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -59,11 +59,9 @@
 	// Build timeline using history-based approach
 	// In side-by-side view, mark removed modules as 'shadowed' in the After graph
 	// In unified view, mark removed modules as 'removed' to show them in red
-	let timeline = $derived.by(() => {
-		if (!beforeFlow || !afterFlow) return undefined
-		return buildFlowTimeline(beforeFlow.value, afterFlow.value, {
-			markRemovedAsShadowed: isSideBySide
-		})
+	const { beforeActions } = $derived.by(() => {
+		if (!beforeFlow || !afterFlow) return { beforeActions: undefined }
+		return computeFlowModuleDiff(beforeFlow.value, afterFlow.value)
 	})
 
 	// Helper to find module by ID in a flow
@@ -189,7 +187,7 @@
 									preprocessorModule={beforeFlow.value.preprocessor_module}
 									earlyStop={beforeFlow.value.skip_expr !== undefined}
 									cache={beforeFlow.value.cache_ttl !== undefined}
-									moduleActions={timeline?.beforeActions}
+									moduleActions={beforeActions}
 									onShowModuleDiff={handleShowModuleDiff}
 									notSelectable={true}
 									insertable={false}
@@ -231,6 +229,8 @@
 									scroll={false}
 									minHeight={400}
 									triggerNode={false}
+									{sharedViewport}
+									onViewportChange={handleViewportChange}
 								>
 									{#snippet leftHeader()}
 										<span class="text-sm text-primary">After</span>
