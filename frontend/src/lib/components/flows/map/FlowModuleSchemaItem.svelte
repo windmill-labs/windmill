@@ -498,7 +498,7 @@
 					<button
 						class={twMerge(
 							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
-							hover ? 'block' : '!hidden',
+							hover || selected ? 'block' : '!hidden',
 							'shadow-md rounded-md',
 							'group-hover:block'
 						)}
