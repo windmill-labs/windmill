@@ -426,12 +426,9 @@
 			maxHeight={minHeight}
 			modules={flowStore.val.value.modules}
 			{noteMode}
-			notes={flowStore.val.ui?.notes || []}
+			notes={flowStore.val.value?.notes || []}
 			onNotesChange={(newNotes) => {
-				if (!flowStore.val.ui) {
-					flowStore.val.ui = {}
-				}
-				flowStore.val.ui.notes = newNotes
+				flowStore.val.value.notes = newNotes
 			}}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
 			{selectedId}

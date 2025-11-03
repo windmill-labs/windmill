@@ -192,6 +192,29 @@ pub struct FlowValue {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chat_input_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<Vec<FlowNote>>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct FlowNote {
+    pub id: String,
+    pub text: String,
+    pub position: FlowNotePosition,
+    pub size: FlowNoteSize,
+    pub color: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct FlowNotePosition {
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct FlowNoteSize {
+    pub width: f64,
+    pub height: f64,
 }
 
 impl FlowValue {

@@ -15,6 +15,7 @@ import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 import type { ModulesTestStates } from '../modulesTest.svelte'
 import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
 
+// Type for flow notes stored in the UI field
 export type Note = {
 	id: string
 	text: string
@@ -36,6 +37,7 @@ export type FlowInput = Record<
 	}
 >
 
+// Extended OpenFlow with additional properties not in the core spec
 export type ExtendedOpenFlow = OpenFlow & {
 	tag?: string
 	ws_error_handler_muted?: boolean
