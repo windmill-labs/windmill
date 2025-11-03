@@ -356,22 +356,20 @@ fn duckdb_value_to_json_value(
         duckdb::types::Value::List(values) => serde_json::Value::Array(
             values
                 .into_iter()
-                .map(|v| duckdb_value_to_json_value(v, type_alias))
+                .map(|v| duckdb_value_to_json_value(v, &None))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         duckdb::types::Value::Enum(e) => serde_json::Value::String(e),
         duckdb::types::Value::Struct(fields) => serde_json::Value::Object(
             fields
                 .iter()
-                .map(|(k, v)| {
-                    duckdb_value_to_json_value(v.clone(), type_alias).map(|v| (k.clone(), v))
-                })
+                .map(|(k, v)| duckdb_value_to_json_value(v.clone(), &None).map(|v| (k.clone(), v)))
                 .collect::<Result<serde_json::Map<_, _>, _>>()?,
         ),
         duckdb::types::Value::Array(values) => serde_json::Value::Array(
             values
                 .into_iter()
-                .map(|v| duckdb_value_to_json_value(v, type_alias))
+                .map(|v| duckdb_value_to_json_value(v, &None))
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         duckdb::types::Value::Map(map) => serde_json::Value::Object(
@@ -381,7 +379,7 @@ fn duckdb_value_to_json_value(
                         duckdb::types::Value::Text(s) | duckdb::types::Value::Enum(s) => s.clone(),
                         _ => format!("{:?}", k),
                     };
-                    duckdb_value_to_json_value(v.clone(), type_alias).map(|v| (k, v))
+                    duckdb_value_to_json_value(v.clone(), &None).map(|v| (k, v))
                 })
                 .collect::<Result<serde_json::Map<_, _>, _>>()?,
         ),
