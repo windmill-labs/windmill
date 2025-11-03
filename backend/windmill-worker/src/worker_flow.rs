@@ -104,7 +104,7 @@ pub async fn update_flow_status_after_job_completion(
     let mut unrecoverable = unrecoverable;
     loop {
         potentially_crash_for_testing();
-        let nrec = match update_flow_status_after_job_completion_internal(
+        let nrec = match Box::pin(update_flow_status_after_job_completion_internal(
             db,
             client,
             rec.flow,
@@ -122,13 +122,13 @@ pub async fn update_flow_status_after_job_completion(
             job_completed_tx.clone(),
             #[cfg(feature = "benchmark")]
             bench,
-        )
+        ))
         .await
         {
             Ok(j) => j,
             Err(e) => {
                 tracing::error!("Error while updating flow status of {} after  completion of {}, updating flow status again with error: {e:#}", rec.flow, &rec.job_id_for_status);
-                update_flow_status_after_job_completion_internal(
+                Box::pin(update_flow_status_after_job_completion_internal(
                     db,
                     client,
                     rec.flow,
@@ -148,7 +148,7 @@ pub async fn update_flow_status_after_job_completion(
                     job_completed_tx.clone(),
                     #[cfg(feature = "benchmark")]
                     bench,
-                )
+                ))
                 .await?
             }
         };
@@ -1518,7 +1518,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         true
     } else {
         tracing::debug!(id = %flow_job.id,  "start handle flow");
-        match handle_flow(
+        match Box::pin(handle_flow(
             flow_job.clone(),
             &flow_data,
             db,
@@ -1528,7 +1528,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             worker_dir,
             job_completed_tx,
             worker_name,
-        )
+        ))
         .warn_after_seconds(10)
         .await
         {
@@ -1982,7 +1982,7 @@ pub async fn handle_flow(
     let mut rec = PushNextFlowJobRec { flow_job: flow_job, status: status };
     loop {
         let PushNextFlowJobRec { flow_job, status } = rec;
-        let next = push_next_flow_job(
+        let next = Box::pin(push_next_flow_job(
             flow_job,
             status,
             flow,
@@ -1992,7 +1992,7 @@ pub async fn handle_flow(
             same_worker_tx,
             worker_dir,
             worker_name,
-        )
+        ))
         .warn_after_seconds(10)
         .await?;
         match next {

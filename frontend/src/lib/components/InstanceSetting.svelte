@@ -862,9 +862,10 @@
 				{:else if setting.fieldType == 'smtp_connect'}
 					<div class="flex flex-col gap-4 border rounded p-4">
 						{#if $values[setting.key]}
-							<div class="flex gap-4"
-								><input type="email" bind:value={to} placeholder="contact@windmill.dev" />
+							<div class="flex gap-4">
+								<input type="email" bind:value={to} placeholder="contact@windmill.dev" />
 								<Button
+									wrapperClasses="shrink-0"
 									disabled={to == ''}
 									on:click={async () => {
 										let smtp = $values[setting.key]

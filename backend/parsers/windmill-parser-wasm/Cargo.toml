@@ -1,9 +1,10 @@
+cargo-features = ["panic-immediate-abort"]
+
 [package]
 name = "windmill-parser-wasm"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-
 
 [lib]
 crate-type = ["cdylib"]
@@ -14,6 +15,13 @@ path = "./src/lib.rs"
 wasm-bindgen-test.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-bash.workspace = true
+
+[profile.release]
+panic = "immediate-abort"
+
+[unstable]
+build-std = ["std", "panic_abort"]
+
 
 [features]
 default = []
@@ -48,5 +56,6 @@ windmill-parser-nu = { workspace = true, optional = true }
 windmill-parser-java = { workspace = true, optional = true }
 windmill-parser-ruby = { workspace = true, optional = true }
 wasm-bindgen.workspace = true
+
 serde_json.workspace = true
 getrandom = { workspace = true, features = ["js"] }

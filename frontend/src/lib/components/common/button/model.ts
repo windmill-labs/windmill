@@ -13,6 +13,9 @@ export const BUTTON_COLORS = [
 ] as const
 
 export namespace ButtonType {
+	/**
+	 * @deprecated Use `UnifiedSize` instead
+	 */
 	export type Size = 'xs3' | 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 	export type UnifiedSize = 'sm' | 'md' | 'lg'
 	export type ExtendedSize = 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
@@ -114,10 +117,10 @@ export namespace ButtonType {
 
 		blue: {
 			border:
-				'border-luminance-blue-500 dark:border-luminance-blue-300 hover:border-luminance-blue-700 focus-visible:border-luminance-blue-700 bg-surface hover:bg-luminance-blue-100 dark:hover:bg-luminance-blue-900/40 focus-visible:bg-luminance-blue-100 focus-visible:dark:text-luminance-blue-100 dark:focus-visible:bg-luminance-blue-900 text-luminance-blue-500 dark:text-luminance-blue-300 dark:hover:text-luminance-blue-200 hover:text-luminance-blue-700 focus-visible:text-luminance-blue-700 focus-visible:ring-luminance-blue-300',
+				'border-blue-500 dark:border-blue-300 hover:border-blue-700 focus-visible:border-blue-700 bg-surface hover:bg-blue-100 dark:hover:bg-blue-900/40 focus-visible:bg-blue-100 focus-visible:dark:text-blue-100 dark:focus-visible:bg-blue-900 text-blue-500 dark:text-blue-300 dark:hover:text-blue-200 hover:text-blue-700 focus-visible:text-blue-700 focus-visible:ring-blue-300',
 			contained:
-				'bg-luminance-blue-300 hover:bg-luminance-blue-400 focus-visible:bg-luminance-blue-500 text-white focus-visible:ring-luminance-blue-300',
-			divider: 'divide-x divide-luminance-blue-600'
+				'bg-blue-300 hover:bg-blue-400 focus-visible:bg-blue-500 text-white focus-visible:ring-blue-300',
+			divider: 'divide-x divide-blue-600'
 		},
 		marine: {
 			border:
@@ -173,13 +176,13 @@ export namespace ButtonType {
 	export const VariantStyles: Record<'accent-secondary' | 'accent' | 'default' | 'subtle', string> =
 		{
 			'accent-secondary':
-				'bg-surface-accent-secondary hover:bg-surface-accent-secondary-hover focus-visible:bg-surface-accent-secondary-clicked text-white dark:text-deep-blue-900 focus-visible:ring-luminance-blue-300',
+				'bg-surface-accent-secondary hover:bg-surface-accent-secondary-hover focus-visible:bg-surface-accent-secondary-clicked text-white dark:text-deep-blue-900 focus-visible:ring-blue-300',
 			accent:
-				'bg-surface-accent-primary hover:bg-surface-accent-hover focus-visible:bg-surface-accent-clicked text-white focus-visible:ring-luminance-blue-300',
+				'bg-surface-accent-primary hover:bg-surface-accent-hover focus-visible:bg-surface-accent-clicked text-white focus-visible:ring-blue-300',
 			default:
-				'border border-border-light bg-transparent hover:bg-surface-hover text-primary focus-visible:bg-surface-hover focus-visible:ring-luminance-blue-300',
+				'border border-border-light bg-transparent hover:bg-surface-hover text-primary focus-visible:bg-surface-hover focus-visible:ring-blue-300',
 			subtle:
-				'bg-transparent hover:bg-surface-hover text-primary focus-visible:bg-surface-hover focus-visible:ring-luminance-blue-300'
+				'bg-transparent hover:bg-surface-hover text-primary focus-visible:bg-surface-hover focus-visible:ring-blue-300'
 		}
 
 	export const DestructiveVariantStyles: Record<
@@ -189,11 +192,11 @@ export namespace ButtonType {
 		'accent-secondary':
 			'bg-red-600 hover:bg-red-700 focus-visible:bg-red-700 text-white focus-visible:ring-red-300',
 		accent:
-			'bg-red-600 hover:bg-red-700 focus-visible:bg-red-700 text-white focus-visible:ring-red-300',
+			'bg-red-500 dark:bg-red-600 hover:bg-red-600 dark:hover:bg-red-700 focus-visible:bg-red-700 text-white focus-visible:ring-red-300',
 		default:
-			'border border-border-light bg-transparent hover:bg-red-600 hover:text-white dark:hover:bg-red-900/20 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300',
+			'border border-border-light bg-transparent hover:bg-red-500 dark:hover:bg-red-600 hover:text-white dark:hover:bg-red-900/20 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300',
 		subtle:
-			'bg-transparent hover:bg-red-600 hover:text-white dark:hover:bg-red-900/20 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300'
+			'bg-transparent hover:bg-red-500 hover:text-white dark:hover:bg-red-600 text-primary focus-visible:bg-red-100 dark:focus-visible:bg-red-900/30 focus-visible:ring-red-300'
 	}
 
 	export const VariantSpacingClasses: Record<ButtonType.Size, string> = {
@@ -230,19 +233,19 @@ export namespace ButtonType {
 	}
 
 	export const UnifiedMinHeightClasses: Record<ButtonType.UnifiedSize, string> = {
-		sm: 'min-h-6',
+		sm: 'min-h-7',
 		md: 'min-h-8',
 		lg: 'min-h-10'
 	}
 
 	export const UnifiedHeightClasses: Record<ButtonType.UnifiedSize, string> = {
-		sm: 'h-6',
+		sm: 'h-7',
 		md: 'h-8',
 		lg: 'h-10'
 	}
 
 	export const UnifiedIconSizes: Record<ButtonType.UnifiedSize, number> = {
-		sm: 14,
+		sm: 13,
 		md: 14,
 		lg: 18
 	}

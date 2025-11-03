@@ -43,7 +43,7 @@
 	let nconfig: {
 		dedicated_worker?: string
 		worker_tags?: string[]
-		priority_tags?: Map<string, number>
+		priority_tags?: Record<string, number>
 		cache_clear?: number
 		init_bash?: string
 		periodic_script_bash?: string
@@ -67,7 +67,7 @@
 					worker_tags: []
 				}
 		if (nconfig.priority_tags === undefined) {
-			nconfig.priority_tags = new Map<string, number>()
+			nconfig.priority_tags = {}
 		}
 
 		customEnvVars = []
@@ -117,7 +117,7 @@
 			| {
 					dedicated_worker?: string
 					worker_tags?: string[]
-					priority_tags?: Map<string, number>
+					priority_tags?: Record<string, number>
 					cache_clear?: number
 					init_bash?: string
 					additional_python_paths?: string[]
@@ -355,9 +355,9 @@
 								<MultiSelect
 									disabled={!$enterpriseLicense}
 									bind:value={
-										() => new Array(...(nconfig?.priority_tags?.keys?.() ?? [])),
+										() => (nconfig.priority_tags ? Object.keys(nconfig.priority_tags) : []),
 										(v) => {
-											nconfig.priority_tags = new Map<string, number>(v.map((k) => [k, 100]))
+											nconfig.priority_tags = Object.fromEntries(v.map((k) => [k, 100]))
 											dirty = true
 										}
 									}
@@ -825,7 +825,7 @@
 			</div>
 		</Section>
 		{#snippet actions()}
-			<div class="flex gap-4 items-center">
+			<div class="flex gap-4 items-center mr-10">
 				<div class="flex gap-2 items-center">
 					{#if dirty}
 						<div class="text-red-600 text-xs whitespace-nowrap">Non applied changes</div>

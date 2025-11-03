@@ -168,6 +168,7 @@ lazy_static::lazy_static! {
         "powershell".to_string(),
         "nativets".to_string(),
         "mysql".to_string(),
+        "oracledb".to_string(),
         "bun".to_string(),
         "postgresql".to_string(),
         "bigquery".to_string(),
@@ -186,6 +187,18 @@ lazy_static::lazy_static! {
         "dependency".to_string(),
         "flow".to_string(),
         "other".to_string()
+    ];
+
+    pub static ref NATIVE_TAGS: Vec<String> = vec![
+        "nativets".to_string(),
+        "postgresql".to_string(),
+        "mysql".to_string(),
+        "graphql".to_string(),
+        "snowflake".to_string(),
+        "mssql".to_string(),
+        "bigquery".to_string(),
+        "oracledb".to_string()
+        // for related places search: ADD_NEW_LANG
     ];
 
     pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
@@ -410,9 +423,9 @@ fn format_pull_query(peek: String) -> String {
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
         ), delete_debounce AS NOT MATERIALIZED (
-            DELETE FROM debounce_key 
+            DELETE FROM debounce_key
             USING j
-            WHERE j.kind::text != 'flowdependencies' AND j.kind::text != 'appdependencies' AND j.kind::text != 'dependencies' AND debounce_key.job_id = j.id 
+            WHERE j.kind::text != 'flowdependencies' AND j.kind::text != 'appdependencies' AND j.kind::text != 'dependencies' AND debounce_key.job_id = j.id
         ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
             j.runnable_id, j.runnable_path, j.args, canceled_by,
             canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,

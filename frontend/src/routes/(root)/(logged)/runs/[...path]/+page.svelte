@@ -48,6 +48,7 @@
 	import { createBubbler } from 'svelte/legacy'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -75,9 +76,9 @@
 			| 'failure'
 			| undefined
 	)
-	let isSkipped: boolean | undefined = $state(
-		page.url.searchParams.get('is_skipped') != undefined
-			? page.url.searchParams.get('is_skipped') == 'true'
+	let showSkipped: boolean | undefined = $state(
+		page.url.searchParams.get('show_skipped') != undefined
+			? page.url.searchParams.get('show_skipped') == 'true'
 			: false
 	)
 
@@ -130,9 +131,9 @@
 			| 'success'
 			| 'failure'
 			| undefined
-		isSkipped =
-			page.url.searchParams.get('is_skipped') != undefined
-				? page.url.searchParams.get('is_skipped') == 'true'
+		showSkipped =
+			page.url.searchParams.get('show_skipped') != undefined
+				? page.url.searchParams.get('show_skipped') == 'true'
 				: false
 
 		showSchedules =
@@ -240,10 +241,10 @@
 			searchParams.delete('success')
 		}
 
-		if (isSkipped) {
-			searchParams.set('is_skipped', isSkipped.toString())
+		if (showSkipped) {
+			searchParams.set('show_skipped', showSkipped.toString())
 		} else {
-			searchParams.delete('is_skipped')
+			searchParams.delete('show_skipped')
 		}
 
 		if (showSchedules) {
@@ -523,7 +524,7 @@
 					: success == 'waiting'
 						? false
 						: undefined,
-			isSkipped: isSkipped ? undefined : false,
+			isSkipped: showSkipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
 				path != undefined || path != undefined || jobKindsCat != 'all' ? true : undefined,
@@ -734,7 +735,7 @@
 			folder,
 			path,
 			success !== undefined,
-			isSkipped,
+			showSkipped,
 			showSchedules,
 			showFutureJobs,
 			argFilter,
@@ -817,7 +818,7 @@
 	{worker}
 	{label}
 	{success}
-	{isSkipped}
+	{showSkipped}
 	{argFilter}
 	{resultFilter}
 	{showSchedules}
@@ -1024,7 +1025,7 @@
 				<div class="flex flex-row gap-2">
 					<RunsFilter
 						bind:allowWildcards
-						bind:isSkipped
+						bind:showSkipped
 						bind:user
 						bind:folder
 						bind:label
@@ -1157,7 +1158,7 @@
 
 		<div class="grow min-h-0">
 			<Splitpanes>
-				<Pane size={60} minSize={40}>
+				<Pane minSize={40}>
 					<div class="flex flex-col h-full">
 						<!-- Runs table top bar -->
 						<div
@@ -1296,7 +1297,7 @@
 						</div>
 					</div>
 				</Pane>
-				<Pane size={40} minSize={15} class="flex flex-col">
+				<AnimatedPane size={40} minSize={15} class="flex flex-col" opened={selectedIds.length > 0}>
 					{#if selectionMode === 're-run'}
 						<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
 					{:else if selectedIds.length === 1}
@@ -1314,10 +1315,8 @@
 						<div class="text-xs m-4"
 							>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
 						>
-					{:else}
-						<div class="text-xs m-4">No job selected</div>
 					{/if}
-				</Pane>
+				</AnimatedPane>
 			</Splitpanes>
 		</div>
 	</div>

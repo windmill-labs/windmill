@@ -262,15 +262,15 @@ Generate a tool name for the script below:
 	}}
 >
 	<div
-		class="absolute left-[0.5rem] {elementType === 'textarea'
+		class="absolute left-3 {elementType === 'textarea'
 			? 'top-[1.3rem]'
 			: 'top-[0.3rem]'}  flex flex-row gap-2 items-start pointer-events-none"
 	>
 		{#if active}
 			<span
 				class={twMerge(
-					'rounded-md px-1 border',
-					flowAIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'default')
+					'rounded-md px-1',
+					flowAIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'selected')
 				)}
 			>
 				<span class="px-0.5 py-0.5 rounded-md text-2xs text-bold flex flex-row items-center gap-1">
@@ -291,7 +291,7 @@ Generate a tool name for the script below:
 			<div
 				bind:clientHeight={genHeight}
 				class={twMerge(
-					'text-sm leading-6 indent-[3.5rem] text-gray-500 dark:text-gray-400 pr-1',
+					'text-sm leading-6 indent-0 text-gray-500 dark:text-gray-400 pr-1',
 					elementType === 'input' ? 'text-ellipsis overflow-hidden whitespace-nowrap' : ''
 				)}
 				style={elementType === 'input' ? `max-width: calc(${width}px - 0.5rem)` : ''}

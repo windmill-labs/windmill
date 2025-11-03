@@ -54,7 +54,11 @@
 			clearTimeout(validateTimeout)
 		}
 		validateTimeout = setTimeout(async () => {
-			if (!routePath || !method || !/^:?[-\w]+(\/:?[-\w]+)*$/.test(routePath)) {
+			if (
+				!routePath ||
+				!method ||
+				!/^(\*[-\w]+$|:?[-\w]+)(\/(\*[-\w]+$|:?[-\w]+))*$/.test(routePath)
+			) {
 				routeError = 'Endpoint not valid'
 			} else if (await routeExists(routePath, method, workspaced_route)) {
 				routeError = 'Endpoint already taken'
@@ -140,7 +144,9 @@
 						bind:value={route_path}
 						error={routeError !== ''}
 					/>
-					<div class="text-2xs text-secondary"> ':myparam' for path params </div>
+					<div class="text-2xs text-secondary">
+						Use ':myparam' for path params and '*mywildcard' for wildcards
+					</div>
 				</div>
 			</label>
 

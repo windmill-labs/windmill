@@ -103,7 +103,7 @@
 	<JobsLoader
 		bind:jobs
 		path={runnableId}
-		isSkipped={false}
+		showSkipped={false}
 		jobKinds={getJobKinds(runnableType)}
 		user={null}
 		label={null}

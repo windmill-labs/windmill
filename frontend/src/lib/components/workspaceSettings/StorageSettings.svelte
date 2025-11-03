@@ -94,7 +94,7 @@
 				<Tab exact value="gcloud_storage" label="Google Cloud Storage" />
 			</Tabs>
 		</div>
-		<div class="w-full flex gap-1 mt-4">
+		<div class="w-full flex gap-1 mt-4 whitespace-nowrap">
 			<!-- this can be removed once parent moves to runes -->
 			<!-- svelte-ignore binding_property_non_reactive -->
 			<ResourcePicker
@@ -118,7 +118,7 @@
 	<div class="mt-6">
 		<div class="flex mt-2 flex-col gap-y-4 max-w-5xl">
 			{#each s3ResourceSettings.secondaryStorage ?? [] as _, idx}
-				<div class="flex gap-1 relative">
+				<div class="flex gap-1 relative whitespace-nowrap">
 					<TextInput
 						class="max-w-[200px]"
 						inputProps={{ type: 'text', placeholder: 'Storage name' }}

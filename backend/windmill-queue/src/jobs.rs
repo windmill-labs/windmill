@@ -1140,13 +1140,13 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         .unwrap_or(false);
 
                 if schedule_next_tick {
-                    if let Err(err) = handle_maybe_scheduled_job(
+                    if let Err(err) = Box::pin(handle_maybe_scheduled_job(
                         db,
                         queued_job,
                         &schedule,
                         &script_path,
                         &queued_job.workspace_id,
-                    )
+                    ))
                     .await
                     {
                         match err {
@@ -2427,8 +2427,7 @@ pub async fn pull(
         }
 
         #[cfg(not(feature = "enterprise"))]
-        let has_concurent_limit = false
-            || (job.is_dependency() && cfg!(feature = "private") && !*WMDEBUG_NO_DJOB_DEBOUNCING);
+        let has_concurent_limit = job.is_dependency() && job.concurrent_limit.is_some() && cfg!(feature = "private") && !*WMDEBUG_NO_DJOB_DEBOUNCING;
         // if we don't have private flag, we don't have concurrency limit
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
@@ -4429,6 +4428,8 @@ pub async fn push<'c, 'd>(
     // prioritize flow steps to drain the queue faster
     let final_priority = if flow_step_id.is_some() && final_priority.is_none() {
         Some(0)
+    } else if job_kind == JobKind::Dependencies {
+        Some(0)
     } else {
         final_priority
     };
@@ -4730,20 +4731,22 @@ pub async fn push<'c, 'd>(
     }
 
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    if let Some(debounced_job_id) = crate::jobs_ee::maybe_apply_debouncing(
-        &job_id,
-        debounce_delay_s,
-        custom_debounce_key,
-        workspace_id,
-        script_path.clone(),
-        &job_kind,
-        &args,
-        &mut scheduled_for_o,
-        &mut tx,
-    )
-    .await?
-    {
-        return Ok((debounced_job_id, tx));
+    if schedule_path.is_none() {
+        if let Some(debounced_job_id) = crate::jobs_ee::maybe_apply_debouncing(
+            &job_id,
+            debounce_delay_s,
+            custom_debounce_key,
+            workspace_id,
+            script_path.clone(),
+            &job_kind,
+            &args,
+            &mut scheduled_for_o,
+            &mut tx,
+        )
+        .await?
+        {
+            return Ok((debounced_job_id, tx));
+        }
     }
 
     if concurrent_limit.is_some() {

@@ -25,20 +25,41 @@
 		id?: string
 		aiId?: string | undefined
 		aiDescription?: string | undefined
+		/**
+		 * @deprecated Use `unifiedSize` instead
+		 */
 		size?: ButtonType.Size
+		/**
+		 * @deprecated Use `unifiedSize` instead
+		 */
 		spacingSize?: ButtonType.Size
+		/**
+		 * Unified sizing: sm (28px), md (32px), lg (40px)
+		 */
 		unifiedSize?: ButtonType.UnifiedSize
 		/**
-		 * @description Extended size for App only, do not use
+		 * @description Extended size for App editor only
 		 */
 		extendedSize?: ButtonType.ExtendedSize
 		/**
 		 * @deprecated Use `variant` instead
 		 */
 		color?: ButtonType.Color | string
+		/**
+		 * Button style: accent, accent-secondary, default, subtle
+		 */
 		variant?: ButtonType.Variant
+		/**
+		 * Additional classes. Do NOT use for colors/fonts - use for layout only
+		 */
 		btnClasses?: string
+		/**
+		 * Wrapper classes. Do NOT use for colors/fonts - use for positioning only
+		 */
 		wrapperClasses?: string
+		/**
+		 * Wrapper styles. Avoid unless absolutely necessary
+		 */
 		wrapperStyle?: string
 		disabled?: boolean
 		selected?: boolean
@@ -194,7 +215,7 @@
 			const horizontalPadding = iconOnly
 				? ButtonType.UnifiedIconOnlySizingClasses[unifiedSize]
 				: ButtonType.UnifiedSizingClasses[unifiedSize]
-			const height = ButtonType.UnifiedHeightClasses[unifiedSize]
+			const height = ButtonType.UnifiedMinHeightClasses[unifiedSize]
 			return `${horizontalPadding} ${height}`
 		}
 
@@ -215,7 +236,7 @@
 		if (variant === 'default') {
 			return 'border border-border-light divide-x divide-border-light'
 		} else if (variant === 'accent') {
-			return 'divide-x divide-luminance-blue-100 dark:divide-luminance-blue-200'
+			return 'divide-x divide-blue-100 dark:divide-blue-200'
 		} else if (variant === 'accent-secondary') {
 			return 'divide-x divide-deep-blue-400 dark:divide-deep-blue-100'
 		} else if (variant === 'subtle') {
@@ -242,16 +263,16 @@
 			unifiedSize ? ButtonType.UnifiedFontSizes[unifiedSize] : '',
 			'focus-visible:ring-2',
 			dropdownItems && dropdownItems.length > 0 ? 'rounded-l-md' : 'rounded-md',
-			'justify-center items-center text-center whitespace-nowrap inline-flex gap-2',
+			'justify-center items-center text-center inline-flex gap-2',
 			'active:opacity-80 transition-[background-color,opacity] duration-150',
 			disabled
 				? ['default', 'subtle'].includes(variant)
 					? '!text-disabled'
-					: '!bg-surface-disabled/20 !text-disabled'
+					: '!bg-surface-disabled !text-disabled'
 				: '',
 			loading ? 'cursor-wait' : '',
 			selected && ['default', 'subtle'].includes(variant)
-				? '!bg-surface-accent-selected/30 !text-accent !border-border-selected'
+				? '!bg-surface-accent-selected !text-accent !border-border-selected'
 				: '',
 			btnClasses
 		)
@@ -307,6 +328,7 @@
 <div
 	class={twMerge(
 		dropdownItems && dropdownItems.length > 0 ? dividerClass : '',
+		'shrink-0',
 		wrapperClasses,
 		'flex flex-row rounded-md',
 		disabled ? 'divide-text-disabled cursor-not-allowed' : ''
