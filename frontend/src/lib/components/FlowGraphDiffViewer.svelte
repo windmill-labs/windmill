@@ -1,16 +1,16 @@
 <script lang="ts">
-	import type { FlowModule, FlowValue, OpenFlow } from '$lib/gen'
+	import type { OpenFlow } from '$lib/gen'
 	import YAML from 'yaml'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { Alert, Button } from './common'
 	import { computeFlowModuleDiff } from './flows/flowDiff'
-	import { dfs } from './flows/dfs'
 	import DiffDrawer from './DiffDrawer.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { DiffIcon, Minus, Plus, SquareSplitHorizontal } from 'lucide-svelte'
 	import type { Viewport } from '@xyflow/svelte'
+	import { getModuleById } from './copilot/chat/flow/utils'
 
 	const SIDE_BY_SIDE_MIN_WIDTH = 700
 
@@ -64,16 +64,6 @@
 		return computeFlowModuleDiff(beforeFlow.value, afterFlow.value)
 	})
 
-	// Helper to find module by ID in a flow
-	function getModuleById(flow: FlowValue, moduleId: string): FlowModule | undefined {
-		const allModules = dfs(flow.modules ?? [], (m) => m)
-		return (
-			allModules.find((m) => m?.id === moduleId) ??
-			(flow.failure_module?.id === moduleId ? flow.failure_module : undefined) ??
-			(flow.preprocessor_module?.id === moduleId ? flow.preprocessor_module : undefined)
-		)
-	}
-
 	// Handler for viewport changes - updates shared state for synchronization
 	function handleViewportChange(viewport: Viewport, isUserInitiated: boolean) {
 		if (isUserInitiated) {
@@ -97,8 +87,8 @@
 			return
 		}
 
-		const beforeModule = getModuleById(beforeFlow.value, moduleId)
-		const afterModule = getModuleById(afterFlow.value, moduleId)
+		const beforeModule = getModuleById(beforeFlow, moduleId)
+		const afterModule = getModuleById(afterFlow, moduleId)
 
 		if (beforeModule && afterModule) {
 			moduleDiffDrawer?.openDrawer()

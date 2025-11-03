@@ -1,6 +1,12 @@
 import { dfs } from '$lib/components/flows/previousResults'
-import type { OpenFlow } from '$lib/gen'
+import type { FlowModule, OpenFlow } from '$lib/gen'
 import type { AIModuleAction } from './core'
+
+// Helper to find module by ID in a flow
+export function getModuleById(flow: OpenFlow, moduleId: string): FlowModule | undefined {
+	const allModules = dfs(moduleId, flow, false)
+	return allModules[0]
+}
 
 export function getIndexInNestedModules(flow: OpenFlow, id: string) {
 	const accessingModules = dfs(id, flow, true).reverse()
