@@ -7,7 +7,7 @@ import type { GraphModuleState } from './model'
 import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 import type { ModulesTestStates, ModuleTestState } from '../modulesTest.svelte'
-import { type AIModuleAction } from '../copilot/chat/flow/core'
+import { type ModuleActionInfo } from '../copilot/chat/flow/core'
 
 export type InsertKind =
 	| 'script'
@@ -130,6 +130,8 @@ export type InputN = {
 		inputSchemaModified?: boolean
 		onShowModuleDiff?: (moduleId: string) => void
 		assets?: AssetWithAltAccessType[] | undefined
+		onAcceptModule?: (moduleId: string) => void
+		onRejectModule?: (moduleId: string) => void
 	}
 }
 
@@ -149,8 +151,10 @@ export type ModuleN = {
 		flowJob: Job | undefined
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
-		moduleAction: AIModuleAction | undefined
+		moduleAction: ModuleActionInfo | undefined
 		onShowModuleDiff?: (moduleId: string) => void
+		onAcceptModule?: (moduleId: string) => void
+		onRejectModule?: (moduleId: string) => void
 	}
 }
 
@@ -369,7 +373,7 @@ export function graphBuilder(
 		insertable: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		testModuleStates: ModulesTestStates | undefined
-		moduleActions?: Record<string, AIModuleAction>
+		moduleActions?: Record<string, ModuleActionInfo>
 		inputSchemaModified?: boolean
 		selectedId: string | undefined
 		path: string | undefined
@@ -387,6 +391,8 @@ export function graphBuilder(
 		chatInputEnabled: boolean
 		onShowModuleDiff?: (moduleId: string) => void
 		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
+		onAcceptModule?: (moduleId: string) => void
+		onRejectModule?: (moduleId: string) => void
 	},
 	failureModule: FlowModule | undefined,
 	preprocessorModule: FlowModule | undefined,
@@ -445,7 +451,9 @@ export function graphBuilder(
 					flowJob: extra.flowJob,
 					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
 					moduleAction: extra.moduleActions?.[module.id],
-					onShowModuleDiff: extra.onShowModuleDiff
+					onShowModuleDiff: extra.onShowModuleDiff,
+					onAcceptModule: extra.onAcceptModule,
+					onRejectModule: extra.onRejectModule
 				},
 				type: 'module'
 			})

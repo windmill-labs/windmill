@@ -43,13 +43,15 @@
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import type { Job } from '$lib/gen'
 	import { getNodeColorClasses, type FlowNodeState } from '$lib/components/graph'
-	import type { AIModuleAction } from '$lib/components/copilot/chat/flow/core'
+	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
 
 	interface Props {
 		selected?: boolean
 		deletable?: boolean
-		moduleAction: AIModuleAction | undefined
+		moduleAction: ModuleActionInfo | undefined
 		onShowModuleDiff?: (moduleId: string) => void
+		onAcceptModule?: (moduleId: string) => void
+		onRejectModule?: (moduleId: string) => void
 		retry?: boolean
 		cache?: boolean
 		earlyStop?: boolean
@@ -93,6 +95,8 @@
 		deletable = false,
 		moduleAction = undefined,
 		onShowModuleDiff = undefined,
+		onAcceptModule = undefined,
+		onRejectModule = undefined,
 		retry = false,
 		cache = false,
 		earlyStop = false,
@@ -270,7 +274,7 @@
 	<div
 		class={classNames(
 			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
-			deletable || moduleAction ? aiModuleActionToBgColor(moduleAction) : '',
+			deletable || moduleAction ? aiModuleActionToBgColor(moduleAction?.action) : '',
 			colorClasses.bg
 		)}
 		style="width: 275px; height: 34px;"
@@ -278,17 +282,43 @@
 		onmouseleave={() => (hover = false)}
 		onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
 	>
-		{#if moduleAction === 'modified' && onShowModuleDiff && id}
-			<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start z-50">
-				<Button
-					class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
-					onClick={() => {
-						onShowModuleDiff?.(id)
-					}}
-					startIcon={{ icon: DiffIcon }}
-				>
-					Diff
-				</Button>
+		{#if moduleAction?.pending && id}
+			<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start gap-1 z-50">
+				{#if moduleAction.action === 'modified' && onShowModuleDiff}
+					<Button
+						class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
+						onClick={() => {
+							onShowModuleDiff?.(id)
+						}}
+						startIcon={{ icon: DiffIcon }}
+					>
+						Diff
+					</Button>
+				{/if}
+				{#if onAcceptModule}
+					<Button
+						size="xs"
+						color="green"
+						class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
+						onClick={() => {
+							onAcceptModule?.(id)
+						}}
+					>
+						✓ Accept
+					</Button>
+				{/if}
+				{#if onRejectModule}
+					<Button
+						size="xs"
+						color="red"
+						class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1"
+						onClick={() => {
+							onRejectModule?.(id)
+						}}
+					>
+						✗ Reject
+					</Button>
+				{/if}
 			</div>
 		{/if}
 		<div

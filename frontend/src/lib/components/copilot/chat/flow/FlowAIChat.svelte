@@ -11,7 +11,7 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import YAML from 'yaml'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
-	import { buildFlowTimeline } from '$lib/components/flows/flowDiff'
+	import { computeFlowModuleDiff } from '$lib/components/flows/flowDiff'
 
 	let {
 		flowModuleSchemaMap
@@ -24,17 +24,12 @@
 
 	let lastSnapshot: ExtendedOpenFlow | undefined = $state(undefined)
 
-	// Compute diff timeline using buildFlowTimeline
-	let timeline = $derived.by(() => {
-		if (!lastSnapshot) return undefined
-
-		return buildFlowTimeline(lastSnapshot.value, flowStore.val.value, {
-			markRemovedAsShadowed: false
-		})
+	// Module actions with pending state
+	let moduleActions = $derived.by(() => {
+		if (!lastSnapshot) return {}
+		return computeFlowModuleDiff(lastSnapshot.value, flowStore.val.value, { markAsPending: true })
+			.afterActions
 	})
-
-	// Derive module actions from timeline
-	let moduleActions = $derived(timeline?.afterActions)
 
 	function getModule(id: string, flow: OpenFlow = flowStore.val) {
 		if (id === 'preprocessor') {
@@ -43,6 +38,14 @@
 			return flow.value.failure_module
 		} else {
 			return dfs(id, flow, false)[0]
+		}
+	}
+
+	function checkAndClearSnapshot() {
+		const allDecided = Object.values(moduleActions).every((info) => !info.pending)
+		if (allDecided) {
+			lastSnapshot = undefined
+			moduleActions = {}
 		}
 	}
 
@@ -68,7 +71,7 @@
 			return flowStore.val.value.modules
 		},
 		hasDiff: () => {
-			return timeline !== undefined && Object.keys(moduleActions ?? {}).length > 0
+			return Object.values(moduleActions).some((info) => info.pending)
 		},
 		acceptAllModuleActions() {
 			for (const id of Object.keys(moduleActions ?? {})) {
@@ -110,9 +113,11 @@
 			{
 				// Handle __ prefixed IDs for type-changed modules
 				const actualId = id.startsWith('__') ? id.substring(2) : id
-				const action = moduleActions?.[id]
+				const info = moduleActions?.[id]
 
-				if (action && lastSnapshot) {
+				if (info && lastSnapshot) {
+					const action = info.action
+
 					if (id === 'Input') {
 						flowStore.val.schema = lastSnapshot.schema
 					} else if (action === 'added') {
@@ -154,13 +159,24 @@
 					}
 
 					refreshStateStore(flowStore)
+
+					// Mark as decided
+					if (moduleActions[id]) {
+						moduleActions[id] = { ...moduleActions[id], pending: false }
+					}
+
+					checkAndClearSnapshot()
 				}
 			}
 		},
 		acceptModuleAction: (id: string) => {
 			// Handle __ prefixed IDs for type-changed modules
 			const actualId = id.startsWith('__') ? id.substring(2) : id
-			const action = moduleActions?.[id]
+			const info = moduleActions?.[id]
+
+			if (!info) return
+
+			const action = info.action
 
 			if (action === 'removed') {
 				deleteStep(actualId)
@@ -178,8 +194,12 @@
 				}
 			}
 
-			// Note: We don't delete from moduleActions since it's derived from timeline
-			// Accepting all changes means clearing the lastSnapshot
+			// Mark as decided (no longer pending)
+			if (moduleActions[id]) {
+				moduleActions[id] = { ...moduleActions[id], pending: false }
+			}
+
+			checkAndClearSnapshot()
 		},
 		// ai chat tools
 		setCode: async (id: string, code: string) => {
@@ -291,7 +311,7 @@
 		if (
 			$currentEditor?.type === 'script' &&
 			$selectedId &&
-			moduleActions?.[$selectedId] &&
+			moduleActions[$selectedId]?.pending &&
 			$currentEditor.editor.getAiChatEditorHandler()
 		) {
 			const moduleLastSnapshot = getModule($selectedId, lastSnapshot)

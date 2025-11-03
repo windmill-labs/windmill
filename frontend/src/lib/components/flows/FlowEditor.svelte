@@ -181,6 +181,10 @@
 						{suspendStatus}
 						{onDelete}
 						{flowHasChanged}
+						onAcceptModule={(moduleId) =>
+							aiChatManager.flowAiChatHelpers?.acceptModuleAction(moduleId)}
+						onRejectModule={(moduleId) =>
+							aiChatManager.flowAiChatHelpers?.revertModuleAction(moduleId)}
 					/>
 				{/if}
 			</div>

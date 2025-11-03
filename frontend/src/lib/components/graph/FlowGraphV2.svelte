@@ -62,7 +62,7 @@
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
-	import type { AIModuleAction } from '../copilot/chat/flow/core'
+	import type { ModuleActionInfo } from '../copilot/chat/flow/core'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
@@ -84,7 +84,7 @@
 		notSelectable?: boolean
 		flowModuleStates?: Record<string, GraphModuleState> | undefined
 		testModuleStates?: ModulesTestStates
-		moduleActions?: Record<string, AIModuleAction>
+		moduleActions?: Record<string, ModuleActionInfo>
 		selectedId?: Writable<string | undefined>
 		path?: string | undefined
 		newFlow?: boolean
@@ -137,6 +137,8 @@
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
 		onShowModuleDiff?: (moduleId: string) => void
+		onAcceptModule?: (moduleId: string) => void
+		onRejectModule?: (moduleId: string) => void
 		flowHasChanged?: boolean
 		// Viewport synchronization props (for diff viewer)
 		sharedViewport?: Viewport
@@ -194,6 +196,8 @@
 		onOpenPreview = undefined,
 		onHideJobStatus = undefined,
 		onShowModuleDiff = undefined,
+		onAcceptModule = undefined,
+		onRejectModule = undefined,
 		individualStepTests = false,
 		flowJob = undefined,
 		showJobStatus = false,
@@ -403,11 +407,13 @@
 
 		// Use existing flowDiff utility - always unified mode (markRemovedAsShadowed: false)
 		return buildFlowTimeline(diffBeforeFlow.value, afterFlowValue, {
-			markRemovedAsShadowed: markRemovedAsShadowed
+			markRemovedAsShadowed: markRemovedAsShadowed,
+			markAsPending: true
 		})
 	})
 
 	// Create effective props that merge computed diff with explicit props
+	// Convert computed diff actions to ModuleActionInfo format (all marked as not pending in diff view mode)
 	let effectiveModuleActions = $derived(moduleActions ?? computedDiff?.afterActions)
 
 	let effectiveInputSchemaModified = $derived(
@@ -431,6 +437,8 @@
 	$inspect('HERE', effectiveModules)
 	$inspect('HERE', effectiveModuleActions)
 	$inspect('HERE', diffBeforeFlow)
+	$inspect('HERE', onAcceptModule)
+	$inspect('HERE', onRejectModule)
 
 	let nodes = $state.raw<Node[]>([])
 	let edges = $state.raw<Edge[]>([])
@@ -566,6 +574,8 @@
 				flowHasChanged,
 				chatInputEnabled,
 				onShowModuleDiff: untrack(() => onShowModuleDiff),
+				onAcceptModule: untrack(() => onAcceptModule),
+				onRejectModule: untrack(() => onRejectModule),
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
 			untrack(() => effectiveFailureModule),

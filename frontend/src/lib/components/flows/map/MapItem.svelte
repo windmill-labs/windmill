@@ -16,14 +16,16 @@
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowNodeState } from '$lib/components/graph'
-	import type { AIModuleAction } from '$lib/components/copilot/chat/flow/core'
+	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
 
 	interface Props {
 		moduleId: string
 		mod: FlowModule
 		insertable: boolean
-		moduleAction: AIModuleAction | undefined
+		moduleAction: ModuleActionInfo | undefined
 		onShowModuleDiff?: (moduleId: string) => void
+		onAcceptModule?: (moduleId: string) => void
+		onRejectModule?: (moduleId: string) => void
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
 		moving?: string | undefined
@@ -58,6 +60,8 @@
 		insertable,
 		moduleAction = undefined,
 		onShowModuleDiff = undefined,
+		onAcceptModule = undefined,
+		onRejectModule = undefined,
 		annotation = undefined,
 		nodeState,
 		moving = undefined,
@@ -155,6 +159,8 @@
 					{editMode}
 					{moduleAction}
 					{onShowModuleDiff}
+					{onAcceptModule}
+					{onRejectModule}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
 					}  ${mod.value.parallel ? '(parallel)' : ''} ${
@@ -190,6 +196,8 @@
 					{editMode}
 					{moduleAction}
 					{onShowModuleDiff}
+					{onAcceptModule}
+					{onRejectModule}
 					on:changeId
 					on:delete
 					on:move
@@ -210,6 +218,8 @@
 					{editMode}
 					{moduleAction}
 					{onShowModuleDiff}
+					{onAcceptModule}
+					{onRejectModule}
 					on:changeId
 					on:delete
 					on:move
@@ -230,6 +240,8 @@
 					{editMode}
 					{moduleAction}
 					{onShowModuleDiff}
+					{onAcceptModule}
+					{onRejectModule}
 					on:changeId
 					on:pointerdown={() => onSelect(mod.id)}
 					on:delete

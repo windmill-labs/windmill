@@ -1,17 +1,17 @@
 import type { FlowModule, FlowValue } from '$lib/gen'
 import { dfs } from './dfs'
 import { deepEqual } from 'fast-equals'
-import type { AIModuleAction } from '../copilot/chat/flow/core'
+import type { ModuleActionInfo } from '../copilot/chat/flow/core'
 
 /**
  * The complete diff result with action maps and merged flow
  */
 export type FlowTimeline = {
 	/** Actions for modules in the before flow */
-	beforeActions: Record<string, AIModuleAction>
+	beforeActions: Record<string, ModuleActionInfo>
 
 	/** Actions for modules in the after flow (adjusted based on display mode) */
-	afterActions: Record<string, AIModuleAction>
+	afterActions: Record<string, ModuleActionInfo>
 
 	/** The merged flow containing both after modules and removed modules properly nested */
 	mergedFlow: FlowValue
@@ -29,10 +29,14 @@ export type FlowTimeline = {
  */
 export function computeFlowModuleDiff(
 	beforeFlow: FlowValue,
-	afterFlow: FlowValue
-): { beforeActions: Record<string, AIModuleAction>; afterActions: Record<string, AIModuleAction> } {
-	const beforeActions: Record<string, AIModuleAction> = {}
-	const afterActions: Record<string, AIModuleAction> = {}
+	afterFlow: FlowValue,
+	options: { markAsPending: boolean } = { markAsPending: false }
+): {
+	beforeActions: Record<string, ModuleActionInfo>
+	afterActions: Record<string, ModuleActionInfo>
+} {
+	const beforeActions: Record<string, ModuleActionInfo> = {}
+	const afterActions: Record<string, ModuleActionInfo> = {}
 
 	// Get all modules from both flows using dfs
 	const beforeModules = getAllModulesMap(beforeFlow)
@@ -47,22 +51,22 @@ export function computeFlowModuleDiff(
 
 		if (!beforeModule && afterModule) {
 			// Module exists in after but not before -> added
-			afterActions[moduleId] = 'added'
+			afterActions[moduleId] = { action: 'added', pending: options.markAsPending }
 		} else if (beforeModule && !afterModule) {
 			// Module exists in before but not after -> removed
-			beforeActions[moduleId] = 'removed'
-			afterActions[moduleId] = 'shadowed'
+			beforeActions[moduleId] = { action: 'removed', pending: options.markAsPending }
+			afterActions[moduleId] = { action: 'shadowed', pending: options.markAsPending }
 		} else if (beforeModule && afterModule) {
 			// Module exists in both -> check type and content
 			const typeChanged = beforeModule.value.type !== afterModule.value.type
 			if (typeChanged) {
 				// Type changed -> treat as removed + added
-				beforeActions[moduleId] = 'removed'
-				afterActions[moduleId] = 'added'
+				beforeActions[moduleId] = { action: 'removed', pending: options.markAsPending }
+				afterActions[moduleId] = { action: 'added', pending: options.markAsPending }
 			} else if (!deepEqual(beforeModule, afterModule)) {
 				// Same type but different content -> modified
-				beforeActions[moduleId] = 'modified'
-				afterActions[moduleId] = 'modified'
+				beforeActions[moduleId] = { action: 'modified', pending: options.markAsPending }
+				afterActions[moduleId] = { action: 'modified', pending: options.markAsPending }
 			}
 		}
 	}
@@ -270,14 +274,14 @@ function getAllModuleIds(flow: FlowValue): Set<string> {
 function reconstructMergedFlow(
 	afterFlow: FlowValue,
 	beforeFlow: FlowValue,
-	beforeActions: Record<string, AIModuleAction>
+	beforeActions: Record<string, ModuleActionInfo>
 ): FlowValue {
 	// Deep clone afterFlow to avoid mutation
 	const merged: FlowValue = JSON.parse(JSON.stringify(afterFlow))
 
 	// Get all removed/shadowed modules from beforeFlow
 	const removedModules = Object.entries(beforeActions)
-		.filter(([_, action]) => action === 'removed' || action === 'shadowed')
+		.filter(([_, action]) => action.action === 'removed' || action.action === 'shadowed')
 		.map(([id]) => id)
 
 	// Create a Set for faster lookup
@@ -483,18 +487,18 @@ function findModuleById(flow: FlowValue, moduleId: string): FlowModule | null {
  * Adjusts the after actions based on display mode and adds entries for prefixed IDs
  */
 function adjustActionsForDisplay(
-	afterActions: Record<string, AIModuleAction>,
-	beforeActions: Record<string, AIModuleAction>,
+	afterActions: Record<string, ModuleActionInfo>,
+	beforeActions: Record<string, ModuleActionInfo>,
 	markRemovedAsShadowed: boolean,
 	mergedFlow: FlowValue
-): Record<string, AIModuleAction> {
-	const adjusted: Record<string, AIModuleAction> = {}
+): Record<string, ModuleActionInfo> {
+	const adjusted: Record<string, ModuleActionInfo> = {}
 
 	// Copy all existing actions
 	for (const [id, action] of Object.entries(afterActions)) {
-		if (!markRemovedAsShadowed && action === 'shadowed') {
+		if (!markRemovedAsShadowed && action.action === 'shadowed') {
 			// In unified mode, change 'shadowed' to 'removed' for proper coloring
-			adjusted[id] = 'removed'
+			adjusted[id] = { action: 'removed', pending: false }
 		} else {
 			adjusted[id] = action
 		}
@@ -508,8 +512,8 @@ function adjustActionsForDisplay(
 			// This is a prefixed ID for a module that was removed
 			const originalId = id.substring(2)
 			// Check beforeActions to see if this module was removed
-			if (beforeActions[originalId] === 'removed') {
-				adjusted[id] = markRemovedAsShadowed ? 'shadowed' : 'removed'
+			if (beforeActions[originalId]?.action === 'removed') {
+				adjusted[id] = { action: markRemovedAsShadowed ? 'shadowed' : 'removed', pending: false }
 			}
 		}
 	}
@@ -530,10 +534,15 @@ function adjustActionsForDisplay(
 export function buildFlowTimeline(
 	beforeFlow: FlowValue,
 	afterFlow: FlowValue,
-	options: { markRemovedAsShadowed: boolean } = { markRemovedAsShadowed: false }
+	options: { markRemovedAsShadowed: boolean; markAsPending: boolean } = {
+		markRemovedAsShadowed: false,
+		markAsPending: false
+	}
 ): FlowTimeline {
 	// Compute the diff between the two flows
-	const { beforeActions, afterActions } = computeFlowModuleDiff(beforeFlow, afterFlow)
+	const { beforeActions, afterActions } = computeFlowModuleDiff(beforeFlow, afterFlow, {
+		markAsPending: options.markAsPending
+	})
 
 	// Reconstruct merged flow with removed modules properly nested
 	const mergedFlow = reconstructMergedFlow(afterFlow, beforeFlow, beforeActions)

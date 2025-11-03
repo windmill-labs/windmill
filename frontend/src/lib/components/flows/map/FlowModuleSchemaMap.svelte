@@ -73,6 +73,8 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
+		onAcceptModule?: (moduleId: string) => void
+		onRejectModule?: (moduleId: string) => void
 	}
 
 	let {
@@ -102,7 +104,9 @@
 		showJobStatus = false,
 		suspendStatus = $bindable({ val: {} }),
 		onDelete,
-		flowHasChanged
+		flowHasChanged,
+		onAcceptModule = undefined,
+		onRejectModule = undefined
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -474,6 +478,8 @@
 			{flowHasChanged}
 			diffBeforeFlow={beforeFlow}
 			onShowModuleDiff={handleShowModuleDiff}
+			{onAcceptModule}
+			{onRejectModule}
 			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)

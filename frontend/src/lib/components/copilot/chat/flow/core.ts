@@ -25,6 +25,11 @@ import openFlowSchema from './openFlow.json'
 
 export type AIModuleAction = 'added' | 'modified' | 'removed' | 'shadowed' | undefined
 
+export type ModuleActionInfo = {
+	action: AIModuleAction
+	pending: boolean
+}
+
 export interface FlowAIChatHelpers {
 	// flow context
 	getFlowAndSelectedId: () => { flow: ExtendedOpenFlow; selectedId: string }

@@ -46,6 +46,8 @@
 			editMode={data.editMode}
 			moduleAction={data.moduleAction}
 			onShowModuleDiff={data.onShowModuleDiff}
+			onAcceptModule={data.onAcceptModule}
+			onRejectModule={data.onRejectModule}
 			annotation={flowJobs &&
 			(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 				? 'Iteration: ' +
