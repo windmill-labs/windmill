@@ -197,8 +197,7 @@ lazy_static::lazy_static! {
         "snowflake".to_string(),
         "mssql".to_string(),
         "bigquery".to_string(),
-        "oracledb".to_string(),
-        "duckdb".to_string(),
+        "oracledb".to_string()
         // for related places search: ADD_NEW_LANG
     ];
 
