@@ -445,6 +445,17 @@ pub async fn process_relative_imports(
     Ok(())
 }
 
+pub fn is_generated_from_raw_requirements(lang: Option<ScriptLang>, lock: &Option<String>) -> bool {
+    (lang.is_some_and(|v| v == ScriptLang::Bun)
+        && lock
+            .as_ref()
+            .is_some_and(|v| v.contains("generatedFromPackageJson")))
+        || (lang.is_some_and(|v| v == ScriptLang::Python3)
+            && lock
+                .as_ref()
+                .is_some_and(|v| v.starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)))
+}
+
 pub async fn trigger_dependents_to_recompute_dependencies(
     w_id: &str,
     script_path: &str,
@@ -822,7 +833,7 @@ pub async fn handle_flow_dependency_job(
         &nodes_to_relock,
         occupancy_metrics,
         skip_flow_update,
-        raw_deps,
+        &raw_deps,
         &mut dependency_map,
     )
     .await?;
@@ -1018,7 +1029,7 @@ async fn lock_flow_value<'c>(
     locks_to_reload: &Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     skip_flow_update: bool,
-    raw_deps: Option<HashMap<String, String>>,
+    raw_deps: &Option<HashMap<String, String>>,
     dependency_map: &mut ScopedDependencyMap,
 ) -> Result<(
     FlowValue,
@@ -1046,7 +1057,7 @@ async fn lock_flow_value<'c>(
         locks_to_reload,
         occupancy_metrics,
         skip_flow_update,
-        raw_deps.clone(),
+        &raw_deps,
         dependency_map,
     )
     .await?;
@@ -1075,7 +1086,7 @@ async fn lock_flow_value<'c>(
                 locks_to_reload,
                 occupancy_metrics,
                 skip_flow_update,
-                raw_deps.clone(),
+                &raw_deps,
                 dependency_map,
             )
             .await?;
@@ -1110,7 +1121,7 @@ async fn lock_flow_value<'c>(
             locks_to_reload,
             occupancy_metrics,
             skip_flow_update,
-            raw_deps.clone(),
+            &raw_deps,
             dependency_map,
         )
         .await?;
@@ -1146,7 +1157,7 @@ async fn lock_modules<'c>(
     locks_to_reload: &Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     skip_flow_update: bool,
-    raw_deps: Option<HashMap<String, String>>,
+    raw_deps: &Option<HashMap<String, String>>,
     dependency_map: &mut ScopedDependencyMap, // (modules to replace old seq (even unmmodified ones), new transaction, modified ids) )
 ) -> Result<(
     Vec<FlowModule>,
@@ -1200,7 +1211,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
-                        raw_deps.clone(),
+                        &raw_deps,
                         dependency_map,
                     ))
                     .await?;
@@ -1236,7 +1247,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
-                            raw_deps.clone(),
+                            &raw_deps,
                             dependency_map,
                         ))
                         .await?;
@@ -1265,7 +1276,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
-                        raw_deps.clone(),
+                        &raw_deps,
                         dependency_map,
                     ))
                     .await?;
@@ -1298,7 +1309,7 @@ async fn lock_modules<'c>(
                             locks_to_reload,
                             occupancy_metrics,
                             skip_flow_update,
-                            raw_deps.clone(),
+                            &raw_deps,
                             dependency_map,
                         ))
                         .await?;
@@ -1326,7 +1337,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
-                        raw_deps.clone(),
+                        &raw_deps,
                         dependency_map,
                     ))
                     .await?;
@@ -1394,7 +1405,7 @@ async fn lock_modules<'c>(
                         locks_to_reload,
                         occupancy_metrics,
                         skip_flow_update,
-                        raw_deps.clone(),
+                        &raw_deps,
                         dependency_map,
                     ))
                     .await?;
@@ -1428,19 +1439,23 @@ async fn lock_modules<'c>(
             .await?;
         }
 
-        let dep_path = path.clone().unwrap_or_else(|| job_path.to_string());
-        let relative_imports = extract_relative_imports(
-            &content,
-            &format!("{dep_path}/flow"),
-            &Some(language.clone()),
-        );
+        let get_imports = || {
+            let dep_path = path.clone().unwrap_or_else(|| job_path.to_string());
+            extract_relative_imports(
+                &content,
+                &format!("{dep_path}/flow"),
+                &Some(language.clone()),
+            )
+        };
 
         if let Some(locks_to_reload) = locks_to_reload {
             if !locks_to_reload.contains(&e.id) {
-                tx = dependency_map
-                    .patch(relative_imports.clone(), e.id.clone(), tx)
-                    .await?;
-
+                if !is_generated_from_raw_requirements(Some(language), &lock) {
+                    let relative_imports = get_imports();
+                    tx = dependency_map
+                        .patch(relative_imports.clone(), e.id.clone(), tx)
+                        .await?;
+                }
                 new_flow_modules.push(e);
                 continue;
             }
@@ -1448,9 +1463,12 @@ async fn lock_modules<'c>(
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
                 let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
                 if skip_creating_new_lock {
-                    tx = dependency_map
-                        .patch(relative_imports.clone(), e.id.clone(), tx)
-                        .await?;
+                    if !is_generated_from_raw_requirements(Some(language), &lock) {
+                        let relative_imports = get_imports();
+                        tx = dependency_map
+                            .patch(relative_imports.clone(), e.id.clone(), tx)
+                            .await?;
+                    }
 
                     new_flow_modules.push(e);
                     continue;
@@ -1499,7 +1517,8 @@ async fn lock_modules<'c>(
         //
         let lock = match new_lock {
             Ok(new_lock) => {
-                if !raw_deps {
+                if !raw_deps && !skip_flow_update {
+                    let relative_imports = get_imports();
                     tx = dependency_map
                         .patch(relative_imports.clone(), e.id.clone(), tx)
                         .await?;
