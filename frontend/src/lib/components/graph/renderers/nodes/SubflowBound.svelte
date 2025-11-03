@@ -24,16 +24,18 @@
 				setTimeout(() => data.eventHandlers?.select(data.id))
 			}}
 		/>
-		<button
-			title="Unexpand subflow"
-			class="z-50 absolute -top-[10px] right-[25px] rounded-md h-[20px] w-[20px] center-center text-primary bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white"
-			onclick={stopPropagation(
-				preventDefault(() => {
-					data.eventHandlers.minimizeSubflow(data.subflowId)
-				})
-			)}
-		>
-			<Minimize2 size={12} />
-		</button>
+		<div class="z-50 absolute -top-4 right-11 rounded-md text-primary bg-surface">
+			<button
+				title="Unexpand subflow"
+				class="rounded-md center-center text-primary hover:bg-surface-tertiary shadow-md p-1 duration-0"
+				onclick={stopPropagation(
+					preventDefault(() => {
+						data.eventHandlers.minimizeSubflow(data.subflowId)
+					})
+				)}
+			>
+				<Minimize2 size={12} />
+			</button>
+		</div>
 	{/snippet}
 </NodeWrapper>
