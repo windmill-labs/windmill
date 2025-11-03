@@ -1,28 +1,23 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path, hash FROM script WHERE workspace_id = $1 AND archived = false",
+  "query": "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
         "name": "path",
         "type_info": "Varchar"
-      },
-      {
-        "ordinal": 1,
-        "name": "hash",
-        "type_info": "Int8"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Text"
       ]
     },
     "nullable": [
-      false,
       false
     ]
   },
-  "hash": "79624ae15f909bd6ab4f015e32345bd1c24f93db32970d9c06623b1e335138ba"
+  "hash": "85ec6c6384ab77df102d05caf82079e65a5300a52a292b9143b755087b9f9c4c"
 }

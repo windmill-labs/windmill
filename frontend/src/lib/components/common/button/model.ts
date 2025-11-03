@@ -13,6 +13,9 @@ export const BUTTON_COLORS = [
 ] as const
 
 export namespace ButtonType {
+	/**
+	 * @deprecated Use `UnifiedSize` instead
+	 */
 	export type Size = 'xs3' | 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 	export type UnifiedSize = 'sm' | 'md' | 'lg'
 	export type ExtendedSize = 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'

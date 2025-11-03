@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.569.0
+  version: 1.572.0
   title: Windmill API
 
   contact:
@@ -553,6 +553,31 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ExportedUser"
+
+  /users/onboarding:
+    post:
+      summary: Submit user onboarding data
+      operationId: submitOnboardingData
+      tags:
+        - user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                touch_point:
+                  type: string
+                use_case:
+                  type: string
+      responses:
+        '200':
+          description: Onboarding data submitted successfully
+          content:
+            application/json:
+              schema:
+                type: string                
 
   /w/{workspace}/users/delete/{username}:
     delete:
@@ -18596,12 +18621,15 @@ components:
           type: string
         operator_only:
           type: boolean
+        first_time_user:
+          type: boolean
 
       required:
         - email
         - login_type
         - super_admin
         - verified
+        - first_time_user
 
     Flow:
       allOf:
