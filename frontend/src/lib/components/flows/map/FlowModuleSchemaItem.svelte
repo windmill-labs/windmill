@@ -628,14 +628,16 @@
 		title="Expand subflow"
 		class={twMerge(
 			'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white p-1',
-			selected || hover ? 'block' : '!hidden',
-			'group-hover:block',
 			'shadow-md rounded-md'
 		)}
 		onclick={(e) => {
 			e.stopPropagation()
 			e.preventDefault()
 			maximizeSubflow?.()
+		}}
+		onpointerdown={(e) => {
+			e.stopPropagation()
+			e.preventDefault()
 		}}
 	>
 		<Maximize2 size={12} />
