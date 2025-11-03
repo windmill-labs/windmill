@@ -636,7 +636,7 @@
 				nodesDraggable={false}
 				--background-color={false}
 			>
-				<div class="absolute inset-0 !bg-surface-secondary h-full"></div>
+				<div class="absolute inset-0 !bg-surface-secondary h-full" id="flow-graph-v2"></div>
 				{#if leftHeader}
 					<div class="absolute top-2 left-2 z-10">
 						{@render leftHeader()}
