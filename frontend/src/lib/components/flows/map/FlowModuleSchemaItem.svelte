@@ -494,10 +494,10 @@
 			{/if}
 
 			{#if id !== 'preprocessor'}
-				<div class={twMerge('absolute -translate-y-[100%] top-2 right-4 h-7 p-1 min-w-7 ')}>
+				<div class={twMerge('absolute -translate-y-[100%] top-2 right-4 h-7 p-1 min-w-7')}>
 					<button
 						class={twMerge(
-							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white',
+							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
 							hover ? 'block' : '!hidden',
 							'shadow-md rounded-md',
 							'group-hover:block'
@@ -624,8 +624,9 @@
 		<button
 			title="Expand subflow"
 			class={twMerge(
-				'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-accent-hover hover:text-white p-1',
-				'shadow-md rounded-md'
+				'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1',
+				'shadow-md rounded-md',
+				hover || selected ? 'opacity-100' : 'opacity-50'
 			)}
 			onclick={(e) => {
 				e.stopPropagation()
