@@ -49,6 +49,7 @@
 
 	let flowInputsFiltered: any = pickableProperties.flow_input
 	let resultByIdFiltered: any = pickableProperties.priorIds
+	let envFiltered: any = pickableProperties.env
 
 	let timeout: number | undefined
 	function onSearch(search: string) {
@@ -66,6 +67,11 @@
 				search === EMPTY_STRING
 					? pickableProperties.priorIds
 					: keepByKey(pickableProperties.priorIds, search)
+
+			envFiltered =
+				search === EMPTY_STRING
+					? pickableProperties.env
+					: keepByKey(pickableProperties.env, search)
 		}, 50)
 	}
 
@@ -101,6 +107,7 @@
 			if (search === EMPTY_STRING) {
 				flowInputsFiltered = pickableProperties.flow_input
 				resultByIdFiltered = pickableProperties.priorIds
+				envFiltered = pickableProperties.env
 			}
 			filteringFlowInputsOrResult = ''
 			return
@@ -111,6 +118,9 @@
 		}
 		if (!$inputMatches?.some((match) => match.word === 'results')) {
 			resultByIdFiltered = {}
+		}
+		if (!$inputMatches?.some((match) => match.word === 'env')) {
+			envFiltered = {}
 		}
 		if ($inputMatches?.length == 1) {
 			filteringFlowInputsOrResult = $inputMatches[0].value
@@ -127,6 +137,13 @@
 				let filtered = filterNestedObject(resultByIdFiltered, nestedKeys)
 				if (Object.keys(filtered).length > 0) {
 					resultByIdFiltered = filtered
+				}
+			} else if ($inputMatches[0].word === 'env') {
+				envFiltered = pickableProperties.env
+				let [, ...nestedKeys] = $inputMatches[0].value.split('.')
+				let filtered = filterNestedObject(envFiltered, nestedKeys)
+				if (Object.keys(filtered).length > 0) {
+					envFiltered = filtered
 				}
 			}
 		} else {
@@ -190,6 +207,7 @@
 		if (prev && !filterActive) {
 			flowInputsFiltered = pickableProperties.flow_input
 			resultByIdFiltered = pickableProperties.priorIds
+			envFiltered = pickableProperties.env
 		}
 	}
 
@@ -426,7 +444,7 @@
 							{allowCopy}
 							pureViewer={!$propPickerConfig}
 							rawKey={false}
-							json={env}
+							json={envFiltered}
 							prefix="env"
 							on:select
 						/>

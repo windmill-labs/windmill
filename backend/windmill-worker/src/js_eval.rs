@@ -171,27 +171,11 @@ const DOT_PATTERN: &'static str = ".";
 const START_BRACKET_PATTERN: &'static str = "[\"";
 const END_BRACKET_PATTERN: &'static str = "\"]";
 
-pub async fn eval_timeout(
-    expr: String,
-    transform_context: HashMap<String, Arc<Box<RawValue>>>,
-    flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
+fn try_exact_property_access(
+    expr: &str,
+    flow_input: Option<&mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
-    authed_client: Option<&AuthedClient>,
-    by_id: Option<&IdContext>,
-    #[allow(unused_variables)] ctx: Option<Vec<(String, String)>>,
-) -> anyhow::Result<Box<RawValue>> {
-    let expr = expr.trim().to_string();
-
-    tracing::debug!(
-        "evaluating js eval: {} with context {:?}",
-        expr,
-        transform_context
-    );
-
-    if let Some(value) = transform_context.get(&expr) {
-        return Ok(value.as_ref().clone());
-    }
-
+) -> Option<Box<RawValue>> {
     let obj = if expr.starts_with(FLOW_INPUT_PREFIX) {
         Some((
             FLOW_INPUT_PREFIX,
@@ -227,9 +211,67 @@ pub async fn eval_timeout(
 
         if let Some(key_name) = maybe_key_name {
             if let Some(key_value) = obj.and_then(|obj| obj.get(key_name)) {
-                return Ok(key_value.clone());
+                return Some(key_value.clone());
             }
         }
+    }
+    None
+}
+
+async fn handle_full_regex(
+    captures: regex::Captures<'_>,
+    authed_client: &AuthedClient,
+    by_id: &IdContext,
+) -> anyhow::Result<Box<RawValue>> {
+    let first_word = captures.get(1).unwrap().as_str();
+    let identifier = captures.get(2).unwrap().as_str();
+    let idx_o = captures.get(3).map(|y| y.as_str());
+    let rest = captures.get(4).map(|y| y.as_str());
+    let query = if let Some(idx) = idx_o {
+        match rest {
+            Some(rest) => Some(format!("{}{}", idx, rest)),
+            None => Some(idx.to_string()),
+        }
+    } else {
+        rest.map(|x| x.trim_start_matches('.').to_string())
+    };
+
+    let result = if first_word == "results" {
+        authed_client
+            .get_result_by_id(&by_id.flow_job.to_string(), identifier, query)
+            .await
+    } else {
+        authed_client
+            .get_flow_env_by_flow_job_id(&by_id.flow_job.to_string(), identifier, query)
+            .await
+    };
+
+    return result;
+}
+
+pub async fn eval_timeout(
+    expr: String,
+    transform_context: HashMap<String, Arc<Box<RawValue>>>,
+    flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    authed_client: Option<&AuthedClient>,
+    by_id: Option<&IdContext>,
+    #[allow(unused_variables)] ctx: Option<Vec<(String, String)>>,
+) -> anyhow::Result<Box<RawValue>> {
+    let expr = expr.trim().to_string();
+
+    tracing::debug!(
+        "evaluating js eval: {} with context {:?}",
+        expr,
+        transform_context
+    );
+
+    if let Some(value) = transform_context.get(&expr) {
+        return Ok(value.as_ref().clone());
+    }
+
+    if let Some(value) = try_exact_property_access(&expr, flow_input.as_ref(), flow_env) {
+        return Ok(value);
     }
 
     let p_ids = by_id.map(|x| {
@@ -254,24 +296,8 @@ pub async fn eval_timeout(
     }
 
     if let (Some(by_id), Some(authed_client)) = (by_id, authed_client) {
-        if let Some((id, idx_o, rest)) = RE_FULL.captures(&expr).map(|x| {
-            (
-                x.get(1).unwrap().as_str(),
-                x.get(2).map(|y| y.as_str()),
-                x.get(3).map(|y| y.as_str()),
-            )
-        }) {
-            let query = if let Some(idx) = idx_o {
-                match rest {
-                    Some(rest) => Some(format!("{}{}", idx, rest)),
-                    None => Some(idx.to_string()),
-                }
-            } else {
-                rest.map(|x| x.trim_start_matches('.').to_string())
-            };
-            return authed_client
-                .get_result_by_id(&by_id.flow_job.to_string(), id, query)
-                .await;
+        if let Some(captures) = RE_FULL.captures(&expr) {
+            return handle_full_regex(captures, authed_client, by_id).await;
         }
     }
 
@@ -416,10 +442,12 @@ fn replace_with_await(expr: String, fn_name: &str) -> String {
 }
 lazy_static! {
     static ref RE: Regex =
-        Regex::new(r#"(?m)(?P<r>results(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#).unwrap();
-    static ref RE_FULL: Regex =
-        Regex::new(r"(?m)^results(?:\?)?\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$")
+        Regex::new(r#"(?m)(?P<r>(?:results|env)(?:\?)?(?:(?:\.[a-zA-Z_0-9]+)|(?:\[\".*?\"\])))"#)
             .unwrap();
+    static ref RE_FULL: Regex = Regex::new(
+        r"(?m)^(results|env)(?:\?)?\.([a-zA-Z_0-9]+)(?:\[(\d+)\])?((?:\.[a-zA-Z_0-9]+)+)?$"
+    )
+    .unwrap();
     static ref RE_PROXY: Regex =
         Regex::new(r"^(https?)://(([^:@\s]+):([^:@\s]+)@)?([^:@\s]+)(:(\d+))?$").unwrap();
 }
@@ -492,7 +520,7 @@ const results = new Proxy({{}}, {{
 
 async function env_by_var_name(var_name) {{
     let root_job_id = "{}";
-    return await Deno.core.ops.op_get_flow_env(root_job_id, var_name);
+    return JSON.parse(await Deno.core.ops.op_get_flow_env(root_job_id, var_name, null));
 }}
 
 const env = new Proxy({{}}, {{
@@ -697,12 +725,18 @@ async fn op_get_flow_env(
     op_state: Rc<RefCell<OpState>>,
     #[string] root_job_id: String,
     #[string] var_name: String,
+    #[string] json_path: Option<String>,
 ) -> Result<Option<String>, deno_error::JsErrorBox> {
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
     if let Some(client) = client {
         client
-            .get_flow_env_by_flow_job_id(&root_job_id, &var_name)
+            .get_flow_env_by_flow_job_id::<Option<Box<RawValue>>>(
+                &root_job_id,
+                &var_name,
+                json_path,
+            )
             .await
+            .map(|value| value.map(|val| val.get().to_string()))
             .map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))
     } else {
         Err(deno_error::JsErrorBox::generic(

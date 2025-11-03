@@ -385,11 +385,12 @@ async fn get_flow_env_by_flow_job_id(
     tokened: Tokened,
     Extension(db): Extension<DB>,
     Path((w_id, flow_job_id, var_name)): Path<(String, Uuid, String)>,
-) -> windmill_common::error::JsonResult<Option<String>> {
+    Query(JsonPath { json_path, .. }): Query<JsonPath>,
+) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
     let flow_env = sqlx::query_scalar!(
         r#"
             SELECT 
-                root_job.raw_flow -> 'flow_env' -> $3
+                (root_job.raw_flow -> 'flow_env' -> $3) #> $4 AS "flow_env: sqlx::types::Json<Box<RawValue>>"
             FROM 
                 v2_job current_job
             JOIN 
@@ -400,11 +401,17 @@ async fn get_flow_env_by_flow_job_id(
                 current_job.workspace_id = $2"#,
         flow_job_id,
         w_id,
-        var_name
+        var_name,
+        json_path
+            .as_ref()
+            .map(|x| x.split(".").collect::<Vec<_>>())
+            .unwrap_or_default() as Vec<&str>,
     )
     .fetch_optional(&db)
     .await?
-    .flatten();
+    .map(|r| r.map(|x| x.0))
+    .flatten()
+    .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
 
     log_job_view(
         &db,
@@ -414,12 +421,7 @@ async fn get_flow_env_by_flow_job_id(
         &flow_job_id,
     )
     .await?;
-
-    let env_var = flow_env
-        .map(|value| serde_json::from_value(value))
-        .transpose()?;
-
-    Ok(Json(env_var))
+    Ok(Json(flow_env))
 }
 
 async fn compute_root_job_for_flow(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
@@ -7869,6 +7871,7 @@ async fn get_completed_job_result(
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(JsonPath { json_path, suspended_job, approver, resume_id, secret }): Query<JsonPath>,
 ) -> error::Result<Response> {
+    println!("Json path: {:#?}", json_path.as_ref());
     let tags = opt_authed
         .as_ref()
         .map(|authed| get_scope_tags(authed))

@@ -73,7 +73,7 @@
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let env = flowStore.val.value.flow_env
+	let env = $derived(pickableProperties?.env || flowStore.val.value.flow_env)
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
 		inputMatches,
