@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    UPDATE \n                        flow \n                    SET \n                        ws_error_handler_muted = $3 \n                    WHERE \n                        path = $1 AND \n                        workspace_id = $2\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e8925d199bd923dd7077b40477c5fcf2253407713692a88e6e7e51dfb59bed4d"
+}

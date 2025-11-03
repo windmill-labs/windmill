@@ -14,6 +14,7 @@
 	import type { FlowEditorContext } from '../types'
 	import { getStepPropPicker } from '../previousResults'
 	import { NEVER_TESTED_THIS_FAR } from '../models'
+	import { validateRetryConfig } from '$lib/utils'
 
 	interface Props {
 		flowModuleRetry: Retry | undefined
@@ -58,6 +59,10 @@
 			? (flowStateStore.val[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
 			: NEVER_TESTED_THIS_FAR
 	)
+
+	let validationError = $derived.by(() => {
+		return validateRetryConfig(flowModuleRetry)
+	})
 
 	function setConstantRetries() {
 		flowModuleRetry = {
@@ -248,7 +253,20 @@
 					<span class="text-xs text-primary">delay = multiplier * base ^ (number of attempt)</span>
 					<input bind:value={flowModuleRetry.exponential.multiplier} type="number" />
 					<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
-					<input bind:value={flowModuleRetry.exponential.seconds} type="number" step="1" />
+					<input
+						bind:value={flowModuleRetry.exponential.seconds}
+						type="number"
+						step="1"
+						min="1"
+						class={validationError ? 'border-red-500' : ''}
+					/>
+					{#if validationError}
+						<span class="text-xs text-red-500">{validationError}</span>
+					{:else}
+						<span class="text-xs text-tertiary"
+							>Must be ≥ 1. A base of 0 would cause immediate retries.</span
+						>
+					{/if}
 					<div class="text-xs font-bold !mt-2">Randomization factor (percentage)</div>
 					<div class="flex w-full gap-4">
 						{#if !$enterpriseLicense}
