@@ -98,7 +98,7 @@
 				bind:filterText={filterText}
 				bind:value={selectedRepository}
 			/>
-			{#if hasMoreRepos || loadedRepositories.length < totalCount}
+			{#if hasMoreRepos}
 				<div class="flex items-center gap-2 pl-1">
 					<span class="text-2xs text-tertiary">
 						Loaded {loadedRepositories.length} of {totalCount}
