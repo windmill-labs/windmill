@@ -98,10 +98,6 @@
 
 	let flowModuleSchemaMap: FlowModuleSchemaMap | undefined = $state()
 
-	// AI Chat diff mode state
-	let aiChatDiffMode = $state(false)
-	let aiChatBeforeFlow = $state(undefined)
-
 	export function isNodeVisible(nodeId: string): boolean {
 		return flowModuleSchemaMap?.isNodeVisible(nodeId) ?? false
 	}
@@ -153,8 +149,6 @@
 				{:else if flowStore.val.value.modules}
 					<FlowModuleSchemaMap
 						bind:this={flowModuleSchemaMap}
-						bind:aiChatDiffMode
-						bind:aiChatBeforeFlow
 						{disableStaticInputs}
 						{disableTutorials}
 						{disableAi}
@@ -219,11 +213,7 @@
 			{/if}
 		</Pane>
 		{#if !disableAi}
-			<FlowAIChat
-				{flowModuleSchemaMap}
-				bind:diffMode={aiChatDiffMode}
-				bind:beforeFlow={aiChatBeforeFlow}
-			/>
+			<FlowAIChat {flowModuleSchemaMap} />
 		{/if}
 	</Splitpanes>
 </div>

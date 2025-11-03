@@ -144,8 +144,7 @@
 		onViewportChange?: (viewport: Viewport, isUserInitiated: boolean) => void
 		leftHeader?: Snippet
 		// Diff mode props
-		diffMode?: boolean
-		beforeFlow?: OpenFlow
+		diffBeforeFlow?: OpenFlow
 	}
 
 	let {
@@ -204,8 +203,7 @@
 		sharedViewport = undefined,
 		onViewportChange = undefined,
 		leftHeader = undefined,
-		diffMode = false,
-		beforeFlow = undefined
+		diffBeforeFlow = undefined
 	}: Props = $props()
 
 	setContext<{
@@ -388,7 +386,7 @@
 
 	// Compute diff when diffMode is enabled
 	let computedDiff = $derived.by(() => {
-		if (!diffMode || !beforeFlow || !modules) {
+		if (!diffBeforeFlow || !modules) {
 			return undefined
 		}
 
@@ -402,7 +400,7 @@
 		}
 
 		// Use existing flowDiff utility - always unified mode (markRemovedAsShadowed: false)
-		return buildFlowTimeline(beforeFlow.value, afterFlowValue, {
+		return buildFlowTimeline(diffBeforeFlow.value, afterFlowValue, {
 			markRemovedAsShadowed: false
 		})
 	})
@@ -412,22 +410,18 @@
 
 	let effectiveInputSchemaModified = $derived(
 		inputSchemaModified ??
-			(diffMode && beforeFlow
-				? hasInputSchemaChanged(beforeFlow, { schema: beforeFlow.schema })
+			(diffBeforeFlow
+				? hasInputSchemaChanged(diffBeforeFlow, { schema: diffBeforeFlow.schema })
 				: false)
 	)
 
 	// Use merged flow modules when in diff mode, otherwise use raw modules
-	let effectiveModules = $derived(
-		diffMode && computedDiff ? computedDiff.mergedFlow.modules : modules
-	)
+	let effectiveModules = $derived(computedDiff?.mergedFlow.modules ?? modules)
 
-	let effectiveFailureModule = $derived(
-		diffMode && computedDiff ? computedDiff.mergedFlow.failure_module : failureModule
-	)
+	let effectiveFailureModule = $derived(computedDiff?.mergedFlow.failure_module ?? failureModule)
 
 	let effectivePreprocessorModule = $derived(
-		diffMode && computedDiff ? computedDiff.mergedFlow.preprocessor_module : preprocessorModule
+		computedDiff?.mergedFlow.preprocessor_module ?? preprocessorModule
 	)
 
 	// Initialize moduleTracker with effectiveModules

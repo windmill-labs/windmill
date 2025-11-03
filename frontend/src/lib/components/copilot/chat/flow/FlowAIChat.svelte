@@ -14,13 +14,9 @@
 	import { buildFlowTimeline } from '$lib/components/flows/flowDiff'
 
 	let {
-		flowModuleSchemaMap,
-		diffMode = $bindable(),
-		beforeFlow = $bindable()
+		flowModuleSchemaMap
 	}: {
 		flowModuleSchemaMap: FlowModuleSchemaMap | undefined
-		diffMode?: boolean
-		beforeFlow?: ExtendedOpenFlow
 	} = $props()
 
 	const { flowStore, flowStateStore, selectedId, currentEditor } =
@@ -230,6 +226,9 @@
 					lastSnapshot = $state.snapshot(flowStore).val
 				}
 
+				// Update the before flow
+				flowModuleSchemaMap?.setBeforeFlow(lastSnapshot)
+
 				// Update the flow structure
 				flowStore.val.value.modules = parsed.modules
 
@@ -313,17 +312,6 @@
 					})
 				)
 			}
-		}
-	})
-
-	// Sync diff mode state with parent when AI chat makes changes
-	$effect(() => {
-		if (timeline !== undefined && lastSnapshot) {
-			diffMode = true
-			beforeFlow = lastSnapshot
-		} else {
-			diffMode = false
-			beforeFlow = undefined
 		}
 	})
 </script>

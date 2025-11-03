@@ -257,8 +257,7 @@
 				<!-- Unified view - uses FlowGraphV2's built-in diff mode -->
 				<div class="h-full overflow-hidden">
 					<FlowGraphV2
-						diffMode={true}
-						beforeFlow={beforeFlow}
+						diffBeforeFlow={beforeFlow}
 						modules={afterFlow.value.modules}
 						failureModule={afterFlow.value.failure_module}
 						preprocessorModule={afterFlow.value.preprocessor_module}

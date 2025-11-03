@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { FlowEditorContext } from '../types'
+	import type { ExtendedOpenFlow, FlowEditorContext } from '../types'
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import {
 		createInlineScriptModule,
@@ -71,9 +71,6 @@
 		suspendStatus?: StateStore<Record<string, { job: Job; nb: number }>>
 		onDelete?: (id: string) => void
 		flowHasChanged?: boolean
-		// AI Chat diff mode props
-		aiChatDiffMode?: boolean
-		aiChatBeforeFlow?: any
 	}
 
 	let {
@@ -103,9 +100,7 @@
 		showJobStatus = false,
 		suspendStatus = $bindable({ val: {} }),
 		onDelete,
-		flowHasChanged,
-		aiChatDiffMode = $bindable(false),
-		aiChatBeforeFlow = $bindable(undefined)
+		flowHasChanged
 	}: Props = $props()
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
@@ -291,6 +286,12 @@
 		}
 	}
 
+	export function setBeforeFlow(flow: ExtendedOpenFlow) {
+		beforeFlow = flow
+	}
+
+	let beforeFlow: ExtendedOpenFlow | undefined = $state(undefined)
+
 	let deleteCallback: (() => void) | undefined = $state(undefined)
 	let dependents: Record<string, string[]> = $state({})
 
@@ -437,9 +438,8 @@
 			{showJobStatus}
 			suspendStatus={suspendStatus.val}
 			{flowHasChanged}
+			diffBeforeFlow={beforeFlow}
 			chatInputEnabled={Boolean(flowStore.val.value?.chat_input_enabled)}
-			diffMode={aiChatDiffMode}
-			beforeFlow={aiChatBeforeFlow}
 			onDelete={(id) => {
 				dependents = getDependentComponents(id, flowStore.val)
 				const cb = () => {
