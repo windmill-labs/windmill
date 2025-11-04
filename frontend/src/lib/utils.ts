@@ -1626,8 +1626,8 @@ export async function wait(ms: number) {
 export function validateRetryConfig(retry: Retry | undefined): string | null {
 	if (retry?.exponential?.seconds !== undefined) {
 		const seconds = retry.exponential.seconds
-		if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 1) {
-			return 'Exponential backoff base (seconds) must be a valid positive integer ≥ 1'
+		if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 0) {
+			return 'Exponential backoff base (seconds) must be an integer ≥ 0'
 		}
 	}
 	return null

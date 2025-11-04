@@ -257,7 +257,7 @@
 						bind:value={flowModuleRetry.exponential.seconds}
 						type="number"
 						step="1"
-						min="1"
+						min="0"
 						class={validationError ? 'border-red-500' : ''}
 					/>
 					{#if validationError}
