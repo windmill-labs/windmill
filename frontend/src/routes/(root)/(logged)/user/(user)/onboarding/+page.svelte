@@ -15,7 +15,9 @@
 		HelpCircle,
 		Building2,
 		Twitter,
-		Youtube
+		Youtube,
+		Bot, 
+		MessageCircleCode
 	} from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 
@@ -34,14 +36,16 @@
 	let otherInputRef: HTMLInputElement | undefined = $state()
 
 	const sources = [
+		{ id: 'ai_search', label: 'AI search', icon: Bot },
 		{ id: 'search_engine', label: 'Search engine', icon: Search },
+		{ id: 'reddit', label: 'Reddit', icon: MessageCircleCode },
 		{ id: 'youtube', label: 'Youtube', icon: Youtube },
+		{ id: 'github', label: 'GitHub', icon: Github },
+		{ id: 'in_my_company', label: 'Current/Previous company', icon: Building2 },
+		{ id: 'word_of_mouth', label: 'Word of mouth', icon: Users },
+		{ id: 'blog', label: 'Blog/Article', icon: FileText },
 		{ id: 'linkedin', label: 'LinkedIn', icon: Linkedin },
 		{ id: 'twitter', label: 'X/Twitter', icon: Twitter },
-		{ id: 'github', label: 'GitHub', icon: Github },
-		{ id: 'blog', label: 'Blog/Article', icon: FileText },
-		{ id: 'word_of_mouth', label: 'Word of mouth', icon: Users },
-		{ id: 'in_my_company', label: 'Used in my company', icon: Building2 },
 		{ id: 'event', label: 'Event', icon: Calendar },
 		{ id: 'other', label: 'Other', icon: HelpCircle }
 	]
