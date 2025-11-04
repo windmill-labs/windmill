@@ -13,7 +13,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-	import { runFlowPreview } from './flows/utils'
+	import { runFlowPreview } from './flows/utils.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'

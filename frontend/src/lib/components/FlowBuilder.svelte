@@ -43,7 +43,7 @@
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
-	import { cleanInputs } from './flows/utils'
+	import { cleanFlow } from './flows/utils.svelte'
 	import {
 		Calendar,
 		Pen,
@@ -267,7 +267,7 @@
 		}
 		loadingDraft = true
 		try {
-			const flow = cleanInputs(flowStore.val)
+			const flow = cleanFlow(flowStore.val)
 			try {
 				localStorage.removeItem('flow')
 				localStorage.removeItem(`flow-${$pathStore}`)
@@ -428,7 +428,7 @@
 
 		loadingSave = true
 		try {
-			const flow = cleanInputs(flowStore.val)
+			const flow = cleanFlow(flowStore.val)
 
 			if (flow.value?.modules) {
 				const validationErrors: string[] = []
