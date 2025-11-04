@@ -59,6 +59,7 @@ use std::{
 };
 use windmill_parser::MainArgSignature;
 use windmill_queue::preprocess_dependency_job;
+use windmill_queue::MiniCompletedJob;
 use windmill_queue::PulledJobResultToJobErr;
 
 use uuid::Uuid;
@@ -741,7 +742,7 @@ fn create_span(arc_job: &Arc<MiniPulledJob>, worker_name: &str, hostname: &str) 
 pub async fn handle_all_job_kind_error(
     conn: &Connection,
     authed_client: &AuthedClient,
-    job: Arc<MiniPulledJob>,
+    job: MiniCompletedJob,
     err: Error,
     same_worker_tx: Option<&SameWorkerSender>,
     worker_dir: &str,
@@ -754,7 +755,7 @@ pub async fn handle_all_job_kind_error(
             handle_job_error(
                 db,
                 authed_client,
-                job.as_ref(),
+                &job,
                 0,
                 None,
                 err,
@@ -773,7 +774,7 @@ pub async fn handle_all_job_kind_error(
                 .send_job(
                     JobCompleted {
                         preprocessed_args: None,
-                        job: job.clone(),
+                        job: job,
                         result: Arc::new(windmill_common::worker::to_raw_value(&error_to_value(
                             &err,
                         ))),
@@ -954,8 +955,6 @@ pub async fn run_worker(
     killpill_tx: KillpillSender,
     base_internal_url: &str,
 ) {
-
-
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
         tracing::warn!(
@@ -1749,7 +1748,7 @@ pub async fn run_worker(
                         .send_job(
                             JobCompleted {
                                 preprocessed_args: None,
-                                job: Arc::new(job.job()),
+                                job: MiniCompletedJob::from(job.job()),
                                 success: true,
                                 result: Arc::new(empty_result()),
                                 result_columns: None,
@@ -1975,7 +1974,7 @@ pub async fn run_worker(
                             handle_all_job_kind_error(
                                 &conn,
                                 &authed_client,
-                                arc_job.clone(),
+                                MiniCompletedJob::from(arc_job),
                                 err,
                                 Some(&same_worker_tx),
                                 &worker_dir,
@@ -2364,7 +2363,6 @@ pub async fn handle_queued_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
-
     // Extract the active span from the context
 
     if job.canceled_by.is_some() {
@@ -2437,14 +2435,8 @@ pub async fn handle_queued_job(
         ) => {
             if x.map(|x| x.0).is_none_or(|x| is_special_codebase_hash(x)) {
                 Some(
-                    cache::job::fetch_preview(
-                        conn,
-                        &job.id,
-                        raw_lock,
-                        raw_code,
-                        raw_flow.clone(),
-                    )
-                    .await?,
+                    cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow.clone())
+                        .await?,
                 )
             } else {
                 None
@@ -2485,7 +2477,7 @@ pub async fn handle_queued_job(
                     .send_job(
                         JobCompleted {
                             preprocessed_args: None,
-                            job,
+                            job: MiniCompletedJob::from(job),
                             result,
                             result_columns: None,
                             mem_peak: 0,
@@ -2506,10 +2498,7 @@ pub async fn handle_queued_job(
                         tracing::debug!("Send job completed")
                     }
                     Err(err) => {
-                        tracing::error!(
-                            "An error occurred while sending job completed: {:#?}",
-                            err
-                        )
+                        tracing::error!("An error occurred while sending job completed: {:#?}", err)
                     }
                 }
 
@@ -2544,7 +2533,6 @@ pub async fn handle_queued_job(
             ));
         }
     } else {
-
         let mut logs = "".to_string();
         let mut mem_peak: i32 = 0;
         let mut canceled_by: Option<CanceledBy> = None;
@@ -2729,7 +2717,8 @@ pub async fn handle_queued_job(
                     killpill_rx,
                     precomputed_agent_info,
                     &mut has_stream,
-                )).await;
+                ))
+                .await;
 
                 occupancy_metrics.total_duration_of_running_jobs +=
                     metric_timer.elapsed().as_secs_f32();
@@ -2737,8 +2726,10 @@ pub async fn handle_queued_job(
             }
         };
 
+        let cjob = MiniCompletedJob::from(job.to_owned());
+        drop(job);
         //it's a test job, no need to update the db
-        if job.as_ref().workspace_id == "" {
+        if cjob.workspace_id == "" {
             return Ok(true);
         }
 
@@ -2749,7 +2740,7 @@ pub async fn handle_queued_job(
             return Ok(false);
         }
         process_result(
-            job,
+            cjob,
             result.map(|x| Arc::new(x)),
             job_dir,
             job_completed_tx,
@@ -2765,8 +2756,6 @@ pub async fn handle_queued_job(
         )
         .await
     }
-
-    
 }
 
 pub fn build_envs(
@@ -2953,7 +2942,6 @@ async fn handle_code_execution_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     has_stream: &mut bool,
 ) -> error::Result<Box<RawValue>> {
-
     let script_hash = || {
         job.runnable_id
             .ok_or_else(|| Error::internal_err("expected script hash"))
@@ -2994,8 +2982,11 @@ async fn handle_code_execution_job(
         }
         JobKind::Script_Hub => {
             let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
-                Box::pin(get_hub_script_content_and_requirements(job.runnable_path.as_ref(), conn.as_sql()))
-                    .await?;
+                Box::pin(get_hub_script_content_and_requirements(
+                    job.runnable_path.as_ref(),
+                    conn.as_sql(),
+                ))
+                .await?;
 
             data = ScriptData { code: content, lock: lockfile };
             metadata = ScriptMetadata { language, envs, codebase, schema, schema_validator: None };
@@ -3006,7 +2997,11 @@ async fn handle_code_execution_job(
             (arc_data.as_ref(), arc_metadata.as_ref())
         }
         JobKind::FlowScript => {
-            arc_data = Box::pin(cache::flow::fetch_script(conn, FlowNodeId(script_hash()?.0))).await?;
+            arc_data = Box::pin(cache::flow::fetch_script(
+                conn,
+                FlowNodeId(script_hash()?.0),
+            ))
+            .await?;
             metadata = ScriptMetadata {
                 language: job.script_lang,
                 envs: None,
@@ -3017,7 +3012,11 @@ async fn handle_code_execution_job(
             (arc_data.as_ref(), &metadata)
         }
         JobKind::AppScript => {
-            arc_data = Box::pin(cache::app::fetch_script(conn, AppScriptId(script_hash()?.0))).await?;
+            arc_data = Box::pin(cache::app::fetch_script(
+                conn,
+                AppScriptId(script_hash()?.0),
+            ))
+            .await?;
             metadata = ScriptMetadata {
                 language: job.script_lang,
                 envs: None,
@@ -3035,8 +3034,11 @@ async fn handle_code_execution_job(
                     .ok_or_else(|| Error::internal_err("expected script path".to_string()))?;
                 if script_path.starts_with("hub/") {
                     let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
-                        Box::pin(get_hub_script_content_and_requirements(Some(script_path), conn.as_sql()))
-                            .await?;
+                        Box::pin(get_hub_script_content_and_requirements(
+                            Some(script_path),
+                            conn.as_sql(),
+                        ))
+                        .await?;
                     data = ScriptData { code: content, lock: lockfile };
                     metadata =
                         ScriptMetadata { language, envs, codebase, schema, schema_validator: None };
@@ -3052,7 +3054,8 @@ async fn handle_code_execution_job(
                     .await?
                     .ok_or_else(|| Error::internal_err("expected script hash".to_string()))?;
 
-                    (arc_data, arc_metadata) = Box::pin(cache::script::fetch(conn, ScriptHash(hash))).await?;
+                    (arc_data, arc_metadata) =
+                        Box::pin(cache::script::fetch(conn, ScriptHash(hash))).await?;
                     (arc_data.as_ref(), arc_metadata.as_ref())
                 }
             }

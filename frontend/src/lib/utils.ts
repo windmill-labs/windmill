@@ -10,7 +10,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import { type Job, type RunnableKind, type Script, type ScriptLang } from './gen'
+import type { Job, RunnableKind, Script, ScriptLang, Retry } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -1623,6 +1623,15 @@ export async function wait(ms: number) {
 	return new Promise((resolve) => setTimeout(() => resolve(undefined), ms))
 }
 
+export function validateRetryConfig(retry: Retry | undefined): string | null {
+	if (retry?.exponential?.seconds !== undefined) {
+		const seconds = retry.exponential.seconds
+		if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 1) {
+			return 'Exponential backoff base (seconds) must be a valid positive integer ≥ 1'
+		}
+	}
+	return null
+}
 export type CssColor = keyof (typeof tokensFile)['tokens']['light']
 import tokensFile from './assets/tokens/tokens.json'
 import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'

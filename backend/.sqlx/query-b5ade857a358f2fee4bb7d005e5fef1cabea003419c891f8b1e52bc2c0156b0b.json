@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT $1 OFFSET $2",
+  "query": "SELECT email, login_type::text, verified, super_admin, devops, name, company, username, NULL::bool as operator_only, first_time_user FROM password ORDER BY super_admin DESC, devops DESC, email LIMIT $1 OFFSET $2",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,11 @@
         "ordinal": 8,
         "name": "operator_only",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "first_time_user",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -64,8 +69,9 @@
       true,
       true,
       true,
-      null
+      null,
+      false
     ]
   },
-  "hash": "f07a705df1a988827e099d146f5308b763293a27adf30d02df605317791d8126"
+  "hash": "b5ade857a358f2fee4bb7d005e5fef1cabea003419c891f8b1e52bc2c0156b0b"
 }

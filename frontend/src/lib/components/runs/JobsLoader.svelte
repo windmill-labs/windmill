@@ -26,7 +26,6 @@
 		folder: string | null
 		path: string | null
 		success?: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | undefined
-		isSkipped?: boolean
 		showSchedules?: boolean
 		showFutureJobs?: boolean
 		argFilter: string | undefined
@@ -43,6 +42,7 @@
 		externalJobs?: Job[] | undefined
 		concurrencyKey: string | null
 		tag: string | null
+		showSkipped?: boolean
 		extendedJobs?: ExtendedJobs | undefined
 		argError?: string
 		resultError?: string
@@ -64,7 +64,7 @@
 		folder,
 		path,
 		success = undefined,
-		isSkipped = false,
+		showSkipped = false,
 		showSchedules = true,
 		showFutureJobs = true,
 		argFilter,
@@ -213,7 +213,7 @@
 					: success == 'waiting'
 						? false
 						: undefined,
-			isSkipped: isSkipped ? true : undefined,
+			isSkipped: showSkipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent: jobKindsCat != 'all' ? true : undefined,
 			label: label === null || label === '' ? undefined : label,
@@ -269,7 +269,7 @@
 			jobKinds: jobKindsCat == 'all' || jobKinds == '' ? undefined : jobKinds,
 			success: success == 'success' ? true : success == 'failure' ? false : undefined,
 			running: success == 'running' ? true : undefined,
-			isSkipped: isSkipped ? true : undefined,
+			isSkipped: showSkipped ? undefined : false,
 			isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			label: label === null || label === '' ? undefined : label,
 			tag: tag === null || tag === '' ? undefined : tag,
@@ -341,9 +341,10 @@
 		} else {
 			return CancelablePromiseUtils.map(
 				fetchExtendedJobs(concurrencyKey, maxTs, extendedMinTs),
-				(extendedJobs) => {
-					const newJobs = extendedJobs.jobs
-					const newExternalJobs = extendedJobs.obscured_jobs
+				(newExtendedJobs) => {
+					extendedJobs = newExtendedJobs
+					const newJobs = newExtendedJobs.jobs
+					const newExternalJobs = newExtendedJobs.obscured_jobs
 
 					// Filter on minTs here and not in the backend
 					// to get enough data for the concurrency graph
@@ -561,7 +562,7 @@
 			label,
 			success,
 			worker,
-			isSkipped,
+			showSkipped,
 			jobKinds,
 			concurrencyKey,
 			tag,

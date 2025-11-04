@@ -45,3 +45,4 @@ axum.workspace = true
 serde_urlencoded.workspace = true
 regex.workspace = true
 backon.workspace = true
+quick_cache.workspace = true

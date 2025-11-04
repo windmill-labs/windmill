@@ -183,8 +183,8 @@ export async function generateFlowLockInternal(
       folder + SEP!,
       SEP,
       changedScripts,
-      (path: string, newPath: string) => Deno.renameSync(path, newPath),
-      (path: string) => Deno.removeSync(path)
+      // (path: string, newPath: string) => Deno.renameSync(path, newPath),
+      // (path: string) => Deno.removeSync(path)
     );
 
     //removeChangedLocks
@@ -432,7 +432,9 @@ async function updateScriptLock(
         if (await Deno.stat(lockPath)) {
           await Deno.remove(lockPath);
         }
-      } catch {}
+      } catch (e) {
+        log.info(colors.yellow(`Error removing lock file ${lockPath}: ${e}`));
+      }
       metadataContent.lock = "";
     }
   } catch (e) {
@@ -516,7 +518,9 @@ export async function updateFlow(
   } catch (e) {
     try {
       responseText = await rawResponse.text();
-    } catch {}
+    } catch {
+      responseText = "";
+    }
     throw new Error(
       `Failed to generate lockfile. Status was: ${rawResponse.statusText}, ${responseText}, ${e}`
     );

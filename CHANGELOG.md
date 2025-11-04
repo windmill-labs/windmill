@@ -1,5 +1,70 @@
 # Changelog
 
+## [1.572.0](https://github.com/windmill-labs/windmill/compare/v1.571.0...v1.572.0) (2025-11-03)
+
+
+### Features
+
+* **flow:** Add graph diff visualizer ([#6948](https://github.com/windmill-labs/windmill/issues/6948)) ([04d2ef4](https://github.com/windmill-labs/windmill/commit/04d2ef419dfe64c99da55ecead545cb1cc5cf185))
+
+
+### Bug Fixes
+
+* **backend:** add 404 error when not found in resource delete endpoints ([#7036](https://github.com/windmill-labs/windmill/issues/7036)) ([aaadf60](https://github.com/windmill-labs/windmill/commit/aaadf60d8f975df66bb9837d8fe21eaeaaf2e70b))
+* consider duckdb as a normal tag ([#7035](https://github.com/windmill-labs/windmill/issues/7035)) ([16317a4](https://github.com/windmill-labs/windmill/commit/16317a471446e444ada4a67d56be36b146c4dfcf))
+* fix rebuild_dependency_map ([#7026](https://github.com/windmill-labs/windmill/issues/7026)) ([f661caf](https://github.com/windmill-labs/windmill/commit/f661caf2b1bb9cb9a2f388684f94cb3055291da5))
+* include missing tags from default/native consts ([#7034](https://github.com/windmill-labs/windmill/issues/7034)) ([c04489c](https://github.com/windmill-labs/windmill/commit/c04489c463f6b277452b7480659fa65cef1ab1ba))
+
+
+### Performance Improvements
+
+* parse flow value only if needed ([#7025](https://github.com/windmill-labs/windmill/issues/7025)) ([b5e341f](https://github.com/windmill-labs/windmill/commit/b5e341fde79d6335c0e27d0adbe0febd49a09d36))
+
+## [1.571.0](https://github.com/windmill-labs/windmill/compare/v1.570.0...v1.571.0) (2025-11-01)
+
+
+### Features
+
+* Add "list_resources" function to the wmill sdk ([8d5328a](https://github.com/windmill-labs/windmill/commit/8d5328ac530d7ec5da7584ee8094fa18e8955176))
+* **backend:** allow specifying oidc token expiration with env var ([#7022](https://github.com/windmill-labs/windmill/issues/7022)) ([5f79a60](https://github.com/windmill-labs/windmill/commit/5f79a60d5b86687b433c48b10e810fd49de5f4bf))
+
+
+### Bug Fixes
+
+* redeployment of relative import overwrites lock from raw reqs ([#7023](https://github.com/windmill-labs/windmill/issues/7023)) ([abfc1cb](https://github.com/windmill-labs/windmill/commit/abfc1cba1ce2978d28459ef7a1f09025dfcbd95a))
+
+## [1.570.0](https://github.com/windmill-labs/windmill/compare/v1.569.0...v1.570.0) (2025-10-31)
+
+
+### Features
+
+* add onboarding form for cloud first timers ([#6876](https://github.com/windmill-labs/windmill/issues/6876)) ([fc3aae1](https://github.com/windmill-labs/windmill/commit/fc3aae10f7a3137bae6a7f4622b4c37b07c7007d))
+
+
+### Bug Fixes
+
+* better handle same worker zombie job ([d86ce2e](https://github.com/windmill-labs/windmill/commit/d86ce2e3e34e79d5cdaecc0b1864c1e9203e08ee))
+* disable debouncing for scheduled jobs ([#7015](https://github.com/windmill-labs/windmill/issues/7015)) ([d764b27](https://github.com/windmill-labs/windmill/commit/d764b279c58f471add49151afd33d0c7a258fa72))
+* fix setting high-priority tags in worker groups ([329124a](https://github.com/windmill-labs/windmill/commit/329124a6bc0d114d3733bf018cdc2b4ea6502744))
+* search drop down z index too low ([#7017](https://github.com/windmill-labs/windmill/issues/7017)) ([7d775b1](https://github.com/windmill-labs/windmill/commit/7d775b160322e2495d2524a4dde94cc1d2a4718a))
+
+## [1.569.0](https://github.com/windmill-labs/windmill/compare/v1.568.0...v1.569.0) (2025-10-30)
+
+
+### Features
+
+* slack app on workspace level ([#6992](https://github.com/windmill-labs/windmill/issues/6992)) ([700e642](https://github.com/windmill-labs/windmill/commit/700e642c1e0fffae436d574a8c43ba733145f9a7))
+* support slack @ commands ([#7008](https://github.com/windmill-labs/windmill/issues/7008)) ([b0a3da4](https://github.com/windmill-labs/windmill/commit/b0a3da441a899b4990aff1d98008229a7d314cea))
+
+
+### Bug Fixes
+
+* **backend:** add locks to inline preprocessor/failure/tool modules in flows ([#6825](https://github.com/windmill-labs/windmill/issues/6825)) ([cf86881](https://github.com/windmill-labs/windmill/commit/cf8688152818d6a35a19ab07f22a413b99ec98df))
+* **frontent:** fix accent destructive color ([#7003](https://github.com/windmill-labs/windmill/issues/7003)) ([3313733](https://github.com/windmill-labs/windmill/commit/33137338f36fe7e424a944651c98f9584e8b4fce))
+* only show if_skipped runs if filter is set to it ([2c4cabb](https://github.com/windmill-labs/windmill/commit/2c4cabb54f38d20f64b19a16a6943e2c29183be4))
+* prioritize dependency jobs by default ([6e87e03](https://github.com/windmill-labs/windmill/commit/6e87e03f364db2a91310735a56ddbcae30eb591e))
+* ui icon nit in instance settings ([#7009](https://github.com/windmill-labs/windmill/issues/7009)) ([dbfaad0](https://github.com/windmill-labs/windmill/commit/dbfaad062390b962e37789bf770e06d33282dca1))
+
 ## [1.568.0](https://github.com/windmill-labs/windmill/compare/v1.567.3...v1.568.0) (2025-10-30)
 
 
