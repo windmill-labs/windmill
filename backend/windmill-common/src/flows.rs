@@ -527,6 +527,10 @@ impl FlowModule {
             .map_err(crate::error::to_anyhow)
     }
 
+    pub fn is_ai_agent(&self) -> bool {
+        self.get_type().is_ok_and(|x| x == "aiagent")
+    }
+
     pub fn is_simple(&self) -> bool {
         //todo: flow modules could also be simple execpt for the fact that the case of having single parallel flow approval step is not handled well (Create SuspendedTimeout)
         self.get_type()

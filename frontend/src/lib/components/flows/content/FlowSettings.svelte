@@ -141,12 +141,6 @@
 				small={true}
 				class="h-full grow mt-2 min-h-0 flex flex-col gap-6"
 			>
-				{#if flowStore.val.schema && enableAi}
-					<AIFormSettings
-						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
-						type="flow"
-					/>
-				{/if}
 				<!-- Worker Group Section -->
 				{#if customUi?.settingsTabs?.workerGroup != false}
 					<div>
@@ -478,6 +472,7 @@
 					<DebounceLimit
 						size="xs"
 						color="nord"
+						fontClass="font-medium"
 						bind:debounce_delay_s={flowStore.val.value.debounce_delay_s}
 						bind:debounce_key={flowStore.val.value.debounce_key}
 						placeholder={`$workspace/flow/${$pathStore}-$args[foo]`}
@@ -567,7 +562,12 @@
 						</div>
 					{/if}
 				</div>
-				<div></div>
+				{#if flowStore.val.schema && enableAi}
+					<AIFormSettings
+						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
+						type="flow"
+					/>
+				{/if}
 			</Section>
 		</div>
 	</FlowCard>
