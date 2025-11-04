@@ -443,8 +443,8 @@ git commit
 git push
 
 # Push changes to workspace or click the pull settings button above{#if useIndividualBranch}
-									wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path} --promotion main{:else}
-									wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path}{/if}</pre
+wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path} --promotion main{:else}
+wmill gitsync-settings push --workspace {$workspaceStore} --repository {git_repo_resource_path}{/if}</pre
 							>
 							{#if useIndividualBranch}
 								<div class="text-xs text-primary mt-3">
