@@ -189,23 +189,27 @@ fn run_duckdb_internal<'a>(
     ))
     .map_err(|e| format!("Error setting up S3 secret: {}", e.to_string()))?;
 
-    let mut result: Option<Box<RawValue>> = None;
+    let mut results: Vec<Box<RawValue>> = vec![];
     let mut column_order = None;
 
     for (query_block_index, query_block) in query_block_list.enumerate() {
-        result = Some(
-            do_duckdb_inner(
-                &conn,
-                query_block,
-                &job_args,
-                query_block_index != query_block_list_count - 1,
-                &mut column_order,
-            )
-            .map_err(|e| e.to_string())?,
-        );
+        let result = do_duckdb_inner(
+            &conn,
+            query_block,
+            &job_args,
+            query_block_index != query_block_list_count - 1,
+            &mut column_order,
+        )
+        .map_err(|e| e.to_string())?;
+        results.push(result);
     }
-    let result = result.unwrap_or_else(|| RawValue::from_string("[]".to_string()).unwrap());
-    Ok((result.get().to_string(), column_order))
+    let results = if results.len() == 1 {
+        serde_json::value::to_raw_value(&results.get(0).unwrap())
+    } else {
+        serde_json::value::to_raw_value(&results)
+    }
+    .map_err(|e| e.to_string())?;
+    Ok((results.get().to_string(), column_order))
 }
 
 fn do_duckdb_inner(
