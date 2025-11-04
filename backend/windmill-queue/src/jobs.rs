@@ -1366,7 +1366,7 @@ async fn restart_job_if_perpetual_inner(
 #[cfg(feature = "cloud")]
 fn apply_completed_job_cloud_usage(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     _duration: i64,
 ) {
     if *CLOUD_HOSTED && !queued_job.is_flow() && _duration > 1000 {
