@@ -44,6 +44,7 @@
 	import { type AgentTool, flowModuleToAgentTool, createMcpTool } from '../agentToolUtils'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { getModuleById } from '$lib/components/copilot/chat/flow/utils'
+	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -294,6 +295,14 @@
 
 	export function setBeforeFlow(flow: ExtendedOpenFlow) {
 		beforeFlow = flow
+	}
+
+	export function setModuleActions(actions: Record<string, ModuleActionInfo>) {
+		graph?.setModuleActions(actions)
+	}
+
+	export function getModuleActions(): Record<string, ModuleActionInfo> {
+		return graph?.getModuleActions() ?? {}
 	}
 
 	let beforeFlow: ExtendedOpenFlow | undefined = $state(undefined)

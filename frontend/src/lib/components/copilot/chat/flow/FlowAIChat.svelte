@@ -11,7 +11,6 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import YAML from 'yaml'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
-	import { computeFlowModuleDiff } from '$lib/components/flows/flowDiff'
 
 	let {
 		flowModuleSchemaMap
@@ -24,13 +23,6 @@
 
 	let lastSnapshot: ExtendedOpenFlow | undefined = $state(undefined)
 
-	// Module actions with pending state
-	let moduleActions = $derived.by(() => {
-		if (!lastSnapshot) return {}
-		return computeFlowModuleDiff(lastSnapshot.value, flowStore.val.value, { markAsPending: true })
-			.afterActions
-	})
-
 	function getModule(id: string, flow: OpenFlow = flowStore.val) {
 		if (id === 'preprocessor') {
 			return flow.value.preprocessor_module
@@ -42,10 +34,12 @@
 	}
 
 	function checkAndClearSnapshot() {
+		const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
 		const allDecided = Object.values(moduleActions).every((info) => !info.pending)
 		if (allDecided) {
 			lastSnapshot = undefined
-			moduleActions = {}
+			flowModuleSchemaMap?.setModuleActions({})
+			flowModuleSchemaMap?.setBeforeFlow(undefined)
 		}
 	}
 
@@ -71,15 +65,18 @@
 			return flowStore.val.value.modules
 		},
 		hasDiff: () => {
+			const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
 			return Object.values(moduleActions).some((info) => info.pending)
 		},
 		acceptAllModuleActions() {
+			const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
 			for (const id of Object.keys(moduleActions ?? {})) {
 				this.acceptModuleAction(id)
 			}
 		},
 		rejectAllModuleActions() {
 			// Do it in reverse to revert nested modules first then parents
+			const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
 			const ids = Object.keys(moduleActions ?? {})
 			for (let i = ids.length - 1; i >= 0; i--) {
 				this.revertModuleAction(ids[i])
@@ -113,6 +110,7 @@
 			{
 				// Handle __ prefixed IDs for type-changed modules
 				const actualId = id.startsWith('__') ? id.substring(2) : id
+				const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
 				const info = moduleActions?.[id]
 
 				if (info && lastSnapshot) {
@@ -172,7 +170,11 @@
 		acceptModuleAction: (id: string) => {
 			// Handle __ prefixed IDs for type-changed modules
 			const actualId = id.startsWith('__') ? id.substring(2) : id
+			const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
+			console.log('HERE opop', id, moduleActions)
 			const info = moduleActions?.[id]
+
+			console.log('HERE opop', id, info)
 
 			if (!info) return
 
@@ -196,9 +198,12 @@
 
 			// Mark as decided (no longer pending)
 			if (moduleActions[id]) {
-				moduleActions[id] = { ...moduleActions[id], pending: false }
+				console.log('HERE opop', id, moduleActions[id])
+				flowModuleSchemaMap?.setModuleActions({
+					...moduleActions,
+					[id]: { ...moduleActions[id], pending: false }
+				})
 			}
-
 			checkAndClearSnapshot()
 		},
 		// ai chat tools
@@ -308,10 +313,11 @@
 
 	// Automatically show revert review when selecting a rawscript module with pending changes
 	$effect(() => {
+		const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
 		if (
 			$currentEditor?.type === 'script' &&
 			$selectedId &&
-			moduleActions[$selectedId]?.pending &&
+			moduleActions?.[$selectedId]?.pending &&
 			$currentEditor.editor.getAiChatEditorHandler()
 		) {
 			const moduleLastSnapshot = getModule($selectedId, lastSnapshot)

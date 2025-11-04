@@ -445,6 +445,15 @@
 
 	let height = $state(0)
 
+	export function setModuleActions(actions: Record<string, ModuleActionInfo>) {
+		console.log('HERE setModuleActions', actions)
+		effectiveModuleActions = actions
+	}
+
+	export function getModuleActions(): Record<string, ModuleActionInfo> {
+		return effectiveModuleActions as Record<string, ModuleActionInfo>
+	}
+
 	function isSimplifiable(modules: FlowModule[] | undefined): boolean {
 		if (!modules || modules?.length !== 2) {
 			return false
@@ -549,6 +558,7 @@
 	})
 
 	let graph = $derived.by(() => {
+		console.log('HERE graph', effectiveModuleActions)
 		moduleTracker.counter
 		return graphBuilder(
 			untrack(() => effectiveModules),
@@ -557,7 +567,7 @@
 				insertable,
 				flowModuleStates: untrack(() => flowModuleStates),
 				testModuleStates: untrack(() => testModuleStates),
-				moduleActions: untrack(() => effectiveModuleActions),
+				moduleActions: effectiveModuleActions,
 				inputSchemaModified: untrack(() => effectiveInputSchemaModified),
 				selectedId: untrack(() => $selectedId),
 				path,
@@ -639,6 +649,8 @@
 	export function zoomOut() {
 		viewportSynchronizer?.zoomOut()
 	}
+
+	$inspect('HERE effectiveModuleActions', effectiveModuleActions)
 </script>
 
 {#if insertable}

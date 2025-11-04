@@ -498,7 +498,7 @@ function adjustActionsForDisplay(
 	for (const [id, action] of Object.entries(afterActions)) {
 		if (!markRemovedAsShadowed && action.action === 'shadowed') {
 			// In unified mode, change 'shadowed' to 'removed' for proper coloring
-			adjusted[id] = { action: 'removed', pending: false }
+			adjusted[id] = { action: 'removed', pending: action.pending }
 		} else {
 			adjusted[id] = action
 		}
@@ -513,7 +513,10 @@ function adjustActionsForDisplay(
 			const originalId = id.substring(2)
 			// Check beforeActions to see if this module was removed
 			if (beforeActions[originalId]?.action === 'removed') {
-				adjusted[id] = { action: markRemovedAsShadowed ? 'shadowed' : 'removed', pending: false }
+				adjusted[id] = {
+					action: markRemovedAsShadowed ? 'shadowed' : 'removed',
+					pending: beforeActions[originalId].pending
+				}
 			}
 		}
 	}
