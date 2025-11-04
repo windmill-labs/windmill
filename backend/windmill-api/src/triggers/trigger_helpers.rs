@@ -46,7 +46,7 @@ struct ScriptInfo {
 
 #[derive(Debug, Deserialize)]
 struct PropertyDefinition {
-    r#type: Option<String>,
+    r#type: Option<Box<RawValue>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,7 +119,11 @@ fn runnable_format_from_schema_without_preprocessor(
             if schema.as_ref().is_some_and(|schema| {
                 schema.properties.as_ref().is_some_and(|properties| {
                     properties.iter().any(|(key, def)| {
-                        key == "payload" && def.r#type.as_ref().is_some_and(|t| t == "array")
+                        key == "payload"
+                            && def.r#type.as_ref().is_some_and(|t| {
+                                let typ = t.get().trim();
+                                typ.starts_with('[') && typ.ends_with(']')
+                            })
                     })
                 })
             }) =>
