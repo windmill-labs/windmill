@@ -10,20 +10,22 @@
 		debounce_key = $bindable(),
 		placeholder,
 		size = 'xs',
-		color = undefined
+		color = undefined,
+		fontClass = 'font-normal'
 	}: {
 		debounce_delay_s: number | undefined
 		debounce_key: string | undefined
 		placeholder: string
 		size: 'xs' | 'sm'
 		color?: 'nord' | undefined
+		fontClass?: string
 	} = $props()
 </script>
 
 <div>
 	<div class="flex flex-row items-center gap-2">
 		<Toggle
-			textClass="font-normal"
+			textClass={fontClass}
 			{color}
 			{size}
 			disabled={!$enterpriseLicense}
