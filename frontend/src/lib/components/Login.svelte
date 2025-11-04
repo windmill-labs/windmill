@@ -106,7 +106,7 @@
 		}
 
 		if (firstTime) {
-			return
+			goto('/user/first-time')
 		}
 
 		// Once logged in, we can fetch the workspaces
