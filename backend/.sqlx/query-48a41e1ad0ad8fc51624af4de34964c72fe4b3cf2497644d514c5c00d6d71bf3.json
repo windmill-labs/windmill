@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n            script_path, script_hash AS \"script_hash: ScriptHash\",\n            job_kind AS \"job_kind!: JobKind\",\n            flow_status AS \"flow_status: Json<Box<RawValue>>\",\n            raw_flow AS \"raw_flow: Json<Box<RawValue>>\"\n        FROM v2_as_completed_job WHERE id = $1 and workspace_id = $2",
+  "query": "SELECT\n            j.runnable_path as script_path, j.runnable_id AS \"script_hash: ScriptHash\",\n            j.kind AS \"job_kind!: JobKind\",\n            COALESCE(c.flow_status, c.workflow_as_code_status) AS \"flow_status: Json<Box<RawValue>>\",\n            j.raw_flow AS \"raw_flow: Json<Box<RawValue>>\"\n        FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1 and j.workspace_id = $2",
   "describe": {
     "columns": [
       {
@@ -65,10 +65,10 @@
     "nullable": [
       true,
       true,
-      true,
-      true,
+      false,
+      null,
       true
     ]
   },
-  "hash": "7af1cf089022fc1c3597b270b69aa669a153ab0c0bb2807cd4f7fd405afa6f69"
+  "hash": "48a41e1ad0ad8fc51624af4de34964c72fe4b3cf2497644d514c5c00d6d71bf3"
 }

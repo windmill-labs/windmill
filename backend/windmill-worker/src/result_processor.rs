@@ -31,8 +31,7 @@ use windmill_common::{
 use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
-    append_logs, get_queued_job, CanceledBy, JobCompleted, MiniCompletedJob, MiniPulledJob,
-    ValidableJson, WrappedError, INIT_SCRIPT_TAG,
+    CanceledBy, INIT_SCRIPT_TAG, JobCompleted, MiniCompletedJob, MiniPulledJob, ValidableJson, WrappedError, append_logs, get_mini_completed_job
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -816,9 +815,8 @@ pub async fn handle_job_error(
 
         if let Err(err) = updated_flow {
             if let Some(parent_job_id) = job.parent_job {
-                // TODO get minicompleted job directly
                 if let Ok(Some(parent_job)) =
-                    get_queued_job(&parent_job_id, &job.workspace_id, &db).await
+                    get_mini_completed_job(&parent_job_id, &job.workspace_id, db).await
                 {
                     let e = json!({"message": err.to_string(), "name": "InternalErr"});
                     append_logs(
@@ -830,7 +828,7 @@ pub async fn handle_job_error(
                     .await;
                     let _ = add_completed_job_error(
                         db,
-                        &MiniCompletedJob::from(MiniPulledJob::from(&parent_job)),
+                        &parent_job,
                         mem_peak,
                         canceled_by.clone(),
                         e,
