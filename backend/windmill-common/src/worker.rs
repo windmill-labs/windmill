@@ -500,6 +500,10 @@ pub const TMP_DIR: &str = "/tmp/windmill";
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
 pub const TMP_MEMORY_DIR: &str = concatcp!(TMP_DIR, "/memory");
 
+// AI agent memory size limits
+pub const MAX_MEMORY_SIZE_BYTES: usize = 500_000; // 500KB per memory entry in database
+pub const MEMORY_TRUNCATION_WARNING: &str = "⚠️ MEMORY TRUNCATED: Previous messages removed due to size limit (500KB). Configure S3 storage in workspace settings to store full conversation history.";
+
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 
 pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
