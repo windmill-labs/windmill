@@ -4871,6 +4871,27 @@ paths:
                   - content
                   - language
 
+  /scripts/hub/pick/{path}:
+    get:
+      summary: record hub script pick
+      operationId: pickHubScriptByPath
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script pick recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
+
   /scripts/hub/top:
     get:
       summary: get top hub scripts
