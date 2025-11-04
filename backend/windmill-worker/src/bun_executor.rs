@@ -313,6 +313,7 @@ pub async fn install_bun_lockfile(
         .env_clear()
         .envs(PROXY_ENVS.clone())
         .envs(common_bun_proc_envs)
+        .envs(&*crate::worker::WHITELIST_ENVS)
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
