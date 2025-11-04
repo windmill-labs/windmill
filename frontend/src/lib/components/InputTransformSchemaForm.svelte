@@ -79,7 +79,6 @@
 		try {
 			if ($workspaceStore) {
 				const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore })
-				console.log('settings', settings)
 				s3StorageConfigured = settings.large_file_storage?.s3_resource_path !== undefined
 			}
 		} catch (error) {
@@ -127,7 +126,7 @@
 						bind:arg={args[argName]}
 						bind:schema
 						bind:argName={keys[index]}
-						argExtra={schema.properties[argName]}
+						argExtra={schema.properties?.[argName] ?? {}}
 						bind:inputCheck={
 							() => inputCheck[argName] ?? false, (value) => (inputCheck[argName] = value)
 						}
