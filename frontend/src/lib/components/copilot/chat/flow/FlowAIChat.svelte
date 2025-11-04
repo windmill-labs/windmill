@@ -11,6 +11,7 @@
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import YAML from 'yaml'
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
+	import { flowDiffManager } from '$lib/components/flows/flowDiffManager.svelte'
 
 	let {
 		flowModuleSchemaMap
@@ -21,8 +22,6 @@
 	const { flowStore, flowStateStore, selectedId, currentEditor } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 
-	let lastSnapshot: ExtendedOpenFlow | undefined = $state(undefined)
-
 	function getModule(id: string, flow: OpenFlow = flowStore.val) {
 		if (id === 'preprocessor') {
 			return flow.value.preprocessor_module
@@ -30,16 +29,6 @@
 			return flow.value.failure_module
 		} else {
 			return dfs(id, flow, false)[0]
-		}
-	}
-
-	function checkAndClearSnapshot() {
-		const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
-		const allDecided = Object.values(moduleActions).every((info) => !info.pending)
-		if (allDecided) {
-			lastSnapshot = undefined
-			flowModuleSchemaMap?.setModuleActions({})
-			flowModuleSchemaMap?.setBeforeFlow(undefined)
 		}
 	}
 
@@ -65,33 +54,57 @@
 			return flowStore.val.value.modules
 		},
 		hasDiff: () => {
-			const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
-			return Object.values(moduleActions).some((info) => info.pending)
+			return flowDiffManager.hasPendingChanges
 		},
 		acceptAllModuleActions() {
-			const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
-			for (const id of Object.keys(moduleActions ?? {})) {
-				this.acceptModuleAction(id)
-			}
+			flowDiffManager.acceptAll({
+				flowStore,
+				selectNextId: (id) => flowModuleSchemaMap?.selectNextId(id),
+				onDelete: deleteStep,
+				onScriptAccept: (moduleId) => {
+					if (
+						$currentEditor &&
+						$currentEditor.type === 'script' &&
+						$currentEditor.stepId === moduleId
+					) {
+						const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
+						if (aiChatEditorHandler) {
+							aiChatEditorHandler.keepAll({ disableReviewCallback: true })
+						}
+					}
+				}
+			})
 		},
 		rejectAllModuleActions() {
-			// Do it in reverse to revert nested modules first then parents
-			const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
-			const ids = Object.keys(moduleActions ?? {})
-			for (let i = ids.length - 1; i >= 0; i--) {
-				this.revertModuleAction(ids[i])
-			}
-			lastSnapshot = undefined
+			flowDiffManager.rejectAll({
+				flowStore,
+				onScriptRevert: (moduleId, originalContent) => {
+					if (
+						$currentEditor &&
+						$currentEditor.type === 'script' &&
+						$currentEditor.stepId === moduleId
+					) {
+						const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
+						if (aiChatEditorHandler) {
+							aiChatEditorHandler.revertAll({ disableReviewCallback: true })
+						}
+					}
+				},
+				onHideDiffMode: () => {
+					if ($currentEditor && $currentEditor.type === 'script') {
+						$currentEditor.hideDiffMode()
+					}
+				}
+			})
 		},
 		setLastSnapshot: (snapshot) => {
-			lastSnapshot = snapshot
+			flowDiffManager.setSnapshot(snapshot)
 		},
 		revertToSnapshot: (snapshot?: ExtendedOpenFlow) => {
-			lastSnapshot = undefined
 			if (snapshot) {
-				flowStore.val = snapshot
-				refreshStateStore(flowStore)
+				flowDiffManager.revertToSnapshot(flowStore)
 
+				// Update current editor if needed
 				if ($currentEditor) {
 					const module = getModule($currentEditor.stepId, snapshot)
 					if (module) {
@@ -104,107 +117,50 @@
 						}
 					}
 				}
+			} else {
+				flowDiffManager.revertToSnapshot(flowStore)
 			}
 		},
 		revertModuleAction: (id: string) => {
-			{
-				// Handle __ prefixed IDs for type-changed modules
-				const actualId = id.startsWith('__') ? id.substring(2) : id
-				const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
-				const info = moduleActions?.[id]
-
-				if (info && lastSnapshot) {
-					const action = info.action
-
-					if (id === 'Input') {
-						flowStore.val.schema = lastSnapshot.schema
-					} else if (action === 'added') {
-						deleteStep(actualId)
-					} else if (action === 'removed') {
-						// For removed modules, restore from lastSnapshot
-						const oldModule = getModule(actualId, lastSnapshot)
-						if (oldModule) {
-							// Re-insert the module at its original position
-							// This is complex, so for now we'll revert the whole flow and re-apply other changes
-							// TODO: Implement proper re-insertion logic
-							console.warn('Reverting removed module - full flow revert needed')
+			flowDiffManager.rejectModule(id, {
+				flowStore,
+				onScriptRevert: (moduleId, originalContent) => {
+					if (
+						$currentEditor &&
+						$currentEditor.type === 'script' &&
+						$currentEditor.stepId === moduleId
+					) {
+						const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
+						if (aiChatEditorHandler) {
+							aiChatEditorHandler.revertAll({ disableReviewCallback: true })
 						}
-					} else if (action === 'modified') {
-						const oldModule = getModule(actualId, lastSnapshot)
-						if (!oldModule) {
-							throw new Error('Module not found')
-						}
-						const newModule = getModule(actualId)
-						if (!newModule) {
-							throw new Error('Module not found')
-						}
-
-						// Apply the old code to the editor and hide diff editor if the reverted module is a rawscript
-						if (
-							newModule.value.type === 'rawscript' &&
-							$currentEditor?.type === 'script' &&
-							$currentEditor.stepId === actualId
-						) {
-							const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
-							if (aiChatEditorHandler) {
-								aiChatEditorHandler.revertAll({ disableReviewCallback: true })
-								$currentEditor.hideDiffMode()
-							}
-						}
-
-						Object.keys(newModule).forEach((k) => delete newModule[k])
-						Object.assign(newModule, $state.snapshot(oldModule))
 					}
-
-					refreshStateStore(flowStore)
-
-					// Mark as decided
-					if (moduleActions[id]) {
-						moduleActions[id] = { ...moduleActions[id], pending: false }
+				},
+				onHideDiffMode: () => {
+					if ($currentEditor && $currentEditor.type === 'script') {
+						$currentEditor.hideDiffMode()
 					}
-
-					checkAndClearSnapshot()
 				}
-			}
+			})
 		},
 		acceptModuleAction: (id: string) => {
-			// Handle __ prefixed IDs for type-changed modules
-			const actualId = id.startsWith('__') ? id.substring(2) : id
-			const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
-			console.log('HERE opop', id, moduleActions)
-			const info = moduleActions?.[id]
-
-			console.log('HERE opop', id, info)
-
-			if (!info) return
-
-			const action = info.action
-
-			if (action === 'removed') {
-				deleteStep(actualId)
-			}
-
-			if (
-				action === 'modified' &&
-				$currentEditor &&
-				$currentEditor.type === 'script' &&
-				$currentEditor.stepId === actualId
-			) {
-				const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
-				if (aiChatEditorHandler) {
-					aiChatEditorHandler.keepAll({ disableReviewCallback: true })
+			flowDiffManager.acceptModule(id, {
+				flowStore,
+				selectNextId: (id) => flowModuleSchemaMap?.selectNextId(id),
+				onDelete: deleteStep,
+				onScriptAccept: (moduleId) => {
+					if (
+						$currentEditor &&
+						$currentEditor.type === 'script' &&
+						$currentEditor.stepId === moduleId
+					) {
+						const aiChatEditorHandler = $currentEditor.editor.getAiChatEditorHandler()
+						if (aiChatEditorHandler) {
+							aiChatEditorHandler.keepAll({ disableReviewCallback: true })
+						}
+					}
 				}
-			}
-
-			// Mark as decided (no longer pending)
-			if (moduleActions[id]) {
-				console.log('HERE opop', id, moduleActions[id])
-				flowModuleSchemaMap?.setModuleActions({
-					...moduleActions,
-					[id]: { ...moduleActions[id], pending: false }
-				})
-			}
-			checkAndClearSnapshot()
+			})
 		},
 		// ai chat tools
 		setCode: async (id: string, code: string) => {
@@ -247,8 +203,8 @@
 				}
 
 				// Update the before flow
-				lastSnapshot = $state.snapshot(flowStore).val
-				flowModuleSchemaMap?.setBeforeFlow(lastSnapshot)
+				const snapshot = $state.snapshot(flowStore).val
+				flowModuleSchemaMap?.setBeforeFlow(snapshot)
 
 				// Update the flow structure
 				flowStore.val.value.modules = parsed.modules
@@ -314,13 +270,15 @@
 	// Automatically show revert review when selecting a rawscript module with pending changes
 	$effect(() => {
 		const moduleActions = flowModuleSchemaMap?.getModuleActions() ?? {}
+		const beforeFlow = flowDiffManager.beforeFlow
 		if (
 			$currentEditor?.type === 'script' &&
 			$selectedId &&
 			moduleActions?.[$selectedId]?.pending &&
-			$currentEditor.editor.getAiChatEditorHandler()
+			$currentEditor.editor.getAiChatEditorHandler() &&
+			beforeFlow
 		) {
-			const moduleLastSnapshot = getModule($selectedId, lastSnapshot)
+			const moduleLastSnapshot = getModule($selectedId, beforeFlow)
 			const content =
 				moduleLastSnapshot?.value.type === 'rawscript' ? moduleLastSnapshot.value.content : ''
 			if (content.length > 0) {

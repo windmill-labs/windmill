@@ -412,9 +412,14 @@
 		})
 	})
 
+	// State for explicitly set module actions (via setModuleActions)
+	let explicitModuleActions = $state<Record<string, ModuleActionInfo> | undefined>(undefined)
+
 	// Create effective props that merge computed diff with explicit props
-	// Convert computed diff actions to ModuleActionInfo format (all marked as not pending in diff view mode)
-	let effectiveModuleActions = $derived(moduleActions ?? computedDiff?.afterActions)
+	// Priority: explicit > prop > computed diff
+	let effectiveModuleActions = $derived(
+		explicitModuleActions ?? moduleActions ?? computedDiff?.afterActions
+	)
 
 	let effectiveInputSchemaModified = $derived(
 		diffBeforeFlow && currentInputSchema
@@ -447,7 +452,7 @@
 
 	export function setModuleActions(actions: Record<string, ModuleActionInfo>) {
 		console.log('HERE setModuleActions', actions)
-		effectiveModuleActions = actions
+		explicitModuleActions = actions
 	}
 
 	export function getModuleActions(): Record<string, ModuleActionInfo> {

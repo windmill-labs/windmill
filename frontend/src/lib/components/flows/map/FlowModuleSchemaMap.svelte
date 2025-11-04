@@ -45,6 +45,7 @@
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import { getModuleById } from '$lib/components/copilot/chat/flow/utils'
 	import type { ModuleActionInfo } from '$lib/components/copilot/chat/flow/core'
+	import { flowDiffManager } from '../flowDiffManager.svelte'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -294,18 +295,17 @@
 	}
 
 	export function setBeforeFlow(flow: ExtendedOpenFlow) {
-		beforeFlow = flow
+		flowDiffManager.setSnapshot(flow)
 	}
 
 	export function setModuleActions(actions: Record<string, ModuleActionInfo>) {
+		flowDiffManager.setModuleActions(actions)
 		graph?.setModuleActions(actions)
 	}
 
 	export function getModuleActions(): Record<string, ModuleActionInfo> {
-		return graph?.getModuleActions() ?? {}
+		return flowDiffManager.getModuleActions()
 	}
-
-	let beforeFlow: ExtendedOpenFlow | undefined = $state(undefined)
 
 	let deleteCallback: (() => void) | undefined = $state(undefined)
 	let dependents: Record<string, string[]> = $state({})
@@ -381,6 +381,7 @@
 
 	// Callback to show module diff
 	function handleShowModuleDiff(moduleId: string) {
+		const beforeFlow = flowDiffManager.beforeFlow
 		if (!beforeFlow) return
 
 		// Handle special case for Input schema diff
@@ -485,7 +486,7 @@
 			{showJobStatus}
 			suspendStatus={suspendStatus.val}
 			{flowHasChanged}
-			diffBeforeFlow={beforeFlow}
+			diffBeforeFlow={flowDiffManager.beforeFlow}
 			onShowModuleDiff={handleShowModuleDiff}
 			{onAcceptModule}
 			{onRejectModule}

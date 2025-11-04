@@ -23,25 +23,51 @@ import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import openFlowSchema from './openFlow.json'
 
+/**
+ * Action types for flow module changes during diff tracking
+ * - added: Module was added to the flow
+ * - modified: Module content was changed
+ * - removed: Module was deleted from the flow
+ * - shadowed: Module is shown as removed (visualization mode)
+ */
 export type AIModuleAction = 'added' | 'modified' | 'removed' | 'shadowed' | undefined
 
+/**
+ * Tracks the action performed on a module and whether it requires user approval
+ */
 export type ModuleActionInfo = {
 	action: AIModuleAction
+	/** Whether this change is pending user approval (accept/reject) */
 	pending: boolean
 }
 
+/**
+ * Helper interface for AI chat flow operations
+ *
+ * Note: Flow diff management methods delegate to flowDiffManager under the hood,
+ * providing a unified interface for AI chat while keeping diff logic reusable.
+ */
 export interface FlowAIChatHelpers {
 	// flow context
 	getFlowAndSelectedId: () => { flow: ExtendedOpenFlow; selectedId: string }
 	getModules: (id?: string) => FlowModule[]
-	// flow diff management
+
+	// flow diff management (delegates to flowDiffManager)
+	/** Check if there are any pending changes that need approval */
 	hasDiff: () => boolean
+	/** Set a snapshot of the flow before changes for diff tracking */
 	setLastSnapshot: (snapshot: ExtendedOpenFlow) => void
+	/** Revert a specific module change (reject the modification) */
 	revertModuleAction: (id: string) => void
+	/** Accept a specific module change (keep the modification) */
 	acceptModuleAction: (id: string) => void
+	/** Accept all pending module changes */
 	acceptAllModuleActions: () => void
+	/** Reject all pending module changes */
 	rejectAllModuleActions: () => void
+	/** Revert the entire flow to a previous snapshot */
 	revertToSnapshot: (snapshot?: ExtendedOpenFlow) => void
+
 	// ai chat tools
 	setCode: (id: string, code: string) => Promise<void>
 	setFlowYaml: (yaml: string) => Promise<void>
