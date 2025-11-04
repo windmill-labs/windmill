@@ -106,6 +106,7 @@
 		}
 
 		if (firstTime) {
+			goto('/user/first-time')
 			return
 		}
 
