@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::future::Future;
 use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
@@ -154,13 +155,26 @@ pub struct JobCompleted {
 pub async fn cancel_single_job<'c>(
     username: &str,
     reason: Option<String>,
-    job_running: Arc<QueuedJob>,
+    job_running: Arc<MiniCompletedJob>,
     w_id: &str,
     mut tx: Transaction<'c, Postgres>,
     db: &Pool<Postgres>,
     force_cancel: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
-    if force_cancel || (job_running.parent_job.is_none() && !job_running.running) {
+    let running_and_mem_peak = sqlx::query!(
+        "SELECT running, memory_peak
+        FROM v2_job_queue
+        INNER JOIN v2_job_runtime ON v2_job_runtime.id = v2_job_queue.id
+        WHERE v2_job_queue.id = $1 AND v2_job_queue.workspace_id = $2",
+        job_running.id,
+        w_id
+    )
+    .fetch_optional(&mut *tx).await?;
+
+    let running = running_and_mem_peak.as_ref().map(|r| r.running).unwrap_or(false);
+    let mem_peak = running_and_mem_peak.and_then(|r| r.memory_peak).unwrap_or(0);
+
+    if force_cancel || (job_running.parent_job.is_none() && !running) {
         let username = username.to_string();
         let w_id = w_id.to_string();
         let db = db.clone();
@@ -181,8 +195,8 @@ pub async fn cancel_single_job<'c>(
             .await;
             let add_job = add_completed_job_error(
                 &db,
-                &MiniCompletedJob::from(MiniPulledJob::from(&job_running)),
-                job_running.mem_peak.unwrap_or(0),
+                &job_running,
+                mem_peak,
                 Some(CanceledBy { username: Some(username.to_string()), reason: Some(reason) }),
                 e,
                 "server",
@@ -224,7 +238,7 @@ pub async fn cancel_job<'c>(
     require_anonymous: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
     //TODO fetch mini completed job instead of QueuedJob
-    let job = get_queued_job_tx(id, &w_id, &mut tx).await?;
+    let job = get_mini_completed_job(&id, &w_id, &mut *tx).await?;
 
     if job.is_none() {
         return Ok((tx, None));
@@ -243,7 +257,7 @@ pub async fn cancel_job<'c>(
             if job.parent_job.is_none() {
                 break;
             }
-            match get_queued_job_tx(job.parent_job.unwrap(), &w_id, &mut tx).await? {
+            match get_mini_completed_job(&job.parent_job.unwrap(), &w_id, &mut *tx).await? {
                 Some(j) => {
                     job = j;
                 }
@@ -253,7 +267,7 @@ pub async fn cancel_job<'c>(
     }
 
     // prevent cancelling a future tick of a schedule
-    if let Some(schedule_path) = job.schedule_path.as_ref() {
+    if let Some(schedule_path) = job.schedule_path().as_ref() {
         let now = now_from_db(&mut *tx).await?;
         if job.scheduled_for > now {
             return Err(Error::BadRequest(
@@ -335,7 +349,7 @@ ORDER BY depth, id
         }
     }
     for job_id in jobs_to_cancel {
-        let job = get_queued_job_tx(job_id, &w_id, &mut tx).await?;
+        let job = get_mini_completed_job(&job_id, &w_id, &mut *tx).await?;
 
         if let Some(job) = job {
             let (ntx, _) = cancel_single_job(
@@ -3170,53 +3184,29 @@ pub async fn job_is_complete(db: &DB, id: Uuid, w_id: &str) -> error::Result<boo
     .unwrap_or(false))
 }
 
-async fn get_queued_job_tx<'c>(
-    id: Uuid,
-    w_id: &str,
-    tx: &mut Transaction<'c, Postgres>,
-) -> error::Result<Option<QueuedJob>> {
-    sqlx::query_as::<_, QueuedJob>(
-        "SELECT j.id, j.workspace_id, j.parent_job, j.created_by, j.created_at, q.started_at, q.scheduled_for, q.running,
-         j.runnable_id AS script_hash, j.runnable_path AS script_path, j.args, j.raw_code,
-         q.canceled_by IS NOT NULL AS canceled, q.canceled_by, q.canceled_reason, r.ping AS last_ping,
-         j.kind AS job_kind, CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END AS schedule_path,
-         j.permissioned_as, COALESCE(s.flow_status, s.workflow_as_code_status) AS flow_status, j.raw_flow,
-         j.flow_step_id IS NOT NULL AS is_flow_step, j.script_lang AS language, q.suspend, q.suspend_until,
-         j.same_worker, j.raw_lock, j.pre_run_error, j.permissioned_as_email AS email, j.visible_to_owner,
-         r.memory_peak AS mem_peak, j.flow_innermost_root_job AS root_job, s.flow_leaf_jobs AS leaf_jobs,
-         j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.timeout, j.flow_step_id, j.cache_ttl,
-         j.priority, NULL::TEXT AS logs, j.script_entrypoint_override, j.preprocessed, null as workflow_as_code_status
-         FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
-         WHERE j.id = $1 AND j.workspace_id = $2",
-    )
-    .bind(id)
-    .bind(w_id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(Into::into)
+pub fn get_mini_completed_job<
+'a,
+'e,
+A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a,
+>(id: &'a Uuid, w_id: &'a str, db: A) -> impl Future<Output = error::Result<Option<MiniCompletedJob>>> + Send + 'a {
+    async move {        
+     let mut conn = db.acquire().await?;
+        sqlx::query_as!(
+            MiniCompletedJob,
+            "SELECT 
+            j.id, j.workspace_id, j.runnable_id AS \"runnable_id!: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as, 
+            j.created_by, j.script_lang AS \"script_lang!: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind!: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl
+            FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
+            WHERE j.id = $1 AND j.workspace_id = $2",
+            id,
+            w_id
+        )
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(Into::into)
+    }
 }
 
-pub async fn get_queued_job(id: &Uuid, w_id: &str, db: &DB) -> error::Result<Option<QueuedJob>> {
-    sqlx::query_as::<_, QueuedJob>(
-        "SELECT j.id, j.workspace_id, j.parent_job, j.created_by, j.created_at, q.started_at, q.scheduled_for, q.running,
-         j.runnable_id AS script_hash, j.runnable_path AS script_path, j.args, j.raw_code,
-         q.canceled_by IS NOT NULL AS canceled, q.canceled_by, q.canceled_reason, r.ping AS last_ping,
-         j.kind AS job_kind, CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END AS schedule_path,
-         j.permissioned_as, COALESCE(s.flow_status, s.workflow_as_code_status) AS flow_status, j.raw_flow,
-         j.flow_step_id IS NOT NULL AS is_flow_step, j.script_lang AS language, q.suspend, q.suspend_until,
-         j.same_worker, j.raw_lock, j.pre_run_error, j.permissioned_as_email AS email, j.visible_to_owner,
-         r.memory_peak AS mem_peak, j.flow_innermost_root_job AS root_job, s.flow_leaf_jobs AS leaf_jobs,
-         j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.timeout, j.flow_step_id, j.cache_ttl,
-         j.priority, NULL::TEXT AS logs, j.script_entrypoint_override, j.preprocessed, null as workflow_as_code_status
-         FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
-         WHERE j.id = $1 AND j.workspace_id = $2",
-    )
-    .bind(id)
-    .bind(w_id)
-    .fetch_optional(db)
-    .await
-    .map_err(Into::into)
-}
 
 pub enum PushIsolationLevel<'c> {
     IsolatedRoot(DB),
