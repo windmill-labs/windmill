@@ -1372,7 +1372,7 @@
 
 										{#snippet header()}
 											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/debouncing"
+												documentationLink="https://www.windmill.dev/docs/core_concepts/job_debouncing"
 											>
 												Debounce Jobs
 											</Tooltip>
