@@ -15718,6 +15718,7 @@ dependencies = [
  "itertools 0.14.0",
  "lazy_static",
  "prometheus",
+ "quick_cache",
  "regex",
  "reqwest 0.12.24",
  "serde",
