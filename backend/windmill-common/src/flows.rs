@@ -528,7 +528,7 @@ impl FlowModule {
     }
 
     pub fn is_ai_agent(&self) -> bool {
-        self.get_type().is_ok_and(|x| x == "ai_agent")
+        self.get_type().is_ok_and(|x| x == "aiagent")
     }
 
     pub fn is_simple(&self) -> bool {
