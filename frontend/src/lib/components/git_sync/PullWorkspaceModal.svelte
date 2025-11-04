@@ -629,7 +629,7 @@ wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoR
 								>
 							</div>
 							<pre class="text-xs bg-surface p-2 rounded mt-2 overflow-x-auto"
-								>git_branches:
+								>gitBranches:
   main:
     promotionOverrides:
       # Add your promotion-specific settings here
