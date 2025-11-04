@@ -222,7 +222,7 @@ pub async fn handle_dedicated_process(
                     // write_stdin(&mut stdin, &serde_json::to_string(&job.args.unwrap_or_else(|| serde_json::json!({"x": job.id}))).expect("serialize")).await?;
                     write_stdin(&mut stdin, &args).await?;
                     stdin.flush().await.context("stdin flush")?;
-                    tracing::info!("wrote job to stdin for {script_path}: {} (queue_size: {})", id, jobs.len());
+                    // tracing::info!("wrote job to stdin for {script_path}: {} (queue_size: {})", id, jobs.len());
                 } else {
                     tracing::debug!("job channel closed");
                     alive = false;
