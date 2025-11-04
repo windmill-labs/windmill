@@ -773,6 +773,10 @@ lazy_static::lazy_static! {
 
     // Cache for restart_unless_cancelled flag - keyed by (hash, workspace_id)
     static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), bool> = Cache::new(10000);
+
+    // Cache for workspace error handler settings with 60s TTL
+    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, expiry_timestamp)
+    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, i64)> = Cache::new(1000);
 }
 
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
@@ -1540,7 +1544,6 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
     }
 }
 
-//TODO cache all values
 pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>(
     queued_job: &MiniCompletedJob,
     is_canceled: bool,
@@ -1549,25 +1552,69 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
 
-    let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
-        r#"
-            SELECT
-                error_handler,
-                error_handler_extra_args,
-                error_handler_muted_on_cancel
-            FROM 
-                workspace_settings
-            WHERE 
-                workspace_id = $1
-        "#,
-    )
-    .bind(&w_id)
-    .fetch_optional(db)
-    .await
-    .context("fetching error handler info from workspace_settings")?
-    .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))?;
+    // Try to get from cache first, checking if entry is still valid (within 60s TTL)
+    let now = chrono::Utc::now().timestamp();
+    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) =
+        if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
+            if cached.3 > now {
+                // Cache hit and not expired
+                (cached.0.clone(), cached.1.clone(), cached.2)
+            } else {
+                // Cache expired, fetch from database
+                let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
+                    r#"
+                        SELECT
+                            error_handler,
+                            error_handler_extra_args,
+                            error_handler_muted_on_cancel
+                        FROM
+                            workspace_settings
+                        WHERE
+                            workspace_id = $1
+                    "#,
+                )
+                .bind(&w_id)
+                .fetch_optional(db)
+                .await
+                .context("fetching error handler info from workspace_settings")?
+                .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))?;
 
-    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) = row_result;
+                // Update cache with 60s TTL
+                let expiry = now + 60;
+                WORKSPACE_ERROR_HANDLER_CACHE.insert(
+                    w_id.clone(),
+                    (row_result.0.clone(), row_result.1.clone(), row_result.2, expiry)
+                );
+                row_result
+            }
+        } else {
+            // Cache miss, fetch from database
+            let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
+                r#"
+                    SELECT
+                        error_handler,
+                        error_handler_extra_args,
+                        error_handler_muted_on_cancel
+                    FROM
+                        workspace_settings
+                    WHERE
+                        workspace_id = $1
+                "#,
+            )
+            .bind(&w_id)
+            .fetch_optional(db)
+            .await
+            .context("fetching error handler info from workspace_settings")?
+            .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))?;
+
+            // Store in cache with 60s TTL
+            let expiry = now + 60;
+            WORKSPACE_ERROR_HANDLER_CACHE.insert(
+                w_id.clone(),
+                (row_result.0.clone(), row_result.1.clone(), row_result.2, expiry)
+            );
+            row_result
+        };
 
     if is_canceled && error_handler_muted_on_cancel {
         return Ok(());
