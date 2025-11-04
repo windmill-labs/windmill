@@ -2318,7 +2318,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
         );
 
         let error_message = format!(
-            "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, reason: {:?}). This likely means that the job died on worker {}",
+            "Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {}, reason: {:?}).\nThis likely means that the job died on worker {}, OOM are a common reason for worker crashes.\nCheck the workers around the time of the last ping and the exit code if any.",
             job.last_ping.unwrap_or_default(),
             *ZOMBIE_JOB_TIMEOUT,
             error_kind.to_string(),

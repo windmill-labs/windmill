@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT j.id AS \"id!\" FROM v2_job j WHERE j.id = ANY($1) AND (CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END) IS NULL AND ($2::text[] IS NULL OR j.tag = ANY($2))",
+  "query": "SELECT j.id AS \"id!\" FROM v2_job j WHERE j.id = ANY($1) AND j.trigger_kind != 'schedule'::job_trigger_kind AND ($2::text[] IS NULL OR j.tag = ANY($2))",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       false
     ]
   },
-  "hash": "38bb35d1c0a9ed8b4d4290119e3935f337704d07966901a6826e1a944d27b6e1"
+  "hash": "24d302b8215d49a289bedd14a5791e9366d1f6d3d2aa485e0f50c6f2d85693dd"
 }

@@ -1411,7 +1411,7 @@ async fn get_job_logs(
         .flatten();
 
     let record = sqlx::query!(
-        "SELECT j.created_by AS \"created_by!\", CONCAT(coalesce(NULL, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
+        "SELECT j.created_by AS \"created_by!\", CONCAT(coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
         FROM v2_job j
         LEFT JOIN job_logs ON job_logs.job_id = j.id
         WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
@@ -1459,7 +1459,7 @@ async fn get_job_logs(
         Ok(content_plain(Body::from(logs)))
     } else {
         let text = sqlx::query!(
-            "SELECT j.created_by AS \"created_by!\", CONCAT(coalesce(NULL, ''), coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
+            "SELECT j.created_by AS \"created_by!\", CONCAT(coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
             FROM v2_job j
             LEFT JOIN job_logs ON job_logs.job_id = j.id
             WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
@@ -2075,7 +2075,7 @@ async fn cancel_selection(
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
     let jobs_to_cancel = sqlx::query_scalar!(
-        "SELECT j.id AS \"id!\" FROM v2_job j WHERE j.id = ANY($1) AND (CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END) IS NULL AND ($2::text[] IS NULL OR j.tag = ANY($2))",
+        "SELECT j.id AS \"id!\" FROM v2_job j WHERE j.id = ANY($1) AND j.trigger_kind != 'schedule'::job_trigger_kind AND ($2::text[] IS NULL OR j.tag = ANY($2))",
         &jobs,
         tags.as_ref().map(|v| v.as_slice())
     )
