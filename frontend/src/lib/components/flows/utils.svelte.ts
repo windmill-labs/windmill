@@ -22,10 +22,11 @@ function create_context_function_template(eval_string: string, context: Record<s
 	return `
 return function (context) {
 "use strict";
-${Object.keys(context).length > 0
-			? `let ${Object.keys(context).map((key) => ` ${key} = context['${key}']`)};`
-			: ``
-		}
+${
+	Object.keys(context).length > 0
+		? `let ${Object.keys(context).map((key) => ` ${key} = context['${key}']`)};`
+		: ``
+}
 return ${eval_string}
 }`
 }
@@ -93,15 +94,18 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 	return o
 }
 
-export function cleanInputs(flow: OpenFlow | any): OpenFlow & {
+import { dfs as dfsApply } from './dfs'
+
+export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	tag?: string
 	ws_error_handler_muted?: boolean
 	dedicated_worker?: boolean
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
 } {
-	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
-	newFlow.value.modules.forEach((mod) => {
+	const newFlow: Flow = $state.snapshot(flow)
+
+	dfsApply(newFlow.value.modules, (mod) => {
 		if (mod.value.type == 'rawscript' || mod.value.type == 'script') {
 			Object.values(mod.value.input_transforms ?? {}).forEach((inp) => {
 				// for now we use the value for dynamic expression when done in the static editor so we have to resort to this
@@ -114,6 +118,9 @@ export function cleanInputs(flow: OpenFlow | any): OpenFlow & {
 					inp.expr = undefined
 				}
 			})
+		}
+		if (mod.value.type == 'rawscript' && mod.value.assets?.length == 0) {
+			mod.value.assets = undefined
 		}
 	})
 	if (newFlow.value.concurrency_key == '') {
