@@ -8,6 +8,7 @@ use crate::ai::{
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{OpenAISSEParser, SSEParser},
     types::*,
+    utils::is_claude_model,
 };
 
 // OpenAI-specific types
@@ -79,6 +80,14 @@ pub struct OpenAIImageOutput {
     pub result: Option<String>, // Base64 encoded image, None if not completed
 }
 
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolChoice {
+    #[allow(dead_code)]
+    Auto,
+    Required,
+}
+
 #[derive(Serialize)]
 pub struct OpenAIRequest<'a> {
     pub model: &'a str,
@@ -91,6 +100,8 @@ pub struct OpenAIRequest<'a> {
     pub max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<ResponseFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
     pub stream: bool,
 }
 
@@ -192,6 +203,14 @@ impl OpenAIQueryBuilder {
             None
         };
 
+        let is_claude_model = is_claude_model(&args.model);
+        // Force usage of structured output tool for Claude models when structured output provided
+        let tool_choice = if is_claude_model && response_format.is_some() {
+            Some(ToolChoice::Required)
+        } else {
+            None
+        };
+
         let request = OpenAIRequest {
             model: args.model,
             messages: &prepared_messages,
@@ -199,6 +218,7 @@ impl OpenAIQueryBuilder {
             temperature: args.temperature,
             max_completion_tokens: args.max_tokens,
             response_format,
+            tool_choice,
             stream,
         };
 
