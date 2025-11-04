@@ -15,13 +15,15 @@ import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 import type { ModulesTestStates } from '../modulesTest.svelte'
 import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
 
+import type { NoteColor } from '../graph/noteColors'
+
 // Type for flow notes stored in the UI field
 export type Note = {
 	id: string
 	text: string
 	position: { x: number; y: number }
 	size: { width: number; height: number }
-	color: string
+	color: NoteColor
 }
 
 export type FlowInput = Record<

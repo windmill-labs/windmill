@@ -2,6 +2,7 @@
 	import { FlowService, type FlowModule, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
 	import type { Note } from '../flows/types'
+	import { DEFAULT_NOTE_COLOR, type NoteColor } from './noteColors'
 	import { getContext, onDestroy, setContext, tick, untrack, type Snippet } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
@@ -420,7 +421,7 @@
 				text: '',
 				position: newNoteFromTool.position,
 				size: newNoteFromTool.size || { width: 200, height: 100 },
-				color: 'oklch(96.7% 0.067 122.328)'
+				color: DEFAULT_NOTE_COLOR
 			}
 			onNotesChange([...notes, newNote])
 			nextNoteId += 1
@@ -455,6 +456,13 @@
 		}
 	}
 
+	function updateNoteColor(noteId: string, color: NoteColor) {
+		if (onNotesChange) {
+			onNotesChange(notes.map((note) => (note.id === noteId ? { ...note, color } : note)))
+		}
+		updateStores()
+	}
+
 	function convertNotesToNodes(): Node[] {
 		return notes.map((note) => ({
 			id: note.id,
@@ -465,6 +473,7 @@
 				color: note.color,
 				onUpdate: (text: string) => updateNoteText(note.id, text),
 				onDelete: () => deleteNote(note.id),
+				onColorChange: (color: NoteColor) => updateNoteColor(note.id, color),
 				onSizeChange: (size: { width: number; height: number }) => updateNoteSize(note.id, size)
 			},
 			style: `width: ${note.size.width}px; height: ${note.size.height}px;`,

@@ -92,7 +92,7 @@
 			onclick={() => toggleNoteMode?.()}
 			iconOnly
 			variant="default"
-			size="sm"
+			unifiedSize="sm"
 			startIcon={{ icon: StickyNote }}
 			selected={noteMode}
 		></Button>

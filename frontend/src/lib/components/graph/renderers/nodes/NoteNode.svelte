@@ -4,13 +4,17 @@
 	import { twMerge } from 'tailwind-merge'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import { fade } from 'svelte/transition'
+	import NoteColorPicker from '../../NoteColorPicker.svelte'
+	import { NoteColor, NOTE_COLORS, DEFAULT_NOTE_COLOR } from '../../noteColors'
+	import { Button } from '$lib/components/common'
 
 	interface Props {
 		data: {
 			text: string
-			color: string
+			color: NoteColor
 			onUpdate?: (text: string) => void
 			onDelete?: () => void
+			onColorChange?: (color: NoteColor) => void
 			onSizeChange?: (size: { width: number; height: number }) => void
 		}
 		selected?: boolean
@@ -29,12 +33,19 @@
 		data.onUpdate?.(textContent)
 	}
 
-	function handleDelete(event: Event) {
-		event.preventDefault()
-		event.stopPropagation()
+	function handleDelete(event?: Event) {
+		event?.preventDefault?.()
+		event?.stopPropagation?.()
 		// Call the delete callback
 		data.onDelete?.()
 	}
+
+	function handleColorChange(color: NoteColor) {
+		data.onColorChange?.(color)
+	}
+
+	// Get color configuration for current color
+	const colorConfig = $derived(NOTE_COLORS[data.color] || NOTE_COLORS[DEFAULT_NOTE_COLOR])
 
 	function handleDoubleClick(event: Event) {
 		console.log('Double click detected', { editMode, selected, dragging })
@@ -63,14 +74,20 @@
 			editMode = false
 		}
 	})
+
+	let colorPickerIsOpen = $state(false)
 </script>
 
 <div
 	class={twMerge(
-		'relative w-full h-full rounded-md border group',
-		selected ? `outline outline-1 outline-lime-300` : ''
+		'relative w-full h-full rounded-md group hover:outline outline-1',
+		colorConfig.background,
+		colorConfig.text,
+		colorConfig.outlineHover,
+		selected ? 'outline' : '',
+		selected ? colorConfig.outline : '',
+		editMode ? 'outline-0' : ''
 	)}
-	style:background-color={data.color}
 	onpointerup={() => {
 		dragging = false
 	}}
@@ -84,42 +101,62 @@
 	onmouseleave={handleMouseLeave}
 	role="note"
 >
-	<!-- Delete button -->
-	<button
-		class="opacity-0 group-hover:opacity-100 hover:opacity-100 absolute -top-6 right-0 w-5 h-5 bg-transparent text-secondary hover:bg-red-500 hover:border-red-500 hover:text-white border rounded-md flex items-center justify-center transition-all duration-100 z-10"
-		onclick={handleDelete}
-		title="Delete note"
-		aria-label="Delete note"
-	>
-		<X size="12" />
-	</button>
+	<!-- Color picker button -->
+	<div class="absolute -top-10 -right-2.5 p-2 w-20 h-12 group flex justify-end">
+		<div
+			class={twMerge(
+				'hidden group-hover:flex flex-row gap-2 h-fit',
+				hovering || editMode || colorPickerIsOpen || selected ? 'flex' : ''
+			)}
+		>
+			<NoteColorPicker
+				selectedColor={data.color}
+				onColorChange={handleColorChange}
+				bind:isOpen={colorPickerIsOpen}
+			/>
+			<!-- Delete button -->
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				title="Delete note"
+				aria-label="Delete note"
+				startIcon={{ icon: X }}
+				onClick={handleDelete}
+				iconOnly
+				destructive
+			/>
+		</div>
+	</div>
 
 	<!-- Hover help text -->
-	{#if hovering}
+	{#if hovering || selected}
 		{#if !editMode && data.text}
 			<div
 				in:fade={{ duration: 200 }}
-				class="absolute -top-5 h-5 left-0 text-xs text-gray-400 rounded-md z-10 transition-opacity duration-300"
+				class="absolute -top-5 h-5 left-0 text-2xs text-secondary rounded-md z-10 transition-opacity duration-300"
 			>
 				Double click to edit
 			</div>
 		{:else}
 			<div
 				in:fade={{ duration: 200 }}
-				class="absolute -top-5 h-5 left-0 text-xs text-gray-400 rounded-md z-10 transition-opacity duration-300"
+				class="absolute -top-5 h-5 left-0 text-2xs text-secondary rounded-md z-10 transition-opacity duration-300"
 				>GH Markdown</div
 			>
 		{/if}
 	{/if}
 
 	<!-- Note content -->
-	<div class="p-2 h-full rounded-md">
+	<div class="h-full rounded-md">
 		{#if editMode}
 			<!-- Edit mode: show textarea -->
 			<textarea
 				bind:this={textareaElement}
 				bind:value={textContent}
-				class="windmillapp w-full h-full min-h-0 shadow-none resize-none text-xs overflow-y-auto border-none rounded-md bg-transparent transition-colors p-2"
+				class={twMerge(
+					'windmillapp w-full h-full min-h-0 shadow-none resize-none text-xs overflow-y-auto border-none rounded-md bg-transparent transition-colors p-4',
+					colorConfig.text
+				)}
 				placeholder="Add your note here... (Markdown supported)"
 				onblur={handleTextSave}
 				spellcheck="false"
@@ -128,15 +165,19 @@
 			<!-- Render mode: show markdown or empty state -->
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
-				class="w-full h-full overflow-auto cursor-pointer flex items-start justify-center hover:bg-gray-400/10 rounded-md p-2"
+				class={twMerge(
+					'w-full h-full overflow-auto cursor-pointer flex items-start justify-center rounded-md p-4'
+				)}
 				ondblclick={handleDoubleClick}
 			>
 				{#if data.text}
-					<div class="w-full h-full text-xs rounded-md">
+					<div class={twMerge('w-full h-full text-xs rounded-md', colorConfig.text)}>
 						<GfmMarkdown md={data.text} noPadding />
 					</div>
 				{:else}
-					<div class="text-secondary text-xs italic"> Double-click to add a note </div>
+					<div class={twMerge('text-xs italic opacity-60', colorConfig.text)}>
+						Double-click to add a note
+					</div>
 				{/if}
 			</div>
 		{/if}
