@@ -80,7 +80,7 @@ use windmill_common::{
     OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS,
 };
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
-use windmill_queue::{cancel_job, MiniPulledJob, SameWorkerPayload};
+use windmill_queue::{cancel_job, SameWorkerPayload};
 use windmill_worker::{
     handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
     INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
@@ -2338,7 +2338,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, worker
         let _ = handle_job_error(
             db,
             &client,
-            &MiniPulledJob::from(&job),
+            &windmill_queue::MiniCompletedJob::from(windmill_queue::MiniPulledJob::from(&job)),
             0,
             None,
             error::Error::ExecutionErr(error_message),
