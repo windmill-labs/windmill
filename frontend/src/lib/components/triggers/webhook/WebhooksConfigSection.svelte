@@ -54,6 +54,7 @@
 		sync: {
 			get: {
 				path: string
+				hash?: string
 			}
 			post: {
 				hash?: string
@@ -70,7 +71,7 @@
 				path: string
 			}
 		}
-	} = $derived(isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path))
+	} = $derived(isFlow ? computeFlowWebhooks(path, hash) : computeScriptWebhooks(hash, path))
 	let selectedTab: string = $state('rest')
 	let userSettings: UserSettings | undefined = $state()
 	let requestType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync' | 'sync_sse'
@@ -137,33 +138,43 @@
 		}
 	}
 
-	function computeFlowWebhooks(path: string) {
+	function computeFlowWebhooks(path: string, hash: string | undefined) {
 		let webhooksBase = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
 
 		let urlAsync = `${webhooksBase}/run/f/${path}`
 		let urlSync = `${webhooksBase}/run_wait_result/f/${path}`
 		let urlStream = `${webhooksBase}/run_and_stream/f/${path}`
+
+		let urlAsyncHash = hash ? `${webhooksBase}/run/fv/${hash}` : undefined
+		let urlSyncHash = hash ? `${webhooksBase}/run_wait_result/fv/${hash}` : undefined
+		let urlStreamHash = hash ? `${webhooksBase}/run_and_stream/fv/${hash}` : undefined
+
 		return {
 			async: {
 				get: {},
 				post: {
-					path: urlAsync
+					path: urlAsync,
+					...(urlAsyncHash && { hash: urlAsyncHash })
 				}
 			},
 			sync: {
 				get: {
-					path: urlSync
+					path: urlSync,
+					...(urlSyncHash && { hash: urlSyncHash })
 				},
 				post: {
-					path: urlSync
+					path: urlSync,
+					...(urlSyncHash && { hash: urlSyncHash })
 				}
 			},
 			sync_sse: {
 				get: {
-					path: urlStream
+					path: urlStream,
+					...(urlStreamHash && { hash: urlStreamHash })
 				},
 				post: {
-					path: urlStream
+					path: urlStream,
+					...(urlStreamHash && { hash: urlStreamHash })
 				}
 			}
 		}
@@ -433,16 +444,19 @@ done`
 				{/snippet}
 			</ToggleButtonGroup>
 		</Label>
-		{#if !isFlow}
-			<Label label="Reference type">
-				<ToggleButtonGroup bind:selected={runnableId}>
-					{#snippet children({ item })}
-						<ToggleButton label="Path" value="path" {item} />
-						<ToggleButton label="Hash" value="hash" disabled={!hash} {item} />
-					{/snippet}
-				</ToggleButtonGroup>
-			</Label>
-		{/if}
+		<Label label="Reference type">
+			<ToggleButtonGroup bind:selected={runnableId}>
+				{#snippet children({ item })}
+					<ToggleButton label="Path" value="path" {item} />
+					<ToggleButton
+						label={isFlow ? 'Version' : 'Hash'}
+						value="hash"
+						disabled={!hash}
+						{item}
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+		</Label>
 		<Label label="Token configuration">
 			<ToggleButtonGroup bind:selected={tokenType}>
 				{#snippet children({ item })}

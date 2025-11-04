@@ -45,7 +45,7 @@ use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
 
 use windmill_common::variables::get_workspace_key;
 
-use crate::triggers::trigger_helpers::ScriptId;
+use crate::triggers::trigger_helpers::{FlowId, ScriptId};
 use crate::{
     add_webhook_allowed_origin,
     args::{self, RawWebhookArgs},
@@ -96,7 +96,8 @@ use windmill_common::{
 
 use windmill_common::{
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
-    get_script_info_for_hash, utils::empty_as_none, FlowVersionInfo, ScriptHashInfo, BASE_URL,
+    get_latest_flow_version_info_for_path_from_version, get_script_info_for_hash,
+    utils::empty_as_none, FlowVersionInfo, ScriptHashInfo, BASE_URL,
 };
 use windmill_queue::{
     cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
@@ -120,6 +121,13 @@ pub fn workspaced_service() -> Router {
         .route(
             "/run/f/*script_path",
             post(run_flow_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
+        )
+        .route(
+            "/run/fv/:version",
+            post(run_flow_by_version)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
@@ -177,9 +185,25 @@ pub fn workspaced_service() -> Router {
                 .layer(ce_headers.clone()),
         )
         .route(
+            "/run_wait_result/fv/:version",
+            post(run_wait_result_flow_by_version)
+                .get(run_wait_result_flow_by_version_get)
+                .head(|| async { "" })
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
+        )
+        .route(
             "/run_and_stream/f/*script_path",
             get(stream_flow_by_path)
                 .post(stream_flow_by_path)
+                .head(|| async { "" })
+                .layer(cors.clone())
+                .layer(ce_headers.clone()),
+        )
+        .route(
+            "/run_and_stream/fv/:version",
+            get(stream_flow_by_version)
+                .post(stream_flow_by_version)
                 .head(|| async { "" })
                 .layer(cors.clone())
                 .layer(ce_headers.clone()),
@@ -4035,6 +4059,148 @@ pub async fn run_flow_by_path_inner(
     Ok((uuid, early_return))
 }
 
+pub async fn run_flow_by_version(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, version)): Path<(String, i64)>,
+    Query(run_query): Query<RunJobQuery>,
+    args: RawWebhookArgs,
+) -> error::Result<(StatusCode, String)> {
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_flow_version(version),
+            run_query.skip_preprocessor,
+        )
+        .await?;
+
+    let (uuid, _) =
+        run_flow_by_version_inner(authed, db, user_db, w_id, version, run_query, args).await?;
+
+    Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+pub async fn run_flow_by_version_inner(
+    authed: ApiAuthed,
+    db: DB,
+    user_db: UserDB,
+    w_id: String,
+    version: i64,
+    run_query: RunJobQuery,
+    args: PushArgsOwned,
+) -> error::Result<(Uuid, Option<String>)> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
+    // Get flow path from version for scope check
+    let flow_path = sqlx::query_scalar!(
+        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
+        version,
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?;
+
+    check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
+
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+
+    let FlowVersionInfo {
+        version: flow_version,
+        tag,
+        dedicated_worker,
+        has_preprocessor,
+        chat_input_enabled,
+        on_behalf_of_email,
+        edited_by,
+        early_return,
+        ..
+    } = get_latest_flow_version_info_for_path_from_version(&db, version, &w_id, &flow_path).await?;
+
+    let tag = run_query.tag.clone().or(tag);
+
+    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+
+    let (email, permissioned_as, push_authed, tx) =
+        if let Some(on_behalf_of_email) = on_behalf_of_email.as_ref() {
+            (
+                on_behalf_of_email,
+                username_to_permissioned_as(&edited_by),
+                None,
+                PushIsolationLevel::IsolatedRoot(db.clone()),
+            )
+        } else {
+            (
+                &authed.email,
+                username_to_permissioned_as(&authed.username),
+                Some(authed.clone().into()),
+                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
+            )
+        };
+
+    let (uuid, mut tx) = push(
+        &db,
+        tx,
+        &w_id,
+        JobPayload::Flow {
+            path: flow_path.clone(),
+            dedicated_worker,
+            version: flow_version,
+            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
+                && has_preprocessor.unwrap_or(false),
+        },
+        PushArgs { args: &args.args, extra: args.extra },
+        authed.display_username(),
+        email,
+        permissioned_as,
+        authed.token_prefix.as_deref(),
+        scheduled_for,
+        None,
+        run_query.parent_job,
+        None,
+        run_query.root_job,
+        run_query.job_id,
+        false,
+        false,
+        None,
+        !run_query.invisible_to_owner.unwrap_or(false),
+        tag,
+        None,
+        None,
+        None,
+        push_authed.as_ref(),
+        false,
+        None,
+        None,
+    )
+    .await?;
+
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
+    }
+
+    // Handle conversation messages for chat-enabled flows
+    if chat_input_enabled.unwrap_or(false) {
+        handle_chat_conversation_messages(
+            &mut tx,
+            &authed,
+            &w_id,
+            &flow_path,
+            &run_query,
+            args.args.get("user_message"),
+        )
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok((uuid, early_return))
+}
+
 #[cfg(not(feature = "enterprise"))]
 pub async fn restart_flow(
     _authed: ApiAuthed,
@@ -5269,6 +5435,28 @@ pub async fn stream_flow_by_path(
     .await
 }
 
+pub async fn stream_flow_by_version(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, version)): Path<(String, i64)>,
+    Query(run_query): Query<RunJobQuery>,
+    method: hyper::http::Method,
+    args: RawWebhookArgs,
+) -> error::Result<Response> {
+    stream_job(
+        authed,
+        db,
+        user_db,
+        w_id,
+        RunnableId::from_flow_version(version),
+        args,
+        run_query,
+        method == http::Method::GET,
+    )
+    .await
+}
+
 pub async fn stream_script_by_path(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -5383,13 +5571,26 @@ pub async fn stream_job(
             .await?
             .0
         }
-        RunnableId::FlowPath(flow_path) => {
+        RunnableId::FlowId(FlowId::FlowPath(flow_path)) => {
             run_flow_by_path_inner(
                 authed.clone(),
                 db.clone(),
                 user_db,
                 w_id.clone(),
                 StripPath(flow_path),
+                run_query,
+                args,
+            )
+            .await?
+            .0
+        }
+        RunnableId::FlowId(FlowId::FlowVersion(version)) => {
+            run_flow_by_version_inner(
+                authed.clone(),
+                db.clone(),
+                user_db,
+                w_id.clone(),
+                version,
                 run_query,
                 args,
             )
@@ -5536,6 +5737,208 @@ pub async fn run_wait_result_flow_by_path_internal(
             &authed,
             &w_id,
             &flow_path.to_string(),
+            &run_query,
+            args.args.get("user_message"),
+        )
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
+}
+
+pub async fn run_wait_result_flow_by_version_get(
+    method: hyper::http::Method,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, version)): Path<(String, i64)>,
+    Query(run_query): Query<RunJobQuery>,
+    args: RawWebhookArgs,
+) -> error::Result<Response> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
+    // Get flow path from version for scope check
+    let flow_path = sqlx::query_scalar!(
+        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
+        version,
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?;
+
+    check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
+
+    if method == http::Method::HEAD {
+        return Ok(Json(serde_json::json!("")).into_response());
+    }
+    let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
+        x.map_err(|e| {
+            error::Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
+        })
+    });
+
+    let payload_args = if let Some(payload) = payload_r {
+        payload?
+    } else {
+        HashMap::new()
+    };
+
+    let mut args = args.process_args(&authed, &db, &w_id, None).await?;
+    args.body = args::Body::HashMap(payload_args);
+
+    let args = args
+        .to_args_from_runnable(
+            &db,
+            &w_id,
+            RunnableId::from_flow_version(version),
+            run_query.skip_preprocessor,
+        )
+        .await?;
+
+    run_wait_result_flow_by_version_internal(db, run_query, version, authed, user_db, args, w_id)
+        .await
+}
+
+pub async fn run_wait_result_flow_by_version(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, version)): Path<(String, i64)>,
+    Query(run_query): Query<RunJobQuery>,
+    args: RawWebhookArgs,
+) -> error::Result<Response> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
+    let flow_path = sqlx::query_scalar!(
+        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
+        version,
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?;
+
+    check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
+
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            RunnableId::from_flow_version(version),
+            run_query.skip_preprocessor,
+        )
+        .await?;
+
+    run_wait_result_flow_by_version_internal(db, run_query, version, authed, user_db, args, w_id)
+        .await
+}
+
+pub async fn run_wait_result_flow_by_version_internal(
+    db: sqlx::Pool<Postgres>,
+    run_query: RunJobQuery,
+    version: i64,
+    authed: ApiAuthed,
+    user_db: UserDB,
+    args: PushArgsOwned,
+    w_id: String,
+) -> error::Result<Response> {
+    check_queue_too_long(&db, run_query.queue_limit).await?;
+
+    // Get flow path from version
+    let flow_path = sqlx::query_scalar!(
+        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
+        version,
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?;
+
+    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+
+    let FlowVersionInfo {
+        tag,
+        dedicated_worker,
+        early_return,
+        has_preprocessor,
+        chat_input_enabled,
+        on_behalf_of_email,
+        edited_by,
+        version: flow_version,
+    } = get_latest_flow_version_info_for_path_from_version(&db, version, &w_id, &flow_path).await?;
+
+    let tag = run_query.tag.clone().or(tag);
+    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
+
+    let (email, permissioned_as, push_authed, tx) =
+        if let Some(on_behalf_of_email) = on_behalf_of_email.as_ref() {
+            (
+                on_behalf_of_email,
+                username_to_permissioned_as(&edited_by),
+                None,
+                PushIsolationLevel::IsolatedRoot(db.clone()),
+            )
+        } else {
+            (
+                &authed.email,
+                username_to_permissioned_as(&authed.username),
+                Some(authed.clone().into()),
+                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
+            )
+        };
+
+    let (uuid, mut tx) = push(
+        &db,
+        tx,
+        &w_id,
+        JobPayload::Flow {
+            path: flow_path.clone(),
+            dedicated_worker,
+            version: flow_version,
+            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
+                && has_preprocessor.unwrap_or(false),
+        },
+        PushArgs { args: &args.args, extra: args.extra },
+        authed.display_username(),
+        email,
+        permissioned_as,
+        authed.token_prefix.as_deref(),
+        scheduled_for,
+        None,
+        run_query.parent_job,
+        None,
+        run_query.root_job,
+        run_query.job_id,
+        false,
+        false,
+        None,
+        !run_query.invisible_to_owner.unwrap_or(false),
+        tag,
+        None,
+        None,
+        None,
+        push_authed.as_ref(),
+        false,
+        None,
+        None,
+    )
+    .await?;
+
+    if let Some(memory_id) = run_query.memory_id {
+        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
+    }
+
+    if chat_input_enabled.unwrap_or(false) {
+        handle_chat_conversation_messages(
+            &mut tx,
+            &authed,
+            &w_id,
+            &flow_path,
             &run_query,
             args.args.get("user_message"),
         )
