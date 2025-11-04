@@ -214,7 +214,21 @@ pub async fn handle_dedicated_process(
             job = conditional_polling(jobs_rx.recv(), alive && jobs.len() < MAX_BUFFERED_DEDICATED_JOBS) => {
                 // i += 1;
                 if let Some(job) = job {
+                    let id = job.id;
+                    let args = serde_json::to_string(&job.args).expect("serialize");
                     jobs.push_back(MiniCompletedJob::from(job));
+                    tracing::info!("received job and adding to queue on dedicated worker for {script_path}: {} (queue_size: {})", id, jobs.len());
+
+                    // write_stdin(&mut stdin, &serde_json::to_string(&job.args.unwrap_or_else(|| serde_json::json!({"x": job.id}))).expect("serialize")).await?;
+                    write_stdin(&mut stdin, &args).await?;
+                    stdin.flush().await.context("stdin flush")?;
+                    tracing::info!("wrote job to stdin for {script_path}: {} (queue_size: {})", id, jobs.len());
+                } else {
+                    tracing::debug!("job channel closed");
+                    alive = false;
+                    if let Err(e) = write_stdin(&mut stdin, "end").await {
+                        tracing::error!("Could not write end message to stdin: {e:?}")
+                    }
                 }
             }
         }
