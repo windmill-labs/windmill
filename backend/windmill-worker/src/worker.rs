@@ -326,6 +326,12 @@ lazy_static::lazy_static! {
         }
         proxy_env
     };
+    pub static ref WHITELIST_ENVS: HashMap<String, String> = {
+        windmill_common::worker::load_env_vars(
+            windmill_common::worker::load_whitelist_env_vars_from_env(),
+            &HashMap::new(),
+        )
+    };
     pub static ref DENO_PATH: String = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
     pub static ref BUN_PATH: String = std::env::var("BUN_PATH").unwrap_or_else(|_| "/usr/bin/bun".to_string());
     pub static ref NPM_PATH: String = std::env::var("NPM_PATH").unwrap_or_else(|_| "/usr/bin/npm".to_string());
