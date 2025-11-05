@@ -15,7 +15,7 @@
 		createAiAgent
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
-	import { emptyFlowModuleState } from '../utils'
+	import { emptyFlowModuleState } from '../utils.svelte'
 
 	import { dfs } from '../dfs'
 	import { push } from '$lib/history.svelte'

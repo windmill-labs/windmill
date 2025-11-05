@@ -4,7 +4,7 @@
 	import { Button } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-	import { runFlowPreview } from './flows/utils'
+	import { runFlowPreview } from './flows/utils.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'

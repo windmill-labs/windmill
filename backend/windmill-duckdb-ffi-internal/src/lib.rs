@@ -1,11 +1,11 @@
 use std::{
     collections::HashMap,
-    ffi::{c_char, CStr, CString},
+    ffi::{CStr, CString, c_char},
     ptr::null_mut,
 };
 
-use duckdb::{params_from_iter, types::TimeUnit, Row};
-use rust_decimal::{prelude::FromPrimitive, Decimal};
+use duckdb::{Row, params_from_iter, types::TimeUnit};
+use rust_decimal::{Decimal, prelude::FromPrimitive};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
@@ -232,15 +232,16 @@ fn do_duckdb_inner(
     if skip_collect {
         return Ok(RawValue::from_string("[]".to_string()).unwrap());
     }
-
     // Statement needs to be stepped at least once or stmt.column_names() will panic
     let mut column_names = None;
+    let mut type_aliases = None;
     loop {
         let row = rows.next();
         match row {
             Ok(Some(row)) => {
                 // Set column names if not already set
                 let stmt = row.as_ref();
+
                 let column_names = match column_names.as_ref() {
                     Some(column_names) => column_names,
                     None => {
@@ -248,8 +249,20 @@ fn do_duckdb_inner(
                         column_names.as_ref().unwrap()
                     }
                 };
+                let type_aliases = match type_aliases.as_ref() {
+                    Some(type_aliases) => type_aliases,
+                    None => {
+                        type_aliases = Some(
+                            (0..stmt.column_count())
+                                .map(|i| stmt.column_logical_type(i).get_alias())
+                                .collect::<Vec<_>>(),
+                        );
+                        type_aliases.as_ref().unwrap()
+                    }
+                };
 
-                let row = row_to_value(row, &column_names.as_slice()).map_err(|e| e.to_string())?;
+                let row = row_to_value(row, &column_names.as_slice(), &type_aliases.as_slice())
+                    .map_err(|e| e.to_string())?;
                 rows_vec.push(row);
             }
             Ok(None) => break,
@@ -286,81 +299,97 @@ fn interpolate_named_args<'a>(
     (query, values)
 }
 
-fn row_to_value(row: &Row<'_>, column_names: &[String]) -> Result<Box<RawValue>, String> {
+fn row_to_value(
+    row: &Row<'_>,
+    column_names: &[String],
+    type_aliases: &[Option<String>],
+) -> Result<Box<RawValue>, String> {
     let mut obj = serde_json::Map::new();
     for (i, key) in column_names.iter().enumerate() {
         let value: duckdb::types::Value = row.get(i).map_err(|e| e.to_string())?;
-        let json_value = match value {
-            duckdb::types::Value::Null => serde_json::Value::Null,
-            duckdb::types::Value::Boolean(b) => serde_json::Value::Bool(b),
-            duckdb::types::Value::TinyInt(i) => serde_json::Value::Number(i.into()),
-            duckdb::types::Value::SmallInt(i) => serde_json::Value::Number(i.into()),
-            duckdb::types::Value::Int(i) => serde_json::Value::Number(i.into()),
-            duckdb::types::Value::BigInt(i) => serde_json::Value::Number(i.into()),
-            duckdb::types::Value::HugeInt(i) => serde_json::Value::String(i.to_string()),
-            duckdb::types::Value::UTinyInt(u) => serde_json::Value::Number(u.into()),
-            duckdb::types::Value::USmallInt(u) => serde_json::Value::Number(u.into()),
-            duckdb::types::Value::UInt(u) => serde_json::Value::Number(u.into()),
-            duckdb::types::Value::UBigInt(u) => serde_json::Value::Number(u.into()),
-            duckdb::types::Value::Float(f) => serde_json::Value::Number(
-                serde_json::Number::from_f64(f as f64)
-                    .ok_or_else(|| "Could not convert to f64".to_string())?,
-            ),
-            duckdb::types::Value::Double(f) => serde_json::Value::Number(
-                serde_json::Number::from_f64(f)
-                    .ok_or_else(|| "Could not convert to f64".to_string())?,
-            ),
-            duckdb::types::Value::Decimal(d) => serde_json::Value::String(d.to_string()),
-            duckdb::types::Value::Timestamp(_, ts) => serde_json::Value::String(ts.to_string()),
-            duckdb::types::Value::Text(s) => serde_json::Value::String(s),
-            duckdb::types::Value::Blob(b) => serde_json::Value::Array(
-                b.into_iter()
-                    .map(|byte| serde_json::Value::Number(byte.into()))
-                    .collect(),
-            ),
-            duckdb::types::Value::Date32(d) => serde_json::Value::Number(d.into()),
-            duckdb::types::Value::Time64(_, t) => serde_json::Value::String(t.to_string()),
-            duckdb::types::Value::Interval { months, days, nanos } => serde_json::json!({
-                "months": months,
-                "days": days,
-                "nanos": nanos
-            }),
-            duckdb::types::Value::List(values) => serde_json::Value::Array(
-                values
-                    .into_iter()
-                    .map(|v| serde_json::Value::String(format!("{:?}", v)))
-                    .collect(),
-            ),
-            duckdb::types::Value::Enum(e) => serde_json::Value::String(e),
-            duckdb::types::Value::Struct(fields) => serde_json::Value::Object(
-                fields
-                    .iter()
-                    .map(|(k, v)| (k.clone(), serde_json::Value::String(format!("{:?}", v))))
-                    .collect(),
-            ),
-            duckdb::types::Value::Array(values) => serde_json::Value::Array(
-                values
-                    .into_iter()
-                    .map(|v| serde_json::Value::String(format!("{:?}", v)))
-                    .collect(),
-            ),
-            duckdb::types::Value::Map(map) => serde_json::Value::Object(
-                map.iter()
-                    .map(|(k, v)| {
-                        (
-                            format!("{:?}", k),
-                            serde_json::Value::String(format!("{:?}", v)),
-                        )
-                    })
-                    .collect(),
-            ),
-            duckdb::types::Value::Union(value) => {
-                serde_json::Value::String(format!("{:?}", *value))
-            }
-        };
+        let type_alias = &type_aliases[i];
+        let json_value = duckdb_value_to_json_value(value, type_alias)?;
         obj.insert(key.clone(), json_value);
     }
     serde_json::value::to_raw_value(&obj).map_err(|e| e.to_string())
+}
+
+fn duckdb_value_to_json_value(
+    value: duckdb::types::Value,
+    type_alias: &Option<String>,
+) -> Result<serde_json::Value, String> {
+    let json_value = match value {
+        duckdb::types::Value::Null => serde_json::Value::Null,
+        duckdb::types::Value::Boolean(b) => serde_json::Value::Bool(b),
+        duckdb::types::Value::TinyInt(i) => serde_json::Value::Number(i.into()),
+        duckdb::types::Value::SmallInt(i) => serde_json::Value::Number(i.into()),
+        duckdb::types::Value::Int(i) => serde_json::Value::Number(i.into()),
+        duckdb::types::Value::BigInt(i) => serde_json::Value::Number(i.into()),
+        duckdb::types::Value::HugeInt(i) => serde_json::Value::String(i.to_string()),
+        duckdb::types::Value::UTinyInt(u) => serde_json::Value::Number(u.into()),
+        duckdb::types::Value::USmallInt(u) => serde_json::Value::Number(u.into()),
+        duckdb::types::Value::UInt(u) => serde_json::Value::Number(u.into()),
+        duckdb::types::Value::UBigInt(u) => serde_json::Value::Number(u.into()),
+        duckdb::types::Value::Float(f) => serde_json::Value::Number(
+            serde_json::Number::from_f64(f as f64)
+                .ok_or_else(|| "Could not convert to f64".to_string())?,
+        ),
+        duckdb::types::Value::Double(f) => serde_json::Value::Number(
+            serde_json::Number::from_f64(f)
+                .ok_or_else(|| "Could not convert to f64".to_string())?,
+        ),
+        duckdb::types::Value::Decimal(d) => serde_json::Value::String(d.to_string()),
+        duckdb::types::Value::Timestamp(_, ts) => serde_json::Value::String(ts.to_string()),
+        duckdb::types::Value::Text(s) if type_alias.as_deref().unwrap_or_default() == "JSON" => {
+            serde_json::from_str(&s)
+                .map_err(|e| format!("Error parsing JSON text: {}", e.to_string()))?
+        }
+        duckdb::types::Value::Text(s) => serde_json::Value::String(s),
+        duckdb::types::Value::Blob(b) => serde_json::Value::Array(
+            b.into_iter()
+                .map(|byte| serde_json::Value::Number(byte.into()))
+                .collect(),
+        ),
+        duckdb::types::Value::Date32(d) => serde_json::Value::Number(d.into()),
+        duckdb::types::Value::Time64(_, t) => serde_json::Value::String(t.to_string()),
+        duckdb::types::Value::Interval { months, days, nanos } => serde_json::json!({
+            "months": months,
+            "days": days,
+            "nanos": nanos
+        }),
+        duckdb::types::Value::List(values) => serde_json::Value::Array(
+            values
+                .into_iter()
+                .map(|v| duckdb_value_to_json_value(v, &None))
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        duckdb::types::Value::Enum(e) => serde_json::Value::String(e),
+        duckdb::types::Value::Struct(fields) => serde_json::Value::Object(
+            fields
+                .iter()
+                .map(|(k, v)| duckdb_value_to_json_value(v.clone(), &None).map(|v| (k.clone(), v)))
+                .collect::<Result<serde_json::Map<_, _>, _>>()?,
+        ),
+        duckdb::types::Value::Array(values) => serde_json::Value::Array(
+            values
+                .into_iter()
+                .map(|v| duckdb_value_to_json_value(v, &None))
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        duckdb::types::Value::Map(map) => serde_json::Value::Object(
+            map.iter()
+                .map(|(k, v)| {
+                    let k = match k {
+                        duckdb::types::Value::Text(s) | duckdb::types::Value::Enum(s) => s.clone(),
+                        _ => format!("{:?}", k),
+                    };
+                    duckdb_value_to_json_value(v.clone(), &None).map(|v| (k, v))
+                })
+                .collect::<Result<serde_json::Map<_, _>, _>>()?,
+        ),
+        duckdb::types::Value::Union(value) => serde_json::Value::String(format!("{:?}", *value)),
+    };
+    Ok(json_value)
 }
 
 fn json_value_to_duckdb_value(
