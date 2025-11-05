@@ -150,14 +150,14 @@
 			{size}
 		/>
 		{#if loading}
-			<Loader2 class="animate-spin text-gray-400 absolute right-2 top-2.5" />
+			<Loader2 class="animate-spin text-gray-400 absolute right-2 top-1" />
 		{/if}
 	</div>
 </div>
 
 {#if hubNotAvailable}
 	<Alert type="error" title="Hub not available" />
-{:else if items.length > 0 && apps.length > 0}
+{:else if (items.length > 0 && apps.length > 0) || !loading}
 	<ListFilters {syncQuery} filters={apps} bind:selectedFilter={appFilter} resourceType />
 	{#if items.length == 0}
 		<NoItemFound />
