@@ -9906,7 +9906,7 @@ paths:
 
   /w/{workspace}/http_triggers/setenabled/{path}:
     post:
-      summary: enable/disalbe http trigger
+      summary: enable/disable http trigger
       operationId: setHttpTriggerEnabled
       tags:
         - http_trigger
