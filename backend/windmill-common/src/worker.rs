@@ -664,13 +664,11 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
-#[derive(Copy, Clone)]
 #[annotations("#")]
 pub struct RubyAnnotations {
     pub verbose: bool,
 }
 
-#[derive(Copy, Clone)]
 #[annotations("#")]
 pub struct PythonAnnotations {
     pub no_cache: bool,
@@ -683,7 +681,6 @@ pub struct PythonAnnotations {
     pub py313: bool,
 }
 
-#[derive(Copy, Clone)]
 #[annotations("//")]
 pub struct GoAnnotations {
     pub go1_22_compat: bool,
@@ -699,13 +696,51 @@ pub struct TypeScriptAnnotations {
 
 #[annotations("--")]
 pub struct SqlAnnotations {
-    pub return_last_result: bool,
+    pub return_last_result: bool, // deprecated, use result_collection instead
+    pub result_collection: SqlResultCollectionStrategy,
 }
 
 #[annotations("#")]
 pub struct BashAnnotations {
     pub docker: bool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SqlResultCollectionStrategy {
+    LastStatementAllRows,
+    LastStatementFirstRow,
+    LastStatementFirstRowScalar,
+    AllStatementsAllRows,
+    AllStatementsFirstRow,
+    AllStatementsFirstRowScalar,
+    Legacy,
+}
+
+impl SqlResultCollectionStrategy {
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "last_statement_all_rows" => SqlResultCollectionStrategy::LastStatementAllRows,
+            "last_statement_first_row" => SqlResultCollectionStrategy::LastStatementFirstRow,
+            "last_statement_first_row_scalar" => {
+                SqlResultCollectionStrategy::LastStatementFirstRowScalar
+            }
+            "all_statements_all_rows" => SqlResultCollectionStrategy::AllStatementsAllRows,
+            "all_statements_first_row" => SqlResultCollectionStrategy::AllStatementsFirstRow,
+            "all_statements_first_row_scalar" => {
+                SqlResultCollectionStrategy::AllStatementsFirstRowScalar
+            }
+            "legacy" => SqlResultCollectionStrategy::Legacy,
+            _ => SqlResultCollectionStrategy::LastStatementAllRows,
+        }
+    }
+}
+
+impl Default for SqlResultCollectionStrategy {
+    fn default() -> Self {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    }
+}
+
 /// length = 5
 /// value  = "foo"
 /// output = "foo  "
