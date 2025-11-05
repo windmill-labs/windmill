@@ -1119,7 +1119,7 @@ pub async fn pick_hub_script_by_path(
 ) -> impl IntoResponse {
     let path_str = path.to_path();
 
-    // Extract version_id from path (format: {version_id}/{app}/{summary})
+    // Extract version_id from path (format: {hub}/{version_id}/{summary})
     let version_id = path_str.split('/').nth(1).unwrap_or("");
 
     let hub_base_url = HUB_BASE_URL.read().await.clone();

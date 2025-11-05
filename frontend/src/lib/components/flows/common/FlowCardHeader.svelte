@@ -117,7 +117,7 @@
 										? DEFAULT_HUB_BASE_URL
 										: $hubBaseUrlStore
 								window.open(
-									`${targetHubBaseUrl}/from_version/${hubVersionId}?report-issue=${hubVersionId}`,
+									`${targetHubBaseUrl}/from_version/${hubVersionId}?report_issue=${hubVersionId}`,
 									'_blank'
 								)
 							}}
