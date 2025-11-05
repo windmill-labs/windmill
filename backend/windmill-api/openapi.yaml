@@ -3693,6 +3693,85 @@ paths:
                 type: string
                 example: "Updated mute critical alert UI settings for workspace: workspace_id"
 
+  /w/{workspace}/workspaces/compare_with_parent:
+    get:
+      summary: Compare forked workspace with its parent
+      operationId: workspaceCompareWithParent
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Comparison result between fork and parent workspace
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fork_workspace_id:
+                    type: string
+                    description: ID of the forked workspace
+                  parent_workspace_id:
+                    type: string
+                    description: ID of the parent workspace
+                  summary:
+                    type: object
+                    properties:
+                      total_changes:
+                        type: integer
+                        description: Total number of items with changes
+                      added:
+                        type: integer
+                        description: Number of items added in fork
+                      deleted:
+                        type: integer
+                        description: Number of items deleted from parent
+                      modified:
+                        type: integer
+                        description: Number of items modified
+                      unchanged:
+                        type: integer
+                        description: Number of unchanged items
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                          description: Path of the item
+                        name:
+                          type: string
+                          description: Name of the item
+                        item_type:
+                          type: string
+                          enum: ["script", "flow", "app", "resource", "variable"]
+                          description: Type of the item
+                        status:
+                          type: string
+                          enum: ["added", "deleted", "modified", "unchanged"]
+                          description: Diff status of the item
+                        versions_ahead:
+                          type: integer
+                          description: Number of versions ahead in fork
+                        versions_behind:
+                          type: integer
+                          description: Number of versions behind from parent
+                        changes:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              change_type:
+                                type: string
+                                description: Type of change (content, lockfile, schema, value, description, summary)
+                              has_changes:
+                                type: boolean
+                                description: Whether this type has changes
+        "400":
+          description: Bad request - workspace is not a fork or has no parent
+
   /oauth/login_callback/{client_name}:
     post:
       security: []

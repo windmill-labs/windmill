@@ -15,6 +15,7 @@
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
+	import WorkspaceForkDiffViewer from '$lib/components/WorkspaceForkDiffViewer.svelte'
 	import {
 		enterpriseLicense,
 		isPremiumStore,
@@ -409,6 +410,9 @@
 	{/if}
 	{#if mountModal}
 		<CriticalAlertModal bind:muteSettings bind:numUnacknowledgedCriticalAlerts />
+	{/if}
+	{#if $workspaceStore}
+		<WorkspaceForkDiffViewer workspaceId={$workspaceStore} />
 	{/if}
 	<div class="h-screen flex flex-col">
 		{#if !menuHidden}
