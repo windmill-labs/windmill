@@ -718,19 +718,16 @@ pub enum SqlResultCollectionStrategy {
 
 impl SqlResultCollectionStrategy {
     pub fn parse(s: &str) -> Self {
+        use SqlResultCollectionStrategy::*;
         match s {
-            "last_statement_all_rows" => SqlResultCollectionStrategy::LastStatementAllRows,
-            "last_statement_first_row" => SqlResultCollectionStrategy::LastStatementFirstRow,
-            "last_statement_first_row_scalar" => {
-                SqlResultCollectionStrategy::LastStatementFirstRowScalar
-            }
-            "all_statements_all_rows" => SqlResultCollectionStrategy::AllStatementsAllRows,
-            "all_statements_first_row" => SqlResultCollectionStrategy::AllStatementsFirstRow,
-            "all_statements_first_row_scalar" => {
-                SqlResultCollectionStrategy::AllStatementsFirstRowScalar
-            }
-            "legacy" => SqlResultCollectionStrategy::Legacy,
-            _ => SqlResultCollectionStrategy::LastStatementAllRows,
+            "last_statement_all_rows" => LastStatementAllRows,
+            "last_statement_first_row" => LastStatementFirstRow,
+            "last_statement_first_row_scalar" => LastStatementFirstRowScalar,
+            "all_statements_all_rows" => AllStatementsAllRows,
+            "all_statements_first_row" => AllStatementsFirstRow,
+            "all_statements_first_row_scalar" => AllStatementsFirstRowScalar,
+            "legacy" => Legacy,
+            _ => LastStatementAllRows,
         }
     }
 }
