@@ -92,7 +92,9 @@ impl FlowId {
     async fn get_flow_version_id(self, workspace_id: &str, db: &DB) -> Result<i64> {
         let version_id = match self {
             FlowId::FlowPath(path) => {
-                let info = get_latest_flow_version_info_for_path(None, db, workspace_id, &path, true).await?;
+                let info =
+                    get_latest_flow_version_info_for_path(None, db, workspace_id, &path, true)
+                        .await?;
                 info.version
             }
             FlowId::FlowVersion(version) => version,
@@ -624,8 +626,7 @@ pub async fn trigger_runnable_and_wait_for_result(
     )
     .await?;
     let (result, success) =
-        run_wait_result_internal(db, uuid, workspace_id.to_string(), early_return, &username)
-            .await?;
+        run_wait_result_internal(db, uuid, &workspace_id, early_return, &username).await?;
 
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
@@ -666,7 +667,7 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     .await?;
 
     let (result, success) =
-        run_wait_result_internal(db, uuid, workspace_id.to_string(), early_return, &username)
+        run_wait_result_internal(db, uuid, &workspace_id, early_return, &username)
             .await
             .with_context(|| {
                 format!(

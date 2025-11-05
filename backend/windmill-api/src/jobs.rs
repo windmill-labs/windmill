@@ -95,9 +95,9 @@ use windmill_common::{
 };
 
 use windmill_common::{
-    get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
-    get_latest_flow_version_info_for_path_from_version, get_script_info_for_hash,
-    utils::empty_as_none, FlowVersionInfo, ScriptHashInfo, BASE_URL,
+    get_flow_version_info_from_version, get_latest_deployed_hash_for_path,
+    get_latest_flow_version_info_for_path, get_script_info_for_hash, utils::empty_as_none,
+    FlowVersionInfo, ScriptHashInfo, BASE_URL,
 };
 use windmill_queue::{
     cancel_job, get_result_and_success_by_id_from_flow, job_is_complete, push, PushArgs,
@@ -1706,6 +1706,22 @@ impl RunJobQuery {
         } else {
             Ok(None)
         }
+    }
+
+    fn payload_as_args(&self) -> error::Result<HashMap<String, Box<RawValue>>> {
+        let payload_r = self.payload.clone().map(decode_payload).map(|x| {
+            x.map_err(|e| {
+                error::Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
+            })
+        });
+
+        let payload_as_args = if let Some(payload) = payload_r {
+            payload?
+        } else {
+            HashMap::new()
+        };
+
+        Ok(payload_as_args)
     }
 }
 
@@ -3948,23 +3964,16 @@ pub async fn run_flow_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-pub async fn run_flow_by_path_inner(
-    authed: ApiAuthed,
-    db: DB,
+pub async fn run_flow(
+    authed: &ApiAuthed,
+    db: &DB,
     user_db: UserDB,
-    w_id: String,
-    flow_path: StripPath,
+    w_id: &str,
+    flow_path: &str,
+    flow_version_info: FlowVersionInfo,
     run_query: RunJobQuery,
     args: PushArgsOwned,
 ) -> error::Result<(Uuid, Option<String>)> {
-    #[cfg(feature = "enterprise")]
-    check_license_key_valid().await?;
-
-    let flow_path = flow_path.to_path();
-    check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
-
-    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
-
     let FlowVersionInfo {
         version,
         tag,
@@ -3975,8 +3984,7 @@ pub async fn run_flow_by_path_inner(
         edited_by,
         early_return,
         ..
-    } = get_latest_flow_version_info_for_path(Some(userdb_authed), &db, &w_id, &flow_path, true)
-        .await?;
+    } = flow_version_info;
 
     let tag = run_query.tag.clone().or(tag);
 
@@ -4056,7 +4064,67 @@ pub async fn run_flow_by_path_inner(
     }
 
     tx.commit().await?;
+
     Ok((uuid, early_return))
+}
+
+pub async fn run_flow_and_wait_result(
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: UserDB,
+    w_id: &str,
+    flow_path: &str,
+    flow_version_info: FlowVersionInfo,
+    run_query: RunJobQuery,
+    args: PushArgsOwned,
+) -> error::Result<Response> {
+    let (uuid, early_return) = run_flow(
+        authed,
+        db,
+        user_db,
+        w_id,
+        flow_path,
+        flow_version_info,
+        run_query,
+        args,
+    )
+    .await?;
+
+    run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
+}
+
+pub async fn run_flow_by_path_inner(
+    authed: ApiAuthed,
+    db: DB,
+    user_db: UserDB,
+    w_id: String,
+    flow_path: StripPath,
+    run_query: RunJobQuery,
+    args: PushArgsOwned,
+) -> error::Result<(Uuid, Option<String>)> {
+    #[cfg(feature = "enterprise")]
+    check_license_key_valid().await?;
+
+    let flow_path = flow_path.to_path();
+    check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
+
+    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+
+    let flow_version_info =
+        get_latest_flow_version_info_for_path(Some(userdb_authed), &db, &w_id, &flow_path, true)
+            .await?;
+
+    run_flow(
+        &authed,
+        &db,
+        user_db,
+        &w_id,
+        flow_path,
+        flow_version_info,
+        run_query,
+        args,
+    )
+    .await
 }
 
 pub async fn run_flow_by_version(
@@ -4095,9 +4163,16 @@ pub async fn run_flow_by_version_inner(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    // Get flow path from version for scope check
     let flow_path = sqlx::query_scalar!(
-        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
+        r#"
+        SELECT 
+            path 
+        FROM 
+            flow_version 
+        WHERE 
+            id = $1 AND 
+            workspace_id = $2
+        "#,
         version,
         &w_id
     )
@@ -4106,99 +4181,20 @@ pub async fn run_flow_by_version_inner(
 
     check_scopes(&authed, || format!("jobs:run:flows:{flow_path}"))?;
 
-    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
+    let flow_version_info =
+        get_flow_version_info_from_version(&db, version, &w_id, &flow_path).await?;
 
-    let FlowVersionInfo {
-        version: flow_version,
-        tag,
-        dedicated_worker,
-        has_preprocessor,
-        chat_input_enabled,
-        on_behalf_of_email,
-        edited_by,
-        early_return,
-        ..
-    } = get_latest_flow_version_info_for_path_from_version(&db, version, &w_id, &flow_path).await?;
-
-    let tag = run_query.tag.clone().or(tag);
-
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
-    let scheduled_for = run_query.get_scheduled_for(&db).await?;
-
-    let (email, permissioned_as, push_authed, tx) =
-        if let Some(on_behalf_of_email) = on_behalf_of_email.as_ref() {
-            (
-                on_behalf_of_email,
-                username_to_permissioned_as(&edited_by),
-                None,
-                PushIsolationLevel::IsolatedRoot(db.clone()),
-            )
-        } else {
-            (
-                &authed.email,
-                username_to_permissioned_as(&authed.username),
-                Some(authed.clone().into()),
-                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
-            )
-        };
-
-    let (uuid, mut tx) = push(
+    run_flow(
+        &authed,
         &db,
-        tx,
+        user_db,
         &w_id,
-        JobPayload::Flow {
-            path: flow_path.clone(),
-            dedicated_worker,
-            version: flow_version,
-            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
-                && has_preprocessor.unwrap_or(false),
-        },
-        PushArgs { args: &args.args, extra: args.extra },
-        authed.display_username(),
-        email,
-        permissioned_as,
-        authed.token_prefix.as_deref(),
-        scheduled_for,
-        None,
-        run_query.parent_job,
-        None,
-        run_query.root_job,
-        run_query.job_id,
-        false,
-        false,
-        None,
-        !run_query.invisible_to_owner.unwrap_or(false),
-        tag,
-        None,
-        None,
-        None,
-        push_authed.as_ref(),
-        false,
-        None,
-        None,
+        &flow_path,
+        flow_version_info,
+        run_query,
+        args,
     )
-    .await?;
-
-    // Set memory_id if provided (for agent memory)
-    if let Some(memory_id) = run_query.memory_id {
-        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
-    }
-
-    // Handle conversation messages for chat-enabled flows
-    if chat_input_enabled.unwrap_or(false) {
-        handle_chat_conversation_messages(
-            &mut tx,
-            &authed,
-            &w_id,
-            &flow_path,
-            &run_query,
-            args.args.get("user_message"),
-        )
-        .await?;
-    }
-
-    tx.commit().await?;
-    Ok((uuid, early_return))
+    .await
 }
 
 #[cfg(not(feature = "enterprise"))]
@@ -4670,7 +4666,7 @@ pub struct WindmillCompositeResult {
 pub async fn run_wait_result_internal(
     db: &DB,
     uuid: Uuid,
-    w_id: String,
+    w_id: &str,
     node_id_for_empty_return: Option<String>,
     username: &str,
 ) -> error::Result<(Box<RawValue>, bool)> {
@@ -4686,7 +4682,7 @@ pub async fn run_wait_result_internal(
     let mut g = Guard {
         done: false,
         id: uuid,
-        w_id: w_id.clone(),
+        w_id: w_id.to_string(),
         db: db.clone(),
         username: username.to_string(),
     };
@@ -4698,7 +4694,7 @@ pub async fn run_wait_result_internal(
         if let Some(node_id_for_empty_return) = node_id_for_empty_return.as_ref() {
             let result_and_success = get_result_and_success_by_id_from_flow(
                 &db,
-                &w_id,
+                w_id,
                 &uuid,
                 node_id_for_empty_return,
                 None,
@@ -4855,7 +4851,7 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
 pub async fn run_wait_result(
     db: &DB,
     uuid: Uuid,
-    w_id: String,
+    w_id: &str,
     node_id_for_empty_return: Option<String>,
     username: &str,
 ) -> error::Result<Response> {
@@ -5015,18 +5011,11 @@ pub async fn run_wait_result_job_by_path_get(
     if method == http::Method::HEAD {
         return Ok(Json(serde_json::json!("")).into_response());
     }
-    let payload_r = run_query.payload.map(decode_payload).map(|x| {
-        x.map_err(|e| Error::internal_err(format!("Impossible to decode query payload: {e:#?}")))
-    });
 
-    let payload_args = if let Some(payload) = payload_r {
-        payload?
-    } else {
-        HashMap::new()
-    };
+    let payload_as_args = run_query.payload_as_args()?;
 
     let mut args = args.process_args(&authed, &db, &w_id, None).await?;
-    args.body = args::Body::HashMap(payload_args);
+    args.body = args::Body::HashMap(payload_as_args);
 
     let args = args
         .to_args_from_runnable(
@@ -5102,7 +5091,7 @@ pub async fn run_wait_result_job_by_path_get(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
+    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
@@ -5127,20 +5116,10 @@ pub async fn run_wait_result_flow_by_path_get(
     if method == http::Method::HEAD {
         return Ok(Json(serde_json::json!("")).into_response());
     }
-    let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
-        x.map_err(|e| {
-            error::Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
-        })
-    });
-
-    let payload_args = if let Some(payload) = payload_r {
-        payload?
-    } else {
-        HashMap::new()
-    };
+    let payload_as_args = run_query.payload_as_args()?;
 
     let mut args = args.process_args(&authed, &db, &w_id, None).await?;
-    args.body = args::Body::HashMap(payload_args);
+    args.body = args::Body::HashMap(payload_as_args);
 
     let args = args
         .to_args_from_runnable(
@@ -5256,7 +5235,7 @@ pub async fn run_wait_result_script_by_path_internal(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
+    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
@@ -5378,7 +5357,7 @@ pub async fn run_wait_result_script_by_hash(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
+    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
     if delete_after_use.unwrap_or(false) {
         delete_job_metadata_after_use(&db, uuid).await?;
     }
@@ -5512,20 +5491,10 @@ pub async fn stream_job(
     is_get: bool,
 ) -> error::Result<Response> {
     let args = if is_get {
-        let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
-            x.map_err(|e| {
-                Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
-            })
-        });
-
-        let payload_args = if let Some(payload) = payload_r {
-            payload?
-        } else {
-            HashMap::new()
-        };
+        let payload_as_args = run_query.payload_as_args()?;
 
         let mut args = args.process_args(&authed, &db, &w_id, None).await?;
-        args.body = args::Body::HashMap(payload_args);
+        args.body = args::Body::HashMap(payload_as_args);
 
         let args = args
             .to_args_from_runnable(&db, &w_id, runnable_id.clone(), run_query.skip_preprocessor)
@@ -5652,100 +5621,23 @@ pub async fn run_wait_result_flow_by_path_internal(
 
     let flow_path = flow_path.to_path();
 
-    let scheduled_for = run_query.get_scheduled_for(&db).await?;
-
     let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
 
-    let FlowVersionInfo {
-        tag,
-        dedicated_worker,
-        early_return,
-        has_preprocessor,
-        chat_input_enabled,
-        on_behalf_of_email,
-        edited_by,
-        version,
-    } = get_latest_flow_version_info_for_path(Some(userdb_authed), &db, &w_id, &flow_path, true)
-        .await?;
+    let flow_version_info =
+        get_latest_flow_version_info_for_path(Some(userdb_authed), &db, &w_id, &flow_path, true)
+            .await?;
 
-    let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
-
-    let (email, permissioned_as, push_authed, tx) =
-        if let Some(on_behalf_of_email) = on_behalf_of_email.as_ref() {
-            (
-                on_behalf_of_email,
-                username_to_permissioned_as(&edited_by),
-                None,
-                PushIsolationLevel::IsolatedRoot(db.clone()),
-            )
-        } else {
-            (
-                &authed.email,
-                username_to_permissioned_as(&authed.username),
-                Some(authed.clone().into()),
-                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
-            )
-        };
-
-    let (uuid, mut tx) = push(
+    run_flow_and_wait_result(
+        &authed,
         &db,
-        tx,
+        user_db,
         &w_id,
-        JobPayload::Flow {
-            path: flow_path.to_string(),
-            dedicated_worker,
-            version,
-            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
-                && has_preprocessor.unwrap_or(false),
-        },
-        PushArgs { args: &args.args, extra: args.extra },
-        authed.display_username(),
-        email,
-        permissioned_as,
-        authed.token_prefix.as_deref(),
-        scheduled_for,
-        None,
-        run_query.parent_job,
-        None,
-        run_query.root_job,
-        run_query.job_id,
-        false,
-        false,
-        None,
-        !run_query.invisible_to_owner.unwrap_or(false),
-        tag,
-        None,
-        None,
-        None,
-        push_authed.as_ref(),
-        false,
-        None,
-        None,
+        flow_path,
+        flow_version_info,
+        run_query,
+        args,
     )
-    .await?;
-
-    // Set conversation_id if provided (for agent memory)
-    if let Some(memory_id) = run_query.memory_id {
-        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
-    }
-
-    // Handle conversation messages for chat-enabled flows
-    if chat_input_enabled.unwrap_or(false) {
-        handle_chat_conversation_messages(
-            &mut tx,
-            &authed,
-            &w_id,
-            &flow_path.to_string(),
-            &run_query,
-            args.args.get("user_message"),
-        )
-        .await?;
-    }
-
-    tx.commit().await?;
-
-    run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
+    .await
 }
 
 pub async fn run_wait_result_flow_by_version_get(
@@ -5760,7 +5652,6 @@ pub async fn run_wait_result_flow_by_version_get(
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
-    // Get flow path from version for scope check
     let flow_path = sqlx::query_scalar!(
         "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
         version,
@@ -5774,20 +5665,11 @@ pub async fn run_wait_result_flow_by_version_get(
     if method == http::Method::HEAD {
         return Ok(Json(serde_json::json!("")).into_response());
     }
-    let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
-        x.map_err(|e| {
-            error::Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
-        })
-    });
 
-    let payload_args = if let Some(payload) = payload_r {
-        payload?
-    } else {
-        HashMap::new()
-    };
+    let payload_as_args = run_query.payload_as_args()?;
 
     let mut args = args.process_args(&authed, &db, &w_id, None).await?;
-    args.body = args::Body::HashMap(payload_args);
+    args.body = args::Body::HashMap(payload_as_args);
 
     let args = args
         .to_args_from_runnable(
@@ -5798,8 +5680,20 @@ pub async fn run_wait_result_flow_by_version_get(
         )
         .await?;
 
-    run_wait_result_flow_by_version_internal(db, run_query, version, authed, user_db, args, w_id)
-        .await
+    let flow_version_info =
+        get_flow_version_info_from_version(&db, version, &w_id, &flow_path).await?;
+
+    run_flow_and_wait_result(
+        &authed,
+        &db,
+        user_db,
+        &w_id,
+        &flow_path,
+        flow_version_info,
+        run_query,
+        args,
+    )
+    .await
 }
 
 pub async fn run_wait_result_flow_by_version(
@@ -5814,7 +5708,15 @@ pub async fn run_wait_result_flow_by_version(
     check_license_key_valid().await?;
 
     let flow_path = sqlx::query_scalar!(
-        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
+        r#"
+            SELECT 
+                path 
+            FROM 
+                flow_version 
+            WHERE 
+                id = $1 AND 
+                workspace_id = $2
+        "#,
         version,
         &w_id
     )
@@ -5833,121 +5735,20 @@ pub async fn run_wait_result_flow_by_version(
         )
         .await?;
 
-    run_wait_result_flow_by_version_internal(db, run_query, version, authed, user_db, args, w_id)
-        .await
-}
+    let flow_version_info =
+        get_flow_version_info_from_version(&db, version, &w_id, &flow_path).await?;
 
-pub async fn run_wait_result_flow_by_version_internal(
-    db: sqlx::Pool<Postgres>,
-    run_query: RunJobQuery,
-    version: i64,
-    authed: ApiAuthed,
-    user_db: UserDB,
-    args: PushArgsOwned,
-    w_id: String,
-) -> error::Result<Response> {
-    check_queue_too_long(&db, run_query.queue_limit).await?;
-
-    // Get flow path from version
-    let flow_path = sqlx::query_scalar!(
-        "SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2",
-        version,
-        &w_id
-    )
-    .fetch_one(&db)
-    .await?;
-
-    let scheduled_for = run_query.get_scheduled_for(&db).await?;
-
-    let userdb_authed = UserDbWithAuthed { db: user_db.clone(), authed: &authed.to_authed_ref() };
-
-    let FlowVersionInfo {
-        tag,
-        dedicated_worker,
-        early_return,
-        has_preprocessor,
-        chat_input_enabled,
-        on_behalf_of_email,
-        edited_by,
-        version: flow_version,
-    } = get_latest_flow_version_info_for_path_from_version(&db, version, &w_id, &flow_path).await?;
-
-    let tag = run_query.tag.clone().or(tag);
-    check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
-
-    let (email, permissioned_as, push_authed, tx) =
-        if let Some(on_behalf_of_email) = on_behalf_of_email.as_ref() {
-            (
-                on_behalf_of_email,
-                username_to_permissioned_as(&edited_by),
-                None,
-                PushIsolationLevel::IsolatedRoot(db.clone()),
-            )
-        } else {
-            (
-                &authed.email,
-                username_to_permissioned_as(&authed.username),
-                Some(authed.clone().into()),
-                PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
-            )
-        };
-
-    let (uuid, mut tx) = push(
+    run_flow_and_wait_result(
+        &authed,
         &db,
-        tx,
+        user_db,
         &w_id,
-        JobPayload::Flow {
-            path: flow_path.clone(),
-            dedicated_worker,
-            version: flow_version,
-            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
-                && has_preprocessor.unwrap_or(false),
-        },
-        PushArgs { args: &args.args, extra: args.extra },
-        authed.display_username(),
-        email,
-        permissioned_as,
-        authed.token_prefix.as_deref(),
-        scheduled_for,
-        None,
-        run_query.parent_job,
-        None,
-        run_query.root_job,
-        run_query.job_id,
-        false,
-        false,
-        None,
-        !run_query.invisible_to_owner.unwrap_or(false),
-        tag,
-        None,
-        None,
-        None,
-        push_authed.as_ref(),
-        false,
-        None,
-        None,
+        &flow_path,
+        flow_version_info,
+        run_query,
+        args,
     )
-    .await?;
-
-    if let Some(memory_id) = run_query.memory_id {
-        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
-    }
-
-    if chat_input_enabled.unwrap_or(false) {
-        handle_chat_conversation_messages(
-            &mut tx,
-            &authed,
-            &w_id,
-            &flow_path,
-            &run_query,
-            args.args.get("user_message"),
-        )
-        .await?;
-    }
-
-    tx.commit().await?;
-
-    run_wait_result(&db, uuid, w_id, early_return, &authed.username).await
+    .await
 }
 
 async fn run_preview_script(
@@ -6045,7 +5846,7 @@ async fn run_wait_result_preview_script(
     let uuid = uuid
         .parse::<Uuid>()
         .map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
-    let result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
+    let result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
     return result;
 }
 
@@ -6281,7 +6082,7 @@ async fn run_dependencies_job(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
+    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
     wait_result
 }
 
@@ -6350,7 +6151,7 @@ async fn run_flow_dependencies_job(
     .await?;
     tx.commit().await?;
 
-    let wait_result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
+    let wait_result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
     wait_result
 }
 
@@ -6718,7 +6519,7 @@ async fn run_wait_result_preview_flow(
     let uuid = uuid
         .parse::<Uuid>()
         .map_err(|_| Error::BadRequest("Invalid UUID".to_string()))?;
-    let result = run_wait_result(&db, uuid, w_id, None, &authed.username).await;
+    let result = run_wait_result(&db, uuid, &w_id, None, &authed.username).await;
     return result;
 }
 

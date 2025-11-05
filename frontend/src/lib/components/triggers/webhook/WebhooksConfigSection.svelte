@@ -26,7 +26,7 @@
 	interface Props {
 		isFlow?: boolean
 		path?: string
-		hash?: string | undefined
+		runnableVersion?: string | undefined
 		token?: string
 		runnableArgs: any
 		triggerTokens?: TriggerTokens | undefined
@@ -36,47 +36,38 @@
 	let {
 		isFlow = false,
 		path = '',
-		hash = undefined,
+		runnableVersion = undefined,
 		token = $bindable(''),
 		runnableArgs,
 		triggerTokens = $bindable(undefined),
 		scopes = []
 	}: Props = $props()
 
-	let webhooks: {
-		async: {
-			get: {}
-			post: {
-				hash?: string
-				path: string
-			}
+	const WEBHOOK_BASE_URL = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
+
+	let baseWebhookUrl = $derived.by(() => {
+		let webhookUrlPath: string
+
+		if (isFlow) {
+			webhookUrlPath = runnableId == 'path' ? `f/${path}` : `fv/${runnableVersion}`
+		} else {
+			webhookUrlPath = runnableId == 'path' ? `p/${path}` : `h/${runnableVersion}`
 		}
-		sync: {
-			get: {
-				path: string
-				hash?: string
-			}
-			post: {
-				hash?: string
-				path: string
-			}
+
+		if (requestType == 'async') {
+			return `${WEBHOOK_BASE_URL}/run/${webhookUrlPath}`
+		} else if (requestType == 'sync') {
+			return `${WEBHOOK_BASE_URL}/run_wait_result/${webhookUrlPath}`
+		} else {
+			return `${WEBHOOK_BASE_URL}/run_and_stream/${webhookUrlPath}`
 		}
-		sync_sse: {
-			get: {
-				hash?: string
-				path: string
-			}
-			post: {
-				hash?: string
-				path: string
-			}
-		}
-	} = $derived(isFlow ? computeFlowWebhooks(path, hash) : computeScriptWebhooks(hash, path))
+	})
+
 	let selectedTab: string = $state('rest')
 	let userSettings: UserSettings | undefined = $state()
 	let requestType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync' | 'sync_sse'
 	let callMethod = $state('post') as 'get' | 'post'
-	let runnableId = $state('path') as 'hash' | 'path'
+	let runnableId = $state('path') as 'runnableVersion' | 'path'
 	let tokenType = $state('headers') as 'query' | 'headers'
 
 	$effect(() => {
@@ -92,7 +83,7 @@
 			: runnableArgs
 	})
 	let url: string = $derived(
-		webhooks[requestType][callMethod][runnableId] +
+		baseWebhookUrl +
 			(tokenType === 'query'
 				? `?token=${token}${
 						callMethod === 'get' || requestType === 'sync_sse'
@@ -105,80 +96,6 @@
 							: ''
 					}`)
 	)
-
-	function computeScriptWebhooks(hash: string | undefined, path: string) {
-		let webhookBase = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
-		return {
-			async: {
-				get: {},
-				post: {
-					hash: `${webhookBase}/run/h/${hash}`,
-					path: `${webhookBase}/run/p/${path}`
-				}
-			},
-			sync: {
-				get: {
-					path: `${webhookBase}/run_wait_result/p/${path}`
-				},
-				post: {
-					hash: `${webhookBase}/run_wait_result/h/${hash}`,
-					path: `${webhookBase}/run_wait_result/p/${path}`
-				}
-			},
-			sync_sse: {
-				get: {
-					path: `${webhookBase}/run_and_stream/p/${path}`,
-					hash: `${webhookBase}/run_and_stream/h/${hash}`
-				},
-				post: {
-					hash: `${webhookBase}/run_and_stream/h/${hash}`,
-					path: `${webhookBase}/run_and_stream/p/${path}`
-				}
-			}
-		}
-	}
-
-	function computeFlowWebhooks(path: string, hash: string | undefined) {
-		let webhooksBase = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
-
-		let urlAsync = `${webhooksBase}/run/f/${path}`
-		let urlSync = `${webhooksBase}/run_wait_result/f/${path}`
-		let urlStream = `${webhooksBase}/run_and_stream/f/${path}`
-
-		let urlAsyncHash = hash ? `${webhooksBase}/run/fv/${hash}` : undefined
-		let urlSyncHash = hash ? `${webhooksBase}/run_wait_result/fv/${hash}` : undefined
-		let urlStreamHash = hash ? `${webhooksBase}/run_and_stream/fv/${hash}` : undefined
-
-		return {
-			async: {
-				get: {},
-				post: {
-					path: urlAsync,
-					...(urlAsyncHash && { hash: urlAsyncHash })
-				}
-			},
-			sync: {
-				get: {
-					path: urlSync,
-					...(urlSyncHash && { hash: urlSyncHash })
-				},
-				post: {
-					path: urlSync,
-					...(urlSyncHash && { hash: urlSyncHash })
-				}
-			},
-			sync_sse: {
-				get: {
-					path: urlStream,
-					...(urlStreamHash && { hash: urlStreamHash })
-				},
-				post: {
-					path: urlStream,
-					...(urlStreamHash && { hash: urlStreamHash })
-				}
-			}
-		}
-	}
 
 	function headers() {
 		const headers = {}
@@ -449,9 +366,9 @@ done`
 				{#snippet children({ item })}
 					<ToggleButton label="Path" value="path" {item} />
 					<ToggleButton
-						label={isFlow ? 'Version' : 'Hash'}
-						value="hash"
-						disabled={!hash}
+						label={isFlow ? 'Flow version' : 'Hash'}
+						value="runnableVersion"
+						disabled={!runnableVersion}
 						{item}
 					/>
 				{/snippet}

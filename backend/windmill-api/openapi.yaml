@@ -18859,6 +18859,10 @@ components:
           properties:
             lock_error_logs:
               type: string
+            version_id:
+              type: number
+          required:
+            - version_id
 
     ExtraPerms:
       type: object
