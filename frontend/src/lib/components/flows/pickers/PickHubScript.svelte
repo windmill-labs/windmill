@@ -78,13 +78,13 @@
 				filter.length > 0
 					? await ScriptService.queryHubScripts({
 							text: `${filter}`,
-							limit: 40,
+							limit: 20,
 							kind: filterKind,
 							app: appFilter
 						})
 					: ((
 							await ScriptService.getTopHubScripts({
-								limit: 40,
+								limit: 20,
 								app: appFilter,
 								kind: filterKind
 							})
@@ -112,6 +112,20 @@
 			console.error('Hub not available')
 			loading = false
 		}
+	}
+
+	async function handlePick(item: (typeof items)[number]) {
+		if (item.path.startsWith('hub/')) {
+			try {
+				await ScriptService.pickHubScriptByPath({ path: item.path })
+			} catch (error) {
+				console.error('Failed to track hub script pick:', error)
+				// Don't block the flow if tracking fails
+			}
+		}
+
+		// Dispatch the event to continue with the selection
+		dispatch('pick', item)
 	}
 
 	$effect(() => {
@@ -153,7 +167,7 @@
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-4 flex flex-row grow hover:bg-surface-hover transition-all items-center"
-						onclick={() => dispatch('pick', item)}
+						onclick={() => handlePick(item)}
 					>
 						<div class="flex items-center gap-4">
 							<div class="flex justify-center items-center">
@@ -180,7 +194,7 @@
 			{/each}
 		</ul>
 	{/if}
-	{#if items.length == 40}
+	{#if items.length == 20}
 		<div class="text-primary text-xs font-normal py-4">
 			There are more items than being displayed. Refine your search.
 		</div>

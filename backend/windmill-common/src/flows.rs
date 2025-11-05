@@ -817,6 +817,11 @@ pub struct McpToolValue {
     pub exclude_tools: Vec<String>,
 }
 
+fn is_none_or_empty_vec<T>(expr: &Option<Vec<T>>) -> bool
+{
+    expr.is_none() || expr.as_ref().unwrap().is_empty()
+}
+
 #[derive(Serialize, Debug, Clone)]
 #[serde(
     tag = "type",
@@ -908,7 +913,7 @@ pub enum FlowModuleValue {
         concurrency_time_window_s: Option<i32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "is_none_or_empty_vec")]
         assets: Option<Vec<AssetWithAltAccessType>>,
     },
 
@@ -934,7 +939,7 @@ pub enum FlowModuleValue {
         concurrency_time_window_s: Option<i32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         is_trigger: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(skip_serializing_if = "is_none_or_empty_vec")]
         assets: Option<Vec<AssetWithAltAccessType>>,
     },
 
