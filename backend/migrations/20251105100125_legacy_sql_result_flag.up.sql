@@ -76,7 +76,6 @@ $$;
 
 
 UPDATE app_version SET value = update_all_modules(value::jsonb)::json;
-UPDATE app_version_lite SET value = update_all_modules(value);
 UPDATE draft SET value = update_all_modules(value::jsonb)::json;
 UPDATE flow SET value = update_all_modules(value);
 UPDATE flow_version SET value = update_all_modules(value);
