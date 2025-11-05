@@ -83,9 +83,9 @@
 			| 'failure'
 			| undefined
 	)
-	let isSkipped: boolean | undefined = $state(
-		page.url.searchParams.get('is_skipped') != undefined
-			? page.url.searchParams.get('is_skipped') == 'true'
+	let showSkipped: boolean | undefined = $state(
+		page.url.searchParams.get('show_skipped') != undefined
+			? page.url.searchParams.get('show_skipped') == 'true'
 			: false
 	)
 
@@ -139,9 +139,9 @@
 			| 'success'
 			| 'failure'
 			| undefined
-		isSkipped =
-			page.url.searchParams.get('is_skipped') != undefined
-				? page.url.searchParams.get('is_skipped') == 'true'
+		showSkipped =
+			page.url.searchParams.get('show_skipped') != undefined
+				? page.url.searchParams.get('show_skipped') == 'true'
 				: false
 
 		showSchedules =
@@ -250,10 +250,10 @@
 			searchParams.delete('success')
 		}
 
-		if (isSkipped) {
-			searchParams.set('is_skipped', isSkipped.toString())
+		if (showSkipped) {
+			searchParams.set('show_skipped', showSkipped.toString())
 		} else {
-			searchParams.delete('is_skipped')
+			searchParams.delete('show_skipped')
 		}
 
 		if (showSchedules) {
@@ -539,7 +539,7 @@
 					: success == 'waiting'
 						? false
 						: undefined,
-			isSkipped: isSkipped ? undefined : false,
+			isSkipped: showSkipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
 				path != undefined || path != undefined || jobKindsCat != 'all' ? true : undefined,
@@ -747,7 +747,7 @@
 			folder,
 			path,
 			success !== undefined,
-			isSkipped,
+			showSkipped,
 			showSchedules,
 			showFutureJobs,
 			argFilter,
@@ -835,7 +835,7 @@
 	{worker}
 	{label}
 	{success}
-	{isSkipped}
+	{showSkipped}
 	{argFilter}
 	{resultFilter}
 	{showSchedules}
@@ -1043,7 +1043,7 @@
 				<div class="flex flex-row gap-2">
 					<RunsFilter
 						bind:allowWildcards
-						bind:isSkipped
+						bind:showSkipped
 						bind:user
 						bind:folder
 						bind:label
