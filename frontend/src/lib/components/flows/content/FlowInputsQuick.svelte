@@ -8,13 +8,19 @@
 	import { sendUserToast } from '$lib/toast'
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
-	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import {
+		defaultScripts,
+		enterpriseLicense,
+		hubBaseUrlStore,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
 	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import { type Script, type ScriptLang, type HubScriptKind } from '$lib/gen'
 	import ListFiltersQuick from '$lib/components/home/ListFiltersQuick.svelte'
-	import { Folder, User, X } from 'lucide-svelte'
+	import { ExternalLink, Folder, User, X } from 'lucide-svelte'
 	import type { FlowEditorContext } from '../../flows/types'
 	import { fade } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
@@ -296,6 +302,16 @@
 						bind:selectedFilter={selected}
 						resourceType
 					/>
+					{#if !selected}
+						<div class="pl-2 py-1">
+							<a
+								href={`${$hubBaseUrlStore}?suggest_integration=true`}
+								target="_blank"
+								class="text-2xs flex flex-row items-center gap-1"
+								>Suggest integration <ExternalLink class="size-3" />
+							</a>
+						</div>
+					{/if}
 				{/if}
 			{:else if selectedKind === 'flow'}
 				{#if owners.length > 0}
