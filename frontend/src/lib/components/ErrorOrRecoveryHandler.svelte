@@ -131,7 +131,7 @@
 						workspace: $workspaceStore!,
 						id: connectionTestJob!.uuid,
 						requestBody: {
-							reason: 'Slack message not sent after 5s'
+							reason: 'Slack message not sent after 10s'
 						}
 					})
 				} catch (err) {
@@ -139,7 +139,7 @@
 				}
 			},
 			interval: 500,
-			timeout: 5000
+			timeout: 10000
 		})
 	}
 
@@ -437,7 +437,7 @@
 		{:else}
 			<Button
 				disabled={emptyString(handlerExtraArgs['channel'])}
-				btnClasses="w-32 text-center"
+				btnClasses="w-32 text-center whitespace-nowrap"
 				variant="default"
 				on:click={() => sendSlackMessage(handlerExtraArgs['channel'])}
 				unifiedSize="md">Send test message</Button
@@ -545,7 +545,7 @@
 		{:else}
 			<Button
 				disabled={emptyString(handlerExtraArgs['channel'])}
-				btnClasses="w-32 text-center mt-2"
+				btnClasses="w-32 text-center mt-2 whitespace-nowrap"
 				variant="default"
 				on:click={() => sendTeamsMessage(handlerExtraArgs['channel'] ?? '')}
 				size="xs">Send test message</Button

@@ -337,6 +337,27 @@ class Windmill:
 
             time.sleep(0.5)
 
+    def cancel_job(self, job_id: str, reason: str = None) -> str:
+        """Cancel a specific job by ID.
+
+        Args:
+            job_id: UUID of the job to cancel
+            reason: Optional reason for cancellation
+
+        Returns:
+            Response message from the cancel endpoint
+        """
+        logger.info(f"cancelling job: {job_id}")
+
+        payload = {"reason": reason or "cancelled via cancel_job method"}
+
+        response = self.post(
+            f"/w/{self.workspace}/jobs_u/queue/cancel/{job_id}",
+            json=payload,
+        )
+
+        return response.text
+
     def cancel_running(self) -> dict:
         """Cancel currently running executions of the same script."""
         logger.info("canceling running executions of this script")
@@ -513,6 +534,35 @@ class Windmill:
                 json={"value": value},
             )
 
+    def list_resources(
+        self,
+        resource_type: str = None,
+        page: int = None,
+        per_page: int = None,
+    ) -> list[dict]:
+        """List resources from Windmill workspace.
+        
+        Args:
+            resource_type: Optional resource type to filter by (e.g., "postgresql", "mysql", "s3")
+            page: Optional page number for pagination
+            per_page: Optional number of results per page
+            
+        Returns:
+            List of resource dictionaries
+        """
+        params = {}
+        if resource_type is not None:
+            params["resource_type"] = resource_type
+        if page is not None:
+            params["page"] = page
+        if per_page is not None:
+            params["per_page"] = per_page
+            
+        return self.get(
+            f"/w/{self.workspace}/resources/list",
+            params=params if params else None,
+        ).json()
+    
     def set_state(self, value: Any):
         self.set_resource(value, path=self.state_path, resource_type="state")
 
@@ -1243,6 +1293,36 @@ def set_resource(path: str, value: Any, resource_type: str = "any") -> None:
 
 
 @init_global_client
+def list_resources(
+    resource_type: str = None,
+    page: int = None,
+    per_page: int = None,
+) -> list[dict]:
+    """List resources from Windmill workspace.
+    
+    Args:
+        resource_type: Optional resource type to filter by (e.g., "postgresql", "mysql", "s3")
+        page: Optional page number for pagination
+        per_page: Optional number of results per page
+        
+    Returns:
+        List of resource dictionaries
+        
+    Example:
+        >>> # Get all resources
+        >>> all_resources = wmill.list_resources()
+        
+        >>> # Get only PostgreSQL resources
+        >>> pg_resources = wmill.list_resources(resource_type="postgresql")
+    """
+    return _client.list_resources(
+        resource_type=resource_type,
+        page=page,
+        per_page=per_page,
+    )
+
+
+@init_global_client
 def set_state(value: Any) -> None:
     """
     Set the state
@@ -1361,6 +1441,20 @@ def send_teams_message(
     conversation_id: str, text: str, success: bool, card_block: dict = None
 ):
     return _client.send_teams_message(conversation_id, text, success, card_block)
+
+
+@init_global_client
+def cancel_job(job_id: str, reason: str = None) -> str:
+    """Cancel a specific job by ID.
+
+    Args:
+        job_id: UUID of the job to cancel
+        reason: Optional reason for cancellation
+
+    Returns:
+        Response message from the cancel endpoint
+    """
+    return _client.cancel_job(job_id, reason)
 
 
 @init_global_client

@@ -160,6 +160,7 @@
 					class="flex-1 h-full"
 					bind:isOpen={inputOpen}
 					bind:this={inputPopover}
+					portal="#flow-graph-v2"
 				>
 					{#snippet trigger({ isOpen })}
 						<Button
@@ -206,6 +207,7 @@
 				closeOnOtherPopoverOpen
 				class="flex-1 h-full"
 				bind:isOpen={outputOpen}
+				portal="#flow-graph-v2"
 			>
 				{#snippet trigger({ isOpen })}
 					<AnimatedButton

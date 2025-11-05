@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.567.2
+  version: 1.573.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -91,6 +91,7 @@ components:
               type: integer
             seconds:
               type: integer
+              minimum: 1
             random_factor:
               type: integer
               minimum: 0

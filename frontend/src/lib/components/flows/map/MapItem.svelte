@@ -12,15 +12,18 @@
 		isTriggerStep,
 		type onSelectedIteration
 	} from '$lib/components/graph/graphBuilder.svelte'
-	import { checkIfParentLoop } from '$lib/components/flows/utils'
+	import { checkIfParentLoop } from '$lib/components/flows/utils.svelte'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowNodeState } from '$lib/components/graph'
+	import type { AIModuleAction } from '$lib/components/copilot/chat/flow/core'
 
 	interface Props {
 		moduleId: string
 		mod: FlowModule
 		insertable: boolean
+		moduleAction: AIModuleAction | undefined
+		onShowModuleDiff?: (moduleId: string) => void
 		annotation?: string | undefined
 		nodeState?: FlowNodeState
 		moving?: string | undefined
@@ -45,6 +48,7 @@
 		onEditInput?: (moduleId: string, key: string) => void
 		flowJob?: Job | undefined
 		isOwner?: boolean
+		maximizeSubflow?: () => void
 	}
 
 	let {
@@ -52,6 +56,8 @@
 		moduleId,
 		mod = $bindable(),
 		insertable,
+		moduleAction = undefined,
+		onShowModuleDiff = undefined,
 		annotation = undefined,
 		nodeState,
 		moving = undefined,
@@ -64,7 +70,8 @@
 		onUpdateMock,
 		onEditInput,
 		flowJob,
-		isOwner = false
+		isOwner = false,
+		maximizeSubflow
 	}: Props = $props()
 
 	const { selectedId } = getContext<{
@@ -111,7 +118,7 @@
 			<div
 				class={twMerge(
 					'absolute z-10 right-0 -top-4 center-center text-primary text-2xs',
-					editMode ? 'text-gray-400 dark:text-gray-500 text-2xs font-normal mr-2 right-10' : ''
+					editMode ? 'text-gray-400 dark:text-gray-500 text-2xs font-normal mr-2 right-16' : ''
 				)}
 			>
 				{msToSec(duration_ms)}s
@@ -146,6 +153,8 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
+					{onShowModuleDiff}
 					label={`${
 						mod.summary || (mod.value.type == 'forloopflow' ? 'For loop' : 'While loop')
 					}  ${mod.value.parallel ? '(parallel)' : ''} ${
@@ -179,6 +188,8 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
+					{onShowModuleDiff}
 					on:changeId
 					on:delete
 					on:move
@@ -197,6 +208,8 @@
 				<FlowModuleSchemaItem
 					deletable={insertable}
 					{editMode}
+					{moduleAction}
+					{onShowModuleDiff}
 					on:changeId
 					on:delete
 					on:move
@@ -215,6 +228,8 @@
 				<FlowModuleSchemaItem
 					{retries}
 					{editMode}
+					{moduleAction}
+					{onShowModuleDiff}
 					on:changeId
 					on:pointerdown={() => onSelect(mod.id)}
 					on:delete
@@ -251,6 +266,7 @@
 					{flowJob}
 					{isOwner}
 					enableTestRun
+					{maximizeSubflow}
 				>
 					{#snippet icon()}
 						{@const size =

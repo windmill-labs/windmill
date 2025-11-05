@@ -31,7 +31,7 @@
 	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
-<div class="flex flex-row gap-2 h-8 p-1 rounded-md bg-surface">
+<div class="flex flex-row gap-2 p-1 rounded-md bg-surface">
 	{#if !disableSettings}
 		<Button
 			unifiedSize="sm"
@@ -62,12 +62,11 @@
 				startIcon={{ icon: DollarSign }}
 				selected={$selectedId === 'constants'}
 				variant="default"
-				title="Static Inputs"
 				iconOnly
 				onClick={() => ($selectedId = 'constants')}
 			/>
 			{#snippet text()}
-				Static Inputs
+				Static inputs
 			{/snippet}
 		</Popover>
 	{/if}

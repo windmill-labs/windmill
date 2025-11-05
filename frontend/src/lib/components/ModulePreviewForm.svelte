@@ -7,7 +7,7 @@
 	import { Button } from './common'
 	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-	import { evalValue } from './flows/utils'
+	import { evalValue } from './flows/utils.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import type { PickableProperties } from './flows/previousResults'
 	import type SimpleEditor from './SimpleEditor.svelte'

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge, Button, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
@@ -36,6 +36,7 @@
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	let {
 		useDrawer = true,
@@ -645,7 +646,7 @@
 		>
 			{#snippet extra()}
 				{#if !drawerLoading && edit}
-					<div class="mr-8 flex flex-row gap-3">
+					<div class="mr-12 flex flex-row gap-3">
 						<Button
 							size="sm"
 							variant="default"
@@ -724,7 +725,10 @@
 							<div class="flex justify-start w-full">
 								<Badge
 									color="gray"
-									class="center-center !bg-surface-secondary !text-secondary rounded-r-none border"
+									class={twMerge(
+										'center-center !bg-surface-secondary !text-secondary rounded-r-none border',
+										ButtonType.UnifiedMinHeightClasses['md']
+									)}
 								>
 									Schedule path (not editable)
 								</Badge>
@@ -733,7 +737,10 @@
 									readonly
 									value={path}
 									size={path?.length || 50}
-									class="font-mono !text-2xs grow shrink overflow-x-auto !py-0 !border-l-0 !rounded-l-none"
+									class={twMerge(
+										'font-mono !text-2xs grow shrink overflow-x-auto !py-0 !border-l-0 !rounded-l-none',
+										ButtonType.UnifiedMinHeightClasses['md']
+									)}
 									onfocus={({ currentTarget }) => {
 										currentTarget.select()
 									}}

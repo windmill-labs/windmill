@@ -43,7 +43,7 @@
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
-	import { cleanInputs } from './flows/utils'
+	import { cleanFlow } from './flows/utils.svelte'
 	import {
 		Calendar,
 		Pen,
@@ -80,6 +80,7 @@
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { GraphModuleState } from './graph'
+	import { validateRetryConfig } from '$lib/utils'
 	import {
 		setStepHistoryLoaderContext,
 		StepHistoryLoader,
@@ -266,7 +267,7 @@
 		}
 		loadingDraft = true
 		try {
-			const flow = cleanInputs(flowStore.val)
+			const flow = cleanFlow(flowStore.val)
 			try {
 				localStorage.removeItem('flow')
 				localStorage.removeItem(`flow-${$pathStore}`)
@@ -427,7 +428,29 @@
 
 		loadingSave = true
 		try {
-			const flow = cleanInputs(flowStore.val)
+			const flow = cleanFlow(flowStore.val)
+
+			if (flow.value?.modules) {
+				const validationErrors: string[] = []
+				dfsApply(flow.value.modules, (module) => {
+					const error = validateRetryConfig(module.retry)
+					if (error) {
+						validationErrors.push(`Step '${module.id}': ${error}`)
+					}
+				})
+
+				if (flow.value.failure_module) {
+					// add validation logic here for failure module
+				}
+
+				if (flow.value.preprocessor_module) {
+					// add validation logic here for preprocessor module
+				}
+
+				if (validationErrors.length > 0) {
+					throw new Error(validationErrors.join('\n'))
+				}
+			}
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
@@ -1011,7 +1034,7 @@
 					/>
 				</div>
 
-				<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
+				<div class="gap-4 flex-row hidden md:flex w-full whitespace-nowrap max-w-md">
 					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
 						{@const primaryScheduleIndex = triggersState.triggers.findIndex((t) => t.isPrimary)}
 						{@const scheduleIndex = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
@@ -1035,7 +1058,7 @@
 					{/if}
 
 					{#if customUi?.topBar?.path != false}
-						<div class="flex justify-start w-full">
+						<div class="flex justify-start items-center w-full">
 							<button
 								onclick={async () => {
 									select('settings-metadata')

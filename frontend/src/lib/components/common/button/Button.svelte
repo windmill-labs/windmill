@@ -25,20 +25,41 @@
 		id?: string
 		aiId?: string | undefined
 		aiDescription?: string | undefined
+		/**
+		 * @deprecated Use `unifiedSize` instead
+		 */
 		size?: ButtonType.Size
+		/**
+		 * @deprecated Use `unifiedSize` instead
+		 */
 		spacingSize?: ButtonType.Size
+		/**
+		 * Unified sizing: sm (28px), md (32px), lg (40px)
+		 */
 		unifiedSize?: ButtonType.UnifiedSize
 		/**
-		 * @description Extended size for App only, do not use
+		 * @description Extended size for App editor only
 		 */
 		extendedSize?: ButtonType.ExtendedSize
 		/**
 		 * @deprecated Use `variant` instead
 		 */
 		color?: ButtonType.Color | string
+		/**
+		 * Button style: accent, accent-secondary, default, subtle
+		 */
 		variant?: ButtonType.Variant
+		/**
+		 * Additional classes. Do NOT use for colors/fonts - use for layout only
+		 */
 		btnClasses?: string
+		/**
+		 * Wrapper classes. Do NOT use for colors/fonts - use for positioning only
+		 */
 		wrapperClasses?: string
+		/**
+		 * Wrapper styles. Avoid unless absolutely necessary
+		 */
 		wrapperStyle?: string
 		disabled?: boolean
 		selected?: boolean
@@ -307,6 +328,7 @@
 <div
 	class={twMerge(
 		dropdownItems && dropdownItems.length > 0 ? dividerClass : '',
+		'shrink-0',
 		wrapperClasses,
 		'flex flex-row rounded-md',
 		disabled ? 'divide-text-disabled cursor-not-allowed' : ''

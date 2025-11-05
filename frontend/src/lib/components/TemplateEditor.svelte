@@ -22,11 +22,12 @@
 
 	// import '@codingame/monaco-vscode-standalone-typescript-language-features'
 
-	import { initializeVscode } from './vscode'
+	import { initializeVscode, MONACO_Y_PADDING } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { setMonacoJsonOptions } from './monacoLanguagesOptions'
 	import { inputBorderClass } from './text_input/TextInput.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export const conf = {
 		wordPattern:
@@ -381,8 +382,9 @@
 	export let autoHeight = true
 	export let fixedOverflowWidgets = true
 	export let fontSize = 12
-	export let yPadding: number | undefined = undefined
 	export let loadAsync = false
+
+	let yPadding = MONACO_Y_PADDING
 
 	if (typeof code != 'string') {
 		code = ''
@@ -448,7 +450,7 @@
 				model,
 				// overflowWidgetsDomNode: widgets,
 				// lineNumbers: 'on',
-				lineDecorationsWidth: 6,
+				lineDecorationsWidth: 0,
 				lineNumbersMinChars: 2,
 				fontSize,
 				suggestOnTriggerCharacters: true,
@@ -656,24 +658,23 @@
 
 <EditorTheme />
 
-{#if !editor}
-	<FakeMonacoPlaceHolder
-		autoheight
-		showNumbers={false}
-		{code}
-		lineNumbersWidth={14}
-		lineNumbersOffset={-20}
-		{fontSize}
-		class="template nonmain-editor bg-surface-input rounded-md !py-[8px] overflow-clip"
-	/>
-{/if}
 <div
-	bind:this={divEl}
-	style="height: 18px; padding-left: 6px;"
-	class="{inputBorderClass({ forceFocus: isFocus })} {$$props.class ??
-		''} template nonmain-editor rounded-md overflow-clip {!editor ? 'hidden' : ''}"
-	bind:clientWidth={width}
-></div>
+	class={twMerge(
+		inputBorderClass({ forceFocus: isFocus }),
+		'rounded-md overflow-auto pl-2',
+		$$props.class
+	)}
+>
+	{#if !editor}
+		<FakeMonacoPlaceHolder autoheight showNumbers={false} {code} {fontSize} />
+	{/if}
+	<div
+		bind:this={divEl}
+		style="height: 18px;"
+		class="template nonmain-editor rounded-md overflow-clip {!editor ? 'hidden' : ''}"
+		bind:clientWidth={width}
+	></div>
+</div>
 
 <style>
 	:global(.template .mtk20) {

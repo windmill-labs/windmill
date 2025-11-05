@@ -124,6 +124,7 @@ mod dependency_map {
         ("f/rel/root_script", "script", "f/rel/leaf_1", ""),
         ("f/rel/root_script", "script", "f/rel/leaf_2", ""),
         ("f/rel/root_app", "app", "f/rel/leaf_2", "dontpressmeplz"),
+        ("f/rel/root_flow", "flow", "f/rel/leaf_2", "failure"),
         ("f/rel/root_flow", "flow", "f/rel/branch", "nstep1"),
         ("f/rel/root_flow", "flow", "f/rel/leaf_1", "nstep1"),
         ("f/rel/root_flow", "flow", "f/rel/leaf_2", "nstep1"),
@@ -132,9 +133,13 @@ mod dependency_map {
         ("f/rel/root_flow", "flow", "f/rel/branch", "nstep5_1"),
         ("f/rel/root_flow", "flow", "f/rel/leaf_1", "nstep5_1"),
         ("f/rel/root_flow", "flow", "f/rel/leaf_2", "nstep5_1"),
+        ("f/rel/root_flow", "flow", "f/rel/branch", "preprocessor"),
+        ("f/rel/root_flow", "flow", "f/rel/leaf_1", "preprocessor"),
+        ("f/rel/root_flow", "flow", "f/rel/leaf_2", "preprocessor"),
         ("f/rel/root_app", "app", "f/rel/branch", "pressmeplz"),
         ("f/rel/root_app", "app", "f/rel/leaf_1", "pressmeplz"),
         ("f/rel/root_app", "app", "f/rel/leaf_2", "pressmeplz"),
+        ("f/rel/root_flow", "flow", "f/rel/leaf_2", "qtool1"),
         ("f/rel/root_app", "app", "f/rel/branch", "youcanpressme")];
     }
 
@@ -401,7 +406,7 @@ def main():
     #[cfg(feature = "python")]
     #[sqlx::test(fixtures("base", "dependency_map"))]
     async fn relative_imports_test_rename_primary_flow(db: Pool<Postgres>) -> anyhow::Result<()> {
-        use windmill_common::{cache::flow::fetch_version, flows::NewFlow};
+        use windmill_common::{cache::flow::fetch_version, flows::NewFlow, worker::to_raw_value};
 
         let (client, port, _s) = init(db.clone()).await;
         let flow = fetch_version(&db, 1443253234253454).await.unwrap();
@@ -416,14 +421,14 @@ def main():
                 path: "f/rel/root_flow_renamed".into(),
                 summary: "".into(),
                 description: None,
-                value: serde_json::from_str(
+                value: to_raw_value(&serde_json::from_str::<serde_json::Value>(
                     &serde_json::to_string(flow.value())
                         .unwrap()
                         .replace("nstep1", "Foxes")
                         .replace("nstep2_2", "like")
                         .replace("nstep_4_1", "Emeralds"),
                 )
-                .unwrap(),
+                .unwrap()),
                 schema: None,
                 draft_only: None,
                 tag: None,
@@ -432,6 +437,7 @@ def main():
                 deployment_message: None,
                 visible_to_runner_only: None,
                 on_behalf_of_email: None,
+                ws_error_handler_muted: None
             })
             .send()
             .await
