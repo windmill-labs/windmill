@@ -486,7 +486,7 @@ impl EmbeddingsDb {
             let top_score = results[0].score;
             results = results
                 .into_iter()
-                .take_while(|r| (top_score - r.score) / top_score <= 0.04)
+                .take_while(|r| (top_score - r.score) / top_score <= 0.05)
                 .collect();
         }
 
