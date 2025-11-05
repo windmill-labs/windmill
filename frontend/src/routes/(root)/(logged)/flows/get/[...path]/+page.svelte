@@ -753,7 +753,7 @@
 		{#if flow}
 			<TriggersEditor
 				{args}
-				runnableVersion={flow.version_id.toString()}
+				runnableVersion={flow.version_id?.toString()}
 				initialPath={flow.path}
 				currentPath={flow.path}
 				noEditor={true}

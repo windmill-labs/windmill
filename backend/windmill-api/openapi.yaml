@@ -18882,8 +18882,6 @@ components:
               type: string
             version_id:
               type: number
-          required:
-            - version_id
 
     ExtraPerms:
       type: object
