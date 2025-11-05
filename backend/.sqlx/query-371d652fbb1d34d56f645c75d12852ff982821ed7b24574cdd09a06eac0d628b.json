@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT script_path FROM v2_as_completed_job  WHERE id = $1",
+  "query": "SELECT runnable_path as script_path FROM v2_job WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       true
     ]
   },
-  "hash": "280a361076d1c6317610765960f543252891c53351bdc98da66cc30ffc895866"
+  "hash": "371d652fbb1d34d56f645c75d12852ff982821ed7b24574cdd09a06eac0d628b"
 }

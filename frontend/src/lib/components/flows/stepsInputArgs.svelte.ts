@@ -6,13 +6,13 @@ import {
 	getStepPropPicker,
 	type PickableProperties
 } from './previousResults'
-import { evalValue } from './utils'
+import { evalValue } from './utils.svelte'
 
 export class StepsInputArgs {
 	#stepsEvaluated = $state<Record<string, Record<string, any>>>({})
 	#steps = $state<Record<string, Record<string, any>>>({})
 
-	constructor() { }
+	constructor() {}
 
 	setStepArgsManually(moduleId: string, args: Record<string, any>) {
 		this.#steps[moduleId] = args

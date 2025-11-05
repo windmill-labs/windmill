@@ -4,7 +4,6 @@ import {
   colors,
   Command,
   Confirm,
-  Select,
   ensureDir,
   minimatch,
   JSZip,
@@ -39,7 +38,6 @@ import { handleFile } from "../script/script.ts";
 import { deepEqual, isFileResource } from "../../utils/utils.ts";
 import {
   SyncOptions,
-  readConfigFile,
   getEffectiveSettings,
   validateBranchConfiguration,
   mergeConfigWithConfigFile,
@@ -51,7 +49,6 @@ import {
   getBranchSpecificPath,
   fromBranchSpecificPath,
   isCurrentBranchFile,
-  toBranchSpecificPath,
   isBranchSpecificFile,
 } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
@@ -1647,7 +1644,24 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
         )
       );
       if (change.before != change.after) {
-        showDiff(change.before, change.after);
+        if (change.path.endsWith(".yaml")) {
+          try {
+            showDiff(
+              yamlStringify(
+                yamlParseContent(change.path, change.before),
+                yamlOptions
+              ),
+              yamlStringify(
+                yamlParseContent(change.path, change.after),
+                yamlOptions
+              )
+            );
+          } catch {
+            showDiff(change.before, change.after);
+          }
+        } else {
+          showDiff(change.before, change.after);
+        }
       }
     }
   }
