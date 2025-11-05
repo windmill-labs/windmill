@@ -69,6 +69,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "email",
             "edited_at",
             "extra_perms",
+            "enabled"
         ];
 
         fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
