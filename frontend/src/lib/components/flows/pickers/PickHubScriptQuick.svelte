@@ -19,8 +19,8 @@
 			try {
 				return get(userStore)
 					? filter.length > 0
-						? await ScriptService.queryHubScripts({ text: filter, limit: 40, kind })
-						: ((await ScriptService.getTopHubScripts({ limit: 40, kind, app: appFilter })).asks ??
+						? await ScriptService.queryHubScripts({ text: filter, limit: 20, kind })
+						: ((await ScriptService.getTopHubScripts({ limit: 20, kind, app: appFilter })).asks ??
 							[])
 					: undefined
 			} catch (err) {
@@ -248,4 +248,8 @@
 			</a>
 		</div>
 	{/if}
+{:else}
+	<div class="text-2xs text-primary font-light text-center py-2 px-3 items-center">
+		No scripts found.
+	</div>
 {/if}
