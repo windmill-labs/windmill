@@ -17,7 +17,7 @@ use crate::{
     assets::AssetWithAltAccessType,
     error::{to_anyhow, Error},
     utils::http_get_from_hub,
-    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL,
+    DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION,
 };
 
 use crate::worker::HUB_CACHE_DIR;
@@ -585,7 +585,7 @@ pub async fn get_hub_script_by_path(
                 && path
                     .split("/")
                     .next()
-                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+                    .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION))
             {
                 tracing::info!(
                     "Not found on private hub, fallback to default hub for {}",
@@ -670,10 +670,9 @@ async fn get_full_hub_script_by_path_inner(
             Ok(response) => Ok(response),
             Err(e) => {
                 if hub_base_url != DEFAULT_HUB_BASE_URL
-                    && path
-                        .split("/")
-                        .next()
-                        .is_some_and(|x| x.parse::<i32>().is_ok_and(|x| x < 10_000_000))
+                    && path.split("/").next().is_some_and(|x| {
+                        x.parse::<i32>().is_ok_and(|x| x < PRIVATE_HUB_MIN_VERSION)
+                    })
                 {
                     // TODO: should only fallback to default hub if status is 404 (hub returns 500 currently)
                     tracing::info!(

@@ -21,6 +21,7 @@
 	import hubPaths from '$lib/hubPaths.json'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
+	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 
 	let {
 		idx = null,
@@ -324,12 +325,12 @@
 				<Alert type="warning" title="Script version mismatch">
 					The git sync version for this repository is not latest. Current: <a
 						target="_blank"
-						href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
+						href="{DEFAULT_HUB_BASE_URL}/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
 						>{repo.script_path}</a
 					>, latest:
 					<a
 						target="_blank"
-						href="https://hub.windmill.dev/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
+						href="{DEFAULT_HUB_BASE_URL}/scripts/windmill/6943/sync-script-to-git-repo-windmill/9014/versions"
 						>{hubPaths.gitSync}</a
 					>
 					<div class="flex mt-2">
