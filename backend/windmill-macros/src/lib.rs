@@ -51,12 +51,11 @@ pub fn annotations(attr: TokenStream, item: TokenStream) -> TokenStream {
                 let mut lines = code.lines();
 
                 while let Some(line) = lines.next() {
-                    let line = line.trim_start(); //   --  flag=value
                     if !line.starts_with(#comm_lit) {
                         break;
                     }
-                    let line = line[#comm_lit.len()..].trim();  // flag=value  or  flag
-                    let (key, value) = line.split_once('=').unwrap_or((line, "")); // flag
+                    let line = line[#comm_lit.len()..].trim();
+                    let (key, value) = line.split_once('=').unwrap_or((line, ""));
 
 
                     match key {
