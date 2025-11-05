@@ -16980,6 +16980,7 @@ components:
         - edited_by
         - edited_at
         - is_flow
+        - enabled
 
     AuthenticationMethod:
       type: string
@@ -17205,6 +17206,8 @@ components:
           type: boolean
         wrap_body:
           type: boolean
+        enabled:
+          type: boolean
         raw_string:
           type: boolean
         error_handler_path:
@@ -17330,8 +17333,6 @@ components:
           format: date-time
         error:
           type: string
-        enabled:
-          type: boolean
         filters:
           type: array
           items:
@@ -17362,7 +17363,6 @@ components:
 
       required:
         - url
-        - enabled
         - filters
         - can_return_message
         - can_return_error_result
@@ -17551,17 +17551,13 @@ components:
           format: date-time
         error:
           type: string
-        enabled:
-          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-
       required:
-        - enabled
         - subscribe_topics
         - mqtt_resource_path
 
@@ -17683,8 +17679,6 @@ components:
           format: date-time
         error:
           type: string
-        enabled:
-          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -17695,7 +17689,6 @@ components:
         - gcp_resource_path
         - topic_id
         - subscription_id
-        - enabled
         - delivery_type
         - subscription_mode
 
@@ -17797,8 +17790,6 @@ components:
           format: date-time
         error:
           type: string
-        enabled:
-          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -17809,7 +17800,6 @@ components:
       required:
         - queue_url
         - aws_resource_path
-        - enabled
         - aws_auth_resource_type
 
     LoggedWizardStatus:
@@ -18006,8 +17996,6 @@ components:
         - $ref: "#/components/schemas/TriggerExtraProperty"
       type: object
       properties:
-        enabled:
-          type: boolean
         postgres_resource_path:
           type: string
         publication_name:
@@ -18028,7 +18016,6 @@ components:
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
       required:
-        - enabled
         - postgres_resource_path
         - replication_slot_name
         - publication_name
@@ -18119,8 +18106,6 @@ components:
           format: date-time
         error:
           type: string
-        enabled:
-          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -18132,7 +18117,6 @@ components:
         - kafka_resource_path
         - group_id
         - topics
-        - enabled
 
     NewKafkaTrigger:
       type: object
@@ -18224,8 +18208,6 @@ components:
           format: date-time
         error:
           type: string
-        enabled:
-          type: boolean
         error_handler_path:
           type: string
         error_handler_args:
@@ -18237,7 +18219,6 @@ components:
         - nats_resource_path
         - use_jetstream
         - subjects
-        - enabled
 
     NewNatsTrigger:
       type: object
