@@ -727,7 +727,123 @@ impl SqlResultCollectionStrategy {
             "all_statements_first_row" => AllStatementsFirstRow,
             "all_statements_first_row_scalar" => AllStatementsFirstRowScalar,
             "legacy" => Legacy,
-            _ => LastStatementAllRows,
+            _ => SqlResultCollectionStrategy::default(),
+        }
+    }
+
+    pub fn collect_last_statement_only(&self, query_count: usize) -> bool {
+        use SqlResultCollectionStrategy::*;
+        match self {
+            LastStatementAllRows | LastStatementFirstRow | LastStatementFirstRowScalar => true,
+            Legacy => query_count == 1,
+            _ => false,
+        }
+    }
+    pub fn collect_first_row_only(&self) -> bool {
+        use SqlResultCollectionStrategy::*;
+        match self {
+            LastStatementFirstRow
+            | LastStatementFirstRowScalar
+            | AllStatementsFirstRow
+            | AllStatementsFirstRowScalar => true,
+            _ => false,
+        }
+    }
+    pub fn collect_scalar(&self) -> bool {
+        use SqlResultCollectionStrategy::*;
+        match self {
+            LastStatementFirstRowScalar | AllStatementsFirstRowScalar => true,
+            _ => false,
+        }
+    }
+
+    // This function transforms the shape (e.g Row[][] -> Row)
+    // It is the responsibility of the executor to avoid fetching unnecessary statements/rows
+    pub fn collect(
+        &self,
+        values: Vec<Vec<Box<serde_json::value::RawValue>>>,
+    ) -> error::Result<Box<serde_json::value::RawValue>> {
+        let null = || serde_json::value::RawValue::from_string("null".to_string()).unwrap();
+
+        let values = if self.collect_last_statement_only(values.len()) {
+            values.into_iter().take(1).collect()
+        } else {
+            values
+        };
+
+        let values = if self.collect_first_row_only() {
+            values
+                .into_iter()
+                .map(|rows| rows.into_iter().take(1).collect())
+                .collect()
+        } else {
+            values
+        };
+
+        let values = if self.collect_scalar() {
+            values
+                .into_iter()
+                .map(|rows| {
+                    rows.into_iter()
+                        .map(|row| {
+                            // Take the first value in the object
+                            let record =
+                                match serde_json::from_str(row.get()) {
+                                    Ok(serde_json::Value::Object(record)) => record,
+                                    Ok(_) => return Err(error::Error::ExecutionErr(
+                                        "Could not collect sql scalar value from non-object row"
+                                            .to_string(),
+                                    )),
+                                    Err(e) => {
+                                        return Err(error::Error::ExecutionErr(format!(
+                                    "Could not collect sql scalar value (failed to parse row): {}",
+                                    e
+                                )))
+                                    }
+                                };
+                            let Some((_, value)) = record.iter().next() else {
+                                return Err(error::Error::ExecutionErr(
+                                    "Could not collect sql scalar value from empty row".to_string(),
+                                ));
+                            };
+                            Ok(serde_json::value::RawValue::from_string(
+                                serde_json::to_string(value).map_err(to_anyhow)?,
+                            )
+                            .map_err(to_anyhow)?)
+                        })
+                        .collect::<error::Result<Vec<_>>>()
+                })
+                .collect::<error::Result<Vec<_>>>()?
+        } else {
+            values
+        };
+
+        match (
+            self.collect_last_statement_only(values.len()),
+            self.collect_first_row_only(),
+        ) {
+            (true, true) => {
+                match values
+                    .into_iter()
+                    .last()
+                    .map(|rows| rows.into_iter().next())
+                {
+                    Some(Some(row)) => Ok(row.clone()),
+                    _ => Ok(null()),
+                }
+            }
+            (true, false) => match values.into_iter().last() {
+                Some(rows) => Ok(to_raw_value(&rows)),
+                None => Ok(null()),
+            },
+            (false, true) => {
+                let values = values
+                    .into_iter()
+                    .map(|rows| rows.into_iter().next().unwrap_or_else(null))
+                    .collect::<Vec<_>>();
+                Ok(to_raw_value(&values))
+            }
+            (false, false) => Ok(to_raw_value(&values)),
         }
     }
 }
