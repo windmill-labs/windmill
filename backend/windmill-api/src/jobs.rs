@@ -889,101 +889,6 @@ macro_rules! get_job_query {
     }
 }
 
-// CREATE OR REPLACE VIEW v2_as_queue AS
-// SELECT
-//     j.id,
-//     j.workspace_id,
-//     j.parent_job,
-//     j.created_by,
-//     j.created_at,
-//     q.started_at,
-//     q.scheduled_for,
-//     q.running,
-//     j.runnable_id              AS script_hash,
-//     j.runnable_path            AS script_path,
-//     j.args,
-//     j.raw_code,
-//     q.canceled_by IS NOT NULL  AS canceled,
-//     q.canceled_by,
-//     q.canceled_reason,
-//     r.ping                     AS last_ping,
-//     j.kind                     AS job_kind,
-//     CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END
-//                                AS schedule_path,
-//     j.permissioned_as,
-//     COALESCE(s.flow_status, s.workflow_as_code_status) AS flow_status,
-//     j.raw_flow,
-//     j.flow_step_id IS NOT NULL AS is_flow_step,
-//     j.script_lang              AS language,
-//     q.suspend,
-//     q.suspend_until,
-//     j.same_worker,
-//     j.raw_lock,
-//     j.pre_run_error,
-//     j.permissioned_as_email    AS email,
-//     j.visible_to_owner,
-//     r.memory_peak              AS mem_peak,
-//     j.flow_innermost_root_job  AS root_job,
-//     s.flow_leaf_jobs           AS leaf_jobs,
-//     j.tag,
-//     j.concurrent_limit,
-//     j.concurrency_time_window_s,
-//     j.timeout,
-//     j.flow_step_id,
-//     j.cache_ttl,
-//     j.priority,
-//     NULL::TEXT                 AS logs,
-//     j.script_entrypoint_override,
-//     j.preprocessed
-// FROM v2_job_queue q
-//      JOIN v2_job j USING (id)
-//      LEFT JOIN v2_job_runtime r USING (id)
-//      LEFT JOIN v2_job_status s USING (id)
-// ;
-
-// -- Add up migration script here
-// CREATE OR REPLACE VIEW v2_as_completed_job AS
-// SELECT
-//     j.id,
-//     j.workspace_id,
-//     j.parent_job,
-//     j.created_by,
-//     j.created_at,
-//     c.duration_ms,
-//     c.status = 'success' OR c.status = 'skipped' AS success,
-//     j.runnable_id              AS script_hash,
-//     j.runnable_path            AS script_path,
-//     j.args,
-//     c.result,
-//     FALSE                      AS deleted,
-//     j.raw_code,
-//     c.status = 'canceled'      AS canceled,
-//     c.canceled_by,
-//     c.canceled_reason,
-//     j.kind                     AS job_kind,
-//     CASE WHEN j.trigger_kind = 'schedule'::job_trigger_kind THEN j.trigger END
-//                                AS schedule_path,
-//     j.permissioned_as,
-//     COALESCE(c.flow_status, c.workflow_as_code_status) AS flow_status,
-//     j.raw_flow,
-//     j.flow_step_id IS NOT NULL AS is_flow_step,
-//     j.script_lang              AS language,
-//     c.started_at,
-//     c.status = 'skipped'       AS is_skipped,
-//     j.raw_lock,
-//     j.permissioned_as_email    AS email,
-//     j.visible_to_owner,
-//     c.memory_peak              AS mem_peak,
-//     j.tag,
-//     j.priority,
-//     NULL::TEXT                 AS logs,
-//     c.result_columns,
-//     j.script_entrypoint_override,
-//     j.preprocessed
-// FROM v2_job_completed c
-//      JOIN v2_job j USING (id)
-// ;
-
 #[derive(Copy, Clone)]
 struct GetQuery<'a> {
     with_logs: bool,
@@ -1554,10 +1459,10 @@ async fn get_job_logs(
         .flatten();
 
     let record = sqlx::query!(
-        "SELECT created_by AS \"created_by!\", CONCAT(coalesce(v2_as_completed_job.logs, ''), coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
-        FROM v2_as_completed_job
-        LEFT JOIN job_logs ON job_logs.job_id = v2_as_completed_job.id
-        WHERE v2_as_completed_job.id = $1 AND v2_as_completed_job.workspace_id = $2 AND ($3::text[] IS NULL OR v2_as_completed_job.tag = ANY($3))",
+        "SELECT j.created_by AS \"created_by!\", CONCAT(coalesce(job_logs.logs, '')) as logs, job_logs.log_offset, job_logs.log_file_index
+        FROM v2_job j
+        LEFT JOIN job_logs ON job_logs.job_id = j.id
+        WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
         id,
         w_id,
         tags.as_ref().map(|v| v.as_slice())
@@ -1602,10 +1507,10 @@ async fn get_job_logs(
         Ok(content_plain(Body::from(logs)))
     } else {
         let text = sqlx::query!(
-            "SELECT created_by AS \"created_by!\", CONCAT(coalesce(v2_as_queue.logs, ''), coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
-            FROM v2_as_queue
-            LEFT JOIN job_logs ON job_logs.job_id = v2_as_queue.id
-            WHERE v2_as_queue.id = $1 AND v2_as_queue.workspace_id = $2 AND ($3::text[] IS NULL OR v2_as_queue.tag = ANY($3))",
+            "SELECT j.created_by AS \"created_by!\", CONCAT(coalesce(job_logs.logs, '')) as logs, coalesce(job_logs.log_offset, 0) as log_offset, job_logs.log_file_index
+            FROM v2_job j
+            LEFT JOIN job_logs ON job_logs.job_id = j.id
+            WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
             id,
             w_id,
             tags.as_ref().map(|v| v.as_slice())
@@ -1661,9 +1566,9 @@ async fn get_args(
         .map(|authed| get_scope_tags(authed))
         .flatten();
     let record = sqlx::query!(
-        "SELECT created_by AS \"created_by!\", args as \"args: sqlx::types::Json<Box<RawValue>>\"
-        FROM v2_as_completed_job
-        WHERE id = $1 AND workspace_id = $2 AND ($3::text[] IS NULL OR tag = ANY($3))",
+        "SELECT j.created_by AS \"created_by!\", j.args as \"args: sqlx::types::Json<Box<RawValue>>\"
+        FROM v2_job j
+        WHERE j.id = $1 AND j.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
         id,
         &w_id,
         tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
@@ -2218,7 +2123,7 @@ async fn cancel_selection(
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
     let jobs_to_cancel = sqlx::query_scalar!(
-        "SELECT id AS \"id!\" FROM v2_as_queue WHERE id = ANY($1) AND schedule_path IS NULL AND ($2::text[] IS NULL OR tag = ANY($2))",
+        "SELECT j.id AS \"id!\" FROM v2_job j WHERE j.id = ANY($1) AND j.trigger_kind != 'schedule'::job_trigger_kind AND ($2::text[] IS NULL OR j.tag = ANY($2))",
         &jobs,
         tags.as_ref().map(|v| v.as_slice())
     )
@@ -2322,7 +2227,7 @@ async fn count_queue_jobs(
     Ok(Json(
         sqlx::query_as!(
             QueueStats,
-            "SELECT coalesce(COUNT(*) FILTER(WHERE suspend = 0 AND running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE suspend > 0), 0) as \"suspended!\" FROM v2_as_queue WHERE (workspace_id = $1 OR $2) AND scheduled_for <= now() AND ($3::text[] IS NULL OR tag = ANY($3))",
+            "SELECT coalesce(COUNT(*) FILTER(WHERE q.suspend = 0 AND q.running = false), 0) as \"database_length!\", coalesce(COUNT(*) FILTER(WHERE q.suspend > 0), 0) as \"suspended!\" FROM v2_job_queue q JOIN v2_job j USING (id) WHERE (j.workspace_id = $1 OR $2) AND q.scheduled_for <= now() AND ($3::text[] IS NULL OR j.tag = ANY($3))",
             w_id,
             w_id == "admins" && cq.all_workspaces.unwrap_or(false),
             tags.as_ref().map(|v| v.as_slice())
@@ -2765,9 +2670,9 @@ async fn get_suspended_flow_info<'c>(
     let flow = sqlx::query_as!(
         FlowInfo,
         r#"
-        SELECT id AS "id!", flow_status, suspend AS "suspend!", script_path
-        FROM v2_as_queue
-        WHERE id = $1
+        SELECT j.id AS "id!", COALESCE(s.flow_status, s.workflow_as_code_status) as flow_status, q.suspend AS "suspend!", j.runnable_path as script_path
+        FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_status s USING (id)
+        WHERE j.id = $1
         "#,
         job_id,
     )
@@ -2981,9 +2886,9 @@ pub async fn get_flow_user_state(
     let mut tx = user_db.begin(&authed).await?;
     let r = sqlx::query_scalar!(
         r#"
-        SELECT flow_status->'user_states'->$1
-        FROM v2_as_queue
-        WHERE id = $2 AND workspace_id = $3
+        SELECT COALESCE(s.flow_status, s.workflow_as_code_status)->'user_states'->$1
+        FROM v2_job_queue q LEFT JOIN v2_job_status s USING (id)
+        WHERE q.id = $2 AND q.workspace_id = $3
         "#,
         key,
         job_id,
@@ -4214,10 +4119,10 @@ pub async fn restart_flow(
     let mut tx = user_db.clone().begin(&authed).await?;
     let completed_job = sqlx::query!(
         "SELECT
-            script_path, args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
-            tag AS \"tag!\", priority
-        FROM v2_as_completed_job
-        WHERE id = $1 and workspace_id = $2",
+            j.runnable_path as script_path, j.args AS \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\",
+            j.tag AS \"tag!\", j.priority
+        FROM v2_job j
+        WHERE j.id = $1 and j.workspace_id = $2",
         job_id,
         &w_id,
     )
@@ -4867,10 +4772,9 @@ pub async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<()
 pub async fn check_queue_too_long(db: &DB, queue_limit: Option<i64>) -> error::Result<()> {
     if let Some(limit) = queue_limit {
         let count = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM v2_as_queue WHERE  canceled = false AND (scheduled_for <= now()
-        OR (suspend_until IS NOT NULL
-            AND (   suspend <= 0
-                 OR suspend_until <= now())))",
+            "SELECT COUNT(*) FROM v2_job_queue q WHERE q.canceled_by IS NULL AND (q.scheduled_for <= now()
+        OR (q.suspend_until IS NOT NULL
+            AND (q.suspend <= 0 OR q.suspend_until <= now())))",
         )
         .fetch_one(db)
         .await?
@@ -8012,10 +7916,10 @@ async fn count_by_tag(
     let counts = sqlx::query_as!(
         TagCount,
         r#"
-        SELECT tag as "tag!", COUNT(*) as "count!"
-        FROM v2_as_completed_job
-        WHERE started_at > NOW() - make_interval(secs => $1) AND ($2::text IS NULL OR workspace_id = $2)
-        GROUP BY tag
+        SELECT j.tag as "tag!", COUNT(*) as "count!"
+        FROM v2_job_completed c JOIN v2_job j USING (id)
+        WHERE c.started_at > NOW() - make_interval(secs => $1) AND ($2::text IS NULL OR j.workspace_id = $2)
+        GROUP BY j.tag
         ORDER BY "count!" DESC
         "#,
         horizon as f64,

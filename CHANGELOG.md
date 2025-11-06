@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.573.1](https://github.com/windmill-labs/windmill/compare/v1.573.0...v1.573.1) (2025-11-05)
+
+
+### Bug Fixes
+
+* nits hub search and telemetry ([#7063](https://github.com/windmill-labs/windmill/issues/7063)) ([3338a3e](https://github.com/windmill-labs/windmill/commit/3338a3e3c48cbf05c48f0af6754b4c536bcb25f6))
+
+## [1.573.0](https://github.com/windmill-labs/windmill/compare/v1.572.2...v1.573.0) (2025-11-05)
+
+
+### Features
+
+* add groups to user endpoint + set displayname when group created via igroup api ([#7061](https://github.com/windmill-labs/windmill/issues/7061)) ([8667024](https://github.com/windmill-labs/windmill/commit/86670240a773792f4e84cb15af476b9cd2e79c07))
+* hub actions and better search ([#7056](https://github.com/windmill-labs/windmill/issues/7056)) ([1edfdce](https://github.com/windmill-labs/windmill/commit/1edfdce0ddd521819e4cca9dd2e57a20757ad400))
+
+
+### Bug Fixes
+
+* incorrect query arg in hub link ([2303f2c](https://github.com/windmill-labs/windmill/commit/2303f2cca0f65bdf69f246cdad2e0fe0bedb3e6e))
+* **lsp:** fix ruff integration ([0271a9f](https://github.com/windmill-labs/windmill/commit/0271a9f51dfdbda950600d41f59ea18c0dafe7a0))
+
+## [1.572.2](https://github.com/windmill-labs/windmill/compare/v1.572.1...v1.572.2) (2025-11-04)
+
+
+### Bug Fixes
+
+* **aiagent:** force structured tool usage for claude ([#7052](https://github.com/windmill-labs/windmill/issues/7052)) ([5ed41c6](https://github.com/windmill-labs/windmill/commit/5ed41c6d132a55713eadae26371a8f8080af1b6d))
+* redirect first time user ([#7057](https://github.com/windmill-labs/windmill/issues/7057)) ([2add278](https://github.com/windmill-labs/windmill/commit/2add2785640c18db65e6642f37e210577f0fb056))
+
+## [1.572.1](https://github.com/windmill-labs/windmill/compare/v1.572.0...v1.572.1) (2025-11-04)
+
+
+### Bug Fixes
+
+* add workspace error handler cache for improved performance ([4a849ca](https://github.com/windmill-labs/windmill/commit/4a849ca9b96e981bbace020fac7ad3123f330ad3))
+* pass whitelist env vars to bun install ([#7047](https://github.com/windmill-labs/windmill/issues/7047)) ([4220582](https://github.com/windmill-labs/windmill/commit/4220582daf23a5367d534c98fb48f0f54ebaab20))
+* preprocessor schema type ([#7049](https://github.com/windmill-labs/windmill/issues/7049)) ([0ae27a3](https://github.com/windmill-labs/windmill/commit/0ae27a3fe88d6aac046137220aab23e8c0d21590))
+* **ruby:** propagate error correctly ([#7046](https://github.com/windmill-labs/windmill/issues/7046)) ([6052714](https://github.com/windmill-labs/windmill/commit/605271483365d9a9f59e7196b7364200ad14d33a))
+
 ## [1.572.0](https://github.com/windmill-labs/windmill/compare/v1.571.0...v1.572.0) (2025-11-03)
 
 

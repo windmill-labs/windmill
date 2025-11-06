@@ -33,7 +33,8 @@ use windmill_common::{
     worker::{to_raw_value, Connection},
 };
 use windmill_queue::{
-    get_mini_pulled_job, push, JobCompleted, MiniPulledJob, PushArgs, PushIsolationLevel,
+    get_mini_pulled_job, push, JobCompleted, MiniCompletedJob, MiniPulledJob, PushArgs,
+    PushIsolationLevel,
 };
 
 /// Context for tool execution containing all required references and state
@@ -546,7 +547,7 @@ async fn execute_windmill_tool(
                 ctx,
                 tool_call,
                 tool_module,
-                &tool_job,
+                &MiniCompletedJob::from(tool_job),
                 job_id,
                 err,
                 messages,
@@ -577,7 +578,7 @@ async fn handle_tool_execution_error(
     ctx: &mut ToolExecutionContext<'_>,
     tool_call: &OpenAIToolCall,
     tool_module: &windmill_common::flows::FlowModule,
-    tool_job: &MiniPulledJob,
+    tool_job: &MiniCompletedJob,
     job_id: Uuid,
     err: Error,
     messages: &mut Vec<OpenAIMessage>,

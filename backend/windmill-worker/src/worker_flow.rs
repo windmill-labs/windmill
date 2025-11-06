@@ -36,6 +36,7 @@ use windmill_common::bench::BenchmarkIter;
 use windmill_common::cache::{self, RawData};
 use windmill_common::client::AuthedClient;
 use windmill_common::db::Authed;
+use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::flow_status::{
     ApprovalConditions, FlowJobDuration, FlowJobsDuration, FlowStatusModuleWParent,
     Iterator as FlowIterator, JobResult,
@@ -64,7 +65,7 @@ use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
     handle_maybe_scheduled_job, insert_concurrency_key, interpolate_args, CanceledBy,
-    MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
+    MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
 use windmill_audit::audit_oss::{audit_log, AuditAuthor};
@@ -288,6 +289,11 @@ pub async fn update_flow_status_after_job_completion_internal(
 ) -> error::Result<UpdateFlowStatusAfterJobCompletion> {
     let mut has_triggered_error_handler = has_triggered_error_handler;
     add_time!(bench, "update flow status internal START");
+    struct ChatAiInfo {
+        chat_input_enabled: bool,
+        conversation_id: Option<Uuid>,
+        is_ai_agent_step: bool,
+    }
     let (
         should_continue_flow,
         flow_job,
@@ -297,6 +303,7 @@ pub async fn update_flow_status_after_job_completion_internal(
         nresult,
         is_failure_step,
         _cleanup_module,
+        chat_ai_info,
     ) = {
         // tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
@@ -1369,6 +1376,11 @@ pub async fn update_flow_status_after_job_completion_internal(
              current_module_id = %current_module.map(|x| x.id.clone()).unwrap_or_default(),
             continue_on_error = %continue_on_error, should_continue_flow = %should_continue_flow, "computed if flow should continue");
 
+        let chat_ai_info = ChatAiInfo {
+            chat_input_enabled: old_status.chat_input_enabled.unwrap_or(false),
+            conversation_id: old_status.memory_id,
+            is_ai_agent_step: current_module.is_some_and(|m| m.is_ai_agent()),
+        };
         (
             should_continue_flow,
             flow_job,
@@ -1378,6 +1390,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             nresult,
             is_failure_step,
             old_status.cleanup_module,
+            chat_ai_info,
         )
     };
 
@@ -1447,37 +1460,61 @@ pub async fn update_flow_status_after_job_completion_internal(
         }
 
         if flow_job.is_canceled() {
+            let canceled_by = CanceledBy {
+                username: flow_job.canceled_by.clone(),
+                reason: flow_job.canceled_reason.clone(),
+            };
+            let error = canceled_job_to_result(&flow_job);
             add_completed_job_error(
                 db,
-                &flow_job,
+                &MiniCompletedJob::from(flow_job.clone()),
                 0,
-                Some(CanceledBy {
-                    username: flow_job.canceled_by.clone(),
-                    reason: flow_job.canceled_reason.clone(),
-                }),
-                canceled_job_to_result(&flow_job),
+                Some(canceled_by),
+                error,
                 worker_name,
                 true,
                 None,
             )
             .await?;
         } else {
+            let cflow_job: MiniCompletedJob = MiniCompletedJob::from(flow_job.clone());
+
             if flow_job.cache_ttl.is_some() && success {
                 let flow = RawData::Flow(flow_data.clone());
                 let cached_res_path = cached_result_path(db, client, &flow_job, Some(&flow)).await;
 
-                save_in_cache(db, client, &flow_job, cached_res_path, nresult.clone()).await;
+                save_in_cache(
+                    db,
+                    client,
+                    &MiniCompletedJob::from(cflow_job.clone()),
+                    cached_res_path,
+                    nresult.clone(),
+                )
+                .await;
             }
 
             let success = success && (!is_failure_step || result_has_recover_true(nresult.clone()));
 
             add_time!(bench, "flow status update 1");
+
+            let skipped = stop_early && skip_if_stop_early;
+            add_tool_message_to_conversation(
+                db,
+                &job_id_for_status,
+                success,
+                skipped,
+                chat_ai_info.is_ai_agent_step,
+                &nresult,
+                chat_ai_info.chat_input_enabled,
+                chat_ai_info.conversation_id,
+            )
+            .await?;
             let duration = if success {
                 let (_, duration) = add_completed_job(
                     db,
-                    &flow_job,
+                    &cflow_job,
                     true,
-                    stop_early && skip_if_stop_early,
+                    skipped,
                     Json(&nresult),
                     None,
                     0,
@@ -1492,9 +1529,9 @@ pub async fn update_flow_status_after_job_completion_internal(
             } else {
                 let (_, duration) = add_completed_job(
                     db,
-                    &flow_job,
+                    &cflow_job,
                     false,
-                    stop_early && skip_if_stop_early,
+                    skipped,
                     Json(
                         &serde_json::from_str::<Value>(nresult.get()).unwrap_or_else(
                             |e| json!({"error": format!("Impossible to serialize error: {e:#}")}),
@@ -1541,8 +1578,17 @@ pub async fn update_flow_status_after_job_completion_internal(
                     &db.into(),
                 )
                 .await;
-                let _ = add_completed_job_error(db, &flow_job, 0, None, e, worker_name, true, None)
-                    .await;
+                let _ = add_completed_job_error(
+                    db,
+                    &MiniCompletedJob::from(flow_job.clone()),
+                    0,
+                    None,
+                    e,
+                    worker_name,
+                    true,
+                    None,
+                )
+                .await;
                 true
             }
             Ok(_) => false,
@@ -1583,6 +1629,67 @@ pub async fn update_flow_status_after_job_completion_internal(
 
 fn find_flow_job_index(flow_jobs: &Vec<Uuid>, job_id_for_status: &Uuid) -> Option<usize> {
     flow_jobs.iter().position(|x| x == job_id_for_status)
+}
+
+async fn add_tool_message_to_conversation(
+    db: &DB,
+    job_id: &Uuid,
+    success: bool,
+    skipped: bool,
+    is_ai_agent_step: bool,
+    result: &Box<RawValue>,
+    chat_input_enabled: bool,
+    conversation_id: Option<Uuid>,
+) -> error::Result<()> {
+    // Create assistant message if it's a flow and it's done, but only if last module is not an AI agent
+    if !skipped && chat_input_enabled {
+        // Get conversation_id from flow_status.memory_id
+
+        if let Some(conversation_id) = conversation_id {
+            // Only create assistant message if last module is NOT an AI agent, or there was an error
+            if !is_ai_agent_step || success == false {
+                let value = serde_json::to_value(result.get())
+                    .map_err(|e| Error::internal_err(format!("Failed to serialize result: {e}")))?;
+
+                let content = match value {
+                    // If it's an Object with "output" key AND the output is a String, return it
+                    serde_json::Value::Object(mut map)
+                        if map.contains_key("output")
+                            && matches!(map.get("output"), Some(serde_json::Value::String(_))) =>
+                    {
+                        if let Some(serde_json::Value::String(s)) = map.remove("output") {
+                            s
+                        } else {
+                            // prettify the whole result
+                            serde_json::to_string_pretty(&map)
+                                .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
+                        }
+                    }
+                    // Otherwise, if the whole value is a String, return it
+                    serde_json::Value::String(s) => s,
+                    // Otherwise, prettify the whole result
+                    v => serde_json::to_string_pretty(&v)
+                        .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
+                };
+
+                // Insert new assistant message
+                let mut tx = db.begin().await?;
+                add_message_to_conversation_tx(
+                    &mut tx,
+                    conversation_id,
+                    Some(job_id.clone()),
+                    &content,
+                    MessageType::Assistant,
+                    None,
+                    success,
+                )
+                .await?;
+                tx.commit().await?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 async fn set_success_and_duration_in_flow_job_success<'c>(
@@ -1957,7 +2064,7 @@ pub async fn handle_flow(
         if let Some(schedule) = schedule {
             if let Err(err) = handle_maybe_scheduled_job(
                 db,
-                &flow_job,
+                &MiniCompletedJob::from(flow_job.clone()),
                 &schedule,
                 flow_job.runnable_path.as_ref().unwrap(),
                 &flow_job.workspace_id,

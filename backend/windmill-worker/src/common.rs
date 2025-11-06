@@ -34,7 +34,7 @@ use windmill_common::{
 
 use anyhow::{anyhow, Result};
 use windmill_parser_sql::{s3_mode_extension, S3ModeArgs, S3ModeFormat};
-use windmill_queue::MiniPulledJob;
+use windmill_queue::{MiniCompletedJob, MiniPulledJob};
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -973,7 +973,7 @@ pub async fn get_cached_resource_value_if_valid(
 pub async fn save_in_cache(
     db: &Pool<Postgres>,
     _client: &AuthedClient,
-    job: &MiniPulledJob,
+    job: &MiniCompletedJob,
     cached_path: String,
     r: Arc<Box<RawValue>>,
 ) {
