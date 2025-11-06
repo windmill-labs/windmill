@@ -511,7 +511,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.base.script_path,
                 trigger.base.path,
                 trigger.base.is_flow,
-                trigger.base.enabled,
+                trigger.base.enabled.unwrap_or(true),
                 trigger.config.http_method as _,
                 trigger.config.static_asset_config as _,
                 &authed.username,
