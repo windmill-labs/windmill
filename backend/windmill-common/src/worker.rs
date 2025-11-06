@@ -709,9 +709,11 @@ pub struct BashAnnotations {
 pub enum SqlResultCollectionStrategy {
     LastStatementAllRows,
     LastStatementFirstRow,
+    LastStatementAllRowsScalar,
     LastStatementFirstRowScalar,
     AllStatementsAllRows,
     AllStatementsFirstRow,
+    AllStatementsAllRowsScalar,
     AllStatementsFirstRowScalar,
     Legacy,
 }
@@ -722,9 +724,11 @@ impl SqlResultCollectionStrategy {
         match s {
             "last_statement_all_rows" => LastStatementAllRows,
             "last_statement_first_row" => LastStatementFirstRow,
+            "last_statement_all_rows_scalar" => LastStatementAllRowsScalar,
             "last_statement_first_row_scalar" => LastStatementFirstRowScalar,
             "all_statements_all_rows" => AllStatementsAllRows,
             "all_statements_first_row" => AllStatementsFirstRow,
+            "all_statements_all_rows_scalar" => AllStatementsAllRowsScalar,
             "all_statements_first_row_scalar" => AllStatementsFirstRowScalar,
             "legacy" => Legacy,
             _ => SqlResultCollectionStrategy::default(),
@@ -734,7 +738,10 @@ impl SqlResultCollectionStrategy {
     pub fn collect_last_statement_only(&self, query_count: usize) -> bool {
         use SqlResultCollectionStrategy::*;
         match self {
-            LastStatementAllRows | LastStatementFirstRow | LastStatementFirstRowScalar => true,
+            LastStatementAllRows
+            | LastStatementFirstRow
+            | LastStatementFirstRowScalar
+            | LastStatementAllRowsScalar => true,
             Legacy => query_count == 1,
             _ => false,
         }
@@ -752,7 +759,10 @@ impl SqlResultCollectionStrategy {
     pub fn collect_scalar(&self) -> bool {
         use SqlResultCollectionStrategy::*;
         match self {
-            LastStatementFirstRowScalar | AllStatementsFirstRowScalar => true,
+            LastStatementFirstRowScalar
+            | AllStatementsFirstRowScalar
+            | LastStatementAllRowsScalar
+            | AllStatementsAllRowsScalar => true,
             _ => false,
         }
     }
@@ -766,7 +776,7 @@ impl SqlResultCollectionStrategy {
         let null = || serde_json::value::RawValue::from_string("null".to_string()).unwrap();
 
         let values = if self.collect_last_statement_only(values.len()) {
-            values.into_iter().take(1).collect()
+            values.into_iter().rev().take(1).collect()
         } else {
             values
         };
