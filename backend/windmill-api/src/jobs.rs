@@ -390,12 +390,21 @@ async fn get_flow_env_by_flow_job_id(
     let flow_env = sqlx::query_scalar!(
         r#"
             SELECT 
-                (root_job.raw_flow -> 'flow_env' -> $3) #> $4 AS "flow_env: sqlx::types::Json<Box<RawValue>>"
+                CASE 
+                    WHEN flow_version.id IS NOT NULL THEN
+                        (flow_version.value -> 'flow_env' -> $3) #> $4
+                    ELSE
+                        (root_job.raw_flow -> 'flow_env' -> $3) #> $4
+                END AS "flow_env: sqlx::types::Json<Box<RawValue>>"
             FROM 
                 v2_job current_job
             JOIN 
                 v2_job root_job ON root_job.id = COALESCE(current_job.root_job, current_job.flow_innermost_root_job, current_job.parent_job, current_job.id)
                 AND root_job.workspace_id = current_job.workspace_id
+            LEFT JOIN
+                flow_version ON flow_version.id = root_job.runnable_id
+                AND flow_version.path = root_job.runnable_path
+                AND flow_version.workspace_id = root_job.workspace_id
            WHERE 
                 current_job.id = $1 AND 
                 current_job.workspace_id = $2"#,

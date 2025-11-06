@@ -8,6 +8,8 @@
 	import { Plus, Trash2 } from 'lucide-svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import JsonEditor from '$lib/components/JsonEditor.svelte'
+	import Label from '$lib/components/Label.svelte'
+	import Select from '$lib/components/select/Select.svelte'
 
 	interface Props {
 		noEditor: boolean
@@ -31,7 +33,7 @@
 	if (!flowStore.val.value.flow_env) {
 		flowStore.val.value.flow_env = {}
 	}
-	let envVars = $derived(flowStore.val.value.flow_env || {})
+	let envVarsMap = $derived(new Map(Object.entries(flowStore.val.value.flow_env || {})))
 
 	function determineValueType(value: any): EnvVarType {
 		if (typeof value === 'string') {
@@ -51,16 +53,32 @@
 
 	let envTypes = $state<Record<string, EnvVarType>>({})
 
+	const typeOptions = [
+		{ label: 'String', value: 'string' as EnvVarType },
+		{ label: 'JSON', value: 'json' as EnvVarType }
+	]
+
 	$effect(() => {
-		for (const [key, value] of Object.entries(envVars)) {
+		for (const [key, value] of envVarsMap.entries()) {
 			if (!envTypes[key]) {
 				envTypes[key] = determineValueType(value)
 			}
 		}
 	})
 
+	$effect(() => {
+		for (const [key, type] of Object.entries(envTypes)) {
+			if (flowStore.val.value.flow_env && key in flowStore.val.value.flow_env) {
+				const currentType = determineValueType(flowStore.val.value.flow_env[key])
+				if (currentType !== type) {
+					updateEnvType(key, type)
+				}
+			}
+		}
+	})
+
 	let envEntries = $derived(
-		Object.entries(envVars).map(([key, value]): EnvVarEntry => {
+		Array.from(envVarsMap.entries()).map(([key, value]): EnvVarEntry => {
 			const stringValue = typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 			const type = envTypes[key] || determineValueType(value)
 			return {
@@ -75,7 +93,7 @@
 	)
 
 	function addEnvVar() {
-		const existingKeys = Object.keys(envVars)
+		const existingKeys = Array.from(envVarsMap.keys())
 		let counter = 1
 		let newKey = `VAR_${counter}`
 		while (existingKeys.includes(newKey)) {
@@ -119,9 +137,18 @@
 		if (flowStore.val.value.flow_env && oldKey !== newKey && newKey.trim() !== '') {
 			const value = flowStore.val.value.flow_env[oldKey]
 			const type = envTypes[oldKey] || 'string'
-			delete flowStore.val.value.flow_env[oldKey]
+
+			const newEnvVars: Record<string, any> = {}
+			for (const [k, v] of envVarsMap.entries()) {
+				if (k === oldKey) {
+					newEnvVars[newKey] = value
+				} else {
+					newEnvVars[k] = v
+				}
+			}
+
+			flowStore.val.value.flow_env = newEnvVars
 			delete envTypes[oldKey]
-			flowStore.val.value.flow_env[newKey] = value
 			envTypes[newKey] = type
 			flowStore.val = flowStore.val
 		}
@@ -159,11 +186,6 @@
 
 <div class="min-h-full">
 	<FlowCard {noEditor} title="Environment Variables">
-		{#snippet header()}
-			<Button size="xs" startIcon={{ icon: Plus }} onClick={addEnvVar} disabled={noEditor}>
-				Add Variable
-			</Button>
-		{/snippet}
 		<div class="min-h-full flex-1">
 			<Alert type="info" title="Environment Variables" class="m-4">
 				Environment variables can be referenced in any flow step using the syntax{' '}
@@ -181,52 +203,45 @@
 				<div class="space-y-4 p-4">
 					{#each envEntries as entry (entry.id)}
 						<div class="flex flex-col gap-4 p-4 border rounded-lg bg-surface-secondary">
-							<div class="flex items-end gap-4">
-								<label class="flex flex-col gap-1 text-sm font-medium min-w-0 flex-1">
-									<span>Variable Name</span>
-									<input
-										type="text"
-										value={entry.key}
-										onblur={(e) => {
-											const newKey = e.currentTarget.value.trim()
-											if (newKey !== entry.key && newKey !== '') {
-												updateEnvKey(entry.key, newKey)
-											}
-										}}
-										disabled={noEditor}
-										class="input"
-										placeholder="VARIABLE_NAME"
-									/>
-								</label>
-
-								<label class="flex flex-col gap-1 text-sm font-medium w-32">
-									<span>Type</span>
-									<select
-										value={entry.type}
-										disabled={noEditor}
-										class="input text-sm"
-										onchange={(e) => {
-											const newType = e.currentTarget.value as EnvVarType
-											updateEnvType(entry.key, newType)
-										}}
-									>
-										<option value="string">String</option>
-										<option value="json">JSON</option>
-									</select>
-								</label>
-
-								<div class="flex items-end">
-									{#if !noEditor}
-										<Button
-											size="xs"
-											color="red"
-											startIcon={{ icon: Trash2 }}
-											onClick={() => removeEnvVar(entry.key)}
-										>
-											Remove
-										</Button>
-									{/if}
+							<div class="flex items-end gap-3">
+								<div class="flex-1 min-w-0 max-w-xs">
+									<Label label="Variable Name">
+										<input
+											type="text"
+											value={entry.key}
+											onblur={(e) => {
+												const newKey = e.currentTarget.value.trim()
+												if (newKey !== entry.key && newKey !== '') {
+													updateEnvKey(entry.key, newKey)
+												}
+											}}
+											disabled={noEditor}
+											class="input w-full"
+											placeholder="VARIABLE_NAME"
+										/>
+									</Label>
 								</div>
+
+								<Label label="Type">
+									<Select
+										bind:value={envTypes[entry.key]}
+										items={typeOptions}
+										disabled={noEditor}
+										size="sm"
+										class="text-sm"
+									/>
+								</Label>
+
+								{#if !noEditor}
+									<Button
+										size="sm"
+										color="red"
+										startIcon={{ icon: Trash2 }}
+										onClick={() => removeEnvVar(entry.key)}
+									>
+										Remove
+									</Button>
+								{/if}
 							</div>
 
 							<div class="flex flex-col gap-1">
@@ -258,6 +273,13 @@
 					{/each}
 				</div>
 			{/if}
+			<div class=" p-4">
+				{#if !noEditor}
+					<Button size="sm" startIcon={{ icon: Plus }} onClick={addEnvVar} color="light">
+						Add Variable
+					</Button>
+				{/if}
+			</div>
 		</div>
 	</FlowCard>
 </div>
