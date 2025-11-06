@@ -46,7 +46,7 @@
 				failureModule={flow?.value?.failure_module}
 				preprocessorModule={flow?.value?.preprocessor_module}
 				onSelect={(nodeId) => {
-					if (nodeId === 'triggers') {
+					if (nodeId === 'Trigger') {
 						dispatch('triggerDetail')
 						return
 					} else if (nodeId === 'failure') {

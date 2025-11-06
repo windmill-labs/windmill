@@ -1,9 +1,8 @@
 <script lang="ts">
-	import { FlowService, type FlowModule, type Job } from '../../gen'
+	import { FlowService, type FlowModule, type FlowNote, type Job } from '../../gen'
 	import { NODE, type GraphModuleState } from '.'
-	import type { Note } from '../flows/types'
 	import { DEFAULT_NOTE_COLOR, type NoteColor } from './noteColors'
-	import { getContext, onDestroy, setContext, tick, untrack, type Snippet } from 'svelte'
+	import { getContext, onDestroy, tick, untrack, type Snippet } from 'svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
@@ -37,7 +36,7 @@
 	import BaseEdge from './renderers/edges/BaseEdge.svelte'
 	import EmptyEdge from './renderers/edges/EmptyEdge.svelte'
 	import { sugiyama, dagStratify, coordCenter, decrossTwoLayer, decrossOpt } from 'd3-dag'
-	import { Expand } from 'lucide-svelte'
+	import { Expand, MousePointer } from 'lucide-svelte'
 	import Toggle from '../Toggle.svelte'
 	import DataflowEdge from './renderers/edges/DataflowEdge.svelte'
 	import { encodeState, readFieldsRecursively } from '$lib/utils'
@@ -61,11 +60,15 @@
 	import NewAiToolNode from './renderers/nodes/NewAIToolNode.svelte'
 	import NoteNode from './renderers/nodes/NoteNode.svelte'
 	import NoteTool from './NoteTool.svelte'
+	import SelectionBoundingBox from './SelectionBoundingBox.svelte'
+	import SelectionTool from './SelectionTool.svelte'
+	import { SelectionManager } from './selectionUtils.svelte'
 	import { ChangeTracker } from '$lib/svelte5Utils.svelte'
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
 	import type { AIModuleAction } from '../copilot/chat/flow/core'
+	import { setGraphContext } from './graphContext'
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
@@ -89,7 +92,7 @@
 		testModuleStates?: ModulesTestStates
 		moduleActions?: Record<string, AIModuleAction>
 		inputSchemaModified?: boolean
-		selectedId?: Writable<string | undefined>
+		selectionManager?: SelectionManager
 		path?: string | undefined
 		newFlow?: boolean
 		insertable?: boolean
@@ -113,9 +116,10 @@
 		showJobStatus?: boolean
 		suspendStatus?: Record<string, { job: Job; nb: number }>
 		noteMode?: boolean
-		notes?: Note[]
+		notes?: FlowNote[]
 		chatInputEnabled?: boolean
-		onNotesChange?: (notes: Note[]) => void
+		multiSelectEnabled?: boolean
+		onNotesChange?: (notes: FlowNote[]) => void
 		onDelete?: (id: string) => void
 		onInsert?: (detail: {
 			sourceId?: string
@@ -173,7 +177,7 @@
 		testModuleStates = undefined,
 		moduleActions = undefined,
 		inputSchemaModified = undefined,
-		selectedId = writable<string | undefined>(undefined),
+		selectionManager = undefined,
 		path = undefined,
 		newFlow = false,
 		insertable = false,
@@ -210,14 +214,18 @@
 		chatInputEnabled = false,
 		sharedViewport = undefined,
 		onViewportChange = undefined,
-		leftHeader = undefined
+		leftHeader = undefined,
+		multiSelectEnabled = false
 	}: Props = $props()
 
-	setContext<{
-		selectedId: Writable<string | undefined>
-		useDataflow: Writable<boolean | undefined>
-		showAssets: Writable<boolean | undefined>
-	}>('FlowGraphContext', { selectedId, useDataflow, showAssets })
+	// Selection manager - create one if not provided
+	let actualSelectionManager = selectionManager || new SelectionManager()
+
+	setGraphContext({
+		selectionManager: actualSelectionManager,
+		useDataflow,
+		showAssets
+	})
 
 	if (triggerContext && allowSimplifiedPoll) {
 		if (isSimplifiable(modules)) {
@@ -327,7 +335,7 @@
 
 	let eventHandler = {
 		deleteBranch: (detail, label) => {
-			$selectedId = label
+			actualSelectionManager.selectId(label)
 			onDeleteBranch?.(detail)
 		},
 		insert: (detail) => {
@@ -335,9 +343,9 @@
 		},
 		select: (modId) => {
 			if (!notSelectable) {
-				if ($selectedId != modId) {
-					$selectedId = modId
-				}
+				// TODO: Handle Ctrl/Cmd and Shift modifiers when node-level click events are available
+				// For now, normal click behavior
+				actualSelectionManager.selectId(modId)
 				onSelect?.(modId)
 			}
 		},
@@ -413,10 +421,19 @@
 		return false
 	}
 
+	// Keyboard event handling
+	function handleKeyDown(event: KeyboardEvent) {
+		actualSelectionManager.handleKeyDown(event, nodes)
+	}
+
+	function handleKeyUp(event: KeyboardEvent) {
+		// Keep for potential future use
+	}
+
 	function onNoteAdded(newNoteFromTool: any) {
 		// Add the note to our separate notes array if a note was created
 		if (newNoteFromTool && onNotesChange) {
-			const newNote: Note = {
+			const newNote: FlowNote = {
 				id: `note-${nextNoteId}`,
 				text: '',
 				position: newNoteFromTool.position,
@@ -589,7 +606,7 @@
 				testModuleStates: untrack(() => testModuleStates),
 				moduleActions: untrack(() => moduleActions),
 				inputSchemaModified: untrack(() => inputSchemaModified),
-				selectedId: untrack(() => $selectedId),
+				selectedId: untrack(() => actualSelectionManager.getSelectedId()),
 				path,
 				newFlow,
 				cache,
@@ -611,7 +628,7 @@
 			eventHandler,
 			success,
 			$useDataflow,
-			untrack(() => $selectedId),
+			untrack(() => actualSelectionManager.getSelectedId()),
 			moving,
 			simplifiableFlow,
 			triggerNode ? path : undefined,
@@ -624,14 +641,44 @@
 		untrack(() => updateStores())
 	})
 
+	// Add global keyboard event listener for selection controls
+	$effect(() => {
+		function globalKeyDownHandler(event: KeyboardEvent) {
+			// Only handle if the graph container has focus or no input is focused
+			const activeElement = document.activeElement
+			const isInputFocused =
+				activeElement &&
+				(activeElement.tagName === 'INPUT' ||
+					activeElement.tagName === 'TEXTAREA' ||
+					(activeElement as HTMLElement).contentEditable === 'true')
+
+			if (!isInputFocused) {
+				handleKeyDown(event)
+			}
+		}
+
+		function globalKeyUpHandler(event: KeyboardEvent) {
+			handleKeyUp(event)
+		}
+
+		document.addEventListener('keydown', globalKeyDownHandler)
+		document.addEventListener('keyup', globalKeyUpHandler)
+
+		return () => {
+			document.removeEventListener('keydown', globalKeyDownHandler)
+			document.removeEventListener('keyup', globalKeyUpHandler)
+		}
+	})
+
 	let showDataflow = $derived(
-		$selectedId != undefined &&
-			!$selectedId.startsWith('constants') &&
-			!$selectedId.startsWith('settings') &&
-			$selectedId !== 'failure' &&
-			$selectedId !== 'preprocessor' &&
-			$selectedId !== 'Result' &&
-			$selectedId !== 'triggers'
+		actualSelectionManager.getSelectedId() !== undefined &&
+			actualSelectionManager.getSelectedId() !== null &&
+			!actualSelectionManager.getSelectedId()?.startsWith('constants') &&
+			!actualSelectionManager.getSelectedId()?.startsWith('settings') &&
+			actualSelectionManager.getSelectedId() !== 'failure' &&
+			actualSelectionManager.getSelectedId() !== 'preprocessor' &&
+			actualSelectionManager.getSelectedId() !== 'Result' &&
+			actualSelectionManager.getSelectedId() !== 'Trigger'
 	)
 	let debouncedWidth: number | undefined = $state(undefined)
 	let timeout: number | undefined = $state(undefined)
@@ -667,6 +714,8 @@
 	export function zoomOut() {
 		viewportSynchronizer?.zoomOut()
 	}
+
+	$inspect('dbg modules', modules, nodes)
 </script>
 
 {#if insertable}
@@ -674,7 +723,7 @@
 {/if}
 <div
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}
-	class="overflow-clip"
+	class="overflow-clip relative"
 	bind:clientWidth={debouncedWidth}
 >
 	{#if graph?.error}
@@ -703,6 +752,9 @@
 			<SvelteFlow
 				onpaneclick={() => {
 					document.dispatchEvent(new Event('focus'))
+					if (actualSelectionManager.mode === 'normal') {
+						actualSelectionManager.clearSelection()
+					}
 				}}
 				onnodedragstop={(event) => {
 					const node = event.targetNode
@@ -736,12 +788,46 @@
 					<NoteTool {onNoteAdded} />
 				{/if}
 
+				<SelectionBoundingBox
+					selectedNodes={nodes.filter((node) =>
+						actualSelectionManager.selectedIds.includes(node.id)
+					)}
+				/>
+
+				<SelectionTool
+					selectionMode={actualSelectionManager.mode}
+					onNodesSelected={(nodeIds, addToExisting) =>
+						actualSelectionManager.selectNodes(nodeIds, addToExisting, modules, nodes)}
+					{nodes}
+				/>
+
 				{#if leftHeader}
 					<div class="absolute top-2 left-2 z-10">
 						{@render leftHeader()}
 					</div>
 				{:else}
 					<Controls position="top-right" orientation="horizontal" showLock={false}>
+						{#if multiSelectEnabled}
+							<div class="flex items-center gap-2">
+								<ControlButton
+									onclick={() => {
+										actualSelectionManager.mode =
+											actualSelectionManager.mode === 'normal' ? 'rect-select' : 'normal'
+									}}
+									title="Toggle rectangle selection"
+									class={actualSelectionManager.mode === 'rect-select'
+										? 'text-accent !bg-surface-selected'
+										: ''}
+								>
+									<MousePointer size="14" />
+								</ControlButton>
+								{#if actualSelectionManager.selectedIds.length > 0}
+									<span class="text-xs text-secondary"
+										>{actualSelectionManager.selectedIds.length} selected</span
+									>
+								{/if}
+							</div>
+						{/if}
 						{#if download}
 							<ControlButton
 								onclick={() => {

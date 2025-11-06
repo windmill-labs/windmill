@@ -1,4 +1,4 @@
-import type { Job, OpenFlow } from '$lib/gen'
+import type { FlowNote, Job, OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history.svelte'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
@@ -15,16 +15,7 @@ import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 import type { ModulesTestStates } from '../modulesTest.svelte'
 import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
 
-import type { NoteColor } from '../graph/noteColors'
-
-// Type for flow notes stored in the UI field
-export type Note = {
-	id: string
-	text: string
-	position: { x: number; y: number }
-	size: { width: number; height: number }
-	color: NoteColor
-}
+import type { SelectionManager } from '../graph/selectionUtils.svelte'
 
 export type FlowInput = Record<
 	string,
@@ -47,7 +38,7 @@ export type ExtendedOpenFlow = OpenFlow & {
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
 	ui?: {
-		notes?: Note[]
+		notes?: FlowNote[]
 	}
 }
 
@@ -83,7 +74,7 @@ export type CurrentEditor =
 	| undefined
 
 export type FlowEditorContext = {
-	selectedId: Writable<string>
+	selectionManager: SelectionManager
 	currentEditor: Writable<CurrentEditor>
 	moving: Writable<{ id: string } | undefined>
 	previewArgs: StateStore<Record<string, any>>

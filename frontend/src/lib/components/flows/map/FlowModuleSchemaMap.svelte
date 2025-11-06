@@ -105,7 +105,7 @@
 
 	let flowTutorials: FlowTutorials | undefined = $state(undefined)
 
-	const { customUi, selectedId, moving, history, flowStateStore, flowStore, pathStore } =
+	const { customUi, selectionManager, moving, history, flowStateStore, flowStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
@@ -238,9 +238,9 @@
 			let allIds = dfs(flowStore.val.value.modules, (mod) => mod.id)
 			if (allIds.length > 1) {
 				const idx = allIds.indexOf(id)
-				$selectedId = idx == 0 ? allIds[0] : allIds[idx - 1]
+				selectionManager.selectId(idx == 0 ? allIds[0] : allIds[idx - 1])
 			} else {
-				$selectedId = 'settings-metadata'
+				selectionManager.selectId('settings-metadata')
 			}
 		}
 	}
@@ -431,7 +431,7 @@
 				flowStore.val.value.notes = newNotes
 			}}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
-			{selectedId}
+			{selectionManager}
 			{workspace}
 			editMode
 			{onTestUpTo}
@@ -450,7 +450,7 @@
 				const cb = () => {
 					push(history, flowStore.val)
 					if (id === 'preprocessor') {
-						$selectedId = 'Input'
+						selectionManager.selectId('Input')
 						flowStore.val.value.preprocessor_module = undefined
 					} else {
 						selectNextId(id)
@@ -509,7 +509,7 @@
 
 							let [removedModule] = originalModules.splice(indexToRemove, 1)
 							targetModules.splice(detail.index, 0, removedModule)
-							$selectedId = removedModule.id
+							selectionManager.selectId(removedModule.id)
 							$moving = undefined
 						} else {
 							if (detail.isPreprocessor) {
@@ -519,7 +519,7 @@
 									detail.inlineScript,
 									detail.script
 								)
-								$selectedId = 'preprocessor'
+								selectionManager.selectId('preprocessor')
 
 								if (detail.inlineScript?.instructions) {
 									dispatch('generateStep', {
@@ -546,7 +546,7 @@
 									toolKind
 								)
 								const id = targetModules[index].id
-								$selectedId = id
+								selectionManager.selectId(id)
 
 								if (detail.inlineScript?.instructions) {
 									dispatch('generateStep', {
@@ -631,13 +631,13 @@
 				flowStateStore.val[newId] = flowStateStore.val[id]
 				delete flowStateStore.val[id]
 				refreshStateStore(flowStore)
-				$selectedId = newId
+				selectionManager.selectId(newId)
 			}}
 			onDeleteBranch={async ({ id, index }) => {
 				if (id) {
 					await removeBranch(id, index)
 					refreshStateStore(flowStore)
-					$selectedId = id
+					selectionManager.selectId(id)
 				}
 			}}
 			onMove={(id) => {
@@ -658,6 +658,7 @@
 			{onOpenPreview}
 			{onHideJobStatus}
 			exitNoteMode={() => (noteMode = false)}
+			multiSelectEnabled
 		/>
 	</div>
 </div>

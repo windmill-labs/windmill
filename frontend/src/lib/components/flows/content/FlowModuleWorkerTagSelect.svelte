@@ -17,7 +17,7 @@
 		noLabel?: boolean
 	} = $props()
 
-	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
 	loadWorkerGroups()
@@ -44,7 +44,7 @@
 				<button
 					title="Worker Group is defined at the flow level"
 					class="w-full text-left items-center font-normal p-1 py-2 border text-xs rounded"
-					onclick={() => ($selectedId = 'settings-worker-group')}
+					onclick={() => selectionManager.selectId('settings-worker-group')}
 				>
 					Flow's WG: {flowStore.val.tag}
 				</button>

@@ -43,6 +43,7 @@
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
+	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { cleanInputs } from './flows/utils'
 	import {
 		Calendar,
@@ -338,11 +339,11 @@
 
 			let savedAtNewPath = false
 			if (newFlow) {
-				onSaveInitial?.({ path: $pathStore, id: getSelectedId() })
+				onSaveInitial?.({ path: $pathStore, id: getSelectedId() ?? 'settings' })
 			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
 				savedAtNewPath = true
 				initialPath = $pathStore
-				onSaveDraftOnlyAtNewPath?.({ path: $pathStore, selectedId: getSelectedId() })
+				onSaveDraftOnlyAtNewPath?.({ path: $pathStore, selectedId: getSelectedId() ?? 'settings' })
 				// this is so we can use the flow builder outside of sveltekit
 			}
 			onSaveDraft?.({ path: $pathStore, savedAtNewPath, newFlow })
@@ -561,7 +562,7 @@
 					encodeState({
 						flow: flowStore.val,
 						path: $pathStore,
-						selectedId: $selectedIdStore,
+						selectedId: selectionManager.getSelectedId(),
 						draft_triggers: triggersState.getDraftTriggersSnapshot(),
 						selected_trigger: triggersState.getSelectedTriggerSnapshot(),
 						loadedFromHistory: {
@@ -576,10 +577,16 @@
 		}, 500)
 	}
 
-	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
+	const selectionManager = new SelectionManager()
+	// Initialize with selected id if provided
+	if (selectedId) {
+		selectionManager.selectId(selectedId)
+	} else {
+		selectionManager.selectId('settings-metadata')
+	}
 
 	export function getSelectedId() {
-		return $selectedIdStore
+		return selectionManager.getSelectedId()
 	}
 
 	const previewArgsStore = $state({ val: initialArgs })
@@ -598,7 +605,7 @@
 	const stepsInputArgs = new StepsInputArgs()
 
 	function select(selectedId: string) {
-		selectedIdStore.set(selectedId)
+		selectionManager.selectId(selectedId)
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
@@ -607,7 +614,7 @@
 	let flowEditor: FlowEditor | undefined = $state(undefined)
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
-		selectedId: selectedIdStore,
+		selectionManager,
 		currentEditor: writable(undefined),
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
@@ -695,7 +702,7 @@
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
 					flowStore.val = undo(history, flowStore.val)
-					$selectedIdStore = 'Input'
+					selectionManager.selectId('Input')
 					event.preventDefault()
 				}
 				break
@@ -708,9 +715,9 @@
 			case 'ArrowDown': {
 				if (!$insertButtonOpen && !flowPreviewButtons?.getPreviewOpen()) {
 					let ids = generateIds()
-					let idx = ids.indexOf($selectedIdStore)
+					let idx = ids.indexOf(selectionManager.getSelectedId()!)
 					if (idx > -1 && idx < ids.length - 1) {
-						$selectedIdStore = ids[idx + 1]
+						selectionManager.selectId(ids[idx + 1])
 						event.preventDefault()
 					}
 				}
@@ -719,9 +726,9 @@
 			case 'ArrowUp': {
 				if (!$insertButtonOpen && !flowPreviewButtons?.getPreviewOpen()) {
 					let ids = generateIds()
-					let idx = ids.indexOf($selectedIdStore)
+					let idx = ids.indexOf(selectionManager.getSelectedId()!)
 					if (idx > 0 && idx < ids.length) {
-						$selectedIdStore = ids[idx - 1]
+						selectionManager.selectId(ids[idx - 1])
 						event.preventDefault()
 					}
 				}
@@ -868,7 +875,7 @@
 		setContext('customUi', customUi)
 	})
 	$effect.pre(() => {
-		if (flowStore.val || $selectedIdStore) {
+		if (flowStore.val || selectionManager.getSelectedId()) {
 			readFieldsRecursively(flowStore.val)
 			untrack(() => saveSessionDraft())
 		}
@@ -932,7 +939,7 @@
 				job.success &&
 				flowPreviewButtons?.getPreviewMode() === 'whole'
 			) {
-				if (flowEditor?.isNodeVisible('result') && $selectedIdStore !== 'Result') {
+				if (flowEditor?.isNodeVisible('result') && selectionManager.getSelectedId() !== 'Result') {
 					outputPickerOpenFns['Result']?.()
 				}
 			} else {
@@ -1026,7 +1033,7 @@
 								}
 							}
 
-							$selectedIdStore = 'Input'
+							selectionManager.selectId('Input')
 						}}
 						on:redo={() => {
 							flowStore.val = redo(history)
@@ -1190,7 +1197,7 @@
 					on:applyArgs={(ev) => {
 						if (ev.detail.kind === 'preprocessor') {
 							stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
-							$selectedIdStore = 'preprocessor'
+							selectionManager.selectId('preprocessor')
 						}
 					}}
 					on:testWithArgs={(e) => {
@@ -1203,7 +1210,7 @@
 					{savedFlow}
 					onDeployTrigger={handleDeployTrigger}
 					onEditInput={(moduleId, key) => {
-						selectedIdStore.set(moduleId)
+						selectionManager.selectId(moduleId)
 						// Use new prop-based system
 						forceTestTab[moduleId] = true
 						highlightArg[moduleId] = key

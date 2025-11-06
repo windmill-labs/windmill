@@ -2,7 +2,6 @@
 	import { Button } from '$lib/components/common'
 	import type { FlowModule, Job } from '$lib/gen'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import FlowModuleIcon from '../FlowModuleIcon.svelte'
 	import { prettyLanguage } from '$lib/common'
@@ -17,6 +16,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { FlowNodeState } from '$lib/components/graph'
 	import type { AIModuleAction } from '$lib/components/copilot/chat/flow/core'
+	import { getGraphContext } from '$lib/components/graph/graphContext'
 
 	interface Props {
 		moduleId: string
@@ -74,9 +74,7 @@
 		maximizeSubflow
 	}: Props = $props()
 
-	const { selectedId } = getContext<{
-		selectedId: Writable<string | undefined>
-	}>('FlowGraphContext')
+	const { selectionManager } = getGraphContext()
 
 	const { flowStore } = getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
 
@@ -88,7 +86,9 @@
 	}>()
 
 	let itemProps = $derived({
-		selected: $selectedId === mod.id,
+		selected:
+			selectionManager?.getSelectedId() === mod.id ||
+			(selectionManager && selectionManager.selectedIds.includes(mod.id)),
 		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
 		earlyStop: mod.stop_after_if != undefined || mod.stop_after_all_iters_if != undefined,
 		skip: Boolean(mod.skip_if),

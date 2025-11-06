@@ -2,8 +2,6 @@
 	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import { getBezierPath, BaseEdge, type EdgeProps, EdgeLabel } from '@xyflow/svelte'
 	import { ClipboardCopy, Hourglass } from 'lucide-svelte'
-	import { getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
 	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
@@ -13,11 +11,9 @@
 	import type { Job } from '$lib/gen'
 	import type { GraphModuleState } from '../../model'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import { getGraphContext } from '../../graphContext'
 
-	const { useDataflow, showAssets } = getContext<{
-		useDataflow: Writable<boolean | undefined>
-		showAssets?: Writable<boolean>
-	}>('FlowGraphContext')
+	const { useDataflow, showAssets } = getGraphContext()
 
 	let {
 		// id,

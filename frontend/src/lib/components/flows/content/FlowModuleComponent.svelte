@@ -59,7 +59,7 @@
 	import { DynamicInput } from '$lib/utils'
 
 	const {
-		selectedId,
+		selectionManager,
 		currentEditor,
 		previewArgs,
 		flowStateStore,
@@ -215,7 +215,7 @@
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	function onSelectedIdChange() {
-		if (!flowStateStore?.val?.[$selectedId]?.schema && flowModule) {
+		if (!flowStateStore?.val?.[selectionManager.getSelectedId()!]?.schema && flowModule) {
 			reload(flowModule)
 		}
 	}
@@ -252,7 +252,7 @@
 	)
 
 	$effect.pre(() => {
-		$selectedId && untrack(() => onSelectedIdChange())
+		selectionManager.getSelectedId() && untrack(() => onSelectedIdChange())
 	})
 	let parentLoop = $derived(
 		flowStore.val && flowModule ? checkIfParentLoop(flowStore.val, flowModule.id) : undefined
@@ -404,7 +404,7 @@
 					on:createScriptFromInlineScript={async () => {
 						const [module, state] = await createScriptFromInlineScript(
 							flowModule,
-							$selectedId,
+							selectionManager.getSelectedId()!,
 							flowStateStore.val[flowModule.id].schema,
 							$pathStore
 						)
@@ -468,7 +468,7 @@
 												automaticLayout={true}
 												cmdEnterAction={async () => {
 													selected = 'test'
-													if ($selectedId == flowModule.id) {
+													if (selectionManager.getSelectedId() == flowModule.id) {
 														if (flowModule.value.type === 'rawscript' && editor) {
 															flowModule.value.content = editor.getCode()
 														}
@@ -578,7 +578,8 @@
 														class="px-2 xl:px-4"
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
-														schema={flowStateStore.val[$selectedId]?.schema ?? {}}
+														schema={flowStateStore.val[selectionManager.getSelectedId()!]?.schema ??
+															{}}
 														previousModuleId={previousModule?.id}
 														bind:args={
 															() => {
@@ -609,7 +610,7 @@
 												bind:this={modulePreview}
 												mod={flowModule}
 												{noEditor}
-												schema={flowStateStore.val[$selectedId]?.schema ?? {}}
+												schema={flowStateStore.val[selectionManager.getSelectedId()!]?.schema ?? {}}
 												bind:testJob
 												bind:testIsLoading
 												bind:scriptProgress
@@ -623,7 +624,7 @@
 													active={flowModule.retry !== undefined}
 													label="Retries"
 												/>
-												{#if !$selectedId.includes('failure')}
+												{#if !selectionManager.getSelectedId()?.includes('failure')}
 													<Tab value="runtime" label="Runtime" />
 													<Tab value="cache" active={Boolean(flowModule.cache_ttl)} label="Cache" />
 													<Tab
@@ -838,7 +839,7 @@
 														<Button
 															btnClasses="mt-4"
 															on:click={() => {
-																$selectedId = 'settings-same-worker'
+																selectionManager.selectId('settings-same-worker')
 															}}
 														>
 															Set shared directory in the flow settings

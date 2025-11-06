@@ -32,7 +32,7 @@
 		disableAi
 	}: Props = $props()
 
-	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectionManager, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <div class="flex flex-row gap-2 p-1 rounded-md bg-surface">
@@ -41,10 +41,10 @@
 			unifiedSize="sm"
 			wrapperClasses="min-w-36"
 			startIcon={{ icon: Settings }}
-			selected={$selectedId?.startsWith('settings')}
+			selected={selectionManager.getSelectedId()?.startsWith('settings')}
 			variant="default"
 			title="Settings"
-			onClick={() => ($selectedId = 'settings')}
+			onClick={() => selectionManager.selectId('settings')}
 		>
 			Settings
 			{#if flowStore.val.value.same_worker}
@@ -64,10 +64,10 @@
 				wrapperClasses="h-full"
 				unifiedSize="sm"
 				startIcon={{ icon: DollarSign }}
-				selected={$selectedId === 'constants'}
+				selected={selectionManager.getSelectedId() === 'constants'}
 				variant="default"
 				iconOnly
-				onClick={() => ($selectedId = 'constants')}
+				onClick={() => selectionManager.selectId('constants')}
 			/>
 			{#snippet text()}
 				Static inputs
