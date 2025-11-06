@@ -556,7 +556,7 @@
 							<div class="flex">
 								<Button
 									disabled={!can_write}
-									btnClasses="ml-4 mt-2"
+									btnClasses="ml-4"
 									variant="accent"
 									size="xs"
 									on:click={getTemplateScript}

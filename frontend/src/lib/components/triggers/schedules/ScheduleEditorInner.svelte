@@ -1228,7 +1228,7 @@
 								/>
 								{#if !dynamicSkipPath}
 									<Button
-										btnClasses="ml-4 mt-2 whitespace-nowrap"
+										btnClasses="ml-4 whitespace-nowrap"
 										variant="default"
 										size="xs"
 										href="/scripts/add?hub=hub%2F19822%2Fwindmill%2Fdynamic_skip_template"
