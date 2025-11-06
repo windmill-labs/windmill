@@ -223,8 +223,8 @@ async fn handle_full_regex(
     authed_client: &AuthedClient,
     by_id: &IdContext,
 ) -> anyhow::Result<Box<RawValue>> {
-    let first_word = captures.get(1).unwrap().as_str();
-    let identifier = captures.get(2).unwrap().as_str();
+    let obj_name = captures.get(1).unwrap().as_str();
+    let obj_key = captures.get(2).unwrap().as_str();
     let idx_o = captures.get(3).map(|y| y.as_str());
     let rest = captures.get(4).map(|y| y.as_str());
     let query = if let Some(idx) = idx_o {
@@ -236,13 +236,13 @@ async fn handle_full_regex(
         rest.map(|x| x.trim_start_matches('.').to_string())
     };
 
-    let result = if first_word == "results" {
+    let result = if obj_name == "results" {
         authed_client
-            .get_result_by_id(&by_id.flow_job.to_string(), identifier, query)
+            .get_result_by_id(&by_id.flow_job.to_string(), obj_key, query)
             .await
     } else {
         authed_client
-            .get_flow_env_by_flow_job_id(&by_id.flow_job.to_string(), identifier, query)
+            .get_flow_env_by_flow_job_id(&by_id.flow_job.to_string(), obj_key, query)
             .await
     };
 
