@@ -1920,6 +1920,29 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/compare/{target_workspace_id}:
+    get:
+      operationId: compareWorkspaces
+      summary: Compare two workspaces
+      description: Compares the current workspace with a target workspace to find differences in scripts, flows, apps, resources, and variables. Returns information about items that are ahead, behind, or in conflict.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: target_workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The ID of the workspace to compare with
+      responses:
+        "200":
+          description: Workspace comparison results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceComparison"
+
   /users/exists/{email}:
     get:
       summary: exists email
@@ -19595,6 +19618,116 @@ components:
         workers:
           type: boolean
           description: Whether operators can view workers page
+
+    WorkspaceComparison:
+      type: object
+      required:
+        - source_workspace_id
+        - target_workspace_id
+        - is_fork
+        - diffs
+        - summary
+      properties:
+        source_workspace_id:
+          type: string
+          description: The ID of the source workspace
+        target_workspace_id:
+          type: string
+          description: The ID of the target workspace
+        is_fork:
+          type: boolean
+          description: Whether the workspaces have a parent-child relationship
+        diffs:
+          type: array
+          description: List of differences found between workspaces
+          items:
+            $ref: "#/components/schemas/WorkspaceItemDiff"
+        summary:
+          $ref: "#/components/schemas/CompareSummary"
+          description: Summary statistics of the comparison
+
+    WorkspaceItemDiff:
+      type: object
+      required:
+        - kind
+        - path
+        - versions_ahead
+        - versions_behind
+        - has_changes
+        - metadata_changes
+      properties:
+        kind:
+          type: string
+          enum: ["script", "flow", "app", "resource", "variable"]
+          description: Type of the item
+        path:
+          type: string
+          description: Path of the item in the workspace
+        versions_ahead:
+          type: integer
+          description: Number of versions source is ahead of target
+        versions_behind:
+          type: integer
+          description: Number of versions source is behind target
+        has_changes:
+          type: boolean
+          description: Whether the item has any differences
+        source_hash:
+          type: string
+          nullable: true
+          description: Hash/ID of the source version
+        target_hash:
+          type: string
+          nullable: true
+          description: Hash/ID of the target version
+        source_version:
+          type: integer
+          format: int64
+          nullable: true
+          description: Version number in source workspace
+        target_version:
+          type: integer
+          format: int64
+          nullable: true
+          description: Version number in target workspace
+        metadata_changes:
+          type: array
+          items:
+            type: string
+          description: List of changed metadata fields (content, summary, description, etc.)
+
+    CompareSummary:
+      type: object
+      required:
+        - total_diffs
+        - scripts_changed
+        - flows_changed
+        - apps_changed
+        - resources_changed
+        - variables_changed
+        - conflicts
+      properties:
+        total_diffs:
+          type: integer
+          description: Total number of items with differences
+        scripts_changed:
+          type: integer
+          description: Number of scripts with differences
+        flows_changed:
+          type: integer
+          description: Number of flows with differences
+        apps_changed:
+          type: integer
+          description: Number of apps with differences
+        resources_changed:
+          type: integer
+          description: Number of resources with differences
+        variables_changed:
+          type: integer
+          description: Number of variables with differences
+        conflicts:
+          type: integer
+          description: Number of items that are both ahead and behind (conflicts)
 
     TeamInfo:
       type: object
