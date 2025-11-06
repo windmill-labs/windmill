@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.573.1
+  version: 1.573.3
   title: Windmill API
 
   contact:
@@ -727,6 +727,32 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/create_workspace_fork_branch:
+    post:
+      summary: create forked workspace branch with git sync
+      operationId: createWorkspaceForkGitBranch
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new forked workspace
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspaceFork"
+      responses:
+        "201":
+          description: forked workspace branch created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
 
   /w/{workspace}/workspaces/create_fork:
     post:
