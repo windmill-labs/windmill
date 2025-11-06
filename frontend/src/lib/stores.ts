@@ -11,6 +11,7 @@ import {
 } from './gen'
 import { getLocalSetting, type StateStore } from './utils'
 import { createState } from './svelte5Utils.svelte'
+import { DEFAULT_HUB_BASE_URL } from './hub'
 
 export interface UserExt {
 	email: string
@@ -78,7 +79,7 @@ export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undef
 export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
-export const hubBaseUrlStore = writable<string>('https://hub.windmill.dev')
+export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
 export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 	[usersWorkspaceStore, superadmin],
 	([store, superadmin]) => {

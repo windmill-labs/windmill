@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.572.2
+  version: 1.573.1
   title: Windmill API
 
   contact:
@@ -4871,6 +4871,27 @@ paths:
                 required:
                   - content
                   - language
+
+  /scripts/hub/pick/{path}:
+    get:
+      summary: record hub script pick
+      operationId: pickHubScriptByPath
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script pick recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                required:
+                  - success
 
   /scripts/hub/top:
     get:
