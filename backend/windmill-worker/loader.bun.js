@@ -32,7 +32,12 @@ const p = {
       const imports = transpiler.scanImports(code);
       for (const imp of imports) {
         if (imp.kind == "import-statement") {
-          if (imp.path.startsWith(".") && !imp.path.endsWith(".ts")) {
+          if (
+            (imp.path.startsWith(".") ||
+              imp.path.startsWith("/u/") ||
+              imp.path.startsWith("/f/")) &&
+            !imp.path.endsWith(".ts")
+          ) {
             code = code.replaceAll(imp.path, imp.path + ".ts");
           }
         }
