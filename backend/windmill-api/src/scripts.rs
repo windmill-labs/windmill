@@ -38,7 +38,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_worker::process_relative_imports;
+use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDependencyMap};
 
 use windmill_common::{
     assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
@@ -120,6 +120,10 @@ pub struct ScriptWDraft {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(json(nullable))]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debounce_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debounce_delay_s: Option<i32>,
 }
 
 pub fn global_service() -> Router {
@@ -127,6 +131,7 @@ pub fn global_service() -> Router {
         .route("/hub/top", get(get_top_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
+        .route("/hub/pick/*path", get(pick_hub_script_by_path))
 }
 
 pub fn global_unauthed_service() -> Router {
@@ -1108,6 +1113,40 @@ pub async fn get_full_hub_script_by_path(
     ))
 }
 
+pub async fn pick_hub_script_by_path(
+    Path(path): Path<StripPath>,
+    Extension(db): Extension<DB>,
+) -> impl IntoResponse {
+    let path_str = path.to_path();
+
+    // Extract version_id from path (format: {hub}/{version_id}/{summary})
+    let version_id = path_str.split('/').nth(1).unwrap_or("");
+
+    let hub_base_url = HUB_BASE_URL.read().await.clone();
+
+    // Determine which hub to use based on version_id
+    // If version_id < PRIVATE_HUB_MIN_VERSION, use default hub
+    let target_hub_url = if version_id
+        .parse::<i32>()
+        .is_ok_and(|v| v < windmill_common::PRIVATE_HUB_MIN_VERSION)
+    {
+        windmill_common::DEFAULT_HUB_BASE_URL
+    } else {
+        &hub_base_url
+    };
+
+    // Call the hub's pick endpoint: /scripts/{version_id}/pick
+    let (status_code, headers, response) = query_elems_from_hub(
+        &HTTP_CLIENT,
+        &format!("{}/scripts/{}/pick", target_hub_url, version_id),
+        None,
+        &db,
+    )
+    .await?;
+
+    Ok::<_, Error>((status_code, headers, response))
+}
+
 async fn get_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -1177,7 +1216,7 @@ async fn get_script_by_path_w_draft(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor, on_behalf_of_email, assets FROM script LEFT JOIN draft ON 
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor, on_behalf_of_email, assets, debounce_key, debounce_delay_s FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2
          ORDER BY script.created_at DESC LIMIT 1",
@@ -1781,7 +1820,11 @@ async fn archive_script_by_path(
         Some([("workspace", w_id.as_str())].into()),
     )
     .await?;
-    tx.commit().await?;
+
+    ScopedDependencyMap::clear_map_for_item(path, &w_id, "script", tx, &None)
+        .await
+        .commit()
+        .await?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -1842,7 +1885,11 @@ async fn archive_script_by_hash(
         Some([("workspace", w_id.as_str())].into()),
     )
     .await?;
-    tx.commit().await?;
+
+    ScopedDependencyMap::clear_map_for_item(&script.path, &w_id, "script", tx, &None)
+        .await
+        .commit()
+        .await?;
 
     webhook.send_message(
         w_id.clone(),

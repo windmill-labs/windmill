@@ -14,8 +14,9 @@
 	import type { GraphModuleState } from '../../model'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
 
-	const { useDataflow } = getContext<{
+	const { useDataflow, showAssets } = getContext<{
 		useDataflow: Writable<boolean | undefined>
+		showAssets?: Writable<boolean>
 	}>('FlowGraphContext')
 
 	let {
@@ -81,7 +82,9 @@
 
 <EdgeLabel
 	x={sourceX}
-	y={sourceY + 32 + (data.shouldOffsetInsertBtnDueToAssetNode ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)}
+	y={sourceY +
+		32 +
+		(data.shouldOffsetInsertBtnDueToAssetNode && $showAssets ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)}
 	class="base-edge"
 	style=""
 >
@@ -126,13 +129,10 @@
 						flow: e.detail
 					})
 				}}
+				gutter={0}
 			>
-				{#snippet trigger({ toggleOpen })}
-					<InsertModuleButton
-						onPress={toggleOpen}
-						title={`Add step`}
-						id={`flow-editor-add-step-${data.index ?? 0}`}
-					/>
+				{#snippet trigger()}
+					<InsertModuleButton title={`Add step`} id={`flow-editor-add-step-${data.index ?? 0}`} />
 				{/snippet}
 			</InsertModulePopover>
 		</div>

@@ -10,7 +10,10 @@ use windmill_common::{
 
 use std::collections::HashSet;
 
-use crate::worker_lockfiles::{extract_relative_imports, LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT};
+use crate::worker_lockfiles::{
+    extract_relative_imports, is_generated_from_raw_requirements,
+    LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
+};
 
 // TODO: To be removed in future versions
 lazy_static::lazy_static! {
@@ -239,7 +242,7 @@ SELECT importer_node_id, imported_path
 
     /// Selectively clean dependency_map for object
     /// If `importer_node_id` is None will clear all nodes.
-    pub(crate) async fn clear_map_for_item<'c>(
+    pub async fn clear_map_for_item<'c>(
         item_path: &str,
         w_id: &str,
         importer_kind: &str,
@@ -282,7 +285,7 @@ SELECT importer_node_id, imported_path
             // Scripts
             tracing::info!(workspace_id = w_id, "Rebuilding dependency map for scripts");
             for r in sqlx::query!(
-                "SELECT path, hash FROM script WHERE workspace_id = $1 AND archived = false",
+                "SELECT path, hash FROM script WHERE workspace_id = $1 AND archived = false AND deleted = false",
                 w_id
             )
             .fetch_all(db)
@@ -323,7 +326,7 @@ SELECT importer_node_id, imported_path
             // Fetch only top level versions and paths
             // It is not fetching value
             tracing::info!(workspace_id = w_id, "Rebuilding dependency map for flows");
-            for r in sqlx::query!("SELECT path, versions[array_upper(versions, 1)] as version FROM flow WHERE workspace_id = $1", w_id).fetch_all(db).await? {
+            for r in sqlx::query!("SELECT path, versions[array_upper(versions, 1)] as version FROM flow WHERE workspace_id = $1 AND archived = false", w_id).fetch_all(db).await? {
                 if let Some(version) = r.version {
                     // To reduce stress on db try to fetch from cache
                     // Since our flow versions are immutable it is safe to assume if we have cache for specific version/id it is up to date.
@@ -335,18 +338,28 @@ SELECT importer_node_id, imported_path
                     // Traverse retrieved flow modules
                     let mut tx = db.begin().await?;
                     let mut to_process = vec![];
-                    FlowValue::traverse_leafs(&flow_data.flow.modules, &mut |fmv, id| {
+                    let mut modules_to_check = flow_data.flow.modules.iter().collect::<Vec<_>>();
+                    if let Some(failure_module) = flow_data.flow.failure_module.as_ref() {
+                        modules_to_check.push(failure_module.as_ref());
+                    }
+                    if let Some(preprocessor_module) = flow_data.flow.preprocessor_module.as_ref() {
+                        modules_to_check.push(preprocessor_module.as_ref());
+                    }
+
+                    FlowValue::traverse_leafs(modules_to_check, &mut |fmv, id| {
                         match fmv {
                             // Since we fetched from flow_version it is safe to assume all inline scripts are in form of RawScript.
-                            FlowModuleValue::RawScript { content, language, .. } => {
-                                to_process.push((
-                                    extract_relative_imports(
-                                        content,
-                                        &(r.path.clone() + "/flow"),
-                                        &Some(language.clone()),
-                                    ),
-                                    id.clone(),
-                                ));
+                            FlowModuleValue::RawScript { content, language, lock ,.. } => {
+                                if !is_generated_from_raw_requirements(Some(*language), lock) {
+                                    to_process.push((
+                                        extract_relative_imports(
+                                            content,
+                                            &(r.path.clone() + "/flow"),
+                                            &Some(language.clone()),
+                                        ),
+                                        id.clone(),
+                                    ));
+                                }
                             }
                             // But just in case we will also handle other cases.
                             FlowModuleValue::FlowScript { .. } => {

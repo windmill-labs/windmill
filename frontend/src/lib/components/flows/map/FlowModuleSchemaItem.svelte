@@ -17,7 +17,9 @@
 		Play,
 		Loader2,
 		TriangleAlert,
-		Timer
+		Timer,
+		DiffIcon,
+		Maximize2
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -44,10 +46,13 @@
 	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import type { Job } from '$lib/gen'
 	import { getNodeColorClasses, type FlowNodeState } from '$lib/components/graph'
+	import type { AIModuleAction } from '$lib/components/copilot/chat/flow/core'
 
 	interface Props {
 		selected?: boolean
 		deletable?: boolean
+		moduleAction: AIModuleAction | undefined
+		onShowModuleDiff?: (moduleId: string) => void
 		retry?: boolean
 		cache?: boolean
 		earlyStop?: boolean
@@ -83,11 +88,14 @@
 		flowJob?: Job | undefined
 		isOwner?: boolean
 		enableTestRun?: boolean
+		maximizeSubflow?: () => void
 	}
 
 	let {
 		selected = false,
 		deletable = false,
+		moduleAction = undefined,
+		onShowModuleDiff = undefined,
 		retry = false,
 		cache = false,
 		earlyStop = false,
@@ -115,7 +123,8 @@
 		onUpdateMock,
 		onEditInput,
 		flowJob,
-		enableTestRun = false
+		enableTestRun = false,
+		maximizeSubflow = undefined
 	}: Props = $props()
 
 	let colorClasses = $derived(getNodeColorClasses(nodeState, selected))
@@ -260,12 +269,13 @@
 {/if}
 
 <div class="relative">
+	<!-- TODO: Use existing function to get module color classes instead of using aiModuleActionToBgColor -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={classNames(
 			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
-			deletable ? aiModuleActionToBgColor(action) : '',
+			deletable || moduleAction ? aiModuleActionToBgColor(moduleAction ?? action) : '',
 			colorClasses.bg
 		)}
 		style="width: 275px; height: 34px;"
@@ -274,7 +284,20 @@
 		onpointerdown={stopPropagation(preventDefault(() => dispatch('pointerdown')))}
 	>
 		{#if deletable}
-			<ModuleAcceptReject {action} {id} />
+			<ModuleAcceptReject action={moduleAction ?? action} {id} />
+		{/if}
+		{#if moduleAction === 'modified' && onShowModuleDiff && id}
+			<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start z-50">
+				<Button
+					class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
+					onClick={() => {
+						onShowModuleDiff?.(id)
+					}}
+					startIcon={{ icon: DiffIcon }}
+				>
+					Diff
+				</Button>
+			</div>
 		{/if}
 		<div
 			class={classNames('absolute z-0 rounded-md outline-offset-0', colorClasses.outline)}
@@ -466,14 +489,16 @@
 		</div>
 
 		{#if deletable && !action}
-			<div
-				class="absolute -translate-y-[100%] top-2 -right-2 flex flex-row gap-1 p-1 min-w-[52px] h-7 group justify-end"
-			>
-				{#if id !== 'preprocessor'}
+			{#if maximizeSubflow !== undefined}
+				{@render buttonMaximizeSubflow?.()}
+			{/if}
+
+			{#if id !== 'preprocessor'}
+				<div class={twMerge('absolute -translate-y-[100%] top-2 right-4 h-7 p-1 min-w-7')}>
 					<button
 						class={twMerge(
-							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-blue-400 hover:text-white',
-							hover ? 'block' : '!hidden',
+							'trash center-center p-1 text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary',
+							hover || selected ? 'block' : '!hidden',
 							'shadow-md rounded-md',
 							'group-hover:block'
 						)}
@@ -482,7 +507,10 @@
 					>
 						<Move size={12} />
 					</button>
-				{/if}
+				</div>
+			{/if}
+
+			<div class="absolute -translate-y-[100%] top-2 -right-2 h-7 p-1 min-w-7">
 				<button
 					class={twMerge(
 						'trash center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-red-400 hover:text-white p-1',
@@ -528,6 +556,8 @@
 					<TriangleAlert size={12} strokeWidth={2} />
 				</Popover>
 			{/if}
+		{:else if maximizeSubflow !== undefined}
+			{@render buttonMaximizeSubflow?.()}
 		{/if}
 	</div>
 
@@ -588,6 +618,30 @@
 		</div>
 	{/if}
 </div>
+
+{#snippet buttonMaximizeSubflow()}
+	<div class="absolute -translate-y-[100%] top-2 right-10 h-7 p-1">
+		<button
+			title="Expand subflow"
+			class={twMerge(
+				'center-center text-secondary shadow-sm bg-surface duration-0 hover:bg-surface-tertiary p-1',
+				'shadow-md rounded-md',
+				hover || selected ? 'opacity-100' : 'opacity-50'
+			)}
+			onclick={(e) => {
+				e.stopPropagation()
+				e.preventDefault()
+				maximizeSubflow?.()
+			}}
+			onpointerdown={(e) => {
+				e.stopPropagation()
+				e.preventDefault()
+			}}
+		>
+			<Maximize2 size={12} />
+		</button>
+	</div>
+{/snippet}
 
 <style>
 	.module:hover .trash {

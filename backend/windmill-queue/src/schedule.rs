@@ -468,6 +468,12 @@ pub async fn push_scheduled_job<'c>(
         .await?;
     }
 
+    tracing::info!(
+        "Pushing next scheduled job for schedule {} at {} (schedule: {})",
+        &schedule.path,
+        next,
+        &schedule.schedule
+    );
     let tx = PushIsolationLevel::Transaction(tx);
     let (_, mut tx) = push(
         &db,

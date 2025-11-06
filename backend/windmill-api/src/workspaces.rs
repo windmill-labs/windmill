@@ -103,6 +103,9 @@ pub fn workspaced_service() -> Router {
             "/run_teams_message_test_job",
             post(run_teams_message_test_job),
         )
+        .route("/slack_oauth_config", get(get_slack_oauth_config))
+        .route("/slack_oauth_config", post(set_slack_oauth_config))
+        .route("/slack_oauth_config", delete(delete_slack_oauth_config))
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/edit_instance_groups", post(edit_instance_groups))
@@ -219,6 +222,10 @@ pub struct WorkspaceSettings {
     pub slack_command_script: Option<String>,
     pub teams_command_script: Option<String>,
     pub slack_email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_oauth_client_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slack_oauth_client_secret: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_invite_domain: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -502,6 +509,8 @@ async fn get_settings(
             slack_command_script,
             teams_command_script,
             slack_email,
+            slack_oauth_client_id,
+            slack_oauth_client_secret,
             auto_invite_domain,
             auto_invite_operator,
             auto_add,
@@ -668,6 +677,122 @@ async fn run_slack_message_test_job(
     Ok(Json(RunSlackMessageTestJobResponse {
         job_uuid: uuid.to_string(),
     }))
+}
+
+#[derive(Deserialize)]
+struct SetSlackOAuthConfigRequest {
+    slack_oauth_client_id: String,
+    slack_oauth_client_secret: String,
+}
+
+#[derive(Serialize)]
+struct GetSlackOAuthConfigResponse {
+    slack_oauth_client_id: Option<String>,
+    slack_oauth_client_secret: Option<String>,
+}
+
+async fn get_slack_oauth_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<GetSlackOAuthConfigResponse> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let settings = sqlx::query_as!(
+        WorkspaceSettings,
+        "SELECT * FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?;
+
+    // Mask the secret if it exists
+    let masked_secret = settings.slack_oauth_client_secret.map(|_| "***".to_string());
+
+    Ok(Json(GetSlackOAuthConfigResponse {
+        slack_oauth_client_id: settings.slack_oauth_client_id,
+        slack_oauth_client_secret: masked_secret,
+    }))
+}
+
+async fn set_slack_oauth_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<SetSlackOAuthConfigRequest>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    if req.slack_oauth_client_id.is_empty() || req.slack_oauth_client_secret.is_empty() {
+        return Err(Error::BadRequest(
+            "Both client ID and client secret are required".to_string(),
+        ));
+    }
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings
+         SET slack_oauth_client_id = $1, slack_oauth_client_secret = $2
+         WHERE workspace_id = $3",
+        &req.slack_oauth_client_id,
+        &req.slack_oauth_client_secret,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.set_slack_oauth_config",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("client_id", req.slack_oauth_client_id.as_str())].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!("Slack OAuth config set for workspace {}", &w_id))
+}
+
+async fn delete_slack_oauth_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings
+         SET slack_oauth_client_id = NULL, slack_oauth_client_secret = NULL
+         WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.delete_slack_oauth_config",
+        ActionKind::Delete,
+        &w_id,
+        Some(&authed.email),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!(
+        "Slack OAuth config deleted for workspace {}",
+        &w_id
+    ))
 }
 
 async fn get_secondary_storage_names(
