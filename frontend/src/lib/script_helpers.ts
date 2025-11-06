@@ -248,9 +248,9 @@ export async function main(message: string, name: string, step_id: string) {
 }
 `
 
-const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const POSTGRES_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
--- to only return the result of the last query use '--return_last_result'
 -- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
@@ -259,7 +259,8 @@ INSERT INTO demo VALUES (\$1::TEXT, \$2::INT, \$3::TEXT[]) RETURNING *;
 UPDATE demo SET col2 = \$4::INT WHERE col2 = \$2::INT;
 `
 
-const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const MYSQL_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- :name1 (text) = default arg
 -- :name2 (int)
@@ -268,7 +269,8 @@ INSERT INTO demo VALUES (:name1, :name2);
 UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
-const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const BIGQUERY_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- @name1 (string) = default arg
 -- @name2 (integer)
@@ -278,7 +280,8 @@ INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3);
 UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
-const ORACLEDB_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const ORACLEDB_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- :name1 (text) = default arg
 -- :name2 (int)
@@ -287,7 +290,8 @@ INSERT INTO demo VALUES (:name1, :name2);
 UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
-const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const SNOWFLAKE_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
@@ -297,7 +301,7 @@ INSERT INTO demo VALUES (?, ?);
 UPDATE demo SET col2 = ? WHERE col2 = ?;
 `
 
-const MSSQL_INIT_CODE = `-- return_last_result
+const MSSQL_INIT_CODE = `-- result_collection=last_statement_all_rows
 -- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- @P1 name1 (varchar) = default arg
@@ -307,7 +311,8 @@ INSERT INTO demo VALUES (@P1, @P2);
 UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
-const DUCKDB_INIT_CODE = `-- $name (text) = Ben
+const DUCKDB_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- $name (text) = Ben
 -- $age (text) = 20
 -- -- $friends_csv (s3object)
 
